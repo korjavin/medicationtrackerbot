@@ -25,14 +25,15 @@ type ScheduleConfig struct {
 }
 
 type Medication struct {
-	ID        int64      `json:"id"`
-	Name      string     `json:"name"`
-	Dosage    string     `json:"dosage"`
-	Schedule  string     `json:"schedule"` // e.g. "09:00" or JSON
-	Archived  bool       `json:"archived"`
-	StartDate *time.Time `json:"start_date"`
-	EndDate   *time.Time `json:"end_date"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID          int64      `json:"id"`
+	Name        string     `json:"name"`
+	Dosage      string     `json:"dosage"`
+	Schedule    string     `json:"schedule"` // e.g. "09:00" or JSON
+	Archived    bool       `json:"archived"`
+	StartDate   *time.Time `json:"start_date"`
+	EndDate     *time.Time `json:"end_date"`
+	LastTakenAt *time.Time `json:"last_taken_at"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 func (m *Medication) ValidSchedule() (*ScheduleConfig, error) {
@@ -100,11 +101,17 @@ func (s *Store) CreateMedication(name, dosage, schedule string, startDate, endDa
 }
 
 func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
-	query := "SELECT id, name, dosage, schedule, archived, start_date, end_date, created_at FROM medications"
+	query := `
+		SELECT 
+			m.id, m.name, m.dosage, m.schedule, m.archived, m.start_date, m.end_date, m.created_at,
+			MAX(CASE WHEN l.status = 'TAKEN' THEN l.taken_at ELSE NULL END) as last_taken
+		FROM medications m
+		LEFT JOIN intake_log l ON m.id = l.medication_id
+	`
 	if !showArchived {
-		query += " WHERE archived = 0"
+		query += " WHERE m.archived = 0"
 	}
-	query += " ORDER BY created_at DESC"
+	query += " GROUP BY m.id ORDER BY m.name ASC"
 
 	rows, err := s.db.Query(query)
 	if err != nil {
@@ -115,7 +122,7 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 	meds := []Medication{}
 	for rows.Next() {
 		var m Medication
-		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt, &m.LastTakenAt); err != nil {
 			return nil, err
 		}
 		meds = append(meds, m)

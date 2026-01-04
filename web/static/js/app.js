@@ -207,11 +207,104 @@ function renderMeds() {
     const list = document.getElementById('med-list');
     list.innerHTML = '';
 
-    // Sort: non-archived first, then archived
-    const sorted = [...medications].sort((a, b) => {
-        if (a.archived === b.archived) return 0;
-        return a.archived ? 1 : -1;
+    // Helper to calculate next scheduled time
+    const getNextScheduled = (m) => {
+        try {
+            const sched = JSON.parse(m.schedule);
+            const now = new Date();
+
+            if (sched.type === 'daily' && sched.times) {
+                // Find next time today or tomorrow
+                let candidates = [];
+                sched.times.forEach(t => {
+                    const [h, min] = t.split(':').map(Number);
+                    let d = new Date(now);
+                    d.setHours(h, min, 0, 0);
+                    if (d <= now) d.setDate(d.getDate() + 1); // Tomorrow
+                    candidates.push(d);
+                });
+                return candidates.sort((a, b) => a - b)[0];
+            }
+            if (sched.type === 'weekly' && sched.days && sched.times) {
+                // Complex weekly logic, fallback to far future if hard
+                // Simple implementation: check next 7 days
+                let candidates = [];
+                for (let i = 0; i < 8; i++) {
+                    let dBase = new Date(now);
+                    dBase.setDate(dBase.getDate() + i);
+                    const day = dBase.getDay(); // 0-6
+                    if (sched.days.includes(day)) {
+                        sched.times.forEach(t => {
+                            const [h, min] = t.split(':').map(Number);
+                            let d = new Date(dBase);
+                            d.setHours(h, min, 0, 0);
+                            if (d > now) candidates.push(d);
+                        });
+                    }
+                }
+                return candidates.sort((a, b) => a - b)[0];
+            }
+        } catch (e) { }
+        return null;
+    };
+
+    // Buckets
+    const scheduledSoon = [];
+    const recentTaken = []; // Recurring but not soon (taken today/yesterday)
+    const asNeeded = [];
+    const archived = [];
+
+    medications.forEach(m => {
+        if (m.archived) {
+            archived.push(m);
+            return;
+        }
+
+        let type = 'daily';
+        try { type = JSON.parse(m.schedule).type; } catch (e) { }
+
+        if (type === 'as_needed') {
+            asNeeded.push(m);
+        } else {
+            // Recurring
+            const next = getNextScheduled(m);
+            m._next = next; // Cache for sort
+
+            // "Scheduled Soon" definition:
+            // If next is within 18 hours? Or just sort all by next?
+            // User: "then from recent to oldest that were taken"
+            // This implies a group that is NOT "Scheduled Soon".
+            // If I took my morning med, next is tomorrow morning (24h away).
+            // That fits "Recent Taken".
+            // If I have a med tonight, it is "Soon".
+
+            // Threshold: Let's say 14 hours.
+            const hoursUntil = next ? (next - new Date()) / (1000 * 60 * 60) : 999;
+
+            if (hoursUntil < 14) {
+                scheduledSoon.push(m);
+            } else {
+                recentTaken.push(m);
+            }
+        }
     });
+
+    // Sort Buckets
+    scheduledSoon.sort((a, b) => (a._next || 0) - (b._next || 0));
+
+    // Recent Taken: Recent logs first
+    const sortByTaken = (a, b) => {
+        const tA = a.last_taken_at ? new Date(a.last_taken_at) : 0;
+        const tB = b.last_taken_at ? new Date(b.last_taken_at) : 0;
+        return tB - tA;
+    };
+
+    recentTaken.sort(sortByTaken);
+    asNeeded.sort(sortByTaken);
+    archived.sort(sortByTaken);
+
+    // Combine
+    const sorted = [...scheduledSoon, ...recentTaken, ...asNeeded, ...archived];
 
     sorted.forEach(m => {
         const div = document.createElement('div');
