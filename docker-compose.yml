@@ -6,7 +6,7 @@ services:
     container_name: medtracker
     restart: unless-stopped
     volumes:
-      - ./data:/app/data
+      - medtracker_data:/app/data
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - ALLOWED_USER_ID=${ALLOWED_USER_ID}
@@ -27,3 +27,6 @@ networks:
   traefik_net:
     external: true
     name: ${NETWORK_NAME}
+
+volumes:
+  medtracker_data:
