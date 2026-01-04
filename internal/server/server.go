@@ -30,7 +30,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("/static/", http.StripPrefix("/static/", fs))
 
 	// Main Page
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/static/index.html")
 	})
 
