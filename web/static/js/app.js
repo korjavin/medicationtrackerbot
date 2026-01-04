@@ -391,11 +391,22 @@ function renderHistory(logs) {
         // Check if group exists
         let grp = groups.find(g => g.key === key && g.status === l.status);
         if (!grp) {
-            grp = { key, status: l.status, timeLabel, items: [] };
+            grp = { key, status: l.status, timeLabel, items: [], sortTime: 0 };
+
+            // Determine sort time
+            if (l.status === 'TAKEN' && l.taken_at) {
+                grp.sortTime = new Date(l.taken_at).getTime();
+            } else {
+                grp.sortTime = new Date(l.scheduled_at).getTime();
+            }
+
             groups.push(grp);
         }
         grp.items.push(l);
     });
+
+    // Sort Groups Descending (Most Recent First)
+    groups.sort((a, b) => b.sortTime - a.sortTime);
 
     // Render Groups
     groups.forEach(g => {
