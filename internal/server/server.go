@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	"golang.org/x/oauth2"
@@ -87,16 +88,18 @@ func (s *Server) handleListMedications(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name     string `json:"name"`
-		Dosage   string `json:"dosage"`
-		Schedule string `json:"schedule"`
+		Name      string     `json:"name"`
+		Dosage    string     `json:"dosage"`
+		Schedule  string     `json:"schedule"`
+		StartDate *time.Time `json:"start_date"`
+		EndDate   *time.Time `json:"end_date"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	id, err := s.store.CreateMedication(req.Name, req.Dosage, req.Schedule)
+	id, err := s.store.CreateMedication(req.Name, req.Dosage, req.Schedule, req.StartDate, req.EndDate)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -115,17 +118,19 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req struct {
-		Name     string `json:"name"`
-		Dosage   string `json:"dosage"`
-		Schedule string `json:"schedule"`
-		Archived bool   `json:"archived"`
+		Name      string     `json:"name"`
+		Dosage    string     `json:"dosage"`
+		Schedule  string     `json:"schedule"`
+		Archived  bool       `json:"archived"`
+		StartDate *time.Time `json:"start_date"`
+		EndDate   *time.Time `json:"end_date"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	if err := s.store.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived); err != nil {
+	if err := s.store.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

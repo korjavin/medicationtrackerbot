@@ -95,6 +95,9 @@ function showAddModal() {
     document.getElementById('med-name').value = '';
     document.getElementById('med-dosage').value = '';
     document.getElementById('med-archived').checked = false;
+    // showAddModal updates
+    document.getElementById('med-start-date').value = '';
+    document.getElementById('med-end-date').value = '';
 
     // Default: Daily, 1 time input
     document.getElementById('schedule-type').value = 'daily';
@@ -120,6 +123,10 @@ function showEditModal(id) {
     document.getElementById('med-name').value = med.name;
     document.getElementById('med-dosage').value = med.dosage;
     document.getElementById('med-archived').checked = med.archived || false;
+
+    // Dates (ISO string to YYYY-MM-DD)
+    document.getElementById('med-start-date').value = med.start_date ? med.start_date.split('T')[0] : '';
+    document.getElementById('med-end-date').value = med.end_date ? med.end_date.split('T')[0] : '';
 
     // Parse schedule
     let sched;
@@ -228,10 +235,18 @@ function renderMeds() {
             scheduleText = m.schedule;
         }
 
+        let dateRangeText = '';
+        if (m.start_date || m.end_date) {
+            const start = m.start_date ? new Date(m.start_date).toLocaleDateString() : 'N/A';
+            const end = m.end_date ? new Date(m.end_date).toLocaleDateString() : 'N/A';
+            dateRangeText = `<p>Dates: ${start} - ${end}</p>`;
+        }
+
         div.innerHTML = `
             <div class="med-info" onclick="showEditModal(${m.id})" style="cursor: pointer;">
                 <h4>${escapeHtml(m.name)} <small>(${escapeHtml(m.dosage)})</small></h4>
                 <p>Schedule: ${scheduleText}</p>
+                ${dateRangeText}
             </div>
             <button class="delete-btn" onclick="deleteMed(${m.id})">&times;</button>
         `;
@@ -292,6 +307,9 @@ async function saveMedication() {
     const type = document.getElementById('schedule-type').value;
     const archived = document.getElementById('med-archived').checked;
 
+    const startDateRaw = document.getElementById('med-start-date').value;
+    const endDateRaw = document.getElementById('med-end-date').value;
+
     if (!name) { tg.showAlert("Name is required!"); return; }
 
     const schedule = { type: type };
@@ -323,7 +341,9 @@ async function saveMedication() {
         name,
         dosage,
         schedule: JSON.stringify(schedule),
-        archived
+        archived,
+        start_date: startDateRaw ? new Date(startDateRaw).toISOString() : null,
+        end_date: endDateRaw ? new Date(endDateRaw).toISOString() : null
     };
 
     if (editingMedId) {

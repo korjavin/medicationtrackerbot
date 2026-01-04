@@ -25,12 +25,14 @@ type ScheduleConfig struct {
 }
 
 type Medication struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	Dosage    string    `json:"dosage"`
-	Schedule  string    `json:"schedule"` // e.g. "09:00" or JSON
-	Archived  bool      `json:"archived"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        int64      `json:"id"`
+	Name      string     `json:"name"`
+	Dosage    string     `json:"dosage"`
+	Schedule  string     `json:"schedule"` // e.g. "09:00" or JSON
+	Archived  bool       `json:"archived"`
+	StartDate *time.Time `json:"start_date"`
+	EndDate   *time.Time `json:"end_date"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 func (m *Medication) ValidSchedule() (*ScheduleConfig, error) {
@@ -89,8 +91,8 @@ func (s *Store) Close() error {
 
 // -- Medications CRUD --
 
-func (s *Store) CreateMedication(name, dosage, schedule string) (int64, error) {
-	res, err := s.db.Exec("INSERT INTO medications (name, dosage, schedule) VALUES (?, ?, ?)", name, dosage, schedule)
+func (s *Store) CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time) (int64, error) {
+	res, err := s.db.Exec("INSERT INTO medications (name, dosage, schedule, start_date, end_date) VALUES (?, ?, ?, ?, ?)", name, dosage, schedule, startDate, endDate)
 	if err != nil {
 		return 0, err
 	}
@@ -98,7 +100,7 @@ func (s *Store) CreateMedication(name, dosage, schedule string) (int64, error) {
 }
 
 func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
-	query := "SELECT id, name, dosage, schedule, archived, created_at FROM medications"
+	query := "SELECT id, name, dosage, schedule, archived, start_date, end_date, created_at FROM medications"
 	if !showArchived {
 		query += " WHERE archived = 0"
 	}
@@ -110,12 +112,10 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 	}
 	defer rows.Close()
 
-	defer rows.Close()
-
 	meds := []Medication{}
 	for rows.Next() {
 		var m Medication
-		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		meds = append(meds, m)
@@ -125,8 +125,8 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 
 func (s *Store) GetMedication(id int64) (*Medication, error) {
 	var m Medication
-	err := s.db.QueryRow("SELECT id, name, dosage, schedule, archived, created_at FROM medications WHERE id = ?", id).Scan(
-		&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.CreatedAt,
+	err := s.db.QueryRow("SELECT id, name, dosage, schedule, archived, start_date, end_date, created_at FROM medications WHERE id = ?", id).Scan(
+		&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil // Not found
@@ -137,9 +137,9 @@ func (s *Store) GetMedication(id int64) (*Medication, error) {
 	return &m, nil
 }
 
-func (s *Store) UpdateMedication(id int64, name, dosage, schedule string, archived bool) error {
-	_, err := s.db.Exec("UPDATE medications SET name = ?, dosage = ?, schedule = ?, archived = ? WHERE id = ?",
-		name, dosage, schedule, archived, id)
+func (s *Store) UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time) error {
+	_, err := s.db.Exec("UPDATE medications SET name = ?, dosage = ?, schedule = ?, archived = ?, start_date = ?, end_date = ? WHERE id = ?",
+		name, dosage, schedule, archived, startDate, endDate, id)
 	return err
 }
 
