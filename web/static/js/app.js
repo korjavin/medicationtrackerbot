@@ -589,3 +589,140 @@ async function loadHistory() {
 
 // Init
 loadMeds();
+
+// --- Weekly Adherence Visualization ---
+
+const MED_COLORS = [
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEEAD',
+    '#D4A5A5', '#9B59B6', '#3498DB', '#E67E22', '#2ECC71'
+];
+
+function getMedColor(id) {
+    // Deterministic color based on ID
+    return MED_COLORS[id % MED_COLORS.length];
+}
+
+async function renderWeeklyHub() {
+    const container = document.getElementById('weekly-hub-container');
+    if (!container) return;
+
+    // 1. Calculate last 7 days (including today)
+    const days = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(now.getDate() - i);
+        days.push(d);
+    }
+
+    // 2. Fetch history for this range (7 days)
+    // We reuse the existing history API but maybe we need to fetch enough.
+    // The existing API defaults to 3 days. We need to force it or add a specific call.
+    // Let's just use the history API with days=7 for all meds (med_id=0).
+    const res = await apiCall(`/api/history?days=7&med_id=0`);
+    const historyLogs = res || [];
+
+    // 3. Build HTML
+    let html = `
+        <h3 class="weekly-header">Last 7 Days</h3>
+        <div class="weekly-days">
+    `;
+
+    days.forEach(dateObj => {
+        const dateStr = dateObj.toISOString().split('T')[0]; // YYYY-MM-DD
+        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' }); // Mon, Tue...
+        const dayNum = dateObj.getDate();
+
+        // Find what should have been taken on this day
+        // This is tricky because "schedule" logic is complex (weekly, days, etc.)
+        // We will simplify: Check all active meds.
+        // If a med was scheduled for this day (based on its schedule), we expect a log.
+        // OR we just look at the logs? No, logs only show what happened.
+        // We need to know what *should* have happened.
+        // For now, let's look at logs to see if anything was done.
+        // BUT the requirement is: "different scheduled medicine might have different color"
+        // So we need to know the schedule.
+
+        let scheduledMeds = [];
+        const dayOfWeek = dateObj.getDay(); // 0-6
+
+        medications.forEach(m => {
+            if (m.archived) return;
+            // Check if m applies to this day
+            // Start/End date check
+            const start = m.start_date ? new Date(m.start_date) : null;
+            const end = m.end_date ? new Date(m.end_date) : null;
+
+            // Normalize dateObj to midnight for comparison
+            const checkDate = new Date(dateStr);
+            if (start && checkDate < new Date(start.toISOString().split('T')[0])) return;
+            if (end && checkDate > new Date(end.toISOString().split('T')[0])) return;
+
+            try {
+                const sched = JSON.parse(m.schedule);
+                if (sched.type === 'daily') {
+                    scheduledMeds.push(m);
+                } else if (sched.type === 'weekly') {
+                    if (sched.days && sched.days.includes(dayOfWeek)) {
+                        scheduledMeds.push(m);
+                    }
+                }
+                // 'as_needed' doesn't count for adherence circles usually
+            } catch (e) { }
+        });
+
+        // Now check status for these meds on this date
+        // We look for logs where scheduled_at (or taken_at if no scheduled_at) matches dateStr
+        // Actually, logs store specific timestamps.
+        // We'll check if there's a TAKEN log for this med on this day.
+
+        const segments = [];
+        if (scheduledMeds.length === 0) {
+            // No meds scheduled -> maybe grey or empty?
+            // Let's leave it empty (grey default)
+        } else {
+            const segmentSize = 100 / scheduledMeds.length;
+            let currentAngle = 0;
+
+            scheduledMeds.forEach(m => {
+                // Did we take it?
+                // Look for a log for this med on this date with status TAKEN
+                const taken = historyLogs.find(l => {
+                    if (l.medication_id !== m.id) return false;
+                    if (l.status !== 'TAKEN') return false;
+                    // Check date match.
+                    // If scheduled_at exists, use it. Else use taken_at.
+                    const refIso = l.scheduled_at || l.taken_at;
+                    return refIso.startsWith(dateStr);
+                });
+
+                const color = taken ? getMedColor(m.id) : '#e0e0e0';
+                segments.push(`${color} ${currentAngle}% ${currentAngle + segmentSize}%`);
+                currentAngle += segmentSize;
+            });
+        }
+
+        let backgroundStyle = '';
+        if (segments.length > 0) {
+            backgroundStyle = `background: conic-gradient(${segments.join(', ')});`;
+        }
+
+        html += `
+            <div class="day-column">
+                <div class="day-label">${dayName}</div>
+                <div class="day-circle" style="${backgroundStyle}"></div>
+                <div class="day-date">${dayNum}</div>
+            </div>
+        `;
+    });
+
+    html += `</div>`;
+    container.innerHTML = html;
+}
+
+// Hook into loadMeds to trigger this update
+const originalLoadMeds = loadMeds;
+loadMeds = async function () {
+    await originalLoadMeds();
+    renderWeeklyHub();
+};
