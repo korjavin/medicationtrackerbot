@@ -6,20 +6,26 @@ import (
 	"strconv"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"golang.org/x/oauth2"
 )
 
 type Server struct {
 	store         *store.Store
 	botToken      string
 	allowedUserID int64
+	oidcConfig    OIDCConfig
+	oauthConfig   *oauth2.Config
 }
 
-func New(s *store.Store, botToken string, allowedUserID int64) *Server {
-	return &Server{
+func New(s *store.Store, botToken string, allowedUserID int64, oidc OIDCConfig) *Server {
+	srv := &Server{
 		store:         s,
 		botToken:      botToken,
 		allowedUserID: allowedUserID,
+		oidcConfig:    oidc,
 	}
+	srv.initOAUTH()
+	return srv
 }
 
 // noCacheMiddleware adds headers to prevent caching
@@ -46,6 +52,10 @@ func (s *Server) Routes() http.Handler {
 		w.Header().Set("Expires", "0")
 		http.ServeFile(w, r, "./web/static/index.html")
 	})
+
+	// Auth Routes
+	mux.HandleFunc("/auth/google/login", s.handleGoogleLogin)
+	mux.HandleFunc("/auth/google/callback", s.handleGoogleCallback)
 
 	// API
 	apiMux := http.NewServeMux()

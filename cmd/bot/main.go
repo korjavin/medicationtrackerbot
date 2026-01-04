@@ -66,7 +66,13 @@ func main() {
 	}
 
 	// 5. Server
-	srv := server.New(s, botToken, allowedUserID)
+	oidcConfig := server.OIDCConfig{
+		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
+		AdminEmail:   os.Getenv("ADMIN_EMAIL"),
+	}
+	srv := server.New(s, botToken, allowedUserID, oidcConfig)
 
 	// Start Server
 	serverAddr := ":" + port

@@ -99,10 +99,25 @@ func ValidateWebAppData(token, initData string) (bool, *TelegramUser, error) {
 func AuthMiddleware(botToken string, allowedUserID int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Check Authorization header or query param
-			// Telegram usually sends it in InitData
 
-			// For simplicity, we'll expect a header "X-Telegram-Init-Data" or query "initData"
+			// 1. Check for Google Session Cookie
+			cookie, err := r.Cookie("auth_session")
+			if err == nil {
+				if email, ok := verifySessionToken(cookie.Value, botToken); ok {
+					// Create a dummy user from session
+					user := &TelegramUser{
+						ID:        allowedUserID, // Map admin email to allowed user ID for DB consistency
+						FirstName: "Admin",
+						LastName:  "(Google)",
+						Username:  email,
+					}
+					ctx := context.WithValue(r.Context(), UserCtxKey, user)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+
+			// 2. Check for Telegram InitData (Authorization header or query param)
 			initData := r.Header.Get("X-Telegram-Init-Data")
 			if initData == "" {
 				initData = r.URL.Query().Get("initData")

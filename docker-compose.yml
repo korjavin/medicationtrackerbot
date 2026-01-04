@@ -13,6 +13,10 @@ services:
       - DB_PATH=${DB_PATH:-/app/data/meds.db}
       - PORT=${PORT:-8080}
       - TZ=${TZ:-Europe/Berlin}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
     networks:
       - default
       - traefik_net

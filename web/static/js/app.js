@@ -4,12 +4,46 @@ tg.ready();
 tg.expand();
 
 // Config
+// Config
 const userInitData = tg.initData;
-if (!userInitData) {
-    if (window.location.hostname === "localhost") { } else {
-        document.body.innerHTML = "<h2 style='text-align:center;margin-top:20px;'>Please open this app in Telegram</h2>";
+
+// Check Auth Environment
+async function checkAuth() {
+    if (userInitData) {
+        // We are in Telegram, proceed as normal
+        return true;
     }
+
+    // Not in Telegram. Try to access API to see if we have valid Session Cookie
+    try {
+        const res = await fetch('/api/medications', { method: 'GET' });
+        if (res.status === 200) {
+            // Authorized via Cookie!
+            return true;
+        }
+    } catch (e) {
+        console.log("Auth check failed", e);
+    }
+
+    // Not authorized. Show Google Login.
+    const loginBtn = document.createElement('button');
+    loginBtn.innerText = "Login with Google";
+    loginBtn.onclick = () => window.location.href = "/auth/google/login";
+    loginBtn.style.cssText = "display:block; margin: 20% auto; padding: 15px 30px; font-size: 18px; background: #4285F4; color: white; border: none; border-radius: 5px; cursor: pointer;";
+
+    document.body.innerHTML = "";
+    document.body.appendChild(loginBtn);
+    return false;
 }
+
+// Initial Load
+checkAuth().then(authorized => {
+    if (authorized) {
+        // Only load data if authorized
+        // Determine start tab? default meds
+        switchTab('meds');
+    }
+});
 
 // API Client
 async function apiCall(endpoint, method = "GET", body = null) {
