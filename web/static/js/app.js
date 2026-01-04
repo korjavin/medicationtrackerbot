@@ -588,7 +588,8 @@ async function loadHistory() {
 }
 
 // Init
-loadMeds();
+// loadMeds() removed to avoid redundant call. It is called by checkAuth -> switchTab.
+
 
 // --- Weekly Adherence Visualization ---
 
