@@ -2,6 +2,11 @@
 
 A private, self-hosted Telegram Mini App for medication tracking, designed to replace mobile health apps.
 
+## Chat Commands
+- `/start` - Launch the Mini App to manage medications.
+- `/log` - Manually log a dose. Useful for "As Needed" medications or if you missed a notification.
+- `/help` - Show instructions and available commands.
+
 ## Features
 
 - **Medication Management**: Add, edit, and archive medications.

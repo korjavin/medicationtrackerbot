@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"fmt"
 	"log"
 	"strconv"
 	"time"
@@ -66,20 +67,43 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 
 	msgConfig := tgbotapi.NewMessage(msg.Chat.ID, "")
 	switch msg.Command() {
-	case "start":
-		msgConfig.Text = "Welcome! Use the Mini App to manage your medications."
-		// TODO: Configure actual URL from ENV if needed, or user can assume it's set in BotFather.
-		// Usually WebApp button is set up in BotFather menu, but we can provide keyboard too.
-		// For now keeping placeholder.
-		/*
-			webApp := tgbotapi.WebAppInfo{URL: "https://your-domain.com"}
-			btn := tgbotapi.KeyboardButton{Text: "Open App", WebApp: &webApp}
-			row := tgbotapi.NewKeyboardButtonRow(btn)
-			keyboard := tgbotapi.NewReplyKeyboard(row)
-			msgConfig.ReplyMarkup = keyboard
-		*/
+	case "help":
+		msgConfig.Text = `**Medication Tracker Bot** allows you to track your medications.
+
+**Commands:**
+/start - Start the bot and open the Mini App.
+/log - Manually log a dose for any medication (useful for "As Needed" meds).
+/help - Show this help message.
+
+**How to use:**
+1. Click the "Menu" button to open the App.
+2. Add your medications and set schedules.
+3. The bot will notify you when it's time to take them.
+4. Click "Confirm" on the notification to log usage.`
+		msgConfig.ParseMode = "Markdown"
+	case "log":
+		// Fetch active medications
+		meds, err := b.store.ListMedications(false)
+		if err != nil {
+			msgConfig.Text = "Error fetching medications."
+			break
+		}
+		if len(meds) == 0 {
+			msgConfig.Text = "No medications found. Use the App to add some first."
+			break
+		}
+
+		var rows [][]tgbotapi.InlineKeyboardButton
+		for _, m := range meds {
+			callbackData := "log:" + strconv.FormatInt(m.ID, 10)
+			btn := tgbotapi.NewInlineKeyboardButtonData("Take "+m.Name, callbackData)
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(btn))
+		}
+
+		msgConfig.Text = "Select medication to log:"
+		msgConfig.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 	default:
-		msgConfig.Text = "Unknown command."
+		msgConfig.Text = "Unknown command. Try /help."
 	}
 
 	b.api.Send(msgConfig)
@@ -90,7 +114,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	b.api.Request(callbackCfg)
 
 	data := cb.Data
-	// data format: "confirm:<medID>" or "confirm_schedule:<unix>"
+	// data format: "confirm:<medID>", "confirm_schedule:<unix>", or "log:<medID>"
 	if len(data) > 8 && data[:8] == "confirm:" {
 		medIDStr := data[8:]
 		medID, _ := strconv.ParseInt(medIDStr, 10, 64)
@@ -127,6 +151,40 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			// Maybe it was already taken?
 			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken)."))
 		}
+	} else if len(data) > 4 && data[:4] == "log:" {
+		medIDStr := data[4:]
+		medID, _ := strconv.ParseInt(medIDStr, 10, 64)
+
+		// Create Intake record (Taken Now)
+		now := time.Now()
+		logID, err := b.store.CreateIntake(medID, b.allowedUserID, now)
+		if err != nil {
+			log.Printf("Error creating manual intake: %v", err)
+			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging medication."))
+			return
+		}
+
+		// Confirm immediately
+		if err := b.store.ConfirmIntake(logID, now); err != nil {
+			log.Printf("Error confirming manual intake: %v", err)
+			return
+		}
+
+		// Remove buttons
+		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
+			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
+		})
+		b.api.Send(edit)
+
+		// Fetch med name for confirmation
+		med, _ := b.store.GetMedication(medID) // Error ignored, just for display
+		medName := "Medication"
+		if med != nil {
+			medName = med.Name
+		}
+
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, fmt.Sprintf("✅ Logged %s at %s", medName, now.Format("15:04"))))
+
 	} else if len(data) > 17 && data[:17] == "confirm_schedule:" {
 		tsStr := data[17:]
 		ts, err := strconv.ParseInt(tsStr, 10, 64)
@@ -135,10 +193,6 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 
 		target := time.Unix(ts, 0)
-		// Note: Unix() returns Local time? No, it returns UTC Unix Seconds.
-		// time.Unix() converts to Local by default in Go's display, but standard time.
-		// We need to match what we stored.
-		// Store stores the Time object.
 
 		if err := b.store.ConfirmIntakesBySchedule(b.allowedUserID, target, time.Now()); err != nil {
 			log.Printf("Error confirming batch: %v", err)
