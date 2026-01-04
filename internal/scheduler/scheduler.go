@@ -68,39 +68,66 @@ func (s *Scheduler) checkSchedule() error {
 	groups := make(map[int64]*NotificationGroup)
 
 	for _, med := range meds {
-		// Parse Schedule "HH:MM"
-		if len(med.Schedule) != 5 {
-			continue
-		}
-		hour, _ := strconv.Atoi(med.Schedule[:2]) // Simplified parsing
-		minute, _ := strconv.Atoi(med.Schedule[3:])
-
-		// Construct target time for TODAY
-		target := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
-
-		// Logic:
-		// 1. If Now is BEFORE target, we wait.
-		if now.Before(target) {
-			continue
-		}
-
-		// 2. Check if log exists
-		existing, err := s.store.GetIntakeBySchedule(med.ID, target)
+		cfg, err := med.ValidSchedule()
 		if err != nil {
-			log.Printf("Error checking intake existence: %v", err)
+			log.Printf("Invalid schedule for med %d: %v", med.ID, err)
 			continue
 		}
 
-		if existing == nil {
-			// Add to Group
-			ts := target.Unix()
-			if _, ok := groups[ts]; !ok {
-				groups[ts] = &NotificationGroup{
-					Target: target,
-					Meds:   []store.Medication{},
+		// Skip if "as_needed"
+		if cfg.Type == "as_needed" {
+			continue
+		}
+
+		// If "weekly", check current day
+		if cfg.Type == "weekly" {
+			todayIdx := int(now.Weekday()) // 0=Sunday
+			found := false
+			for _, d := range cfg.Days {
+				if d == todayIdx {
+					found = true
+					break
 				}
 			}
-			groups[ts].Meds = append(groups[ts].Meds, med)
+			if !found {
+				continue
+			}
+		}
+
+		// Iterate over times
+		for _, timeStr := range cfg.Times {
+			if len(timeStr) != 5 {
+				continue
+			}
+			hour, _ := strconv.Atoi(timeStr[:2])
+			minute, _ := strconv.Atoi(timeStr[3:])
+
+			target := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+
+			// Logic:
+			// 1. If Now is BEFORE target, we wait.
+			if now.Before(target) {
+				continue
+			}
+
+			// 2. Check if log exists
+			existing, err := s.store.GetIntakeBySchedule(med.ID, target)
+			if err != nil {
+				log.Printf("Error checking intake existence: %v", err)
+				continue
+			}
+
+			if existing == nil {
+				// Add to Group
+				ts := target.Unix()
+				if _, ok := groups[ts]; !ok {
+					groups[ts] = &NotificationGroup{
+						Target: target,
+						Meds:   []store.Medication{},
+					}
+				}
+				groups[ts].Meds = append(groups[ts].Meds, med)
+			}
 		}
 	}
 

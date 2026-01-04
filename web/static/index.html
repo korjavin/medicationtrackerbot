@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -8,15 +9,18 @@
     <link rel="stylesheet" href="static/css/styles.css">
     <style>
         /* Fallback if css doesn't load immediately */
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
     </style>
 </head>
+
 <body>
     <div id="app">
         <header>
             <h1>My Medications</h1>
         </header>
-        
+
         <div id="tabs">
             <button class="tab active" onclick="switchTab('meds')">Medications</button>
             <button class="tab" onclick="switchTab('history')">History</button>
@@ -30,10 +34,10 @@
         </div>
 
         <div id="history-view" class="view">
-             <h2>Recent Intake</h2>
-             <div id="history-list">
-                 <!-- History injected here -->
-             </div>
+            <h2>Recent Intake</h2>
+            <div id="history-list">
+                <!-- History injected here -->
+            </div>
         </div>
     </div>
 
@@ -43,7 +47,37 @@
         <h3>Add Medication</h3>
         <input type="text" id="med-name" placeholder="Name (e.g. Aspirin)">
         <input type="text" id="med-dosage" placeholder="Dosage (e.g. 100mg)">
-        <input type="time" id="med-time">
+
+        <label>Schedule Type:</label>
+        <select id="schedule-type" onchange="toggleScheduleFields()">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="as_needed">As Needed</option>
+        </select>
+
+        <div id="days-container" class="hidden">
+            <label>Days:</label>
+            <div class="days-select">
+                <span data-day="1" onclick="toggleDay(this)">Mon</span>
+                <span data-day="2" onclick="toggleDay(this)">Tue</span>
+                <span data-day="3" onclick="toggleDay(this)">Wed</span>
+                <span data-day="4" onclick="toggleDay(this)">Thu</span>
+                <span data-day="5" onclick="toggleDay(this)">Fri</span>
+                <span data-day="6" onclick="toggleDay(this)">Sat</span>
+                <span data-day="0" onclick="toggleDay(this)">Sun</span>
+            </div>
+        </div>
+
+        <div id="times-container">
+            <label>Times:</label>
+            <div id="time-inputs">
+                <div class="time-row">
+                    <input type="time" class="med-time-input">
+                    <button class="remove-time" onclick="removeTime(this)">×</button>
+                </div>
+            </div>
+            <button class="small-btn" onclick="addTimeInput()">+ Add Time</button>
+        </div>
         <div class="actions">
             <button onclick="closeModal()" class="secondary">Cancel</button>
             <button onclick="saveMedication()" class="primary">Save</button>
@@ -52,4 +86,5 @@
 
     <script src="static/js/app.js"></script>
 </body>
+
 </html>

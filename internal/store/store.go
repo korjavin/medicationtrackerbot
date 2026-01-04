@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -17,6 +18,12 @@ type Store struct {
 	db *sql.DB
 }
 
+type ScheduleConfig struct {
+	Type  string   `json:"type"`            // "daily", "weekly", "as_needed"
+	Days  []int    `json:"days,omitempty"`  // 0=Sunday, 1=Monday...
+	Times []string `json:"times,omitempty"` // ["08:00", "20:00"]
+}
+
 type Medication struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
@@ -24,6 +31,21 @@ type Medication struct {
 	Schedule  string    `json:"schedule"` // e.g. "09:00" or JSON
 	Archived  bool      `json:"archived"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+func (m *Medication) ValidSchedule() (*ScheduleConfig, error) {
+	var s ScheduleConfig
+	// Check if legacy "HH:MM"
+	if len(m.Schedule) == 5 && m.Schedule[2] == ':' {
+		s.Type = "daily"
+		s.Times = []string{m.Schedule}
+		return &s, nil
+	}
+	// Try JSON
+	if err := json.Unmarshal([]byte(m.Schedule), &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
 
 type IntakeLog struct {
