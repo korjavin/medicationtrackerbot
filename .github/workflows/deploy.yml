@@ -1,0 +1,63 @@
+name: Deploy Application
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
+            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.sha }}
+
+      - name: Update and commit docker-compose.yml
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git checkout -B deploy
+
+          # Update image tags in docker-compose.yml
+          # Replaces :latest (or any tag) with :<sha>
+          # Note: repository_owner and event.repository.name come lowercased usually, but best to be safe with casing if needed.
+          # However, github.repository_owner might be Mixed Case. github.repository is usually safe.
+          # Let's use lower case explicitly if we can, but Actions usually handles image names okay.
+          # We'll stick to the template pattern which assumes implicit matching or consistent casing.
+          
+          IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}"
+          # Convert to lowercase to match typical docker conventions if needed, but template implies standard vars work.
+          
+          sed -i "s|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${{ github.sha }}|g" docker-compose.yml
+
+          git add docker-compose.yml
+          git commit -m "ci: Update image tag to ${{ github.sha }}" || echo "No changes to commit"
+          git push origin deploy --force
+
+      - name: Trigger Portainer Redeploy Webhook
+        uses: distributhor/workflow-webhook@v3
+        with:
+          webhook_url: ${{ secrets.PORTAINER_REDEPLOY_HOOK }}
+          webhook_secret: "trigger"
