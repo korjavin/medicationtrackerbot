@@ -13,5 +13,9 @@ RUN apk add --no-cache tzdata ca-certificates
 COPY --from=builder /app/bot .
 COPY --from=builder /app/web ./web
 
+# Replace TIMESTAMP_PLACEHOLDER with actual build time for cache busting
+RUN BUILD_TIME=$(date +%s) && \
+    sed -i "s/TIMESTAMP_PLACEHOLDER/$BUILD_TIME/g" /app/web/static/index.html
+
 EXPOSE 8080
 CMD ["./bot"]

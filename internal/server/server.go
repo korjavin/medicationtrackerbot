@@ -22,15 +22,28 @@ func New(s *store.Store, botToken string, allowedUserID int64) *Server {
 	}
 }
 
+// noCacheMiddleware adds headers to prevent caching
+func noCacheMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
-	// Static Files
+	// Static Files with no-cache headers
 	fs := http.FileServer(http.Dir("./web/static"))
-	mux.Handle("/static/", http.StripPrefix("/static/", fs))
+	mux.Handle("/static/", noCacheMiddleware(http.StripPrefix("/static/", fs)))
 
-	// Main Page
+	// Main Page with no-cache headers
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		http.ServeFile(w, r, "./web/static/index.html")
 	})
 
