@@ -6,12 +6,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	"golang.org/x/oauth2"
 )
 
 type Server struct {
 	store         *store.Store
+	rxnorm        *rxnorm.Client
 	botToken      string
 	allowedUserID int64
 	oidcConfig    OIDCConfig
@@ -21,6 +23,7 @@ type Server struct {
 func New(s *store.Store, botToken string, allowedUserID int64, oidc OIDCConfig) *Server {
 	srv := &Server{
 		store:         s,
+		rxnorm:        rxnorm.New(),
 		botToken:      botToken,
 		allowedUserID: allowedUserID,
 		oidcConfig:    oidc,
@@ -99,14 +102,47 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	id, err := s.store.CreateMedication(req.Name, req.Dosage, req.Schedule, req.StartDate, req.EndDate)
+	// 1. Search RxNorm
+	rxcui, normalizedName, _ := s.rxnorm.SearchRxNorm(req.Name)
+
+	// 2. Create in DB
+	id, err := s.store.CreateMedication(req.Name, req.Dosage, req.Schedule, req.StartDate, req.EndDate, rxcui, normalizedName)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	// 3. Check Interactions
+	var warning string
+	if rxcui != "" {
+		meds, err := s.store.ListMedications(false) // Only active
+		if err == nil {
+			var rxcuis []string
+			for _, m := range meds {
+				if m.RxCUI != "" {
+					rxcuis = append(rxcuis, m.RxCUI)
+				}
+			}
+			// Only check if we have > 1 meds totally (since we just added one, list includes it)
+			if len(rxcuis) > 1 {
+				warnings, _ := s.rxnorm.CheckInteractions(rxcuis)
+				if len(warnings) > 0 {
+					warning = warnings[0] // Just take the first one or join them
+					// Maybe join top 3
+					if len(warnings) > 1 {
+						warning += " (+ " + strconv.Itoa(len(warnings)-1) + " more)"
+					}
+				}
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"id": id, "status": "created"})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":      id,
+		"status":  "created",
+		"warning": warning,
+	})
 }
 
 func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) {
@@ -135,8 +171,38 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Check interactions if unarchiving
+	var warning string
+	if !req.Archived {
+		// We need to fetch the med we just updated to get its RxCUI (since we don't have it in req)
+		updatedMed, err := s.store.GetMedication(id)
+		if err == nil && updatedMed.RxCUI != "" {
+			meds, err := s.store.ListMedications(false) // Active only
+			if err == nil {
+				var rxcuis []string
+				for _, m := range meds {
+					if m.RxCUI != "" {
+						rxcuis = append(rxcuis, m.RxCUI)
+					}
+				}
+				if len(rxcuis) > 1 {
+					warnings, _ := s.rxnorm.CheckInteractions(rxcuis)
+					if len(warnings) > 0 {
+						warning = warnings[0]
+						if len(warnings) > 1 {
+							warning += " (+ " + strconv.Itoa(len(warnings)-1) + " more)"
+						}
+					}
+				}
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"status": "updated"})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "updated",
+		"warning": warning,
+	})
 }
 
 func (s *Server) handleDeleteMedication(w http.ResponseWriter, r *http.Request) {

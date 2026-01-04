@@ -21,6 +21,10 @@ A private, self-hosted Telegram Mini App for medication tracking, designed to re
 - **Privacy & Security**:
     - **Authentication**: Telegram Web App validation + optional Google OIDC for browser access.
     - **Self-Hosted**: Your data stays on your server (SQLite).
+    - **Drug Interactions**:
+        - Automatically checks for interactions between your active medications using the [NLM RxNorm API](https://rxnav.nlm.nih.gov/).
+        - Normalizes medication names (e.g., "Advil" -> "Ibuprofen") for accurate checking.
+        - Warnings are displayed when adding or unarchiving medications.
 
 ## Chat Commands
 - `/start` - Launch the Mini App.

@@ -353,6 +353,7 @@ function renderMeds() {
         div.innerHTML = `
             <div class="med-info" onclick="showEditModal(${m.id})" style="cursor: pointer;">
                 <h4>${escapeHtml(m.name)} <small>(${escapeHtml(m.dosage)})</small></h4>
+                ${m.normalized_name ? `<p style="font-size:0.85em;color:var(--hint-color);margin-top:-5px;margin-bottom:4px;">Rx: ${escapeHtml(m.normalized_name)}</p>` : ''}
                 <p>Schedule: ${scheduleText}</p>
                 ${dateRangeText}
             </div>
@@ -509,10 +510,15 @@ async function saveMedication() {
         end_date: endDateRaw ? new Date(endDateRaw).toISOString() : null
     };
 
+    let res;
     if (editingMedId) {
-        await apiCall(`/api/medications/${editingMedId}`, 'POST', payload);
+        res = await apiCall(`/api/medications/${editingMedId}`, 'POST', payload);
     } else {
-        await apiCall('/api/medications', 'POST', payload);
+        res = await apiCall('/api/medications', 'POST', payload);
+    }
+
+    if (res && res.warning) {
+        tg.showAlert("⚠️ " + res.warning);
     }
 
     closeModal();
@@ -552,7 +558,10 @@ async function _archiveMedApi(id) {
         archived: true // Set archived to true
     };
 
-    await apiCall(`/api/medications/${id}`, 'POST', payload);
+    const res = await apiCall(`/api/medications/${id}`, 'POST', payload);
+    if (res && res.warning) {
+        tg.showAlert("⚠️ " + res.warning);
+    }
     loadMeds();
 }
 

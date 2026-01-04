@@ -25,15 +25,17 @@ type ScheduleConfig struct {
 }
 
 type Medication struct {
-	ID          int64      `json:"id"`
-	Name        string     `json:"name"`
-	Dosage      string     `json:"dosage"`
-	Schedule    string     `json:"schedule"` // e.g. "09:00" or JSON
-	Archived    bool       `json:"archived"`
-	StartDate   *time.Time `json:"start_date"`
-	EndDate     *time.Time `json:"end_date"`
-	LastTakenAt *time.Time `json:"last_taken_at"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID             int64      `json:"id"`
+	Name           string     `json:"name"`
+	Dosage         string     `json:"dosage"`
+	Schedule       string     `json:"schedule"` // e.g. "09:00" or JSON
+	Archived       bool       `json:"archived"`
+	StartDate      *time.Time `json:"start_date"`
+	EndDate        *time.Time `json:"end_date"`
+	LastTakenAt    *time.Time `json:"last_taken_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	RxCUI          string     `json:"rxcui,omitempty"`
+	NormalizedName string     `json:"normalized_name,omitempty"`
 }
 
 func (m *Medication) ValidSchedule() (*ScheduleConfig, error) {
@@ -92,8 +94,9 @@ func (s *Store) Close() error {
 
 // -- Medications CRUD --
 
-func (s *Store) CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time) (int64, error) {
-	res, err := s.db.Exec("INSERT INTO medications (name, dosage, schedule, start_date, end_date) VALUES (?, ?, ?, ?, ?)", name, dosage, schedule, startDate, endDate)
+func (s *Store) CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string) (int64, error) {
+	res, err := s.db.Exec("INSERT INTO medications (name, dosage, schedule, start_date, end_date, rxcui, normalized_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		name, dosage, schedule, startDate, endDate, rxcui, normalizedName)
 	if err != nil {
 		return 0, err
 	}
@@ -103,7 +106,7 @@ func (s *Store) CreateMedication(name, dosage, schedule string, startDate, endDa
 func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 	query := `
 		SELECT 
-			m.id, m.name, m.dosage, m.schedule, m.archived, m.start_date, m.end_date, m.created_at,
+			m.id, m.name, m.dosage, m.schedule, m.archived, m.start_date, m.end_date, m.created_at, m.rxcui, m.normalized_name,
 			MAX(CASE WHEN l.status = 'TAKEN' THEN l.taken_at ELSE NULL END) as last_taken
 		FROM medications m
 		LEFT JOIN intake_log l ON m.id = l.medication_id
@@ -123,8 +126,18 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 	for rows.Next() {
 		var m Medication
 		var lastTaken sql.NullString // Scan into string first
-		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt, &lastTaken); err != nil {
+		// Handle nullable fields
+		var rxcui, normalizedName sql.NullString
+
+		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &lastTaken); err != nil {
 			return nil, err
+		}
+
+		if rxcui.Valid {
+			m.RxCUI = rxcui.String
+		}
+		if normalizedName.Valid {
+			m.NormalizedName = normalizedName.String
 		}
 
 		if lastTaken.Valid {
@@ -149,8 +162,9 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 
 func (s *Store) GetMedication(id int64) (*Medication, error) {
 	var m Medication
-	err := s.db.QueryRow("SELECT id, name, dosage, schedule, archived, start_date, end_date, created_at FROM medications WHERE id = ?", id).Scan(
-		&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt,
+	var rxcui, normalizedName sql.NullString
+	err := s.db.QueryRow("SELECT id, name, dosage, schedule, archived, start_date, end_date, created_at, rxcui, normalized_name FROM medications WHERE id = ?", id).Scan(
+		&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil // Not found
@@ -158,10 +172,20 @@ func (s *Store) GetMedication(id int64) (*Medication, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if rxcui.Valid {
+		m.RxCUI = rxcui.String
+	}
+	if normalizedName.Valid {
+		m.NormalizedName = normalizedName.String
+	}
+
 	return &m, nil
 }
 
 func (s *Store) UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time) error {
+	// Note: We don't update RxCUI/NormalizedName here currently as we only fetch them on Create.
+	// We might want to re-fetch if name changes, but for now let's keep it simple as per plan.
 	_, err := s.db.Exec("UPDATE medications SET name = ?, dosage = ?, schedule = ?, archived = ?, start_date = ?, end_date = ? WHERE id = ?",
 		name, dosage, schedule, archived, startDate, endDate, id)
 	return err
