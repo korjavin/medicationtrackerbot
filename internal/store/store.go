@@ -183,11 +183,9 @@ func (s *Store) GetMedication(id int64) (*Medication, error) {
 	return &m, nil
 }
 
-func (s *Store) UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time) error {
-	// Note: We don't update RxCUI/NormalizedName here currently as we only fetch them on Create.
-	// We might want to re-fetch if name changes, but for now let's keep it simple as per plan.
-	_, err := s.db.Exec("UPDATE medications SET name = ?, dosage = ?, schedule = ?, archived = ?, start_date = ?, end_date = ? WHERE id = ?",
-		name, dosage, schedule, archived, startDate, endDate, id)
+func (s *Store) UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string) error {
+	_, err := s.db.Exec("UPDATE medications SET name = ?, dosage = ?, schedule = ?, archived = ?, start_date = ?, end_date = ?, rxcui = ?, normalized_name = ? WHERE id = ?",
+		name, dosage, schedule, archived, startDate, endDate, rxcui, normalizedName, id)
 	return err
 }
 

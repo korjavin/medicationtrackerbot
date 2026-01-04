@@ -109,6 +109,7 @@ function showAddModal() {
     document.getElementById('med-name').value = '';
     document.getElementById('med-dosage').value = '';
     document.getElementById('med-archived').checked = false;
+    document.getElementById('med-rx-display').style.display = 'none';
     // showAddModal updates
     document.getElementById('med-start-date').value = '';
     document.getElementById('med-end-date').value = '';
@@ -137,6 +138,15 @@ function showEditModal(id) {
     document.getElementById('med-name').value = med.name;
     document.getElementById('med-dosage').value = med.dosage;
     document.getElementById('med-archived').checked = med.archived || false;
+
+    // Show RxNorm
+    const rxDisplay = document.getElementById('med-rx-display');
+    if (med.normalized_name) {
+        rxDisplay.innerText = "Rx: " + med.normalized_name;
+        rxDisplay.style.display = 'block';
+    } else {
+        rxDisplay.style.display = 'none';
+    }
 
     // Dates (ISO string to YYYY-MM-DD)
     document.getElementById('med-start-date').value = med.start_date ? med.start_date.split('T')[0] : '';

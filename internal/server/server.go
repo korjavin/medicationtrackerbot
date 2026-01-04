@@ -166,21 +166,28 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := s.store.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate); err != nil {
+	// Search RxNorm (Always update on edit to handle renames or missing data)
+	rxcui, normalizedName, _ := s.rxnorm.SearchRxNorm(req.Name)
+
+	if err := s.store.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate, rxcui, normalizedName); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Check interactions if unarchiving
+	// Check interactions if unarchiving OR just updating (e.g. name change might trigger interaction)
+	// Strategy: If active (not archived), check interactions.
 	var warning string
 	if !req.Archived {
-		// We need to fetch the med we just updated to get its RxCUI (since we don't have it in req)
-		updatedMed, err := s.store.GetMedication(id)
-		if err == nil && updatedMed.RxCUI != "" {
+		// We have the new RxCUI now
+		if rxcui != "" {
 			meds, err := s.store.ListMedications(false) // Active only
 			if err == nil {
 				var rxcuis []string
 				for _, m := range meds {
+					// We need to exclude the current med from the list fetched from DB
+					// because the DB list technically has the OLD data for this ID if read before commit,
+					// BUT we just committed the update above. So DB list SHOULD have the new data.
+					// Let's rely on ListMedications returning the updated state.
 					if m.RxCUI != "" {
 						rxcuis = append(rxcuis, m.RxCUI)
 					}
