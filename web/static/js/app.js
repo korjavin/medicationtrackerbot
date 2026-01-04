@@ -165,7 +165,13 @@ function renderMeds() {
     const list = document.getElementById('med-list');
     list.innerHTML = '';
 
-    medications.forEach(m => {
+    // Sort: non-archived first, then archived
+    const sorted = [...medications].sort((a, b) => {
+        if (a.archived === b.archived) return 0;
+        return a.archived ? 1 : -1;
+    });
+
+    sorted.forEach(m => {
         const div = document.createElement('div');
         div.className = 'med-item';
         if (m.archived) div.classList.add('archived');
@@ -232,7 +238,7 @@ function escapeHtml(text) {
 
 // Logic
 async function loadMeds() {
-    const res = await apiCall('/api/medications');
+    const res = await apiCall('/api/medications?archived=true');
     if (res) { medications = res; renderMeds(); }
 }
 
