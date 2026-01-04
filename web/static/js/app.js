@@ -202,6 +202,7 @@ function removeTime(btn) {
 }
 
 // Render
+// Render
 function renderMeds() {
     const list = document.getElementById('med-list');
     list.innerHTML = '';
@@ -263,29 +264,45 @@ function renderHistory(logs) {
         return;
     }
 
+    // Group logs by taken_at timestamp (formatted to minute precision)
+    const groups = [];
     logs.forEach(l => {
-        const div = document.createElement('div');
-        div.className = 'history-item';
-        const med = medications.find(m => m.id === l.medication_id) || { name: 'Unknown Med', dosage: '' };
+        let key = l.scheduled_at; // Default key
+        let timeLabel = new Date(l.scheduled_at).toLocaleString();
 
-        let timeText = '';
-        const scheduled = new Date(l.scheduled_at).toLocaleString();
-
+        // If taken, use taken_at as grouping key
         if (l.status === 'TAKEN' && l.taken_at) {
-            const taken = new Date(l.taken_at).toLocaleString();
-            timeText = `<p><strong>Taken: ${taken}</strong></p><p style="font-size:0.85em; color:#666;">Scheduled: ${scheduled}</p>`;
-        } else {
-            timeText = `<p>Scheduled: ${scheduled}</p>`;
+            const d = new Date(l.taken_at);
+            // Key is string to minute precision
+            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()} ${d.getHours()}:${d.getMinutes()}`;
+            timeLabel = d.toLocaleString();
         }
 
-        const statusIcon = l.status === 'TAKEN' ? '✅' : (l.status === 'PENDING' ? '⏳' : '❌');
+        // Check if group exists
+        let grp = groups.find(g => g.key === key && g.status === l.status);
+        if (!grp) {
+            grp = { key, status: l.status, timeLabel, items: [] };
+            groups.push(grp);
+        }
+        grp.items.push(l);
+    });
 
-        div.innerHTML = `
-            <div class="med-info">
-                <h4>${statusIcon} ${escapeHtml(med.name)}</h4>
-                ${timeText}
-            </div>
-        `;
+    // Render Groups
+    groups.forEach(g => {
+        const div = document.createElement('div');
+        div.className = 'history-group';
+
+        const statusIcon = g.status === 'TAKEN' ? '✅' : (g.status === 'PENDING' ? '⏳' : '❌');
+        let headerHTML = `<div class="history-header"><strong>${statusIcon} ${g.timeLabel}</strong></div>`;
+
+        let itemsHTML = '<div class="history-items">';
+        g.items.forEach(l => {
+            const med = medications.find(m => m.id === l.medication_id) || { name: 'Unknown Med', dosage: '' };
+            itemsHTML += `<div class="history-subitem">${escapeHtml(med.name)}</div>`;
+        });
+        itemsHTML += '</div>';
+
+        div.innerHTML = headerHTML + itemsHTML;
         list.appendChild(div);
     });
 }

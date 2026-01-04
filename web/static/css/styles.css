@@ -266,3 +266,43 @@ select {
     width: auto;
     margin: 0;
 }
+
+/* History Grouping */
+.history-group {
+    background-color: var(--secondary-bg-color);
+    padding: 12px 16px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+}
+
+.history-header {
+    font-size: 14px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.history-items {
+    padding-left: 28px;
+    /* Indent under icon */
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.history-subitem {
+    background: rgba(0, 0, 0, 0.05);
+    /* slightly clearer than bg */
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 14px;
+    display: inline-block;
+}
+
+/* Dark mode adjustment if needed */
+@media (prefers-color-scheme: dark) {
+    .history-subitem {
+        background: rgba(255, 255, 255, 0.1);
+    }
+}
