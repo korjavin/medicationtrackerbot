@@ -553,7 +553,8 @@ async function loadHistory() {
     const medId = document.getElementById('history-filter-med').value;
 
     const res = await apiCall(`/api/history?days=${days}&med_id=${medId}`);
-    if (res) renderHistory(res);
+    // If res is null (not found or error), pass empty array to clear list
+    renderHistory(res || []);
 }
 
 // Init
