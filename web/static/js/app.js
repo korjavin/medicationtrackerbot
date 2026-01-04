@@ -304,7 +304,8 @@ async function _deleteMedApi(id) {
 }
 
 async function loadHistory() {
-    if (medications.length === 0) await loadMeds();
+    // Always reload medications to ensure archived ones are included
+    await loadMeds();
     const res = await apiCall('/api/history');
     if (res) renderHistory(res);
 }
