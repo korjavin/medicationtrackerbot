@@ -328,12 +328,23 @@ async function saveMedication() {
 
 async function deleteMed(id) {
     tg.showConfirm("Archive this medication?", (ok) => {
-        if (ok) _deleteMedApi(id);
+        if (ok) _archiveMedApi(id);
     });
 }
 
-async function _deleteMedApi(id) {
-    await apiCall(`/api/medications/${id}`, 'DELETE');
+async function _archiveMedApi(id) {
+    // Fetch current med data first to preserve other fields
+    const med = medications.find(m => m.id === id);
+    if (!med) return;
+
+    const payload = {
+        name: med.name,
+        dosage: med.dosage,
+        schedule: med.schedule,
+        archived: true // Set archived to true
+    };
+
+    await apiCall(`/api/medications/${id}`, 'POST', payload);
     loadMeds();
 }
 
