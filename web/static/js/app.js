@@ -327,9 +327,24 @@ async function saveMedication() {
 }
 
 async function deleteMed(id) {
-    tg.showConfirm("Archive this medication?", (ok) => {
-        if (ok) _archiveMedApi(id);
-    });
+    const confirmMsg = "Archive this medication?";
+
+    // Check if we are in Telegram and version supports it
+    if (userInitData && tg.showConfirm) {
+        try {
+            tg.showConfirm(confirmMsg, (ok) => {
+                if (ok) _archiveMedApi(id);
+            });
+            return;
+        } catch (e) {
+            console.log("tg.showConfirm failed, falling back", e);
+        }
+    }
+
+    // Fallback for browser
+    if (confirm(confirmMsg)) {
+        _archiveMedApi(id);
+    }
 }
 
 async function _archiveMedApi(id) {
