@@ -22,7 +22,7 @@ func New() *Client {
 // SearchRxNorm searches for a medication by name and returns the RxCUI and normalized name.
 // It returns empty strings if not found or if the API fails, behaving gracefully.
 func (c *Client) SearchRxNorm(name string) (string, string, error) {
-	// 1. Get RxCUI
+	// 1. Get RxCUI (Exact Match)
 	// URL: https://rxnav.nlm.nih.gov/REST/rxcui.json?name=...
 	searchURL := fmt.Sprintf("https://rxnav.nlm.nih.gov/REST/rxcui.json?name=%s", url.QueryEscape(name))
 	resp, err := c.httpClient.Get(searchURL)
@@ -31,23 +31,25 @@ func (c *Client) SearchRxNorm(name string) (string, string, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("rxnorm api returned status: %d", resp.StatusCode)
-	}
-
 	var searchResp struct {
 		IdGroup struct {
 			RxNormId []string `json:"rxnormId"`
 		} `json:"idGroup"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
-		return "", "", fmt.Errorf("failed to decode rxnorm response: %w", err)
+
+	rxcui := ""
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err == nil && len(searchResp.IdGroup.RxNormId) > 0 {
+		rxcui = searchResp.IdGroup.RxNormId[0]
 	}
 
-	if len(searchResp.IdGroup.RxNormId) == 0 {
+	// 1b. Fallback to Approximate Match if exact failed
+	if rxcui == "" {
+		rxcui = c.searchApproximate(name)
+	}
+
+	if rxcui == "" {
 		return "", "", nil // Not found
 	}
-	rxcui := searchResp.IdGroup.RxNormId[0]
 
 	// 2. Get Properties (Normalized Name)
 	// URL: https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/properties.json
@@ -69,6 +71,34 @@ func (c *Client) SearchRxNorm(name string) (string, string, error) {
 	}
 
 	return rxcui, "", nil
+}
+
+func (c *Client) searchApproximate(term string) string {
+	// URL: https://rxnav.nlm.nih.gov/REST/approximateTerm.json?term=...&maxEntries=1
+	searchURL := fmt.Sprintf("https://rxnav.nlm.nih.gov/REST/approximateTerm.json?term=%s&maxEntries=1", url.QueryEscape(term))
+	resp, err := c.httpClient.Get(searchURL)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	var approxResp struct {
+		ApproximateGroup struct {
+			Candidate []struct {
+				Rxcui string `json:"rxcui"`
+				Score string `json:"score"` // Score is string in JSON? often int, checking docs... it's usually string "66"
+			} `json:"candidate"`
+		} `json:"approximateGroup"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&approxResp); err == nil && len(approxResp.ApproximateGroup.Candidate) > 0 {
+		return approxResp.ApproximateGroup.Candidate[0].Rxcui
+	}
+	return ""
 }
 
 // CheckInteractions checks for drug-drug interactions between a list of RxCUIs.
