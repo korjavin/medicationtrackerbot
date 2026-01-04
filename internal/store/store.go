@@ -122,9 +122,26 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 	meds := []Medication{}
 	for rows.Next() {
 		var m Medication
-		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt, &m.LastTakenAt); err != nil {
+		var lastTaken sql.NullString // Scan into string first
+		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt, &lastTaken); err != nil {
 			return nil, err
 		}
+
+		if lastTaken.Valid {
+			// Helper to parse potential SQLite formats
+			formats := []string{
+				"2006-01-02 15:04:05.999999999-07:00", // Default driver format
+				"2006-01-02 15:04:05",                 // Simple
+				time.RFC3339,
+			}
+			for _, layout := range formats {
+				if t, err := time.Parse(layout, lastTaken.String); err == nil {
+					m.LastTakenAt = &t
+					break
+				}
+			}
+		}
+
 		meds = append(meds, m)
 	}
 	return meds, nil
