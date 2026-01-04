@@ -110,7 +110,9 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 	}
 	defer rows.Close()
 
-	var meds []Medication
+	defer rows.Close()
+
+	meds := []Medication{}
 	for rows.Next() {
 		var m Medication
 		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.CreatedAt); err != nil {
