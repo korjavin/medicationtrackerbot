@@ -2,17 +2,16 @@ package store
 
 import (
 	"database/sql"
-	_ "embed"
+	"embed"
 	"fmt"
 	"time"
 
+	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // Pure Go SQLite driver
 )
 
-// Schema is the SQL schema embedded from file
-//
-//go:embed schema.sql
-var schema string
+//go:embed migrations/*.sql
+var embedMigrations embed.FS
 
 type Store struct {
 	db *sql.DB
@@ -46,8 +45,17 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	if _, err := db.Exec(schema); err != nil {
-		return nil, fmt.Errorf("failed to apply schema: %w", err)
+	// Set dialect
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		return nil, err
+	}
+
+	// Set Base FS
+	goose.SetBaseFS(embedMigrations)
+
+	// Run migrations
+	if err := goose.Up(db, "migrations"); err != nil {
+		return nil, fmt.Errorf("failed to migrate db: %w", err)
 	}
 
 	return &Store{db: db}, nil

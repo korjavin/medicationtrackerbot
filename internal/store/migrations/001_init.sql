@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE IF NOT EXISTS medications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -19,3 +20,7 @@ CREATE TABLE IF NOT EXISTS intake_log (
 
 CREATE INDEX IF NOT EXISTS idx_intake_log_scheduled_at ON intake_log(scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_intake_log_status ON intake_log(status);
+
+-- +goose Down
+DROP TABLE intake_log;
+DROP TABLE medications;
