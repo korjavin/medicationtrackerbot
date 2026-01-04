@@ -34,6 +34,7 @@ async function apiCall(endpoint, method = "GET", body = null) {
 
 // State
 let medications = [];
+let editingMedId = null;
 
 // UI Functions
 function switchTab(tab) {
@@ -52,12 +53,14 @@ function switchTab(tab) {
 }
 
 function showAddModal() {
+    editingMedId = null;
     document.getElementById('modal-overlay').classList.remove('hidden');
     document.getElementById('med-modal').classList.remove('hidden');
 
     // Reset inputs
     document.getElementById('med-name').value = '';
     document.getElementById('med-dosage').value = '';
+    document.getElementById('med-archived').checked = false;
 
     // Default: Daily, 1 time input
     document.getElementById('schedule-type').value = 'daily';
@@ -69,6 +72,50 @@ function showAddModal() {
 
     // Clear days
     document.querySelectorAll('.days-select span').forEach(s => s.classList.remove('selected'));
+}
+
+function showEditModal(id) {
+    editingMedId = id;
+    const med = medications.find(m => m.id === id);
+    if (!med) return;
+
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    document.getElementById('med-modal').classList.remove('hidden');
+
+    // Fill inputs
+    document.getElementById('med-name').value = med.name;
+    document.getElementById('med-dosage').value = med.dosage;
+    document.getElementById('med-archived').checked = med.archived || false;
+
+    // Parse schedule
+    let sched;
+    try {
+        sched = JSON.parse(med.schedule);
+    } catch (e) {
+        // Legacy format
+        sched = { type: 'daily', times: [med.schedule] };
+    }
+
+    document.getElementById('schedule-type').value = sched.type;
+    toggleScheduleFields();
+
+    // Set times
+    const timeContainer = document.getElementById('time-inputs');
+    timeContainer.innerHTML = '';
+    if (sched.times && sched.times.length > 0) {
+        sched.times.forEach(t => addTimeInput(t));
+    } else {
+        addTimeInput();
+    }
+
+    // Set days
+    document.querySelectorAll('.days-select span').forEach(s => s.classList.remove('selected'));
+    if (sched.days) {
+        sched.days.forEach(d => {
+            const span = document.querySelector(`span[data-day="${d}"]`);
+            if (span) span.classList.add('selected');
+        });
+    }
 }
 
 function closeModal() {
@@ -121,6 +168,7 @@ function renderMeds() {
     medications.forEach(m => {
         const div = document.createElement('div');
         div.className = 'med-item';
+        if (m.archived) div.classList.add('archived');
 
         let scheduleText = '';
         try {
@@ -141,7 +189,7 @@ function renderMeds() {
         }
 
         div.innerHTML = `
-            <div class="med-info">
+            <div class="med-info" onclick="showEditModal(${m.id})" style="cursor: pointer;">
                 <h4>${escapeHtml(m.name)} <small>(${escapeHtml(m.dosage)})</small></h4>
                 <p>Schedule: ${scheduleText}</p>
             </div>
@@ -192,6 +240,7 @@ async function saveMedication() {
     const name = document.getElementById('med-name').value;
     const dosage = document.getElementById('med-dosage').value;
     const type = document.getElementById('schedule-type').value;
+    const archived = document.getElementById('med-archived').checked;
 
     if (!name) { tg.showAlert("Name is required!"); return; }
 
@@ -220,11 +269,18 @@ async function saveMedication() {
         schedule.days = days;
     }
 
-    await apiCall('/api/medications', 'POST', {
+    const payload = {
         name,
         dosage,
-        schedule: JSON.stringify(schedule)
-    });
+        schedule: JSON.stringify(schedule),
+        archived
+    };
+
+    if (editingMedId) {
+        await apiCall(`/api/medications/${editingMedId}`, 'POST', payload);
+    } else {
+        await apiCall('/api/medications', 'POST', payload);
+    }
 
     closeModal();
     loadMeds();

@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Med Tracker</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="static/css/styles.css">
+    <link rel="stylesheet" href="static/css/styles.css?v=3">
     <style>
         /* Fallback if css doesn't load immediately */
         body {
@@ -78,13 +78,20 @@
             </div>
             <button class="small-btn" onclick="addTimeInput()">+ Add Time</button>
         </div>
+
+        <div class="form-row">
+            <label class="checkbox-label">
+                <input type="checkbox" id="med-archived"> Archived
+            </label>
+        </div>
+
         <div class="actions">
             <button onclick="closeModal()" class="secondary">Cancel</button>
             <button onclick="saveMedication()" class="primary">Save</button>
         </div>
     </div>
 
-    <script src="static/js/app.js"></script>
+    <script src="static/js/app.js?v=3"></script>
 </body>
 
 </html>
