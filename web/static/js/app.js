@@ -252,13 +252,23 @@ function renderHistory(logs) {
         const div = document.createElement('div');
         div.className = 'history-item';
         const med = medications.find(m => m.id === l.medication_id) || { name: 'Unknown Med', dosage: '' };
+
+        let timeText = '';
         const scheduled = new Date(l.scheduled_at).toLocaleString();
+
+        if (l.status === 'TAKEN' && l.taken_at) {
+            const taken = new Date(l.taken_at).toLocaleString();
+            timeText = `<p><strong>Taken: ${taken}</strong></p><p style="font-size:0.85em; color:#666;">Scheduled: ${scheduled}</p>`;
+        } else {
+            timeText = `<p>Scheduled: ${scheduled}</p>`;
+        }
+
         const statusIcon = l.status === 'TAKEN' ? '✅' : (l.status === 'PENDING' ? '⏳' : '❌');
 
         div.innerHTML = `
             <div class="med-info">
                 <h4>${statusIcon} ${escapeHtml(med.name)}</h4>
-                <p>${scheduled}</p>
+                ${timeText}
             </div>
         `;
         list.appendChild(div);
