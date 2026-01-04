@@ -5,7 +5,9 @@ tg.expand();
 
 // Config
 // Config
+// Config
 const userInitData = tg.initData;
+let initialAuthLoad = false;
 
 // Check Auth Environment
 async function checkAuth() {
@@ -16,9 +18,13 @@ async function checkAuth() {
 
     // Not in Telegram. Try to access API to see if we have valid Session Cookie
     try {
-        const res = await fetch('/api/medications', { method: 'GET' });
+        // Optimization: Fetch full data here to avoid second request
+        const res = await fetch('/api/medications?archived=true', { method: 'GET' });
         if (res.status === 200) {
             // Authorized via Cookie!
+            const data = await res.json();
+            medications = data;
+            initialAuthLoad = true;
             return true;
         }
     } catch (e) {
@@ -446,6 +452,13 @@ function escapeHtml(text) {
 
 // Logic
 async function loadMeds() {
+    if (initialAuthLoad) {
+        initialAuthLoad = false;
+        renderMeds();
+        populateMedFilter();
+        return;
+    }
+
     const res = await apiCall('/api/medications?archived=true');
     if (res) {
         medications = res;
