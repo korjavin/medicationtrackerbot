@@ -298,7 +298,32 @@ function escapeHtml(text) {
 // Logic
 async function loadMeds() {
     const res = await apiCall('/api/medications?archived=true');
-    if (res) { medications = res; renderMeds(); }
+    if (res) {
+        medications = res;
+        renderMeds();
+        populateMedFilter();
+    }
+}
+
+function populateMedFilter() {
+    const select = document.getElementById('history-filter-med');
+    if (!select) return;
+    const currentVal = select.value;
+
+    // Keep "All Medications"
+    select.innerHTML = '<option value="0">All Medications</option>';
+
+    // Sort alphabetically
+    const sorted = [...medications].sort((a, b) => a.name.localeCompare(b.name));
+
+    sorted.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.innerText = m.name + (m.archived ? ' (Archived)' : '');
+        select.appendChild(opt);
+    });
+
+    select.value = currentVal;
 }
 
 async function saveMedication() {
@@ -394,9 +419,13 @@ async function _archiveMedApi(id) {
 }
 
 async function loadHistory() {
-    // Always reload medications to ensure archived ones are included
-    await loadMeds();
-    const res = await apiCall('/api/history');
+    // Ensure medications are loaded for name resolution
+    if (medications.length === 0) await loadMeds();
+
+    const days = document.getElementById('history-filter-days').value;
+    const medId = document.getElementById('history-filter-med').value;
+
+    const res = await apiCall(`/api/history?days=${days}&med_id=${medId}`);
     if (res) renderHistory(res);
 }
 

@@ -34,10 +34,22 @@
         </div>
 
         <div id="history-view" class="view">
-            <h2>Recent Intake</h2>
-            <div id="history-list">
-                <!-- History injected here -->
+            <h3>Intake History</h3>
+
+            <div class="filters">
+                <select id="history-filter-med" onchange="loadHistory()">
+                    <option value="0">All Medications</option>
+                </select>
+                <select id="history-filter-days" onchange="loadHistory()">
+                    <option value="1">Last 24 Hours</option>
+                    <option value="3" selected>Last 3 Days</option>
+                    <option value="7">Last 7 Days</option>
+                    <option value="30">Last 30 Days</option>
+                    <option value="0">All Time</option>
+                </select>
             </div>
+
+            <div id="history-list"></div>
         </div>
     </div>
 

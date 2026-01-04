@@ -182,8 +182,24 @@ func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
 	return logs, nil
 }
 
-func (s *Store) GetIntakeHistory() ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, taken_at, status FROM intake_log ORDER BY scheduled_at DESC LIMIT 100")
+func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
+	query := "SELECT id, medication_id, user_id, scheduled_at, taken_at, status FROM intake_log WHERE 1=1"
+	args := []interface{}{}
+
+	if medID > 0 {
+		query += " AND medication_id = ?"
+		args = append(args, medID)
+	}
+
+	if days > 0 {
+		since := time.Now().AddDate(0, 0, -days)
+		query += " AND scheduled_at >= ?"
+		args = append(args, since)
+	}
+
+	query += " ORDER BY scheduled_at DESC LIMIT 100"
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

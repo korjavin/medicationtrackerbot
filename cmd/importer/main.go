@@ -112,11 +112,19 @@ func main() {
 	for _, name := range sortedNames {
 		agg := medMap[name]
 
-		// Sort logs by time (ScheduledDate)
+		// Function to get time from log (Scheduled or Start)
+		getLogTime := func(l MedicationLog) time.Time {
+			s := strings.TrimSpace(l.ScheduledDate)
+			if s == "" {
+				s = strings.TrimSpace(l.Start)
+			}
+			t, _ := time.Parse(layout, s)
+			return t
+		}
+
+		// Sort logs by time
 		sort.Slice(agg.Logs, func(i, j int) bool {
-			t1, _ := time.Parse(layout, agg.Logs[i].ScheduledDate)
-			t2, _ := time.Parse(layout, agg.Logs[j].ScheduledDate)
-			return t1.Before(t2)
+			return getLogTime(agg.Logs[i]).Before(getLogTime(agg.Logs[j]))
 		})
 
 		// Infer attributes
@@ -124,19 +132,70 @@ func main() {
 		firstLog := agg.Logs[0]
 
 		agg.Name = latestLog.DisplayText
-		agg.Dosage = fmt.Sprintf("%.0f %s", latestLog.Dosage, latestLog.Units) // Simplify
+
+		// Dosage: If "1 count", leave empty as it's not useful information (implies 1 pill).
+		// User can fill in "10mg" later.
+		if latestLog.Dosage == 1.0 && strings.ToLower(latestLog.Units) == "count" {
+			agg.Dosage = ""
+		} else {
+			agg.Dosage = fmt.Sprintf("%.0f %s", latestLog.Dosage, latestLog.Units)
+		}
+
 		agg.Archived = latestLog.IsArchived
 
-		tFirst, _ := time.Parse(layout, firstLog.ScheduledDate)
-		tLast, _ := time.Parse(layout, latestLog.ScheduledDate)
+		tFirst := getLogTime(firstLog)
+		tLast := getLogTime(latestLog)
+		if tFirst.IsZero() {
+			log.Printf("Warning: Could not determine start date for %s", agg.Name)
+		}
 
 		agg.FirstLog = tFirst
 		agg.LastLog = tLast
 
 		// Schedule: "As Needed" default for imported, OR infer daily?
-		// For safety, let's set "As Needed" JSON or a placeholder cron?
-		// User mentioned "date_start, date_end".
-		// We can set start_date = first log, end_date = last log (if archived).
+
+		// Infer Schedule
+		// Look at the last 30 logs
+		recentLogs := agg.Logs
+		if len(recentLogs) > 30 {
+			recentLogs = recentLogs[len(recentLogs)-30:]
+		}
+
+		timeCounts := make(map[string]int)
+		for _, l := range recentLogs {
+			// Extract HH:MM directly from string "YYYY-MM-DD HH:MM:SS +Offset"
+			// This avoids Go parsing it to UTC/Local and checking system timezone.
+			// We want the "User's Wall Clock Time" found in the JSON.
+			if len(l.ScheduledDate) >= 16 {
+				// "2024-12-03 01:20:00" -> index 11 is '0', len 5 -> "01:20"
+				timeStr := l.ScheduledDate[11:16]
+				timeCounts[timeStr]++
+			}
+		}
+
+		log.Printf("Med: %s, TimeCounts: %v", agg.Name, timeCounts)
+
+		// Threshold: 1 occurrence is enough if it's the dominant one?
+		// Let's take all times that appear in > 20% of the recent logs
+		var scheduledTimes []string
+		threshold := int(float64(len(recentLogs)) * 0.2)
+		if threshold < 1 {
+			threshold = 1
+		}
+
+		for t, count := range timeCounts {
+			if count >= threshold {
+				scheduledTimes = append(scheduledTimes, t)
+			}
+		}
+		sort.Strings(scheduledTimes)
+
+		// Construct Schedule JSON
+		scheduleJSON := `{"type":"as_needed"}`
+		if len(scheduledTimes) > 0 {
+			timesBytes, _ := json.Marshal(scheduledTimes)
+			scheduleJSON = fmt.Sprintf(`{"type":"daily","times":%s}`, string(timesBytes))
+		}
 
 		var endDateSQL string
 		if agg.Archived {
@@ -148,8 +207,6 @@ func main() {
 
 		// Insert Medication
 		// ID, Name, Dosage, Schedule, Archived, StartDate, EndDate
-		scheduleJSON := `{"type":"as_needed"}` // Default
-
 		stmt := fmt.Sprintf("INSERT INTO medications (id, name, dosage, schedule, archived, start_date, end_date) VALUES (%d, '%s', '%s', '%s', %v, %s, %s);\n",
 			medIDCounter,
 			escapeSQL(agg.Name),

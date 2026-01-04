@@ -64,7 +64,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/medications", s.handleCreateMedication)
 	apiMux.HandleFunc("POST /api/medications/{id}", s.handleUpdateMedication)
 	apiMux.HandleFunc("DELETE /api/medications/{id}", s.handleDeleteMedication)
-	apiMux.HandleFunc("GET /api/history", s.handleHistory)
+	apiMux.HandleFunc("GET /api/history", s.handleListHistory)
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
@@ -155,8 +155,23 @@ func (s *Server) handleDeleteMedication(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusOK)
 }
 
-func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
-	logs, err := s.store.GetIntakeHistory()
+func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
+	// Parse query params
+	days := 3 // Default
+	if dStr := r.URL.Query().Get("days"); dStr != "" {
+		if d, err := strconv.Atoi(dStr); err == nil {
+			days = d
+		}
+	}
+
+	medID := 0
+	if mStr := r.URL.Query().Get("med_id"); mStr != "" {
+		if m, err := strconv.Atoi(mStr); err == nil {
+			medID = m
+		}
+	}
+
+	logs, err := s.store.GetIntakeHistory(medID, days)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
