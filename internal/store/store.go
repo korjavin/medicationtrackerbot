@@ -199,7 +199,7 @@ func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
 	}
 
 	if days > 0 {
-		since := time.Now().AddDate(0, 0, -days)
+		since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 		query += " AND scheduled_at >= ?"
 		args = append(args, since)
 	}

@@ -70,6 +70,20 @@ async function apiCall(endpoint, method = "GET", body = null) {
 let medications = [];
 let editingMedId = null;
 
+// Helper for European Date Format (DD.MM.YYYY HH:MM)
+const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    return d.toLocaleString('de-DE', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+};
+
 // UI Functions
 function switchTab(tab) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -331,8 +345,8 @@ function renderMeds() {
 
         let dateRangeText = '';
         if (m.start_date || m.end_date) {
-            const start = m.start_date ? new Date(m.start_date).toLocaleDateString() : 'N/A';
-            const end = m.end_date ? new Date(m.end_date).toLocaleDateString() : 'N/A';
+            const start = m.start_date ? formatDate(m.start_date).split(' ')[0] : 'N/A';
+            const end = m.end_date ? formatDate(m.end_date).split(' ')[0] : 'N/A';
             dateRangeText = `<p>Dates: ${start} - ${end}</p>`;
         }
 
@@ -359,16 +373,19 @@ function renderHistory(logs) {
 
     // Group logs by taken_at timestamp (formatted to minute precision)
     const groups = [];
+    // Helper for European Date Format (DD.MM.YYYY HH:MM)
+    /* formatDate is now global */
+
     logs.forEach(l => {
         let key = l.scheduled_at; // Default key
-        let timeLabel = new Date(l.scheduled_at).toLocaleString();
+        let timeLabel = formatDate(l.scheduled_at);
 
         // If taken, use taken_at as grouping key
         if (l.status === 'TAKEN' && l.taken_at) {
             const d = new Date(l.taken_at);
             // Key is string to minute precision
             key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()} ${d.getHours()}:${d.getMinutes()}`;
-            timeLabel = d.toLocaleString();
+            timeLabel = formatDate(l.taken_at);
         }
 
         // Check if group exists

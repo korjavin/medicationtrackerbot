@@ -225,9 +225,13 @@ func (b *Bot) SendNotification(text string, medicationID int64) error {
 
 func (b *Bot) SendGroupNotification(meds []store.Medication, target time.Time) error {
 	var sb string
-	sb = "💊 Time to take your medications:\n\n"
+	sb = fmt.Sprintf("💊 Time to take your medications (%s):\n\n", target.Format("15:04"))
 	for _, m := range meds {
-		sb += "- " + m.Name + " (" + m.Dosage + ")\n"
+		if m.Dosage != "" {
+			sb += fmt.Sprintf("- %s (%s)\n", m.Name, m.Dosage)
+		} else {
+			sb += fmt.Sprintf("- %s\n", m.Name)
+		}
 	}
 
 	msg := tgbotapi.NewMessage(b.allowedUserID, sb)
