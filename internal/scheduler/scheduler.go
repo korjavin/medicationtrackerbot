@@ -105,7 +105,17 @@ func (s *Scheduler) checkSchedule() error {
 			target := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
 
 			// Logic:
-			// 1. If Now is BEFORE target, we wait.
+			// 1a. Check Start/End Dates
+			if med.StartDate != nil && target.Before(*med.StartDate) {
+				// Not yet active
+				continue
+			}
+			if med.EndDate != nil && target.After(*med.EndDate) {
+				// Period ended
+				continue
+			}
+
+			// 1b. If Now is BEFORE target, we wait.
 			if now.Before(target) {
 				continue
 			}
