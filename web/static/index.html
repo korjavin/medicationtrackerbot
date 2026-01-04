@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Med Tracker</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="static/css/styles.css">
+    <style>
+        /* Fallback if css doesn't load immediately */
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>My Medications</h1>
+        </header>
+        
+        <div id="tabs">
+            <button class="tab active" onclick="switchTab('meds')">Medications</button>
+            <button class="tab" onclick="switchTab('history')">History</button>
+        </div>
+
+        <div id="meds-view" class="view active">
+            <div id="med-list">
+                <!-- Meds injected here -->
+            </div>
+            <button id="add-btn" onclick="showAddModal()">+ Add Medication</button>
+        </div>
+
+        <div id="history-view" class="view">
+             <h2>Recent Intake</h2>
+             <div id="history-list">
+                 <!-- History injected here -->
+             </div>
+        </div>
+    </div>
+
+    <!-- Modal for Adding Med -->
+    <div id="modal-overlay" class="hidden"></div>
+    <div id="med-modal" class="hidden">
+        <h3>Add Medication</h3>
+        <input type="text" id="med-name" placeholder="Name (e.g. Aspirin)">
+        <input type="text" id="med-dosage" placeholder="Dosage (e.g. 100mg)">
+        <input type="time" id="med-time">
+        <div class="actions">
+            <button onclick="closeModal()" class="secondary">Cancel</button>
+            <button onclick="saveMedication()" class="primary">Save</button>
+        </div>
+    </div>
+
+    <script src="static/js/app.js"></script>
+</body>
+</html>

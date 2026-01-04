@@ -1,0 +1,159 @@
+package scheduler
+
+import (
+	"fmt"
+	"log"
+	"strconv"
+	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/bot"
+	"github.com/korjavin/medicationtrackerbot/internal/store"
+)
+
+type Scheduler struct {
+	store         *store.Store
+	bot           *bot.Bot
+	allowedUserID int64
+}
+
+func New(store *store.Store, bot *bot.Bot, allowedUserID int64) *Scheduler {
+	return &Scheduler{
+		store:         store,
+		bot:           bot,
+		allowedUserID: allowedUserID,
+	}
+}
+
+func (s *Scheduler) Start() {
+	// Check every minute
+	ticker := time.NewTicker(1 * time.Minute)
+	go func() {
+		for range ticker.C {
+			if err := s.checkSchedule(); err != nil {
+				log.Printf("Error checking schedule: %v", err)
+			}
+		}
+	}()
+
+	// Retry loop every 15 minutes
+	retryTicker := time.NewTicker(15 * time.Minute)
+	go func() {
+		for range retryTicker.C {
+			if err := s.checkReminders(); err != nil {
+				log.Printf("Error checking reminders: %v", err)
+			}
+		}
+	}()
+}
+
+func (s *Scheduler) checkSchedule() error {
+	now := time.Now()
+	// Truncate to minute to avoid sub-minute drifts if needed, but DB comparison handles equality.
+	// Actually, store stores time.Time. SQLite driver stores it as string usually or timestamp.
+	// For idempotency, we should standardise the "Scheduled At" time we insert.
+	// It should be Today + HH:MM:00 (zero seconds).
+
+	meds, err := s.store.ListMedications(false)
+	if err != nil {
+		return err
+	}
+
+	// Group By Target Time
+	type NotificationGroup struct {
+		Target time.Time
+		Meds   []store.Medication
+	}
+
+	// Key: Unix timestamp of target time
+	groups := make(map[int64]*NotificationGroup)
+
+	for _, med := range meds {
+		// Parse Schedule "HH:MM"
+		if len(med.Schedule) != 5 {
+			continue
+		}
+		hour, _ := strconv.Atoi(med.Schedule[:2]) // Simplified parsing
+		minute, _ := strconv.Atoi(med.Schedule[3:])
+
+		// Construct target time for TODAY
+		target := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+
+		// Logic:
+		// 1. If Now is BEFORE target, we wait.
+		if now.Before(target) {
+			continue
+		}
+
+		// 2. Check if log exists
+		existing, err := s.store.GetIntakeBySchedule(med.ID, target)
+		if err != nil {
+			log.Printf("Error checking intake existence: %v", err)
+			continue
+		}
+
+		if existing == nil {
+			// Add to Group
+			ts := target.Unix()
+			if _, ok := groups[ts]; !ok {
+				groups[ts] = &NotificationGroup{
+					Target: target,
+					Meds:   []store.Medication{},
+				}
+			}
+			groups[ts].Meds = append(groups[ts].Meds, med)
+		}
+	}
+
+	// Process Groups
+	for _, group := range groups {
+		if len(group.Meds) == 0 {
+			continue
+		}
+
+		// 1. Create Pending Logs for ALL in group
+		for _, med := range group.Meds {
+			log.Printf("Triggering medication %s (%s) scheduled for %s", med.Name, med.Dosage, med.Schedule)
+			_, err := s.store.CreateIntake(med.ID, s.allowedUserID, group.Target)
+			if err != nil {
+				log.Printf("Failed to create intake log: %v", err)
+				// Continue? If fail, it won't be confirmable.
+			}
+		}
+
+		// 2. Send Group Notification
+		if err := s.bot.SendGroupNotification(group.Meds, group.Target); err != nil {
+			log.Printf("Failed to send group notification: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *Scheduler) checkReminders() error {
+	pending, err := s.store.GetPendingIntakes()
+	if err != nil {
+		return err
+	}
+
+	for _, p := range pending {
+		scheduledAt := p.ScheduledAt
+		if time.Since(scheduledAt) > 1*time.Hour {
+			// Send reminder
+			med, err := s.store.GetMedication(p.MedicationID)
+			if err != nil {
+				continue
+			}
+			if med == nil { // deleted?
+				continue
+			}
+
+			text := fmt.Sprintf("🔔 REMINDER: You haven't confirmed taking %s (%s) yet on %s!",
+				med.Name, med.Dosage, scheduledAt.Format("15:04"))
+
+			if err := s.bot.SendNotification(text, med.ID); err != nil {
+				log.Printf("Failed to send reminder: %v", err)
+			}
+		}
+	}
+	return nil
+}

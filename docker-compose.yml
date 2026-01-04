@@ -1,0 +1,29 @@
+version: '3'
+
+services:
+  medtracker:
+    image: ghcr.io/korjavin/medicationtrackerbot:latest
+    container_name: medtracker
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ALLOWED_USER_ID=${ALLOWED_USER_ID}
+      - DB_PATH=${DB_PATH:-/app/data/meds.db}
+      - PORT=${PORT:-8080}
+      - TZ=${TZ:-Europe/Berlin}
+    networks:
+      - default
+      - traefik_net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.medtracker.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.medtracker.entrypoints=websecure"
+      - "traefik.http.routers.medtracker.tls.certresolver=myresolver"
+      - "traefik.http.services.medtracker.loadbalancer.server.port=${PORT:-8080}"
+
+networks:
+  traefik_net:
+    external: true
+    name: ${NETWORK_NAME}
