@@ -36,7 +36,8 @@ func (s *Scheduler) Start() {
 	}()
 
 	// Retry loop every 15 minutes
-	retryTicker := time.NewTicker(15 * time.Minute)
+	// Retry loop every 60 minutes
+	retryTicker := time.NewTicker(60 * time.Minute)
 	go func() {
 		for range retryTicker.C {
 			if err := s.checkReminders(); err != nil {
@@ -187,8 +188,11 @@ func (s *Scheduler) checkReminders() error {
 			text := fmt.Sprintf("🔔 REMINDER: You haven't confirmed taking %s (%s) yet on %s!",
 				med.Name, med.Dosage, scheduledAt.Format("15:04"))
 
-			if err := s.bot.SendNotification(text, med.ID); err != nil {
+			msgID, err := s.bot.SendNotification(text, med.ID)
+			if err != nil {
 				log.Printf("Failed to send reminder: %v", err)
+			} else {
+				s.store.AddIntakeReminder(p.ID, msgID)
 			}
 		}
 	}

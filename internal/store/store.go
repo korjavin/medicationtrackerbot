@@ -288,3 +288,42 @@ func (s *Store) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, ta
 		takenAt, userID, scheduledAt)
 	return err
 }
+
+func (s *Store) AddIntakeReminder(intakeID int64, messageID int) error {
+	_, err := s.db.Exec("INSERT INTO intake_reminders (intake_id, message_id) VALUES (?, ?)", intakeID, messageID)
+	return err
+}
+
+func (s *Store) GetIntakeReminders(intakeID int64) ([]int, error) {
+	rows, err := s.db.Query("SELECT message_id FROM intake_reminders WHERE intake_id = ?", intakeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
+	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status FROM intake_log WHERE user_id = ? AND scheduled_at = ? AND status = 'PENDING'", userID, scheduledAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var logs []IntakeLog
+	for rows.Next() {
+		var l IntakeLog
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status); err != nil {
+			return nil, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
