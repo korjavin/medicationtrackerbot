@@ -135,6 +135,14 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 
 		if logID != 0 {
+			// Clean up reminders
+			reminders, _ := b.store.GetIntakeReminders(logID)
+			for _, msgID := range reminders {
+				if msgID != cb.Message.MessageID {
+					b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID))
+				}
+			}
+
 			if err := b.store.ConfirmIntake(logID, time.Now()); err != nil {
 				log.Printf("Error configuring intake: %v", err)
 				return
@@ -194,6 +202,19 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 		target := time.Unix(ts, 0)
 
+		// Clean up reminders for all related intakes
+		pending, err := b.store.GetPendingIntakesBySchedule(b.allowedUserID, target)
+		if err == nil {
+			for _, p := range pending {
+				reminders, _ := b.store.GetIntakeReminders(p.ID)
+				for _, msgID := range reminders {
+					if msgID != cb.Message.MessageID {
+						b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID))
+					}
+				}
+			}
+		}
+
 		if err := b.store.ConfirmIntakesBySchedule(b.allowedUserID, target, time.Now()); err != nil {
 			log.Printf("Error confirming batch: %v", err)
 			return
@@ -209,7 +230,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	}
 }
 
-func (b *Bot) SendNotification(text string, medicationID int64) error {
+func (b *Bot) SendNotification(text string, medicationID int64) (int, error) {
 	msg := tgbotapi.NewMessage(b.allowedUserID, text)
 
 	// Add Confirm Button
@@ -219,8 +240,8 @@ func (b *Bot) SendNotification(text string, medicationID int64) error {
 	row := tgbotapi.NewInlineKeyboardRow(btn)
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(row)
 
-	_, err := b.api.Send(msg)
-	return err
+	sentMsg, err := b.api.Send(msg)
+	return sentMsg.MessageID, err
 }
 
 func (b *Bot) SendGroupNotification(meds []store.Medication, target time.Time) error {
