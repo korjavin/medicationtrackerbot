@@ -36,7 +36,7 @@ services:
     command:
       - -c
       - |
-        exec litestream replicate /app/data/meds.db s3://${R2_BUCKET}/medtracker
+        exec litestream replicate -sync-interval 1h -snapshot-interval 24h /app/data/meds.db s3://${R2_BUCKET}/medtracker
     volumes:
       - medtracker_data:/app/data
     environment:
