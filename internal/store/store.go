@@ -406,6 +406,43 @@ func (s *Store) UpdateLastDownload(t time.Time) error {
 	return err
 }
 
+// Weight Goal Settings
+type WeightGoal struct {
+	Goal     *float64   `json:"goal,omitempty"`
+	GoalDate *time.Time `json:"goal_date,omitempty"`
+}
+
+func (s *Store) GetWeightGoal() (*WeightGoal, error) {
+	var goal sql.NullFloat64
+	var goalDateStr sql.NullString
+
+	err := s.db.QueryRow("SELECT weight_goal, weight_goal_date FROM settings WHERE id = 1").Scan(&goal, &goalDateStr)
+	if err == sql.ErrNoRows {
+		return &WeightGoal{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	result := &WeightGoal{}
+	if goal.Valid {
+		result.Goal = &goal.Float64
+	}
+	if goalDateStr.Valid && goalDateStr.String != "" {
+		t, err := time.Parse("2006-01-02", goalDateStr.String)
+		if err == nil {
+			result.GoalDate = &t
+		}
+	}
+	return result, nil
+}
+
+func (s *Store) SetWeightGoal(weight float64, targetDate time.Time) error {
+	dateStr := targetDate.Format("2006-01-02")
+	_, err := s.db.Exec("UPDATE settings SET weight_goal = ?, weight_goal_date = ? WHERE id = 1", weight, dateStr)
+	return err
+}
+
 // -- Downloads --
 
 func (s *Store) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error) {
