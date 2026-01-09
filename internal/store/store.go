@@ -131,6 +131,11 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// Enable WAL mode for Litestream compatibility
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
+	}
+
 	// Set dialect
 	if err := goose.SetDialect("sqlite3"); err != nil {
 		return nil, err

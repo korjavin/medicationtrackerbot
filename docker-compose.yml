@@ -27,6 +27,23 @@ services:
       - "traefik.http.routers.medtracker.tls.certresolver=myresolver"
       - "traefik.http.services.medtracker.loadbalancer.server.port=${PORT:-8080}"
 
+  # Litestream - SQLite replication to Cloudflare R2
+  litestream:
+    image: litestream/litestream:latest
+    container_name: medtracker-litestream
+    restart: unless-stopped
+    command: replicate -config /etc/litestream.yml
+    volumes:
+      - medtracker_data:/app/data
+      - ./litestream.yml:/etc/litestream.yml:ro
+    environment:
+      - LITESTREAM_ACCESS_KEY_ID=${LITESTREAM_ACCESS_KEY_ID}
+      - LITESTREAM_SECRET_ACCESS_KEY=${LITESTREAM_SECRET_ACCESS_KEY}
+      - R2_ENDPOINT=${R2_ENDPOINT}
+      - R2_BUCKET=${R2_BUCKET}
+    depends_on:
+      - medtracker
+
 networks:
   traefik_net:
     external: true
