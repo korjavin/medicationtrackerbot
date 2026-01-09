@@ -62,6 +62,12 @@ type IntakeLog struct {
 	Status       string     `json:"status"` // PENDING, TAKEN, MISSED
 }
 
+type IntakeWithMedication struct {
+	IntakeLog
+	MedicationName   string `json:"medication_name"`
+	MedicationDosage string `json:"medication_dosage"`
+}
+
 func New(dbPath string) (*Store, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -321,6 +327,54 @@ func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time)
 	for rows.Next() {
 		var l IntakeLog
 		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status); err != nil {
+			return nil, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
+// -- Settings --
+
+func (s *Store) GetLastDownload() (time.Time, error) {
+	var lastDownload time.Time
+	err := s.db.QueryRow("SELECT last_download FROM settings WHERE id = 1").Scan(&lastDownload)
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return lastDownload, nil
+}
+
+func (s *Store) UpdateLastDownload(t time.Time) error {
+	_, err := s.db.Exec("UPDATE settings SET last_download = ? WHERE id = 1", t)
+	return err
+}
+
+// -- Downloads --
+
+func (s *Store) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error) {
+	query := `
+		SELECT
+			il.id, il.medication_id, il.user_id, il.scheduled_at, il.taken_at, il.status,
+			m.name AS medication_name, m.dosage AS medication_dosage
+		FROM intake_log il
+		JOIN medications m ON il.medication_id = m.id
+		WHERE il.scheduled_at >= ?
+		ORDER BY il.scheduled_at DESC
+	`
+	rows, err := s.db.Query(query, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []IntakeWithMedication
+	for rows.Next() {
+		var l IntakeWithMedication
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status, &l.MedicationName, &l.MedicationDosage); err != nil {
 			return nil, err
 		}
 		logs = append(logs, l)
