@@ -104,6 +104,24 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 
 		msgConfig.Text = "Select medication to log:"
 		msgConfig.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	case "download":
+		rows := [][]tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("Since last download", "download:since_last"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("Last 7 days", "download:7"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("Last 14 days", "download:14"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("Last 30 days", "download:30"),
+			),
+		}
+
+		msgConfig.Text = "Select time period for export:"
+		msgConfig.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}
