@@ -107,6 +107,10 @@ function switchTab(tab) {
         document.querySelector('button[onclick="switchTab(\'bp\')"]').classList.add('active');
         document.getElementById('bp-view').classList.add('active');
         loadBPReadings();
+    } else if (tab === 'weight') {
+        document.querySelector('button[onclick="switchTab(\'weight\')"]').classList.add('active');
+        document.getElementById('weight-view').classList.add('active');
+        loadWeightLogs();
     }
 }
 
@@ -974,6 +978,156 @@ async function exportBPCSV() {
         const a = document.createElement('a');
         a.href = url;
         a.download = 'blood_pressure_export.csv';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    } catch (err) {
+        console.error('Export error:', err);
+        tg.showAlert('Failed to export data');
+    }
+}
+
+// ==================== Weight Tracking Functions ====================
+
+function showWeightModal() {
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    document.getElementById('weight-modal').classList.remove('hidden');
+
+    // Set default datetime to now
+    const now = new Date();
+    const offset = now.getTimezoneOffset() * 60000;
+    const localISOTime = (new Date(now - offset)).toISOString().slice(0, 16);
+    document.getElementById('weight-datetime').value = localISOTime;
+
+    // Clear other fields
+    document.getElementById('weight-value').value = '';
+    document.getElementById('weight-notes').value = '';
+}
+
+function closeWeightModal() {
+    document.getElementById('modal-overlay').classList.add('hidden');
+    document.getElementById('weight-modal').classList.add('hidden');
+}
+
+async function handleWeightSubmit(event) {
+    event.preventDefault();
+
+    const datetime = document.getElementById('weight-datetime').value;
+    const weight = parseFloat(document.getElementById('weight-value').value);
+    const notes = document.getElementById('weight-notes').value;
+
+    if (!datetime || !weight) {
+        tg.showAlert('Please fill in all required fields');
+        return;
+    }
+
+    const payload = {
+        measured_at: new Date(datetime).toISOString(),
+        weight,
+        notes
+    };
+
+    const res = await apiCall('/api/weight', 'POST', payload);
+
+    if (res) {
+        closeWeightModal();
+        loadWeightLogs();
+    }
+}
+
+async function loadWeightLogs() {
+    const list = document.getElementById('weight-list');
+    list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
+
+    const res = await apiCall('/api/weight?days=90');
+
+    if (res === null) {
+        list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load weight logs</li>';
+        return;
+    }
+
+    renderWeightLogs(res || []);
+}
+
+function renderWeightLogs(logs) {
+    const list = document.getElementById('weight-list');
+    list.innerHTML = '';
+
+    if (!logs || logs.length === 0) {
+        list.innerHTML = '';
+        return;
+    }
+
+    // Limit to 30 most recent
+    if (logs.length > 30) {
+        logs = logs.slice(0, 30);
+    }
+
+    let html = '';
+    logs.forEach(w => {
+        const dateStr = formatDate(w.measured_at);
+        const trendDiff = w.weight_trend ? (w.weight - w.weight_trend).toFixed(1) : '0.0';
+        const trendIcon = trendDiff > 0 ? '📈' : (trendDiff < 0 ? '📉' : '➡️');
+
+        html += `<li class="weight-item">
+            <div class="weight-data">
+                <div class="weight-value">${w.weight.toFixed(1)} kg</div>
+                <div class="weight-trend">${trendIcon} Trend: ${w.weight_trend ? w.weight_trend.toFixed(1) : w.weight.toFixed(1)} kg</div>
+                <div class="weight-meta">${dateStr}</div>
+            </div>
+            <button class="delete-btn" onclick="deleteWeightLog(${w.id})" title="Delete">&times;</button>
+        </li>`;
+    });
+
+    list.innerHTML = html;
+}
+
+async function deleteWeightLog(id) {
+    const confirmMsg = 'Delete this weight log?';
+
+    if (userInitData && tg.showConfirm) {
+        try {
+            tg.showConfirm(confirmMsg, (ok) => {
+                if (ok) _deleteWeightApi(id);
+            });
+            return;
+        } catch (e) {
+            console.log('tg.showConfirm failed, falling back', e);
+        }
+    }
+
+    if (confirm(confirmMsg)) {
+        _deleteWeightApi(id);
+    }
+}
+
+async function _deleteWeightApi(id) {
+    const res = await apiCall(`/api/weight/${id}`, 'DELETE');
+    if (res) {
+        loadWeightLogs();
+    }
+}
+
+async function exportWeightCSV() {
+    try {
+        const response = await fetch('/api/weight/export', {
+            method: 'GET',
+            headers: {
+                'Authorization': `tma ${userInitData}`
+            }
+        });
+
+        if (!response.ok) {
+            tg.showAlert('Failed to generate export');
+            return;
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'weight_export.csv';
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
