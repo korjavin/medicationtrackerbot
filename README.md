@@ -31,7 +31,7 @@ A private, self-hosted Telegram Mini App for medication tracking, designed to re
     - Track 2-3x daily for accurate monitoring.
     - View history, statistics, and trends.
     - Export to CSV for analysis.
-    - BP categories based on AHA guidelines.
+    - BP classification based on ISH 2020 guidelines.
 
 - **Weight Tracking**:
     - Log weight in kilograms with automatic trend calculation.
@@ -134,15 +134,18 @@ date,time,systolic,diastolic,pulse
 2024-01-15,20:15,118,78,70
 ```
 
-### Blood Pressure Categories (AHA Guidelines)
+### Blood Pressure Classification (ISH 2020 Guidelines)
 
-| Category | Systolic (mmHg) | Diastolic (mmHg) |
-|----------|-----------------|------------------|
-| Normal | < 120 | < 80 |
-| Elevated | 120-129 | < 80 |
-| High BP Stage 1 | 130-139 | 80-89 |
-| High BP Stage 2 | ≥ 140 | ≥ 90 |
-| Hypertensive Crisis | > 180 | > 120 |
+The app uses **ISH 2020 (International Society of Hypertension)** guidelines for blood pressure classification, configured for users under 65 years.
+
+| Category | Systolic (mmHg) | | Diastolic (mmHg) |
+|----------|-----------------|---|------------------|
+| Normal | < 130 | and | < 85 |
+| High-normal | 130-139 | and/or | 85-89 |
+| Grade 1 Hypertension | 140-159 | and/or | 90-99 |
+| Grade 2 Hypertension | ≥ 160 | and/or | ≥ 100 |
+
+**Treatment Target (< 65 years):** < 130/80 mmHg if tolerated
 
 ## Security
 - **Telegram Auth**: Validates `WebAppData` signature.

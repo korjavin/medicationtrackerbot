@@ -439,24 +439,19 @@ select {
     color: #155724;
 }
 
-.bp-category.elevated {
+.bp-category.highnormal {
     background: #fff3cd;
     color: #856404;
 }
 
-.bp-category.high1 {
+.bp-category.grade1 {
     background: #ffe5d5;
     color: #c45a00;
 }
 
-.bp-category.high2 {
+.bp-category.grade2 {
     background: #f8d7da;
     color: #721c24;
-}
-
-.bp-category.crisis {
-    background: #dc3545;
-    color: white;
 }
 
 /* BP Date Groups */
