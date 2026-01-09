@@ -548,3 +548,89 @@ select {
     color: var(--hint-color);
     padding: 40px 20px;
 }
+
+/* Weight Section */
+.weight-actions {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.weight-actions button {
+    flex: 1;
+    padding: 12px;
+    border-radius: 8px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+#weight-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.weight-item {
+    background-color: var(--secondary-bg-color);
+    padding: 16px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.weight-data {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.weight-value {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.weight-trend {
+    font-size: 14px;
+    color: var(--hint-color);
+}
+
+.weight-meta {
+    font-size: 12px;
+    color: var(--hint-color);
+}
+
+#weight-list:empty::before {
+    content: 'No weight logs yet.';
+    display: block;
+    text-align: center;
+    color: var(--hint-color);
+    padding: 40px 20px;
+}
+
+#weight-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg-color);
+    padding: 24px;
+    border-radius: 16px;
+    width: 90%;
+    max-width: 320px;
+    z-index: 11;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+}
+
+#weight-modal.hidden {
+    display: none;
+}
+
+#weight-modal h3 {
+    margin: 0 0 20px 0;
+    font-size: 18px;
+}

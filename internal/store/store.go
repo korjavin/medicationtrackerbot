@@ -84,6 +84,19 @@ type BloodPressure struct {
 	Tag        string    `json:"tag,omitempty"`
 }
 
+type WeightLog struct {
+	ID              int64     `json:"id"`
+	UserID          int64     `json:"user_id"`
+	MeasuredAt      time.Time `json:"measured_at"`
+	Weight          float64   `json:"weight"`
+	WeightTrend     *float64  `json:"weight_trend,omitempty"`
+	BodyFat         *float64  `json:"body_fat,omitempty"`
+	BodyFatTrend    *float64  `json:"body_fat_trend,omitempty"`
+	MuscleMass      *float64  `json:"muscle_mass,omitempty"`
+	MuscleMassTrend *float64  `json:"muscle_mass_trend,omitempty"`
+	Notes           string    `json:"notes,omitempty"`
+}
+
 func CalculateBPCategory(systolic, diastolic int) string {
 	// Hypertensive Crisis: >180 or >120
 	if systolic > 180 || diastolic > 120 {
@@ -537,4 +550,128 @@ func (s *Store) ImportBloodPressureReadings(ctx context.Context, userID int64, r
 	}
 
 	return tx.Commit()
+}
+
+// -- Weight Tracking --
+
+func (s *Store) CreateWeightLog(ctx context.Context, w *WeightLog) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		"INSERT INTO weight_logs (user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		w.UserID, w.MeasuredAt, w.Weight, w.WeightTrend, w.BodyFat, w.BodyFatTrend, w.MuscleMass, w.MuscleMassTrend, w.Notes)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) GetWeightLogs(ctx context.Context, userID int64, days int) ([]WeightLog, error) {
+	query := "SELECT id, user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes FROM weight_logs WHERE user_id = ?"
+	args := []interface{}{userID}
+
+	if days > 0 {
+		since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+		query += " AND measured_at >= ?"
+		args = append(args, since)
+	}
+
+	query += " ORDER BY measured_at DESC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []WeightLog
+	for rows.Next() {
+		var w WeightLog
+		var weightTrend, bodyFat, bodyFatTrend, muscleMass, muscleMassTrend sql.NullFloat64
+		var notes sql.NullString
+
+		if err := rows.Scan(&w.ID, &w.UserID, &w.MeasuredAt, &w.Weight, &weightTrend, &bodyFat, &bodyFatTrend, &muscleMass, &muscleMassTrend, &notes); err != nil {
+			return nil, err
+		}
+
+		if weightTrend.Valid {
+			w.WeightTrend = &weightTrend.Float64
+		}
+		if bodyFat.Valid {
+			w.BodyFat = &bodyFat.Float64
+		}
+		if bodyFatTrend.Valid {
+			w.BodyFatTrend = &bodyFatTrend.Float64
+		}
+		if muscleMass.Valid {
+			w.MuscleMass = &muscleMass.Float64
+		}
+		if muscleMassTrend.Valid {
+			w.MuscleMassTrend = &muscleMassTrend.Float64
+		}
+		if notes.Valid {
+			w.Notes = notes.String
+		}
+
+		logs = append(logs, w)
+	}
+	return logs, nil
+}
+
+func (s *Store) DeleteWeightLog(ctx context.Context, id, userID int64) error {
+	res, err := s.db.ExecContext(ctx, "DELETE FROM weight_logs WHERE id = ? AND user_id = ?", id, userID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) GetLastWeightLog(ctx context.Context, userID int64) (*WeightLog, error) {
+	var w WeightLog
+	var weightTrend, bodyFat, bodyFatTrend, muscleMass, muscleMassTrend sql.NullFloat64
+	var notes sql.NullString
+
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id, user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes FROM weight_logs WHERE user_id = ? ORDER BY measured_at DESC LIMIT 1",
+		userID).Scan(&w.ID, &w.UserID, &w.MeasuredAt, &w.Weight, &weightTrend, &bodyFat, &bodyFatTrend, &muscleMass, &muscleMassTrend, &notes)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if weightTrend.Valid {
+		w.WeightTrend = &weightTrend.Float64
+	}
+	if bodyFat.Valid {
+		w.BodyFat = &bodyFat.Float64
+	}
+	if bodyFatTrend.Valid {
+		w.BodyFatTrend = &bodyFatTrend.Float64
+	}
+	if muscleMass.Valid {
+		w.MuscleMass = &muscleMass.Float64
+	}
+	if muscleMassTrend.Valid {
+		w.MuscleMassTrend = &muscleMassTrend.Float64
+	}
+	if notes.Valid {
+		w.Notes = notes.String
+	}
+
+	return &w, nil
+}
+
+// CalculateWeightTrend calculates a simple exponential moving average
+// alpha = 0.1 gives roughly a 20-day smoothing
+func CalculateWeightTrend(currentWeight float64, previousTrend *float64) float64 {
+	if previousTrend == nil {
+		return currentWeight
+	}
+	alpha := 0.1
+	return alpha*currentWeight + (1-alpha)**previousTrend
 }

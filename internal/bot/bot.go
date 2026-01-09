@@ -72,24 +72,27 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	msgConfig := tgbotapi.NewMessage(msg.Chat.ID, "")
 	switch msg.Command() {
 	case "help":
-		msgConfig.Text = `**Medication Tracker Bot** - Track medications and blood pressure.
+		msgConfig.Text = `**Medication Tracker Bot** - Track medications, blood pressure, and weight.
 
 **Commands:**
 /start - Start the bot and open the Mini App
 /log - Manually log a dose for any medication (useful for "As Needed" meds)
-/download - Export medication and blood pressure history to CSV
+/download - Export medication, blood pressure, and weight history to CSV
 /bp <systolic> <diastolic> [pulse] - Log blood pressure reading
   Example: /bp 130 80 72
 /bphistory - View recent blood pressure history (last 10 readings)
 /bpstats - View blood pressure statistics (30-day averages)
+/weight <kg> - Log weight in kilograms
+  Example: /weight 75.5
+/weighthistory - View recent weight history (last 10 entries)
 
 **How to use:**
 1. Click the "Menu" button to open the App
 2. Add your medications and set schedules
 3. The bot will notify you when it's time to take them
 4. Click "Confirm" on the notification to log usage
-5. Use the Blood Pressure tab to track your BP readings
-6. Use /download to export both medication and BP data for any time period`
+5. Use the tabs to track your BP readings and weight
+6. Use /download to export all data for any time period`
 		msgConfig.ParseMode = "Markdown"
 	case "log":
 		// Fetch active medications
@@ -136,6 +139,10 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		b.handleBPHistoryCommand(&msgConfig)
 	case "bpstats":
 		b.handleBPStatsCommand(&msgConfig)
+	case "weight":
+		b.handleWeightCommand(msg, &msgConfig)
+	case "weighthistory":
+		b.handleWeightHistoryCommand(&msgConfig)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}
@@ -370,7 +377,21 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 		}
 	}
 
-	if len(intakes) == 0 && len(filteredBP) == 0 {
+	// Get weight logs
+	weightLogs, err := b.store.GetWeightLogs(context.Background(), b.allowedUserID, days)
+	if err != nil {
+		log.Printf("Error getting weight logs: %v", err)
+	}
+
+	// Filter weight logs by since date
+	var filteredWeight []store.WeightLog
+	for _, w := range weightLogs {
+		if w.MeasuredAt.After(since) || w.MeasuredAt.Equal(since) {
+			filteredWeight = append(filteredWeight, w)
+		}
+	}
+
+	if len(intakes) == 0 && len(filteredBP) == 0 && len(filteredWeight) == 0 {
 		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "No records found for the selected period."))
 		return
 	}
@@ -412,6 +433,21 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 				Bytes: bpCSV,
 			})
 			doc.Caption = fmt.Sprintf("Blood pressure export (%d records)", len(filteredBP))
+			b.api.Send(doc)
+		}
+	}
+
+	// Send weight CSV if available
+	if len(filteredWeight) > 0 {
+		weightCSV, err := b.generateWeightCSV(filteredWeight)
+		if err != nil {
+			log.Printf("Error generating weight CSV: %v", err)
+		} else {
+			doc := tgbotapi.NewDocument(cb.Message.Chat.ID, tgbotapi.FileBytes{
+				Name:  "weight_export.csv",
+				Bytes: weightCSV,
+			})
+			doc.Caption = fmt.Sprintf("Weight export (%d records)", len(filteredWeight))
 			b.api.Send(doc)
 		}
 	}
@@ -655,6 +691,58 @@ func (b *Bot) generateBPCSV(readings []store.BloodPressure) ([]byte, error) {
 	return buf.Bytes(), writer.Error()
 }
 
+func (b *Bot) generateWeightCSV(logs []store.WeightLog) ([]byte, error) {
+	buf := &bytes.Buffer{}
+	writer := csv.NewWriter(buf)
+
+	// Write header in Libra format
+	writer.Write([]string{"#Version: 6"})
+	writer.Write([]string{"#Units: kg"})
+	writer.Write([]string{""})
+	writer.Write([]string{"#date;weight;weight trend;body fat;body fat trend;muscle mass;muscle mass trend;log"})
+
+	// Write data rows
+	for _, w := range logs {
+		dateTime := w.MeasuredAt.Format("2006-01-02T15:04:05.000Z")
+
+		weight := fmt.Sprintf("%.1f", w.Weight)
+		weightTrend := ""
+		if w.WeightTrend != nil {
+			weightTrend = fmt.Sprintf("%.1f", *w.WeightTrend)
+		}
+
+		bodyFat := ""
+		if w.BodyFat != nil {
+			bodyFat = fmt.Sprintf("%.1f", *w.BodyFat)
+		}
+
+		bodyFatTrend := ""
+		if w.BodyFatTrend != nil {
+			bodyFatTrend = fmt.Sprintf("%.1f", *w.BodyFatTrend)
+		}
+
+		muscleMass := ""
+		if w.MuscleMass != nil {
+			muscleMass = fmt.Sprintf("%.1f", *w.MuscleMass)
+		}
+
+		muscleMassTrend := ""
+		if w.MuscleMassTrend != nil {
+			muscleMassTrend = fmt.Sprintf("%.1f", *w.MuscleMassTrend)
+		}
+
+		row := []string{
+			dateTime + ";" + weight + ";" + weightTrend + ";" + bodyFat + ";" + bodyFatTrend + ";" + muscleMass + ";" + muscleMassTrend + ";" + w.Notes,
+		}
+		if err := writer.Write(row); err != nil {
+			return nil, err
+		}
+	}
+
+	writer.Flush()
+	return buf.Bytes(), writer.Error()
+}
+
 func parseBPArgs(args string) []string {
 	var parts []string
 	var current []byte
@@ -672,4 +760,108 @@ func parseBPArgs(args string) []string {
 		parts = append(parts, string(current))
 	}
 	return parts
+}
+
+// -- Weight Tracking Commands --
+
+func (b *Bot) handleWeightCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.MessageConfig) {
+	args := msg.CommandArguments()
+	if args == "" {
+		msgConfig.Text = `**Weight Logging**
+
+Usage: /weight <weight_in_kg>
+
+Examples:
+  /weight 75.5 - Log weight 75.5 kg
+  /weight 80.2 - Log weight 80.2 kg
+
+The system will automatically calculate your weight trend over time.`
+		msgConfig.ParseMode = "Markdown"
+		return
+	}
+
+	parts := strings.Fields(args)
+	if len(parts) < 1 {
+		msgConfig.Text = "❌ Invalid format. Use: /weight <weight_in_kg>"
+		return
+	}
+
+	weight, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil || weight < 30 || weight > 300 {
+		msgConfig.Text = "❌ Invalid weight value (30-300 kg)"
+		return
+	}
+
+	// Get last weight log to calculate trend
+	lastLog, err := b.store.GetLastWeightLog(context.Background(), b.allowedUserID)
+	if err != nil {
+		log.Printf("Error getting last weight log: %v", err)
+	}
+
+	var previousTrend *float64
+	if lastLog != nil && lastLog.WeightTrend != nil {
+		previousTrend = lastLog.WeightTrend
+	}
+
+	weightTrend := store.CalculateWeightTrend(weight, previousTrend)
+
+	wLog := &store.WeightLog{
+		UserID:      b.allowedUserID,
+		MeasuredAt:  time.Now(),
+		Weight:      weight,
+		WeightTrend: &weightTrend,
+	}
+
+	_, err = b.store.CreateWeightLog(context.Background(), wLog)
+	if err != nil {
+		log.Printf("Error creating weight log: %v", err)
+		msgConfig.Text = "❌ Error saving weight log."
+		return
+	}
+
+	trendInfo := ""
+	if lastLog != nil {
+		diff := weight - lastLog.Weight
+		trendDiff := weightTrend - *lastLog.WeightTrend
+		if diff > 0 {
+			trendInfo = fmt.Sprintf("\n📈 Change: +%.1f kg (trend: %+.1f kg)", diff, trendDiff)
+		} else if diff < 0 {
+			trendInfo = fmt.Sprintf("\n📉 Change: %.1f kg (trend: %.1f kg)", diff, trendDiff)
+		}
+	}
+
+	msgConfig.Text = fmt.Sprintf("✅ Weight recorded: %.1f kg\n📊 Trend: %.1f kg%s", weight, weightTrend, trendInfo)
+}
+
+func (b *Bot) handleWeightHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
+	logs, err := b.store.GetWeightLogs(context.Background(), b.allowedUserID, 30)
+	if err != nil {
+		log.Printf("Error getting weight logs: %v", err)
+		msgConfig.Text = "❌ Error retrieving weight history."
+		return
+	}
+
+	if len(logs) == 0 {
+		msgConfig.Text = "📊 Weight History (last 10):\n\nNo records for the last 30 days."
+		return
+	}
+
+	// Limit to 10
+	if len(logs) > 10 {
+		logs = logs[:10]
+	}
+
+	var sb strings.Builder
+	sb.WriteString("📊 Weight History (last 10):\n\n")
+
+	for _, w := range logs {
+		dateStr := w.MeasuredAt.Format("02.01.2006 15:04")
+		trendStr := ""
+		if w.WeightTrend != nil {
+			trendStr = fmt.Sprintf(" (trend: %.1f kg)", *w.WeightTrend)
+		}
+		sb.WriteString(fmt.Sprintf("%s — %.1f kg%s\n", dateStr, w.Weight, trendStr))
+	}
+
+	msgConfig.Text = sb.String()
 }

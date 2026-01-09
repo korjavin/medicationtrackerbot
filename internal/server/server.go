@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -78,6 +79,12 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("DELETE /api/bp/{id}", s.handleDeleteBloodPressure)
 	apiMux.HandleFunc("POST /api/bp/import", s.handleImportBloodPressure)
 	apiMux.HandleFunc("GET /api/bp/export", s.handleExportBloodPressure)
+
+	// Weight endpoints
+	apiMux.HandleFunc("POST /api/weight", s.handleCreateWeight)
+	apiMux.HandleFunc("GET /api/weight", s.handleListWeight)
+	apiMux.HandleFunc("DELETE /api/weight/{id}", s.handleDeleteWeight)
+	apiMux.HandleFunc("GET /api/weight/export", s.handleExportWeight)
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
@@ -460,4 +467,178 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(logs)
+}
+
+// -- Weight Handlers --
+
+func (s *Server) handleCreateWeight(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	var req struct {
+		MeasuredAt      time.Time `json:"measured_at"`
+		Weight          float64   `json:"weight"`
+		BodyFat         *float64  `json:"body_fat,omitempty"`
+		MuscleMass      *float64  `json:"muscle_mass,omitempty"`
+		Notes           string    `json:"notes,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Get last weight log to calculate trend
+	lastLog, err := s.store.GetLastWeightLog(r.Context(), userID)
+	if err != nil {
+		// Log error but continue
+	}
+
+	var previousTrend *float64
+	if lastLog != nil && lastLog.WeightTrend != nil {
+		previousTrend = lastLog.WeightTrend
+	}
+
+	weightTrend := store.CalculateWeightTrend(req.Weight, previousTrend)
+
+	wLog := &store.WeightLog{
+		UserID:      userID,
+		MeasuredAt:  req.MeasuredAt,
+		Weight:      req.Weight,
+		WeightTrend: &weightTrend,
+		BodyFat:     req.BodyFat,
+		MuscleMass:  req.MuscleMass,
+		Notes:       req.Notes,
+	}
+
+	id, err := s.store.CreateWeightLog(r.Context(), wLog)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	wLog.ID = id
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(wLog)
+}
+
+func (s *Server) handleListWeight(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	// Parse query params
+	days := 30 // Default
+	if dStr := r.URL.Query().Get("days"); dStr != "" {
+		if d, err := strconv.Atoi(dStr); err == nil {
+			days = d
+		}
+	}
+
+	limit := 100 // Default
+	if lStr := r.URL.Query().Get("limit"); lStr != "" {
+		if l, err := strconv.Atoi(lStr); err == nil {
+			limit = l
+		}
+	}
+
+	logs, err := s.store.GetWeightLogs(r.Context(), userID, days)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if limit > 0 && len(logs) > limit {
+		logs = logs[:limit]
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(logs)
+}
+
+func (s *Server) handleDeleteWeight(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.DeleteWeightLog(r.Context(), id, userID); err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Weight log not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleExportWeight(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	// Parse query params
+	var days int
+	if dStr := r.URL.Query().Get("days"); dStr != "" {
+		if d, err := strconv.Atoi(dStr); err == nil {
+			days = d
+		}
+	}
+
+	logs, err := s.store.GetWeightLogs(r.Context(), userID, days)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", "attachment; filename=weight_export.csv")
+
+	wr := csv.NewWriter(w)
+	defer wr.Flush()
+
+	// Write CSV header in Libra format
+	wr.Write([]string{"#Version: 6"})
+	wr.Write([]string{"#Units: kg"})
+	wr.Write([]string{""})
+	wr.Write([]string{"#date;weight;weight trend;body fat;body fat trend;muscle mass;muscle mass trend;log"})
+
+	// Write data rows
+	for _, wLog := range logs {
+		weight := fmt.Sprintf("%.1f", wLog.Weight)
+		weightTrend := ""
+		if wLog.WeightTrend != nil {
+			weightTrend = fmt.Sprintf("%.1f", *wLog.WeightTrend)
+		}
+
+		bodyFat := ""
+		if wLog.BodyFat != nil {
+			bodyFat = fmt.Sprintf("%.1f", *wLog.BodyFat)
+		}
+
+		bodyFatTrend := ""
+		if wLog.BodyFatTrend != nil {
+			bodyFatTrend = fmt.Sprintf("%.1f", *wLog.BodyFatTrend)
+		}
+
+		muscleMass := ""
+		if wLog.MuscleMass != nil {
+			muscleMass = fmt.Sprintf("%.1f", *wLog.MuscleMass)
+		}
+
+		muscleMassTrend := ""
+		if wLog.MuscleMassTrend != nil {
+			muscleMassTrend = fmt.Sprintf("%.1f", *wLog.MuscleMassTrend)
+		}
+
+		notes := strings.ReplaceAll(wLog.Notes, "\n", " ")
+		notes = strings.ReplaceAll(notes, "\r", "")
+
+		row := []string{
+			wLog.MeasuredAt.Format("2006-01-02T15:04:05.000Z") + ";" + weight + ";" + weightTrend + ";" + bodyFat + ";" + bodyFatTrend + ";" + muscleMass + ";" + muscleMassTrend + ";" + notes,
+		}
+		if err := wr.Write(row); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 }

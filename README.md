@@ -33,12 +33,19 @@ A private, self-hosted Telegram Mini App for medication tracking, designed to re
     - Export to CSV for analysis.
     - BP categories based on AHA guidelines.
 
+- **Weight Tracking**:
+    - Log weight in kilograms with automatic trend calculation.
+    - Exponential moving average for smooth trend visualization.
+    - View history with weight and trend comparison.
+    - Export to CSV in Libra format (compatible with Libra app).
+    - Weekly reminders if no weight logged.
+
 ## Chat Commands
 
 ### Medication Commands
 - `/start` - Launch the Mini App.
 - `/log` - Log a dose for any medication (great for "As Needed" meds).
-- `/download` - Export medication and blood pressure history to CSV (select time period).
+- `/download` - Export medication, blood pressure, and weight history to CSV (select time period).
 - `/help` - Show instructions.
 
 ### Blood Pressure Commands
@@ -46,6 +53,11 @@ A private, self-hosted Telegram Mini App for medication tracking, designed to re
   - Example: `/bp 130 80 72` (130/80 mmHg, 72 bpm pulse)
 - `/bphistory` - View blood pressure history.
 - `/bpstats` - View blood pressure statistics (averages, trends).
+
+### Weight Commands
+- `/weight <kg>` - Log weight in kilograms.
+  - Example: `/weight 75.5`
+- `/weighthistory` - View recent weight history (last 10 entries).
 
 ## Configuration
 
