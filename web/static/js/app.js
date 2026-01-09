@@ -1040,7 +1040,10 @@ async function handleWeightSubmit(event) {
 // Render weight chart using SVG (Lightweight & Cute)
 function renderWeightChart(logs) {
     const container = document.getElementById('weightChart');
-    if (!container) return;
+    if (!container) { console.error('Weight chart container not found'); return; }
+
+    console.log('Rendering weight chart. Container:', container.clientWidth, 'x', container.clientHeight);
+    console.log('Logs count:', logs ? logs.length : 0);
 
     container.innerHTML = ''; // Clear previous
 
