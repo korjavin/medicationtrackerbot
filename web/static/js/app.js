@@ -1037,100 +1037,117 @@ async function handleWeightSubmit(event) {
 }
 
 // Render weight chart
+// Render weight chart using SVG (Lightweight & Cute)
 function renderWeightChart(logs) {
-    const ctx = document.getElementById('weightChart');
-    if (!ctx) return;
+    const container = document.getElementById('weightChart');
+    if (!container) return;
 
-    // Destroy existing chart if it exists
-    if (window.weightChartInstance) {
-        window.weightChartInstance.destroy();
-    }
+    container.innerHTML = ''; // Clear previous
 
     if (!logs || logs.length === 0) {
-        // No data - show placeholder
+        container.innerHTML = '<span style="color:var(--hint-color);font-size:14px;">No data available</span>';
         return;
     }
 
-    // Sort logs by date (oldest first for the chart)
+    // Sort logs by date (oldest first)
     const sortedLogs = [...logs].sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
+    const data = sortedLogs.map(w => ({
+        date: new Date(w.measured_at),
+        val: w.weight
+    }));
 
-    const labels = sortedLogs.map(w => {
-        const d = new Date(w.measured_at);
-        return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+    // Dimensions
+    const width = container.clientWidth - 20; // Padding
+    const height = container.clientHeight - 40; // Padding
+    const padding = 10;
+
+    // Min/Max
+    const vals = data.map(d => d.val);
+    const minVal = Math.min(...vals);
+    const maxVal = Math.max(...vals);
+    const range = maxVal - minVal || 1; // Avoid divide by zero
+
+    // Scales
+    const xScale = (i) => (i / (data.length - 1)) * width;
+
+    // Y Scale with padding (10% top/bottom)
+    const yPad = range * 0.1;
+    const effectiveMin = minVal - yPad;
+    const effectiveMax = maxVal + yPad;
+    const effectiveRange = effectiveMax - effectiveMin;
+
+    const yScale = (v) => height - ((v - effectiveMin) / effectiveRange) * height;
+
+    // Generate Points
+    const points = data.map((d, i) => [xScale(i), yScale(d.val)]);
+
+    // Generate Path (Soft curves using simple smoothing or straight lines)
+    // For "cute" look, we use simple straight lines with rounded joins (handled by CSS)
+    let pathD = `M ${points[0][0]},${points[0][1]}`;
+    points.forEach((p, i) => {
+        if (i === 0) return;
+        pathD += ` L ${p[0]},${p[1]}`;
     });
 
-    const data = sortedLogs.map(w => w.weight);
+    // Area Path
+    const areaD = `${pathD} L ${points[points.length - 1][0]},${height} L ${points[0][0]},${height} Z`;
 
-    // Calculate min/max for y-axis
-    const minWeight = Math.min(...data);
-    const maxWeight = Math.max(...data);
-    const padding = (maxWeight - minWeight) * 0.1 || 1;
+    // SVG Construction
+    const svgNs = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNs, "svg");
+    svg.setAttribute("class", "chart-svg");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height + 20}`); // Extra space for labels
 
-    window.weightChartInstance = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Weight (kg)',
-                data: data,
-                borderColor: '#4ECDC4',
-                backgroundColor: 'rgba(78, 205, 196, 0.1)',
-                fill: true,
-                tension: 0.3,
-                pointRadius: 2,
-                pointHoverRadius: 5,
-                pointBackgroundColor: '#4ECDC4',
-                borderWidth: 2
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: false,
-            interaction: {
-                mode: 'index',
-                intersect: false,
-            },
-            plugins: {
-                legend: {
-                    display: false
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function (context) {
-                            return context.parsed.y.toFixed(1) + ' kg';
-                        }
-                    }
-                }
-            },
-            scales: {
-                y: {
-                    min: Math.floor(minWeight - padding),
-                    max: Math.ceil(maxWeight + padding),
-                    grid: {
-                        display: true,
-                        color: 'rgba(0,0,0,0.05)'
-                    },
-                    ticks: {
-                        callback: function (value) {
-                            return value.toFixed(1);
-                        },
-                        font: { size: 11 }
-                    }
-                },
-                x: {
-                    grid: {
-                        display: false
-                    },
-                    ticks: {
-                        maxTicksLimit: 6,
-                        maxRotation: 0,
-                        font: { size: 10 }
-                    }
-                }
-            }
+    // 1. Area
+    const pathArea = document.createElementNS(svgNs, "path");
+    pathArea.setAttribute("d", areaD);
+    pathArea.setAttribute("class", "chart-area");
+    svg.appendChild(pathArea);
+
+    // 2. Line
+    const pathLine = document.createElementNS(svgNs, "path");
+    pathLine.setAttribute("d", pathD);
+    pathLine.setAttribute("class", "chart-line");
+    svg.appendChild(pathLine);
+
+    // 3. Points & Tooltips (Interactive-ish)
+    points.forEach((p, i) => {
+        const circle = document.createElementNS(svgNs, "circle");
+        circle.setAttribute("cx", p[0]);
+        circle.setAttribute("cy", p[1]);
+        circle.setAttribute("r", 4);
+        circle.setAttribute("class", "chart-point");
+        svg.appendChild(circle);
+
+        // Simple Label for Min/Max or First/Last
+        if (i === 0 || i === points.length - 1 || data[i].val === minVal || data[i].val === maxVal) {
+            const text = document.createElementNS(svgNs, "text");
+            text.setAttribute("x", p[0]);
+            text.setAttribute("y", p[1] - 10);
+            text.setAttribute("class", "chart-label");
+            text.textContent = data[i].val.toFixed(1);
+            svg.appendChild(text);
         }
     });
+
+    // 4. Date Labels (First and Last)
+    const firstDate = document.createElementNS(svgNs, "text");
+    firstDate.setAttribute("x", 0);
+    firstDate.setAttribute("y", height + 15);
+    firstDate.setAttribute("class", "chart-label");
+    firstDate.setAttribute("style", "text-anchor: start");
+    firstDate.textContent = data[0].date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+    svg.appendChild(firstDate);
+
+    const lastDate = document.createElementNS(svgNs, "text");
+    lastDate.setAttribute("x", width);
+    lastDate.setAttribute("y", height + 15);
+    lastDate.setAttribute("class", "chart-label");
+    lastDate.setAttribute("style", "text-anchor: end");
+    lastDate.textContent = data[data.length - 1].date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+    svg.appendChild(lastDate);
+
+    container.appendChild(svg);
 }
 
 async function loadWeightLogs() {
