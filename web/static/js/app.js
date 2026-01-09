@@ -1096,6 +1096,9 @@ function renderWeightChart(logs) {
     const svgNs = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNs, "svg");
     svg.setAttribute("class", "chart-svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("preserveAspectRatio", "none");
     svg.setAttribute("viewBox", `0 0 ${width} ${height + 20}`); // Extra space for labels
 
     // 1. Area
