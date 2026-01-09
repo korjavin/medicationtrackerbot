@@ -85,6 +85,8 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 /weight <kg> - Log weight in kilograms
   Example: /weight 75.5
 /weighthistory - View recent weight history (last 10 entries)
+/goal <weight> <date> - Set weight goal
+  Example: /goal 110 2026-06-01
 
 **How to use:**
 1. Click the "Menu" button to open the App
@@ -143,6 +145,8 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		b.handleWeightCommand(msg, &msgConfig)
 	case "weighthistory":
 		b.handleWeightHistoryCommand(&msgConfig)
+	case "goal":
+		b.handleGoalCommand(msg, &msgConfig)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}
@@ -846,4 +850,66 @@ func (b *Bot) handleWeightHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 	}
 
 	msgConfig.Text = sb.String()
+}
+
+func (b *Bot) handleGoalCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.MessageConfig) {
+	args := msg.CommandArguments()
+	if args == "" {
+		// Show current goal
+		goal, err := b.store.GetWeightGoal()
+		if err != nil {
+			log.Printf("Error getting weight goal: %v", err)
+			msgConfig.Text = "❌ Error retrieving weight goal."
+			return
+		}
+
+		if goal.Goal == nil {
+			msgConfig.Text = `**Weight Goal**
+
+No goal set. Use: /goal <weight> <date>
+
+Example: /goal 110 2026-06-01`
+			msgConfig.ParseMode = "Markdown"
+			return
+		}
+
+		dateStr := "not set"
+		if goal.GoalDate != nil {
+			dateStr = goal.GoalDate.Format("02.01.2006")
+		}
+		msgConfig.Text = fmt.Sprintf("🎯 Weight Goal: %.1f kg by %s", *goal.Goal, dateStr)
+		return
+	}
+
+	parts := strings.Fields(args)
+	if len(parts) < 2 {
+		msgConfig.Text = "❌ Invalid format. Use: /goal <weight> <date>\nExample: /goal 110 2026-06-01"
+		return
+	}
+
+	weight, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil || weight < 30 || weight > 300 {
+		msgConfig.Text = "❌ Invalid weight value (30-300 kg)"
+		return
+	}
+
+	targetDate, err := time.Parse("2006-01-02", parts[1])
+	if err != nil {
+		msgConfig.Text = "❌ Invalid date format. Use YYYY-MM-DD (e.g., 2026-06-01)"
+		return
+	}
+
+	if targetDate.Before(time.Now()) {
+		msgConfig.Text = "❌ Goal date must be in the future"
+		return
+	}
+
+	err = b.store.SetWeightGoal(weight, targetDate)
+	if err != nil {
+		log.Printf("Error setting weight goal: %v", err)
+		msgConfig.Text = "❌ Error saving weight goal."
+		return
+	}
+
+	msgConfig.Text = fmt.Sprintf("✅ Weight goal set: %.1f kg by %s", weight, targetDate.Format("02.01.2006"))
 }

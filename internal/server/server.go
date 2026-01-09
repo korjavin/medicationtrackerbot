@@ -85,6 +85,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/weight", s.handleListWeight)
 	apiMux.HandleFunc("DELETE /api/weight/{id}", s.handleDeleteWeight)
 	apiMux.HandleFunc("GET /api/weight/export", s.handleExportWeight)
+	apiMux.HandleFunc("GET /api/weight/goal", s.handleGetWeightGoal)
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
@@ -480,11 +481,11 @@ func (s *Server) handleCreateWeight(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	var req struct {
-		MeasuredAt      time.Time `json:"measured_at"`
-		Weight          float64   `json:"weight"`
-		BodyFat         *float64  `json:"body_fat,omitempty"`
-		MuscleMass      *float64  `json:"muscle_mass,omitempty"`
-		Notes           string    `json:"notes,omitempty"`
+		MeasuredAt time.Time `json:"measured_at"`
+		Weight     float64   `json:"weight"`
+		BodyFat    *float64  `json:"body_fat,omitempty"`
+		MuscleMass *float64  `json:"muscle_mass,omitempty"`
+		Notes      string    `json:"notes,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -651,4 +652,15 @@ func (s *Server) handleExportWeight(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func (s *Server) handleGetWeightGoal(w http.ResponseWriter, r *http.Request) {
+	goal, err := s.store.GetWeightGoal()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(goal)
 }
