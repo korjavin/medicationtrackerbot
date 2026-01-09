@@ -831,14 +831,220 @@ async function loadBPReadings() {
     const list = document.getElementById('bp-list');
     list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
 
-    const res = await apiCall('/api/bp?days=30');
+    const [readingsRes, goalRes] = await Promise.all([
+        apiCall('/api/bp?days=30'),
+        apiCall('/api/bp/goal')
+    ]);
 
-    if (res === null) {
+    if (readingsRes === null) {
         list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load readings</li>';
         return;
     }
 
-    renderBPReadings(res || []);
+    renderBPChart(readingsRes || [], goalRes || {});
+    renderBPReadings(readingsRes || []);
+}
+
+// Render BP Chart with smooth curves
+function renderBPChart(readings, goalData) {
+    const container = document.getElementById('bpChart');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (!readings || readings.length === 0) {
+        container.innerHTML = '<span style="color:var(--hint-color);font-size:14px;">No data available</span>';
+        return;
+    }
+
+    // Sort by date (oldest first)
+    const sorted = [...readings].sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
+
+    // Extract data series
+    const data = sorted.map(r => ({
+        date: new Date(r.measured_at),
+        sys: r.systolic,
+        dia: r.diastolic,
+        pulse: r.pulse
+    }));
+
+    // Dimensions
+    const leftPadding = 35;
+    const totalWidth = container.clientWidth;
+    const chartWidth = totalWidth - leftPadding - 10;
+    const chartHeight = container.clientHeight - 35;
+
+    // Find min/max across all series
+    let minVal = Math.min(...data.map(d => d.dia), ...data.filter(d => d.pulse).map(d => d.pulse));
+    let maxVal = Math.max(...data.map(d => d.sys), ...data.filter(d => d.pulse).map(d => d.pulse));
+
+    // Include goals in range
+    if (goalData && goalData.target_systolic) {
+        maxVal = Math.max(maxVal, goalData.target_systolic);
+    }
+    if (goalData && goalData.target_diastolic) {
+        minVal = Math.min(minVal, goalData.target_diastolic);
+    }
+
+    const range = maxVal - minVal || 1;
+    const yPad = range * 0.1;
+    const effectiveMin = minVal - yPad;
+    const effectiveMax = maxVal + yPad;
+    const effectiveRange = effectiveMax - effectiveMin;
+
+    // Date range
+    const firstDate = data[0].date;
+    const lastDate = data[data.length - 1].date;
+    const dateRange = lastDate - firstDate || 1;
+
+    const xScaleByDate = (date) => leftPadding + ((date - firstDate) / dateRange) * chartWidth;
+    const yScale = (v) => chartHeight - ((v - effectiveMin) / effectiveRange) * chartHeight;
+
+    // Helper: generate smooth bezier path from points
+    const smoothPath = (points) => {
+        if (points.length < 2) return '';
+        let d = `M ${points[0][0]},${points[0][1]}`;
+        for (let i = 1; i < points.length; i++) {
+            const prev = points[i - 1];
+            const curr = points[i];
+            const cpx = (prev[0] + curr[0]) / 2;
+            d += ` Q ${prev[0]},${prev[1]} ${cpx},${(prev[1] + curr[1]) / 2}`;
+        }
+        // Final segment
+        const last = points[points.length - 1];
+        d += ` L ${last[0]},${last[1]}`;
+        return d;
+    };
+
+    // Generate points for each series
+    const sysPoints = data.map(d => [xScaleByDate(d.date), yScale(d.sys)]);
+    const diaPoints = data.map(d => [xScaleByDate(d.date), yScale(d.dia)]);
+    const pulsePoints = data.filter(d => d.pulse).map(d => [xScaleByDate(d.date), yScale(d.pulse)]);
+
+    // SVG Construction
+    const svgNs = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNs, "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("viewBox", `0 0 ${totalWidth} ${chartHeight + 20}`);
+
+    // Y-Axis Labels
+    const yAxisValues = [Math.round(minVal), Math.round(maxVal)];
+    yAxisValues.forEach(val => {
+        const y = yScale(val);
+        const text = document.createElementNS(svgNs, "text");
+        text.setAttribute("x", leftPadding - 5);
+        text.setAttribute("y", y + 4);
+        text.setAttribute("class", "chart-label");
+        text.setAttribute("style", "text-anchor: end; fill: var(--hint-color);");
+        text.textContent = val;
+        svg.appendChild(text);
+
+        const gridLine = document.createElementNS(svgNs, "line");
+        gridLine.setAttribute("x1", leftPadding);
+        gridLine.setAttribute("y1", y);
+        gridLine.setAttribute("x2", totalWidth - 10);
+        gridLine.setAttribute("y2", y);
+        gridLine.setAttribute("class", "chart-grid");
+        svg.appendChild(gridLine);
+    });
+
+    // Goal lines
+    if (goalData && goalData.target_systolic) {
+        const y = yScale(goalData.target_systolic);
+        const line = document.createElementNS(svgNs, "line");
+        line.setAttribute("x1", leftPadding);
+        line.setAttribute("y1", y);
+        line.setAttribute("x2", totalWidth - 10);
+        line.setAttribute("y2", y);
+        line.setAttribute("class", "bp-chart-target");
+        svg.appendChild(line);
+
+        const label = document.createElementNS(svgNs, "text");
+        label.setAttribute("x", totalWidth - 15);
+        label.setAttribute("y", y - 3);
+        label.setAttribute("class", "chart-label");
+        label.setAttribute("style", "text-anchor: end; fill: #f97316; font-size: 10px;");
+        label.textContent = `High ${goalData.target_systolic}`;
+        svg.appendChild(label);
+    }
+
+    if (goalData && goalData.target_diastolic) {
+        const y = yScale(goalData.target_diastolic);
+        const line = document.createElementNS(svgNs, "line");
+        line.setAttribute("x1", leftPadding);
+        line.setAttribute("y1", y);
+        line.setAttribute("x2", totalWidth - 10);
+        line.setAttribute("y2", y);
+        line.setAttribute("class", "bp-chart-target");
+        svg.appendChild(line);
+
+        const label = document.createElementNS(svgNs, "text");
+        label.setAttribute("x", totalWidth - 15);
+        label.setAttribute("y", y + 10);
+        label.setAttribute("class", "chart-label");
+        label.setAttribute("style", "text-anchor: end; fill: #f97316; font-size: 10px;");
+        label.textContent = `Low ${goalData.target_diastolic}`;
+        svg.appendChild(label);
+    }
+
+    // Draw pulse line (behind others)
+    if (pulsePoints.length > 1) {
+        const pulsePath = document.createElementNS(svgNs, "path");
+        pulsePath.setAttribute("d", smoothPath(pulsePoints));
+        pulsePath.setAttribute("class", "bp-chart-pulse");
+        svg.appendChild(pulsePath);
+    }
+
+    // Draw diastolic line
+    const diaPath = document.createElementNS(svgNs, "path");
+    diaPath.setAttribute("d", smoothPath(diaPoints));
+    diaPath.setAttribute("class", "bp-chart-diastolic");
+    svg.appendChild(diaPath);
+
+    // Draw systolic line
+    const sysPath = document.createElementNS(svgNs, "path");
+    sysPath.setAttribute("d", smoothPath(sysPoints));
+    sysPath.setAttribute("class", "bp-chart-systolic");
+    svg.appendChild(sysPath);
+
+    // Draw points
+    sysPoints.forEach(p => {
+        const circle = document.createElementNS(svgNs, "circle");
+        circle.setAttribute("cx", p[0]);
+        circle.setAttribute("cy", p[1]);
+        circle.setAttribute("r", 3);
+        circle.setAttribute("class", "bp-chart-point-sys");
+        svg.appendChild(circle);
+    });
+
+    diaPoints.forEach(p => {
+        const circle = document.createElementNS(svgNs, "circle");
+        circle.setAttribute("cx", p[0]);
+        circle.setAttribute("cy", p[1]);
+        circle.setAttribute("r", 3);
+        circle.setAttribute("class", "bp-chart-point-dia");
+        svg.appendChild(circle);
+    });
+
+    // Date labels
+    const firstLabel = document.createElementNS(svgNs, "text");
+    firstLabel.setAttribute("x", leftPadding);
+    firstLabel.setAttribute("y", chartHeight + 15);
+    firstLabel.setAttribute("class", "chart-label");
+    firstLabel.setAttribute("style", "text-anchor: start;");
+    firstLabel.textContent = data[0].date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+    svg.appendChild(firstLabel);
+
+    const lastLabel = document.createElementNS(svgNs, "text");
+    lastLabel.setAttribute("x", totalWidth - 10);
+    lastLabel.setAttribute("y", chartHeight + 15);
+    lastLabel.setAttribute("class", "chart-label");
+    lastLabel.setAttribute("style", "text-anchor: end;");
+    lastLabel.textContent = data[data.length - 1].date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+    svg.appendChild(lastLabel);
+
+    container.appendChild(svg);
 }
 
 // Render BP readings grouped by date

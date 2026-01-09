@@ -79,6 +79,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("DELETE /api/bp/{id}", s.handleDeleteBloodPressure)
 	apiMux.HandleFunc("POST /api/bp/import", s.handleImportBloodPressure)
 	apiMux.HandleFunc("GET /api/bp/export", s.handleExportBloodPressure)
+	apiMux.HandleFunc("GET /api/bp/goal", s.handleGetBPGoal)
 
 	// Weight endpoints
 	apiMux.HandleFunc("POST /api/weight", s.handleCreateWeight)
@@ -656,6 +657,17 @@ func (s *Server) handleExportWeight(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetWeightGoal(w http.ResponseWriter, r *http.Request) {
 	goal, err := s.store.GetWeightGoal()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(goal)
+}
+
+func (s *Server) handleGetBPGoal(w http.ResponseWriter, r *http.Request) {
+	goal, err := s.store.GetBPGoal()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
