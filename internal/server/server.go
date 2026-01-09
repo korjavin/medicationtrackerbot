@@ -299,6 +299,11 @@ func (s *Server) handleListBloodPressure(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	var since time.Time
+	if days > 0 {
+		since = time.Now().AddDate(0, 0, -days)
+	}
+
 	limit := 100 // Default
 	if lStr := r.URL.Query().Get("limit"); lStr != "" {
 		if l, err := strconv.Atoi(lStr); err == nil {
@@ -306,7 +311,7 @@ func (s *Server) handleListBloodPressure(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	readings, err := s.store.GetBloodPressureReadings(r.Context(), userID, days)
+	readings, err := s.store.GetBloodPressureReadings(r.Context(), userID, since)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -391,14 +396,14 @@ func (s *Server) handleExportBloodPressure(w http.ResponseWriter, r *http.Reques
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	// Parse query params
-	var days int
+	var since time.Time
 	if dStr := r.URL.Query().Get("days"); dStr != "" {
-		if d, err := strconv.Atoi(dStr); err == nil {
-			days = d
+		if days, err := strconv.Atoi(dStr); err == nil && days > 0 {
+			since = time.Now().AddDate(0, 0, -days)
 		}
 	}
 
-	readings, err := s.store.GetBloodPressureReadings(r.Context(), userID, days)
+	readings, err := s.store.GetBloodPressureReadings(r.Context(), userID, since)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -531,6 +536,11 @@ func (s *Server) handleListWeight(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var since time.Time
+	if days > 0 {
+		since = time.Now().AddDate(0, 0, -days)
+	}
+
 	limit := 100 // Default
 	if lStr := r.URL.Query().Get("limit"); lStr != "" {
 		if l, err := strconv.Atoi(lStr); err == nil {
@@ -538,7 +548,7 @@ func (s *Server) handleListWeight(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	logs, err := s.store.GetWeightLogs(r.Context(), userID, days)
+	logs, err := s.store.GetWeightLogs(r.Context(), userID, since)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -577,14 +587,14 @@ func (s *Server) handleExportWeight(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	// Parse query params
-	var days int
+	var since time.Time
 	if dStr := r.URL.Query().Get("days"); dStr != "" {
-		if d, err := strconv.Atoi(dStr); err == nil {
-			days = d
+		if days, err := strconv.Atoi(dStr); err == nil && days > 0 {
+			since = time.Now().AddDate(0, 0, -days)
 		}
 	}
 
-	logs, err := s.store.GetWeightLogs(r.Context(), userID, days)
+	logs, err := s.store.GetWeightLogs(r.Context(), userID, since)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

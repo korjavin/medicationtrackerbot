@@ -324,7 +324,6 @@ func (b *Bot) SendGroupNotification(meds []store.Medication, target time.Time) e
 
 func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) {
 	var since time.Time
-	var days int
 	switch option {
 	case "since_last":
 		lastDownload, err := b.store.GetLastDownload()
@@ -338,16 +337,12 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 			return
 		}
 		since = lastDownload
-		days = int(time.Since(lastDownload).Hours() / 24)
 	case "7":
 		since = time.Now().AddDate(0, 0, -7)
-		days = 7
 	case "14":
 		since = time.Now().AddDate(0, 0, -14)
-		days = 14
 	case "30":
 		since = time.Now().AddDate(0, 0, -30)
-		days = 30
 	default:
 		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "Unknown download option."))
 		return
@@ -362,36 +357,20 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	}
 
 	// Get blood pressure readings
-	bpReadings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, days)
+	bpReadings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		log.Printf("Error getting BP readings: %v", err)
 		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving blood pressure data."))
 		return
 	}
 
-	// Filter BP readings by since date
-	var filteredBP []store.BloodPressure
-	for _, bp := range bpReadings {
-		if bp.MeasuredAt.After(since) || bp.MeasuredAt.Equal(since) {
-			filteredBP = append(filteredBP, bp)
-		}
-	}
-
 	// Get weight logs
-	weightLogs, err := b.store.GetWeightLogs(context.Background(), b.allowedUserID, days)
+	weightLogs, err := b.store.GetWeightLogs(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		log.Printf("Error getting weight logs: %v", err)
 	}
 
-	// Filter weight logs by since date
-	var filteredWeight []store.WeightLog
-	for _, w := range weightLogs {
-		if w.MeasuredAt.After(since) || w.MeasuredAt.Equal(since) {
-			filteredWeight = append(filteredWeight, w)
-		}
-	}
-
-	if len(intakes) == 0 && len(filteredBP) == 0 && len(filteredWeight) == 0 {
+	if len(intakes) == 0 && len(bpReadings) == 0 && len(weightLogs) == 0 {
 		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "No records found for the selected period."))
 		return
 	}
@@ -423,8 +402,8 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	}
 
 	// Send BP CSV if available
-	if len(filteredBP) > 0 {
-		bpCSV, err := b.generateBPCSV(filteredBP)
+	if len(bpReadings) > 0 {
+		bpCSV, err := b.generateBPCSV(bpReadings)
 		if err != nil {
 			log.Printf("Error generating BP CSV: %v", err)
 		} else {
@@ -432,14 +411,14 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 				Name:  "blood_pressure_export.csv",
 				Bytes: bpCSV,
 			})
-			doc.Caption = fmt.Sprintf("Blood pressure export (%d records)", len(filteredBP))
+			doc.Caption = fmt.Sprintf("Blood pressure export (%d records)", len(bpReadings))
 			b.api.Send(doc)
 		}
 	}
 
 	// Send weight CSV if available
-	if len(filteredWeight) > 0 {
-		weightCSV, err := b.generateWeightCSV(filteredWeight)
+	if len(weightLogs) > 0 {
+		weightCSV, err := b.generateWeightCSV(weightLogs)
 		if err != nil {
 			log.Printf("Error generating weight CSV: %v", err)
 		} else {
@@ -447,7 +426,7 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 				Name:  "weight_export.csv",
 				Bytes: weightCSV,
 			})
-			doc.Caption = fmt.Sprintf("Weight export (%d records)", len(filteredWeight))
+			doc.Caption = fmt.Sprintf("Weight export (%d records)", len(weightLogs))
 			b.api.Send(doc)
 		}
 	}
@@ -556,7 +535,8 @@ Pulse: heart rate (optional)`
 }
 
 func (b *Bot) handleBPHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
-	readings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, 30)
+	since := time.Now().AddDate(0, 0, -30)
+	readings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		log.Printf("Error getting BP readings: %v", err)
 		msgConfig.Text = "❌ Error retrieving blood pressure history."
@@ -593,7 +573,8 @@ func (b *Bot) handleBPHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 }
 
 func (b *Bot) handleBPStatsCommand(msgConfig *tgbotapi.MessageConfig) {
-	readings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, 30)
+	since := time.Now().AddDate(0, 0, -30)
+	readings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		log.Printf("Error getting BP readings: %v", err)
 		msgConfig.Text = "❌ Error retrieving blood pressure statistics."
@@ -834,7 +815,8 @@ The system will automatically calculate your weight trend over time.`
 }
 
 func (b *Bot) handleWeightHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
-	logs, err := b.store.GetWeightLogs(context.Background(), b.allowedUserID, 30)
+	since := time.Now().AddDate(0, 0, -30)
+	logs, err := b.store.GetWeightLogs(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		log.Printf("Error getting weight logs: %v", err)
 		msgConfig.Text = "❌ Error retrieving weight history."
