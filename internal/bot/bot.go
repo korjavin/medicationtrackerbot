@@ -147,6 +147,8 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		b.handleWeightHistoryCommand(&msgConfig)
 	case "goal":
 		b.handleGoalCommand(msg, &msgConfig)
+	case "bpgoal":
+		b.handleBPGoalCommand(msg, &msgConfig)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}
@@ -912,4 +914,61 @@ Example: /goal 110 2026-06-01`
 	}
 
 	msgConfig.Text = fmt.Sprintf("✅ Weight goal set: %.1f kg by %s", weight, targetDate.Format("02.01.2006"))
+}
+
+func (b *Bot) handleBPGoalCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.MessageConfig) {
+	args := msg.CommandArguments()
+	if args == "" {
+		// Show current goal
+		goal, err := b.store.GetBPGoal()
+		if err != nil {
+			log.Printf("Error getting BP goal: %v", err)
+			msgConfig.Text = "❌ Error retrieving BP goal."
+			return
+		}
+
+		if goal.TargetSystolic == nil {
+			msgConfig.Text = `**Blood Pressure Goal**
+
+No goal set. Use: /bpgoal <systolic> <diastolic>
+
+Example: /bpgoal 120 70`
+			msgConfig.ParseMode = "Markdown"
+			return
+		}
+
+		diastolicStr := "not set"
+		if goal.TargetDiastolic != nil {
+			diastolicStr = fmt.Sprintf("%d", *goal.TargetDiastolic)
+		}
+		msgConfig.Text = fmt.Sprintf("🎯 BP Goal: <%d/%s mmHg", *goal.TargetSystolic, diastolicStr)
+		return
+	}
+
+	parts := strings.Fields(args)
+	if len(parts) < 2 {
+		msgConfig.Text = "❌ Invalid format. Use: /bpgoal <systolic> <diastolic>\nExample: /bpgoal 120 70"
+		return
+	}
+
+	systolic, err := strconv.Atoi(parts[0])
+	if err != nil || systolic < 80 || systolic > 200 {
+		msgConfig.Text = "❌ Invalid systolic value (80-200)"
+		return
+	}
+
+	diastolic, err := strconv.Atoi(parts[1])
+	if err != nil || diastolic < 40 || diastolic > 120 {
+		msgConfig.Text = "❌ Invalid diastolic value (40-120)"
+		return
+	}
+
+	err = b.store.SetBPGoal(systolic, diastolic)
+	if err != nil {
+		log.Printf("Error setting BP goal: %v", err)
+		msgConfig.Text = "❌ Error saving BP goal."
+		return
+	}
+
+	msgConfig.Text = fmt.Sprintf("✅ BP goal set: <%d/%d mmHg", systolic, diastolic)
 }
