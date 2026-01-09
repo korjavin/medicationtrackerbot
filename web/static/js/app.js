@@ -1074,12 +1074,12 @@ function renderWeightChart(logs, goalData) {
 
     const range = maxVal - minVal || 1;
 
-    // Date range for x-axis
+    // Date range: from first data point to 3 days after last data point
     const firstDate = data[0].date;
-    const lastDate = data[data.length - 1].date;
-    const dateRange = lastDate - firstDate || 1;
+    const lastDataDate = data[data.length - 1].date;
+    const chartEndDate = new Date(lastDataDate.getTime() + 3 * 24 * 60 * 60 * 1000); // +3 days
+    const dateRange = chartEndDate - firstDate || 1;
 
-    const xScaleByIndex = (i) => leftPadding + (i / (data.length - 1)) * chartWidth;
     const xScaleByDate = (date) => leftPadding + ((date - firstDate) / dateRange) * chartWidth;
 
     // Y Scale with padding (10% top/bottom)
@@ -1089,8 +1089,8 @@ function renderWeightChart(logs, goalData) {
     const effectiveRange = effectiveMax - effectiveMin;
     const yScale = (v) => chartHeight - ((v - effectiveMin) / effectiveRange) * chartHeight;
 
-    // Generate Points
-    const points = data.map((d, i) => [xScaleByIndex(i), yScale(d.val)]);
+    // Generate Points using date-based X positioning
+    const points = data.map(d => [xScaleByDate(d.date), yScale(d.val)]);
 
     // Generate Path
     let pathD = `M ${points[0][0]},${points[0][1]}`;
@@ -1113,9 +1113,6 @@ function renderWeightChart(logs, goalData) {
 
     // Y-Axis Labels (left side)
     const yAxisValues = [minVal, maxVal];
-    if (goalData && goalData.goal && Math.abs(goalData.goal - minVal) > range * 0.1 && Math.abs(goalData.goal - maxVal) > range * 0.1) {
-        yAxisValues.push(goalData.goal);
-    }
     yAxisValues.forEach(val => {
         const y = yScale(val);
         const text = document.createElementNS(svgNs, "text");
@@ -1157,33 +1154,43 @@ function renderWeightChart(logs, goalData) {
         svg.appendChild(goalLabel);
     }
 
-    // Plan Line: from max weight point to goal, cropped to visible window
+    // Plan Line: from max weight point straight to goal point
     if (goalData && goalData.goal && goalData.goal_date) {
         const goalDate = new Date(goalData.goal_date);
         const goalWeight = goalData.goal;
 
         // Find max weight point as starting reference
         const maxWeight = Math.max(...vals);
-        const maxWeightIndex = vals.indexOf(maxWeight);
-        const maxWeightDate = data[maxWeightIndex].date;
+        let maxWeightDate = data[0].date;
+        data.forEach(d => {
+            if (d.val === maxWeight) maxWeightDate = d.date;
+        });
 
-        // Calculate line slope from maxWeight point to goal point
+        // Draw line from max weight point toward goal
+        // Calculate where line intersects chart boundaries
         const totalTimeSpan = goalDate - maxWeightDate;
         const weightDiff = goalWeight - maxWeight;
 
         if (totalTimeSpan > 0) {
-            // Calculate weight at firstDate and lastDate of current chart
+            // Linear interpolation function
             const getWeightAtDate = (date) => {
                 const elapsed = date - maxWeightDate;
                 return maxWeight + (weightDiff * elapsed / totalTimeSpan);
             };
 
-            const startWeight = getWeightAtDate(firstDate);
-            const endWeight = getWeightAtDate(lastDate);
+            // Start point: max weight point (or left edge if max is before chart start)
+            let startDate = maxWeightDate;
+            if (startDate < firstDate) startDate = firstDate;
+            const startWeight = getWeightAtDate(startDate);
 
-            const startX = leftPadding;
+            // End point: goal date or chart end, whichever is earlier
+            let endDate = goalDate;
+            if (endDate > chartEndDate) endDate = chartEndDate;
+            const endWeight = getWeightAtDate(endDate);
+
+            const startX = xScaleByDate(startDate);
             const startY = yScale(startWeight);
-            const endX = leftPadding + chartWidth;
+            const endX = xScaleByDate(endDate);
             const endY = yScale(endWeight);
 
             const planLine = document.createElementNS(svgNs, "line");
@@ -1247,7 +1254,7 @@ function renderWeightChart(logs, goalData) {
     lastDateLabel.setAttribute("y", chartHeight + 18);
     lastDateLabel.setAttribute("class", "chart-label");
     lastDateLabel.setAttribute("style", "text-anchor: end");
-    lastDateLabel.textContent = data[data.length - 1].date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+    lastDateLabel.textContent = chartEndDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
     svg.appendChild(lastDateLabel);
 
     container.appendChild(svg);
