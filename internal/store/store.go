@@ -451,12 +451,11 @@ func (s *Store) CreateBloodPressureReading(ctx context.Context, bp *BloodPressur
 	return res.LastInsertId()
 }
 
-func (s *Store) GetBloodPressureReadings(ctx context.Context, userID int64, days int) ([]BloodPressure, error) {
+func (s *Store) GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]BloodPressure, error) {
 	query := "SELECT id, user_id, measured_at, systolic, diastolic, pulse, site, position, category, ignore_calc, notes, tag FROM blood_pressure_readings WHERE user_id = ?"
 	args := []interface{}{userID}
 
-	if days > 0 {
-		since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	if !since.IsZero() {
 		query += " AND measured_at >= ?"
 		args = append(args, since)
 	}
@@ -564,12 +563,11 @@ func (s *Store) CreateWeightLog(ctx context.Context, w *WeightLog) (int64, error
 	return res.LastInsertId()
 }
 
-func (s *Store) GetWeightLogs(ctx context.Context, userID int64, days int) ([]WeightLog, error) {
+func (s *Store) GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]WeightLog, error) {
 	query := "SELECT id, user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes FROM weight_logs WHERE user_id = ?"
 	args := []interface{}{userID}
 
-	if days > 0 {
-		since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	if !since.IsZero() {
 		query += " AND measured_at >= ?"
 		args = append(args, since)
 	}
