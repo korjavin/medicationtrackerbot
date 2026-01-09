@@ -1056,9 +1056,11 @@ function renderWeightChart(logs, goalData) {
         val: w.weight
     }));
 
-    // Dimensions
-    const width = container.clientWidth - 20; // Padding
-    const height = container.clientHeight - 40; // Padding
+    // Dimensions with left padding for Y-axis
+    const leftPadding = 45;
+    const totalWidth = container.clientWidth;
+    const chartWidth = totalWidth - leftPadding - 10;
+    const chartHeight = container.clientHeight - 45;
 
     // Min/Max (include goal in range if set)
     const vals = data.map(d => d.val);
@@ -1072,20 +1074,20 @@ function renderWeightChart(logs, goalData) {
 
     const range = maxVal - minVal || 1;
 
-    // Date range for x-axis (for plan line)
+    // Date range for x-axis
     const firstDate = data[0].date;
     const lastDate = data[data.length - 1].date;
     const dateRange = lastDate - firstDate || 1;
 
-    const xScaleByIndex = (i) => (i / (data.length - 1)) * width;
-    const xScaleByDate = (date) => ((date - firstDate) / dateRange) * width;
+    const xScaleByIndex = (i) => leftPadding + (i / (data.length - 1)) * chartWidth;
+    const xScaleByDate = (date) => leftPadding + ((date - firstDate) / dateRange) * chartWidth;
 
     // Y Scale with padding (10% top/bottom)
     const yPad = range * 0.1;
     const effectiveMin = minVal - yPad;
     const effectiveMax = maxVal + yPad;
     const effectiveRange = effectiveMax - effectiveMin;
-    const yScale = (v) => height - ((v - effectiveMin) / effectiveRange) * height;
+    const yScale = (v) => chartHeight - ((v - effectiveMin) / effectiveRange) * chartHeight;
 
     // Generate Points
     const points = data.map((d, i) => [xScaleByIndex(i), yScale(d.val)]);
@@ -1098,7 +1100,7 @@ function renderWeightChart(logs, goalData) {
     });
 
     // Area Path
-    const areaD = `${pathD} L ${points[points.length - 1][0]},${height} L ${points[0][0]},${height} Z`;
+    const areaD = `${pathD} L ${points[points.length - 1][0]},${chartHeight} L ${points[0][0]},${chartHeight} Z`;
 
     // SVG Construction
     const svgNs = "http://www.w3.org/2000/svg";
@@ -1107,66 +1109,106 @@ function renderWeightChart(logs, goalData) {
     svg.setAttribute("width", "100%");
     svg.setAttribute("height", "100%");
     svg.setAttribute("preserveAspectRatio", "none");
-    svg.setAttribute("viewBox", `0 0 ${width} ${height + 20}`);
+    svg.setAttribute("viewBox", `0 0 ${totalWidth} ${chartHeight + 25}`);
 
-    // 0. Goal Line (horizontal green line)
+    // Y-Axis Labels (left side)
+    const yAxisValues = [minVal, maxVal];
+    if (goalData && goalData.goal && Math.abs(goalData.goal - minVal) > range * 0.1 && Math.abs(goalData.goal - maxVal) > range * 0.1) {
+        yAxisValues.push(goalData.goal);
+    }
+    yAxisValues.forEach(val => {
+        const y = yScale(val);
+        const text = document.createElementNS(svgNs, "text");
+        text.setAttribute("x", leftPadding - 5);
+        text.setAttribute("y", y + 4);
+        text.setAttribute("class", "chart-label");
+        text.setAttribute("style", "text-anchor: end; fill: var(--hint-color);");
+        text.textContent = val.toFixed(1);
+        svg.appendChild(text);
+
+        // Grid line
+        const gridLine = document.createElementNS(svgNs, "line");
+        gridLine.setAttribute("x1", leftPadding);
+        gridLine.setAttribute("y1", y);
+        gridLine.setAttribute("x2", totalWidth - 10);
+        gridLine.setAttribute("y2", y);
+        gridLine.setAttribute("class", "chart-grid");
+        svg.appendChild(gridLine);
+    });
+
+    // Goal Line (horizontal green line)
     if (goalData && goalData.goal) {
         const goalY = yScale(goalData.goal);
         const goalLine = document.createElementNS(svgNs, "line");
-        goalLine.setAttribute("x1", 0);
+        goalLine.setAttribute("x1", leftPadding);
         goalLine.setAttribute("y1", goalY);
-        goalLine.setAttribute("x2", width);
+        goalLine.setAttribute("x2", totalWidth - 10);
         goalLine.setAttribute("y2", goalY);
         goalLine.setAttribute("class", "chart-goal-line");
         svg.appendChild(goalLine);
 
-        // Goal label
+        // Goal label on left
         const goalLabel = document.createElementNS(svgNs, "text");
-        goalLabel.setAttribute("x", width - 5);
-        goalLabel.setAttribute("y", goalY - 5);
+        goalLabel.setAttribute("x", leftPadding - 5);
+        goalLabel.setAttribute("y", goalY + 4);
         goalLabel.setAttribute("class", "chart-label");
-        goalLabel.setAttribute("style", "text-anchor: end; fill: #22c55e;");
-        goalLabel.textContent = `Goal: ${goalData.goal.toFixed(1)}`;
+        goalLabel.setAttribute("style", "text-anchor: end; fill: #22c55e; font-weight: bold;");
+        goalLabel.textContent = goalData.goal.toFixed(1);
         svg.appendChild(goalLabel);
     }
 
-    // 0.5 Plan Line (diagonal cyan line from first point to goal date)
+    // Plan Line: from max weight point to goal, cropped to visible window
     if (goalData && goalData.goal && goalData.goal_date) {
         const goalDate = new Date(goalData.goal_date);
-        const startY = yScale(data[0].val);
-        const goalY = yScale(goalData.goal);
+        const goalWeight = goalData.goal;
 
-        // Calculate end X based on goal date relative to chart range
-        let endX;
-        if (goalDate <= lastDate) {
-            endX = xScaleByDate(goalDate);
-        } else {
-            // Goal is beyond chart, draw to edge
-            endX = width;
+        // Find max weight point as starting reference
+        const maxWeight = Math.max(...vals);
+        const maxWeightIndex = vals.indexOf(maxWeight);
+        const maxWeightDate = data[maxWeightIndex].date;
+
+        // Calculate line slope from maxWeight point to goal point
+        const totalTimeSpan = goalDate - maxWeightDate;
+        const weightDiff = goalWeight - maxWeight;
+
+        if (totalTimeSpan > 0) {
+            // Calculate weight at firstDate and lastDate of current chart
+            const getWeightAtDate = (date) => {
+                const elapsed = date - maxWeightDate;
+                return maxWeight + (weightDiff * elapsed / totalTimeSpan);
+            };
+
+            const startWeight = getWeightAtDate(firstDate);
+            const endWeight = getWeightAtDate(lastDate);
+
+            const startX = leftPadding;
+            const startY = yScale(startWeight);
+            const endX = leftPadding + chartWidth;
+            const endY = yScale(endWeight);
+
+            const planLine = document.createElementNS(svgNs, "line");
+            planLine.setAttribute("x1", startX);
+            planLine.setAttribute("y1", startY);
+            planLine.setAttribute("x2", endX);
+            planLine.setAttribute("y2", endY);
+            planLine.setAttribute("class", "chart-plan-line");
+            svg.appendChild(planLine);
         }
-
-        const planLine = document.createElementNS(svgNs, "line");
-        planLine.setAttribute("x1", 0);
-        planLine.setAttribute("y1", startY);
-        planLine.setAttribute("x2", endX);
-        planLine.setAttribute("y2", goalY);
-        planLine.setAttribute("class", "chart-plan-line");
-        svg.appendChild(planLine);
     }
 
-    // 1. Area
+    // Area
     const pathArea = document.createElementNS(svgNs, "path");
     pathArea.setAttribute("d", areaD);
     pathArea.setAttribute("class", "chart-area");
     svg.appendChild(pathArea);
 
-    // 2. Line
+    // Line
     const pathLine = document.createElementNS(svgNs, "path");
     pathLine.setAttribute("d", pathD);
     pathLine.setAttribute("class", "chart-line");
     svg.appendChild(pathLine);
 
-    // 3. Points
+    // Points
     points.forEach((p, i) => {
         const circle = document.createElementNS(svgNs, "circle");
         circle.setAttribute("cx", p[0]);
@@ -1174,30 +1216,35 @@ function renderWeightChart(logs, goalData) {
         circle.setAttribute("r", 4);
         circle.setAttribute("class", "chart-point");
         svg.appendChild(circle);
-
-        // Label for first/last/min/max
-        if (i === 0 || i === points.length - 1 || data[i].val === Math.min(...vals) || data[i].val === Math.max(...vals)) {
-            const text = document.createElementNS(svgNs, "text");
-            text.setAttribute("x", p[0]);
-            text.setAttribute("y", p[1] - 10);
-            text.setAttribute("class", "chart-label");
-            text.textContent = data[i].val.toFixed(1);
-            svg.appendChild(text);
-        }
     });
 
-    // 4. Date Labels
+    // Data labels for first and last point only
+    const firstLabel = document.createElementNS(svgNs, "text");
+    firstLabel.setAttribute("x", points[0][0]);
+    firstLabel.setAttribute("y", points[0][1] - 10);
+    firstLabel.setAttribute("class", "chart-label");
+    firstLabel.textContent = data[0].val.toFixed(1);
+    svg.appendChild(firstLabel);
+
+    const lastLabel = document.createElementNS(svgNs, "text");
+    lastLabel.setAttribute("x", points[points.length - 1][0]);
+    lastLabel.setAttribute("y", points[points.length - 1][1] - 10);
+    lastLabel.setAttribute("class", "chart-label");
+    lastLabel.textContent = data[data.length - 1].val.toFixed(1);
+    svg.appendChild(lastLabel);
+
+    // Date Labels (bottom)
     const firstDateLabel = document.createElementNS(svgNs, "text");
-    firstDateLabel.setAttribute("x", 0);
-    firstDateLabel.setAttribute("y", height + 15);
+    firstDateLabel.setAttribute("x", leftPadding);
+    firstDateLabel.setAttribute("y", chartHeight + 18);
     firstDateLabel.setAttribute("class", "chart-label");
     firstDateLabel.setAttribute("style", "text-anchor: start");
     firstDateLabel.textContent = data[0].date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
     svg.appendChild(firstDateLabel);
 
     const lastDateLabel = document.createElementNS(svgNs, "text");
-    lastDateLabel.setAttribute("x", width);
-    lastDateLabel.setAttribute("y", height + 15);
+    lastDateLabel.setAttribute("x", totalWidth - 10);
+    lastDateLabel.setAttribute("y", chartHeight + 18);
     lastDateLabel.setAttribute("class", "chart-label");
     lastDateLabel.setAttribute("style", "text-anchor: end");
     lastDateLabel.textContent = data[data.length - 1].date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
@@ -1211,7 +1258,7 @@ async function loadWeightLogs() {
     list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
 
     const [logsRes, goalRes] = await Promise.all([
-        apiCall('/api/weight?days=90'),
+        apiCall('/api/weight?days=14'),
         apiCall('/api/weight/goal')
     ]);
 
