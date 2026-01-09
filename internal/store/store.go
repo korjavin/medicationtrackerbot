@@ -443,6 +443,40 @@ func (s *Store) SetWeightGoal(weight float64, targetDate time.Time) error {
 	return err
 }
 
+// BP Goal Settings
+type BPGoal struct {
+	TargetSystolic  *int `json:"target_systolic,omitempty"`
+	TargetDiastolic *int `json:"target_diastolic,omitempty"`
+}
+
+func (s *Store) GetBPGoal() (*BPGoal, error) {
+	var systolic, diastolic sql.NullInt64
+
+	err := s.db.QueryRow("SELECT bp_target_systolic, bp_target_diastolic FROM settings WHERE id = 1").Scan(&systolic, &diastolic)
+	if err == sql.ErrNoRows {
+		return &BPGoal{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	result := &BPGoal{}
+	if systolic.Valid {
+		v := int(systolic.Int64)
+		result.TargetSystolic = &v
+	}
+	if diastolic.Valid {
+		v := int(diastolic.Int64)
+		result.TargetDiastolic = &v
+	}
+	return result, nil
+}
+
+func (s *Store) SetBPGoal(targetSystolic, targetDiastolic int) error {
+	_, err := s.db.Exec("UPDATE settings SET bp_target_systolic = ?, bp_target_diastolic = ? WHERE id = 1", targetSystolic, targetDiastolic)
+	return err
+}
+
 // -- Downloads --
 
 func (s *Store) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error) {
