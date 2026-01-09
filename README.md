@@ -38,6 +38,7 @@ A private, self-hosted Telegram Mini App for medication tracking, designed to re
 ### Medication Commands
 - `/start` - Launch the Mini App.
 - `/log` - Log a dose for any medication (great for "As Needed" meds).
+- `/download` - Export medication and blood pressure history to CSV (select time period).
 - `/help` - Show instructions.
 
 ### Blood Pressure Commands
@@ -45,7 +46,6 @@ A private, self-hosted Telegram Mini App for medication tracking, designed to re
   - Example: `/bp 130 80 72` (130/80 mmHg, 72 bpm pulse)
 - `/bphistory` - View blood pressure history.
 - `/bpstats` - View blood pressure statistics (averages, trends).
-- `/bpexport` - Export blood pressure data to CSV.
 
 ## Configuration
 
