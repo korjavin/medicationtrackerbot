@@ -24,6 +24,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Inject Git SHA
+        run: |
+          sed -i "s|VERSION_PLACEHOLDER|$(git rev-parse --short HEAD)|g" web/static/index.html
+
       - name: Build and push Docker image
         id: build-and-push
         uses: docker/build-push-action@v5
