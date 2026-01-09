@@ -1083,6 +1083,9 @@ function renderWeightChart(logs) {
 
     // Generate Points
     const points = data.map((d, i) => [xScale(i), yScale(d.val)]);
+    console.log('SVG dimensions:', width, 'x', height);
+    console.log('Data values:', vals);
+    console.log('Points:', points);
 
     // Generate Path (Soft curves using simple smoothing or straight lines)
     // For "cute" look, we use simple straight lines with rounded joins (handled by CSS)
@@ -1091,6 +1094,7 @@ function renderWeightChart(logs) {
         if (i === 0) return;
         pathD += ` L ${p[0]},${p[1]}`;
     });
+    console.log('Path D:', pathD);
 
     // Area Path
     const areaD = `${pathD} L ${points[points.length - 1][0]},${height} L ${points[0][0]},${height} Z`;
