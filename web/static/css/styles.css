@@ -567,20 +567,18 @@ select {
 }
 
 #weightChart {
-    height: 150px;
+    height: 250px;
     margin-bottom: 20px;
     background: var(--secondary-bg-color);
     border-radius: 8px;
-    padding: 8px;
+    padding: 12px;
     box-sizing: border-box;
-    overflow: hidden;
+    position: relative;
 }
 
 #weightChart canvas {
-    transform: scale(0.7);
-    transform-origin: top left;
-    width: 142% !important;
-    height: 142% !important;
+    width: 100% !important;
+    height: 100% !important;
 }
 
 #weight-list {
