@@ -377,7 +377,11 @@ func (b *Bot) generateCSV(intakes []store.IntakeWithMedication) ([]byte, error) 
 
 	// Write data rows
 	for _, intake := range intakes {
+		// Use actual intake timestamp when available, otherwise fall back to scheduled time
 		dateTime := intake.ScheduledAt.Format("2006-01-02 15:04")
+		if intake.TakenAt != nil {
+			dateTime = intake.TakenAt.Format("2006-01-02 15:04")
+		}
 		row := []string{dateTime, intake.MedicationName, intake.MedicationDosage}
 		if err := writer.Write(row); err != nil {
 			return nil, err
