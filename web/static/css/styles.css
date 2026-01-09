@@ -357,3 +357,194 @@ select {
     color: var(--hint-color);
     margin-top: 4px;
 }
+
+/* BP Section */
+.bp-actions {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.bp-actions button {
+    flex: 1;
+    padding: 12px;
+    border-radius: 8px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+#bp-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.bp-item {
+    background-color: var(--secondary-bg-color);
+    padding: 16px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.bp-reading {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.bp-values {
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.bp-values .bp-sys {
+    color: var(--text-color);
+}
+
+.bp-values .bp-dia {
+    color: var(--hint-color);
+    font-weight: 400;
+    font-size: 16px;
+}
+
+.bp-meta {
+    font-size: 12px;
+    color: var(--hint-color);
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.bp-pulse {
+    background: rgba(0, 0, 0, 0.05);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.bp-category {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.bp-category.normal {
+    background: #d4edda;
+    color: #155724;
+}
+
+.bp-category.elevated {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.bp-category.high1 {
+    background: #ffe5d5;
+    color: #c45a00;
+}
+
+.bp-category.high2 {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.bp-category.crisis {
+    background: #dc3545;
+    color: white;
+}
+
+/* BP Date Groups */
+.bp-date-group {
+    margin-bottom: 16px;
+}
+
+.bp-date-header {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--hint-color);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--secondary-bg-color);
+    margin-bottom: 8px;
+}
+
+/* BP Modal */
+#bp-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg-color);
+    padding: 24px;
+    border-radius: 16px;
+    width: 90%;
+    max-width: 320px;
+    z-index: 11;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+#bp-modal.hidden {
+    display: none;
+}
+
+#bp-modal h3 {
+    margin: 0 0 20px 0;
+    font-size: 18px;
+}
+
+.bp-inputs-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.bp-input-group {
+    flex: 1;
+}
+
+.bp-input-group label {
+    display: block;
+    font-size: 12px;
+    color: var(--hint-color);
+    margin-bottom: 4px;
+}
+
+.bp-input-group input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--hint-color);
+    border-radius: 8px;
+    background: var(--bg-color);
+    color: var(--text-color);
+    box-sizing: border-box;
+    font-size: 16px;
+    text-align: center;
+}
+
+#bp-notes {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--hint-color);
+    border-radius: 8px;
+    background: var(--bg-color);
+    color: var(--text-color);
+    box-sizing: border-box;
+    font-size: 14px;
+    resize: vertical;
+    font-family: inherit;
+}
+
+#bp-list:empty::before {
+    content: 'No blood pressure readings yet.';
+    display: block;
+    text-align: center;
+    color: var(--hint-color);
+    padding: 40px 20px;
+}

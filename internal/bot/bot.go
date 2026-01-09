@@ -2,10 +2,12 @@ package bot
 
 import (
 	"bytes"
+	"context"
 	"encoding/csv"
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -122,6 +124,14 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 
 		msgConfig.Text = "Select time period for export:"
 		msgConfig.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	case "bp":
+		b.handleBPCommand(msg, &msgConfig)
+	case "bphistory":
+		b.handleBPHistoryCommand(&msgConfig)
+	case "bpstats":
+		b.handleBPStatsCommand(&msgConfig)
+	case "bpexport":
+		b.handleBPExportCommand(&msgConfig)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}
@@ -390,4 +400,266 @@ func (b *Bot) generateCSV(intakes []store.IntakeWithMedication) ([]byte, error) 
 
 	writer.Flush()
 	return buf.Bytes(), writer.Error()
+}
+
+// -- Blood Pressure Commands --
+
+func (b *Bot) handleBPCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.MessageConfig) {
+	args := msg.CommandArguments()
+	if args == "" {
+		msgConfig.Text = `**Blood Pressure Logging**
+
+Usage: /bp <systolic> <diastolic> [pulse]
+
+Examples:
+  /bp 130 80 - Log BP 130/80 without pulse
+  /bp 130 80 72 - Log BP 130/80 with pulse 72
+
+Systolic: upper number (max pressure)
+Diastolic: lower number (min pressure)
+Pulse: heart rate (optional)`
+		msgConfig.ParseMode = "Markdown"
+		return
+	}
+
+	parts := parseBPArgs(args)
+	if len(parts) < 2 {
+		msgConfig.Text = "❌ Invalid format. Use: /bp <systolic> <diastolic> [pulse]"
+		return
+	}
+
+	systolic, err := strconv.Atoi(parts[0])
+	if err != nil || systolic < 60 || systolic > 250 {
+		msgConfig.Text = "❌ Invalid systolic value (60-250)"
+		return
+	}
+
+	diastolic, err := strconv.Atoi(parts[1])
+	if err != nil || diastolic < 40 || diastolic > 150 {
+		msgConfig.Text = "❌ Invalid diastolic value (40-150)"
+		return
+	}
+
+	pulse := 0
+	pulsePresent := false
+	if len(parts) >= 3 {
+		pulse, err = strconv.Atoi(parts[2])
+		if err != nil || pulse < 40 || pulse > 200 {
+			msgConfig.Text = "❌ Invalid pulse value (40-200)"
+			return
+		}
+		pulsePresent = true
+	}
+
+	category := store.CalculateBPCategory(systolic, diastolic)
+
+	bp := &store.BloodPressure{
+		UserID:     b.allowedUserID,
+		MeasuredAt: time.Now(),
+		Systolic:   systolic,
+		Diastolic:  diastolic,
+		Category:   category,
+	}
+	if pulsePresent {
+		bp.Pulse = &pulse
+	}
+
+	_, err = b.store.CreateBloodPressureReading(context.Background(), bp)
+	if err != nil {
+		log.Printf("Error creating BP reading: %v", err)
+		msgConfig.Text = "❌ Error saving blood pressure reading."
+		return
+	}
+
+	pulseStr := ""
+	if pulsePresent {
+		pulseStr = fmt.Sprintf(", pulse %d", pulse)
+	}
+	msgConfig.Text = fmt.Sprintf("✅ Blood pressure recorded: %d/%d%s\n📊 Category: %s", systolic, diastolic, pulseStr, category)
+}
+
+func (b *Bot) handleBPHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
+	readings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, 30)
+	if err != nil {
+		log.Printf("Error getting BP readings: %v", err)
+		msgConfig.Text = "❌ Error retrieving blood pressure history."
+		return
+	}
+
+	if len(readings) == 0 {
+		msgConfig.Text = "📈 Blood Pressure History (last 10):\n\nNo records for the last 30 days."
+		return
+	}
+
+	// Limit to 10
+	if len(readings) > 10 {
+		readings = readings[:10]
+	}
+
+	var sb strings.Builder
+	sb.WriteString("📈 Blood Pressure History (last 10):\n\n")
+
+	for _, bp := range readings {
+		dateStr := bp.MeasuredAt.Format("02.01.2006 15:04")
+		pulseStr := ""
+		if bp.Pulse != nil {
+			pulseStr = fmt.Sprintf(", pulse %d", *bp.Pulse)
+		}
+		category := bp.Category
+		if category == "" {
+			category = store.CalculateBPCategory(bp.Systolic, bp.Diastolic)
+		}
+		sb.WriteString(fmt.Sprintf("%s — %d/%d%s 📊 %s\n", dateStr, bp.Systolic, bp.Diastolic, pulseStr, category))
+	}
+
+	msgConfig.Text = sb.String()
+}
+
+func (b *Bot) handleBPStatsCommand(msgConfig *tgbotapi.MessageConfig) {
+	readings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, 30)
+	if err != nil {
+		log.Printf("Error getting BP readings: %v", err)
+		msgConfig.Text = "❌ Error retrieving blood pressure statistics."
+		return
+	}
+
+	if len(readings) == 0 {
+		msgConfig.Text = "📊 Statistics (30 days):\n\nNo records for the last 30 days."
+		return
+	}
+
+	var sumSys, sumDia, sumPulse int
+	var countPulse int
+	minSys, maxSys := readings[0].Systolic, readings[0].Systolic
+	minDia, maxDia := readings[0].Diastolic, readings[0].Diastolic
+	minPulse, maxPulse := 999, -999
+
+	for _, bp := range readings {
+		sumSys += bp.Systolic
+		sumDia += bp.Diastolic
+
+		if bp.Systolic < minSys {
+			minSys = bp.Systolic
+		}
+		if bp.Systolic > maxSys {
+			maxSys = bp.Systolic
+		}
+		if bp.Diastolic < minDia {
+			minDia = bp.Diastolic
+		}
+		if bp.Diastolic > maxDia {
+			maxDia = bp.Diastolic
+		}
+
+		if bp.Pulse != nil {
+			sumPulse += *bp.Pulse
+			countPulse++
+			if *bp.Pulse < minPulse {
+				minPulse = *bp.Pulse
+			}
+			if *bp.Pulse > maxPulse {
+				maxPulse = *bp.Pulse
+			}
+		}
+	}
+
+	avgSys := sumSys / len(readings)
+	avgDia := sumDia / len(readings)
+	avgPulse := 0
+	if countPulse > 0 {
+		avgPulse = sumPulse / countPulse
+	}
+
+	pulsePart := ""
+	if countPulse > 0 {
+		pulsePart = fmt.Sprintf(", pulse %d", avgPulse)
+	}
+	msgConfig.Text = fmt.Sprintf("📊 Statistics (30 days):\n\nAverage: %d/%d%s", avgSys, avgDia, pulsePart)
+	if countPulse > 0 {
+		msgConfig.Text += fmt.Sprintf("\nMax: %d/%d, pulse %d", maxSys, maxDia, maxPulse)
+		msgConfig.Text += fmt.Sprintf("\nMin: %d/%d, pulse %d", minSys, minDia, minPulse)
+	} else {
+		msgConfig.Text += fmt.Sprintf("\nMax: %d/%d, pulse —", maxSys, maxDia)
+		msgConfig.Text += fmt.Sprintf("\nMin: %d/%d, pulse —", minSys, minDia)
+	}
+}
+
+func (b *Bot) handleBPExportCommand(msgConfig *tgbotapi.MessageConfig) {
+	readings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, 0)
+	if err != nil {
+		log.Printf("Error getting BP readings for export: %v", err)
+		msgConfig.Text = "❌ Error retrieving blood pressure data."
+		return
+	}
+
+	if len(readings) == 0 {
+		msgConfig.Text = "📥 Export History:\n\nNo records to export."
+		return
+	}
+
+	csvData, err := b.generateBPCSV(readings)
+	if err != nil {
+		log.Printf("Error generating BP CSV: %v", err)
+		msgConfig.Text = "❌ Error generating CSV file."
+		return
+	}
+
+	// Send CSV as document
+	doc := tgbotapi.NewDocument(msgConfig.ChatID, tgbotapi.FileBytes{
+		Name:  "blood_pressure_export.csv",
+		Bytes: csvData,
+	})
+	doc.Caption = fmt.Sprintf("Here is your blood pressure export (%d records)", len(readings))
+	b.api.Send(doc)
+
+	msgConfig.Text = "📥 Blood pressure export sent!"
+}
+
+func (b *Bot) generateBPCSV(readings []store.BloodPressure) ([]byte, error) {
+	buf := &bytes.Buffer{}
+	writer := csv.NewWriter(buf)
+
+	// Write header
+	if err := writer.Write([]string{"date time", "systolic", "diastolic", "pulse", "category"}); err != nil {
+		return nil, err
+	}
+
+	// Write data rows
+	for _, bp := range readings {
+		dateTime := bp.MeasuredAt.Format("2006-01-02 15:04")
+		pulse := ""
+		if bp.Pulse != nil {
+			pulse = strconv.Itoa(*bp.Pulse)
+		}
+		category := bp.Category
+		if category == "" {
+			category = store.CalculateBPCategory(bp.Systolic, bp.Diastolic)
+		}
+		row := []string{dateTime, strconv.Itoa(bp.Systolic), strconv.Itoa(bp.Diastolic), pulse, category}
+		if err := writer.Write(row); err != nil {
+			return nil, err
+		}
+	}
+
+	writer.Flush()
+	return buf.Bytes(), writer.Error()
+}
+
+func parseBPArgs(args string) []string {
+	var parts []string
+	var current []byte
+	for _, c := range args {
+		if c == ' ' || c == '\t' {
+			if len(current) > 0 {
+				parts = append(parts, string(current))
+				current = nil
+			}
+		} else {
+			current = append(current, byte(c))
+		}
+	}
+	if len(current) > 0 {
+		parts = append(parts, string(current))
+	}
+	return parts
 }
