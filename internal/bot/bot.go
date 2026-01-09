@@ -72,18 +72,26 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	msgConfig := tgbotapi.NewMessage(msg.Chat.ID, "")
 	switch msg.Command() {
 	case "help":
-		msgConfig.Text = `**Medication Tracker Bot** allows you to track your medications.
+		msgConfig.Text = `**Medication Tracker Bot** - Track medications and blood pressure.
 
-**Commands:**
-/start - Start the bot and open the Mini App.
-/log - Manually log a dose for any medication (useful for "As Needed" meds).
-/help - Show this help message.
+**Medication Commands:**
+/start - Start the bot and open the Mini App
+/log - Manually log a dose for any medication (useful for "As Needed" meds)
+/download - Export medication history to CSV
+
+**Blood Pressure Commands:**
+/bp <systolic> <diastolic> [pulse] - Log blood pressure reading
+  Example: /bp 130 80 72
+/bphistory - View recent blood pressure history (last 10 readings)
+/bpstats - View blood pressure statistics (30-day averages)
+/bpexport - Export blood pressure data to CSV
 
 **How to use:**
-1. Click the "Menu" button to open the App.
-2. Add your medications and set schedules.
-3. The bot will notify you when it's time to take them.
-4. Click "Confirm" on the notification to log usage.`
+1. Click the "Menu" button to open the App
+2. Add your medications and set schedules
+3. The bot will notify you when it's time to take them
+4. Click "Confirm" on the notification to log usage
+5. Use the Blood Pressure tab to track your BP readings`
 		msgConfig.ParseMode = "Markdown"
 	case "log":
 		// Fetch active medications
