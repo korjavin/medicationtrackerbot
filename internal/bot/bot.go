@@ -74,24 +74,22 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	case "help":
 		msgConfig.Text = `**Medication Tracker Bot** - Track medications and blood pressure.
 
-**Medication Commands:**
+**Commands:**
 /start - Start the bot and open the Mini App
 /log - Manually log a dose for any medication (useful for "As Needed" meds)
-/download - Export medication history to CSV
-
-**Blood Pressure Commands:**
+/download - Export medication and blood pressure history to CSV
 /bp <systolic> <diastolic> [pulse] - Log blood pressure reading
   Example: /bp 130 80 72
 /bphistory - View recent blood pressure history (last 10 readings)
 /bpstats - View blood pressure statistics (30-day averages)
-/bpexport - Export blood pressure data to CSV
 
 **How to use:**
 1. Click the "Menu" button to open the App
 2. Add your medications and set schedules
 3. The bot will notify you when it's time to take them
 4. Click "Confirm" on the notification to log usage
-5. Use the Blood Pressure tab to track your BP readings`
+5. Use the Blood Pressure tab to track your BP readings
+6. Use /download to export both medication and BP data for any time period`
 		msgConfig.ParseMode = "Markdown"
 	case "log":
 		// Fetch active medications
@@ -138,8 +136,6 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		b.handleBPHistoryCommand(&msgConfig)
 	case "bpstats":
 		b.handleBPStatsCommand(&msgConfig)
-	case "bpexport":
-		b.handleBPExportCommand(&msgConfig)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}
@@ -321,6 +317,7 @@ func (b *Bot) SendGroupNotification(meds []store.Medication, target time.Time) e
 
 func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) {
 	var since time.Time
+	var days int
 	switch option {
 	case "since_last":
 		lastDownload, err := b.store.GetLastDownload()
@@ -334,17 +331,22 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 			return
 		}
 		since = lastDownload
+		days = int(time.Since(lastDownload).Hours() / 24)
 	case "7":
 		since = time.Now().AddDate(0, 0, -7)
+		days = 7
 	case "14":
 		since = time.Now().AddDate(0, 0, -14)
+		days = 14
 	case "30":
 		since = time.Now().AddDate(0, 0, -30)
+		days = 30
 	default:
 		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "Unknown download option."))
 		return
 	}
 
+	// Get medication intakes
 	intakes, err := b.store.GetIntakesSince(since)
 	if err != nil {
 		log.Printf("Error getting intakes: %v", err)
@@ -352,15 +354,24 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 		return
 	}
 
-	if len(intakes) == 0 {
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "No medication records found for the selected period."))
+	// Get blood pressure readings
+	bpReadings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, days)
+	if err != nil {
+		log.Printf("Error getting BP readings: %v", err)
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving blood pressure data."))
 		return
 	}
 
-	csvData, err := b.generateCSV(intakes)
-	if err != nil {
-		log.Printf("Error generating CSV: %v", err)
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error generating CSV file."))
+	// Filter BP readings by since date
+	var filteredBP []store.BloodPressure
+	for _, bp := range bpReadings {
+		if bp.MeasuredAt.After(since) || bp.MeasuredAt.Equal(since) {
+			filteredBP = append(filteredBP, bp)
+		}
+	}
+
+	if len(intakes) == 0 && len(filteredBP) == 0 {
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "No records found for the selected period."))
 		return
 	}
 
@@ -375,13 +386,35 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	})
 	b.api.Send(edit)
 
-	// Send CSV as document
-	doc := tgbotapi.NewDocument(cb.Message.Chat.ID, tgbotapi.FileBytes{
-		Name:  "medication_export.csv",
-		Bytes: csvData,
-	})
-	doc.Caption = fmt.Sprintf("Here is your medication export (%d records)", len(intakes))
-	b.api.Send(doc)
+	// Send medication CSV if available
+	if len(intakes) > 0 {
+		csvData, err := b.generateCSV(intakes)
+		if err != nil {
+			log.Printf("Error generating medication CSV: %v", err)
+		} else {
+			doc := tgbotapi.NewDocument(cb.Message.Chat.ID, tgbotapi.FileBytes{
+				Name:  "medication_export.csv",
+				Bytes: csvData,
+			})
+			doc.Caption = fmt.Sprintf("Medication export (%d records)", len(intakes))
+			b.api.Send(doc)
+		}
+	}
+
+	// Send BP CSV if available
+	if len(filteredBP) > 0 {
+		bpCSV, err := b.generateBPCSV(filteredBP)
+		if err != nil {
+			log.Printf("Error generating BP CSV: %v", err)
+		} else {
+			doc := tgbotapi.NewDocument(cb.Message.Chat.ID, tgbotapi.FileBytes{
+				Name:  "blood_pressure_export.csv",
+				Bytes: bpCSV,
+			})
+			doc.Caption = fmt.Sprintf("Blood pressure export (%d records)", len(filteredBP))
+			b.api.Send(doc)
+		}
+	}
 }
 
 func (b *Bot) generateCSV(intakes []store.IntakeWithMedication) ([]byte, error) {
@@ -590,37 +623,6 @@ func (b *Bot) handleBPStatsCommand(msgConfig *tgbotapi.MessageConfig) {
 		msgConfig.Text += fmt.Sprintf("\nMax: %d/%d, pulse —", maxSys, maxDia)
 		msgConfig.Text += fmt.Sprintf("\nMin: %d/%d, pulse —", minSys, minDia)
 	}
-}
-
-func (b *Bot) handleBPExportCommand(msgConfig *tgbotapi.MessageConfig) {
-	readings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, 0)
-	if err != nil {
-		log.Printf("Error getting BP readings for export: %v", err)
-		msgConfig.Text = "❌ Error retrieving blood pressure data."
-		return
-	}
-
-	if len(readings) == 0 {
-		msgConfig.Text = "📥 Export History:\n\nNo records to export."
-		return
-	}
-
-	csvData, err := b.generateBPCSV(readings)
-	if err != nil {
-		log.Printf("Error generating BP CSV: %v", err)
-		msgConfig.Text = "❌ Error generating CSV file."
-		return
-	}
-
-	// Send CSV as document
-	doc := tgbotapi.NewDocument(msgConfig.ChatID, tgbotapi.FileBytes{
-		Name:  "blood_pressure_export.csv",
-		Bytes: csvData,
-	})
-	doc.Caption = fmt.Sprintf("Here is your blood pressure export (%d records)", len(readings))
-	b.api.Send(doc)
-
-	msgConfig.Text = "📥 Blood pressure export sent!"
 }
 
 func (b *Bot) generateBPCSV(readings []store.BloodPressure) ([]byte, error) {

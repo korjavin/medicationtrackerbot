@@ -118,7 +118,7 @@ HTTP Handlers for the Frontend.
 | `/bp <systolic> <diastolic> [pulse]` | Quick logging of a blood pressure reading |
 | `/bphistory` | Show recent blood pressure history |
 | `/bpstats` | Show blood pressure statistics |
-| `/bpexport` | Export blood pressure data to CSV |
+| `/download` | Export both medication and blood pressure data to CSV (combined export) |
 
 Example: `/bp 130 80 72` - Logs a reading with systolic 130, diastolic 80, pulse 72.
 
