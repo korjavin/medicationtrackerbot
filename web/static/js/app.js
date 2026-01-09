@@ -1036,6 +1036,86 @@ async function handleWeightSubmit(event) {
     }
 }
 
+// Render weight chart
+function renderWeightChart(logs) {
+    const ctx = document.getElementById('weightChart');
+    if (!ctx) return;
+    
+    // Destroy existing chart if it exists
+    if (window.weightChartInstance) {
+        window.weightChartInstance.destroy();
+    }
+    
+    if (!logs || logs.length === 0) {
+        // No data - show placeholder
+        return;
+    }
+    
+    // Sort logs by date (oldest first for the chart)
+    const sortedLogs = [...logs].sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
+    
+    const labels = sortedLogs.map(w => {
+        const d = new Date(w.measured_at);
+        return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+    });
+    
+    const data = sortedLogs.map(w => w.weight);
+    
+    // Calculate min/max for y-axis
+    const minWeight = Math.min(...data);
+    const maxWeight = Math.max(...data);
+    const padding = (maxWeight - minWeight) * 0.1 || 1;
+    
+    window.weightChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Weight (kg)',
+                data: data,
+                borderColor: '#4ECDC4',
+                backgroundColor: 'rgba(78, 205, 196, 0.1)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 4,
+                pointBackgroundColor: '#4ECDC4'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.parsed.y.toFixed(1) + ' kg';
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    min: Math.floor(minWeight - padding),
+                    max: Math.ceil(maxWeight + padding),
+                    ticks: {
+                        callback: function(value) {
+                            return value.toFixed(1) + ' kg';
+                        }
+                    }
+                },
+                x: {
+                    ticks: {
+                        maxTicksLimit: 10
+                    }
+                }
+            }
+        }
+    });
+}
+
 async function loadWeightLogs() {
     const list = document.getElementById('weight-list');
     list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
@@ -1048,6 +1128,7 @@ async function loadWeightLogs() {
     }
 
     renderWeightLogs(res || []);
+    renderWeightChart(res || []);
 }
 
 function renderWeightLogs(logs) {

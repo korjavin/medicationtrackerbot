@@ -566,6 +566,15 @@ select {
     font-size: 14px;
 }
 
+#weightChart {
+    height: 200px;
+    margin-bottom: 20px;
+    background: var(--secondary-bg-color);
+    border-radius: 8px;
+    padding: 12px;
+    box-sizing: border-box;
+}
+
 #weight-list {
     list-style: none;
     padding: 0;
