@@ -99,10 +99,14 @@ function switchTab(tab) {
         document.querySelector('button[onclick="switchTab(\'meds\')"]').classList.add('active');
         document.getElementById('meds-view').classList.add('active');
         loadMeds();
-    } else {
+    } else if (tab === 'history') {
         document.querySelector('button[onclick="switchTab(\'history\')"]').classList.add('active');
         document.getElementById('history-view').classList.add('active');
         loadHistory();
+    } else if (tab === 'bp') {
+        document.querySelector('button[onclick="switchTab(\'bp\')"]').classList.add('active');
+        document.getElementById('bp-view').classList.add('active');
+        loadBPReadings();
     }
 }
 
@@ -261,7 +265,7 @@ function renderMeds() {
                 let candidates = [];
                 for (let i = 0; i < 8; i++) {
                     let dBase = new Date(now);
-                    dBase.setDate(dBase.getDate() + i);
+                    dBase.setDate(now.getDate() + i);
                     const day = dBase.getDay(); // 0-6
                     if (sched.days.includes(day)) {
                         sched.times.forEach(t => {
@@ -447,7 +451,12 @@ function renderHistory(logs) {
 
 function escapeHtml(text) {
     if (!text) return "";
-    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 // Logic
@@ -740,3 +749,237 @@ loadMeds = async function () {
     await originalLoadMeds();
     renderWeeklyHub();
 };
+
+// ==================== Blood Pressure Functions ====================
+
+// Get BP category based on values
+function getBPCategory(sys, dia) {
+    if (sys >= 180 || dia >= 120) return { label: 'Crisis', class: 'crisis' };
+    if (sys >= 140 || dia >= 90) return { label: 'High Stage 2', class: 'high2' };
+    if (sys >= 130 || dia >= 80) return { label: 'High Stage 1', class: 'high1' };
+    if (sys >= 120 && sys < 130 && dia < 80) return { label: 'Elevated', class: 'elevated' };
+    return { label: 'Normal', class: 'normal' };
+}
+
+// Show BP recording modal
+function showBPRecordModal() {
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    document.getElementById('bp-modal').classList.remove('hidden');
+    
+    // Set default datetime to now
+    const now = new Date();
+    const offset = now.getTimezoneOffset() * 60000;
+    const localISOTime = (new Date(now - offset)).toISOString().slice(0, 16);
+    document.getElementById('bp-datetime').value = localISOTime;
+    
+    // Clear other fields
+    document.getElementById('bp-systolic').value = '';
+    document.getElementById('bp-diastolic').value = '';
+    document.getElementById('bp-pulse').value = '';
+    document.getElementById('bp-notes').value = '';
+    document.getElementById('bp-site').value = 'right_arm';
+    document.getElementById('bp-position').value = 'seated';
+}
+
+// Close BP modal
+function closeBPRecordModal() {
+    document.getElementById('modal-overlay').classList.add('hidden');
+    document.getElementById('bp-modal').classList.add('hidden');
+}
+
+// Handle BP form submission
+async function handleBPSubmit(event) {
+    event.preventDefault();
+    
+    const datetime = document.getElementById('bp-datetime').value;
+    const systolic = parseInt(document.getElementById('bp-systolic').value);
+    const diastolic = parseInt(document.getElementById('bp-diastolic').value);
+    const pulse = document.getElementById('bp-pulse').value ? parseInt(document.getElementById('bp-pulse').value) : null;
+    const site = document.getElementById('bp-site').value;
+    const position = document.getElementById('bp-position').value;
+    const notes = document.getElementById('bp-notes').value;
+    
+    if (!datetime || !systolic || !diastolic) {
+        tg.showAlert('Please fill in all required fields');
+        return;
+    }
+    
+    const payload = {
+        measured_at: new Date(datetime).toISOString(),
+        systolic,
+        diastolic,
+        pulse,
+        site,
+        position,
+        notes
+    };
+    
+    const res = await apiCall('/api/bp', 'POST', payload);
+    
+    if (res) {
+        closeBPRecordModal();
+        loadBPReadings();
+    }
+}
+
+// Load BP readings from API
+async function loadBPReadings() {
+    const list = document.getElementById('bp-list');
+    list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
+    
+    const res = await apiCall('/api/bp?days=30');
+    
+    if (res === null) {
+        list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load readings</li>';
+        return;
+    }
+    
+    renderBPReadings(res || []);
+}
+
+// Render BP readings grouped by date
+function renderBPReadings(readings) {
+    const list = document.getElementById('bp-list');
+    list.innerHTML = '';
+    
+    if (!readings || readings.length === 0) {
+        list.innerHTML = '';
+        return;
+    }
+    
+    // Group readings by date
+    const groups = { today: [], yesterday: [], older: [] };
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    readings.forEach(r => {
+        const date = new Date(r.measured_at);
+        date.setHours(0, 0, 0, 0);
+        
+        if (date.getTime() === today.getTime()) {
+            groups.today.push(r);
+        } else if (date.getTime() === yesterday.getTime()) {
+            groups.yesterday.push(r);
+        } else {
+            groups.older.push(r);
+        }
+    });
+    
+    // Helper to render a group
+    const renderGroup = (headerText, readings) => {
+        if (readings.length === 0) return '';
+        
+        let html = `<li class="bp-date-group">
+            <div class="bp-date-header">${headerText}</div>
+            <ul style="list-style:none;padding:0;margin:0;">`;
+        
+        readings.forEach(r => {
+            const category = getBPCategory(r.systolic, r.diastolic);
+            const timeStr = formatDate(r.measured_at).split(' ')[1]; // Get HH:MM part
+            
+            html += `<li class="bp-item">
+                <div class="bp-reading">
+                    <div class="bp-values">
+                        <span class="bp-sys">${r.systolic}</span>
+                        <span class="bp-dia">/${r.diastolic}</span>
+                    </div>
+                    <div class="bp-meta">
+                        <span>${timeStr}</span>`;
+            
+            if (r.pulse) {
+                html += `<span class="bp-pulse">${r.pulse} bpm</span>`;
+            }
+            
+            html += `<span class="bp-category ${category.class}">${category.label}</span>
+                    </div>
+                </div>
+                <button class="delete-btn" onclick="deleteBPReading(${r.id})" title="Delete">&times;</button>
+            </li>`;
+        });
+        
+        html += '</ul></li>';
+        return html;
+    };
+    
+    // Render groups in order
+    let html = '';
+    html += renderGroup('Today', groups.today);
+    html += renderGroup('Yesterday', groups.yesterday);
+    
+    if (groups.older.length > 0) {
+        // Format older dates
+        const olderGroups = {};
+        groups.older.forEach(r => {
+            const d = new Date(r.measured_at);
+            const key = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            if (!olderGroups[key]) olderGroups[key] = [];
+            olderGroups[key].push(r);
+        });
+        
+        Object.keys(olderGroups).forEach(dateKey => {
+            html += renderGroup(dateKey, olderGroups[dateKey]);
+        });
+    }
+    
+    list.innerHTML = html;
+}
+
+// Delete a BP reading
+async function deleteBPReading(id) {
+    const confirmMsg = 'Delete this blood pressure reading?';
+    
+    if (userInitData && tg.showConfirm) {
+        try {
+            tg.showConfirm(confirmMsg, (ok) => {
+                if (ok) _deleteBPApi(id);
+            });
+            return;
+        } catch (e) {
+            console.log('tg.showConfirm failed, falling back', e);
+        }
+    }
+    
+    if (confirm(confirmMsg)) {
+        _deleteBPApi(id);
+    }
+}
+
+async function _deleteBPApi(id) {
+    const res = await apiCall(`/api/bp/${id}`, 'DELETE');
+    if (res) {
+        loadBPReadings();
+    }
+}
+
+// Export BP data to CSV
+async function exportBPCSV() {
+    try {
+        const response = await fetch('/api/bp/export', {
+            method: 'GET',
+            headers: {
+                'Authorization': `tma ${userInitData}`
+            }
+        });
+
+        if (!response.ok) {
+            tg.showAlert('Failed to generate export');
+            return;
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'blood_pressure_export.csv';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    } catch (err) {
+        console.error('Export error:', err);
+        tg.showAlert('Failed to export data');
+    }
+}

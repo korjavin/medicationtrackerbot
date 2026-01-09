@@ -80,3 +80,86 @@ HTTP Handlers for the Frontend.
     - `index.html`: Single page.
     - `style.css`: CSS Variables mapped to Telegram theme params.
     - `app.js`: Fetch logic, DOM manipulation, Event listeners.
+
+## Blood Pressure Tracking
+
+### Data Model
+
+### `blood_pressure_readings`
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | INTEGER PK | Auto-increment ID |
+| `user_id` | INTEGER FK | Reference to user |
+| `measured_at` | DATETIME | When the reading was taken |
+| `systolic` | INTEGER | Systolic pressure (mmHg) |
+| `diastolic` | INTEGER | Diastolic pressure (mmHg) |
+| `pulse` | INTEGER | Heart rate (bpm) |
+| `site` | TEXT | Measurement site (e.g., "left_arm") |
+| `position` | TEXT | Body position (e.g., "sitting") |
+| `category` | TEXT | BP category (Normal, Elevated, etc.) |
+| `ignore_calc` | BOOLEAN | Skip category calculation if true |
+| `notes` | TEXT | Additional notes |
+| `tag` | TEXT | Custom tag for grouping |
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/bp` | Create a new blood pressure reading |
+| `GET` | `/api/bp` | List all readings for the user |
+| `DELETE` | `/api/bp/:id` | Delete a specific reading |
+| `POST` | `/api/bp/import` | Import readings from CSV |
+| `GET` | `/api/bp/export` | Export all readings to CSV |
+
+### Telegram Bot Commands
+
+| Command | Description |
+|---------|-------------|
+| `/bp <systolic> <diastolic> [pulse]` | Quick logging of a blood pressure reading |
+| `/bphistory` | Show recent blood pressure history |
+| `/bpstats` | Show blood pressure statistics |
+| `/bpexport` | Export blood pressure data to CSV |
+
+Example: `/bp 130 80 72` - Logs a reading with systolic 130, diastolic 80, pulse 72.
+
+### Web Interface
+
+The web interface includes a dedicated Blood Pressure tab with the following features:
+
+- **Readings List**: Displays all blood pressure readings grouped by date
+- **Add Reading Modal**: Form to enter new readings with fields for systolic, diastolic, pulse, site, position, and notes
+- **Export CSV Button**: Download all readings in CSV format
+- **Category Indicators**: Visual indicators showing the AHA category for each reading
+
+### CSV Import
+
+The `cmd/bpimporter/main.go` tool allows importing blood pressure readings from CSV files.
+
+**Usage:**
+```bash
+go run cmd/bpimporter/main.go -csv <file> -user <id>
+```
+
+**CSV Format:**
+```
+Date,Systolic,Diastolic,Pulse,Site,Position,Category,Notes,Tag
+```
+
+**Example:**
+```
+2024-01-15 08:30,120,80,72,left_arm,sitting,Normal,Morning reading,
+```
+
+### BP Categories
+
+Blood pressure readings are automatically categorized according to AHA (American Heart Association) guidelines:
+
+| Category | Systolic (mmHg) | Diastolic (mmHg) |
+|----------|-----------------|------------------|
+| Normal | <120 | <80 |
+| Elevated | 120-129 | <80 |
+| High BP Stage 1 | 130-139 | 80-89 |
+| High BP Stage 2 | ≥140 | ≥90 |
+| Hypertensive Crisis | >180 | >120 |
+
+**Note:** The `ignore_calc` flag can be set to `true` to skip automatic category calculation for manual overrides.
