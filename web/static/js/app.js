@@ -756,12 +756,15 @@ loadMeds = async function () {
 
 // ==================== Blood Pressure Functions ====================
 
-// Get BP category based on values
+// Get BP category based on ISH 2020 guidelines (for users < 65 years)
 function getBPCategory(sys, dia) {
-    if (sys >= 180 || dia >= 120) return { label: 'Crisis', class: 'crisis' };
-    if (sys >= 140 || dia >= 90) return { label: 'High Stage 2', class: 'high2' };
-    if (sys >= 130 || dia >= 80) return { label: 'High Stage 1', class: 'high1' };
-    if (sys >= 120 && sys < 130 && dia < 80) return { label: 'Elevated', class: 'elevated' };
+    // Grade 2 Hypertension: ≥160 and/or ≥100
+    if (sys >= 160 || dia >= 100) return { label: 'Grade 2 HTN', class: 'grade2' };
+    // Grade 1 Hypertension: 140-159 and/or 90-99
+    if (sys >= 140 || dia >= 90) return { label: 'Grade 1 HTN', class: 'grade1' };
+    // High-normal: 130-139 and/or 85-89
+    if (sys >= 130 || dia >= 85) return { label: 'High-normal', class: 'highnormal' };
+    // Normal: <130 and <85
     return { label: 'Normal', class: 'normal' };
 }
 
