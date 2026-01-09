@@ -1,6 +1,8 @@
 package bot
 
 import (
+	"bytes"
+	"encoding/csv"
 	"fmt"
 	"log"
 	"strconv"
@@ -227,6 +229,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		b.api.Send(edit)
 
 		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ All medications for this time marked as taken."))
+	} else if len(data) > 9 && data[:9] == "download:" {
+		option := data[9:]
+		b.handleDownloadCallback(cb, option)
 	}
 }
 
@@ -276,4 +281,91 @@ func (b *Bot) SendGroupNotification(meds []store.Medication, target time.Time) e
 
 	_, err := b.api.Send(msg)
 	return err
+}
+
+func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) {
+	var since time.Time
+	switch option {
+	case "since_last":
+		lastDownload, err := b.store.GetLastDownload()
+		if err != nil {
+			log.Printf("Error getting last download: %v", err)
+			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving last download date."))
+			return
+		}
+		if lastDownload.IsZero() {
+			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "No previous download found. Please choose a time period."))
+			return
+		}
+		since = lastDownload
+	case "7":
+		since = time.Now().AddDate(0, 0, -7)
+	case "14":
+		since = time.Now().AddDate(0, 0, -14)
+	case "30":
+		since = time.Now().AddDate(0, 0, -30)
+	default:
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "Unknown download option."))
+		return
+	}
+
+	intakes, err := b.store.GetIntakesSince(since)
+	if err != nil {
+		log.Printf("Error getting intakes: %v", err)
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving intake data."))
+		return
+	}
+
+	if len(intakes) == 0 {
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "No medication records found for the selected period."))
+		return
+	}
+
+	csvData, err := b.generateCSV(intakes)
+	if err != nil {
+		log.Printf("Error generating CSV: %v", err)
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error generating CSV file."))
+		return
+	}
+
+	// Update last download timestamp
+	if err := b.store.UpdateLastDownload(time.Now()); err != nil {
+		log.Printf("Error updating last download: %v", err)
+	}
+
+	// Remove buttons
+	edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
+	})
+	b.api.Send(edit)
+
+	// Send CSV as document
+	doc := tgbotapi.NewDocument(cb.Message.Chat.ID, tgbotapi.FileBytes{
+		Name:  "medication_export.csv",
+		Bytes: csvData,
+	})
+	doc.Caption = fmt.Sprintf("Here is your medication export (%d records)", len(intakes))
+	b.api.Send(doc)
+}
+
+func (b *Bot) generateCSV(intakes []store.IntakeWithMedication) ([]byte, error) {
+	buf := &bytes.Buffer{}
+	writer := csv.NewWriter(buf)
+
+	// Write header
+	if err := writer.Write([]string{"date time", "medicine name", "dosage"}); err != nil {
+		return nil, err
+	}
+
+	// Write data rows
+	for _, intake := range intakes {
+		dateTime := intake.ScheduledAt.Format("2006-01-02 15:04")
+		row := []string{dateTime, intake.MedicationName, intake.MedicationDosage}
+		if err := writer.Write(row); err != nil {
+			return nil, err
+		}
+	}
+
+	writer.Flush()
+	return buf.Bytes(), writer.Error()
 }
