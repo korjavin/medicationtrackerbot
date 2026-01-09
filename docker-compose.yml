@@ -36,13 +36,25 @@ services:
     command:
       - -c
       - |
-        exec litestream replicate -sync-interval 1h -snapshot-interval 24h /app/data/meds.db s3://${R2_BUCKET}/medtracker
+        cat << EOF > /tmp/litestream.yml
+        dbs:
+          - path: /app/data/meds.db
+            replicas:
+              - type: s3
+                bucket: $${R2_BUCKET}
+                path: medtracker
+                endpoint: $${R2_ENDPOINT}
+                sync-interval: 1h
+                snapshot-interval: 24h
+                retention: 168h
+        EOF
+        exec litestream replicate -config /tmp/litestream.yml
     volumes:
       - medtracker_data:/app/data
     environment:
       - LITESTREAM_ACCESS_KEY_ID=${LITESTREAM_ACCESS_KEY_ID}
       - LITESTREAM_SECRET_ACCESS_KEY=${LITESTREAM_SECRET_ACCESS_KEY}
-      - AWS_ENDPOINT_URL_S3=${R2_ENDPOINT}
+      - R2_ENDPOINT=${R2_ENDPOINT}
       - R2_BUCKET=${R2_BUCKET}
     depends_on:
       - medtracker
