@@ -769,13 +769,13 @@ function getBPCategory(sys, dia) {
 function showBPRecordModal() {
     document.getElementById('modal-overlay').classList.remove('hidden');
     document.getElementById('bp-modal').classList.remove('hidden');
-    
+
     // Set default datetime to now
     const now = new Date();
     const offset = now.getTimezoneOffset() * 60000;
     const localISOTime = (new Date(now - offset)).toISOString().slice(0, 16);
     document.getElementById('bp-datetime').value = localISOTime;
-    
+
     // Clear other fields
     document.getElementById('bp-systolic').value = '';
     document.getElementById('bp-diastolic').value = '';
@@ -794,7 +794,7 @@ function closeBPRecordModal() {
 // Handle BP form submission
 async function handleBPSubmit(event) {
     event.preventDefault();
-    
+
     const datetime = document.getElementById('bp-datetime').value;
     const systolic = parseInt(document.getElementById('bp-systolic').value);
     const diastolic = parseInt(document.getElementById('bp-diastolic').value);
@@ -802,12 +802,12 @@ async function handleBPSubmit(event) {
     const site = document.getElementById('bp-site').value;
     const position = document.getElementById('bp-position').value;
     const notes = document.getElementById('bp-notes').value;
-    
+
     if (!datetime || !systolic || !diastolic) {
         tg.showAlert('Please fill in all required fields');
         return;
     }
-    
+
     const payload = {
         measured_at: new Date(datetime).toISOString(),
         systolic,
@@ -817,9 +817,9 @@ async function handleBPSubmit(event) {
         position,
         notes
     };
-    
+
     const res = await apiCall('/api/bp', 'POST', payload);
-    
+
     if (res) {
         closeBPRecordModal();
         loadBPReadings();
@@ -830,14 +830,14 @@ async function handleBPSubmit(event) {
 async function loadBPReadings() {
     const list = document.getElementById('bp-list');
     list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
-    
+
     const res = await apiCall('/api/bp?days=30');
-    
+
     if (res === null) {
         list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load readings</li>';
         return;
     }
-    
+
     renderBPReadings(res || []);
 }
 
@@ -845,24 +845,24 @@ async function loadBPReadings() {
 function renderBPReadings(readings) {
     const list = document.getElementById('bp-list');
     list.innerHTML = '';
-    
+
     if (!readings || readings.length === 0) {
         list.innerHTML = '';
         return;
     }
-    
+
     // Group readings by date
     const groups = { today: [], yesterday: [], older: [] };
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-    
+
     readings.forEach(r => {
         const date = new Date(r.measured_at);
         date.setHours(0, 0, 0, 0);
-        
+
         if (date.getTime() === today.getTime()) {
             groups.today.push(r);
         } else if (date.getTime() === yesterday.getTime()) {
@@ -871,19 +871,19 @@ function renderBPReadings(readings) {
             groups.older.push(r);
         }
     });
-    
+
     // Helper to render a group
     const renderGroup = (headerText, readings) => {
         if (readings.length === 0) return '';
-        
+
         let html = `<li class="bp-date-group">
             <div class="bp-date-header">${headerText}</div>
             <ul style="list-style:none;padding:0;margin:0;">`;
-        
+
         readings.forEach(r => {
             const category = getBPCategory(r.systolic, r.diastolic);
             const timeStr = formatDate(r.measured_at).split(' ')[1]; // Get HH:MM part
-            
+
             html += `<li class="bp-item">
                 <div class="bp-reading">
                     <div class="bp-values">
@@ -892,27 +892,27 @@ function renderBPReadings(readings) {
                     </div>
                     <div class="bp-meta">
                         <span>${timeStr}</span>`;
-            
+
             if (r.pulse) {
                 html += `<span class="bp-pulse">${r.pulse} bpm</span>`;
             }
-            
+
             html += `<span class="bp-category ${category.class}">${category.label}</span>
                     </div>
                 </div>
                 <button class="delete-btn" onclick="deleteBPReading(${r.id})" title="Delete">&times;</button>
             </li>`;
         });
-        
+
         html += '</ul></li>';
         return html;
     };
-    
+
     // Render groups in order
     let html = '';
     html += renderGroup('Today', groups.today);
     html += renderGroup('Yesterday', groups.yesterday);
-    
+
     if (groups.older.length > 0) {
         // Format older dates
         const olderGroups = {};
@@ -922,19 +922,19 @@ function renderBPReadings(readings) {
             if (!olderGroups[key]) olderGroups[key] = [];
             olderGroups[key].push(r);
         });
-        
+
         Object.keys(olderGroups).forEach(dateKey => {
             html += renderGroup(dateKey, olderGroups[dateKey]);
         });
     }
-    
+
     list.innerHTML = html;
 }
 
 // Delete a BP reading
 async function deleteBPReading(id) {
     const confirmMsg = 'Delete this blood pressure reading?';
-    
+
     if (userInitData && tg.showConfirm) {
         try {
             tg.showConfirm(confirmMsg, (ok) => {
@@ -945,7 +945,7 @@ async function deleteBPReading(id) {
             console.log('tg.showConfirm failed, falling back', e);
         }
     }
-    
+
     if (confirm(confirmMsg)) {
         _deleteBPApi(id);
     }
@@ -1040,32 +1040,32 @@ async function handleWeightSubmit(event) {
 function renderWeightChart(logs) {
     const ctx = document.getElementById('weightChart');
     if (!ctx) return;
-    
+
     // Destroy existing chart if it exists
     if (window.weightChartInstance) {
         window.weightChartInstance.destroy();
     }
-    
+
     if (!logs || logs.length === 0) {
         // No data - show placeholder
         return;
     }
-    
+
     // Sort logs by date (oldest first for the chart)
     const sortedLogs = [...logs].sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
-    
+
     const labels = sortedLogs.map(w => {
         const d = new Date(w.measured_at);
         return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
     });
-    
+
     const data = sortedLogs.map(w => w.weight);
-    
+
     // Calculate min/max for y-axis
     const minWeight = Math.min(...data);
     const maxWeight = Math.max(...data);
     const padding = (maxWeight - minWeight) * 0.1 || 1;
-    
+
     window.weightChartInstance = new Chart(ctx, {
         type: 'line',
         data: {
@@ -1077,20 +1077,27 @@ function renderWeightChart(logs) {
                 backgroundColor: 'rgba(78, 205, 196, 0.1)',
                 fill: true,
                 tension: 0.3,
-                pointRadius: 4,
-                pointBackgroundColor: '#4ECDC4'
+                pointRadius: 2,
+                pointHoverRadius: 5,
+                pointBackgroundColor: '#4ECDC4',
+                borderWidth: 2
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            animation: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
             plugins: {
                 legend: {
                     display: false
                 },
                 tooltip: {
                     callbacks: {
-                        label: function(context) {
+                        label: function (context) {
                             return context.parsed.y.toFixed(1) + ' kg';
                         }
                     }
@@ -1100,15 +1107,25 @@ function renderWeightChart(logs) {
                 y: {
                     min: Math.floor(minWeight - padding),
                     max: Math.ceil(maxWeight + padding),
+                    grid: {
+                        display: true,
+                        color: 'rgba(0,0,0,0.05)'
+                    },
                     ticks: {
-                        callback: function(value) {
-                            return value.toFixed(1) + ' kg';
-                        }
+                        callback: function (value) {
+                            return value.toFixed(1);
+                        },
+                        font: { size: 11 }
                     }
                 },
                 x: {
+                    grid: {
+                        display: false
+                    },
                     ticks: {
-                        maxTicksLimit: 10
+                        maxTicksLimit: 6,
+                        maxRotation: 0,
+                        font: { size: 10 }
                     }
                 }
             }
