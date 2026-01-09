@@ -26,10 +26,26 @@ A private, self-hosted Telegram Mini App for medication tracking, designed to re
         - Normalizes medication names (e.g., "Advil" -> "Ibuprofen") for accurate checking.
         - Warnings are displayed when adding or unarchiving medications.
 
+- **Blood Pressure Tracking**:
+    - Log blood pressure readings (systolic, diastolic, pulse).
+    - Track 2-3x daily for accurate monitoring.
+    - View history, statistics, and trends.
+    - Export to CSV for analysis.
+    - BP categories based on AHA guidelines.
+
 ## Chat Commands
+
+### Medication Commands
 - `/start` - Launch the Mini App.
-- `/log` -  Log a dose for any medication (great for "As Needed" meds).
+- `/log` - Log a dose for any medication (great for "As Needed" meds).
 - `/help` - Show instructions.
+
+### Blood Pressure Commands
+- `/bp <systolic> <diastolic> [pulse]` - Log blood pressure reading.
+  - Example: `/bp 130 80 72` (130/80 mmHg, 72 bpm pulse)
+- `/bphistory` - View blood pressure history.
+- `/bpstats` - View blood pressure statistics (averages, trends).
+- `/bpexport` - Export blood pressure data to CSV.
 
 ## Configuration
 
@@ -78,11 +94,43 @@ services:
 1.  Clone repo.
 2.  `go run ./cmd/bot`
 
+### Web Interface
+
+Access the web interface at `http://localhost:8080` (or your domain when deployed). The interface includes:
+
+- **Medications** - Manage your medications and schedules.
+- **History** - View dose history with filters.
+- **Blood Pressure** - Blood pressure tracking dashboard.
+
 ### Importing Data
+
+#### Medication History (Apple Health)
 To import history from "Health Auto Export" (Apple Health):
 1.  Export data to JSON.
 2.  Place JSON file in project root.
 3.  Run: `go run cmd/importer/main.go -file export.json -user <your_tg_id> -db meds.db`
+
+#### Blood Pressure (CSV)
+To import blood pressure data from CSV:
+1.  CSV format: `date,time,systolic,diastolic,pulse`
+2.  Run: `go run cmd/bpimporter/main.go -file bp_data.csv -db meds.db`
+
+Example CSV format:
+```csv
+date,time,systolic,diastolic,pulse
+2024-01-15,08:30,120,80,72
+2024-01-15,20:15,118,78,70
+```
+
+### Blood Pressure Categories (AHA Guidelines)
+
+| Category | Systolic (mmHg) | Diastolic (mmHg) |
+|----------|-----------------|------------------|
+| Normal | < 120 | < 80 |
+| Elevated | 120-129 | < 80 |
+| High BP Stage 1 | 130-139 | 80-89 |
+| High BP Stage 2 | ≥ 140 | ≥ 90 |
+| Hypertensive Crisis | > 180 | > 120 |
 
 ## Security
 - **Telegram Auth**: Validates `WebAppData` signature.

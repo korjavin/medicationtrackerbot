@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"encoding/json"
@@ -66,6 +67,45 @@ type IntakeWithMedication struct {
 	IntakeLog
 	MedicationName   string `json:"medication_name"`
 	MedicationDosage string `json:"medication_dosage"`
+}
+
+type BloodPressure struct {
+	ID         int64     `json:"id"`
+	UserID     int64     `json:"user_id"`
+	MeasuredAt time.Time `json:"measured_at"`
+	Systolic   int       `json:"systolic"`
+	Diastolic  int       `json:"diastolic"`
+	Pulse      *int      `json:"pulse,omitempty"`
+	Site       string    `json:"site,omitempty"`
+	Position   string    `json:"position,omitempty"`
+	Category   string    `json:"category,omitempty"`
+	IgnoreCalc bool      `json:"ignore_calc"`
+	Notes      string    `json:"notes,omitempty"`
+	Tag        string    `json:"tag,omitempty"`
+}
+
+func CalculateBPCategory(systolic, diastolic int) string {
+	// Hypertensive Crisis: >180 or >120
+	if systolic > 180 || diastolic > 120 {
+		return "Hypertensive Crisis"
+	}
+	// High BP Stage 2: ≥140 or ≥90
+	if systolic >= 140 || diastolic >= 90 {
+		return "High BP Stage 2"
+	}
+	// High BP Stage 1: 130-139 or 80-89
+	if systolic >= 130 || diastolic >= 80 {
+		return "High BP Stage 1"
+	}
+	// Elevated: 120-129 and <80
+	if systolic >= 120 && systolic < 130 && diastolic < 80 {
+		return "Elevated"
+	}
+	// Normal: <120 and <80
+	if systolic < 120 && diastolic < 80 {
+		return "Normal"
+	}
+	return "Unknown"
 }
 
 func New(dbPath string) (*Store, error) {
@@ -380,4 +420,121 @@ func (s *Store) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error)
 		logs = append(logs, l)
 	}
 	return logs, nil
+}
+
+// -- Blood Pressure --
+
+func (s *Store) CreateBloodPressureReading(ctx context.Context, bp *BloodPressure) (int64, error) {
+	if bp.Category == "" && !bp.IgnoreCalc {
+		bp.Category = CalculateBPCategory(bp.Systolic, bp.Diastolic)
+	}
+
+	res, err := s.db.ExecContext(ctx,
+		"INSERT INTO blood_pressure_readings (user_id, measured_at, systolic, diastolic, pulse, site, position, category, ignore_calc, notes, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		bp.UserID, bp.MeasuredAt, bp.Systolic, bp.Diastolic, bp.Pulse, bp.Site, bp.Position, bp.Category, bp.IgnoreCalc, bp.Notes, bp.Tag)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) GetBloodPressureReadings(ctx context.Context, userID int64, days int) ([]BloodPressure, error) {
+	query := "SELECT id, user_id, measured_at, systolic, diastolic, pulse, site, position, category, ignore_calc, notes, tag FROM blood_pressure_readings WHERE user_id = ?"
+	args := []interface{}{userID}
+
+	if days > 0 {
+		since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+		query += " AND measured_at >= ?"
+		args = append(args, since)
+	}
+
+	query += " ORDER BY measured_at DESC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var readings []BloodPressure
+	for rows.Next() {
+		var bp BloodPressure
+		var pulse sql.NullInt64
+		var site, position, category, notes, tag sql.NullString
+
+		if err := rows.Scan(&bp.ID, &bp.UserID, &bp.MeasuredAt, &bp.Systolic, &bp.Diastolic, &pulse, &site, &position, &category, &bp.IgnoreCalc, &notes, &tag); err != nil {
+			return nil, err
+		}
+
+		if pulse.Valid {
+			bp.Pulse = new(int)
+			*bp.Pulse = int(pulse.Int64)
+		}
+		if site.Valid {
+			bp.Site = site.String
+		}
+		if position.Valid {
+			bp.Position = position.String
+		}
+		if category.Valid {
+			bp.Category = category.String
+		}
+		if notes.Valid {
+			bp.Notes = notes.String
+		}
+		if tag.Valid {
+			bp.Tag = tag.String
+		}
+
+		readings = append(readings, bp)
+	}
+	return readings, nil
+}
+
+func (s *Store) DeleteBloodPressureReading(ctx context.Context, id, userID int64) error {
+	res, err := s.db.ExecContext(ctx, "DELETE FROM blood_pressure_readings WHERE id = ? AND user_id = ?", id, userID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) ImportBloodPressureReadings(ctx context.Context, userID int64, readings []BloodPressure) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx,
+		"INSERT INTO blood_pressure_readings (user_id, measured_at, systolic, diastolic, pulse, site, position, category, ignore_calc, notes, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, bp := range readings {
+		bp.UserID = userID
+		if bp.Category == "" && !bp.IgnoreCalc {
+			bp.Category = CalculateBPCategory(bp.Systolic, bp.Diastolic)
+		}
+
+		var pulse interface{}
+		if bp.Pulse != nil {
+			pulse = *bp.Pulse
+		} else {
+			pulse = nil
+		}
+
+		_, err := stmt.ExecContext(ctx, bp.UserID, bp.MeasuredAt, bp.Systolic, bp.Diastolic, pulse, bp.Site, bp.Position, bp.Category, bp.IgnoreCalc, bp.Notes, bp.Tag)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
