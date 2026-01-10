@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -818,18 +819,25 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 
 	var data TelegramLoginData
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		log.Printf("[TG-LOGIN] Invalid JSON from %s: %v", r.RemoteAddr, err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
+	log.Printf("[TG-LOGIN] Attempt from %s: user_id=%d username=%s first_name=%s auth_date=%d",
+		r.RemoteAddr, data.ID, data.Username, data.FirstName, data.AuthDate)
+
 	valid, user, err := ValidateTelegramLoginWidget(s.botToken, data)
 	if !valid || err != nil {
+		log.Printf("[TG-LOGIN] Validation failed for user_id=%d from %s: %v", data.ID, r.RemoteAddr, err)
 		http.Error(w, "Invalid Telegram login data: "+err.Error(), http.StatusUnauthorized)
 		return
 	}
 
 	// Check if user is allowed
 	if user.ID != s.allowedUserID {
+		log.Printf("[TG-LOGIN] Unauthorized user_id=%d (username=%s) from %s - allowed is %d",
+			user.ID, user.Username, r.RemoteAddr, s.allowedUserID)
 		http.Error(w, "Forbidden: User not allowed", http.StatusForbidden)
 		return
 	}
@@ -843,6 +851,8 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 		HttpOnly: true,
 		Path:     "/",
 	})
+
+	log.Printf("[TG-LOGIN] Success for user_id=%d username=%s from %s", user.ID, user.Username, r.RemoteAddr)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

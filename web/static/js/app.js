@@ -31,9 +31,15 @@ async function checkAuth() {
         console.log("Auth check failed", e);
     }
 
-    // Not authorized. Show Telegram Login Widget
+    // Not authorized. Show login options
     const loginContainer = document.createElement('div');
     loginContainer.style.cssText = "display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:60vh; gap: 20px;";
+
+    // Title
+    const title = document.createElement('h2');
+    title.innerText = "Login to Med Tracker";
+    title.style.cssText = "color: var(--text-color, #333); margin-bottom: 10px;";
+    loginContainer.appendChild(title);
 
     // Create a container for the Telegram widget
     const tgWidgetContainer = document.createElement('div');
@@ -51,11 +57,25 @@ async function checkAuth() {
     tgWidgetContainer.appendChild(tgScript);
     loginContainer.appendChild(tgWidgetContainer);
 
+    // Divider
+    const divider = document.createElement('div');
+    divider.style.cssText = "display:flex; align-items:center; gap:10px; color: #999; margin: 10px 0;";
+    divider.innerHTML = '<span style="flex:1; height:1px; background:#ddd;"></span><span>or</span><span style="flex:1; height:1px; background:#ddd;"></span>';
+    loginContainer.appendChild(divider);
+
+    // Google login button
+    const googleBtn = document.createElement('button');
+    googleBtn.innerText = "Login with Google";
+    googleBtn.onclick = () => window.location.href = "/auth/google/login";
+    googleBtn.style.cssText = "padding: 12px 24px; font-size: 16px; background: #4285F4; color: white; border: none; border-radius: 5px; cursor: pointer;";
+    loginContainer.appendChild(googleBtn);
+
     document.body.innerHTML = "";
     document.body.appendChild(loginContainer);
 
     // Define global callback for Telegram Login Widget
     window.onTelegramAuth = async function (user) {
+        console.log("Telegram auth callback received:", user);
         try {
             const res = await fetch('/auth/telegram/callback', {
                 method: 'POST',
@@ -66,9 +86,11 @@ async function checkAuth() {
                 window.location.reload();
             } else {
                 const err = await res.text();
+                console.error("Telegram login failed:", err);
                 alert("Login failed: " + err);
             }
         } catch (e) {
+            console.error("Telegram login error:", e);
             alert("Login error: " + e.message);
         }
     };
