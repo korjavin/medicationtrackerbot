@@ -639,8 +639,35 @@ svg.chart-svg {
     background: var(--secondary-bg-color);
     border-radius: 12px;
     padding: 10px;
-    margin-bottom: 16px;
+    margin-bottom: 8px;
     box-sizing: border-box;
+}
+
+#bp-averages {
+    margin-bottom: 16px;
+}
+
+.bp-avg-row {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+}
+
+.bp-avg-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.bp-avg-label {
+    font-size: 12px;
+    color: var(--hint-color);
+}
+
+.bp-avg-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-color);
 }
 
 .bp-chart-systolic {
