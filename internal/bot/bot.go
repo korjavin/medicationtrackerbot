@@ -1052,7 +1052,7 @@ func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
 	}
 
 	if len(lowStockMeds) > 0 {
-		sb.WriteString("\n⚠️ = Low stock (< 7 days)")
+		sb.WriteString("\n⚠️ = Low stock (won't last 7 days or until end date)")
 	}
 
 	msgConfig.Text = sb.String()

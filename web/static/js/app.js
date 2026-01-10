@@ -317,6 +317,63 @@ async function handleRestock() {
     }
 }
 
+// Calculate if medication is low on stock considering end date
+function isLowOnStock(med) {
+    if (med.inventory_count === null || med.inventory_count === undefined) {
+        return false;
+    }
+
+    // Calculate daily usage from schedule
+    const dailyUsage = calculateDailyUsage(med);
+    if (dailyUsage === 0) {
+        return false; // Can't calculate for as-needed
+    }
+
+    const daysOfStock = med.inventory_count / dailyUsage;
+
+    // If medication has an end date, check if we have enough until then
+    if (med.end_date) {
+        const endDate = new Date(med.end_date);
+        const now = new Date();
+        const daysUntilEnd = (endDate - now) / (1000 * 60 * 60 * 24);
+
+        if (daysUntilEnd <= 0) {
+            return false; // Already ended
+        }
+
+        return daysOfStock < daysUntilEnd;
+    }
+
+    // No end date: use 7-day threshold
+    return daysOfStock < 7;
+}
+
+// Calculate how many doses per day based on schedule
+function calculateDailyUsage(med) {
+    try {
+        const sched = JSON.parse(med.schedule);
+
+        if (sched.type === 'as_needed') {
+            return 0;
+        }
+
+        const timesPerDay = (sched.times || []).length;
+
+        if (sched.type === 'daily') {
+            return timesPerDay;
+        }
+
+        if (sched.type === 'weekly') {
+            const daysPerWeek = (sched.days || []).length;
+            return (daysPerWeek / 7.0) * timesPerDay;
+        }
+
+        return 0;
+    } catch (e) {
+        return 0;
+    }
+}
+
 function addTimeInput(value = '') {
     const container = document.getElementById('time-inputs');
     const div = document.createElement('div');
@@ -468,7 +525,7 @@ function renderMeds() {
         }
         let inventoryText = '';
         if (m.inventory_count !== null && m.inventory_count !== undefined) {
-            const isLow = m.inventory_count < 7; // Simple low stock check
+            const isLow = isLowOnStock(m);
             inventoryText = `<p class="inventory-badge ${isLow ? 'low' : ''}">📦 ${m.inventory_count} doses${isLow ? ' ⚠️' : ''}</p>`;
         }
 
