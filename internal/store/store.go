@@ -362,13 +362,39 @@ func (s *Store) GetMedicationsLowOnStock(daysThreshold int) ([]Medication, error
 			continue // As-needed or invalid schedule
 		}
 
-		daysLeft := float64(*m.InventoryCount) / dailyUsage
-		if daysLeft < float64(daysThreshold) {
-			lowStock = append(lowStock, m)
+		// Check if medication has enough stock
+		if s.hasEnoughStock(&m, dailyUsage, daysThreshold) {
+			continue
 		}
+
+		lowStock = append(lowStock, m)
 	}
 
 	return lowStock, nil
+}
+
+// hasEnoughStock returns true if medication has enough stock
+// If medication has end date: check if stock lasts until end date
+// If no end date: check if stock lasts at least daysThreshold days
+func (s *Store) hasEnoughStock(m *Medication, dailyUsage float64, daysThreshold int) bool {
+	if m.InventoryCount == nil {
+		return true // Not tracking
+	}
+
+	daysOfStock := float64(*m.InventoryCount) / dailyUsage
+
+	// If medication has an end date, calculate how many days until it ends
+	if m.EndDate != nil {
+		daysUntilEnd := time.Until(*m.EndDate).Hours() / 24
+		if daysUntilEnd <= 0 {
+			return true // Already ended, no warning needed
+		}
+		// Enough stock if we have more days than needed until end
+		return daysOfStock >= daysUntilEnd
+	}
+
+	// No end date: use the threshold
+	return daysOfStock >= float64(daysThreshold)
 }
 
 // calculateDailyUsage returns the average daily intakes for a medication
@@ -410,6 +436,20 @@ func (s *Store) GetDaysOfStockRemaining(m *Medication) *float64 {
 
 	days := float64(*m.InventoryCount) / dailyUsage
 	return &days
+}
+
+// IsLowOnStock checks if a medication is low on stock considering its end date
+func (s *Store) IsLowOnStock(m *Medication, daysThreshold int) bool {
+	if m.InventoryCount == nil {
+		return false
+	}
+
+	dailyUsage := s.calculateDailyUsage(m)
+	if dailyUsage == 0 {
+		return false
+	}
+
+	return !s.hasEnoughStock(m, dailyUsage, daysThreshold)
 }
 
 // -- Intake Log --
