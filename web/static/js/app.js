@@ -48,6 +48,17 @@ checkAuth().then(authorized => {
         // Only load data if authorized
         // Determine start tab? default bp
         switchTab('bp');
+
+        // Handle deep links
+        const path = window.location.pathname;
+        if (path === '/bp_add') {
+            // Wait for BP data to load, then open modal
+            setTimeout(() => {
+                showBPRecordModal();
+                // Clean up URL without reload
+                window.history.replaceState({}, '', '/');
+            }, 100);
+        }
     }
 });
 
