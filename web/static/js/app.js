@@ -46,8 +46,8 @@ async function checkAuth() {
 checkAuth().then(authorized => {
     if (authorized) {
         // Only load data if authorized
-        // Determine start tab? default meds
-        switchTab('meds');
+        // Determine start tab? default bp
+        switchTab('bp');
     }
 });
 
