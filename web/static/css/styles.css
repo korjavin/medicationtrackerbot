@@ -775,3 +775,60 @@ svg.chart-svg {
     margin: 0 0 20px 0;
     font-size: 18px;
 }
+
+/* Inventory Section */
+.inventory-section {
+    margin-bottom: 16px;
+    padding: 12px;
+    background: var(--secondary-bg-color);
+    border-radius: 8px;
+}
+
+.inventory-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    background: rgba(78, 205, 196, 0.15);
+    color: #2d9c93;
+    margin-top: 6px;
+}
+
+.inventory-badge.low {
+    background: rgba(255, 59, 48, 0.15);
+    color: #ff3b30;
+}
+
+.restock-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.restock-row input {
+    width: 80px;
+    margin-bottom: 0;
+}
+
+.restock-history {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--hint-color);
+}
+
+.restock-history ul {
+    list-style: none;
+    padding: 0;
+    margin: 4px 0 0 0;
+}
+
+.restock-history li {
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.hint {
+    font-size: 12px;
+    color: var(--hint-color);
+    margin: 4px 0;
+}

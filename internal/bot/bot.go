@@ -77,6 +77,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 **Commands:**
 /start - Start the bot and open the Mini App
 /log - Manually log a dose for any medication (useful for "As Needed" meds)
+/stock - View medication inventory status
 /download - Export medication, blood pressure, and weight history to CSV
 /bp <systolic> <diastolic> [pulse] - Log blood pressure reading
   Example: /bp 130 80 72
@@ -149,6 +150,8 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		b.handleGoalCommand(msg, &msgConfig)
 	case "bpgoal":
 		b.handleBPGoalCommand(msg, &msgConfig)
+	case "stock":
+		b.handleStockCommand(&msgConfig)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}
@@ -195,6 +198,11 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 				return
 			}
 
+			// Decrement inventory (only affects medications with tracking enabled)
+			if err := b.store.DecrementInventory(medID, 1); err != nil {
+				log.Printf("Error decrementing inventory: %v", err)
+			}
+
 			// Remove button
 			edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 				InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
@@ -223,6 +231,11 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		if err := b.store.ConfirmIntake(logID, now); err != nil {
 			log.Printf("Error confirming manual intake: %v", err)
 			return
+		}
+
+		// Decrement inventory (only affects medications with tracking enabled)
+		if err := b.store.DecrementInventory(medID, 1); err != nil {
+			log.Printf("Error decrementing inventory: %v", err)
 		}
 
 		// Remove buttons
@@ -265,6 +278,13 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		if err := b.store.ConfirmIntakesBySchedule(b.allowedUserID, target, time.Now()); err != nil {
 			log.Printf("Error confirming batch: %v", err)
 			return
+		}
+
+		// Decrement inventory for all medications in this schedule
+		for _, p := range pending {
+			if err := b.store.DecrementInventory(p.MedicationID, 1); err != nil {
+				log.Printf("Error decrementing inventory for med %d: %v", p.MedicationID, err)
+			}
 		}
 
 		// Update message to remove buttons
@@ -324,6 +344,14 @@ func (b *Bot) SendGroupNotification(meds []store.Medication, target time.Time) e
 
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 
+	_, err := b.api.Send(msg)
+	return err
+}
+
+// SendLowStockWarning sends a low stock warning message to the user
+func (b *Bot) SendLowStockWarning(text string) error {
+	msg := tgbotapi.NewMessage(b.allowedUserID, text)
+	msg.ParseMode = "Markdown"
 	_, err := b.api.Send(msg)
 	return err
 }
@@ -971,4 +999,62 @@ Example: /bpgoal 120 70`
 	}
 
 	msgConfig.Text = fmt.Sprintf("✅ BP goal set: <%d/%d mmHg", systolic, diastolic)
+}
+
+// -- Inventory Command --
+
+func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
+	meds, err := b.store.ListMedications(false)
+	if err != nil {
+		log.Printf("Error getting medications: %v", err)
+		msgConfig.Text = "❌ Error retrieving medications."
+		return
+	}
+
+	// Filter to only medications with inventory tracking
+	var trackedMeds []store.Medication
+	for _, m := range meds {
+		if m.InventoryCount != nil {
+			trackedMeds = append(trackedMeds, m)
+		}
+	}
+
+	if len(trackedMeds) == 0 {
+		msgConfig.Text = "📦 **Medication Inventory**\n\nNo medications are being tracked for inventory.\n\nTo enable tracking, edit a medication in the web app and set the stock count."
+		msgConfig.ParseMode = "Markdown"
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("📦 **Medication Inventory**\n\n")
+
+	// Check for low stock (< 7 days)
+	lowStockMeds, _ := b.store.GetMedicationsLowOnStock(7)
+	lowStockIDs := make(map[int64]bool)
+	for _, m := range lowStockMeds {
+		lowStockIDs[m.ID] = true
+	}
+
+	for _, m := range trackedMeds {
+		daysRemaining := b.store.GetDaysOfStockRemaining(&m)
+
+		icon := "✅"
+		if lowStockIDs[m.ID] {
+			icon = "⚠️"
+		}
+
+		daysStr := ""
+		if daysRemaining != nil {
+			daysStr = fmt.Sprintf(" (~%.0f days)", *daysRemaining)
+		}
+
+		sb.WriteString(fmt.Sprintf("%s **%s**: %d units%s\n", icon, m.Name, *m.InventoryCount, daysStr))
+	}
+
+	if len(lowStockMeds) > 0 {
+		sb.WriteString("\n⚠️ = Low stock (< 7 days)")
+	}
+
+	msgConfig.Text = sb.String()
+	msgConfig.ParseMode = "Markdown"
 }
