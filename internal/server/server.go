@@ -5,7 +5,9 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -22,15 +24,17 @@ type Server struct {
 	allowedUserID int64
 	oidcConfig    OIDCConfig
 	oauthConfig   *oauth2.Config
+	botUsername   string
 }
 
-func New(s *store.Store, botToken string, allowedUserID int64, oidc OIDCConfig) *Server {
+func New(s *store.Store, botToken string, allowedUserID int64, oidc OIDCConfig, botUsername string) *Server {
 	srv := &Server{
 		store:         s,
 		rxnorm:        rxnorm.New(),
 		botToken:      botToken,
 		allowedUserID: allowedUserID,
 		oidcConfig:    oidc,
+		botUsername:   botUsername,
 	}
 	srv.initOAUTH()
 	return srv
@@ -53,25 +57,16 @@ func (s *Server) Routes() http.Handler {
 	fs := http.FileServer(http.Dir("./web/static"))
 	mux.Handle("/static/", noCacheMiddleware(http.StripPrefix("/static/", fs)))
 
-	// Main Page with no-cache headers
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		http.ServeFile(w, r, "./web/static/index.html")
-	})
+	// Main Page with no-cache headers and bot username injection
+	mux.HandleFunc("/", s.serveIndexWithBotUsername)
 
 	// Deep link routes - serve SPA, JS handles the path
-	mux.HandleFunc("/bp_add", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		http.ServeFile(w, r, "./web/static/index.html")
-	})
+	mux.HandleFunc("/bp_add", s.serveIndexWithBotUsername)
 
 	// Auth Routes
 	mux.HandleFunc("/auth/google/login", s.handleGoogleLogin)
 	mux.HandleFunc("/auth/google/callback", s.handleGoogleCallback)
+	mux.HandleFunc("/auth/telegram/callback", s.handleTelegramCallback)
 
 	// API
 	apiMux := http.NewServeMux()
@@ -785,4 +780,70 @@ func (s *Server) handleGetLowStock(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+// serveIndexWithBotUsername serves index.html with bot username injected
+func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
+	// Read index.html
+	f, err := os.Open("./web/static/index.html")
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	content, err := io.ReadAll(f)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Inject bot username
+	html := strings.ReplaceAll(string(content), "BOT_USERNAME_PLACEHOLDER", s.botUsername)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(html))
+}
+
+// handleTelegramCallback handles Telegram Login Widget authentication
+func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var data TelegramLoginData
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	valid, user, err := ValidateTelegramLoginWidget(s.botToken, data)
+	if !valid || err != nil {
+		http.Error(w, "Invalid Telegram login data: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	// Check if user is allowed
+	if user.ID != s.allowedUserID {
+		http.Error(w, "Forbidden: User not allowed", http.StatusForbidden)
+		return
+	}
+
+	// Create session (same as Google auth)
+	sessionValue := createSessionToken(user.Username, s.botToken)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_session",
+		Value:    sessionValue,
+		Expires:  time.Now().Add(24 * time.Hour * 30), // 30 days
+		HttpOnly: true,
+		Path:     "/",
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
