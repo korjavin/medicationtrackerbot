@@ -22,10 +22,10 @@
         </header>
 
         <div id="tabs">
-            <button class="tab active" onclick="switchTab('meds')">Medications</button>
-            <button class="tab" onclick="switchTab('history')">History</button>
-            <button class="tab" onclick="switchTab('bp')">Blood Pressure</button>
+            <button class="tab active" onclick="switchTab('bp')">Blood Pressure</button>
             <button class="tab" onclick="switchTab('weight')">Weight</button>
+            <button class="tab" onclick="switchTab('meds')">Medications</button>
+            <button class="tab" onclick="switchTab('history')">History</button>
         </div>
 
         <div id="meds-view" class="view active">
@@ -146,11 +146,13 @@
             <div class="bp-inputs-row">
                 <div class="bp-input-group">
                     <label>Systolic</label>
-                    <input type="number" id="bp-systolic" min="60" max="250" placeholder="120" required inputmode="numeric">
+                    <input type="number" id="bp-systolic" min="60" max="250" placeholder="120" required
+                        inputmode="numeric">
                 </div>
                 <div class="bp-input-group">
                     <label>Diastolic</label>
-                    <input type="number" id="bp-diastolic" min="40" max="150" placeholder="80" required inputmode="numeric">
+                    <input type="number" id="bp-diastolic" min="40" max="150" placeholder="80" required
+                        inputmode="numeric">
                 </div>
             </div>
             <div class="bp-inputs-row">
