@@ -33,6 +33,11 @@ func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 	}, nil
 }
 
+// Username returns the bot's username from the Telegram API
+func (b *Bot) Username() string {
+	return b.api.Self.UserName
+}
+
 func (b *Bot) Start() {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60

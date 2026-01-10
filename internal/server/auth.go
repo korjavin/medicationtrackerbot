@@ -96,6 +96,68 @@ func ValidateWebAppData(token, initData string) (bool, *TelegramUser, error) {
 	return true, &user, nil
 }
 
+// TelegramLoginData represents data from Telegram Login Widget callback
+type TelegramLoginData struct {
+	ID        int64  `json:"id"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name,omitempty"`
+	Username  string `json:"username,omitempty"`
+	PhotoURL  string `json:"photo_url,omitempty"`
+	AuthDate  int64  `json:"auth_date"`
+	Hash      string `json:"hash"`
+}
+
+// ValidateTelegramLoginWidget validates data from Telegram Login Widget
+// Uses SHA256(bot_token) as secret key (different from WebApp validation)
+func ValidateTelegramLoginWidget(token string, data TelegramLoginData) (bool, *TelegramUser, error) {
+	// Build data-check-string: sorted fields joined with \n (excluding hash)
+	var parts []string
+
+	parts = append(parts, fmt.Sprintf("auth_date=%d", data.AuthDate))
+	if data.FirstName != "" {
+		parts = append(parts, fmt.Sprintf("first_name=%s", data.FirstName))
+	}
+	parts = append(parts, fmt.Sprintf("id=%d", data.ID))
+	if data.LastName != "" {
+		parts = append(parts, fmt.Sprintf("last_name=%s", data.LastName))
+	}
+	if data.PhotoURL != "" {
+		parts = append(parts, fmt.Sprintf("photo_url=%s", data.PhotoURL))
+	}
+	if data.Username != "" {
+		parts = append(parts, fmt.Sprintf("username=%s", data.Username))
+	}
+
+	sort.Strings(parts)
+	dataCheckString := strings.Join(parts, "\n")
+
+	// Secret key = SHA256(bot_token)
+	secretHash := sha256.Sum256([]byte(token))
+
+	// HMAC-SHA256(data_check_string, secret_key)
+	h := hmac.New(sha256.New, secretHash[:])
+	h.Write([]byte(dataCheckString))
+	calculatedHash := hex.EncodeToString(h.Sum(nil))
+
+	if calculatedHash != data.Hash {
+		return false, nil, fmt.Errorf("hash mismatch")
+	}
+
+	// Check auth_date is not expired (24 hours)
+	if time.Now().Unix()-data.AuthDate > 86400 {
+		return false, nil, fmt.Errorf("auth_date expired")
+	}
+
+	user := &TelegramUser{
+		ID:        data.ID,
+		FirstName: data.FirstName,
+		LastName:  data.LastName,
+		Username:  data.Username,
+	}
+
+	return true, user, nil
+}
+
 func AuthMiddleware(botToken string, allowedUserID int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

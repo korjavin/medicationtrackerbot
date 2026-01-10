@@ -31,14 +31,48 @@ async function checkAuth() {
         console.log("Auth check failed", e);
     }
 
-    // Not authorized. Show Google Login.
-    const loginBtn = document.createElement('button');
-    loginBtn.innerText = "Login with Google";
-    loginBtn.onclick = () => window.location.href = "/auth/google/login";
-    loginBtn.style.cssText = "display:block; margin: 20% auto; padding: 15px 30px; font-size: 18px; background: #4285F4; color: white; border: none; border-radius: 5px; cursor: pointer;";
+    // Not authorized. Show Telegram Login Widget
+    const loginContainer = document.createElement('div');
+    loginContainer.style.cssText = "display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:60vh; gap: 20px;";
+
+    // Create a container for the Telegram widget
+    const tgWidgetContainer = document.createElement('div');
+    tgWidgetContainer.id = 'telegram-login-container';
+
+    // Add the Telegram widget script
+    const tgScript = document.createElement('script');
+    tgScript.async = true;
+    tgScript.src = "https://telegram.org/js/telegram-widget.js?22";
+    tgScript.setAttribute('data-telegram-login', window.BOT_USERNAME);
+    tgScript.setAttribute('data-size', 'large');
+    tgScript.setAttribute('data-onauth', 'onTelegramAuth(user)');
+    tgScript.setAttribute('data-request-access', 'write');
+
+    tgWidgetContainer.appendChild(tgScript);
+    loginContainer.appendChild(tgWidgetContainer);
 
     document.body.innerHTML = "";
-    document.body.appendChild(loginBtn);
+    document.body.appendChild(loginContainer);
+
+    // Define global callback for Telegram Login Widget
+    window.onTelegramAuth = async function (user) {
+        try {
+            const res = await fetch('/auth/telegram/callback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(user)
+            });
+            if (res.ok) {
+                window.location.reload();
+            } else {
+                const err = await res.text();
+                alert("Login failed: " + err);
+            }
+        } catch (e) {
+            alert("Login error: " + e.message);
+        }
+    };
+
     return false;
 }
 
