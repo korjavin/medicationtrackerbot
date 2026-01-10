@@ -51,6 +51,21 @@ checkAuth().then(authorized => {
     }
 });
 
+// Auto-advance for BP input fields
+document.getElementById('bp-systolic').addEventListener('input', function (e) {
+    // After 3 digits, move to diastolic
+    if (this.value.length >= 3) {
+        document.getElementById('bp-diastolic').focus();
+    }
+});
+
+document.getElementById('bp-diastolic').addEventListener('input', function (e) {
+    // After 2 digits, move to pulse
+    if (this.value.length >= 2) {
+        document.getElementById('bp-pulse').focus();
+    }
+});
+
 // API Client
 async function apiCall(endpoint, method = "GET", body = null) {
     const headers = { "X-Telegram-Init-Data": userInitData };
