@@ -490,8 +490,19 @@ select {
 }
 
 #bp-modal h3 {
-    margin: 0 0 20px 0;
+    margin: 0;
     font-size: 18px;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.modal-header .actions {
+    margin: 0;
 }
 
 .bp-inputs-row {
