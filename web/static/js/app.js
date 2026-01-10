@@ -863,6 +863,7 @@ async function loadBPReadings() {
     }
 
     renderBPChart(readingsRes || [], goalRes || {});
+    renderBPAverages(readingsRes || []);
     renderBPReadings(readingsRes || []);
 }
 
@@ -1066,6 +1067,50 @@ function renderBPChart(readings, goalData) {
     svg.appendChild(lastLabel);
 
     container.appendChild(svg);
+}
+
+// Render BP averages for 14 and 30 days
+function renderBPAverages(readings) {
+    const container = document.getElementById('bp-averages');
+    if (!container) return;
+
+    if (!readings || readings.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const now = new Date();
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // Filter readings for each period
+    const last14 = readings.filter(r => new Date(r.measured_at) >= fourteenDaysAgo);
+    const last30 = readings.filter(r => new Date(r.measured_at) >= thirtyDaysAgo);
+
+    const calcAvg = (arr) => {
+        if (arr.length === 0) return null;
+        const sumSys = arr.reduce((acc, r) => acc + r.systolic, 0);
+        const sumDia = arr.reduce((acc, r) => acc + r.diastolic, 0);
+        return {
+            sys: Math.round(sumSys / arr.length),
+            dia: Math.round(sumDia / arr.length),
+            count: arr.length
+        };
+    };
+
+    const avg14 = calcAvg(last14);
+    const avg30 = calcAvg(last30);
+
+    let html = '<div class="bp-avg-row">';
+    if (avg14) {
+        html += `<div class="bp-avg-item"><span class="bp-avg-label">14d avg</span><span class="bp-avg-value">${avg14.sys}/${avg14.dia}</span></div>`;
+    }
+    if (avg30) {
+        html += `<div class="bp-avg-item"><span class="bp-avg-label">30d avg</span><span class="bp-avg-value">${avg30.sys}/${avg30.dia}</span></div>`;
+    }
+    html += '</div>';
+
+    container.innerHTML = html;
 }
 
 // Render BP readings grouped by date
