@@ -118,6 +118,8 @@ h1 {
     border-radius: 16px;
     width: 80%;
     max-width: 300px;
+    max-height: 85vh;
+    overflow-y: auto;
     z-index: 11;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
 }
