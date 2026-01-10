@@ -134,23 +134,29 @@
 
     <!-- Modal for BP Recording -->
     <div id="bp-modal" class="hidden">
-        <h3 id="bp-modal-title">Record Blood Pressure</h3>
-        <form onsubmit="handleBPSubmit(event)">
+        <div class="modal-header">
+            <h3 id="bp-modal-title">Record Blood Pressure</h3>
+            <div class="actions">
+                <button type="button" onclick="closeBPRecordModal()" class="secondary">Cancel</button>
+                <button type="submit" form="bp-form" class="primary">Save</button>
+            </div>
+        </div>
+        <form id="bp-form" onsubmit="handleBPSubmit(event)">
             <input type="datetime-local" id="bp-datetime" required>
             <div class="bp-inputs-row">
                 <div class="bp-input-group">
                     <label>Systolic</label>
-                    <input type="number" id="bp-systolic" min="60" max="250" placeholder="120" required>
+                    <input type="number" id="bp-systolic" min="60" max="250" placeholder="120" required inputmode="numeric">
                 </div>
                 <div class="bp-input-group">
                     <label>Diastolic</label>
-                    <input type="number" id="bp-diastolic" min="40" max="150" placeholder="80" required>
+                    <input type="number" id="bp-diastolic" min="40" max="150" placeholder="80" required inputmode="numeric">
                 </div>
             </div>
             <div class="bp-inputs-row">
                 <div class="bp-input-group">
                     <label>Pulse (optional)</label>
-                    <input type="number" id="bp-pulse" min="30" max="250" placeholder="70">
+                    <input type="number" id="bp-pulse" min="30" max="250" placeholder="70" inputmode="numeric">
                 </div>
             </div>
             <div class="form-row">
@@ -170,10 +176,6 @@
             <div class="form-row">
                 <label>Notes:</label>
                 <textarea id="bp-notes" placeholder="Any notes..." rows="3"></textarea>
-            </div>
-            <div class="actions">
-                <button type="button" onclick="closeBPRecordModal()" class="secondary">Cancel</button>
-                <button type="submit" class="primary">Save</button>
             </div>
         </form>
     </div>
