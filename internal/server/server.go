@@ -61,6 +61,14 @@ func (s *Server) Routes() http.Handler {
 		http.ServeFile(w, r, "./web/static/index.html")
 	})
 
+	// Deep link routes - serve SPA, JS handles the path
+	mux.HandleFunc("/bp_add", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		http.ServeFile(w, r, "./web/static/index.html")
+	})
+
 	// Auth Routes
 	mux.HandleFunc("/auth/google/login", s.handleGoogleLogin)
 	mux.HandleFunc("/auth/google/callback", s.handleGoogleCallback)
