@@ -121,6 +121,28 @@
             <input type="date" id="med-end-date">
         </div>
 
+        <div class="inventory-section">
+            <label class="checkbox-label">
+                <input type="checkbox" id="med-track-inventory" onchange="toggleInventoryFields()"> Track Inventory
+            </label>
+            <div id="inventory-fields" class="hidden">
+                <div class="form-row">
+                    <label>Current Stock (doses):</label>
+                    <input type="number" id="med-inventory-count" min="0" placeholder="e.g. 30">
+                </div>
+                <div id="restock-section">
+                    <div class="form-row">
+                        <label>Quick Restock:</label>
+                        <div class="restock-row">
+                            <input type="number" id="restock-qty" min="1" placeholder="Qty">
+                            <button type="button" class="small-btn" onclick="handleRestock()">+ Add</button>
+                        </div>
+                    </div>
+                    <div id="restock-history" class="restock-history"></div>
+                </div>
+            </div>
+        </div>
+
         <div class="form-row">
             <label class="checkbox-label">
                 <input type="checkbox" id="med-archived"> Archived

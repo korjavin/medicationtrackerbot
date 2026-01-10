@@ -37,6 +37,15 @@ type Medication struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	RxCUI          string     `json:"rxcui,omitempty"`
 	NormalizedName string     `json:"normalized_name,omitempty"`
+	InventoryCount *int       `json:"inventory_count,omitempty"` // NULL = not tracking
+}
+
+type Restock struct {
+	ID           int64     `json:"id"`
+	MedicationID int64     `json:"medication_id"`
+	Quantity     int       `json:"quantity"`
+	Note         string    `json:"note,omitempty"`
+	RestockedAt  time.Time `json:"restocked_at"`
 }
 
 func (m *Medication) ValidSchedule() (*ScheduleConfig, error) {
@@ -170,7 +179,7 @@ func (s *Store) CreateMedication(name, dosage, schedule string, startDate, endDa
 func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 	query := `
 		SELECT 
-			m.id, m.name, m.dosage, m.schedule, m.archived, m.start_date, m.end_date, m.created_at, m.rxcui, m.normalized_name,
+			m.id, m.name, m.dosage, m.schedule, m.archived, m.start_date, m.end_date, m.created_at, m.rxcui, m.normalized_name, m.inventory_count,
 			MAX(CASE WHEN l.status = 'TAKEN' THEN l.taken_at ELSE NULL END) as last_taken
 		FROM medications m
 		LEFT JOIN intake_log l ON m.id = l.medication_id
@@ -192,8 +201,9 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 		var lastTaken sql.NullString // Scan into string first
 		// Handle nullable fields
 		var rxcui, normalizedName sql.NullString
+		var inventoryCount sql.NullInt64
 
-		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &lastTaken); err != nil {
+		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount, &lastTaken); err != nil {
 			return nil, err
 		}
 
@@ -202,6 +212,10 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 		}
 		if normalizedName.Valid {
 			m.NormalizedName = normalizedName.String
+		}
+		if inventoryCount.Valid {
+			ic := int(inventoryCount.Int64)
+			m.InventoryCount = &ic
 		}
 
 		if lastTaken.Valid {
@@ -227,8 +241,9 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 func (s *Store) GetMedication(id int64) (*Medication, error) {
 	var m Medication
 	var rxcui, normalizedName sql.NullString
-	err := s.db.QueryRow("SELECT id, name, dosage, schedule, archived, start_date, end_date, created_at, rxcui, normalized_name FROM medications WHERE id = ?", id).Scan(
-		&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName,
+	var inventoryCount sql.NullInt64
+	err := s.db.QueryRow("SELECT id, name, dosage, schedule, archived, start_date, end_date, created_at, rxcui, normalized_name, inventory_count FROM medications WHERE id = ?", id).Scan(
+		&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil // Not found
@@ -243,19 +258,158 @@ func (s *Store) GetMedication(id int64) (*Medication, error) {
 	if normalizedName.Valid {
 		m.NormalizedName = normalizedName.String
 	}
+	if inventoryCount.Valid {
+		ic := int(inventoryCount.Int64)
+		m.InventoryCount = &ic
+	}
 
 	return &m, nil
 }
 
-func (s *Store) UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string) error {
-	_, err := s.db.Exec("UPDATE medications SET name = ?, dosage = ?, schedule = ?, archived = ?, start_date = ?, end_date = ?, rxcui = ?, normalized_name = ? WHERE id = ?",
-		name, dosage, schedule, archived, startDate, endDate, rxcui, normalizedName, id)
+func (s *Store) UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int) error {
+	_, err := s.db.Exec("UPDATE medications SET name = ?, dosage = ?, schedule = ?, archived = ?, start_date = ?, end_date = ?, rxcui = ?, normalized_name = ?, inventory_count = ? WHERE id = ?",
+		name, dosage, schedule, archived, startDate, endDate, rxcui, normalizedName, inventoryCount, id)
 	return err
 }
 
 func (s *Store) DeleteMedication(id int64) error {
 	_, err := s.db.Exec("DELETE FROM medications WHERE id = ?", id)
 	return err
+}
+
+// -- Inventory Functions --
+
+// DecrementInventory reduces the inventory count by the given quantity
+// Only decrements if inventory is being tracked (not NULL)
+func (s *Store) DecrementInventory(medID int64, qty int) error {
+	_, err := s.db.Exec("UPDATE medications SET inventory_count = inventory_count - ? WHERE id = ? AND inventory_count IS NOT NULL", qty, medID)
+	return err
+}
+
+// SetInventory sets the inventory count for a medication (nil to disable tracking)
+func (s *Store) SetInventory(medID int64, count *int) error {
+	_, err := s.db.Exec("UPDATE medications SET inventory_count = ? WHERE id = ?", count, medID)
+	return err
+}
+
+// AddRestock adds inventory and logs the restock event
+func (s *Store) AddRestock(medID int64, qty int, note string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Update inventory count (initialize to qty if NULL)
+	_, err = tx.Exec(`
+		UPDATE medications 
+		SET inventory_count = COALESCE(inventory_count, 0) + ? 
+		WHERE id = ?`, qty, medID)
+	if err != nil {
+		return err
+	}
+
+	// Log restock event
+	_, err = tx.Exec("INSERT INTO medication_restocks (medication_id, quantity, note) VALUES (?, ?, ?)", medID, qty, note)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// GetRestockHistory returns restock events for a medication
+func (s *Store) GetRestockHistory(medID int64) ([]Restock, error) {
+	rows, err := s.db.Query("SELECT id, medication_id, quantity, note, restocked_at FROM medication_restocks WHERE medication_id = ? ORDER BY restocked_at DESC", medID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var restocks []Restock
+	for rows.Next() {
+		var r Restock
+		var note sql.NullString
+		if err := rows.Scan(&r.ID, &r.MedicationID, &r.Quantity, &note, &r.RestockedAt); err != nil {
+			return nil, err
+		}
+		if note.Valid {
+			r.Note = note.String
+		}
+		restocks = append(restocks, r)
+	}
+	return restocks, nil
+}
+
+// GetMedicationsLowOnStock returns medications with inventory tracking that are low on stock
+// daysThreshold: warn if stock lasts fewer than this many days
+func (s *Store) GetMedicationsLowOnStock(daysThreshold int) ([]Medication, error) {
+	// First get all active medications with inventory tracking
+	meds, err := s.ListMedications(false)
+	if err != nil {
+		return nil, err
+	}
+
+	var lowStock []Medication
+	for _, m := range meds {
+		if m.InventoryCount == nil {
+			continue // Not tracking inventory
+		}
+
+		// Calculate daily usage from schedule
+		dailyUsage := s.calculateDailyUsage(&m)
+		if dailyUsage == 0 {
+			continue // As-needed or invalid schedule
+		}
+
+		daysLeft := float64(*m.InventoryCount) / dailyUsage
+		if daysLeft < float64(daysThreshold) {
+			lowStock = append(lowStock, m)
+		}
+	}
+
+	return lowStock, nil
+}
+
+// calculateDailyUsage returns the average daily intakes for a medication
+func (s *Store) calculateDailyUsage(m *Medication) float64 {
+	cfg, err := m.ValidSchedule()
+	if err != nil {
+		return 0
+	}
+
+	if cfg.Type == "as_needed" {
+		return 0 // Can't calculate for as-needed
+	}
+
+	timesPerDay := float64(len(cfg.Times))
+
+	if cfg.Type == "daily" {
+		return timesPerDay
+	}
+
+	if cfg.Type == "weekly" {
+		// Days per week that the medication is taken
+		daysPerWeek := float64(len(cfg.Days))
+		return (daysPerWeek / 7.0) * timesPerDay
+	}
+
+	return 0
+}
+
+// GetDaysOfStockRemaining calculates how many days of stock remain for a medication
+func (s *Store) GetDaysOfStockRemaining(m *Medication) *float64 {
+	if m.InventoryCount == nil {
+		return nil
+	}
+
+	dailyUsage := s.calculateDailyUsage(m)
+	if dailyUsage == 0 {
+		return nil
+	}
+
+	days := float64(*m.InventoryCount) / dailyUsage
+	return &days
 }
 
 // -- Intake Log --

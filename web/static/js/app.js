@@ -143,6 +143,13 @@ function showAddModal() {
     document.getElementById('med-start-date').value = '';
     document.getElementById('med-end-date').value = '';
 
+    // Reset inventory fields
+    document.getElementById('med-track-inventory').checked = false;
+    document.getElementById('med-inventory-count').value = '';
+    document.getElementById('inventory-fields').classList.add('hidden');
+    document.getElementById('restock-section').style.display = 'none';
+    document.getElementById('restock-history').innerHTML = '';
+
     // Default: Daily, 1 time input
     document.getElementById('schedule-type').value = 'daily';
     toggleScheduleFields();
@@ -180,6 +187,20 @@ function showEditModal(id) {
     // Dates (ISO string to YYYY-MM-DD)
     document.getElementById('med-start-date').value = med.start_date ? med.start_date.split('T')[0] : '';
     document.getElementById('med-end-date').value = med.end_date ? med.end_date.split('T')[0] : '';
+
+    // Inventory tracking
+    const hasInventory = med.inventory_count !== null && med.inventory_count !== undefined;
+    document.getElementById('med-track-inventory').checked = hasInventory;
+    document.getElementById('med-inventory-count').value = hasInventory ? med.inventory_count : '';
+    if (hasInventory) {
+        document.getElementById('inventory-fields').classList.remove('hidden');
+        document.getElementById('restock-section').style.display = 'block';
+        loadRestockHistory(id);
+    } else {
+        document.getElementById('inventory-fields').classList.add('hidden');
+        document.getElementById('restock-section').style.display = 'none';
+        document.getElementById('restock-history').innerHTML = '';
+    }
 
     // Parse schedule
     let sched;
@@ -237,6 +258,63 @@ function toggleScheduleFields() {
 
 function toggleDay(el) {
     el.classList.toggle('selected');
+}
+
+function toggleInventoryFields() {
+    const trackInventory = document.getElementById('med-track-inventory').checked;
+    const inventoryFields = document.getElementById('inventory-fields');
+    const restockSection = document.getElementById('restock-section');
+
+    if (trackInventory) {
+        inventoryFields.classList.remove('hidden');
+        // Only show restock section when editing existing med
+        if (editingMedId) {
+            restockSection.style.display = 'block';
+        } else {
+            restockSection.style.display = 'none';
+        }
+    } else {
+        inventoryFields.classList.add('hidden');
+    }
+}
+
+async function loadRestockHistory(medId) {
+    const restocks = await apiCall(`/api/medications/${medId}/restocks`);
+    const container = document.getElementById('restock-history');
+
+    if (!restocks || restocks.length === 0) {
+        container.innerHTML = '<p class="hint">No restock history</p>';
+        return;
+    }
+
+    let html = '<p class="hint">Recent restocks:</p><ul>';
+    restocks.slice(0, 5).forEach(r => {
+        const date = formatDate(r.restocked_at);
+        html += `<li>+${r.quantity} on ${date}${r.note ? ' - ' + escapeHtml(r.note) : ''}</li>`;
+    });
+    html += '</ul>';
+    container.innerHTML = html;
+}
+
+async function handleRestock() {
+    if (!editingMedId) return;
+
+    const qtyInput = document.getElementById('restock-qty');
+    const qty = parseInt(qtyInput.value);
+
+    if (!qty || qty <= 0) {
+        tg.showAlert("Please enter a valid quantity");
+        return;
+    }
+
+    const res = await apiCall(`/api/medications/${editingMedId}/restock`, 'POST', { quantity: qty });
+    if (res) {
+        // Update displayed count
+        document.getElementById('med-inventory-count').value = res.inventory_count;
+        qtyInput.value = '';
+        loadRestockHistory(editingMedId);
+        tg.showAlert(`Added ${qty} units. New total: ${res.inventory_count}`);
+    }
 }
 
 function addTimeInput(value = '') {
@@ -388,6 +466,11 @@ function renderMeds() {
             const end = m.end_date ? formatDate(m.end_date).split(' ')[0] : 'N/A';
             dateRangeText = `<p>Dates: ${start} - ${end}</p>`;
         }
+        let inventoryText = '';
+        if (m.inventory_count !== null && m.inventory_count !== undefined) {
+            const isLow = m.inventory_count < 7; // Simple low stock check
+            inventoryText = `<p class="inventory-badge ${isLow ? 'low' : ''}">📦 ${m.inventory_count} doses${isLow ? ' ⚠️' : ''}</p>`;
+        }
 
         div.innerHTML = `
             <div class="med-info" onclick="showEditModal(${m.id})" style="cursor: pointer;">
@@ -395,6 +478,7 @@ function renderMeds() {
                 ${m.normalized_name ? `<p style="font-size:0.85em;color:var(--hint-color);margin-top:-5px;margin-bottom:4px;">Rx: ${escapeHtml(m.normalized_name)}</p>` : ''}
                 <p>Schedule: ${scheduleText}</p>
                 ${dateRangeText}
+                ${inventoryText}
             </div>
             <button class="delete-btn" onclick="deleteMed(${m.id})">&times;</button>
         `;
@@ -525,6 +609,14 @@ async function saveMedication() {
     const startDateRaw = document.getElementById('med-start-date').value;
     const endDateRaw = document.getElementById('med-end-date').value;
 
+    // Inventory tracking
+    const trackInventory = document.getElementById('med-track-inventory').checked;
+    const inventoryCountRaw = document.getElementById('med-inventory-count').value;
+    let inventoryCount = null;
+    if (trackInventory && inventoryCountRaw !== '') {
+        inventoryCount = parseInt(inventoryCountRaw);
+    }
+
     if (!name) { tg.showAlert("Name is required!"); return; }
 
     const schedule = { type: type };
@@ -558,7 +650,8 @@ async function saveMedication() {
         schedule: JSON.stringify(schedule),
         archived,
         start_date: startDateRaw ? new Date(startDateRaw).toISOString() : null,
-        end_date: endDateRaw ? new Date(endDateRaw).toISOString() : null
+        end_date: endDateRaw ? new Date(endDateRaw).toISOString() : null,
+        inventory_count: inventoryCount
     };
 
     let res;

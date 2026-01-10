@@ -88,6 +88,11 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/weight/export", s.handleExportWeight)
 	apiMux.HandleFunc("GET /api/weight/goal", s.handleGetWeightGoal)
 
+	// Inventory endpoints
+	apiMux.HandleFunc("POST /api/medications/{id}/restock", s.handleRestock)
+	apiMux.HandleFunc("GET /api/medications/{id}/restocks", s.handleGetRestockHistory)
+	apiMux.HandleFunc("GET /api/inventory/low", s.handleGetLowStock)
+
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
 	mux.Handle("/api/", authMW(apiMux))
@@ -173,12 +178,13 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req struct {
-		Name      string     `json:"name"`
-		Dosage    string     `json:"dosage"`
-		Schedule  string     `json:"schedule"`
-		Archived  bool       `json:"archived"`
-		StartDate *time.Time `json:"start_date"`
-		EndDate   *time.Time `json:"end_date"`
+		Name           string     `json:"name"`
+		Dosage         string     `json:"dosage"`
+		Schedule       string     `json:"schedule"`
+		Archived       bool       `json:"archived"`
+		StartDate      *time.Time `json:"start_date"`
+		EndDate        *time.Time `json:"end_date"`
+		InventoryCount *int       `json:"inventory_count"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -188,7 +194,7 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 	// Search RxNorm (Always update on edit to handle renames or missing data)
 	rxcui, normalizedName, _ := s.rxnorm.SearchRxNorm(req.Name)
 
-	if err := s.store.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate, rxcui, normalizedName); err != nil {
+	if err := s.store.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate, rxcui, normalizedName, req.InventoryCount); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -675,4 +681,100 @@ func (s *Server) handleGetBPGoal(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(goal)
+}
+
+// -- Inventory Handlers --
+
+func (s *Server) handleRestock(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Quantity int    `json:"quantity"`
+		Note     string `json:"note,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Quantity <= 0 {
+		http.Error(w, "Quantity must be positive", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.AddRestock(id, req.Quantity, req.Note); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get updated medication to return new count
+	med, err := s.store.GetMedication(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":          "restocked",
+		"quantity_added":  req.Quantity,
+		"inventory_count": med.InventoryCount,
+	})
+}
+
+func (s *Server) handleGetRestockHistory(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	restocks, err := s.store.GetRestockHistory(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(restocks)
+}
+
+func (s *Server) handleGetLowStock(w http.ResponseWriter, r *http.Request) {
+	// Default to 7 days threshold
+	days := 7
+	if dStr := r.URL.Query().Get("days"); dStr != "" {
+		if d, err := strconv.Atoi(dStr); err == nil && d > 0 {
+			days = d
+		}
+	}
+
+	meds, err := s.store.GetMedicationsLowOnStock(days)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Enrich with days remaining info
+	type LowStockMed struct {
+		store.Medication
+		DaysRemaining *float64 `json:"days_remaining,omitempty"`
+	}
+
+	result := make([]LowStockMed, 0, len(meds))
+	for _, m := range meds {
+		lsm := LowStockMed{
+			Medication:    m,
+			DaysRemaining: s.store.GetDaysOfStockRemaining(&m),
+		}
+		result = append(result, lsm)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }

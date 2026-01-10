@@ -11,9 +11,10 @@ import (
 )
 
 type Scheduler struct {
-	store         *store.Store
-	bot           *bot.Bot
-	allowedUserID int64
+	store             *store.Store
+	bot               *bot.Bot
+	allowedUserID     int64
+	lastLowStockCheck time.Time
 }
 
 func New(store *store.Store, bot *bot.Bot, allowedUserID int64) *Scheduler {
@@ -35,7 +36,6 @@ func (s *Scheduler) Start() {
 		}
 	}()
 
-	// Retry loop every 15 minutes
 	// Retry loop every 60 minutes
 	retryTicker := time.NewTicker(60 * time.Minute)
 	go func() {
@@ -43,6 +43,18 @@ func (s *Scheduler) Start() {
 			if err := s.checkReminders(); err != nil {
 				log.Printf("Error checking reminders: %v", err)
 			}
+		}
+	}()
+
+	// Check low stock every 6 hours, but only send once per day
+	lowStockTicker := time.NewTicker(6 * time.Hour)
+	go func() {
+		// Initial check after 1 minute
+		time.Sleep(1 * time.Minute)
+		s.checkLowStock()
+
+		for range lowStockTicker.C {
+			s.checkLowStock()
 		}
 	}()
 }
@@ -197,4 +209,44 @@ func (s *Scheduler) checkReminders() error {
 		}
 	}
 	return nil
+}
+
+func (s *Scheduler) checkLowStock() {
+	// Only check once per day
+	if time.Since(s.lastLowStockCheck) < 24*time.Hour {
+		return
+	}
+
+	meds, err := s.store.GetMedicationsLowOnStock(7)
+	if err != nil {
+		log.Printf("Error checking low stock: %v", err)
+		return
+	}
+
+	if len(meds) == 0 {
+		s.lastLowStockCheck = time.Now()
+		return
+	}
+
+	// Build warning message
+	var sb string
+	sb = "⚠️ **Low Stock Warning**\n\nThe following medications are running low (< 7 days):\n\n"
+
+	for _, m := range meds {
+		daysRemaining := s.store.GetDaysOfStockRemaining(&m)
+		daysStr := ""
+		if daysRemaining != nil {
+			daysStr = fmt.Sprintf(" (~%.0f days left)", *daysRemaining)
+		}
+		sb += fmt.Sprintf("• **%s**: %d units%s\n", m.Name, *m.InventoryCount, daysStr)
+	}
+
+	sb += "\nPlease restock soon!"
+
+	if err := s.bot.SendLowStockWarning(sb); err != nil {
+		log.Printf("Failed to send low stock warning: %v", err)
+		return
+	}
+
+	s.lastLowStockCheck = time.Now()
 }
