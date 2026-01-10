@@ -72,7 +72,15 @@ func main() {
 		RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
 		AdminEmail:   os.Getenv("ADMIN_EMAIL"),
 	}
-	srv := server.New(s, botToken, allowedUserID, oidcConfig)
+
+	// Get bot username for Telegram Login Widget
+	var botUsername string
+	if tgBot != nil {
+		botUsername = tgBot.Username()
+		log.Println("Bot username:", botUsername)
+	}
+
+	srv := server.New(s, botToken, allowedUserID, oidcConfig, botUsername)
 
 	// Start Server
 	serverAddr := ":" + port
