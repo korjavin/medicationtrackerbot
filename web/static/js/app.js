@@ -786,6 +786,9 @@ function showBPRecordModal() {
     document.getElementById('bp-notes').value = '';
     document.getElementById('bp-site').value = 'right_arm';
     document.getElementById('bp-position').value = 'seated';
+
+    // Focus the systolic field
+    document.getElementById('bp-systolic').focus();
 }
 
 // Close BP modal
@@ -1212,6 +1215,9 @@ function showWeightModal() {
     // Clear other fields
     document.getElementById('weight-value').value = '';
     document.getElementById('weight-notes').value = '';
+
+    // Focus the weight field
+    document.getElementById('weight-value').focus();
 }
 
 function closeWeightModal() {
