@@ -634,6 +634,43 @@ svg.chart-svg {
     opacity: 0.7;
 }
 
+/* Weight Stats Container */
+#weight-stats {
+    margin: 16px 0;
+}
+
+.weight-stats-container {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    background: var(--secondary-bg-color);
+    padding: 16px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+}
+
+.weight-stats-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.weight-stat-item {
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.weight-stat-label {
+    color: var(--hint-color);
+    font-weight: 400;
+}
+
+.weight-stat-value {
+    font-weight: 600;
+    color: var(--text-color);
+}
+
 /* BP Chart Styles */
 #bpChart {
     width: 100%;
