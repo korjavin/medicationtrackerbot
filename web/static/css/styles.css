@@ -709,6 +709,39 @@ svg.chart-svg {
     fill: #ef4444;
 }
 
+/* BP classification colors for points */
+.bp-chart-point-normal {
+    fill: #22c55e;
+    stroke: var(--bg-color);
+    stroke-width: 2;
+}
+
+.bp-chart-point-highnormal {
+    fill: #eab308;
+    stroke: var(--bg-color);
+    stroke-width: 2;
+}
+
+.bp-chart-point-grade1 {
+    fill: #f97316;
+    stroke: var(--bg-color);
+    stroke-width: 2;
+}
+
+.bp-chart-point-grade2 {
+    fill: #ef4444;
+    stroke: var(--bg-color);
+    stroke-width: 2;
+}
+
+/* Average line styling */
+.bp-chart-avg-line {
+    stroke: var(--hint-color);
+    stroke-width: 2;
+    stroke-dasharray: 6 4;
+    opacity: 0.6;
+}
+
 #weight-list {
     list-style: none;
     padding: 0;
