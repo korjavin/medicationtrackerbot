@@ -934,6 +934,44 @@ func (s *Store) GetLastWeightLog(ctx context.Context, userID int64) (*WeightLog,
 	return &w, nil
 }
 
+func (s *Store) GetHighestWeightRecord(ctx context.Context, userID int64) (*WeightLog, error) {
+	var w WeightLog
+	var weightTrend, bodyFat, bodyFatTrend, muscleMass, muscleMassTrend sql.NullFloat64
+	var notes sql.NullString
+
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id, user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes FROM weight_logs WHERE user_id = ? ORDER BY weight DESC LIMIT 1",
+		userID).Scan(&w.ID, &w.UserID, &w.MeasuredAt, &w.Weight, &weightTrend, &bodyFat, &bodyFatTrend, &muscleMass, &muscleMassTrend, &notes)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if weightTrend.Valid {
+		w.WeightTrend = &weightTrend.Float64
+	}
+	if bodyFat.Valid {
+		w.BodyFat = &bodyFat.Float64
+	}
+	if bodyFatTrend.Valid {
+		w.BodyFatTrend = &bodyFatTrend.Float64
+	}
+	if muscleMass.Valid {
+		w.MuscleMass = &muscleMass.Float64
+	}
+	if muscleMassTrend.Valid {
+		w.MuscleMassTrend = &muscleMassTrend.Float64
+	}
+	if notes.Valid {
+		w.Notes = notes.String
+	}
+
+	return &w, nil
+}
+
 // CalculateWeightTrend calculates a simple exponential moving average
 // alpha = 0.1 gives roughly a 20-day smoothing
 func CalculateWeightTrend(currentWeight float64, previousTrend *float64) float64 {

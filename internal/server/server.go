@@ -666,14 +666,41 @@ func (s *Server) handleExportWeight(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetWeightGoal(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
 	goal, err := s.store.GetWeightGoal()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	// Get highest weight record for diet plan line
+	highestRecord, err := s.store.GetHighestWeightRecord(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Extended response with highest weight metadata
+	type WeightGoalResponse struct {
+		Goal          *float64   `json:"goal,omitempty"`
+		GoalDate      *time.Time `json:"goal_date,omitempty"`
+		HighestWeight *float64   `json:"highest_weight,omitempty"`
+		HighestDate   *time.Time `json:"highest_date,omitempty"`
+	}
+
+	response := WeightGoalResponse{
+		Goal:     goal.Goal,
+		GoalDate: goal.GoalDate,
+	}
+
+	if highestRecord != nil {
+		response.HighestWeight = &highestRecord.Weight
+		response.HighestDate = &highestRecord.MeasuredAt
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(goal)
+	json.NewEncoder(w).Encode(response)
 }
 
 func (s *Server) handleGetBPGoal(w http.ResponseWriter, r *http.Request) {
