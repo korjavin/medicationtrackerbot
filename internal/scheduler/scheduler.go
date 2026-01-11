@@ -46,8 +46,8 @@ func (s *Scheduler) Start() {
 		}
 	}()
 
-	// Check low stock every 6 hours, but only send once per day
-	lowStockTicker := time.NewTicker(6 * time.Hour)
+	// Check low stock every hour, but only send warnings around 11 AM once per day
+	lowStockTicker := time.NewTicker(1 * time.Hour)
 	go func() {
 		// Initial check after 1 minute
 		time.Sleep(1 * time.Minute)
@@ -212,9 +212,21 @@ func (s *Scheduler) checkReminders() error {
 }
 
 func (s *Scheduler) checkLowStock() {
-	// Only check once per day
-	if time.Since(s.lastLowStockCheck) < 24*time.Hour {
+	now := time.Now()
+
+	// Only send warnings between 11:00 and 11:59 AM
+	if now.Hour() != 11 {
 		return
+	}
+
+	// Only check once per day - compare dates instead of duration
+	if !s.lastLowStockCheck.IsZero() {
+		lastCheckDate := time.Date(s.lastLowStockCheck.Year(), s.lastLowStockCheck.Month(), s.lastLowStockCheck.Day(), 0, 0, 0, 0, s.lastLowStockCheck.Location())
+		todayDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		if !lastCheckDate.Before(todayDate) {
+			// Already sent today
+			return
+		}
 	}
 
 	meds, err := s.store.GetMedicationsLowOnStock(7)
