@@ -1312,6 +1312,18 @@ function renderBPAverages(readings) {
     const last14 = readings.filter(r => new Date(r.measured_at) >= fourteenDaysAgo);
     const last30 = readings.filter(r => new Date(r.measured_at) >= thirtyDaysAgo);
 
+    // Debug logging
+    console.log('BP Average Calculation Debug:');
+    console.log('Total readings:', readings.length);
+    console.log('14-day cutoff:', fourteenDaysAgo.toISOString());
+    console.log('30-day cutoff:', thirtyDaysAgo.toISOString());
+    console.log('Readings in last 14 days:', last14.length);
+    console.log('Readings in last 30 days:', last30.length);
+    if (readings.length > 0) {
+        console.log('Oldest reading:', new Date(readings[readings.length - 1].measured_at).toISOString());
+        console.log('Newest reading:', new Date(readings[0].measured_at).toISOString());
+    }
+
     const calcAvg = (arr) => {
         if (arr.length === 0) return null;
         const sumSys = arr.reduce((acc, r) => acc + r.systolic, 0);
@@ -1326,12 +1338,15 @@ function renderBPAverages(readings) {
     const avg14 = calcAvg(last14);
     const avg30 = calcAvg(last30);
 
+    console.log('14-day average:', avg14);
+    console.log('30-day average:', avg30);
+
     let html = '<div class="bp-avg-row">';
     if (avg14) {
-        html += `<div class="bp-avg-item"><span class="bp-avg-label">14d avg</span><span class="bp-avg-value">${avg14.sys}/${avg14.dia}</span></div>`;
+        html += `<div class="bp-avg-item"><span class="bp-avg-label">14d avg (${avg14.count})</span><span class="bp-avg-value">${avg14.sys}/${avg14.dia}</span></div>`;
     }
     if (avg30) {
-        html += `<div class="bp-avg-item"><span class="bp-avg-label">30d avg</span><span class="bp-avg-value">${avg30.sys}/${avg30.dia}</span></div>`;
+        html += `<div class="bp-avg-item"><span class="bp-avg-label">30d avg (${avg30.count})</span><span class="bp-avg-value">${avg30.sys}/${avg30.dia}</span></div>`;
     }
     html += '</div>';
 
