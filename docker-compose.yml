@@ -2,7 +2,7 @@ version: '3'
 
 services:
   medtracker:
-    image: ghcr.io/korjavin/medicationtrackerbot:latest
+    image: ghcr.io/korjavin/medicationtrackerbot:e96dbfbbe074815040f3b5e056c05e3548194a6c
     container_name: medtracker
     restart: unless-stopped
     volumes:
