@@ -1981,7 +1981,7 @@ async function loadWeightLogs() {
     list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
 
     const [logsRes, goalRes] = await Promise.all([
-        apiCall('/api/weight?days=14'),
+        apiCall('/api/weight?days=35'),  // Fetch 35 days to cover chart period (-30 to +2)
         apiCall('/api/weight/goal')
     ]);
 
