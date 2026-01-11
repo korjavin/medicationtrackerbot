@@ -1328,9 +1328,13 @@ function renderBPAverages(readings) {
         if (arr.length === 0) return null;
         const sumSys = arr.reduce((acc, r) => acc + r.systolic, 0);
         const sumDia = arr.reduce((acc, r) => acc + r.diastolic, 0);
+        const exactSys = sumSys / arr.length;
+        const exactDia = sumDia / arr.length;
         return {
-            sys: Math.round(sumSys / arr.length),
-            dia: Math.round(sumDia / arr.length),
+            sys: Math.round(exactSys),
+            dia: Math.round(exactDia),
+            exactSys: exactSys,
+            exactDia: exactDia,
             count: arr.length
         };
     };
@@ -1338,8 +1342,10 @@ function renderBPAverages(readings) {
     const avg14 = calcAvg(last14);
     const avg30 = calcAvg(last30);
 
-    console.log('14-day average:', avg14);
-    console.log('30-day average:', avg30);
+    console.log('14-day average (rounded):', avg14.sys + '/' + avg14.dia);
+    console.log('14-day average (exact):', avg14.exactSys.toFixed(2) + '/' + avg14.exactDia.toFixed(2));
+    console.log('30-day average (rounded):', avg30.sys + '/' + avg30.dia);
+    console.log('30-day average (exact):', avg30.exactSys.toFixed(2) + '/' + avg30.exactDia.toFixed(2));
 
     let html = '<div class="bp-avg-row">';
     if (avg14) {
