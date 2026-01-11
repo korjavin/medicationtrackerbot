@@ -1084,7 +1084,7 @@ async function loadBPReadings() {
     renderBPReadings(readingsRes || []);
 }
 
-// Render BP Chart with smooth curves
+// Render BP Chart with color-coded points and segments
 function renderBPChart(readings, goalData) {
     const container = document.getElementById('bpChart');
     if (!container) return;
@@ -1099,16 +1099,21 @@ function renderBPChart(readings, goalData) {
     // Sort by date (oldest first)
     const sorted = [...readings].sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
 
-    // Extract data series
+    // Extract data series with classifications
     const data = sorted.map(r => ({
         date: new Date(r.measured_at),
         sys: r.systolic,
         dia: r.diastolic,
-        pulse: r.pulse
+        pulse: r.pulse,
+        category: getBPCategory(r.systolic, r.diastolic)
     }));
 
+    // Calculate averages
+    const avgSys = data.reduce((sum, d) => sum + d.sys, 0) / data.length;
+    const avgDia = data.reduce((sum, d) => sum + d.dia, 0) / data.length;
+
     // Dimensions
-    const leftPadding = 35;
+    const leftPadding = 40;
     const totalWidth = container.clientWidth;
     const chartWidth = totalWidth - leftPadding - 10;
     const chartHeight = container.clientHeight - 35;
@@ -1117,19 +1122,22 @@ function renderBPChart(readings, goalData) {
     let minVal = Math.min(...data.map(d => d.dia), ...data.filter(d => d.pulse).map(d => d.pulse));
     let maxVal = Math.max(...data.map(d => d.sys), ...data.filter(d => d.pulse).map(d => d.pulse));
 
-    // Include goals in range
-    if (goalData && goalData.target_systolic) {
-        maxVal = Math.max(maxVal, goalData.target_systolic);
-    }
-    if (goalData && goalData.target_diastolic) {
-        minVal = Math.min(minVal, goalData.target_diastolic);
-    }
+    // Include averages in range
+    minVal = Math.min(minVal, avgDia);
+    maxVal = Math.max(maxVal, avgSys);
+
+    // Round to nice values for Y-axis
+    minVal = Math.floor(minVal / 10) * 10;
+    maxVal = Math.ceil(maxVal / 10) * 10;
 
     const range = maxVal - minVal || 1;
-    const yPad = range * 0.1;
+    const yPad = 10; // Fixed padding
     const effectiveMin = minVal - yPad;
     const effectiveMax = maxVal + yPad;
     const effectiveRange = effectiveMax - effectiveMin;
+
+    // Determine Y-axis interval (10 or 20)
+    const yInterval = (effectiveRange > 80) ? 20 : 10;
 
     // Date range
     const firstDate = data[0].date;
@@ -1139,26 +1147,16 @@ function renderBPChart(readings, goalData) {
     const xScaleByDate = (date) => leftPadding + ((date - firstDate) / dateRange) * chartWidth;
     const yScale = (v) => chartHeight - ((v - effectiveMin) / effectiveRange) * chartHeight;
 
-    // Helper: generate smooth bezier path from points
-    const smoothPath = (points) => {
-        if (points.length < 2) return '';
-        let d = `M ${points[0][0]},${points[0][1]}`;
-        for (let i = 1; i < points.length; i++) {
-            const prev = points[i - 1];
-            const curr = points[i];
-            const cpx = (prev[0] + curr[0]) / 2;
-            d += ` Q ${prev[0]},${prev[1]} ${cpx},${(prev[1] + curr[1]) / 2}`;
-        }
-        // Final segment
-        const last = points[points.length - 1];
-        d += ` L ${last[0]},${last[1]}`;
-        return d;
+    // Get color for BP classification
+    const getClassColor = (category) => {
+        const colorMap = {
+            'normal': '#22c55e',
+            'highnormal': '#eab308',
+            'grade1': '#f97316',
+            'grade2': '#ef4444'
+        };
+        return colorMap[category.class] || '#22c55e';
     };
-
-    // Generate points for each series
-    const sysPoints = data.map(d => [xScaleByDate(d.date), yScale(d.sys)]);
-    const diaPoints = data.map(d => [xScaleByDate(d.date), yScale(d.dia)]);
-    const pulsePoints = data.filter(d => d.pulse).map(d => [xScaleByDate(d.date), yScale(d.pulse)]);
 
     // SVG Construction
     const svgNs = "http://www.w3.org/2000/svg";
@@ -1167,15 +1165,14 @@ function renderBPChart(readings, goalData) {
     svg.setAttribute("height", "100%");
     svg.setAttribute("viewBox", `0 0 ${totalWidth} ${chartHeight + 20}`);
 
-    // Y-Axis Labels
-    const yAxisValues = [Math.round(minVal), Math.round(maxVal)];
-    yAxisValues.forEach(val => {
+    // Y-Axis Labels at regular intervals
+    for (let val = Math.ceil(effectiveMin / yInterval) * yInterval; val <= effectiveMax; val += yInterval) {
         const y = yScale(val);
         const text = document.createElementNS(svgNs, "text");
         text.setAttribute("x", leftPadding - 5);
         text.setAttribute("y", y + 4);
         text.setAttribute("class", "chart-label");
-        text.setAttribute("style", "text-anchor: end; fill: var(--hint-color);");
+        text.setAttribute("style", "text-anchor: end; fill: var(--hint-color); font-size: 11px;");
         text.textContent = val;
         svg.appendChild(text);
 
@@ -1186,83 +1183,94 @@ function renderBPChart(readings, goalData) {
         gridLine.setAttribute("y2", y);
         gridLine.setAttribute("class", "chart-grid");
         svg.appendChild(gridLine);
-    });
+    }
 
-    // Goal lines
-    if (goalData && goalData.target_systolic) {
-        const y = yScale(goalData.target_systolic);
+    // Draw average lines (dotted)
+    const avgSysY = yScale(avgSys);
+    const avgSysLine = document.createElementNS(svgNs, "line");
+    avgSysLine.setAttribute("x1", leftPadding);
+    avgSysLine.setAttribute("y1", avgSysY);
+    avgSysLine.setAttribute("x2", totalWidth - 10);
+    avgSysLine.setAttribute("y2", avgSysY);
+    avgSysLine.setAttribute("class", "bp-chart-avg-line");
+    svg.appendChild(avgSysLine);
+
+    const avgDiaY = yScale(avgDia);
+    const avgDiaLine = document.createElementNS(svgNs, "line");
+    avgDiaLine.setAttribute("x1", leftPadding);
+    avgDiaLine.setAttribute("y1", avgDiaY);
+    avgDiaLine.setAttribute("x2", totalWidth - 10);
+    avgDiaLine.setAttribute("y2", avgDiaY);
+    avgDiaLine.setAttribute("class", "bp-chart-avg-line");
+    svg.appendChild(avgDiaLine);
+
+    // Draw color-coded line segments for systolic
+    for (let i = 0; i < data.length - 1; i++) {
+        const x1 = xScaleByDate(data[i].date);
+        const y1 = yScale(data[i].sys);
+        const x2 = xScaleByDate(data[i + 1].date);
+        const y2 = yScale(data[i + 1].sys);
+        const color = getClassColor(data[i].category);
+
         const line = document.createElementNS(svgNs, "line");
-        line.setAttribute("x1", leftPadding);
-        line.setAttribute("y1", y);
-        line.setAttribute("x2", totalWidth - 10);
-        line.setAttribute("y2", y);
-        line.setAttribute("class", "bp-chart-target");
+        line.setAttribute("x1", x1);
+        line.setAttribute("y1", y1);
+        line.setAttribute("x2", x2);
+        line.setAttribute("y2", y2);
+        line.setAttribute("stroke", color);
+        line.setAttribute("stroke-width", "2.5");
+        line.setAttribute("fill", "none");
         svg.appendChild(line);
-
-        const label = document.createElementNS(svgNs, "text");
-        label.setAttribute("x", totalWidth - 15);
-        label.setAttribute("y", y - 3);
-        label.setAttribute("class", "chart-label");
-        label.setAttribute("style", "text-anchor: end; fill: #f97316; font-size: 10px;");
-        label.textContent = `High ${goalData.target_systolic}`;
-        svg.appendChild(label);
     }
 
-    if (goalData && goalData.target_diastolic) {
-        const y = yScale(goalData.target_diastolic);
+    // Draw color-coded line segments for diastolic
+    for (let i = 0; i < data.length - 1; i++) {
+        const x1 = xScaleByDate(data[i].date);
+        const y1 = yScale(data[i].dia);
+        const x2 = xScaleByDate(data[i + 1].date);
+        const y2 = yScale(data[i + 1].dia);
+        const color = getClassColor(data[i].category);
+
         const line = document.createElementNS(svgNs, "line");
-        line.setAttribute("x1", leftPadding);
-        line.setAttribute("y1", y);
-        line.setAttribute("x2", totalWidth - 10);
-        line.setAttribute("y2", y);
-        line.setAttribute("class", "bp-chart-target");
+        line.setAttribute("x1", x1);
+        line.setAttribute("y1", y1);
+        line.setAttribute("x2", x2);
+        line.setAttribute("y2", y2);
+        line.setAttribute("stroke", color);
+        line.setAttribute("stroke-width", "2.5");
+        line.setAttribute("fill", "none");
         svg.appendChild(line);
-
-        const label = document.createElementNS(svgNs, "text");
-        label.setAttribute("x", totalWidth - 15);
-        label.setAttribute("y", y + 10);
-        label.setAttribute("class", "chart-label");
-        label.setAttribute("style", "text-anchor: end; fill: #f97316; font-size: 10px;");
-        label.textContent = `Low ${goalData.target_diastolic}`;
-        svg.appendChild(label);
     }
 
-    // Draw pulse line (behind others)
-    if (pulsePoints.length > 1) {
-        const pulsePath = document.createElementNS(svgNs, "path");
-        pulsePath.setAttribute("d", smoothPath(pulsePoints));
-        pulsePath.setAttribute("class", "bp-chart-pulse");
-        svg.appendChild(pulsePath);
-    }
+    // Draw color-coded points for systolic
+    data.forEach(d => {
+        const x = xScaleByDate(d.date);
+        const y = yScale(d.sys);
+        const color = getClassColor(d.category);
 
-    // Draw diastolic line
-    const diaPath = document.createElementNS(svgNs, "path");
-    diaPath.setAttribute("d", smoothPath(diaPoints));
-    diaPath.setAttribute("class", "bp-chart-diastolic");
-    svg.appendChild(diaPath);
-
-    // Draw systolic line
-    const sysPath = document.createElementNS(svgNs, "path");
-    sysPath.setAttribute("d", smoothPath(sysPoints));
-    sysPath.setAttribute("class", "bp-chart-systolic");
-    svg.appendChild(sysPath);
-
-    // Draw points
-    sysPoints.forEach(p => {
         const circle = document.createElementNS(svgNs, "circle");
-        circle.setAttribute("cx", p[0]);
-        circle.setAttribute("cy", p[1]);
-        circle.setAttribute("r", 3);
-        circle.setAttribute("class", "bp-chart-point-sys");
+        circle.setAttribute("cx", x);
+        circle.setAttribute("cy", y);
+        circle.setAttribute("r", 4);
+        circle.setAttribute("fill", color);
+        circle.setAttribute("stroke", "var(--bg-color)");
+        circle.setAttribute("stroke-width", "2");
         svg.appendChild(circle);
     });
 
-    diaPoints.forEach(p => {
+    // Draw color-coded points for diastolic
+    data.forEach(d => {
+        const x = xScaleByDate(d.date);
+        const y = yScale(d.dia);
+        const color = getClassColor(d.category);
+
         const circle = document.createElementNS(svgNs, "circle");
-        circle.setAttribute("cx", p[0]);
-        circle.setAttribute("cy", p[1]);
-        circle.setAttribute("r", 3);
-        circle.setAttribute("class", "bp-chart-point-dia");
+        circle.setAttribute("cx", x);
+        circle.setAttribute("cy", y);
+        circle.setAttribute("r", 4);
+        circle.setAttribute("fill", color);
+        circle.setAttribute("stroke", "var(--bg-color)");
+        circle.setAttribute("stroke-width", "2");
         svg.appendChild(circle);
     });
 
