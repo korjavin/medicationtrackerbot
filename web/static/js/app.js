@@ -1069,9 +1069,10 @@ async function loadBPReadings() {
     const list = document.getElementById('bp-list');
     list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
 
-    const [readingsRes, goalRes] = await Promise.all([
-        apiCall('/api/bp?days=30'),
-        apiCall('/api/bp/goal')
+    const [readingsRes, goalRes, statsRes] = await Promise.all([
+        apiCall('/api/bp?days=60'),  // Fetch 60 days for chart
+        apiCall('/api/bp/goal'),
+        apiCall('/api/bp/stats')     // Backend-calculated stats
     ]);
 
     if (readingsRes === null) {
@@ -1080,7 +1081,7 @@ async function loadBPReadings() {
     }
 
     renderBPChart(readingsRes || [], goalRes || {});
-    renderBPAverages(readingsRes || []);
+    renderBPAverages(statsRes || {});  // Use backend stats
     renderBPReadings(readingsRes || []);
 }
 
@@ -1294,96 +1295,30 @@ function renderBPChart(readings, goalData) {
     container.appendChild(svg);
 }
 
-// Render BP averages for 14 and 30 days using daily-weighted averaging
-// First averages readings per day, then averages the daily averages
-// This prevents clustered measurements from skewing results
-function renderBPAverages(readings) {
+// Render BP averages from backend-calculated daily-weighted stats
+function renderBPAverages(stats) {
     const container = document.getElementById('bp-averages');
     if (!container) return;
 
-    if (!readings || readings.length === 0) {
+    // Check if stats object has any data
+    if (!stats || (!stats.stats_14 && !stats.stats_30 && !stats.stats_60)) {
         container.innerHTML = '';
         return;
     }
 
-    const now = new Date();
-    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-    // Filter readings for each period
-    const last14 = readings.filter(r => new Date(r.measured_at) >= fourteenDaysAgo);
-    const last30 = readings.filter(r => new Date(r.measured_at) >= thirtyDaysAgo);
-
-    // Group readings by date (YYYY-MM-DD)
-    const groupByDay = (arr) => {
-        const groups = {};
-        arr.forEach(r => {
-            const dateKey = new Date(r.measured_at).toISOString().split('T')[0];
-            if (!groups[dateKey]) {
-                groups[dateKey] = [];
-            }
-            groups[dateKey].push(r);
-        });
-        return groups;
-    };
-
-    // Calculate daily-weighted average:
-    // 1. Average all readings within each day
-    // 2. Average those daily averages (each day counts equally)
-    const calcDailyWeightedAvg = (arr) => {
-        if (arr.length === 0) return null;
-
-        const dayGroups = groupByDay(arr);
-        const dayKeys = Object.keys(dayGroups);
-
-        if (dayKeys.length === 0) return null;
-
-        // Calculate average for each day
-        const dailyAverages = dayKeys.map(day => {
-            const dayReadings = dayGroups[day];
-            const avgSys = dayReadings.reduce((sum, r) => sum + r.systolic, 0) / dayReadings.length;
-            const avgDia = dayReadings.reduce((sum, r) => sum + r.diastolic, 0) / dayReadings.length;
-            return { sys: avgSys, dia: avgDia, count: dayReadings.length };
-        });
-
-        // Average the daily averages (each day weighs equally)
-        const totalSys = dailyAverages.reduce((sum, d) => sum + d.sys, 0);
-        const totalDia = dailyAverages.reduce((sum, d) => sum + d.dia, 0);
-        const numDays = dailyAverages.length;
-
-        return {
-            sys: Math.round(totalSys / numDays),
-            dia: Math.round(totalDia / numDays),
-            exactSys: totalSys / numDays,
-            exactDia: totalDia / numDays,
-            count: arr.length,
-            days: numDays
-        };
-    };
-
-    const avg14 = calcDailyWeightedAvg(last14);
-    const avg30 = calcDailyWeightedAvg(last30);
-
-    // Debug logging
-    console.log('BP Daily-Weighted Average Calculation:');
-    console.log('Total readings:', readings.length);
-    if (avg14) {
-        console.log(`14-day: ${avg14.count} readings over ${avg14.days} days → ${avg14.sys}/${avg14.dia}`);
-    }
-    if (avg30) {
-        console.log(`30-day: ${avg30.count} readings over ${avg30.days} days → ${avg30.sys}/${avg30.dia}`);
-    }
-
     let html = '<div class="bp-avg-row">';
-    if (avg14) {
-        // Show readings count and days count for transparency
-        html += `<div class="bp-avg-item"><span class="bp-avg-label">14d avg (${avg14.days}d)</span><span class="bp-avg-value">${avg14.sys}/${avg14.dia}</span></div>`;
-    }
-    if (avg30) {
-        html += `<div class="bp-avg-item"><span class="bp-avg-label">30d avg (${avg30.days}d)</span><span class="bp-avg-value">${avg30.sys}/${avg30.dia}</span></div>`;
-    }
-    html += '</div>';
 
+    if (stats.stats_14) {
+        html += `<div class="bp-avg-item"><span class="bp-avg-label">14d (${stats.stats_14.days}d)</span><span class="bp-avg-value">${stats.stats_14.systolic}/${stats.stats_14.diastolic}</span></div>`;
+    }
+    if (stats.stats_30) {
+        html += `<div class="bp-avg-item"><span class="bp-avg-label">30d (${stats.stats_30.days}d)</span><span class="bp-avg-value">${stats.stats_30.systolic}/${stats.stats_30.diastolic}</span></div>`;
+    }
+    if (stats.stats_60) {
+        html += `<div class="bp-avg-item"><span class="bp-avg-label">60d (${stats.stats_60.days}d)</span><span class="bp-avg-value">${stats.stats_60.systolic}/${stats.stats_60.diastolic}</span></div>`;
+    }
+
+    html += '</div>';
     container.innerHTML = html;
 }
 
