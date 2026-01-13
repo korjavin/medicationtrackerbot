@@ -84,6 +84,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/bp/import", s.handleImportBloodPressure)
 	apiMux.HandleFunc("GET /api/bp/export", s.handleExportBloodPressure)
 	apiMux.HandleFunc("GET /api/bp/goal", s.handleGetBPGoal)
+	apiMux.HandleFunc("GET /api/bp/stats", s.handleGetBPStats)
 
 	// Weight endpoints
 	apiMux.HandleFunc("POST /api/weight", s.handleCreateWeight)
@@ -712,6 +713,19 @@ func (s *Server) handleGetBPGoal(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(goal)
+}
+
+func (s *Server) handleGetBPStats(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	stats, err := s.store.GetBPDailyWeightedStats(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
 }
 
 // -- Inventory Handlers --
