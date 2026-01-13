@@ -821,6 +821,103 @@ func (s *Store) ImportBloodPressureReadings(ctx context.Context, userID int64, r
 	return tx.Commit()
 }
 
+// BPPeriodStats represents daily-weighted BP stats for a specific time period
+type BPPeriodStats struct {
+	Systolic  int `json:"systolic"`
+	Diastolic int `json:"diastolic"`
+	Days      int `json:"days"`     // Number of days with readings
+	Readings  int `json:"readings"` // Total number of readings
+}
+
+// BPStats contains daily-weighted blood pressure statistics for multiple time periods
+type BPStats struct {
+	Stats14 *BPPeriodStats `json:"stats_14,omitempty"`
+	Stats30 *BPPeriodStats `json:"stats_30,omitempty"`
+	Stats60 *BPPeriodStats `json:"stats_60,omitempty"`
+}
+
+// GetBPDailyWeightedStats calculates daily-weighted blood pressure averages
+// It first averages readings per day, then averages the daily averages.
+// This prevents clustered readings from skewing results.
+func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPStats, error) {
+	// SQL query that:
+	// 1. Groups readings by date (using DATE function)
+	// 2. Calculates average systolic/diastolic per day
+	// 3. Returns the average of daily averages for each period
+	query := `
+		WITH daily_avgs AS (
+			SELECT 
+				DATE(measured_at) as day,
+				AVG(systolic) as avg_sys,
+				AVG(diastolic) as avg_dia,
+				COUNT(*) as reading_count
+			FROM blood_pressure_readings
+			WHERE user_id = ? AND ignore_calc = 0
+			GROUP BY DATE(measured_at)
+		)
+		SELECT 
+			-- 14-day stats
+			(SELECT ROUND(AVG(avg_sys)) FROM daily_avgs WHERE day >= DATE('now', '-14 days')) as sys_14,
+			(SELECT ROUND(AVG(avg_dia)) FROM daily_avgs WHERE day >= DATE('now', '-14 days')) as dia_14,
+			(SELECT COUNT(*) FROM daily_avgs WHERE day >= DATE('now', '-14 days')) as days_14,
+			(SELECT SUM(reading_count) FROM daily_avgs WHERE day >= DATE('now', '-14 days')) as readings_14,
+			-- 30-day stats
+			(SELECT ROUND(AVG(avg_sys)) FROM daily_avgs WHERE day >= DATE('now', '-30 days')) as sys_30,
+			(SELECT ROUND(AVG(avg_dia)) FROM daily_avgs WHERE day >= DATE('now', '-30 days')) as dia_30,
+			(SELECT COUNT(*) FROM daily_avgs WHERE day >= DATE('now', '-30 days')) as days_30,
+			(SELECT SUM(reading_count) FROM daily_avgs WHERE day >= DATE('now', '-30 days')) as readings_30,
+			-- 60-day stats
+			(SELECT ROUND(AVG(avg_sys)) FROM daily_avgs WHERE day >= DATE('now', '-60 days')) as sys_60,
+			(SELECT ROUND(AVG(avg_dia)) FROM daily_avgs WHERE day >= DATE('now', '-60 days')) as dia_60,
+			(SELECT COUNT(*) FROM daily_avgs WHERE day >= DATE('now', '-60 days')) as days_60,
+			(SELECT SUM(reading_count) FROM daily_avgs WHERE day >= DATE('now', '-60 days')) as readings_60
+	`
+
+	var sys14, dia14, days14, readings14 sql.NullInt64
+	var sys30, dia30, days30, readings30 sql.NullInt64
+	var sys60, dia60, days60, readings60 sql.NullInt64
+
+	err := s.db.QueryRowContext(ctx, query, userID).Scan(
+		&sys14, &dia14, &days14, &readings14,
+		&sys30, &dia30, &days30, &readings30,
+		&sys60, &dia60, &days60, &readings60,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &BPStats{}
+
+	if sys14.Valid && dia14.Valid && days14.Valid && days14.Int64 > 0 {
+		result.Stats14 = &BPPeriodStats{
+			Systolic:  int(sys14.Int64),
+			Diastolic: int(dia14.Int64),
+			Days:      int(days14.Int64),
+			Readings:  int(readings14.Int64),
+		}
+	}
+
+	if sys30.Valid && dia30.Valid && days30.Valid && days30.Int64 > 0 {
+		result.Stats30 = &BPPeriodStats{
+			Systolic:  int(sys30.Int64),
+			Diastolic: int(dia30.Int64),
+			Days:      int(days30.Int64),
+			Readings:  int(readings30.Int64),
+		}
+	}
+
+	if sys60.Valid && dia60.Valid && days60.Valid && days60.Int64 > 0 {
+		result.Stats60 = &BPPeriodStats{
+			Systolic:  int(sys60.Int64),
+			Diastolic: int(dia60.Int64),
+			Days:      int(days60.Int64),
+			Readings:  int(readings60.Int64),
+		}
+	}
+
+	return result, nil
+}
+
 // -- Weight Tracking --
 
 func (s *Store) CreateWeightLog(ctx context.Context, w *WeightLog) (int64, error) {
