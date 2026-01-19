@@ -39,6 +39,10 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.sha }}
 
       - name: Update and commit docker-compose.yml
+        env:
+          GITHUB_REPO_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          GITHUB_COMMIT_SHA: ${{ github.sha }}
         run: |
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
@@ -46,18 +50,14 @@ jobs:
 
           # Update image tags in docker-compose.yml
           # Replaces :latest (or any tag) with :<sha>
-          # Note: repository_owner and event.repository.name come lowercased usually, but best to be safe with casing if needed.
-          # However, github.repository_owner might be Mixed Case. github.repository is usually safe.
-          # Let's use lower case explicitly if we can, but Actions usually handles image names okay.
-          # We'll stick to the template pattern which assumes implicit matching or consistent casing.
+          # Using environment variables prevents template injection attacks
           
-          IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}"
-          # Convert to lowercase to match typical docker conventions if needed, but template implies standard vars work.
+          IMAGE_NAME="ghcr.io/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}"
           
-          sed -i "s|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${{ github.sha }}|g" docker-compose.yml
+          sed -i "s|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${GITHUB_COMMIT_SHA}|g" docker-compose.yml
 
           git add docker-compose.yml
-          git commit -m "ci: Update image tag to ${{ github.sha }}" || echo "No changes to commit"
+          git commit -m "ci: Update image tag to ${GITHUB_COMMIT_SHA}" || echo "No changes to commit"
           git push origin deploy --force
 
       - name: Trigger Portainer Redeploy Webhook
