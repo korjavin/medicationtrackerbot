@@ -446,7 +446,7 @@ function addTimeInput(value = '') {
     const div = document.createElement('div');
     div.className = 'time-row';
     div.innerHTML = `
-        <input type="time" class="med-time-input" value="${value}">
+        <input type="time" class="med-time-input" value="${escapeHtml(value)}">
         <button class="remove-time" onclick="removeTime(this)">×</button>
     `;
     container.appendChild(div);
@@ -581,7 +581,7 @@ function renderMeds() {
             }
         } catch (e) {
             // Legacy fallback
-            scheduleText = m.schedule;
+            scheduleText = escapeHtml(m.schedule);
         }
 
         let dateRangeText = '';
@@ -662,7 +662,7 @@ function renderHistory(logs) {
         div.className = 'history-group';
 
         const statusIcon = g.status === 'TAKEN' ? '✅' : (g.status === 'PENDING' ? '⏳' : '❌');
-        let headerHTML = `<div class="history-header"><strong>${statusIcon} ${g.timeLabel}</strong></div>`;
+        let headerHTML = `<div class="history-header"><strong>${statusIcon} ${escapeHtml(g.timeLabel)}</strong></div>`;
 
         let itemsHTML = '<div class="history-items">';
         g.items.forEach(l => {
@@ -1902,18 +1902,18 @@ function renderWeightStats(stats) {
 
     // Left column
     html += '<div class="weight-stats-column">';
-    html += `<div class="weight-stat-item"><span class="weight-stat-label">Trend:</span> <span class="weight-stat-value">${stats.trendWeight.toFixed(1)} kg</span></div>`;
+    html += `<div class="weight-stat-item"><span class="weight-stat-label">Trend:</span> <span class="weight-stat-value">${escapeHtml(stats.trendWeight.toFixed(1))} kg</span></div>`;
 
     if (stats.weeklyRate !== undefined) {
         const rateStr = stats.weeklyRate >= 0
             ? `+${stats.weeklyRate.toFixed(1)} kg/week`
             : `${stats.weeklyRate.toFixed(1)} kg/week`;
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Rate:</span> <span class="weight-stat-value">${rateStr}</span></div>`;
+        html += `<div class="weight-stat-item"><span class="weight-stat-label">Rate:</span> <span class="weight-stat-value">${escapeHtml(rateStr)}</span></div>`;
     }
 
     if (stats.forecastDate) {
         const dateStr = stats.forecastDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Forecast:</span> <span class="weight-stat-value">${dateStr}</span></div>`;
+        html += `<div class="weight-stat-item"><span class="weight-stat-label">Forecast:</span> <span class="weight-stat-value">${escapeHtml(dateStr)}</span></div>`;
     } else {
         html += `<div class="weight-stat-item"><span class="weight-stat-label">Forecast:</span> <span class="weight-stat-value">Unknown</span></div>`;
     }
@@ -1924,12 +1924,12 @@ function renderWeightStats(stats) {
     html += '<div class="weight-stats-column">';
 
     if (stats.goalWeight !== undefined) {
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Goal:</span> <span class="weight-stat-value">${stats.goalWeight.toFixed(1)} kg</span></div>`;
+        html += `<div class="weight-stat-item"><span class="weight-stat-label">Goal:</span> <span class="weight-stat-value">${escapeHtml(stats.goalWeight.toFixed(1))} kg</span></div>`;
 
         const deltaStr = stats.deltaFromGoal >= 0
             ? `+${stats.deltaFromGoal.toFixed(1)} kg`
             : `${stats.deltaFromGoal.toFixed(1)} kg`;
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Δ from goal:</span> <span class="weight-stat-value">${deltaStr}</span></div>`;
+        html += `<div class="weight-stat-item"><span class="weight-stat-label">Δ from goal:</span> <span class="weight-stat-value">${escapeHtml(deltaStr)}</span></div>`;
     }
 
     html += '</div>';
@@ -1973,14 +1973,14 @@ function renderWeightLogs(logs) {
 
     let html = '';
     logs.forEach(w => {
-        const dateStr = formatDate(w.measured_at);
+        const dateStr = escapeHtml(formatDate(w.measured_at));
         const trendDiff = w.weight_trend ? (w.weight - w.weight_trend).toFixed(1) : '0.0';
         const trendIcon = trendDiff > 0 ? '📈' : (trendDiff < 0 ? '📉' : '➡️');
 
         html += `<li class="weight-item">
             <div class="weight-data">
-                <div class="weight-value">${w.weight.toFixed(1)} kg</div>
-                <div class="weight-trend">${trendIcon} Trend: ${w.weight_trend ? w.weight_trend.toFixed(1) : w.weight.toFixed(1)} kg</div>
+                <div class="weight-value">${escapeHtml(w.weight.toFixed(1))} kg</div>
+                <div class="weight-trend">${trendIcon} Trend: ${w.weight_trend ? escapeHtml(w.weight_trend.toFixed(1)) : escapeHtml(w.weight.toFixed(1))} kg</div>
                 <div class="weight-meta">${dateStr}</div>
             </div>
             <button class="delete-btn" onclick="deleteWeightLog(${w.id})" title="Delete">&times;</button>
