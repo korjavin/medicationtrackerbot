@@ -17,5 +17,12 @@ COPY --from=builder /app/web ./web
 RUN BUILD_TIME=$(date +%s) && \
     sed -i "s/TIMESTAMP_PLACEHOLDER/$BUILD_TIME/g" /app/web/static/index.html
 
+# Create non-root user and switch to it
+RUN addgroup -g 1000 appuser && \
+    adduser -D -u 1000 -G appuser appuser && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
 EXPOSE 8080
 CMD ["./bot"]
