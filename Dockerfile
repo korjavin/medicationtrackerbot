@@ -8,21 +8,27 @@ RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -o bot ./cmd/bot
 
 FROM alpine:latest
 WORKDIR /app
-RUN apk add --no-cache tzdata ca-certificates
+
+# Install dependencies including su-exec for privilege dropping
+RUN apk add --no-cache tzdata ca-certificates su-exec
 
 COPY --from=builder /app/bot .
 COPY --from=builder /app/web ./web
+COPY entrypoint.sh /entrypoint.sh
 
 # Replace TIMESTAMP_PLACEHOLDER with actual build time for cache busting
 RUN BUILD_TIME=$(date +%s) && \
     sed -i "s/TIMESTAMP_PLACEHOLDER/$BUILD_TIME/g" /app/web/static/index.html
 
-# Create non-root user and switch to it
-RUN addgroup -g 1000 appuser && \
+# Make entrypoint executable and create non-root user
+RUN chmod +x /entrypoint.sh && \
+    addgroup -g 1000 appuser && \
     adduser -D -u 1000 -G appuser appuser && \
     chown -R appuser:appuser /app
 
-USER appuser
+# Don't set USER here - entrypoint will handle privilege dropping
+# This allows the container to fix volume permissions on startup
 
 EXPOSE 8080
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["./bot"]
