@@ -904,3 +904,109 @@ svg.chart-svg {
     color: var(--hint-color);
     margin: 4px 0;
 }
+
+/* Weight Ruler Component */
+.weight-display-container {
+    margin: 20px 0;
+    text-align: center;
+}
+
+.weight-display {
+    background: var(--text-color);
+    color: var(--bg-color);
+    border-radius: 16px;
+    padding: 24px 32px;
+    display: inline-block;
+    min-width: 160px;
+}
+
+.weight-display-value {
+    font-size: 48px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.weight-display-unit {
+    font-size: 20px;
+    font-weight: 400;
+    margin-left: 4px;
+    opacity: 0.8;
+}
+
+.weight-ruler-container {
+    position: relative;
+    height: 120px;
+    margin: 24px 0;
+    overflow: hidden;
+    background: linear-gradient(to bottom, #f59e0b, #f59e0b);
+    border-radius: 12px;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: pan-x;
+}
+
+.weight-ruler-container:active {
+    cursor: grabbing;
+}
+
+.weight-ruler {
+    position: absolute;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    transition: transform 0.1s ease-out;
+    will-change: transform;
+}
+
+.weight-tick {
+    position: absolute;
+    bottom: 0;
+    width: 2px;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.weight-tick.major {
+    height: 45%;
+    width: 2px;
+    background: rgba(0, 0, 0, 0.8);
+}
+
+.weight-tick.minor {
+    height: 25%;
+}
+
+.weight-tick-label {
+    position: absolute;
+    bottom: 55%;
+    font-size: 16px;
+    font-weight: 600;
+    color: rgba(0, 0, 0, 0.8);
+    transform: translateX(-50%);
+    white-space: nowrap;
+}
+
+.weight-ruler-indicator {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: rgba(0, 0, 0, 0.9);
+    transform: translateX(-50%);
+    pointer-events: none;
+    z-index: 10;
+}
+
+.weight-ruler-indicator::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 12px solid rgba(0, 0, 0, 0.9);
+}

@@ -1471,6 +1471,9 @@ async function exportBPCSV() {
 
 // ==================== Weight Tracking Functions ====================
 
+// Global variable to store weight logs for ruler component
+let cachedWeightLogs = [];
+
 function showWeightModal() {
     document.getElementById('modal-overlay').classList.remove('hidden');
     document.getElementById('weight-modal').classList.remove('hidden');
@@ -1481,12 +1484,19 @@ function showWeightModal() {
     const localISOTime = (new Date(now - offset)).toISOString().slice(0, 16);
     document.getElementById('weight-datetime').value = localISOTime;
 
-    // Clear other fields
-    document.getElementById('weight-value').value = '';
+    // Clear notes field
     document.getElementById('weight-notes').value = '';
 
-    // Focus the weight field
-    document.getElementById('weight-value').focus();
+    // Get last logged weight and initialize ruler
+    const lastWeight = cachedWeightLogs && cachedWeightLogs.length > 0
+        ? cachedWeightLogs[0].weight
+        : 75.0; // Default to 75kg if no history
+
+    // Set default value
+    setWeightValue(lastWeight);
+
+    // Initialize the ruler
+    initWeightRuler(lastWeight);
 }
 
 function closeWeightModal() {
@@ -1519,6 +1529,139 @@ async function handleWeightSubmit(event) {
         loadWeightLogs();
     }
 }
+
+// ==================== Weight Ruler Component ====================
+
+let rulerState = {
+    currentWeight: 75.0,
+    isDragging: false,
+    startX: 0,
+    startWeight: 0,
+    pixelsPerKg: 40 // How many pixels = 1 kg
+};
+
+function setWeightValue(weight) {
+    // Clamp weight between min and max
+    weight = Math.max(30, Math.min(300, weight));
+    weight = Math.round(weight * 10) / 10; // Round to 1 decimal
+
+    rulerState.currentWeight = weight;
+
+    // Update display
+    document.getElementById('weight-display-value').textContent = weight.toFixed(1);
+
+    // Update hidden input
+    document.getElementById('weight-value').value = weight;
+}
+
+function initWeightRuler(initialWeight) {
+    setWeightValue(initialWeight);
+    renderRulerTicks(initialWeight);
+    attachRulerEventListeners();
+}
+
+function renderRulerTicks(centerWeight) {
+    const ruler = document.getElementById('weight-ruler');
+    ruler.innerHTML = ''; // Clear existing ticks
+
+    const container = document.getElementById('weight-ruler-container');
+    const containerWidth = container.clientWidth;
+    const centerX = containerWidth / 2;
+
+    // Generate ticks for a range around the center weight
+    const range = 15; // Show ±15 kg range
+    const tickSpacing = rulerState.pixelsPerKg; // pixels between each 1kg tick
+
+    // Calculate offset to center the current weight
+    const offset = -(centerWeight - Math.floor(centerWeight - range)) * tickSpacing;
+
+    ruler.style.transform = `translateX(${centerX + offset}px)`;
+
+    // Generate ticks
+    for (let kg = Math.floor(centerWeight - range); kg <= Math.ceil(centerWeight + range); kg++) {
+        const x = (kg - Math.floor(centerWeight - range)) * tickSpacing;
+
+        // Major tick every 1 kg
+        const tick = document.createElement('div');
+        tick.className = kg % 5 === 0 ? 'weight-tick major' : 'weight-tick minor';
+        tick.style.left = x + 'px';
+        ruler.appendChild(tick);
+
+        // Label every 1 kg
+        if (kg % 1 === 0) {
+            const label = document.createElement('div');
+            label.className = 'weight-tick-label';
+            label.textContent = kg;
+            label.style.left = x + 'px';
+            ruler.appendChild(label);
+        }
+    }
+}
+
+function attachRulerEventListeners() {
+    const container = document.getElementById('weight-ruler-container');
+
+    // Mouse events
+    container.addEventListener('mousedown', handleDragStart);
+    document.addEventListener('mousemove', handleDragMove);
+    document.addEventListener('mouseup', handleDragEnd);
+
+    // Touch events
+    container.addEventListener('touchstart', handleDragStart, { passive: false });
+    document.addEventListener('touchmove', handleDragMove, { passive: false });
+    document.addEventListener('touchend', handleDragEnd);
+}
+
+function handleDragStart(e) {
+    rulerState.isDragging = true;
+    rulerState.startWeight = rulerState.currentWeight;
+
+    if (e.type === 'touchstart') {
+        rulerState.startX = e.touches[0].clientX;
+        e.preventDefault(); // Prevent scrolling while dragging
+    } else {
+        rulerState.startX = e.clientX;
+    }
+}
+
+function handleDragMove(e) {
+    if (!rulerState.isDragging) return;
+
+    let currentX;
+    if (e.type === 'touchmove') {
+        currentX = e.touches[0].clientX;
+        e.preventDefault(); // Prevent scrolling
+    } else {
+        currentX = e.clientX;
+    }
+
+    const deltaX = rulerState.startX - currentX; // Inverted: drag left = increase weight
+    const deltaWeight = deltaX / rulerState.pixelsPerKg;
+
+    const newWeight = rulerState.startWeight + deltaWeight;
+    setWeightValue(newWeight);
+    updateRulerPosition(newWeight);
+}
+
+function handleDragEnd(e) {
+    if (!rulerState.isDragging) return;
+    rulerState.isDragging = false;
+}
+
+function updateRulerPosition(weight) {
+    const ruler = document.getElementById('weight-ruler');
+    const container = document.getElementById('weight-ruler-container');
+    const containerWidth = container.clientWidth;
+    const centerX = containerWidth / 2;
+
+    // Calculate the offset needed to center this weight
+    const range = 15;
+    const baseWeight = Math.floor(weight - range);
+    const offset = -(weight - baseWeight) * rulerState.pixelsPerKg;
+
+    ruler.style.transform = `translateX(${centerX + offset}px)`;
+}
+
 
 // =================== Helper Functions for Enhanced Weight Chart ===================
 
@@ -1979,6 +2122,9 @@ async function loadWeightLogs() {
         list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load weight logs</li>';
         return;
     }
+
+    // Cache logs globally for ruler component
+    cachedWeightLogs = logsRes || [];
 
     renderWeightLogs(logsRes || []);
     renderWeightChart(logsRes || [], goalRes || {});
