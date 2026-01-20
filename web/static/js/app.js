@@ -1816,6 +1816,33 @@ function renderWeightChart(logs, goalData) {
             planLine.setAttribute("stroke-dasharray", "5,5");
             planLine.setAttribute("opacity", "0.6");
             svg.appendChild(planLine);
+
+            // Add label for today's diet plan weight
+            // Only show if today is within the diet plan period
+            if (now >= highestDate && now <= goalDate) {
+                const todayPlanWeight = getWeightAtDate(now);
+                const todayX = xScaleByDate(now);
+                const todayY = yScale(todayPlanWeight);
+
+                // Add a small circle marker on the diet line for today
+                const todayMarker = document.createElementNS(svgNs, "circle");
+                todayMarker.setAttribute("cx", todayX);
+                todayMarker.setAttribute("cy", todayY);
+                todayMarker.setAttribute("r", 4);
+                todayMarker.setAttribute("fill", "#06b6d4");
+                todayMarker.setAttribute("stroke", "var(--bg-color)");
+                todayMarker.setAttribute("stroke-width", "2");
+                svg.appendChild(todayMarker);
+
+                // Add label showing today's plan weight
+                const todayLabel = document.createElementNS(svgNs, "text");
+                todayLabel.setAttribute("x", todayX);
+                todayLabel.setAttribute("y", todayY - 12);
+                todayLabel.setAttribute("class", "chart-label");
+                todayLabel.setAttribute("style", "text-anchor: middle; fill: #06b6d4; font-weight: bold; font-size: 12px;");
+                todayLabel.textContent = todayPlanWeight.toFixed(1) + " kg";
+                svg.appendChild(todayLabel);
+            }
         }
     }
 
