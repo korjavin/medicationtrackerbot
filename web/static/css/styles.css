@@ -916,20 +916,37 @@ svg.chart-svg {
     color: var(--bg-color);
     border-radius: 16px;
     padding: 24px 32px;
-    display: inline-block;
-    min-width: 160px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 200px;
 }
 
-.weight-display-value {
+.weight-display-input {
     font-size: 48px;
     font-weight: 700;
     line-height: 1;
+    background: transparent;
+    border: none;
+    color: var(--bg-color);
+    width: 120px;
+    text-align: right;
+    outline: none;
+    padding: 0;
+    margin: 0;
+    -moz-appearance: textfield;
+    /* Remove spinner in Firefox */
+}
+
+.weight-display-input::-webkit-inner-spin-button,
+.weight-display-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
 }
 
 .weight-display-unit {
     font-size: 20px;
     font-weight: 400;
-    margin-left: 4px;
     opacity: 0.8;
 }
 

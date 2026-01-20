@@ -213,10 +213,11 @@
         <form onsubmit="handleWeightSubmit(event)">
             <input type="datetime-local" id="weight-datetime" required>
 
-            <!-- Large weight display -->
+            <!-- Editable weight input styled as large display -->
             <div class="weight-display-container">
-                <div class="weight-display" id="weight-display">
-                    <span class="weight-display-value" id="weight-display-value">0.0</span>
+                <div class="weight-display">
+                    <input type="number" id="weight-value" step="0.1" min="30" max="300" class="weight-display-input"
+                        inputmode="decimal" required>
                     <span class="weight-display-unit">kg</span>
                 </div>
             </div>
@@ -228,10 +229,6 @@
                 </div>
                 <div class="weight-ruler-indicator"></div>
             </div>
-
-            <!-- Hidden input field that stores the actual value -->
-            <input type="number" id="weight-value" step="0.1" min="30" max="300" required
-                style="position: absolute; opacity: 0; pointer-events: none;">
 
             <div class="form-row">
                 <label>Notes (optional):</label>
