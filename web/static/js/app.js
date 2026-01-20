@@ -1648,7 +1648,9 @@ function handleDragMove(e) {
 
     const newWeight = rulerState.startWeight + deltaWeight;
     setWeightValue(newWeight);
-    updateRulerPosition(newWeight);
+
+    // Regenerate ticks and update position to keep ruler centered
+    renderRulerTicks(newWeight);
 }
 
 function handleDragEnd(e) {
@@ -1657,17 +1659,8 @@ function handleDragEnd(e) {
 }
 
 function updateRulerPosition(weight) {
-    const ruler = document.getElementById('weight-ruler');
-    const container = document.getElementById('weight-ruler-container');
-    const containerWidth = container.clientWidth;
-    const centerX = containerWidth / 2;
-
-    // Calculate the offset needed to center this weight
-    const range = 15;
-    const baseWeight = Math.floor(weight - range);
-    const offset = -(weight - baseWeight) * rulerState.pixelsPerKg;
-
-    ruler.style.transform = `translateX(${centerX + offset}px)`;
+    // Simply regenerate the ticks centered on the new weight
+    renderRulerTicks(weight);
 }
 
 
