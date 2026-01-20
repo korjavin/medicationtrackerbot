@@ -1547,17 +1547,25 @@ function setWeightValue(weight) {
 
     rulerState.currentWeight = weight;
 
-    // Update display
-    document.getElementById('weight-display-value').textContent = weight.toFixed(1);
-
-    // Update hidden input
-    document.getElementById('weight-value').value = weight;
+    // Update input field
+    document.getElementById('weight-value').value = weight.toFixed(1);
 }
 
 function initWeightRuler(initialWeight) {
     setWeightValue(initialWeight);
     renderRulerTicks(initialWeight);
+    updateRulerPosition(initialWeight);
     attachRulerEventListeners();
+
+    // Add input event listener for manual typing
+    const input = document.getElementById('weight-value');
+    input.addEventListener('input', (e) => {
+        const value = parseFloat(e.target.value);
+        if (!isNaN(value)) {
+            rulerState.currentWeight = value;
+            updateRulerPosition(value);
+        }
+    });
 }
 
 function renderRulerTicks(centerWeight) {
