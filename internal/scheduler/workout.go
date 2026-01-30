@@ -80,11 +80,25 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 		var variantID int64
 		if group.IsRotating {
 			rotationState, err := s.store.GetRotationState(group.ID)
-			if err != nil || rotationState == nil {
-				log.Printf("Error getting rotation state for group %d", group.ID)
+			if err != nil {
+				log.Printf("Error getting rotation state for group %d: %v", group.ID, err)
 				continue
 			}
-			variantID = rotationState.CurrentVariantID
+			if rotationState == nil {
+				// Auto-initialize with first variant
+				variants, err := s.store.ListVariantsByGroup(group.ID)
+				if err != nil || len(variants) == 0 {
+					log.Printf("No variants found for rotating group %d", group.ID)
+					continue
+				}
+				if err := s.store.InitializeRotation(group.ID, variants[0].ID); err != nil {
+					log.Printf("Failed to auto-initialize rotation for group %d: %v", group.ID, err)
+					continue
+				}
+				variantID = variants[0].ID
+			} else {
+				variantID = rotationState.CurrentVariantID
+			}
 		} else {
 			variants, err := s.store.ListVariantsByGroup(group.ID)
 			if err != nil || len(variants) == 0 {
