@@ -1,7 +1,20 @@
-// Init Telegram Web App
 const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
+
+// Safe Alert Helper
+function safeAlert(msg) {
+    console.log("Alert:", msg);
+    if (tg && tg.showAlert) {
+        try {
+            tg.showAlert(msg);
+        } catch (e) {
+            alert(msg);
+        }
+    } else {
+        alert(msg);
+    }
+}
 
 // Config
 // Config
