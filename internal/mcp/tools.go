@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"strings"
 	"time"
 
@@ -37,8 +38,10 @@ type BloodPressureResponse struct {
 func (s *Server) handleGetBloodPressure(ctx context.Context, req *mcp.CallToolRequest, input DateRangeInput) (*mcp.CallToolResult, BloodPressureResponse, error) {
 	startDate, endDate, warning, err := s.parseDateRange(input.StartDate, input.EndDate)
 	if err != nil {
+		log.Printf("[MCP] Date parsing failed for BP: %v", err)
 		return nil, BloodPressureResponse{}, err
 	}
+	log.Printf("[MCP] Fetching BP for date range: %s to %s", startDate, endDate)
 
 	// Get the user ID (for now, we're single-user but the store requires it)
 	// In a multi-user scenario, we'd get this from the OAuth subject mapping
@@ -46,8 +49,10 @@ func (s *Server) handleGetBloodPressure(ctx context.Context, req *mcp.CallToolRe
 
 	readings, err := s.store.GetBloodPressureReadings(ctx, userID, startDate)
 	if err != nil {
+		log.Printf("[MCP] Failed to fetch BP readings: %v", err)
 		return nil, BloodPressureResponse{}, err
 	}
+	log.Printf("[MCP] Found %d BP readings", len(readings))
 
 	// Filter readings by end date and convert to response format
 	var results []BloodPressureResult
@@ -102,15 +107,19 @@ type WeightResponse struct {
 func (s *Server) handleGetWeight(ctx context.Context, req *mcp.CallToolRequest, input DateRangeInput) (*mcp.CallToolResult, WeightResponse, error) {
 	startDate, endDate, warning, err := s.parseDateRange(input.StartDate, input.EndDate)
 	if err != nil {
+		log.Printf("[MCP] Date parsing failed for Weight: %v", err)
 		return nil, WeightResponse{}, err
 	}
+	log.Printf("[MCP] Fetching Weight for date range: %s to %s", startDate, endDate)
 
 	userID := int64(1) // TODO: Map OAuth subject to user ID
 
 	logs, err := s.store.GetWeightLogs(ctx, userID, startDate)
 	if err != nil {
+		log.Printf("[MCP] Failed to fetch Weight logs: %v", err)
 		return nil, WeightResponse{}, err
 	}
+	log.Printf("[MCP] Found %d weight logs", len(logs))
 
 	// Filter and convert
 	var results []WeightResult
