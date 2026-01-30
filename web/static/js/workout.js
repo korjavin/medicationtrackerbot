@@ -420,24 +420,28 @@ async function saveVariant() {
 
     let result;
     if (currentEditingVariantId) {
-        // Update - would need new endpoint
-        safeAlert('Edit functionality not yet implemented in API');
-        return;
+        // Update
+        result = await apiCall(`/api/workout/variants/update?id=${currentEditingVariantId}`, 'PUT', payload);
     } else {
         result = await apiCall('/api/workout/variants/create', 'POST', payload);
     }
 
-    if (result) {
+    if (result || result === true) {
         closeVariantModal();
         loadVariantsForGroup(currentGroupForVariant);
-        safeAlert('✅ Variant created! Now add exercises to it.');
+        if (!currentEditingVariantId) {
+            safeAlert('✅ Variant created! Now add exercises to it.');
+        }
     }
 }
 
 async function deleteVariant(variantId, event) {
     event.stopPropagation();
     if (confirm('Delete this variant and all its exercises?')) {
-        safeAlert('Delete functionality not yet implemented in API');
+        const result = await apiCall(`/api/workout/variants/delete?id=${variantId}`, 'DELETE');
+        if (result || result === true) {
+            loadVariantsForGroup(currentGroupForVariant);
+        }
     }
 }
 
@@ -568,7 +572,10 @@ async function saveExercise() {
 async function deleteExercise(exerciseId, event) {
     event.stopPropagation();
     if (confirm('Delete this exercise?')) {
-        safeAlert('Delete functionality not yet implemented in API');
+        const result = await apiCall(`/api/workout/exercises/delete?id=${exerciseId}`, 'DELETE');
+        if (result || result === true) {
+            loadExercisesForVariant(currentVariantForExercise);
+        }
     }
 }
 

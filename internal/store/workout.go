@@ -247,6 +247,26 @@ func (s *Store) GetWorkoutVariant(id int64) (*WorkoutVariant, error) {
 	return &v, nil
 }
 
+func (s *Store) UpdateWorkoutVariant(id int64, name string, rotationOrder *int, description string) error {
+	_, err := s.db.Exec(`
+		UPDATE workout_variants 
+		SET name = ?, rotation_order = ?, description = ?
+		WHERE id = ?`,
+		name, rotationOrder, description, id)
+	return err
+}
+
+func (s *Store) DeleteWorkoutVariant(id int64) error {
+	// Delete all exercises in this variant first
+	_, err := s.db.Exec("DELETE FROM workout_exercises WHERE variant_id = ?", id)
+	if err != nil {
+		return err
+	}
+	// Then delete the variant
+	_, err = s.db.Exec("DELETE FROM workout_variants WHERE id = ?", id)
+	return err
+}
+
 // -- Exercise Methods --
 
 func (s *Store) AddExerciseToVariant(variantID int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) (*WorkoutExercise, error) {
@@ -328,6 +348,11 @@ func (s *Store) UpdateWorkoutExercise(id int64, exerciseName string, targetSets,
 		SET exercise_name = ?, target_sets = ?, target_reps_min = ?, target_reps_max = ?, target_weight_kg = ?
 		WHERE id = ?`,
 		exerciseName, targetSets, targetRepsMin, targetRepsMax, targetWeightKg, id)
+	return err
+}
+
+func (s *Store) DeleteWorkoutExercise(id int64) error {
+	_, err := s.db.Exec("DELETE FROM workout_exercises WHERE id = ?", id)
 	return err
 }
 
