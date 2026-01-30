@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-
-	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // -- Workout Group Handlers --
@@ -395,77 +393,127 @@ func (s *Server) handleGetSessionDetails(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
-	// Get upcoming sessions (pending, notified, or in_progress)
-	sessions, err := s.store.GetWorkoutHistory(s.allowedUserID, 100)
+	now := time.Now()
+
+	// Get all active workout groups
+	groups, err := s.store.ListWorkoutGroups(s.allowedUserID, true)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Get today's date (start of day in local time)
-	now := time.Now()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	var nextWorkout *struct {
+		GroupID        int64
+		GroupName      string
+		VariantID      int64
+		VariantName    string
+		ScheduledDate  time.Time
+		ScheduledTime  string
+		ExercisesCount int
+		Status         string
+	}
+	var earliestTime time.Time
 
-	// Find all sessions that are pending/notified/in_progress AND scheduled for today or future
-	var upcomingSessions []store.WorkoutSession
-	for _, session := range sessions {
-		// Skip if status is not pending/notified/in_progress
-		if session.Status != "pending" && session.Status != "notified" && session.Status != "in_progress" {
+	for _, group := range groups {
+		// Parse days of week
+		var daysOfWeek []int
+		if err := json.Unmarshal([]byte(group.DaysOfWeek), &daysOfWeek); err != nil {
 			continue
 		}
 
-		// Check if session is scheduled for today or in the future
-		sessionDate := time.Date(session.ScheduledDate.Year(), session.ScheduledDate.Month(), session.ScheduledDate.Day(), 0, 0, 0, 0, session.ScheduledDate.Location())
+		// Find the next occurrence of this workout
+		for daysAhead := 0; daysAhead < 14; daysAhead++ { // Check next 2 weeks
+			checkDate := now.AddDate(0, 0, daysAhead)
+			dayOfWeek := int(checkDate.Weekday())
 
-		// Skip past dates
-		if sessionDate.Before(today) {
-			continue
-		}
+			if !contains(daysOfWeek, dayOfWeek) {
+				continue
+			}
 
-		// For today's sessions, check if the scheduled time has passed
-		if sessionDate.Equal(today) {
-			// Parse scheduled time (format: "HH:MM")
-			scheduledTime := session.ScheduledTime
+			// Parse scheduled time
 			var hour, minute int
-			if _, err := fmt.Sscanf(scheduledTime, "%d:%d", &hour, &minute); err == nil {
-				scheduledDateTime := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
-				// If it's today and the time has passed and it's still pending/notified, skip it
-				if now.After(scheduledDateTime) && (session.Status == "pending" || session.Status == "notified") {
+			if _, err := fmt.Sscanf(group.ScheduledTime, "%d:%d", &hour, &minute); err != nil {
+				continue
+			}
+
+			scheduledDateTime := time.Date(checkDate.Year(), checkDate.Month(), checkDate.Day(), hour, minute, 0, 0, now.Location())
+
+			// Skip if this time has already passed
+			if scheduledDateTime.Before(now) {
+				continue
+			}
+
+			// Check if this is earlier than our current candidate
+			if nextWorkout == nil || scheduledDateTime.Before(earliestTime) {
+				// Determine variant
+				var variantID int64
+				if group.IsRotating {
+					rotationState, _ := s.store.GetRotationState(group.ID)
+					if rotationState != nil {
+						variantID = rotationState.CurrentVariantID
+					} else {
+						variants, _ := s.store.ListVariantsByGroup(group.ID)
+						if len(variants) > 0 {
+							variantID = variants[0].ID
+						}
+					}
+				} else {
+					variants, _ := s.store.ListVariantsByGroup(group.ID)
+					if len(variants) > 0 {
+						variantID = variants[0].ID
+					}
+				}
+
+				if variantID == 0 {
 					continue
 				}
-			}
-		}
 
-		upcomingSessions = append(upcomingSessions, session)
+				variant, _ := s.store.GetWorkoutVariant(variantID)
+				if variant == nil {
+					continue
+				}
+
+				exercises, _ := s.store.ListExercisesByVariant(variantID)
+
+				// Check if there's an existing session for this date
+				sessionDate := time.Date(checkDate.Year(), checkDate.Month(), checkDate.Day(), 0, 0, 0, 0, now.Location())
+				existing, _ := s.store.GetSessionByGroupAndDate(group.ID, sessionDate)
+
+				status := "pending"
+				if existing != nil {
+					status = existing.Status
+				}
+
+				nextWorkout = &struct {
+					GroupID        int64
+					GroupName      string
+					VariantID      int64
+					VariantName    string
+					ScheduledDate  time.Time
+					ScheduledTime  string
+					ExercisesCount int
+					Status         string
+				}{
+					GroupID:        group.ID,
+					GroupName:      group.Name,
+					VariantID:      variantID,
+					VariantName:    variant.Name,
+					ScheduledDate:  scheduledDateTime,
+					ScheduledTime:  group.ScheduledTime,
+					ExercisesCount: len(exercises),
+					Status:         status,
+				}
+				earliestTime = scheduledDateTime
+			}
+
+			break // Found next occurrence for this group, move to next group
+		}
 	}
 
-	// If no upcoming sessions, return null
-	if len(upcomingSessions) == 0 {
+	if nextWorkout == nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(nil)
 		return
-	}
-
-	// Find the earliest upcoming session (since GetWorkoutHistory returns DESC order)
-	nextSession := &upcomingSessions[0]
-	for i := 1; i < len(upcomingSessions); i++ {
-		if upcomingSessions[i].ScheduledDate.Before(nextSession.ScheduledDate) {
-			nextSession = &upcomingSessions[i]
-		}
-	}
-
-	// Enrich with group and variant names
-	group, _ := s.store.GetWorkoutGroup(nextSession.GroupID)
-	variant, _ := s.store.GetWorkoutVariant(nextSession.VariantID)
-	exercises, _ := s.store.ListExercisesByVariant(nextSession.VariantID)
-
-	groupName := "Unknown"
-	variantName := "Unknown"
-	if group != nil {
-		groupName = group.Name
-	}
-	if variant != nil {
-		variantName = variant.Name
 	}
 
 	response := struct {
@@ -474,14 +522,28 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		VariantName    string      `json:"variant_name"`
 		ExercisesCount int         `json:"exercises_count"`
 	}{
-		Session:        nextSession,
-		GroupName:      groupName,
-		VariantName:    variantName,
-		ExercisesCount: len(exercises),
+		Session: map[string]interface{}{
+			"scheduled_date": nextWorkout.ScheduledDate,
+			"scheduled_time": nextWorkout.ScheduledTime,
+			"status":         nextWorkout.Status,
+		},
+		GroupName:      nextWorkout.GroupName,
+		VariantName:    nextWorkout.VariantName,
+		ExercisesCount: nextWorkout.ExercisesCount,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// Helper function
+func contains(slice []int, val int) bool {
+	for _, item := range slice {
+		if item == val {
+			return true
+		}
+	}
+	return false
 }
 
 // -- Stats Handlers --
