@@ -139,7 +139,7 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return publicKey, nil
-	}, jwt.WithAudience(h.config.MCPServerURL), jwt.WithExpirationRequired())
+	}, jwt.WithExpirationRequired())
 
 	if err != nil {
 		// Debug logging for claims comparison
@@ -160,6 +160,29 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 	claims, ok := validToken.Claims.(jwt.MapClaims)
 	if !ok {
 		return "", fmt.Errorf("invalid claims type")
+	}
+
+	// Manual Audience Validation
+	// We allow audience to be either the MCP Server URL OR the Client ID
+	// (Pocket-ID often uses Client ID as audience for access tokens)
+	audClaim, err := validToken.Claims.GetAudience()
+	if err != nil {
+		return "", fmt.Errorf("invalid audience claim: %w", err)
+	}
+
+	validAudience := false
+	for _, aud := range audClaim {
+		if aud == h.config.MCPServerURL || aud == h.config.ClientID {
+			validAudience = true
+			break
+		}
+	}
+
+	if !validAudience {
+		// Log actual audiences for debugging
+		log.Printf("[MCP/OAuth] Audience Validation Failed. Expected '%s' or '%s'. Got: %v",
+			h.config.MCPServerURL, h.config.ClientID, audClaim)
+		return "", fmt.Errorf("token audience mismatch")
 	}
 
 	subject, ok := claims["sub"].(string)
