@@ -174,16 +174,49 @@ func (s *Server) handleCreateWorkoutVariant(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(variant)
 }
 
-func (s *Server) handleDeleteWorkoutVariant(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUpdateWorkoutVariant(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
-	_, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid variant ID", http.StatusBadRequest)
 		return
 	}
 
-	// TODO: Implement proper delete with CASCADE
-	http.Error(w, "Delete not yet fully implemented - would need CASCADE delete", http.StatusNotImplemented)
+	var req struct {
+		Name          string `json:"name"`
+		RotationOrder *int   `json:"rotation_order"`
+		Description   string `json:"description"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err = s.store.UpdateWorkoutVariant(id, req.Name, req.RotationOrder, req.Description)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleDeleteWorkoutVariant(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Query().Get("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid variant ID", http.StatusBadRequest)
+		return
+	}
+
+	err = s.store.DeleteWorkoutVariant(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 // -- Exercise Handlers --
@@ -280,14 +313,19 @@ func (s *Server) handleUpdateExercise(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteExercise(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
-	_, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid exercise ID", http.StatusBadRequest)
 		return
 	}
 
-	// TODO: Implement proper delete
-	http.Error(w, "Delete not yet fully implemented", http.StatusNotImplemented)
+	err = s.store.DeleteWorkoutExercise(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 // -- Session Handlers --
