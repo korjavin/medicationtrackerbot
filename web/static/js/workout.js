@@ -167,12 +167,12 @@ async function saveWorkoutGroup() {
     const active = document.getElementById('workout-group-active').checked;
 
     if (!name) {
-        tg.showAlert('Group name is required!');
+        safeAlert('Group name is required!');
         return;
     }
 
     if (!time) {
-        tg.showAlert('Scheduled time is required!');
+        safeAlert('Scheduled time is required!');
         return;
     }
 
@@ -180,7 +180,7 @@ async function saveWorkoutGroup() {
         .map(s => parseInt(s.dataset.day));
 
     if (days.length === 0) {
-        tg.showAlert('Select at least one day!');
+        safeAlert('Select at least one day!');
         return;
     }
 
@@ -208,7 +208,7 @@ async function saveWorkoutGroup() {
         loadWorkoutGroups();
 
         if (!currentEditingGroupId) {
-            tg.showAlert('✅ Workout group created! Don\'t forget to add variants and exercises.');
+            safeAlert('✅ Workout group created! Don\'t forget to add variants and exercises.');
         }
     }
 }
@@ -218,7 +218,7 @@ async function deleteWorkoutGroup(groupId, event) {
 
     if (confirm('Delete this workout group and all its variants/exercises?')) {
         // Note: Backend doesn't have delete endpoint yet, would need to add it
-        tg.showAlert('Delete functionality not yet implemented in API');
+        safeAlert('Delete functionality not yet implemented in API');
     }
 }
 
@@ -320,7 +320,7 @@ async function saveVariant() {
     const rotation = rotationRaw !== '' ? parseInt(rotationRaw) : null;
 
     if (!name) {
-        tg.showAlert('Variant name is required!');
+        safeAlert('Variant name is required!');
         return;
     }
 
@@ -334,7 +334,7 @@ async function saveVariant() {
     let result;
     if (currentEditingVariantId) {
         // Update - would need new endpoint
-        tg.showAlert('Edit functionality not yet implemented in API');
+        safeAlert('Edit functionality not yet implemented in API');
         return;
     } else {
         result = await apiCall('/api/workout/variants/create', 'POST', payload);
@@ -343,14 +343,14 @@ async function saveVariant() {
     if (result) {
         closeVariantModal();
         loadVariantsForGroup(currentGroupForVariant);
-        tg.showAlert('✅ Variant created! Now add exercises to it.');
+        safeAlert('✅ Variant created! Now add exercises to it.');
     }
 }
 
 async function deleteVariant(variantId, event) {
     event.stopPropagation();
     if (confirm('Delete this variant and all its exercises?')) {
-        tg.showAlert('Delete functionality not yet implemented in API');
+        safeAlert('Delete functionality not yet implemented in API');
     }
 }
 
@@ -451,7 +451,7 @@ async function saveExercise() {
     const order = parseInt(document.getElementById('workout-exercise-order').value) || 0;
 
     if (!name || !sets || !repsMin) {
-        tg.showAlert('Exercise name, sets, and reps min are required!');
+        safeAlert('Exercise name, sets, and reps min are required!');
         return;
     }
 
@@ -481,7 +481,7 @@ async function saveExercise() {
 async function deleteExercise(exerciseId, event) {
     event.stopPropagation();
     if (confirm('Delete this exercise?')) {
-        tg.showAlert('Delete functionality not yet implemented in API');
+        safeAlert('Delete functionality not yet implemented in API');
     }
 }
 
