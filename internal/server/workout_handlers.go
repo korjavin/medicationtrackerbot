@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // -- Workout Group Handlers --
@@ -314,6 +316,7 @@ func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Reques
 		VariantName string      `json:"variant_name"`
 		Exercises   int         `json:"exercises_count"`
 		Completed   int         `json:"exercises_completed"`
+		TotalVolume float64     `json:"total_volume"` // Total weight lifted (sets * reps * weight)
 	}
 
 	var enriched []EnrichedSession
@@ -333,9 +336,15 @@ func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Reques
 		}
 
 		completedCount := 0
+		totalVolume := 0.0
 		for _, log := range logs {
 			if log.Status == "completed" {
 				completedCount++
+				// Calculate volume: sets * reps * weight
+				if log.SetsCompleted != nil && log.RepsCompleted != nil && log.WeightKg != nil {
+					volume := float64(*log.SetsCompleted) * float64(*log.RepsCompleted) * (*log.WeightKg)
+					totalVolume += volume
+				}
 			}
 		}
 
@@ -345,6 +354,7 @@ func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Reques
 			VariantName: variantName,
 			Exercises:   len(exercises),
 			Completed:   completedCount,
+			TotalVolume: totalVolume,
 		})
 	}
 
@@ -378,6 +388,60 @@ func (s *Server) handleGetSessionDetails(w http.ResponseWriter, r *http.Request)
 	}{
 		Session: session,
 		Logs:    logs,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
+	// Get upcoming sessions (pending, notified, or in_progress)
+	sessions, err := s.store.GetWorkoutHistory(s.allowedUserID, 100)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Find the first session that is pending, notified, or in_progress
+	var nextSession *store.WorkoutSession
+	for _, session := range sessions {
+		if session.Status == "pending" || session.Status == "notified" || session.Status == "in_progress" {
+			nextSession = &session
+			break
+		}
+	}
+
+	if nextSession == nil {
+		// No upcoming workout
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(nil)
+		return
+	}
+
+	// Enrich with group and variant names
+	group, _ := s.store.GetWorkoutGroup(nextSession.GroupID)
+	variant, _ := s.store.GetWorkoutVariant(nextSession.VariantID)
+	exercises, _ := s.store.ListExercisesByVariant(nextSession.VariantID)
+
+	groupName := "Unknown"
+	variantName := "Unknown"
+	if group != nil {
+		groupName = group.Name
+	}
+	if variant != nil {
+		variantName = variant.Name
+	}
+
+	response := struct {
+		Session        interface{} `json:"session"`
+		GroupName      string      `json:"group_name"`
+		VariantName    string      `json:"variant_name"`
+		ExercisesCount int         `json:"exercises_count"`
+	}{
+		Session:        nextSession,
+		GroupName:      groupName,
+		VariantName:    variantName,
+		ExercisesCount: len(exercises),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
