@@ -500,13 +500,17 @@ async function loadWorkoutHistoryTab() {
         }
 
         let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
-        response.forEach(s => {
+        const finalSessions = response.filter(s => s.session.status === 'completed' || s.session.status === 'skipped');
+
+        if (finalSessions.length === 0) {
+            container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout history yet</p>';
+            return;
+        }
+
+        finalSessions.forEach(s => {
             const statusEmoji = {
                 'completed': '✅',
-                'in_progress': '🏋️',
-                'skipped': '⏭',
-                'pending': '⏰',
-                'notified': '🔔'
+                'skipped': '⏭'
             }[s.session.status] || '⏰';
 
             const date = new Date(s.session.scheduled_date).toLocaleDateString('en-US', {
