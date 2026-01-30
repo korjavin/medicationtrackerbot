@@ -47,7 +47,7 @@ func NewOAuthHandler(cfg *Config) *OAuthHandler {
 			ttl:  1 * time.Hour,
 		},
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 30 * time.Second,
 		},
 	}
 }
