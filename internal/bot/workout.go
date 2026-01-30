@@ -52,7 +52,6 @@ func (b *Bot) SendExercisePrompt(sessionID int64, exerciseID int64, exerciseName
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("✅ Done", fmt.Sprintf("exercise_done_%d_%d", sessionID, exerciseID)),
-			tgbotapi.NewInlineKeyboardButtonData("✏️ Edit", fmt.Sprintf("exercise_edit_%d_%d", sessionID, exerciseID)),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("⏭ Skip Exercise", fmt.Sprintf("exercise_skip_%d_%d", sessionID, exerciseID)),
