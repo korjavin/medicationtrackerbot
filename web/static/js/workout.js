@@ -572,20 +572,20 @@ async function showWorkoutSessionModal(sessionId) {
                     <div class="log-input-row">
                         <div class="log-input-group">
                             <label>Sets</label>
-                            <input type="number" value="${log.sets_completed || 0}" onchange="updateLocalLog(${index}, 'sets_completed', this.value)">
+                            <input type="number" min="0" max="20" step="1" value="${log.sets_completed || 0}" onchange="updateLocalLog(${index}, 'sets_completed', this.value)" inputmode="numeric">
                         </div>
                         <div class="log-input-group">
                             <label>Reps</label>
-                            <input type="number" value="${log.reps_completed || 0}" onchange="updateLocalLog(${index}, 'reps_completed', this.value)">
+                            <input type="number" min="0" max="100" step="1" value="${log.reps_completed || 0}" onchange="updateLocalLog(${index}, 'reps_completed', this.value)" inputmode="numeric">
                         </div>
                         <div class="log-input-group">
                             <label>Weight (kg)</label>
-                            <input type="number" step="0.5" value="${log.weight_kg || 0}" onchange="updateLocalLog(${index}, 'weight_kg', this.value)">
+                            <input type="number" min="0" max="500" step="0.5" value="${log.weight_kg || 0}" onchange="updateLocalLog(${index}, 'weight_kg', this.value)" inputmode="decimal">
                         </div>
                     </div>
                     <div class="log-input-group">
                         <label>Notes</label>
-                        <input type="text" value="${escapeHtml(log.notes || '')}" onchange="updateLocalLog(${index}, 'notes', this.value)" placeholder="Add notes...">
+                        <input type="text" value="${escapeHtml(log.notes || '')}" onchange="updateLocalLog(${index}, 'notes', this.value)" placeholder="Add notes..." maxlength="200">
                     </div>
                 </div>
             `;
@@ -595,6 +595,13 @@ async function showWorkoutSessionModal(sessionId) {
 
         modal.classList.remove('hidden');
         overlay.classList.remove('hidden');
+
+        // Add click handler to overlay to close modal
+        overlay.onclick = function (e) {
+            if (e.target === overlay) {
+                closeWorkoutSessionModal();
+            }
+        };
     } catch (error) {
         console.error('Error loading session details:', error);
         safeAlert('Error loading session details');
@@ -604,18 +611,43 @@ async function showWorkoutSessionModal(sessionId) {
 function updateLocalLog(index, field, value) {
     if (field === 'notes') {
         currentSessionLogs[index][field] = value;
+    } else if (field === 'sets_completed' || field === 'reps_completed') {
+        // Sets and reps must be integers
+        currentSessionLogs[index][field] = Math.max(0, Math.round(parseFloat(value) || 0));
     } else {
-        currentSessionLogs[index][field] = parseFloat(value) || 0;
+        // Weight can be decimal
+        currentSessionLogs[index][field] = Math.max(0, parseFloat(value) || 0);
     }
 }
 
 function closeWorkoutSessionModal() {
+    const overlay = document.getElementById('modal-overlay');
+    overlay.onclick = null; // Remove click handler
     document.getElementById('workout-session-modal').classList.add('hidden');
-    document.getElementById('modal-overlay').classList.add('hidden');
+    overlay.classList.add('hidden');
 }
 
 async function saveWorkoutSessionDetails() {
+    const saveButton = document.querySelector('#workout-session-modal .actions .primary');
+    const originalText = saveButton.textContent;
+
     try {
+        // Disable button and show loading state
+        saveButton.disabled = true;
+        saveButton.textContent = 'Saving...';
+        saveButton.style.opacity = '0.6';
+
+        // Validate all logs before saving
+        for (const log of currentSessionLogs) {
+            if (log.sets_completed < 0 || log.reps_completed < 0 || log.weight_kg < 0) {
+                throw new Error('Values cannot be negative');
+            }
+            if (log.sets_completed > 20 || log.reps_completed > 100 || log.weight_kg > 500) {
+                throw new Error('Values exceed maximum allowed');
+            }
+        }
+
+        // Save each log
         for (const log of currentSessionLogs) {
             await apiCall('/api/workout/sessions/logs/update', 'POST', {
                 id: log.id,
@@ -626,12 +658,18 @@ async function saveWorkoutSessionDetails() {
             });
         }
 
-        safeAlert('Workout details updated!');
+        safeAlert('✅ Workout details updated!');
         closeWorkoutSessionModal();
         loadWorkoutHistoryTab();
     } catch (error) {
         console.error('Error saving workout details:', error);
-        safeAlert('Error saving workout details');
+        const message = error.message || 'Error saving workout details. Please try again.';
+        safeAlert('❌ ' + message);
+    } finally {
+        // Re-enable button
+        saveButton.disabled = false;
+        saveButton.textContent = originalText;
+        saveButton.style.opacity = '1';
     }
 }
 

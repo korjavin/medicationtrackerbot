@@ -113,8 +113,7 @@ h1 {
 #workout-variant-modal,
 #workout-exercise-modal,
 #bp-modal,
-#weight-modal,
-#workout-session-modal {
+#weight-modal {
     position: fixed;
     top: 50%;
     left: 50%;
@@ -129,6 +128,23 @@ h1 {
     z-index: 11;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
 }
+
+#workout-session-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg-color);
+    padding: 24px;
+    border-radius: 16px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 85vh;
+    overflow-y: auto;
+    z-index: 11;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+}
+
 
 #med-modal.hidden,
 #workout-group-modal.hidden,
@@ -1001,6 +1017,7 @@ svg.chart-svg {
     border-right: 8px solid transparent;
     border-top: 12px solid rgba(0, 0, 0, 0.9);
 }
+
 /* Exercise Log Entry */
 .exercise-log-entry {
     background: var(--secondary-bg-color);
