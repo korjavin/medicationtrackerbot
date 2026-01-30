@@ -658,7 +658,6 @@ async function saveWorkoutSessionDetails() {
             });
         }
 
-        safeAlert('✅ Workout details updated!');
         closeWorkoutSessionModal();
         loadWorkoutHistoryTab();
     } catch (error) {
