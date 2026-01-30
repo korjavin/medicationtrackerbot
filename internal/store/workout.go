@@ -512,6 +512,11 @@ func (s *Store) UpdateSessionStatus(id int64, status string) error {
 	return err
 }
 
+func (s *Store) UpdateWorkoutSessionNotes(id int64, notes string) error {
+	_, err := s.db.Exec("UPDATE workout_sessions SET notes = ? WHERE id = ?", notes, id)
+	return err
+}
+
 func (s *Store) StartSession(id int64) error {
 	_, err := s.db.Exec(`
 		UPDATE workout_sessions 
