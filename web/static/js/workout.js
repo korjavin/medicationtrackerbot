@@ -68,7 +68,11 @@ async function loadNextWorkout() {
         const status = session.status;
         const date = new Date(session.scheduled_date);
         const today = new Date();
-        const isToday = date.toDateString() === today.toDateString();
+
+        // Properly compare dates (year, month, day only)
+        const isToday = date.getFullYear() === today.getFullYear() &&
+            date.getMonth() === today.getMonth() &&
+            date.getDate() === today.getDate();
 
         // Determine card styling based on status
         let cardClass = 'next-workout-card';
