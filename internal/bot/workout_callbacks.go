@@ -73,19 +73,8 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing workout."))
 			return
 		}
-
-		// Update message
-		snoozeTime := time.Now().Add(1 * time.Hour).Format("15:04")
-		editText := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
-			cb.Message.Text+fmt.Sprintf("\n\n⏰ Snoozed until %s", snoozeTime))
-		editText.ParseMode = "Markdown"
-		b.api.Send(editText)
-
-		// Remove buttons
-		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
-			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
-		})
-		b.api.Send(edit)
+		// Delete notification
+		b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID))
 
 	case "snooze2":
 		if err := b.store.SnoozeSession(sessionID, 2*time.Hour); err != nil {
@@ -93,19 +82,8 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing workout."))
 			return
 		}
-
-		// Update message
-		snoozeTime := time.Now().Add(2 * time.Hour).Format("15:04")
-		editText := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
-			cb.Message.Text+fmt.Sprintf("\n\n⏰ Snoozed until %s", snoozeTime))
-		editText.ParseMode = "Markdown"
-		b.api.Send(editText)
-
-		// Remove buttons
-		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
-			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
-		})
-		b.api.Send(edit)
+		// Delete notification
+		b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID))
 
 	case "skip":
 		if err := b.store.SkipSession(sessionID); err != nil {
@@ -120,18 +98,8 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 				log.Printf("Failed to advance rotation: %v", err)
 			}
 		}
-
-		// Update message
-		editText := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
-			cb.Message.Text+"\n\n⏭ Skipped")
-		editText.ParseMode = "Markdown"
-		b.api.Send(editText)
-
-		// Remove buttons
-		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
-			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
-		})
-		b.api.Send(edit)
+		// Delete notification
+		b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID))
 	}
 }
 

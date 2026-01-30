@@ -405,11 +405,12 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 		if session.ScheduledDate.Before(since) {
 			continue
 		}
-		totalSessions++
 		if session.Status == "completed" {
 			completedSessions++
+			totalSessions++
 		} else if session.Status == "skipped" {
 			skippedSessions++
+			totalSessions++
 		}
 	}
 
