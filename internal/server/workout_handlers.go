@@ -402,10 +402,17 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find the first session that is pending, notified, or in_progress
+	// Get today's date (start of day in local time)
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	// Find the first session that is pending, notified, or in_progress AND scheduled for today or future
 	var nextSession *store.WorkoutSession
 	for _, session := range sessions {
-		if session.Status == "pending" || session.Status == "notified" || session.Status == "in_progress" {
+		// Check if session is scheduled for today or in the future
+		sessionDate := time.Date(session.ScheduledDate.Year(), session.ScheduledDate.Month(), session.ScheduledDate.Day(), 0, 0, 0, 0, session.ScheduledDate.Location())
+
+		if (session.Status == "pending" || session.Status == "notified" || session.Status == "in_progress") && !sessionDate.Before(today) {
 			nextSession = &session
 			break
 		}
