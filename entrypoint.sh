@@ -10,7 +10,11 @@ if [ "$(id -u)" = "0" ]; then
     mkdir -p /app/data
     
     # Fix ownership to appuser (UID 1000)
-    chown -R appuser:appuser /app/data
+    if [ -z "$SKIP_PERMS_FIX" ]; then
+        chown -R appuser:appuser /app/data
+    else
+        echo "Skipping permissions fix (SKIP_PERMS_FIX set)"
+    fi
     
     echo "Permissions fixed. Switching to appuser..."
     # Use su-exec to drop privileges and exec the command
