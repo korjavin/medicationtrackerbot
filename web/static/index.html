@@ -25,6 +25,7 @@
         <div id="tabs">
             <button class="tab active" onclick="switchTab('bp')">Blood Pressure</button>
             <button class="tab" onclick="switchTab('weight')">Weight</button>
+            <button class="tab" onclick="switchTab('workouts')">Workouts</button>
             <button class="tab" onclick="switchTab('meds')">Medications</button>
             <button class="tab" onclick="switchTab('history')">History</button>
         </div>
@@ -72,6 +73,172 @@
             <div id="weightChart"></div>
             <div id="weight-stats"></div>
             <ul id="weight-list"></ul>
+        </div>
+
+        <div id="workouts-view" class="view">
+            <h3>🏋️ Workout Planner</h3>
+
+            <!-- Tab Navigation for Workouts -->
+            <div class="workout-tabs"
+                style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #e0e0e0;">
+                <button class="workout-tab active" onclick="switchWorkoutTab('groups')"
+                    style="padding: 10px 20px; border: none; background: none; cursor: pointer; border-bottom: 3px solid #667eea;">
+                    Groups
+                </button>
+                <button class="workout-tab" onclick="switchWorkoutTab('history')"
+                    style="padding: 10px 20px; border: none; background: none; cursor: pointer;">
+                    History
+                </button>
+                <button class="workout-tab" onclick="switchWorkoutTab('stats')"
+                    style="padding: 10px 20px; border: none; background: none; cursor: pointer;">
+                    Statistics
+                </button>
+            </div>
+
+            <!-- Groups Management View -->
+            <div id="workout-groups-tab" class="workout-tab-content">
+                <div style="margin-bottom: 15px;">
+                    <button onclick="showAddWorkoutGroupModal()" class="primary">+ Add Workout Group</button>
+                </div>
+                <div id="workout-groups-list">
+                    Loading workout groups...
+                </div>
+            </div>
+
+            <!-- History View -->
+            <div id="workout-history-tab" class="workout-tab-content" style="display: none;">
+                <div id="workout-history-display">
+                    Loading...
+                </div>
+            </div>
+
+            <!-- Stats View -->
+            <div id="workout-stats-tab" class="workout-tab-content" style="display: none;">
+                <div id="workout-stats-display">
+                    Loading...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Adding/Editing Workout Group -->
+    <div id="workout-group-modal" class="hidden">
+        <h3 id="workout-group-modal-title">Add Workout Group</h3>
+
+        <input type="text" id="workout-group-name" placeholder="Group Name (e.g., Morning Cardio)">
+        <textarea id="workout-group-description" placeholder="Description (optional)" rows="2"></textarea>
+
+        <label class="checkbox-label">
+            <input type="checkbox" id="workout-group-rotating" onchange="toggleRotatingFields()"> Rotating Workout
+            (A/B/C/D)
+        </label>
+
+        <div class="form-row">
+            <label>Days of Week:</label>
+            <div class="days-select">
+                <span data-day="1" onclick="toggleWorkoutDay(this)">Mon</span>
+                <span data-day="2" onclick="toggleWorkoutDay(this)">Tue</span>
+                <span data-day="3" onclick="toggleWorkoutDay(this)">Wed</span>
+                <span data-day="4" onclick="toggleWorkoutDay(this)">Thu</span>
+                <span data-day="5" onclick="toggleWorkoutDay(this)">Fri</span>
+                <span data-day="6" onclick="toggleWorkoutDay(this)">Sat</span>
+                <span data-day="0" onclick="toggleWorkoutDay(this)">Sun</span>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <label>Scheduled Time:</label>
+            <input type="time" id="workout-group-time">
+        </div>
+
+        <div class="form-row">
+            <label>Notification (minutes before):</label>
+            <input type="number" id="workout-group-notification" value="15" min="0" max="60">
+        </div>
+
+        <div class="form-row">
+            <label class="checkbox-label">
+                <input type="checkbox" id="workout-group-active" checked> Active
+            </label>
+        </div>
+
+        <div class="actions">
+            <button onclick="closeWorkoutGroupModal()" class="secondary">Cancel</button>
+            <button onclick="saveWorkoutGroup()" class="primary">Save</button>
+        </div>
+
+        <!-- Variants Section (only shown when editing existing group) -->
+        <div id="workout-variants-section"
+            style="display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
+            <h4>Workout Variants</h4>
+            <button onclick="showAddVariantModal()" class="primary" style="margin-bottom: 10px;">+ Add Variant</button>
+            <div id="workout-variants-list"></div>
+        </div>
+    </div>
+
+    <!-- Modal for Adding/Editing Variant -->
+    <div id="workout-variant-modal" class="hidden">
+        <h3 id="workout-variant-modal-title">Add Variant</h3>
+
+        <input type="text" id="workout-variant-name" placeholder="Variant Name (e.g., Day A, Push Day)">
+        <textarea id="workout-variant-description" placeholder="Description (optional)" rows="2"></textarea>
+
+        <div id="workout-variant-rotation-field" style="display: none;">
+            <div class="form-row">
+                <label>Rotation Order:</label>
+                <input type="number" id="workout-variant-rotation" min="0" placeholder="0 = first, 1 = second, etc.">
+            </div>
+        </div>
+
+        <div class="actions">
+            <button onclick="closeVariantModal()" class="secondary">Cancel</button>
+            <button onclick="saveVariant()" class="primary">Save</button>
+        </div>
+
+        <!-- Exercises Section (only shown when editing existing variant) -->
+        <div id="workout-exercises-section"
+            style="display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
+            <h4>Exercises</h4>
+            <button onclick="showAddExerciseModal()" class="primary" style="margin-bottom: 10px;">+ Add
+                Exercise</button>
+            <div id="workout-exercises-list"></div>
+        </div>
+    </div>
+
+    <!-- Modal for Adding/Editing Exercise -->
+    <div id="workout-exercise-modal" class="hidden">
+        <h3 id="workout-exercise-modal-title">Add Exercise</h3>
+
+        <input type="text" id="workout-exercise-name" placeholder="Exercise Name (e.g., Barbell Rows)">
+
+        <div class="form-row">
+            <label>Target Sets:</label>
+            <input type="number" id="workout-exercise-sets" min="1" max="10" placeholder="4">
+        </div>
+
+        <div class="form-row">
+            <label>Target Reps (Min):</label>
+            <input type="number" id="workout-exercise-reps-min" min="1" max="100" placeholder="8">
+        </div>
+
+        <div class="form-row">
+            <label>Target Reps (Max, optional):</label>
+            <input type="number" id="workout-exercise-reps-max" min="1" max="100" placeholder="10">
+        </div>
+
+        <div class="form-row">
+            <label>Target Weight (kg, optional):</label>
+            <input type="number" id="workout-exercise-weight" step="0.5" min="0" placeholder="40">
+        </div>
+
+        <div class="form-row">
+            <label>Order in workout:</label>
+            <input type="number" id="workout-exercise-order" min="0" placeholder="0 = first, 1 = second, etc.">
+        </div>
+
+        <div class="actions">
+            <button onclick="closeExerciseModal()" class="secondary">Cancel</button>
+            <button onclick="saveExercise()" class="primary">Save</button>
         </div>
     </div>
 
@@ -242,6 +409,7 @@
     </div>
 
     <script src="static/js/app.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="static/js/workout.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <div style="text-align:center;color:var(--hint-color);font-size:10px;padding:10px;">
         v: VERSION_PLACEHOLDER
     </div>

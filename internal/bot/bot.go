@@ -77,13 +77,15 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	msgConfig := tgbotapi.NewMessage(msg.Chat.ID, "")
 	switch msg.Command() {
 	case "help":
-		msgConfig.Text = `**Medication Tracker Bot** - Track medications, blood pressure, and weight.
+		msgConfig.Text = `**Medication Tracker Bot** - Track medications, blood pressure, weight, and workouts.
 
-**Commands:**
+**Medication Commands:**
 /start - Start the bot and open the Mini App
 /log - Manually log a dose for any medication (useful for "As Needed" meds)
 /stock - View medication inventory status
 /download - Export medication, blood pressure, and weight history to CSV
+
+**Blood Pressure & Weight:**
 /bp <systolic> <diastolic> [pulse] - Log blood pressure reading
   Example: /bp 130 80 72
 /bphistory - View recent blood pressure history (last 10 readings)
@@ -94,12 +96,24 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 /goal <weight> <date> - Set weight goal
   Example: /goal 110 2026-06-01
 
+**Workout Commands:**
+/startnext - Manually start next scheduled workout
+/workoutstatus - View today's workout status
+/workouthistory - View recent workouts and your streak 🔥
+
+**How workouts work:**
+1. Workouts are scheduled in groups (e.g., "Morning Swings", "Evening A/B/C/D")
+2. You'll get notifications 15 minutes before scheduled time
+3. Click ▶️ Start, ⏰ Snooze, or ⏭ Skip
+4. Bot guides you through each exercise
+5. Rotation advances automatically for rotating workouts
+
 **How to use:**
 1. Click the "Menu" button to open the App
 2. Add your medications and set schedules
 3. The bot will notify you when it's time to take them
 4. Click "Confirm" on the notification to log usage
-5. Use the tabs to track your BP readings and weight
+5. Use the tabs to track your BP readings, weight, and workouts
 6. Use /download to export all data for any time period`
 		msgConfig.ParseMode = "Markdown"
 	case "log":
@@ -157,6 +171,12 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		b.handleBPGoalCommand(msg, &msgConfig)
 	case "stock":
 		b.handleStockCommand(&msgConfig)
+	case "startnext":
+		b.handleStartNextCommand(&msgConfig)
+	case "workoutstatus":
+		b.handleWorkoutStatusCommand(&msgConfig)
+	case "workouthistory":
+		b.handleWorkoutHistoryCommand(&msgConfig)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}
@@ -299,6 +319,12 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		b.api.Send(edit)
 
 		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ All medications for this time marked as taken."))
+	} else if len(data) > 14 && (data[:14] == "workout_start_" || data[:15] == "workout_snooze1" || data[:15] == "workout_snooze2" || data[:13] == "workout_skip_") {
+		// Workout callbacks
+		b.handleWorkoutCallback(cb, data)
+	} else if len(data) > 13 && (data[:14] == "exercise_done_" || data[:14] == "exercise_edit_" || data[:14] == "exercise_skip_") {
+		// Exercise callbacks
+		b.handleExerciseCallback(cb, data)
 	} else if len(data) > 9 && data[:9] == "download:" {
 		option := data[9:]
 		b.handleDownloadCallback(cb, option)
