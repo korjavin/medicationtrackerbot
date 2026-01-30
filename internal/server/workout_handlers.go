@@ -484,3 +484,26 @@ func (s *Server) handleInitializeRotation(w http.ResponseWriter, r *http.Request
 
 	w.WriteHeader(http.StatusOK)
 }
+
+func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID            int64    `json:"id"`
+		SetsCompleted *int     `json:"sets_completed"`
+		RepsCompleted *int     `json:"reps_completed"`
+		WeightKg      *float64 `json:"weight_kg"`
+		Notes         string   `json:"notes"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err := s.store.UpdateExerciseLog(req.ID, req.SetsCompleted, req.RepsCompleted, req.WeightKg, req.Notes)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}

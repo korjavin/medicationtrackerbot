@@ -520,17 +520,17 @@ async function loadWorkoutHistoryTab() {
             });
 
             html += `
-                <div style="background: #f8f9fa; padding: 12px; border-radius: 8px;">
+                <div onclick="showWorkoutSessionModal(${s.session.id})" style="background: #f8f9fa; padding: 12px; border-radius: 8px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='#f8f9fa'">
                     <div style="display: flex; justify-content: space-between; align-items: start;">
                         <div>
                             <strong>${statusEmoji} ${escapeHtml(s.group_name)}</strong> - ${escapeHtml(s.variant_name)}
                             <div style="font-size: 0.85em; color: #666; margin-top: 4px;">
                                 ${date} at ${s.session.scheduled_time}
-                                ${s.session.status === 'completed' ? ` • ${s.completed}/${s.exercises_count} exercises` : ''}
+                                ${s.session.status === 'completed' ? ` • ${s.exercises_completed}/${s.exercises_count} exercises` : ''}
                             </div>
                         </div>
-                        <div style="text-align: right; font-size: 0.85em; color: #667eea;">
-                            ${s.session.status}
+                        <div style="text-align: right; font-size: 0.85em; color: #667eea; display: flex; align-items: center; gap: 4px;">
+                            ${s.session.status} <span style="font-size: 1.2em;">›</span>
                         </div>
                     </div>
                 </div>
@@ -542,6 +542,96 @@ async function loadWorkoutHistoryTab() {
     } catch (error) {
         console.error('Error loading history:', error);
         container.innerHTML = '<p style="color: red;">Error loading history</p>';
+    }
+}
+
+let currentSessionLogs = [];
+
+async function showWorkoutSessionModal(sessionId) {
+    const modal = document.getElementById('workout-session-modal');
+    const logsContainer = document.getElementById('workout-session-logs');
+    const infoContainer = document.getElementById('workout-session-info');
+    const overlay = document.getElementById('modal-overlay');
+
+    try {
+        const data = await apiCall(`/api/workout/sessions/details?id=${sessionId}`);
+        if (!data) return;
+
+        currentSessionLogs = data.logs || [];
+
+        infoContainer.innerHTML = `
+            <strong>${escapeHtml(data.session.scheduled_time)}</strong> • 
+            ${new Date(data.session.scheduled_date).toLocaleDateString()}
+        `;
+
+        let html = '';
+        currentSessionLogs.forEach((log, index) => {
+            html += `
+                <div class="exercise-log-entry">
+                    <h4>${escapeHtml(log.exercise_name)}</h4>
+                    <div class="log-input-row">
+                        <div class="log-input-group">
+                            <label>Sets</label>
+                            <input type="number" value="${log.sets_completed || 0}" onchange="updateLocalLog(${index}, 'sets_completed', this.value)">
+                        </div>
+                        <div class="log-input-group">
+                            <label>Reps</label>
+                            <input type="number" value="${log.reps_completed || 0}" onchange="updateLocalLog(${index}, 'reps_completed', this.value)">
+                        </div>
+                        <div class="log-input-group">
+                            <label>Weight (kg)</label>
+                            <input type="number" step="0.5" value="${log.weight_kg || 0}" onchange="updateLocalLog(${index}, 'weight_kg', this.value)">
+                        </div>
+                    </div>
+                    <div class="log-input-group">
+                        <label>Notes</label>
+                        <input type="text" value="${escapeHtml(log.notes || '')}" onchange="updateLocalLog(${index}, 'notes', this.value)" placeholder="Add notes...">
+                    </div>
+                </div>
+            `;
+        });
+
+        logsContainer.innerHTML = html || '<p style="text-align: center; color: #888;">No exercises logged</p>';
+
+        modal.classList.remove('hidden');
+        overlay.classList.remove('hidden');
+    } catch (error) {
+        console.error('Error loading session details:', error);
+        safeAlert('Error loading session details');
+    }
+}
+
+function updateLocalLog(index, field, value) {
+    if (field === 'notes') {
+        currentSessionLogs[index][field] = value;
+    } else {
+        currentSessionLogs[index][field] = parseFloat(value) || 0;
+    }
+}
+
+function closeWorkoutSessionModal() {
+    document.getElementById('workout-session-modal').classList.add('hidden');
+    document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+async function saveWorkoutSessionDetails() {
+    try {
+        for (const log of currentSessionLogs) {
+            await apiCall('/api/workout/sessions/logs/update', 'POST', {
+                id: log.id,
+                sets_completed: Math.round(log.sets_completed),
+                reps_completed: Math.round(log.reps_completed),
+                weight_kg: parseFloat(log.weight_kg),
+                notes: log.notes || ''
+            });
+        }
+
+        safeAlert('Workout details updated!');
+        closeWorkoutSessionModal();
+        loadWorkoutHistoryTab();
+    } catch (error) {
+        console.error('Error saving workout details:', error);
+        safeAlert('Error saving workout details');
     }
 }
 
