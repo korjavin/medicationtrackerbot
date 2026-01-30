@@ -98,6 +98,24 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/medications/{id}/restocks", s.handleGetRestockHistory)
 	apiMux.HandleFunc("GET /api/inventory/low", s.handleGetLowStock)
 
+	// Workout endpoints
+	apiMux.HandleFunc("GET /api/workout/groups", s.handleListWorkoutGroups)
+	apiMux.HandleFunc("POST /api/workout/groups/create", s.handleCreateWorkoutGroup)
+	apiMux.HandleFunc("PUT /api/workout/groups/update", s.handleUpdateWorkoutGroup)
+	apiMux.HandleFunc("DELETE /api/workout/groups/delete", s.handleDeleteWorkoutGroup)
+	apiMux.HandleFunc("GET /api/workout/variants", s.handleListVariantsByGroup)
+	apiMux.HandleFunc("POST /api/workout/variants/create", s.handleCreateWorkoutVariant)
+	apiMux.HandleFunc("DELETE /api/workout/variants/delete", s.handleDeleteWorkoutVariant)
+	apiMux.HandleFunc("GET /api/workout/exercises", s.handleListExercisesByVariant)
+	apiMux.HandleFunc("POST /api/workout/exercises/create", s.handleCreateExercise)
+	apiMux.HandleFunc("PUT /api/workout/exercises/update", s.handleUpdateExercise)
+	apiMux.HandleFunc("DELETE /api/workout/exercises/delete", s.handleDeleteExercise)
+	apiMux.HandleFunc("GET /api/workout/sessions", s.handleListWorkoutSessions)
+	apiMux.HandleFunc("GET /api/workout/sessions/details", s.handleGetSessionDetails)
+	apiMux.HandleFunc("GET /api/workout/stats", s.handleGetWorkoutStats)
+	apiMux.HandleFunc("GET /api/workout/rotation/state", s.handleGetRotationState)
+	apiMux.HandleFunc("POST /api/workout/rotation/initialize", s.handleInitializeRotation)
+
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
 	mux.Handle("/api/", authMW(apiMux))
