@@ -248,9 +248,13 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource", s.oauth.HandleProtectedResourceMetadata)
 
 	// MCP endpoint (with OAuth middleware)
-	mcpHandler := s.oauth.Middleware(http.HandlerFunc(s.handleMCP))
+	// Use SDK's SSEHandler to handle both SSE (GET) and Messages (POST)
+	sseHandler := mcp.NewSSEHandler(func(r *http.Request) *mcp.Server {
+		return s.mcpServer
+	}, nil)
+
+	mcpHandler := s.oauth.Middleware(sseHandler)
 	mux.Handle("/mcp", mcpHandler)
-	mux.Handle("/mcp/", mcpHandler)
 
 	// Health check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -280,20 +284,4 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	return nil
-}
-
-// handleMCP handles MCP protocol requests
-func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
-	// The MCP SDK uses Server-Sent Events or Streamable HTTP
-	// For now, we'll implement a simple HTTP handler
-	// TODO: Integrate with the mcp.Server transport properly
-
-	// This is a placeholder - we need to adapt the mcp.Server to HTTP
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "ready",
-		"server":  "health-tracker-mcp",
-		"version": "v1.0.0",
-	})
 }
