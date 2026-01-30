@@ -142,6 +142,18 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 	}, jwt.WithAudience(h.config.MCPServerURL), jwt.WithExpirationRequired())
 
 	if err != nil {
+		// Debug logging for claims comparison
+		if claims, ok := token.Claims.(jwt.MapClaims); ok {
+			log.Printf("[MCP/OAuth] Configured Audience (MCP_SERVER_URL): %s", h.config.MCPServerURL)
+			if aud, ok := claims["aud"]; ok {
+				log.Printf("[MCP/OAuth] Token Audience (aud): %v", aud)
+			} else {
+				log.Printf("[MCP/OAuth] Token Audience (aud) claim missing")
+			}
+			if sub, ok := claims["sub"]; ok {
+				log.Printf("[MCP/OAuth] Token Subject (sub): %v", sub)
+			}
+		}
 		return "", fmt.Errorf("token validation failed: %w", err)
 	}
 
