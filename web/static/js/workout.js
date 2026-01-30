@@ -77,6 +77,7 @@ async function loadNextWorkout() {
         // Debug logging
         console.log('Next workout debug:', {
             scheduled_date: session.scheduled_date,
+            status: session.status,
             parsed_date: date.toISOString(),
             today: today.toISOString(),
             date_parts: {
