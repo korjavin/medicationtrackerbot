@@ -27,6 +27,7 @@ type Config struct {
 	MaxQueryDays   int
 	MCPServerURL   string // The public URL of this MCP server (for OAuth audience validation)
 	JWKSJSON       string // Optional fallback JWKS JSON content
+	UserID         int64  // The database user ID to query data for
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
@@ -41,6 +42,11 @@ func LoadConfigFromEnv() (*Config, error) {
 		maxQueryDays = 90 // default 3 months
 	}
 
+	userID, _ := strconv.ParseInt(os.Getenv("ALLOWED_USER_ID"), 10, 64)
+	if userID == 0 {
+		return nil, fmt.Errorf("ALLOWED_USER_ID is required")
+	}
+
 	cfg := &Config{
 		Port:           port,
 		DatabasePath:   os.Getenv("MCP_DATABASE_PATH"),
@@ -51,6 +57,7 @@ func LoadConfigFromEnv() (*Config, error) {
 		MaxQueryDays:   maxQueryDays,
 		MCPServerURL:   os.Getenv("MCP_SERVER_URL"),
 		JWKSJSON:       os.Getenv("POCKET_ID_JWKS_JSON"),
+		UserID:         userID,
 	}
 
 	if cfg.DatabasePath == "" {
