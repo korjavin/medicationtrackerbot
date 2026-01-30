@@ -57,6 +57,16 @@ func (s *Scheduler) Start() {
 			s.checkLowStock()
 		}
 	}()
+
+	// Check workout notifications every minute
+	workoutTicker := time.NewTicker(1 * time.Minute)
+	go func() {
+		for range workoutTicker.C {
+			if err := s.checkWorkoutNotifications(); err != nil {
+				log.Printf("Error checking workout notifications: %v", err)
+			}
+		}
+	}()
 }
 
 func (s *Scheduler) checkSchedule() error {

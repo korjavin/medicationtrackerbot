@@ -193,6 +193,10 @@ function switchTab(tab) {
         document.querySelector('button[onclick="switchTab(\'weight\')"]').classList.add('active');
         document.getElementById('weight-view').classList.add('active');
         loadWeightLogs();
+    } else if (tab === 'workouts') {
+        document.querySelector('button[onclick="switchTab(\'workouts\')"]').classList.add('active');
+        document.getElementById('workouts-view').classList.add('active');
+        loadWorkouts();
     }
 }
 
