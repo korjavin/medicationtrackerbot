@@ -293,10 +293,6 @@ async function saveWorkoutGroup() {
     if (result || result === true) {
         closeWorkoutGroupModal();
         loadWorkoutGroups();
-
-        if (!currentEditingGroupId) {
-            safeAlert('✅ Workout group created! Don\'t forget to add variants and exercises.');
-        }
     }
 }
 
@@ -429,9 +425,6 @@ async function saveVariant() {
     if (result || result === true) {
         closeVariantModal();
         loadVariantsForGroup(currentGroupForVariant);
-        if (!currentEditingVariantId) {
-            safeAlert('✅ Variant created! Now add exercises to it.');
-        }
     }
 }
 
