@@ -417,9 +417,26 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		// Check if session is scheduled for today or in the future
 		sessionDate := time.Date(session.ScheduledDate.Year(), session.ScheduledDate.Month(), session.ScheduledDate.Day(), 0, 0, 0, 0, session.ScheduledDate.Location())
 
-		if !sessionDate.Before(today) {
-			upcomingSessions = append(upcomingSessions, session)
+		// Skip past dates
+		if sessionDate.Before(today) {
+			continue
 		}
+
+		// For today's sessions, check if the scheduled time has passed
+		if sessionDate.Equal(today) {
+			// Parse scheduled time (format: "HH:MM")
+			scheduledTime := session.ScheduledTime
+			var hour, minute int
+			if _, err := fmt.Sscanf(scheduledTime, "%d:%d", &hour, &minute); err == nil {
+				scheduledDateTime := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+				// If it's today and the time has passed and it's still pending/notified, skip it
+				if now.After(scheduledDateTime) && (session.Status == "pending" || session.Status == "notified") {
+					continue
+				}
+			}
+		}
+
+		upcomingSessions = append(upcomingSessions, session)
 	}
 
 	// If no upcoming sessions, return null
