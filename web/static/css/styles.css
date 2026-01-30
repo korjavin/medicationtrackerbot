@@ -1053,3 +1053,73 @@ svg.chart-svg {
     margin-bottom: 0;
     padding: 8px;
 }
+
+/* Next Workout Card */
+.next-workout-card {
+    background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+    border-left: 4px solid #667eea;
+}
+
+.next-workout-card.notified,
+.next-workout-card.in-progress {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-left: 4px solid #ffd700;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.next-workout-card.today {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    color: white;
+    border-left: 4px solid #fff;
+}
+
+.next-workout-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    font-size: 0.85em;
+}
+
+.next-workout-status {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.next-workout-card.notified .next-workout-status,
+.next-workout-card.in-progress .next-workout-status,
+.next-workout-card.today .next-workout-status {
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.next-workout-date {
+    opacity: 0.8;
+}
+
+.next-workout-info h3 {
+    margin: 0 0 6px 0;
+    font-size: 1.3em;
+}
+
+.next-workout-info p {
+    margin: 0;
+    opacity: 0.85;
+    font-size: 0.95em;
+}
+
+.next-workout-card.notified .next-workout-info h3,
+.next-workout-card.in-progress .next-workout-info h3,
+.next-workout-card.today .next-workout-info h3 {
+    color: white;
+}
+
+.next-workout-card.notified .next-workout-info p,
+.next-workout-card.in-progress .next-workout-info p,
+.next-workout-card.today .next-workout-info p {
+    color: rgba(255, 255, 255, 0.9);
+}

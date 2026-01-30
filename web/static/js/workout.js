@@ -29,6 +29,7 @@ function switchWorkoutTab(tab) {
         document.querySelector('.workout-tab[onclick*="groups"]').classList.add('active');
         document.querySelector('.workout-tab[onclick*="groups"]').style.borderBottom = '3px solid #667eea';
         document.getElementById('workout-groups-tab').style.display = 'block';
+        loadNextWorkout();
         loadWorkoutGroups();
     } else if (tab === 'history') {
         document.querySelector('.workout-tab[onclick*="history"]').classList.add('active');
@@ -46,6 +47,69 @@ function switchWorkoutTab(tab) {
 // Main load function called when switching to workouts tab
 function loadWorkouts() {
     switchWorkoutTab('groups');
+}
+
+// ====================================
+// NEXT WORKOUT CARD
+// ====================================
+
+async function loadNextWorkout() {
+    const container = document.getElementById('next-workout-card');
+
+    try {
+        const data = await apiCall('/api/workout/sessions/next');
+
+        if (!data || !data.session) {
+            container.innerHTML = '';
+            return;
+        }
+
+        const session = data.session;
+        const status = session.status;
+        const date = new Date(session.scheduled_date);
+        const today = new Date();
+        const isToday = date.toDateString() === today.toDateString();
+
+        // Determine card styling based on status
+        let cardClass = 'next-workout-card';
+        let statusEmoji = '📅';
+        let statusText = 'Upcoming';
+
+        if (status === 'in_progress') {
+            cardClass += ' in-progress';
+            statusEmoji = '🏋️';
+            statusText = 'In Progress';
+        } else if (status === 'notified') {
+            cardClass += ' notified';
+            statusEmoji = '🔔';
+            statusText = 'Ready to Start';
+        } else if (isToday) {
+            cardClass += ' today';
+            statusText = 'Today';
+        }
+
+        const dateStr = isToday ? 'Today' : date.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            weekday: 'short'
+        });
+
+        container.innerHTML = `
+            <div class="${cardClass}">
+                <div class="next-workout-header">
+                    <div class="next-workout-status">${statusEmoji} ${statusText}</div>
+                    <div class="next-workout-date">${dateStr} at ${session.scheduled_time}</div>
+                </div>
+                <div class="next-workout-info">
+                    <h3>${escapeHtml(data.group_name)}</h3>
+                    <p>${escapeHtml(data.variant_name)} • ${data.exercises_count} exercises</p>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error loading next workout:', error);
+        container.innerHTML = '';
+    }
 }
 
 // ====================================
@@ -519,6 +583,11 @@ async function loadWorkoutHistoryTab() {
                 year: 'numeric'
             });
 
+            // Format total volume
+            const volumeText = s.total_volume > 0
+                ? `${Math.round(s.total_volume).toLocaleString()} kg total`
+                : '';
+
             html += `
                 <div onclick="showWorkoutSessionModal(${s.session.id})" style="background: #f8f9fa; padding: 12px; border-radius: 8px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='#f8f9fa'">
                     <div style="display: flex; justify-content: space-between; align-items: start;">
@@ -527,6 +596,7 @@ async function loadWorkoutHistoryTab() {
                             <div style="font-size: 0.85em; color: #666; margin-top: 4px;">
                                 ${date} at ${s.session.scheduled_time}
                                 ${s.session.status === 'completed' ? ` • ${s.exercises_completed}/${s.exercises_count} exercises` : ''}
+                                ${volumeText ? `<br><strong style="color: #667eea;">${volumeText}</strong>` : ''}
                             </div>
                         </div>
                         <div style="text-align: right; font-size: 0.85em; color: #667eea; display: flex; align-items: center; gap: 4px;">
