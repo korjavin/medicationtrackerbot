@@ -43,9 +43,8 @@ func (s *Server) handleGetBloodPressure(ctx context.Context, req *mcp.CallToolRe
 	}
 	log.Printf("[MCP] Fetching BP for date range: %s to %s", startDate, endDate)
 
-	// Get the user ID (for now, we're single-user but the store requires it)
-	// In a multi-user scenario, we'd get this from the OAuth subject mapping
-	userID := int64(1) // TODO: Map OAuth subject to user ID
+	// Get the user ID from config
+	userID := s.config.UserID
 
 	readings, err := s.store.GetBloodPressureReadings(ctx, userID, startDate)
 	if err != nil {
@@ -112,7 +111,7 @@ func (s *Server) handleGetWeight(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 	log.Printf("[MCP] Fetching Weight for date range: %s to %s", startDate, endDate)
 
-	userID := int64(1) // TODO: Map OAuth subject to user ID
+	userID := s.config.UserID
 
 	logs, err := s.store.GetWeightLogs(ctx, userID, startDate)
 	if err != nil {
@@ -268,7 +267,7 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 		return nil, WorkoutHistoryResponse{}, err
 	}
 
-	userID := int64(1) // TODO: Map OAuth subject to user ID
+	userID := s.config.UserID
 
 	// Get workout history - the store method returns recent sessions with limit
 	// We'll need to filter by date range
