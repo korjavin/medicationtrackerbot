@@ -44,6 +44,7 @@ services:
       - POCKET_ID_URL=${POCKET_ID_URL}
       - POCKET_ID_CLIENT_ID=${POCKET_ID_CLIENT_ID}
       - POCKET_ID_CLIENT_SECRET=${POCKET_ID_CLIENT_SECRET}
+      - POCKET_ID_JWKS_JSON=${POCKET_ID_JWKS_JSON}
       - SKIP_PERMS_FIX=true
       - TZ=${TZ:-Europe/Berlin}
     networks:
