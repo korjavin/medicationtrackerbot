@@ -108,7 +108,12 @@ h1 {
     z-index: 10;
 }
 
-#med-modal {
+#med-modal,
+#workout-group-modal,
+#workout-variant-modal,
+#workout-exercise-modal,
+#bp-modal,
+#weight-modal {
     position: fixed;
     top: 50%;
     left: 50%;
@@ -116,8 +121,8 @@ h1 {
     background: var(--bg-color);
     padding: 24px;
     border-radius: 16px;
-    width: 80%;
-    max-width: 300px;
+    width: 90%;
+    max-width: 320px;
     max-height: 85vh;
     overflow-y: auto;
     z-index: 11;
@@ -125,6 +130,11 @@ h1 {
 }
 
 #med-modal.hidden,
+#workout-group-modal.hidden,
+#workout-variant-modal.hidden,
+#workout-exercise-modal.hidden,
+#bp-modal.hidden,
+#weight-modal.hidden,
 #modal-overlay.hidden,
 .view {
     display: none;
@@ -471,26 +481,6 @@ select {
 }
 
 /* BP Modal */
-#bp-modal {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: var(--bg-color);
-    padding: 24px;
-    border-radius: 16px;
-    width: 90%;
-    max-width: 320px;
-    z-index: 11;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
-    max-height: 90vh;
-    overflow-y: auto;
-}
-
-#bp-modal.hidden {
-    display: none;
-}
-
 #bp-modal h3 {
     margin: 0;
     font-size: 18px;
@@ -823,24 +813,6 @@ svg.chart-svg {
     text-align: center;
     color: var(--hint-color);
     padding: 40px 20px;
-}
-
-#weight-modal {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: var(--bg-color);
-    padding: 24px;
-    border-radius: 16px;
-    width: 90%;
-    max-width: 320px;
-    z-index: 11;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
-}
-
-#weight-modal.hidden {
-    display: none;
 }
 
 #weight-modal h3 {
