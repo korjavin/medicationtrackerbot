@@ -242,6 +242,21 @@
         </div>
     </div>
 
+    <!-- Modal for Workout Session Details -->
+    <div id="workout-session-modal" class="hidden">
+        <h3 id="workout-session-modal-title">Workout Details</h3>
+        <div id="workout-session-info"
+            style="margin-bottom: 15px; font-size: 0.9em; color: #666; background: #f0f0f0; padding: 10px; border-radius: 8px;">
+        </div>
+        <div id="workout-session-logs" style="display: flex; flex-direction: column; gap: 15px;">
+            <!-- Exercise logs injected here -->
+        </div>
+        <div class="actions" style="margin-top: 20px;">
+            <button onclick="closeWorkoutSessionModal()" class="secondary">Cancel</button>
+            <button onclick="saveWorkoutSessionDetails()" class="primary">Save Changes</button>
+        </div>
+    </div>
+
     <!-- Modal for Adding Med -->
     <div id="modal-overlay" class="hidden"></div>
     <div id="med-modal" class="hidden">

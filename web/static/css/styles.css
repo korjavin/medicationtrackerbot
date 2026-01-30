@@ -113,7 +113,8 @@ h1 {
 #workout-variant-modal,
 #workout-exercise-modal,
 #bp-modal,
-#weight-modal {
+#weight-modal,
+#workout-session-modal {
     position: fixed;
     top: 50%;
     left: 50%;
@@ -135,6 +136,7 @@ h1 {
 #workout-exercise-modal.hidden,
 #bp-modal.hidden,
 #weight-modal.hidden,
+#workout-session-modal.hidden,
 #modal-overlay.hidden,
 .view {
     display: none;
@@ -998,4 +1000,39 @@ svg.chart-svg {
     border-left: 8px solid transparent;
     border-right: 8px solid transparent;
     border-top: 12px solid rgba(0, 0, 0, 0.9);
+}
+/* Exercise Log Entry */
+.exercise-log-entry {
+    background: var(--secondary-bg-color);
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.exercise-log-entry h4 {
+    margin: 0 0 10px 0;
+    font-size: 1.1em;
+}
+
+.log-input-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.log-input-group {
+    flex: 1;
+}
+
+.log-input-group label {
+    display: block;
+    font-size: 0.8em;
+    color: var(--hint-color);
+    margin-bottom: 4px;
+}
+
+.log-input-group input {
+    margin-bottom: 0;
+    padding: 8px;
 }

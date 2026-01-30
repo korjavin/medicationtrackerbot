@@ -115,6 +115,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/workout/stats", s.handleGetWorkoutStats)
 	apiMux.HandleFunc("GET /api/workout/rotation/state", s.handleGetRotationState)
 	apiMux.HandleFunc("POST /api/workout/rotation/initialize", s.handleInitializeRotation)
+	apiMux.HandleFunc("POST /api/workout/sessions/logs/update", s.handleUpdateExerciseLog)
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
