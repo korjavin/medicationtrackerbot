@@ -26,6 +26,7 @@ type Config struct {
 	AllowedSubject string
 	MaxQueryDays   int
 	MCPServerURL   string // The public URL of this MCP server (for OAuth audience validation)
+	JWKSJSON       string // Optional fallback JWKS JSON content
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
@@ -49,6 +50,7 @@ func LoadConfigFromEnv() (*Config, error) {
 		AllowedSubject: os.Getenv("MCP_ALLOWED_SUBJECT"),
 		MaxQueryDays:   maxQueryDays,
 		MCPServerURL:   os.Getenv("MCP_SERVER_URL"),
+		JWKSJSON:       os.Getenv("POCKET_ID_JWKS_JSON"),
 	}
 
 	if cfg.DatabasePath == "" {

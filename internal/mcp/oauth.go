@@ -237,24 +237,36 @@ type JWK struct {
 func (h *OAuthHandler) refreshJWKS(ctx context.Context) error {
 	jwksURL := h.config.PocketIDURL + "/.well-known/jwks.json"
 
+	// Try to fetch from URL
 	req, err := http.NewRequestWithContext(ctx, "GET", jwksURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create JWKS request: %w", err)
+	var jwksData []byte
+
+	if err == nil {
+		resp, err := h.httpClient.Do(req)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				jwksData, _ = io.ReadAll(resp.Body)
+			} else {
+				log.Printf("[MCP/OAuth] JWKS fetch returned %d", resp.StatusCode)
+			}
+		} else {
+			log.Printf("[MCP/OAuth] JWKS fetch failed: %v", err)
+		}
 	}
 
-	resp, err := h.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to fetch JWKS: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("JWKS endpoint returned %d: %s", resp.StatusCode, string(body))
+	// Fallback to static JSON if fetch failed
+	if len(jwksData) == 0 {
+		if h.config.JWKSJSON != "" {
+			log.Println("[MCP/OAuth] Using static JWKS fallback")
+			jwksData = []byte(h.config.JWKSJSON)
+		} else {
+			return fmt.Errorf("failed to fetch JWKS and no fallback provided")
+		}
 	}
 
 	var jwks JWKS
-	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+	if err := json.Unmarshal(jwksData, &jwks); err != nil {
 		return fmt.Errorf("failed to decode JWKS: %w", err)
 	}
 
