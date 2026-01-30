@@ -345,6 +345,13 @@ func (b *Bot) SendNotification(text string, medicationID int64) (int, error) {
 	return sentMsg.MessageID, err
 }
 
+// DeleteMessage deletes a message from the conversation
+func (b *Bot) DeleteMessage(messageID int) error {
+	deleteMsg := tgbotapi.NewDeleteMessage(b.allowedUserID, messageID)
+	_, err := b.api.Request(deleteMsg)
+	return err
+}
+
 func (b *Bot) SendGroupNotification(meds []store.Medication, target time.Time) error {
 	var sb string
 	sb = fmt.Sprintf("💊 Time to take your medications (%s):\n\n", target.Format("15:04"))
