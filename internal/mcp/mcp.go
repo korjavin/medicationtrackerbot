@@ -214,6 +214,8 @@ func (s *Server) parseDateRange(startStr, endStr string) (time.Time, time.Time, 
 	var endDate, startDate time.Time
 	var warning string
 
+	log.Printf("[MCP] parseDateRange Input: start=%q, end=%q", startStr, endStr)
+
 	// Parse end date (defaults to now)
 	if endStr == "" {
 		endDate = now
@@ -244,6 +246,7 @@ func (s *Server) parseDateRange(startStr, endStr string) (time.Time, time.Time, 
 		startDate = maxStart
 	}
 
+	log.Printf("[MCP] parseDateRange Output: start=%s, end=%s", startDate, endDate)
 	return startDate, endDate, warning, nil
 }
 
