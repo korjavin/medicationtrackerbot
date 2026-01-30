@@ -5,6 +5,7 @@ COPY go.mod go.sum ./
 COPY . .
 # CGO_ENABLED=0 for static binary, works with Checkpoint/ModernC SQLite
 RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -o bot ./cmd/bot
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -o mcptool ./cmd/mcptool
 
 FROM alpine:latest
 WORKDIR /app
@@ -13,6 +14,7 @@ WORKDIR /app
 RUN apk add --no-cache tzdata ca-certificates su-exec
 
 COPY --from=builder /app/bot .
+COPY --from=builder /app/mcptool .
 COPY --from=builder /app/web ./web
 COPY entrypoint.sh /entrypoint.sh
 

@@ -27,6 +27,34 @@ services:
       - "traefik.http.routers.medtracker.tls.certresolver=myresolver"
       - "traefik.http.services.medtracker.loadbalancer.server.port=${PORT:-8080}"
 
+  mcp-server:
+    image: ghcr.io/korjavin/medicationtrackerbot:latest
+    container_name: medtracker-mcp
+    restart: unless-stopped
+    command: ["./mcptool"]
+    volumes:
+      - medtracker_data:/app/data:ro
+    environment:
+      - MCP_PORT=${MCP_PORT:-8081}
+      - MCP_DATABASE_PATH=${MCP_DATABASE_PATH:-/app/data/meds.db}
+      - MCP_MAX_QUERY_DAYS=${MCP_MAX_QUERY_DAYS:-90}
+      - MCP_SERVER_URL=${MCP_SERVER_URL}
+      - MCP_ALLOWED_SUBJECT=${MCP_ALLOWED_SUBJECT}
+      # Pocket-ID
+      - POCKET_ID_URL=${POCKET_ID_URL}
+      - POCKET_ID_CLIENT_ID=${POCKET_ID_CLIENT_ID}
+      - POCKET_ID_CLIENT_SECRET=${POCKET_ID_CLIENT_SECRET}
+      - TZ=${TZ:-Europe/Berlin}
+    networks:
+      - default
+      - traefik_net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.medtracker-mcp.rule=Host(`${MCP_DOMAIN}`)"
+      - "traefik.http.routers.medtracker-mcp.entrypoints=websecure"
+      - "traefik.http.routers.medtracker-mcp.tls.certresolver=myresolver"
+      - "traefik.http.services.medtracker-mcp.loadbalancer.server.port=${MCP_PORT:-8081}"
+
   # Litestream - SQLite replication to Cloudflare R2
   litestream:
     image: litestream/litestream:latest
