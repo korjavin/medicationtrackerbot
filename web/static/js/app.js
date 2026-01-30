@@ -155,14 +155,18 @@ async function apiCall(endpoint, method = "GET", body = null) {
         const res = await fetch(endpoint, { method, headers, body: body ? JSON.stringify(body) : null });
         if (res.status === 401 || res.status === 403) { alert("Unauthorized!"); return null; }
         if (!res.ok) { const txt = await res.text(); throw new Error(txt); }
-        if (method !== "DELETE" && res.status !== 204) {
-            const txt = await res.text();
-            return txt ? JSON.parse(txt) : null;
+        if (res.status === 204 || method === "DELETE") return true;
+        const txt = await res.text();
+        if (!txt) return true;
+        try {
+            return JSON.parse(txt);
+        } catch (e) {
+            console.log("Response is not JSON:", txt);
+            return true;
         }
-        return true;
     } catch (e) {
         console.error(e);
-        tg.showAlert("Error: " + e.message);
+        safeAlert("Error: " + e.message);
         return null;
     }
 }
