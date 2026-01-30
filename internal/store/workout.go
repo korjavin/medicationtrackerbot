@@ -475,8 +475,8 @@ func (s *Store) GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time)
 	err := s.db.QueryRow(`
 		SELECT id, group_id, variant_id, user_id, scheduled_date, scheduled_time, status, started_at, completed_at, snoozed_until, snooze_count, notification_message_id, notes
 		FROM workout_sessions 
-		WHERE group_id = ? AND DATE(scheduled_date) = DATE(?)
-		LIMIT 1`, groupID, scheduledDate).Scan(
+		WHERE group_id = ? AND scheduled_date LIKE ?
+		LIMIT 1`, groupID, scheduledDate.Format("2006-01-02")+"%").Scan(
 		&ws.ID, &ws.GroupID, &ws.VariantID, &ws.UserID, &ws.ScheduledDate, &ws.ScheduledTime, &ws.Status,
 		&startedAt, &completedAt, &snoozedUntil, &ws.SnoozeCount, &notificationMsgID, &notes,
 	)
