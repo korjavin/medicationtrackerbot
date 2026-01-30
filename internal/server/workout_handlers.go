@@ -406,23 +406,35 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	// Find the first session that is pending, notified, or in_progress AND scheduled for today or future
-	var nextSession *store.WorkoutSession
+	// Find all sessions that are pending/notified/in_progress AND scheduled for today or future
+	var upcomingSessions []store.WorkoutSession
 	for _, session := range sessions {
+		// Skip if status is not pending/notified/in_progress
+		if session.Status != "pending" && session.Status != "notified" && session.Status != "in_progress" {
+			continue
+		}
+
 		// Check if session is scheduled for today or in the future
 		sessionDate := time.Date(session.ScheduledDate.Year(), session.ScheduledDate.Month(), session.ScheduledDate.Day(), 0, 0, 0, 0, session.ScheduledDate.Location())
 
-		if (session.Status == "pending" || session.Status == "notified" || session.Status == "in_progress") && !sessionDate.Before(today) {
-			nextSession = &session
-			break
+		if !sessionDate.Before(today) {
+			upcomingSessions = append(upcomingSessions, session)
 		}
 	}
 
-	if nextSession == nil {
-		// No upcoming workout
+	// If no upcoming sessions, return null
+	if len(upcomingSessions) == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(nil)
 		return
+	}
+
+	// Find the earliest upcoming session (since GetWorkoutHistory returns DESC order)
+	nextSession := &upcomingSessions[0]
+	for i := 1; i < len(upcomingSessions); i++ {
+		if upcomingSessions[i].ScheduledDate.Before(nextSession.ScheduledDate) {
+			nextSession = &upcomingSessions[i]
+		}
 	}
 
 	// Enrich with group and variant names
