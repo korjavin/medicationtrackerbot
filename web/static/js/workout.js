@@ -74,6 +74,24 @@ async function loadNextWorkout() {
             date.getMonth() === today.getMonth() &&
             date.getDate() === today.getDate();
 
+        // Debug logging
+        console.log('Next workout debug:', {
+            scheduled_date: session.scheduled_date,
+            parsed_date: date.toISOString(),
+            today: today.toISOString(),
+            date_parts: {
+                year: date.getFullYear(),
+                month: date.getMonth(),
+                day: date.getDate()
+            },
+            today_parts: {
+                year: today.getFullYear(),
+                month: today.getMonth(),
+                day: today.getDate()
+            },
+            isToday: isToday
+        });
+
         // Determine card styling based on status
         let cardClass = 'next-workout-card';
         let statusEmoji = '📅';
