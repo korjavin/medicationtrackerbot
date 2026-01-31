@@ -1573,6 +1573,20 @@ async function _deleteBPApi(id) {
 
     const res = await apiCall(`/api/bp/${id}`, 'DELETE');
     if (res) {
+        // Also remove from local IndexedDB if it exists there
+        if (window.MedTrackerDB) {
+            try {
+                // Find and delete the local record with this serverId
+                const allReadings = await window.MedTrackerDB.BPStore.getAll();
+                const localRecord = allReadings.find(r => r.serverId === parseInt(id));
+                if (localRecord && localRecord.localId) {
+                    await window.MedTrackerDB.BPStore.confirmDelete(localRecord.localId);
+                    if (window.SyncManager) window.SyncManager.updateStatus();
+                }
+            } catch (e) {
+                console.error('Failed to delete from local DB:', e);
+            }
+        }
         loadBPReadings();
     }
 }
@@ -2364,6 +2378,20 @@ async function _deleteWeightApi(id) {
 
     const res = await apiCall(`/api/weight/${id}`, 'DELETE');
     if (res) {
+        // Also remove from local IndexedDB if it exists there
+        if (window.MedTrackerDB) {
+            try {
+                // Find and delete the local record with this serverId
+                const allLogs = await window.MedTrackerDB.WeightStore.getAll();
+                const localRecord = allLogs.find(l => l.serverId === parseInt(id));
+                if (localRecord && localRecord.localId) {
+                    await window.MedTrackerDB.WeightStore.confirmDelete(localRecord.localId);
+                    if (window.SyncManager) window.SyncManager.updateStatus();
+                }
+            } catch (e) {
+                console.error('Failed to delete from local DB:', e);
+            }
+        }
         loadWeightLogs();
     }
 }
