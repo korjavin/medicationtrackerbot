@@ -6,6 +6,7 @@ const DYNAMIC_CACHE = `medtracker-dynamic-${CACHE_VERSION}`;
 // Static assets to cache on install
 const STATIC_ASSETS = [
     '/',
+    '/static/index.html',
     '/static/css/styles.css',
     '/static/js/app.js',
     '/static/js/workout.js',
@@ -13,7 +14,11 @@ const STATIC_ASSETS = [
     '/static/js/sync.js',
     '/static/icons/icon-192.png',
     '/static/icons/icon-512.png',
-    '/static/manifest.json',
+    '/static/manifest.json'
+];
+
+// External CDN resources to cache (try caching but don't fail if unavailable)
+const EXTERNAL_ASSETS = [
     'https://telegram.org/js/telegram-web-app.js',
     'https://cdn.jsdelivr.net/npm/dexie@3/dist/dexie.min.js'
 ];
@@ -25,7 +30,19 @@ self.addEventListener('install', (event) => {
         caches.open(STATIC_CACHE)
             .then((cache) => {
                 console.log('[SW] Caching static assets');
-                return cache.addAll(STATIC_ASSETS);
+                // Cache static assets first
+                return cache.addAll(STATIC_ASSETS)
+                    .then(() => {
+                        // Then try to cache external resources (don't fail if unavailable)
+                        console.log('[SW] Attempting to cache external resources');
+                        return Promise.allSettled(
+                            EXTERNAL_ASSETS.map(url =>
+                                cache.add(url).catch(err => {
+                                    console.warn('[SW] Failed to cache external asset:', url, err);
+                                })
+                            )
+                        );
+                    });
             })
             .then(() => self.skipWaiting())
             .catch((err) => {

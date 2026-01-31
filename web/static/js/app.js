@@ -158,6 +158,23 @@ async function apiCallDirect(endpoint, method = "GET", body = null) {
 
     const res = await fetch(endpoint, { method, headers, body: body ? JSON.stringify(body) : null });
     if (res.status === 401 || res.status === 403) { throw new Error("Unauthorized"); }
+
+    // Check if this is a service worker offline response
+    if (res.status === 503) {
+        const txt = await res.text();
+        try {
+            const json = JSON.parse(txt);
+            if (json.error === 'offline') {
+                // This is the service worker's offline response
+                // Throw a network error instead of the JSON string
+                throw new Error('Network request failed');
+            }
+        } catch (e) {
+            // If it's not JSON or not the offline error, fall through
+            if (e.message === 'Network request failed') throw e;
+        }
+    }
+
     if (!res.ok) { const txt = await res.text(); throw new Error(txt); }
     if (res.status === 204 || method === "DELETE") return true;
     const txt = await res.text();
@@ -175,23 +192,30 @@ window.apiCallDirect = apiCallDirect;
 
 // API Client (offline-aware wrapper)
 async function apiCall(endpoint, method = "GET", body = null) {
-    // Use offline-aware wrapper if available and this is a BP or Weight endpoint
-    if (window.offlineAwareApiCall && (endpoint.startsWith('/api/bp') || endpoint.startsWith('/api/weight'))) {
+    // Use offline-aware wrapper if available for all API endpoints
+    if (window.offlineAwareApiCall) {
         try {
             return await window.offlineAwareApiCall(endpoint, method, body);
         } catch (e) {
             console.error(e);
-            safeAlert("Error: " + e.message);
+            // Only show alerts for write operations that fail
+            // GET requests failing is expected when offline - UI will handle empty state
+            if (method !== 'GET') {
+                safeAlert("Error: " + e.message);
+            }
             return null;
         }
     }
 
-    // Fallback to direct API call for other endpoints
+    // Fallback to direct API call if offline wrapper not available
     try {
         return await apiCallDirect(endpoint, method, body);
     } catch (e) {
         console.error(e);
-        safeAlert("Error: " + e.message);
+        // Only show alerts for write operations that fail
+        if (method !== 'GET') {
+            safeAlert("Error: " + e.message);
+        }
         return null;
     }
 }
@@ -241,6 +265,29 @@ function switchTab(tab) {
         loadWorkouts();
     }
 }
+
+// Reload current active tab data (called when coming back online)
+function reloadCurrentTab() {
+    const activeTab = document.querySelector('.tab.active');
+    if (!activeTab) return;
+
+    const tabText = activeTab.textContent.trim();
+    if (tabText.includes('Medications')) {
+        loadMeds();
+    } else if (tabText.includes('History')) {
+        loadHistory();
+    } else if (tabText.includes('Blood Pressure')) {
+        loadBPReadings();
+    } else if (tabText.includes('Weight')) {
+        loadWeightLogs();
+    } else if (tabText.includes('Workouts')) {
+        loadWorkouts();
+    }
+}
+
+// Expose for sync manager
+window.reloadCurrentTab = reloadCurrentTab;
+
 
 function showAddModal() {
     editingMedId = null;
