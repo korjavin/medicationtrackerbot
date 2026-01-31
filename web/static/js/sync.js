@@ -261,9 +261,10 @@ const SyncManager = {
                 const result = await window.apiCallDirect('/api/bp', 'POST', payload);
 
                 if (result && result.id) {
-                    // Mark as synced with server ID
-                    await window.MedTrackerDB.BPStore.markSynced(reading.localId, result.id);
-                    SyncDebug.info('BP synced', { localId: reading.localId, serverId: result.id });
+                    // Delete from local DB since it's now on the server
+                    // We don't need to keep synced records locally
+                    await window.MedTrackerDB.BPStore.confirmDelete(reading.localId);
+                    SyncDebug.info('BP synced and removed from local DB', { localId: reading.localId, serverId: result.id });
                 } else {
                     throw new Error('No ID returned from server');
                 }
@@ -303,9 +304,10 @@ const SyncManager = {
                 const result = await window.apiCallDirect('/api/weight', 'POST', payload);
 
                 if (result && result.id) {
-                    // Mark as synced with server ID
-                    await window.MedTrackerDB.WeightStore.markSynced(log.localId, result.id);
-                    SyncDebug.info('Weight synced', { localId: log.localId, serverId: result.id });
+                    // Delete from local DB since it's now on the server
+                    // We don't need to keep synced records locally
+                    await window.MedTrackerDB.WeightStore.confirmDelete(log.localId);
+                    SyncDebug.info('Weight synced and removed from local DB', { localId: log.localId, serverId: result.id });
                 } else {
                     throw new Error('No ID returned from server');
                 }
