@@ -54,6 +54,9 @@ func noCacheMiddleware(next http.Handler) http.Handler {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
+	// Service Worker with special headers (must be at root scope)
+	mux.HandleFunc("/static/sw.js", s.serveServiceWorker)
+
 	// Static Files with no-cache headers
 	fs := http.FileServer(http.Dir("./web/static"))
 	mux.Handle("/static/", noCacheMiddleware(http.StripPrefix("/static/", fs)))
@@ -843,6 +846,14 @@ func (s *Server) handleGetLowStock(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+// serveServiceWorker serves the service worker with correct headers for PWA
+func (s *Server) serveServiceWorker(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript")
+	w.Header().Set("Service-Worker-Allowed", "/")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	http.ServeFile(w, r, "./web/static/sw.js")
 }
 
 // serveIndexWithBotUsername serves index.html with bot username injected
