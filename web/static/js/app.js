@@ -114,6 +114,11 @@ async function checkAuth() {
 // Initial Load
 checkAuth().then(authorized => {
     if (authorized) {
+        // Initialize SyncManager for offline support
+        if (window.SyncManager) {
+            window.SyncManager.init();
+        }
+
         // Only load data if authorized
         // Determine start tab? default bp
         switchTab('bp');
@@ -146,24 +151,44 @@ document.getElementById('bp-diastolic').addEventListener('input', function (e) {
     }
 });
 
-// API Client
-async function apiCall(endpoint, method = "GET", body = null) {
+// Direct API Client (used by sync layer, bypasses offline handling)
+async function apiCallDirect(endpoint, method = "GET", body = null) {
     const headers = { "X-Telegram-Init-Data": userInitData };
     if (body) headers["Content-Type"] = "application/json";
 
+    const res = await fetch(endpoint, { method, headers, body: body ? JSON.stringify(body) : null });
+    if (res.status === 401 || res.status === 403) { throw new Error("Unauthorized"); }
+    if (!res.ok) { const txt = await res.text(); throw new Error(txt); }
+    if (res.status === 204 || method === "DELETE") return true;
+    const txt = await res.text();
+    if (!txt) return true;
     try {
-        const res = await fetch(endpoint, { method, headers, body: body ? JSON.stringify(body) : null });
-        if (res.status === 401 || res.status === 403) { alert("Unauthorized!"); return null; }
-        if (!res.ok) { const txt = await res.text(); throw new Error(txt); }
-        if (res.status === 204 || method === "DELETE") return true;
-        const txt = await res.text();
-        if (!txt) return true;
+        return JSON.parse(txt);
+    } catch (e) {
+        console.log("Response is not JSON:", txt);
+        return true;
+    }
+}
+
+// Expose for sync.js
+window.apiCallDirect = apiCallDirect;
+
+// API Client (offline-aware wrapper)
+async function apiCall(endpoint, method = "GET", body = null) {
+    // Use offline-aware wrapper if available and this is a BP or Weight endpoint
+    if (window.offlineAwareApiCall && (endpoint.startsWith('/api/bp') || endpoint.startsWith('/api/weight'))) {
         try {
-            return JSON.parse(txt);
+            return await window.offlineAwareApiCall(endpoint, method, body);
         } catch (e) {
-            console.log("Response is not JSON:", txt);
-            return true;
+            console.error(e);
+            safeAlert("Error: " + e.message);
+            return null;
         }
+    }
+
+    // Fallback to direct API call for other endpoints
+    try {
+        return await apiCallDirect(endpoint, method, body);
     } catch (e) {
         console.error(e);
         safeAlert("Error: " + e.message);
@@ -1085,25 +1110,57 @@ async function handleBPSubmit(event) {
     }
 }
 
-// Load BP readings from API
+// Load BP readings from API (with offline support)
 async function loadBPReadings() {
     const list = document.getElementById('bp-list');
     list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
 
-    const [readingsRes, goalRes, statsRes] = await Promise.all([
-        apiCall('/api/bp?days=60'),  // Fetch 60 days for chart
-        apiCall('/api/bp/goal'),
-        apiCall('/api/bp/stats')     // Backend-calculated stats
-    ]);
+    let readingsRes, goalRes, statsRes;
 
-    if (readingsRes === null) {
+    try {
+        [readingsRes, goalRes, statsRes] = await Promise.all([
+            apiCall('/api/bp?days=60'),  // Fetch 60 days for chart
+            apiCall('/api/bp/goal'),
+            apiCall('/api/bp/stats')     // Backend-calculated stats
+        ]);
+    } catch (e) {
+        console.error('Failed to load BP data:', e);
+    }
+
+    // If we got server data, merge with pending local data
+    let allReadings = readingsRes || [];
+
+    // Get pending local readings that haven't been synced yet
+    if (window.MedTrackerDB) {
+        try {
+            const pendingReadings = await window.MedTrackerDB.BPStore.getPending();
+            // Add pending readings with isLocal flag
+            const pendingFormatted = pendingReadings.map(r => ({
+                id: `local_${r.localId}`,
+                localId: r.localId,
+                measured_at: r.measured_at,
+                systolic: r.systolic,
+                diastolic: r.diastolic,
+                pulse: r.pulse,
+                site: r.site,
+                position: r.position,
+                notes: r.notes,
+                isLocal: true
+            }));
+            allReadings = [...pendingFormatted, ...allReadings];
+        } catch (e) {
+            console.error('Failed to get pending BP readings:', e);
+        }
+    }
+
+    if (allReadings.length === 0 && readingsRes === null) {
         list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load readings</li>';
         return;
     }
 
-    renderBPChart(readingsRes || [], goalRes || {});
+    renderBPChart(allReadings, goalRes || {});
     renderBPAverages(statsRes || {});  // Use backend stats
-    renderBPReadings(readingsRes || []);
+    renderBPReadings(allReadings);
 }
 
 // Render BP Chart with color-coded points and segments
@@ -1385,12 +1442,14 @@ function renderBPReadings(readings) {
         readings.forEach(r => {
             const category = getBPCategory(r.systolic, r.diastolic);
             const timeStr = formatDate(r.measured_at).split(' ')[1]; // Get HH:MM part
+            const pendingClass = r.isLocal ? ' pending-sync' : '';
 
-            html += `<li class="bp-item">
+            html += `<li class="bp-item${pendingClass}">
                 <div class="bp-reading">
                     <div class="bp-values">
                         <span class="bp-sys">${r.systolic}</span>
                         <span class="bp-dia">/${r.diastolic}</span>
+                        ${r.isLocal ? '<span class="sync-pending-badge">Pending</span>' : ''}
                     </div>
                     <div class="bp-meta">
                         <span>${timeStr}</span>`;
@@ -1402,7 +1461,7 @@ function renderBPReadings(readings) {
             html += `<span class="bp-category ${category.class}">${category.label}</span>
                     </div>
                 </div>
-                <button class="delete-btn" onclick="deleteBPReading(${r.id})" title="Delete">&times;</button>
+                <button class="delete-btn" onclick="deleteBPReading('${r.id}')" title="Delete">&times;</button>
             </li>`;
         });
 
@@ -1454,6 +1513,17 @@ async function deleteBPReading(id) {
 }
 
 async function _deleteBPApi(id) {
+    // Check if this is a local-only reading
+    if (typeof id === 'string' && id.startsWith('local_')) {
+        const localId = parseInt(id.replace('local_', ''));
+        if (window.MedTrackerDB) {
+            await window.MedTrackerDB.BPStore.confirmDelete(localId);
+            if (window.SyncManager) window.SyncManager.updateStatus();
+        }
+        loadBPReadings();
+        return;
+    }
+
     const res = await apiCall(`/api/bp/${id}`, 'DELETE');
     if (res) {
         loadBPReadings();
@@ -2135,21 +2205,49 @@ async function loadWeightLogs() {
     const list = document.getElementById('weight-list');
     list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
 
-    const [logsRes, goalRes] = await Promise.all([
-        apiCall('/api/weight?days=35'),  // Fetch 35 days to cover chart period (-30 to +2)
-        apiCall('/api/weight/goal')
-    ]);
+    let logsRes, goalRes;
 
-    if (logsRes === null) {
+    try {
+        [logsRes, goalRes] = await Promise.all([
+            apiCall('/api/weight?days=35'),  // Fetch 35 days to cover chart period (-30 to +2)
+            apiCall('/api/weight/goal')
+        ]);
+    } catch (e) {
+        console.error('Failed to load weight data:', e);
+    }
+
+    // If we got server data, merge with pending local data
+    let allLogs = logsRes || [];
+
+    // Get pending local logs that haven't been synced yet
+    if (window.MedTrackerDB) {
+        try {
+            const pendingLogs = await window.MedTrackerDB.WeightStore.getPending();
+            // Add pending logs with isLocal flag
+            const pendingFormatted = pendingLogs.map(l => ({
+                id: `local_${l.localId}`,
+                localId: l.localId,
+                measured_at: l.measured_at,
+                weight: l.weight,
+                notes: l.notes,
+                isLocal: true
+            }));
+            allLogs = [...pendingFormatted, ...allLogs];
+        } catch (e) {
+            console.error('Failed to get pending weight logs:', e);
+        }
+    }
+
+    if (allLogs.length === 0 && logsRes === null) {
         list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load weight logs</li>';
         return;
     }
 
     // Cache logs globally for ruler component
-    cachedWeightLogs = logsRes || [];
+    cachedWeightLogs = allLogs;
 
-    renderWeightLogs(logsRes || []);
-    renderWeightChart(logsRes || [], goalRes || {});
+    renderWeightLogs(allLogs);
+    renderWeightChart(allLogs, goalRes || {});
 }
 
 function renderWeightLogs(logs) {
@@ -2171,14 +2269,15 @@ function renderWeightLogs(logs) {
         const dateStr = escapeHtml(formatDate(w.measured_at));
         const trendDiff = w.weight_trend ? (w.weight - w.weight_trend).toFixed(1) : '0.0';
         const trendIcon = trendDiff > 0 ? '📈' : (trendDiff < 0 ? '📉' : '➡️');
+        const pendingClass = w.isLocal ? ' pending-sync' : '';
 
-        html += `<li class="weight-item">
+        html += `<li class="weight-item${pendingClass}">
             <div class="weight-data">
-                <div class="weight-value">${escapeHtml(w.weight.toFixed(1))} kg</div>
+                <div class="weight-value">${escapeHtml(w.weight.toFixed(1))} kg ${w.isLocal ? '<span class="sync-pending-badge">Pending</span>' : ''}</div>
                 <div class="weight-trend">${trendIcon} Trend: ${w.weight_trend ? escapeHtml(w.weight_trend.toFixed(1)) : escapeHtml(w.weight.toFixed(1))} kg</div>
                 <div class="weight-meta">${dateStr}</div>
             </div>
-            <button class="delete-btn" onclick="deleteWeightLog(${w.id})" title="Delete">&times;</button>
+            <button class="delete-btn" onclick="deleteWeightLog('${w.id}')" title="Delete">&times;</button>
         </li>`;
     });
 
@@ -2205,6 +2304,17 @@ async function deleteWeightLog(id) {
 }
 
 async function _deleteWeightApi(id) {
+    // Check if this is a local-only log
+    if (typeof id === 'string' && id.startsWith('local_')) {
+        const localId = parseInt(id.replace('local_', ''));
+        if (window.MedTrackerDB) {
+            await window.MedTrackerDB.WeightStore.confirmDelete(localId);
+            if (window.SyncManager) window.SyncManager.updateStatus();
+        }
+        loadWeightLogs();
+        return;
+    }
+
     const res = await apiCall(`/api/weight/${id}`, 'DELETE');
     if (res) {
         loadWeightLogs();
