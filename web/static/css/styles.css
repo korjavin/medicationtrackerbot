@@ -1123,3 +1123,140 @@ svg.chart-svg {
 .next-workout-card.today .next-workout-info p {
     color: rgba(255, 255, 255, 0.9);
 }
+
+/* ==================== Sync Status Styles ==================== */
+
+/* Sync Status Bar */
+.sync-status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 16px;
+    margin-bottom: 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.sync-status-bar.offline {
+    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+    color: #991b1b;
+    border: 1px solid #fca5a5;
+}
+
+.sync-status-bar.syncing {
+    background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+    color: #0369a1;
+    border: 1px solid #7dd3fc;
+}
+
+.sync-status-bar.pending {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    color: #92400e;
+    border: 1px solid #fcd34d;
+}
+
+.sync-status-bar.synced {
+    background: var(--secondary-bg-color);
+    color: var(--hint-color);
+    border: 1px solid transparent;
+    padding: 4px 16px;
+}
+
+.sync-icon {
+    font-size: 16px;
+}
+
+.sync-icon.spinning {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Pending Sync Indicator on Items */
+.pending-sync {
+    border-left: 4px solid #f59e0b !important;
+    position: relative;
+}
+
+.sync-pending-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    background: #fef3c7;
+    color: #92400e;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 4px;
+    margin-left: 8px;
+    vertical-align: middle;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Toast Notifications */
+.sync-toast {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 1000;
+    opacity: 0;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    max-width: 90%;
+    text-align: center;
+}
+
+.sync-toast.show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+
+.sync-toast.info {
+    background: #1e40af;
+    color: white;
+}
+
+.sync-toast.success {
+    background: #059669;
+    color: white;
+}
+
+.sync-toast.error {
+    background: #dc2626;
+    color: white;
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+    .sync-status-bar.offline {
+        background: linear-gradient(135deg, #450a0a 0%, #7f1d1d 100%);
+        color: #fecaca;
+        border-color: #b91c1c;
+    }
+
+    .sync-status-bar.syncing {
+        background: linear-gradient(135deg, #0c4a6e 0%, #075985 100%);
+        color: #bae6fd;
+        border-color: #0369a1;
+    }
+
+    .sync-status-bar.pending {
+        background: linear-gradient(135deg, #451a03 0%, #78350f 100%);
+        color: #fde68a;
+        border-color: #b45309;
+    }
+
+    .sync-pending-badge {
+        background: #78350f;
+        color: #fde68a;
+    }
+}

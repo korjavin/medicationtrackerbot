@@ -4,8 +4,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#2481cc">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Med Tracker">
     <title>Med Tracker</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dexie@3/dist/dexie.min.js"></script>
     <script>window.BOT_USERNAME = "BOT_USERNAME_PLACEHOLDER";</script>
     <link rel="stylesheet" href="static/css/styles.css?v=TIMESTAMP_PLACEHOLDER">
     <style>
@@ -21,6 +28,9 @@
         <header>
             <h1>My Medications</h1>
         </header>
+
+        <!-- Sync Status Bar -->
+        <div id="sync-status-bar" class="sync-status-bar" style="display: none;"></div>
 
         <div id="tabs">
             <button class="tab active" onclick="switchTab('bp')">Blood Pressure</button>
@@ -426,8 +436,42 @@
         </form>
     </div>
 
+    <script src="static/js/db.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="static/js/sync.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/app.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/workout.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script>
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', async () => {
+                try {
+                    const registration = await navigator.serviceWorker.register('/static/sw.js', {
+                        scope: '/'
+                    });
+                    console.log('SW registered:', registration.scope);
+
+                    // Check for updates
+                    registration.addEventListener('updatefound', () => {
+                        const newWorker = registration.installing;
+                        newWorker.addEventListener('statechange', () => {
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                console.log('New SW available, will activate on reload');
+                            }
+                        });
+                    });
+                } catch (err) {
+                    console.log('SW registration failed:', err);
+                }
+            });
+        }
+
+        // Request persistent storage for Telegram WebApp context
+        if (navigator.storage && navigator.storage.persist) {
+            navigator.storage.persist().then(granted => {
+                console.log('Persistent storage:', granted ? 'granted' : 'not granted');
+            });
+        }
+    </script>
     <div style="text-align:center;color:var(--hint-color);font-size:10px;padding:10px;">
         v: VERSION_PLACEHOLDER
     </div>
