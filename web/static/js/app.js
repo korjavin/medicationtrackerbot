@@ -181,7 +181,11 @@ async function apiCall(endpoint, method = "GET", body = null) {
             return await window.offlineAwareApiCall(endpoint, method, body);
         } catch (e) {
             console.error(e);
-            safeAlert("Error: " + e.message);
+            // Only show alerts for write operations that fail
+            // GET requests failing is expected when offline - UI will handle empty state
+            if (method !== 'GET') {
+                safeAlert("Error: " + e.message);
+            }
             return null;
         }
     }
@@ -191,7 +195,10 @@ async function apiCall(endpoint, method = "GET", body = null) {
         return await apiCallDirect(endpoint, method, body);
     } catch (e) {
         console.error(e);
-        safeAlert("Error: " + e.message);
+        // Only show alerts for write operations that fail
+        if (method !== 'GET') {
+            safeAlert("Error: " + e.message);
+        }
         return null;
     }
 }
