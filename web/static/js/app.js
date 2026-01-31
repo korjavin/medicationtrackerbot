@@ -192,8 +192,8 @@ window.apiCallDirect = apiCallDirect;
 
 // API Client (offline-aware wrapper)
 async function apiCall(endpoint, method = "GET", body = null) {
-    // Use offline-aware wrapper if available and this is a BP or Weight endpoint
-    if (window.offlineAwareApiCall && (endpoint.startsWith('/api/bp') || endpoint.startsWith('/api/weight'))) {
+    // Use offline-aware wrapper if available for all API endpoints
+    if (window.offlineAwareApiCall) {
         try {
             return await window.offlineAwareApiCall(endpoint, method, body);
         } catch (e) {
@@ -207,7 +207,7 @@ async function apiCall(endpoint, method = "GET", body = null) {
         }
     }
 
-    // Fallback to direct API call for other endpoints
+    // Fallback to direct API call if offline wrapper not available
     try {
         return await apiCallDirect(endpoint, method, body);
     } catch (e) {
@@ -265,6 +265,29 @@ function switchTab(tab) {
         loadWorkouts();
     }
 }
+
+// Reload current active tab data (called when coming back online)
+function reloadCurrentTab() {
+    const activeTab = document.querySelector('.tab.active');
+    if (!activeTab) return;
+
+    const tabText = activeTab.textContent.trim();
+    if (tabText.includes('Medications')) {
+        loadMeds();
+    } else if (tabText.includes('History')) {
+        loadHistory();
+    } else if (tabText.includes('Blood Pressure')) {
+        loadBPReadings();
+    } else if (tabText.includes('Weight')) {
+        loadWeightLogs();
+    } else if (tabText.includes('Workouts')) {
+        loadWorkouts();
+    }
+}
+
+// Expose for sync manager
+window.reloadCurrentTab = reloadCurrentTab;
+
 
 function showAddModal() {
     editingMedId = null;
