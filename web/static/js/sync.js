@@ -135,6 +135,12 @@ const SyncManager = {
         this.isOnline = true;
         this.updateStatus();
         this.syncAll();
+
+        // Reload current tab data to fetch from server
+        if (window.reloadCurrentTab) {
+            SyncDebug.info('Reloading current tab data');
+            window.reloadCurrentTab();
+        }
     },
 
     // Handle going offline
@@ -377,27 +383,10 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
         const result = await window.apiCallDirect(endpoint, method, body);
         SyncDebug.info('Network response OK', { endpoint, hasResult: !!result });
 
-        // For successful writes to BP/weight, also store locally
-        if (result && method === 'POST') {
-            if (endpoint === '/api/bp' && result.id) {
-                // Store synced reading locally
-                SyncDebug.info('Storing synced BP locally', { serverId: result.id });
-                await window.MedTrackerDB.BPStore.save({
-                    ...body,
-                    serverId: result.id,
-                    syncStatus: 'synced'
-                });
-            } else if (endpoint === '/api/weight' && result.id) {
-                // Store synced log locally
-                SyncDebug.info('Storing synced weight locally', { serverId: result.id });
-                await window.MedTrackerDB.WeightStore.save({
-                    ...body,
-                    serverId: result.id,
-                    syncStatus: 'synced'
-                });
-            }
-        }
-
+        // Return the server response directly
+        // Note: We don't save to IndexedDB here because:
+        // 1. For offline writes that later sync, the sync layer calls markSynced()
+        // 2. For online writes, we don't need local storage - data comes from server
         return result;
     } catch (err) {
         SyncDebug.error('Network request failed', { endpoint, error: err.message });
