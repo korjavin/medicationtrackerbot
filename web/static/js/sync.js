@@ -365,8 +365,9 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
         if (endpoint === '/api/weight' && method === 'POST') {
             return await handleOfflineWeightWrite(body);
         }
-        // Other endpoints don't support offline writes
-        SyncManager.showToast('You are offline. This action requires internet.', 'error');
+        // Other endpoints don't support offline writes - silently fail
+        // The calling code will handle the null return appropriately
+        SyncDebug.warn('Endpoint does not support offline writes', { endpoint });
         return null;
     }
 
@@ -421,8 +422,13 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
             if (endpoint.startsWith('/api/weight')) {
                 return await handleOfflineWeightRead(endpoint);
             }
+            // For other GET endpoints that don't have offline support,
+            // return empty data instead of throwing to avoid alerts
+            SyncDebug.warn('No offline support for endpoint, returning empty', { endpoint });
+            return null;
         }
 
+        // Only throw for write operations or non-network errors
         throw err;
     }
 }
