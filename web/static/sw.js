@@ -1,0 +1,184 @@
+// Service Worker for Med Tracker PWA
+const CACHE_VERSION = 'v1';
+const STATIC_CACHE = `medtracker-static-${CACHE_VERSION}`;
+const DYNAMIC_CACHE = `medtracker-dynamic-${CACHE_VERSION}`;
+
+// Static assets to cache on install
+const STATIC_ASSETS = [
+    '/',
+    '/static/css/styles.css',
+    '/static/js/app.js',
+    '/static/js/workout.js',
+    '/static/js/db.js',
+    '/static/js/sync.js',
+    '/static/icons/icon-192.png',
+    '/static/icons/icon-512.png',
+    '/static/manifest.json',
+    'https://telegram.org/js/telegram-web-app.js',
+    'https://cdn.jsdelivr.net/npm/dexie@3/dist/dexie.min.js'
+];
+
+// Install event - cache static assets
+self.addEventListener('install', (event) => {
+    console.log('[SW] Installing...');
+    event.waitUntil(
+        caches.open(STATIC_CACHE)
+            .then((cache) => {
+                console.log('[SW] Caching static assets');
+                return cache.addAll(STATIC_ASSETS);
+            })
+            .then(() => self.skipWaiting())
+            .catch((err) => {
+                console.error('[SW] Failed to cache static assets:', err);
+            })
+    );
+});
+
+// Activate event - clean up old caches
+self.addEventListener('activate', (event) => {
+    console.log('[SW] Activating...');
+    event.waitUntil(
+        caches.keys()
+            .then((keys) => {
+                return Promise.all(
+                    keys
+                        .filter((key) => key !== STATIC_CACHE && key !== DYNAMIC_CACHE)
+                        .map((key) => {
+                            console.log('[SW] Removing old cache:', key);
+                            return caches.delete(key);
+                        })
+                );
+            })
+            .then(() => self.clients.claim())
+    );
+});
+
+// Fetch event - network-first for API, cache-first for static
+self.addEventListener('fetch', (event) => {
+    const url = new URL(event.request.url);
+
+    // Skip non-GET requests
+    if (event.request.method !== 'GET') {
+        return;
+    }
+
+    // API calls - network first, no caching
+    if (url.pathname.startsWith('/api/')) {
+        event.respondWith(
+            fetch(event.request)
+                .catch(() => {
+                    // Return a specific offline response for API calls
+                    return new Response(
+                        JSON.stringify({ error: 'offline', message: 'You are offline' }),
+                        {
+                            status: 503,
+                            headers: { 'Content-Type': 'application/json' }
+                        }
+                    );
+                })
+        );
+        return;
+    }
+
+    // Static assets - cache first, then network
+    event.respondWith(
+        caches.match(event.request)
+            .then((cachedResponse) => {
+                if (cachedResponse) {
+                    // Return cached version, but also update cache in background
+                    event.waitUntil(
+                        fetch(event.request)
+                            .then((networkResponse) => {
+                                if (networkResponse.ok) {
+                                    caches.open(STATIC_CACHE)
+                                        .then((cache) => cache.put(event.request, networkResponse));
+                                }
+                            })
+                            .catch(() => { /* Ignore network errors during background update */ })
+                    );
+                    return cachedResponse;
+                }
+
+                // Not in cache, fetch from network
+                return fetch(event.request)
+                    .then((networkResponse) => {
+                        // Cache successful responses for static resources
+                        if (networkResponse.ok && shouldCache(url)) {
+                            const responseClone = networkResponse.clone();
+                            caches.open(DYNAMIC_CACHE)
+                                .then((cache) => cache.put(event.request, responseClone));
+                        }
+                        return networkResponse;
+                    })
+                    .catch(() => {
+                        // Return offline page for navigation requests
+                        if (event.request.mode === 'navigate') {
+                            return caches.match('/');
+                        }
+                        return new Response('Offline', { status: 503 });
+                    });
+            })
+    );
+});
+
+// Background sync event - sync pending data when online
+self.addEventListener('sync', (event) => {
+    console.log('[SW] Sync event:', event.tag);
+
+    if (event.tag === 'sync-bp-readings') {
+        event.waitUntil(syncBPReadings());
+    } else if (event.tag === 'sync-weight-logs') {
+        event.waitUntil(syncWeightLogs());
+    } else if (event.tag === 'sync-all') {
+        event.waitUntil(
+            Promise.all([
+                syncBPReadings(),
+                syncWeightLogs()
+            ])
+        );
+    }
+});
+
+// Helper: Determine if a URL should be cached
+function shouldCache(url) {
+    // Cache static assets
+    if (url.pathname.startsWith('/static/')) return true;
+    // Cache the main page
+    if (url.pathname === '/') return true;
+    // Don't cache API calls
+    if (url.pathname.startsWith('/api/')) return false;
+    // Cache external CDN resources
+    if (url.hostname.includes('cdn.jsdelivr.net')) return true;
+    if (url.hostname.includes('telegram.org')) return true;
+
+    return false;
+}
+
+// Sync BP readings to server
+async function syncBPReadings() {
+    console.log('[SW] Syncing BP readings...');
+    // This will be handled by the sync.js in the main thread
+    // Notify all clients to perform sync
+    const clients = await self.clients.matchAll();
+    clients.forEach((client) => {
+        client.postMessage({ type: 'SYNC_BP_READINGS' });
+    });
+}
+
+// Sync weight logs to server
+async function syncWeightLogs() {
+    console.log('[SW] Syncing weight logs...');
+    // This will be handled by the sync.js in the main thread
+    // Notify all clients to perform sync
+    const clients = await self.clients.matchAll();
+    clients.forEach((client) => {
+        client.postMessage({ type: 'SYNC_WEIGHT_LOGS' });
+    });
+}
+
+// Listen for messages from the main thread
+self.addEventListener('message', (event) => {
+    if (event.data.type === 'SKIP_WAITING') {
+        self.skipWaiting();
+    }
+});
