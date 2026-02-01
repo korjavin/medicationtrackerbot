@@ -249,6 +249,15 @@ checkAuth().then(authorized => {
                 window.history.replaceState({}, '', '/');
             }, 100);
         }
+
+        // Handle Push Actions via Query Params
+        const urlParams = new URLSearchParams(window.location.search);
+        const action = urlParams.get('action');
+        if (action) {
+            handlePushAction(action, urlParams);
+            // Clean URL
+            window.history.replaceState({}, '', '/');
+        }
     }
 });
 
@@ -2612,4 +2621,140 @@ async function exportWeightCSV() {
         console.error('Export error:', err);
         tg.showAlert('Failed to export data');
     }
+}
+/* Push Notification Modals */
+
+function handlePushAction(action, params) {
+    if (action === 'medication_confirm') {
+        const ids = params.get('ids') ? params.get('ids').split(',') : [];
+        const names = params.get('names') ? params.get('names').split(',') : [];
+        const scheduled = params.get('scheduled');
+
+        setTimeout(() => {
+            showMedicationConfirmModal(ids, names, scheduled);
+        }, 500);
+    } else if (action === 'workout_start') {
+        const sessionId = params.get('session_id');
+        setTimeout(() => {
+            showWorkoutStartModal(sessionId);
+        }, 500);
+    }
+}
+
+let pendingMedConfirmIds = [];
+let pendingMedConfirmScheduled = null;
+let pendingWorkoutSessionId = null;
+
+function showMedicationConfirmModal(ids, names, scheduledAt) {
+    pendingMedConfirmIds = ids;
+    pendingMedConfirmScheduled = scheduledAt;
+
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    document.getElementById('med-confirm-modal').classList.remove('hidden');
+
+    // Format time
+    let timeStr = scheduledAt;
+    try {
+        const d = new Date(scheduledAt);
+        timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (e) { }
+    document.getElementById('med-confirm-time').innerText = "Scheduled for: " + timeStr;
+
+    const list = document.getElementById('med-confirm-list');
+    list.innerHTML = '';
+
+    ids.forEach((id, index) => {
+        const name = names[index] || ('Medication ' + id);
+
+        const div = document.createElement('div');
+        div.className = 'form-row';
+        div.style.marginBottom = '10px';
+        div.innerHTML = `
+            <label class="checkbox-label" style="font-weight: 500;">
+                <input type="checkbox" value="${id}" checked class="med-confirm-check">
+                ${escapeHtml(name)}
+            </label>
+        `;
+        list.appendChild(div);
+    });
+}
+
+function closeMedicationConfirmModal() {
+    document.getElementById('modal-overlay').classList.add('hidden');
+    document.getElementById('med-confirm-modal').classList.add('hidden');
+}
+
+async function confirmSelectedMedications() {
+    const checks = document.querySelectorAll('.med-confirm-check:checked');
+    const selectedIds = Array.from(checks).map(c => parseInt(c.value));
+
+    if (selectedIds.length === 0) {
+        closeMedicationConfirmModal();
+        return;
+    }
+
+    try {
+        const res = await apiCall('/api/medications/confirm-schedule', 'POST', {
+            scheduled_at: pendingMedConfirmScheduled,
+            medication_ids: selectedIds
+        });
+
+        if (res) {
+            safeAlert("Confirmed!");
+            loadMeds();
+            loadHistory();
+        }
+    } catch (e) {
+        console.error(e);
+        safeAlert("Error confirming: " + e.message);
+    }
+
+    closeMedicationConfirmModal();
+}
+
+function snoozeMedicationConfirm() {
+    closeMedicationConfirmModal();
+}
+
+function showWorkoutStartModal(sessionId) {
+    pendingWorkoutSessionId = sessionId;
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    document.getElementById('workout-start-modal').classList.remove('hidden');
+}
+
+function closeWorkoutStartModal() {
+    document.getElementById('modal-overlay').classList.add('hidden');
+    document.getElementById('workout-start-modal').classList.add('hidden');
+}
+
+function startWorkoutFromModal() {
+    closeWorkoutStartModal();
+    switchTab('workouts');
+}
+
+async function snoozeWorkout(minutes) {
+    if (!pendingWorkoutSessionId) return;
+
+    try {
+        await apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/snooze`, 'POST', { minutes: minutes });
+        safeAlert(`Snoozed for ${minutes} minutes`);
+    } catch (e) {
+        safeAlert("Error snoozing");
+    }
+    closeWorkoutStartModal();
+}
+
+async function skipWorkoutFromModal() {
+    if (!pendingWorkoutSessionId) return;
+
+    if (!confirm("Are you sure you want to skip this workout?")) return;
+
+    try {
+        await apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/skip`, 'POST');
+        safeAlert("Workout skipped");
+        loadWorkouts();
+    } catch (e) {
+        safeAlert("Error skipping");
+    }
+    closeWorkoutStartModal();
 }
