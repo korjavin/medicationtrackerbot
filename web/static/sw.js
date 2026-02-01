@@ -1,5 +1,5 @@
 // Service Worker for Med Tracker PWA
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2'; // Updated for improved offline support
 const STATIC_CACHE = `medtracker-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `medtracker-dynamic-${CACHE_VERSION}`;
 
@@ -79,19 +79,39 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // API calls - network first, no caching
+    // API calls - network first with cache fallback for GET requests
     if (url.pathname.startsWith('/api/')) {
         event.respondWith(
             fetch(event.request)
+                .then((response) => {
+                    // Cache successful GET requests for offline support
+                    if (response.ok && event.request.method === 'GET') {
+                        const responseClone = response.clone();
+                        caches.open(DYNAMIC_CACHE)
+                            .then((cache) => {
+                                cache.put(event.request, responseClone);
+                                console.log('[SW] Cached API response:', url.pathname);
+                            });
+                    }
+                    return response;
+                })
                 .catch(() => {
-                    // Return a specific offline response for API calls
-                    return new Response(
-                        JSON.stringify({ error: 'offline', message: 'You are offline' }),
-                        {
-                            status: 503,
-                            headers: { 'Content-Type': 'application/json' }
-                        }
-                    );
+                    // Try to return cached response if offline
+                    return caches.match(event.request)
+                        .then((cachedResponse) => {
+                            if (cachedResponse) {
+                                console.log('[SW] Returning cached API response:', url.pathname);
+                                return cachedResponse;
+                            }
+                            // No cache available, return offline error
+                            return new Response(
+                                JSON.stringify({ error: 'offline', message: 'You are offline' }),
+                                {
+                                    status: 503,
+                                    headers: { 'Content-Type': 'application/json' }
+                                }
+                            );
+                        });
                 })
         );
         return;
