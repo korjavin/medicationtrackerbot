@@ -61,6 +61,11 @@ func (s *Server) Routes() http.Handler {
 	fs := http.FileServer(http.Dir("./web/static"))
 	mux.Handle("/static/", noCacheMiddleware(http.StripPrefix("/static/", fs)))
 
+	// Pitch Deck Presentation
+	mux.HandleFunc("/pitch", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "web/static/pitch.html")
+	})
+
 	// Main Page with no-cache headers and bot username injection
 	mux.HandleFunc("/", s.serveIndexWithBotUsername)
 
