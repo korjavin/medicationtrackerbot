@@ -1,5 +1,5 @@
 // Service Worker for Med Tracker PWA
-const CACHE_VERSION = 'v2'; // Updated for improved offline support
+const CACHE_VERSION = 'CACHE_VERSION_PLACEHOLDER'; // Auto-updated by CI/CD
 const STATIC_CACHE = `medtracker-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `medtracker-dynamic-${CACHE_VERSION}`;
 
