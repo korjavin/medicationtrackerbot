@@ -45,7 +45,15 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 		return
 	}
 
-	fileURL := file.Link(b.api.Token)
+	// Build file URL - use custom endpoint if configured, otherwise use default
+	var fileURL string
+	if apiEndpoint := os.Getenv("TELEGRAM_API_ENDPOINT"); apiEndpoint != "" {
+		// Replace /bot%s/%s with /file/bot%s/%s for local Bot API server
+		fileEndpoint := strings.Replace(apiEndpoint, "/bot%s/%s", "/file/bot%s/%s", 1)
+		fileURL = fmt.Sprintf(fileEndpoint, b.api.Token, file.FilePath)
+	} else {
+		fileURL = file.Link(b.api.Token)
+	}
 	log.Printf("Downloading file from: %s", fileURL)
 
 	tempFile, err := os.CreateTemp("", "sleep-import-*.nxk")
