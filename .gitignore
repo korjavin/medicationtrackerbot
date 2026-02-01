@@ -5,3 +5,4 @@ meds.db
 .DS_Store
 *.db-wal
 *.db-shm
+docs/screenshots
