@@ -17,6 +17,17 @@ db.version(1).stores({
     weight_logs: '++localId, serverId, measured_at, syncStatus'
 });
 
+// Version 2: Add medications cache for offline support
+db.version(2).stores({
+    // Keep existing tables
+    bp_readings: '++localId, serverId, measured_at, syncStatus',
+    weight_logs: '++localId, serverId, measured_at, syncStatus',
+
+    // Medications cache
+    // Stores the full medications list with timestamp for TTL
+    medication_cache: 'id, timestamp'
+});
+
 // Simple logger for db operations (will be enhanced by sync.js SyncDebug)
 const dbLog = (msg, data) => {
     console.log(`[DB] ${msg}`, data || '');
@@ -263,9 +274,67 @@ const WeightStore = {
     }
 };
 
+// Medication Cache operations (for offline support)
+const MedicationStore = {
+    // Cache TTL: 7 days (medications don't change often)
+    CACHE_TTL: 7 * 24 * 60 * 60 * 1000,
+
+    // Save medications list to cache
+    async saveCache(medications) {
+        dbLog('Saving medications cache', { count: medications.length });
+
+        // Clear existing cache
+        await db.medication_cache.clear();
+
+        // Save new cache with timestamp
+        await db.medication_cache.add({
+            id: 'medications_list',
+            timestamp: Date.now(),
+            data: medications
+        });
+    },
+
+    // Get medications from cache
+    async getCache() {
+        const cache = await db.medication_cache.get('medications_list');
+
+        if (!cache) {
+            dbLog('No medications cache found');
+            return null;
+        }
+
+        // Check if cache is still valid
+        const age = Date.now() - cache.timestamp;
+        if (age > this.CACHE_TTL) {
+            dbLog('Medications cache expired', { age: Math.round(age / 1000 / 60 / 60) + 'h' });
+            await db.medication_cache.clear();
+            return null;
+        }
+
+        dbLog('Medications cache hit', { count: cache.data.length, age: Math.round(age / 1000 / 60) + 'min' });
+        return cache.data;
+    },
+
+    // Check if cache exists and is valid
+    async isCacheValid() {
+        const cache = await db.medication_cache.get('medications_list');
+        if (!cache) return false;
+
+        const age = Date.now() - cache.timestamp;
+        return age <= this.CACHE_TTL;
+    },
+
+    // Clear cache
+    async clearCache() {
+        await db.medication_cache.clear();
+        dbLog('Medications cache cleared');
+    }
+};
+
 // Export for use in other modules
 window.MedTrackerDB = {
     db,
     BPStore,
-    WeightStore
+    WeightStore,
+    MedicationStore
 };
