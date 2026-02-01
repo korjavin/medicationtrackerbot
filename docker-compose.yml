@@ -65,8 +65,8 @@ services:
     image: aiogram/telegram-bot-api:latest
     container_name: medtracker-telegram-api
     restart: unless-stopped
-    user: "1000:1000"  # Run as same UID/GID as medtracker's appuser
-    command: sh -c "telegram-bot-api --api-id=$$TELEGRAM_API_ID --api-hash=$$TELEGRAM_API_HASH --local"
+    # Run as root to fix permissions, then drop to uid 1000 (matches medtracker's appuser)
+    command: sh -c "chown -R 1000:1000 /var/lib/telegram-bot-api && exec setpriv --reuid=1000 --regid=1000 --clear-groups telegram-bot-api --api-id=$$TELEGRAM_API_ID --api-hash=$$TELEGRAM_API_HASH --local"
     volumes:
       - telegram_bot_api_data:/var/lib/telegram-bot-api
     environment:
