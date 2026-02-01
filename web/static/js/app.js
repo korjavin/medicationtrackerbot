@@ -2758,3 +2758,22 @@ async function skipWorkoutFromModal() {
     }
     closeWorkoutStartModal();
 }
+
+async function sendTestMedicationNotification() {
+    try {
+        const res = await fetch('/api/webpush/test-medication', {
+            method: 'POST',
+            headers: { 'X-Telegram-Init-Data': userInitData }
+        });
+
+        const text = await res.text();
+        if (res.ok) {
+            safeAlert(text || "Test notification sent!");
+        } else {
+            safeAlert("Error: " + text);
+        }
+    } catch (e) {
+        console.error(e);
+        safeAlert("Error sending test notification: " + e.message);
+    }
+}
