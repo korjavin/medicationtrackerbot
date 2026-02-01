@@ -1138,3 +1138,75 @@ func (s *Store) ImportSleepLogs(ctx context.Context, userID int64, logs []SleepL
 	skipped := len(logs) - imported
 	return imported, skipped, nil
 }
+
+// GetSleepLogs retrieves sleep logs for a user since a given date
+func (s *Store) GetSleepLogs(ctx context.Context, userID int64, since time.Time) ([]SleepLog, error) {
+	query := `SELECT id, user_id, start_time, end_time, timezone_offset, day, light_minutes, deep_minutes, rem_minutes,
+		 awake_minutes, total_minutes, turn_over_count, heart_rate_avg, spo2_avg, user_modified, notes, created_at
+		 FROM sleep_logs WHERE user_id = ?`
+	args := []interface{}{userID}
+
+	if !since.IsZero() {
+		query += " AND start_time >= ?"
+		args = append(args, since)
+	}
+
+	query += " ORDER BY start_time DESC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []SleepLog
+	for rows.Next() {
+		var sl SleepLog
+		var light, deep, rem, awake, total, turnOver, hr, spo2 sql.NullInt64
+		var notes sql.NullString
+
+		if err := rows.Scan(&sl.ID, &sl.UserID, &sl.StartTime, &sl.EndTime, &sl.TimezoneOffset, &sl.Day,
+			&light, &deep, &rem, &awake, &total, &turnOver, &hr, &spo2, &sl.UserModified, &notes, &sl.CreatedAt); err != nil {
+			return nil, err
+		}
+
+		if light.Valid {
+			val := int(light.Int64)
+			sl.LightMinutes = &val
+		}
+		if deep.Valid {
+			val := int(deep.Int64)
+			sl.DeepMinutes = &val
+		}
+		if rem.Valid {
+			val := int(rem.Int64)
+			sl.REMMinutes = &val
+		}
+		if awake.Valid {
+			val := int(awake.Int64)
+			sl.AwakeMinutes = &val
+		}
+		if total.Valid {
+			val := int(total.Int64)
+			sl.TotalMinutes = &val
+		}
+		if turnOver.Valid {
+			val := int(turnOver.Int64)
+			sl.TurnOverCount = &val
+		}
+		if hr.Valid {
+			val := int(hr.Int64)
+			sl.HeartRateAvg = &val
+		}
+		if spo2.Valid {
+			val := int(spo2.Int64)
+			sl.SpO2Avg = &val
+		}
+		if notes.Valid {
+			sl.Notes = notes.String
+		}
+
+		logs = append(logs, sl)
+	}
+	return logs, nil
+}
