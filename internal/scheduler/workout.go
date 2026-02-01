@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -222,6 +223,14 @@ func (s *Scheduler) sendWorkoutNotification(session *store.WorkoutSession, group
 	// Store message ID for later editing
 	if err := s.store.SetSessionNotificationMessageID(session.ID, messageID); err != nil {
 		log.Printf("Failed to store notification message ID: %v", err)
+	}
+
+	// Send Web Push
+	if s.webPush != nil {
+		ctx := context.Background()
+		if err := s.webPush.SendWorkoutNotification(ctx, s.allowedUserID, session, group, variant); err != nil {
+			log.Printf("Failed to send Web Push workout: %v", err)
+		}
 	}
 
 	return nil

@@ -707,3 +707,49 @@ func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request)
 
 	w.WriteHeader(http.StatusOK)
 }
+
+func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Minutes int `json:"minutes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Minutes <= 0 {
+		req.Minutes = 60 // Default
+	}
+
+	err = s.store.SnoozeSession(id, time.Duration(req.Minutes)*time.Minute)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	err = s.store.SkipSession(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}

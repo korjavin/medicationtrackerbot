@@ -255,11 +255,16 @@ self.addEventListener('notificationclick', (event) => {
     const data = event.notification.data;
     const action = event.action;
 
-    if (data && data.type === 'medication') {
-        if (action === 'confirm') {
+    if (!data) {
+        event.waitUntil(clients.openWindow('/'));
+        return;
+    }
+
+    if (data.type === 'medication') {
+        if (action === 'confirm_all') {
             event.waitUntil(handleMedicationConfirm(data));
         } else if (action === 'snooze') {
-            // Snooze 10 minutes
+            // Snooze 10 minutes (local re-notify)
             event.waitUntil(
                 new Promise(resolve => {
                     setTimeout(() => {
@@ -272,8 +277,25 @@ self.addEventListener('notificationclick', (event) => {
                 })
             );
         } else {
-            event.waitUntil(clients.openWindow('/'));
+            // Body click -> Open App with Modal
+            const params = new URLSearchParams();
+            params.set('action', 'medication_confirm');
+            if (data.medication_ids) params.set('ids', data.medication_ids.join(','));
+            if (data.scheduled_at) params.set('scheduled', data.scheduled_at);
+            if (data.medication_names) params.set('names', data.medication_names.join(','));
+
+            const url = '/?' + params.toString();
+            event.waitUntil(clients.openWindow(url));
         }
+    } else if (data.type === 'workout') {
+        // For workout, open the app for all actions for now to show the modal options
+        // We could implement background handlers later
+        const params = new URLSearchParams();
+        params.set('action', 'workout_start');
+        if (data.session_id) params.set('session_id', data.session_id);
+
+        const url = '/?' + params.toString();
+        event.waitUntil(clients.openWindow(url));
     } else {
         event.waitUntil(clients.openWindow('/'));
     }
