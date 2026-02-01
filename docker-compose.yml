@@ -70,8 +70,10 @@ services:
     command:
       - -c
       - |
-        # Create appuser (1000) if not exists (handling both Alpine/Debian variants)
-        id -u 1000 >/dev/null 2>&1 || adduser -D -u 1000 appuser 2>/dev/null || useradd -u 1000 appuser
+        # Create appuser (1000) manually by modifying /etc/passwd if not exists
+        # This avoids dependency on adduser/useradd which are missing in minimal images
+        grep -q :1000: /etc/group || echo "appgroup:x:1000:" >> /etc/group
+        grep -q :1000: /etc/passwd || echo "appuser:x:1000:1000:appuser:/var/lib/telegram-bot-api:/bin/sh" >> /etc/passwd
         
         # Fix permissions so appuser can write
         chown -R 1000:1000 /var/lib/telegram-bot-api
