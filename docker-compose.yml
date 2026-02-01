@@ -65,6 +65,7 @@ services:
     image: aiogram/telegram-bot-api:latest
     container_name: medtracker-telegram-api
     restart: unless-stopped
+    user: "1000:1000"
     volumes:
       - telegram_bot_api_data:/var/lib/telegram-bot-api
     environment:
