@@ -373,3 +373,74 @@ func marshalToolResult(data interface{}) (*mcp.CallToolResult, error) {
 		},
 	}, nil
 }
+
+// SleepLogResult represents a sleep log for the tool response
+type SleepLogResult struct {
+	StartTime    string `json:"start_time"`
+	EndTime      string `json:"end_time"`
+	TotalMinutes *int   `json:"total_minutes,omitempty"`
+	DeepMinutes  *int   `json:"deep_minutes,omitempty"`
+	LightMinutes *int   `json:"light_minutes,omitempty"`
+	REMMinutes   *int   `json:"rem_minutes,omitempty"`
+	AwakeMinutes *int   `json:"awake_minutes,omitempty"`
+	HeartRateAvg *int   `json:"heart_rate_avg,omitempty"`
+	SpO2Avg      *int   `json:"spo2_avg,omitempty"`
+	Notes        string `json:"notes,omitempty"`
+}
+
+// SleepLogResponse is the response for the get_sleep_logs tool
+type SleepLogResponse struct {
+	Logs    []SleepLogResult `json:"logs"`
+	Count   int              `json:"count"`
+	Period  string           `json:"period"`
+	Warning string           `json:"warning,omitempty"`
+}
+
+// handleGetSleepLogs handles the get_sleep_logs tool
+func (s *Server) handleGetSleepLogs(ctx context.Context, req *mcp.CallToolRequest, input DateRangeInput) (*mcp.CallToolResult, SleepLogResponse, error) {
+	startDate, endDate, warning, err := s.parseDateRange(input.StartDate, input.EndDate)
+	if err != nil {
+		return nil, SleepLogResponse{}, err
+	}
+
+	log.Printf("[MCP] Fetching Sleep Logs for date range: %s to %s", startDate, endDate)
+
+	userID := s.config.UserID
+	logs, err := s.store.GetSleepLogs(ctx, userID, startDate)
+	if err != nil {
+		log.Printf("[MCP] Failed to fetch sleep logs: %v", err)
+		return nil, SleepLogResponse{}, err
+	}
+	log.Printf("[MCP] Found %d sleep logs", len(logs))
+
+	var results []SleepLogResult
+	for _, l := range logs {
+		if l.StartTime.After(endDate) {
+			continue
+		}
+
+		res := SleepLogResult{
+			StartTime:    l.StartTime.Format("2006-01-02 15:04"),
+			EndTime:      l.EndTime.Format("2006-01-02 15:04"),
+			TotalMinutes: l.TotalMinutes,
+			DeepMinutes:  l.DeepMinutes,
+			LightMinutes: l.LightMinutes,
+			REMMinutes:   l.REMMinutes,
+			AwakeMinutes: l.AwakeMinutes,
+			HeartRateAvg: l.HeartRateAvg,
+			SpO2Avg:      l.SpO2Avg,
+			Notes:        l.Notes,
+		}
+
+		results = append(results, res)
+	}
+
+	response := SleepLogResponse{
+		Logs:    results,
+		Count:   len(results),
+		Period:  formatPeriod(startDate, endDate),
+		Warning: warning,
+	}
+
+	return nil, response, nil
+}
