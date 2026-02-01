@@ -2,6 +2,18 @@
 
 A private, self-hosted Telegram Mini App for medication tracking, designed to replace mobile health apps.
 
+## The Philosophy: From Fragmented Data to Personal Health Intelligence
+
+We built this because health data was everywhere—and nowhere. Medications, blood pressure, weight, and sleep required different apps that didn't talk to each other.
+
+**MedTrackerBot** unifies this experience:
+1.  **The Hub**: A single source of truth for all your health metrics.
+2.  **Second Memory**: Proactive notifications for meds and workouts, so you don't have to carry the mental load.
+3.  **Interface Choice**: A rich local-first Web App for data lovers, and a distraction-free Chat Interface for minimalists.
+4.  **Simplicity**: Bring your own data (importers included) and keep your favorite tools (like Mi Band).
+5.  **True Ownership**: Self-hosted, single-database ownership with optional, vendor-lock-free backups.
+6.  **Intelligence**: Built-in AI integration (MCP) to turn your data into plain-English insights.
+
 ## Features
 
 - **Medication Management**: Add, edit, archive medications with custom dosages and schedules.
