@@ -24,9 +24,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Inject Git SHA
+      - name: Inject Git SHA and Timestamp
         run: |
           sed -i "s|VERSION_PLACEHOLDER|$(git rev-parse --short HEAD)|g" web/static/index.html
+          sed -i "s|CACHE_VERSION_PLACEHOLDER|v$(date +%Y%m%d-%H%M)|g" web/static/sw.js
 
       - name: Build and push Docker image
         id: build-and-push
