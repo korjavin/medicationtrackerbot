@@ -454,6 +454,39 @@
         </form>
     </div>
 
+    <!-- Modal for Medication Confirmation (from Push) -->
+    <div id="med-confirm-modal" class="hidden">
+        <h3>Time for Meds!</h3>
+        <p id="med-confirm-time" style="color: #666; margin-bottom: 15px;"></p>
+        <div id="med-confirm-list" style="margin-bottom: 20px;">
+            <!-- Checkboxes injected here -->
+        </div>
+        <div class="actions">
+            <button onclick="snoozeMedicationConfirm()" class="secondary">Snooze 10m</button>
+            <button onclick="confirmSelectedMedications()" class="primary">Confirm Selected</button>
+        </div>
+        <div style="margin-top: 10px; text-align: center;">
+            <button onclick="closeMedicationConfirmModal()" class="text-btn" style="color: #999;">Dismiss</button>
+        </div>
+    </div>
+
+    <!-- Modal for Workout Start (from Push) -->
+    <div id="workout-start-modal" class="hidden">
+        <h3 id="workout-start-title">Workout Time!</h3>
+        <p id="workout-start-subtitle" style="color: #666; margin-bottom: 20px;"></p>
+
+        <div class="actions" style="flex-direction: column; gap: 10px;">
+            <button onclick="startWorkoutFromModal()" class="primary" style="width: 100%;">Start Workout</button>
+            <button onclick="snoozeWorkout(60)" class="secondary" style="width: 100%;">Snooze 1 hour</button>
+            <button onclick="snoozeWorkout(120)" class="secondary" style="width: 100%;">Snooze 2 hours</button>
+            <button onclick="skipWorkoutFromModal()" class="danger"
+                style="width: 100%; border-color: #ffcccb; color: #d32f2f;">Skip Workout</button>
+        </div>
+        <div style="margin-top: 15px; text-align: center;">
+            <button onclick="closeWorkoutStartModal()" class="text-btn" style="color: #999;">Dismiss</button>
+        </div>
+    </div>
+
     <script src="static/js/db.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/sync.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/app.js?v=TIMESTAMP_PLACEHOLDER"></script>
