@@ -106,6 +106,26 @@ type WeightLog struct {
 	Notes           string    `json:"notes,omitempty"`
 }
 
+type SleepLog struct {
+	ID             int64     `json:"id"`
+	UserID         int64     `json:"user_id"`
+	StartTime      time.Time `json:"start_time"`
+	EndTime        time.Time `json:"end_time"`
+	TimezoneOffset int       `json:"timezone_offset"`
+	Day            string    `json:"day"`
+	LightMinutes   *int      `json:"light_minutes,omitempty"`
+	DeepMinutes    *int      `json:"deep_minutes,omitempty"`
+	REMMinutes     *int      `json:"rem_minutes,omitempty"`
+	AwakeMinutes   *int      `json:"awake_minutes,omitempty"`
+	TotalMinutes   *int      `json:"total_minutes,omitempty"`
+	TurnOverCount  *int      `json:"turn_over_count,omitempty"`
+	HeartRateAvg   *int      `json:"heart_rate_avg,omitempty"`
+	SpO2Avg        *int      `json:"spo2_avg,omitempty"`
+	UserModified   bool      `json:"user_modified"`
+	Notes          string    `json:"notes,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 func CalculateBPCategory(systolic, diastolic int) string {
 	// Hypertensive Crisis: >180 or >120
 	if systolic > 180 || diastolic > 120 {
@@ -1077,4 +1097,44 @@ func CalculateWeightTrend(currentWeight float64, previousTrend *float64) float64
 	}
 	alpha := 0.1
 	return alpha*currentWeight + (1-alpha)**previousTrend
+}
+
+func (s *Store) ImportSleepLogs(ctx context.Context, userID int64, logs []SleepLog) (int, int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT OR IGNORE INTO sleep_logs (user_id, start_time, end_time,
+		 timezone_offset, day, light_minutes, deep_minutes, rem_minutes,
+		 awake_minutes, total_minutes, turn_over_count, heart_rate_avg,
+		 spo2_avg, user_modified, notes)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer stmt.Close()
+
+	imported := 0
+	for _, sl := range logs {
+		sl.UserID = userID
+		res, err := stmt.ExecContext(ctx, sl.UserID, sl.StartTime, sl.EndTime,
+			sl.TimezoneOffset, sl.Day, sl.LightMinutes, sl.DeepMinutes,
+			sl.REMMinutes, sl.AwakeMinutes, sl.TotalMinutes, sl.TurnOverCount,
+			sl.HeartRateAvg, sl.SpO2Avg, sl.UserModified, sl.Notes)
+		if err != nil {
+			return 0, 0, err
+		}
+		rowsAffected, _ := res.RowsAffected()
+		imported += int(rowsAffected)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, 0, err
+	}
+
+	skipped := len(logs) - imported
+	return imported, skipped, nil
 }
