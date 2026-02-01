@@ -512,17 +512,27 @@
                     console.log('SW registered:', registration.scope);
 
                     // Check for updates
-                    registration.addEventListener('updatefound', () => {
+                    registration.onupdatefound = () => {
                         const newWorker = registration.installing;
-                        newWorker.addEventListener('statechange', () => {
-                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                console.log('New SW available, will activate on reload');
+                        newWorker.onstatechange = () => {
+                            if (newWorker.state === 'installed') {
+                                if (navigator.serviceWorker.controller) {
+                                    // New version found!
+                                    console.log('New SW available, reloading...');
+                                    window.location.reload();
+                                }
                             }
-                        });
-                    });
+                        };
+                    };
                 } catch (err) {
                     console.log('SW registration failed:', err);
                 }
+            });
+
+            // Reload when the controller changes (e.g. after skipWaiting)
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                console.log('Controller changed, reloading...');
+                window.location.reload();
             });
         }
 
