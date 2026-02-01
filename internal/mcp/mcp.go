@@ -206,6 +206,28 @@ func (s *Server) registerTools() {
 		},
 		s.handleGetWorkoutHistory,
 	)
+
+	// Sleep Logs Tool
+	mcp.AddTool(s.mcpServer,
+		&mcp.Tool{
+			Name:        "get_sleep_logs",
+			Description: "Retrieve sleep logs for a date range. Returns sleep phases, duration, and health metrics. Maximum 90 days per query.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"start_date": {
+						"type": "string",
+						"description": "Start date in YYYY-MM-DD format. Defaults to 90 days before end_date if omitted."
+					},
+					"end_date": {
+						"type": "string",
+						"description": "End date in YYYY-MM-DD format. Defaults to today if omitted."
+					}
+				}
+			}`),
+		},
+		s.handleGetSleepLogs,
+	)
 }
 
 // parseDateRange parses and validates the date range, enforcing the max query days limit
