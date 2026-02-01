@@ -1210,3 +1210,62 @@ func (s *Store) GetSleepLogs(ctx context.Context, userID int64, since time.Time)
 	}
 	return logs, nil
 }
+
+// PushSubscription represents a Web Push subscription
+type PushSubscription struct {
+	ID        int64     `json:"id"`
+	UserID    int64     `json:"user_id"`
+	Endpoint  string    `json:"endpoint"`
+	Auth      string    `json:"auth"`
+	P256dh    string    `json:"p256dh"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (s *Store) CreatePushSubscription(userID int64, endpoint, auth, p256dh string) error {
+	query := `
+		INSERT INTO push_subscriptions (user_id, endpoint, auth, p256dh, enabled, updated_at)
+		VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+		ON CONFLICT(endpoint) DO UPDATE SET
+			user_id = excluded.user_id,
+			auth = excluded.auth,
+			p256dh = excluded.p256dh,
+			enabled = 1,
+			updated_at = CURRENT_TIMESTAMP
+	`
+	_, err := s.db.Exec(query, userID, endpoint, auth, p256dh)
+	return err
+}
+
+func (s *Store) GetPushSubscriptions(userID int64) ([]PushSubscription, error) {
+	query := `SELECT id, user_id, endpoint, auth, p256dh, enabled, created_at, updated_at 
+	          FROM push_subscriptions 
+	          WHERE user_id = ? AND enabled = 1`
+
+	rows, err := s.db.Query(query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subs []PushSubscription
+	for rows.Next() {
+		var sub PushSubscription
+		if err := rows.Scan(&sub.ID, &sub.UserID, &sub.Endpoint, &sub.Auth, &sub.P256dh, &sub.Enabled, &sub.CreatedAt, &sub.UpdatedAt); err != nil {
+			return nil, err
+		}
+		subs = append(subs, sub)
+	}
+	return subs, nil
+}
+
+func (s *Store) DeletePushSubscription(endpoint string) error {
+	_, err := s.db.Exec("DELETE FROM push_subscriptions WHERE endpoint = ?", endpoint)
+	return err
+}
+
+func (s *Store) DisablePushSubscription(endpoint string) error {
+	_, err := s.db.Exec("UPDATE push_subscriptions SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE endpoint = ?", endpoint)
+	return err
+}

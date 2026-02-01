@@ -15,6 +15,7 @@ import (
 
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"github.com/korjavin/medicationtrackerbot/internal/webpush"
 	"golang.org/x/oauth2"
 )
 
@@ -26,9 +27,17 @@ type Server struct {
 	oidcConfig    OIDCConfig
 	oauthConfig   *oauth2.Config
 	botUsername   string
+	vapidConfig   VAPIDConfig
+	webPush       *webpush.Service
 }
 
-func New(s *store.Store, botToken string, allowedUserID int64, oidc OIDCConfig, botUsername string) *Server {
+type VAPIDConfig struct {
+	PublicKey  string
+	PrivateKey string
+	Subject    string
+}
+
+func New(s *store.Store, botToken string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidConfig VAPIDConfig) *Server {
 	srv := &Server{
 		store:         s,
 		rxnorm:        rxnorm.New(),
@@ -36,9 +45,19 @@ func New(s *store.Store, botToken string, allowedUserID int64, oidc OIDCConfig, 
 		allowedUserID: allowedUserID,
 		oidcConfig:    oidc,
 		botUsername:   botUsername,
+		vapidConfig:   vapidConfig,
 	}
+
+	if vapidConfig.PublicKey != "" && vapidConfig.PrivateKey != "" {
+		srv.webPush = webpush.New(s, vapidConfig.PublicKey, vapidConfig.PrivateKey, vapidConfig.Subject)
+	}
+
 	srv.initOAUTH()
 	return srv
+}
+
+func (s *Server) GetWebPushService() *webpush.Service {
+	return s.webPush
 }
 
 // noCacheMiddleware adds headers to prevent caching
@@ -126,6 +145,13 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/workout/rotation/state", s.handleGetRotationState)
 	apiMux.HandleFunc("POST /api/workout/rotation/initialize", s.handleInitializeRotation)
 	apiMux.HandleFunc("POST /api/workout/sessions/logs/update", s.handleUpdateExerciseLog)
+
+	// Web Push endpoints
+	apiMux.HandleFunc("GET /api/webpush/vapid-public-key", s.handleGetVAPIDPublicKey)
+	apiMux.HandleFunc("POST /api/webpush/subscribe", s.handleSubscribePush)
+	apiMux.HandleFunc("POST /api/webpush/unsubscribe", s.handleUnsubscribePush)
+	apiMux.HandleFunc("GET /api/webpush/subscriptions", s.handleListPushSubscriptions)
+	apiMux.HandleFunc("POST /api/medications/confirm-schedule", s.handleConfirmSchedule)
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
@@ -927,8 +953,8 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 		Value:    sessionValue,
 		Expires:  time.Now().Add(24 * time.Hour * 30), // 30 days
 		HttpOnly: true,
-		Secure:   true,                    // Only send over HTTPS
-		SameSite: http.SameSiteLaxMode,    // CSRF protection
+		Secure:   true,                 // Only send over HTTPS
+		SameSite: http.SameSiteLaxMode, // CSRF protection
 		Path:     "/",
 	})
 
@@ -936,4 +962,112 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// -- Web Push Handlers --
+
+func (s *Server) handleGetVAPIDPublicKey(w http.ResponseWriter, r *http.Request) {
+	if s.vapidConfig.PublicKey == "" {
+		http.Error(w, "Web Push not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"public_key": s.vapidConfig.PublicKey,
+	})
+}
+
+func (s *Server) handleSubscribePush(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	var req struct {
+		Endpoint string `json:"endpoint"`
+		Keys     struct {
+			Auth   string `json:"auth"`
+			P256dh string `json:"p256dh"`
+		} `json:"keys"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.CreatePushSubscription(userID, req.Endpoint, req.Keys.Auth, req.Keys.P256dh); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (s *Server) handleUnsubscribePush(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Endpoint string `json:"endpoint"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.DeletePushSubscription(req.Endpoint); err != nil {
+		// Log but don't fail hard
+		log.Printf("Error deleting subscription: %v", err)
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleListPushSubscriptions(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	subs, err := s.store.GetPushSubscriptions(userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(subs)
+}
+
+func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	var req struct {
+		ScheduledAt   string  `json:"scheduled_at"` // RFC3339
+		MedicationIDs []int64 `json:"medication_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	parsedTime, err := time.Parse(time.RFC3339, req.ScheduledAt)
+	if err != nil {
+		http.Error(w, "Invalid time format", http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now()
+
+	// Confirm for each medication
+	for _, medID := range req.MedicationIDs {
+		// Verify this belongs to user/schedule
+		intake, err := s.store.GetIntakeBySchedule(medID, parsedTime)
+		if err != nil {
+			log.Printf("Error finding intake for med %d at %s: %v", medID, req.ScheduledAt, err)
+			continue
+		}
+
+		if intake != nil && intake.UserID == userID && intake.Status == "PENDING" {
+			if err := s.store.ConfirmIntake(intake.ID, now); err != nil {
+				log.Printf("Error confirming intake %d: %v", intake.ID, err)
+			}
+		} else if intake == nil {
+			log.Printf("Intake not found or not pending for med %d at %s", medID, req.ScheduledAt)
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
