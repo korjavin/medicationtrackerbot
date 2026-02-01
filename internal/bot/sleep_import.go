@@ -37,24 +37,13 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 	// Send status message
 	statusMsg, _ := b.api.Send(tgbotapi.NewMessage(msg.Chat.ID, "📥 Downloading file..."))
 
-	// Download file from Telegram
+	// Get file info from Telegram
 	file, err := b.api.GetFile(tgbotapi.FileConfig{FileID: msg.Document.FileID})
 	if err != nil {
 		log.Printf("Error getting file from Telegram API: %v", err)
 		b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error downloading file.")
 		return
 	}
-
-	// Build file URL - use custom endpoint if configured, otherwise use default
-	var fileURL string
-	if apiEndpoint := os.Getenv("TELEGRAM_API_ENDPOINT"); apiEndpoint != "" {
-		// Replace /bot%s/%s with /file/bot%s/%s for local Bot API server
-		fileEndpoint := strings.Replace(apiEndpoint, "/bot%s/%s", "/file/bot%s/%s", 1)
-		fileURL = fmt.Sprintf(fileEndpoint, b.api.Token, file.FilePath)
-	} else {
-		fileURL = file.Link(b.api.Token)
-	}
-	log.Printf("Downloading file from: %s", fileURL)
 
 	tempFile, err := os.CreateTemp("", "sleep-import-*.nxk")
 	if err != nil {
@@ -65,28 +54,53 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
 
-	resp, err := http.Get(fileURL)
-	if err != nil {
-		log.Printf("Error downloading file from URL %s: %v", fileURL, err)
-		b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error downloading file.")
-		return
-	}
-	defer resp.Body.Close()
+	// Check if using local Bot API (file path starts with /)
+	if strings.HasPrefix(file.FilePath, "/") {
+		// Local mode - file is already on shared volume, copy it directly
+		log.Printf("Using local file: %s", file.FilePath)
+		sourceFile, err := os.Open(file.FilePath)
+		if err != nil {
+			log.Printf("Error opening local file %s: %v", file.FilePath, err)
+			b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error accessing file.")
+			return
+		}
+		defer sourceFile.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("Bad HTTP status downloading file: %d %s", resp.StatusCode, resp.Status)
-		b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error downloading file.")
-		return
-	}
+		written, err := io.Copy(tempFile, sourceFile)
+		if err != nil {
+			log.Printf("Error copying local file: %v", err)
+			b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error reading file.")
+			return
+		}
+		log.Printf("File copied from local storage: %d bytes written to %s", written, tempFile.Name())
+	} else {
+		// Remote mode - download via HTTP
+		fileURL := file.Link(b.api.Token)
+		log.Printf("Downloading file from: %s", fileURL)
 
-	written, err := io.Copy(tempFile, resp.Body)
-	if err != nil {
-		log.Printf("Error saving file to disk: %v", err)
-		b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error saving file.")
-		return
+		resp, err := http.Get(fileURL)
+		if err != nil {
+			log.Printf("Error downloading file from URL %s: %v", fileURL, err)
+			b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error downloading file.")
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			log.Printf("Bad HTTP status downloading file: %d %s", resp.StatusCode, resp.Status)
+			b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error downloading file.")
+			return
+		}
+
+		written, err := io.Copy(tempFile, resp.Body)
+		if err != nil {
+			log.Printf("Error saving file to disk: %v", err)
+			b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error saving file.")
+			return
+		}
+		log.Printf("File downloaded successfully: %d bytes written to %s", written, tempFile.Name())
 	}
 	tempFile.Close()
-	log.Printf("File downloaded successfully: %d bytes written to %s", written, tempFile.Name())
 
 	// Import
 	b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "📦 Extracting and importing...")

@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     volumes:
       - medtracker_data:/app/data
+      - telegram_bot_api_data:/var/lib/telegram-bot-api:ro
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - ALLOWED_USER_ID=${ALLOWED_USER_ID}
