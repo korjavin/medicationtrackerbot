@@ -71,12 +71,13 @@ func (s *Service) SendMedicationNotification(ctx context.Context, userID int64, 
 		Badge: "/static/android-chrome-192x192.png", // Monochrome badge preferred, but using icon for now
 		Tag:   fmt.Sprintf("medication-%s", scheduledTime.Format(time.RFC3339)),
 		Data: map[string]interface{}{
-			"type":           "medication",
-			"scheduled_at":   scheduledTime.Format(time.RFC3339),
-			"medication_ids": medIDs,
+			"type":             "medication",
+			"scheduled_at":     scheduledTime.Format(time.RFC3339),
+			"medication_ids":   medIDs,
+			"medication_names": medNames,
 		},
 		Actions: []NotificationAction{
-			{Action: "confirm", Title: "Confirm Taken"},
+			{Action: "confirm_all", Title: "Confirm All"},
 			{Action: "snooze", Title: "Snooze 10m"},
 		},
 	}
@@ -104,6 +105,35 @@ func (s *Service) SendLowStockNotification(ctx context.Context, userID int64, me
 		Tag:   "low-stock",
 		Data: map[string]interface{}{
 			"type": "low_stock",
+		},
+	}
+
+	return s.sendToUser(userID, payload)
+}
+
+func (s *Service) SendWorkoutNotification(ctx context.Context, userID int64, session *store.WorkoutSession, group *store.WorkoutGroup, variant *store.WorkoutVariant) error {
+	if s.vapidPublicKey == "" || s.vapidPrivateKey == "" {
+		return nil
+	}
+
+	title := "Time to Workout!"
+	body := fmt.Sprintf("%s - %s", group.Name, variant.Name)
+
+	payload := NotificationPayload{
+		Title: title,
+		Body:  body,
+		Icon:  "/static/android-chrome-192x192.png",
+		Tag:   fmt.Sprintf("workout-%d", session.ID),
+		Data: map[string]interface{}{
+			"type":       "workout",
+			"session_id": session.ID,
+			"group_name": group.Name,
+			"variant":    variant.Name,
+		},
+		Actions: []NotificationAction{
+			{Action: "start", Title: "Start"},
+			{Action: "snooze_1h", Title: "Snooze 1h"},
+			{Action: "skip", Title: "Skip"},
 		},
 	}
 
