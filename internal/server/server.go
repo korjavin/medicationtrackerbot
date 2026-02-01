@@ -153,6 +153,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/webpush/subscribe", s.handleSubscribePush)
 	apiMux.HandleFunc("POST /api/webpush/unsubscribe", s.handleUnsubscribePush)
 	apiMux.HandleFunc("GET /api/webpush/subscriptions", s.handleListPushSubscriptions)
+	apiMux.HandleFunc("POST /api/webpush/test-medication", s.handleSendTestMedicationNotification)
 	apiMux.HandleFunc("POST /api/medications/confirm-schedule", s.handleConfirmSchedule)
 
 	// Apply Middleware to API
@@ -1072,4 +1073,100 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleSendTestMedicationNotification(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	if s.webPush == nil {
+		http.Error(w, "Web Push not configured", http.StatusBadRequest)
+		return
+	}
+
+	meds, err := s.store.ListMedications(false)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	now := time.Now()
+	var earliestNext time.Time
+	var medsAtEarliest []store.Medication
+
+	for _, med := range meds {
+		cfg, err := med.ValidSchedule()
+		if err != nil || cfg.Type == "as_needed" {
+			continue
+		}
+
+		// Check next 7 days for the earliest occurrence
+		for daysAhead := 0; daysAhead < 8; daysAhead++ {
+			checkDay := now.AddDate(0, 0, daysAhead)
+
+			// If "weekly", check day
+			if cfg.Type == "weekly" {
+				found := false
+				dayIdx := int(checkDay.Weekday())
+				for _, d := range cfg.Days {
+					if d == dayIdx {
+						found = true
+						break
+					}
+				}
+				if !found {
+					continue
+				}
+			}
+
+			// Iterate over times
+			for _, timeStr := range cfg.Times {
+				if len(timeStr) != 5 {
+					continue
+				}
+				var hour, minute int
+				fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
+
+				target := time.Date(checkDay.Year(), checkDay.Month(), checkDay.Day(), hour, minute, 0, 0, now.Location())
+
+				// Skip if in the past
+				if target.Before(now) {
+					continue
+				}
+
+				// Check Start/End Dates
+				if med.StartDate != nil && target.Before(*med.StartDate) {
+					continue
+				}
+				if med.EndDate != nil && target.After(*med.EndDate) {
+					continue
+				}
+
+				// Is this the earliest we've found?
+				if earliestNext.IsZero() || target.Before(earliestNext) {
+					earliestNext = target
+					medsAtEarliest = []store.Medication{med}
+				} else if target.Equal(earliestNext) {
+					medsAtEarliest = append(medsAtEarliest, med)
+				}
+				// Once we found one for this med, we don't need further times for this med *if* it's after earliestNext
+			}
+			// If we already found a time for this med in this day or previous days, and it's later than current earliestNext, we could optimize,
+			// but simple search is fine for small med list.
+		}
+	}
+
+	if len(medsAtEarliest) == 0 {
+		http.Error(w, "No scheduled medications found to test with", http.StatusNotFound)
+		return
+	}
+
+	// Send simulated Push
+	ctx := context.Background()
+	if err := s.webPush.SendMedicationNotification(ctx, userID, medsAtEarliest, earliestNext); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to send push: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "Sent simulated notification for %d medication(s) scheduled at %s", len(medsAtEarliest), earliestNext.Format("15:04"))
 }
