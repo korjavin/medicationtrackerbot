@@ -1,0 +1,347 @@
+:root {
+    --primary: #FF6B6B;
+    /* Friendly Coral */
+    --secondary: #4ECDC4;
+    /* Fresh Mint */
+    --accent: #FFE66D;
+    /* Sunny Yellow */
+    --dark: #292F36;
+    /* Soft Black */
+    --light: #F7FFF7;
+    /* Off-White */
+    --text-body: #4A4A4A;
+    --bg-blob: #ffefef;
+    /* Hard coded light pastel */
+}
+
+body {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    color: var(--text-body);
+    background-color: var(--light);
+    margin: 0;
+    line-height: 1.6;
+    overflow-x: hidden;
+}
+
+h1,
+h2,
+h3,
+.logo {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 800;
+    color: var(--dark);
+}
+
+.container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 2rem;
+}
+
+/* Navbar */
+nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 3rem;
+    position: relative;
+    z-index: 10;
+}
+
+.logo {
+    font-size: 1.5rem;
+    color: var(--primary);
+    letter-spacing: -0.5px;
+}
+
+.nav-links a {
+    text-decoration: none;
+    color: var(--dark);
+    font-weight: 600;
+    margin-left: 2rem;
+    transition: color 0.2s;
+}
+
+.nav-links a:hover {
+    color: var(--primary);
+}
+
+/* Hero */
+.hero {
+    text-align: center;
+    padding: 5rem 1rem 8rem 1rem;
+    background: radial-gradient(circle at 50% 50%, #fff 0%, #f0f7f4 100%);
+    position: relative;
+}
+
+.hero-title {
+    font-size: 3.5rem;
+    line-height: 1.1;
+    margin-bottom: 1.5rem;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.highlight {
+    background: linear-gradient(120deg, rgba(255, 107, 107, 0.2) 0%, rgba(255, 107, 107, 0.2) 100%);
+    background-repeat: no-repeat;
+    background-size: 100% 0.4em;
+    background-position: 0 88%;
+    color: var(--primary);
+}
+
+.hero-subtitle {
+    font-size: 1.25rem;
+    color: #666;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+/* Story Chapters */
+.story-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding-bottom: 5rem;
+}
+
+.chapter {
+    display: flex;
+    align-items: center;
+    gap: 4rem;
+    padding: 5rem 2rem;
+}
+
+.chapter.reverse {
+    flex-direction: row-reverse;
+}
+
+.chapter-content {
+    flex: 1;
+}
+
+.chapter-visual {
+    flex: 1.2;
+    display: flex;
+    justify-content: center;
+}
+
+.chapter-tag {
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--secondary);
+    display: block;
+    margin-bottom: 1rem;
+}
+
+.chapter h2 {
+    font-size: 2.5rem;
+    margin-bottom: 1.5rem;
+    line-height: 1.1;
+}
+
+.chapter p {
+    font-size: 1.1rem;
+    margin-bottom: 1.5rem;
+    color: #555;
+}
+
+/* Lists */
+.check-list {
+    list-style: none;
+    padding: 0;
+}
+
+.check-list li {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    padding-left: 2rem;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" fill="%234ECDC4" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>');
+    background-repeat: no-repeat;
+    background-position: 0 4px;
+    background-size: 1.2rem;
+}
+
+/* Visuals & Blobs */
+.image-wrapper {
+    position: relative;
+    z-index: 1;
+    transition: transform 0.4s ease;
+}
+
+.image-wrapper:hover {
+    transform: translateY(-10px);
+}
+
+.image-wrapper img {
+    width: 100%;
+    max-width: 500px;
+    border-radius: 20px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+    background: #fff;
+    border: 8px solid #fff;
+}
+
+/* Blobs behind images */
+.image-wrapper::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    width: 120%;
+    height: 120%;
+    top: -10%;
+    left: -10%;
+    border-radius: 50%;
+    opacity: 0.6;
+}
+
+.blob-1::before {
+    background: #ffe3e3;
+    border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+}
+
+.blob-2::before {
+    background: #dcfce7;
+    border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+}
+
+.blob-3::before {
+    background: #e0f2fe;
+    border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+}
+
+.blob-4::before {
+    background: #fffbeb;
+    border-radius: 50% 50% 20% 80% / 25% 80% 20% 75%;
+}
+
+/* Chat Bubble Special */
+.chat-bubble {
+    background: #fff;
+    border-radius: 20px 20px 20px 0;
+    padding: 1.5rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+    border: 1px solid #eee;
+    font-style: italic;
+    color: var(--dark);
+    font-weight: 500;
+    position: relative;
+    margin-top: 1rem;
+}
+
+/* Footer */
+.footer {
+    background: #fff;
+    padding: 4rem 0;
+    border-top: 1px solid #eee;
+    margin-top: 2rem;
+}
+
+.footer h3 {
+    color: var(--primary);
+}
+
+.text-center {
+    text-align: center;
+}
+
+/* Double Image Row */
+.image-row {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+}
+
+.image-row .image-wrapper img {
+    max-width: 250px;
+    /* Smaller when side-by-side */
+}
+
+/* Centered Text Chapter */
+.text-centered-chapter {
+    text-align: center;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.text-centered-chapter .chapter-content {
+    flex: none;
+    width: 100%;
+}
+
+.text-centered-chapter .check-list {
+    text-align: left;
+    display: inline-block;
+}
+
+/* Lightbox */
+#lightbox {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    cursor: zoom-out;
+    backdrop-filter: blur(5px);
+}
+
+#lightbox img {
+    max-width: 90%;
+    max-height: 90%;
+    border-radius: 10px;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+    animation: zoomIn 0.3s ease;
+}
+
+@keyframes zoomIn {
+    from {
+        transform: scale(0.9);
+        opacity: 0;
+    }
+
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.image-wrapper img {
+    cursor: zoom-in;
+    /* Indicate clickable */
+}
+
+@media (max-width: 768px) {
+    .hero-title {
+        font-size: 2.5rem;
+    }
+
+    .chapter,
+    .chapter.reverse {
+        flex-direction: column;
+        text-align: center;
+        padding: 3rem 1rem;
+        gap: 2rem;
+    }
+
+    .image-row {
+        flex-direction: column;
+        /* Stack on mobile */
+    }
+
+    .image-row .image-wrapper img {
+        max-width: 100%;
+    }
+
+    .check-list li {
+        background-position: 0 center;
+        display: inline-block;
+        margin: 0 0.5rem;
+    }
+}
