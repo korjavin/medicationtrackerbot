@@ -59,13 +59,26 @@ func main() {
 	}
 
 	// 4. Scheduler
-	if tgBot != nil {
-		sch := scheduler.New(s, tgBot, allowedUserID)
-		sch.Start()
-		log.Println("Scheduler started")
+	// 4. Scheduler
+	// Only start scheduler if bot is active (required for notifications)
+	// But we now have Web Push which *could* work without bot, but
+	// scheduler currently depends heavily on bot.
+	// We'll pass server's WebPush service to scheduler later or
+	// we initialize WebPush service independently?
+	// The plan was: Server initializes WebPush. Scheduler uses Server's instance?
+	// Or we initialize WebPush here and pass to both.
+
+	// Better: Initialize WebPush here if config present.
+	// But Server.New initializes it inside.
+
+	// Let's grab the config first.
+	vapidConfig := server.VAPIDConfig{
+		PublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
+		PrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
+		Subject:    os.Getenv("VAPID_SUBJECT"),
 	}
 
-	// 5. Server
+	// 5. Server (Initialize first to get WebPush service)
 	oidcConfig := server.OIDCConfig{
 		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
@@ -80,7 +93,14 @@ func main() {
 		log.Println("Bot username:", botUsername)
 	}
 
-	srv := server.New(s, botToken, allowedUserID, oidcConfig, botUsername)
+	srv := server.New(s, botToken, allowedUserID, oidcConfig, botUsername, vapidConfig)
+
+	if tgBot != nil {
+		// Scheduler needs WebPush service from server
+		sch := scheduler.New(s, tgBot, allowedUserID, srv.GetWebPushService())
+		sch.Start()
+		log.Println("Scheduler started")
+	}
 
 	// Start Server
 	serverAddr := ":" + port

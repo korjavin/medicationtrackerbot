@@ -224,6 +224,17 @@ checkAuth().then(authorized => {
             window.SyncManager.init();
         }
 
+        // Initialize PushManager
+        if (window.MedTrackerPush) {
+            window.MedTrackerPush.initialize().then(supported => {
+                if (supported && window.MedTrackerPush.subscription) {
+                    // Update UI if already subscribed
+                    const toggle = document.getElementById('webpush-toggle');
+                    if (toggle) toggle.checked = true;
+                }
+            });
+        }
+
         // Only load data if authorized
         // Determine start tab? default bp
         switchTab('bp');
@@ -238,6 +249,50 @@ checkAuth().then(authorized => {
                 window.history.replaceState({}, '', '/');
             }, 100);
         }
+    }
+});
+
+// Settings Toggle Handler
+document.getElementById('webpush-toggle').addEventListener('change', async function () {
+    const status = document.getElementById('webpush-status');
+    status.style.display = 'block';
+
+    if (this.checked) {
+        status.innerText = "Requesting permission...";
+        status.className = "info";
+        const success = await window.MedTrackerPush.subscribe();
+        if (success) {
+            status.innerText = "Notifications enabled";
+            status.style.color = "green";
+        } else {
+            status.innerText = "Failed to enable notifications. Please check permissions.";
+            status.style.color = "red";
+            this.checked = false;
+        }
+    } else {
+        const success = await window.MedTrackerPush.unsubscribe();
+        if (success) {
+            status.innerText = "Notifications disabled";
+            status.style.color = "gray";
+        } else {
+            status.innerText = "Failed to disable notifications";
+            status.style.color = "red";
+            this.checked = true; // revert
+        }
+    }
+
+    // Hide status after delay
+    setTimeout(() => {
+        status.style.display = 'none';
+    }, 3000);
+});
+
+// Listen for service worker messages
+navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', event => {
+    if (event.data.type === 'MEDICATION_CONFIRMED') {
+        // Reload data if visible
+        loadMeds();
+        loadHistory();
     }
 });
 
@@ -368,6 +423,9 @@ function switchTab(tab) {
         document.querySelector('button[onclick="switchTab(\'workouts\')"]').classList.add('active');
         document.getElementById('workouts-view').classList.add('active');
         loadWorkouts();
+    } else if (tab === 'settings') {
+        document.querySelector('button[onclick="switchTab(\'settings\')"]').classList.add('active');
+        document.getElementById('settings-view').classList.add('active');
     }
 }
 

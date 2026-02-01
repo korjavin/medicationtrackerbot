@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"github.com/korjavin/medicationtrackerbot/internal/webpush"
 )
 
 type Scheduler struct {
@@ -15,13 +17,15 @@ type Scheduler struct {
 	bot               *bot.Bot
 	allowedUserID     int64
 	lastLowStockCheck time.Time
+	webPush           *webpush.Service
 }
 
-func New(store *store.Store, bot *bot.Bot, allowedUserID int64) *Scheduler {
+func New(store *store.Store, bot *bot.Bot, allowedUserID int64, webPush *webpush.Service) *Scheduler {
 	return &Scheduler{
 		store:         store,
 		bot:           bot,
 		allowedUserID: allowedUserID,
+		webPush:       webPush,
 	}
 }
 
@@ -184,6 +188,14 @@ func (s *Scheduler) checkSchedule() error {
 		if err := s.bot.SendGroupNotification(group.Meds, group.Target); err != nil {
 			log.Printf("Failed to send group notification: %v", err)
 		}
+
+		// 3. Send Web Push
+		if s.webPush != nil {
+			ctx := context.Background()
+			if err := s.webPush.SendMedicationNotification(ctx, s.allowedUserID, group.Meds, group.Target); err != nil {
+				log.Printf("Failed to send Web Push: %v", err)
+			}
+		}
 	}
 
 	return nil
@@ -267,7 +279,13 @@ func (s *Scheduler) checkLowStock() {
 
 	if err := s.bot.SendLowStockWarning(sb); err != nil {
 		log.Printf("Failed to send low stock warning: %v", err)
-		return
+	}
+
+	if s.webPush != nil {
+		ctx := context.Background()
+		if err := s.webPush.SendLowStockNotification(ctx, s.allowedUserID, meds); err != nil {
+			log.Printf("Failed to send Web Push low stock: %v", err)
+		}
 	}
 
 	s.lastLowStockCheck = time.Now()

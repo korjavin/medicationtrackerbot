@@ -38,6 +38,7 @@
             <button class="tab" onclick="switchTab('workouts')">Workouts</button>
             <button class="tab" onclick="switchTab('meds')">Medications</button>
             <button class="tab" onclick="switchTab('history')">History</button>
+            <button class="tab" onclick="switchTab('settings')">Settings</button>
         </div>
 
         <div id="meds-view" class="view active">
@@ -132,6 +133,23 @@
                 </div>
             </div>
         </div>
+
+        <div id="settings-view" class="view">
+            <h3>Settings</h3>
+
+            <div class="setting-item">
+                <div>
+                    <h3>Web Push Notifications</h3>
+                    <p class="setting-desc">Browser notifications for medications</p>
+                </div>
+                <label class="toggle">
+                    <input type="checkbox" id="webpush-toggle">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div id="webpush-status" style="display:none; padding: 8px; margin-top: 8px; border-radius: 4px;"></div>
+        </div>
+    </div>
     </div>
 
     <!-- Modal for Adding/Editing Workout Group -->
@@ -440,6 +458,7 @@
     <script src="static/js/sync.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/app.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/workout.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="static/js/push.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script>
         // Register Service Worker
         if ('serviceWorker' in navigator) {
