@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,12 @@ func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
+	}
+
+	// Use local Bot API server if endpoint is configured
+	if apiEndpoint := os.Getenv("TELEGRAM_API_ENDPOINT"); apiEndpoint != "" {
+		log.Printf("Using custom Telegram API endpoint: %s", apiEndpoint)
+		api.SetAPIEndpoint(apiEndpoint)
 	}
 
 	return &Bot{
