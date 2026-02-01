@@ -70,6 +70,12 @@ func (b *Bot) Start() {
 }
 
 func (b *Bot) handleMessage(msg *tgbotapi.Message) {
+	// Check for document upload (sleep import)
+	if msg.Document != nil {
+		b.handleDocumentUpload(msg)
+		return
+	}
+
 	if !msg.IsCommand() {
 		return
 	}
