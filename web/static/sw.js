@@ -12,6 +12,7 @@ const STATIC_ASSETS = [
     '/static/js/workout.js',
     '/static/js/db.js',
     '/static/js/sync.js',
+    '/static/js/push.js',
     '/static/icons/icon-192.png',
     '/static/icons/icon-512.png',
     '/static/manifest.json'
@@ -219,3 +220,88 @@ self.addEventListener('message', (event) => {
         self.skipWaiting();
     }
 });
+
+// Push Notification Listeners
+self.addEventListener('push', (event) => {
+    console.log('[SW] Push received');
+
+    let data = {
+        title: 'Med Tracker',
+        body: 'New notification',
+        icon: '/static/icons/icon-192.png',
+        badge: '/static/icons/icon-192.png'
+    };
+
+    if (event.data) {
+        data = event.data.json();
+    }
+
+    event.waitUntil(
+        self.registration.showNotification(data.title, {
+            body: data.body,
+            icon: data.icon,
+            badge: data.badge,
+            tag: data.tag,
+            data: data.data,
+            actions: data.actions || [],
+            requireInteraction: true
+        })
+    );
+});
+
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+
+    const data = event.notification.data;
+    const action = event.action;
+
+    if (data && data.type === 'medication') {
+        if (action === 'confirm') {
+            event.waitUntil(handleMedicationConfirm(data));
+        } else if (action === 'snooze') {
+            // Snooze 10 minutes
+            event.waitUntil(
+                new Promise(resolve => {
+                    setTimeout(() => {
+                        self.registration.showNotification(
+                            event.notification.title,
+                            event.notification
+                        );
+                        resolve();
+                    }, 10 * 60 * 1000)
+                })
+            );
+        } else {
+            event.waitUntil(clients.openWindow('/'));
+        }
+    } else {
+        event.waitUntil(clients.openWindow('/'));
+    }
+});
+
+async function handleMedicationConfirm(data) {
+    // POST to API
+    try {
+        const response = await fetch('/api/medications/confirm-schedule', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                scheduled_at: data.scheduled_at,
+                medication_ids: data.medication_ids
+            })
+        });
+
+        if (response.ok) {
+            console.log("Confirmed from push");
+        }
+    } catch (e) {
+        console.error("Failed to confirm from push", e);
+        // Maybe sync later?
+    }
+
+    // Notify all clients to update UI
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => {
+        client.postMessage({ type: 'MEDICATION_CONFIRMED' });
+    });
+}
