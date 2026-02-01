@@ -65,8 +65,27 @@ services:
     image: aiogram/telegram-bot-api:latest
     container_name: medtracker-telegram-api
     restart: unless-stopped
-    # Run as root to fix permissions, then drop to uid 1000 (matches medtracker's appuser)
-    command: sh -c "chown -R 1000:1000 /var/lib/telegram-bot-api && exec setpriv --reuid=1000 --regid=1000 --clear-groups telegram-bot-api --api-id=$$TELEGRAM_API_ID --api-hash=$$TELEGRAM_API_HASH --local"
+    # Default entrypoint forces user 101. We override it to run our own setup.
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        # Create appuser (1000) if not exists (handling both Alpine/Debian variants)
+        id -u 1000 >/dev/null 2>&1 || adduser -D -u 1000 appuser 2>/dev/null || useradd -u 1000 appuser
+        
+        # Fix permissions so appuser can write
+        chown -R 1000:1000 /var/lib/telegram-bot-api
+        
+        # Run server, telling it to switch to our new user
+        # We start as root, let the binary drop privileges to appuser (1000)
+        exec telegram-bot-api --local \
+          --api-id=$${TELEGRAM_API_ID} \
+          --api-hash=$${TELEGRAM_API_HASH} \
+          --dir=/var/lib/telegram-bot-api \
+          --temp-dir=/tmp \
+          --username=1000 \
+          --groupname=1000 \
+          --http-port=8081
     volumes:
       - telegram_bot_api_data:/var/lib/telegram-bot-api
     environment:
