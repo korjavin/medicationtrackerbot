@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     volumes:
       - medtracker_data:/app/data
+      - telegram_bot_api_data:/var/lib/telegram-bot-api:ro
       - telegram_bot_api_data:/var/lib/telegram-bot-api
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
@@ -65,12 +66,12 @@ services:
     image: aiogram/telegram-bot-api:latest
     container_name: medtracker-telegram-api
     restart: unless-stopped
+    command: sh -c "umask 0022 && telegram-bot-api --api-id=$$TELEGRAM_API_ID --api-hash=$$TELEGRAM_API_HASH --local"
     volumes:
       - telegram_bot_api_data:/var/lib/telegram-bot-api
     environment:
       - TELEGRAM_API_ID=${TELEGRAM_API_ID}
       - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
-      - TELEGRAM_LOCAL=1
     ports:
       - "8082:8081"
     networks:
