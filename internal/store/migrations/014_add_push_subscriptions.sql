@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE push_subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -11,3 +12,6 @@ CREATE TABLE push_subscriptions (
 
 CREATE INDEX idx_push_subscriptions_user_id ON push_subscriptions(user_id);
 CREATE INDEX idx_push_subscriptions_enabled ON push_subscriptions(enabled);
+
+-- +goose Down
+DROP TABLE push_subscriptions;
