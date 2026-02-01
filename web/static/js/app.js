@@ -22,14 +22,63 @@ function safeAlert(msg) {
 const userInitData = tg.initData;
 let initialAuthLoad = false;
 
+// Auth state cache configuration (matches server cookie TTL: 30 days)
+const AUTH_CACHE_KEY = 'medtracker_auth_state';
+const AUTH_CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
+
+// Save auth state to localStorage
+function saveAuthState(authMethod = 'cookie') {
+    const authState = {
+        authenticated: true,
+        authMethod: authMethod,
+        timestamp: Date.now(),
+        ttl: AUTH_CACHE_TTL
+    };
+    localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify(authState));
+    console.log('[Auth] Saved auth state to cache');
+}
+
+// Get cached auth state from localStorage
+function getCachedAuthState() {
+    try {
+        const cached = localStorage.getItem(AUTH_CACHE_KEY);
+        if (!cached) return null;
+
+        const authState = JSON.parse(cached);
+
+        // Check if cache is still valid (within TTL)
+        if (Date.now() - authState.timestamp < authState.ttl) {
+            return authState;
+        }
+
+        // Expired, clear it
+        localStorage.removeItem(AUTH_CACHE_KEY);
+        console.log('[Auth] Auth state cache expired');
+        return null;
+    } catch (e) {
+        console.error('[Auth] Failed to read auth state cache:', e);
+        return null;
+    }
+}
+
+// Clear auth state (for logout)
+function clearAuthState() {
+    localStorage.removeItem(AUTH_CACHE_KEY);
+    console.log('[Auth] Cleared auth state cache');
+}
+
 // Check Auth Environment
 async function checkAuth() {
     if (userInitData) {
         // We are in Telegram, proceed as normal
+        saveAuthState('telegram');
         return true;
     }
 
-    // Not in Telegram. Try to access API to see if we have valid Session Cookie
+    // Not in Telegram. Check cached auth state first (for offline support)
+    const cachedAuth = getCachedAuthState();
+
+    // Try to access API to see if we have valid Session Cookie
     try {
         // Optimization: Fetch full data here to avoid second request
         const res = await fetch('/api/medications?archived=true', { method: 'GET' });
@@ -38,50 +87,106 @@ async function checkAuth() {
             const data = await res.json();
             medications = data;
             initialAuthLoad = true;
+            saveAuthState('cookie');
+
+            // Cache medications for offline use
+            if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
+                await window.MedTrackerDB.MedicationStore.saveCache(medications);
+            }
+
             return true;
+        } else if (res.status === 401 || res.status === 403) {
+            // Definitely not authorized, clear cache
+            clearAuthState();
         }
     } catch (e) {
-        console.log("Auth check failed", e);
+        console.log("[Auth] Network check failed:", e);
+
+        // Network error - check if we're offline and have cached auth
+        if (cachedAuth && cachedAuth.authenticated) {
+            console.log('[Auth] Offline but using cached auth state');
+
+            // Load medications from cache for offline use
+            if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
+                const cached = await window.MedTrackerDB.MedicationStore.getCache();
+                if (cached) {
+                    console.log('[Auth] Loaded medications from cache:', cached.length);
+                    medications = cached;
+                    initialAuthLoad = true;
+                }
+            }
+
+            return true; // Trust cached state when offline
+        }
     }
 
-    // Not authorized. Show login options
+    // Not authorized and no valid cache. Show login options
     const loginContainer = document.createElement('div');
-    loginContainer.style.cssText = "display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:60vh; gap: 20px;";
+    loginContainer.style.cssText = "display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:60vh; gap: 20px; padding: 20px;";
 
-    // Title
-    const title = document.createElement('h2');
-    title.innerText = "Login to Med Tracker";
-    title.style.cssText = "color: var(--text-color, #333); margin-bottom: 10px;";
-    loginContainer.appendChild(title);
+    // Check if we're offline
+    const isOffline = !navigator.onLine;
 
-    // Create a container for the Telegram widget
-    const tgWidgetContainer = document.createElement('div');
-    tgWidgetContainer.id = 'telegram-login-container';
+    if (isOffline) {
+        // Show offline message instead of login widgets
+        const title = document.createElement('h2');
+        title.innerText = "Offline";
+        title.style.cssText = "color: var(--text-color, #333); margin-bottom: 10px;";
+        loginContainer.appendChild(title);
 
-    // Add the Telegram widget script
-    const tgScript = document.createElement('script');
-    tgScript.async = true;
-    tgScript.src = "https://telegram.org/js/telegram-widget.js?22";
-    tgScript.setAttribute('data-telegram-login', window.BOT_USERNAME);
-    tgScript.setAttribute('data-size', 'large');
-    tgScript.setAttribute('data-onauth', 'onTelegramAuth(user)');
-    tgScript.setAttribute('data-request-access', 'write');
+        const message = document.createElement('p');
+        message.innerHTML = "You need an internet connection to log in for the first time.<br><br>If you have logged in before, your session will be available once you're back online.";
+        message.style.cssText = "color: var(--text-color, #666); text-align: center; max-width: 400px; line-height: 1.6;";
+        loginContainer.appendChild(message);
 
-    tgWidgetContainer.appendChild(tgScript);
-    loginContainer.appendChild(tgWidgetContainer);
+        // Retry button
+        const retryBtn = document.createElement('button');
+        retryBtn.innerText = "Retry";
+        retryBtn.onclick = () => location.reload();
+        retryBtn.style.cssText = "padding: 12px 24px; font-size: 16px; background: var(--primary-color, #007bff); color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 10px;";
+        loginContainer.appendChild(retryBtn);
 
-    // Divider
-    const divider = document.createElement('div');
-    divider.style.cssText = "display:flex; align-items:center; gap:10px; color: #999; margin: 10px 0;";
-    divider.innerHTML = '<span style="flex:1; height:1px; background:#ddd;"></span><span>or</span><span style="flex:1; height:1px; background:#ddd;"></span>';
-    loginContainer.appendChild(divider);
+        // Listen for online event to auto-retry
+        window.addEventListener('online', () => {
+            console.log('[Auth] Back online, reloading...');
+            location.reload();
+        });
+    } else {
+        // Normal login page with widgets
+        const title = document.createElement('h2');
+        title.innerText = "Login to Med Tracker";
+        title.style.cssText = "color: var(--text-color, #333); margin-bottom: 10px;";
+        loginContainer.appendChild(title);
 
-    // Google login button
-    const googleBtn = document.createElement('button');
-    googleBtn.innerText = "Login with Google";
-    googleBtn.onclick = () => window.location.href = "/auth/google/login";
-    googleBtn.style.cssText = "padding: 12px 24px; font-size: 16px; background: #4285F4; color: white; border: none; border-radius: 5px; cursor: pointer;";
-    loginContainer.appendChild(googleBtn);
+        // Create a container for the Telegram widget
+        const tgWidgetContainer = document.createElement('div');
+        tgWidgetContainer.id = 'telegram-login-container';
+
+        // Add the Telegram widget script
+        const tgScript = document.createElement('script');
+        tgScript.async = true;
+        tgScript.src = "https://telegram.org/js/telegram-widget.js?22";
+        tgScript.setAttribute('data-telegram-login', window.BOT_USERNAME);
+        tgScript.setAttribute('data-size', 'large');
+        tgScript.setAttribute('data-onauth', 'onTelegramAuth(user)');
+        tgScript.setAttribute('data-request-access', 'write');
+
+        tgWidgetContainer.appendChild(tgScript);
+        loginContainer.appendChild(tgWidgetContainer);
+
+        // Divider
+        const divider = document.createElement('div');
+        divider.style.cssText = "display:flex; align-items:center; gap:10px; color: #999; margin: 10px 0;";
+        divider.innerHTML = '<span style="flex:1; height:1px; background:#ddd;"></span><span>or</span><span style="flex:1; height:1px; background:#ddd;"></span>';
+        loginContainer.appendChild(divider);
+
+        // Google login button
+        const googleBtn = document.createElement('button');
+        googleBtn.innerText = "Login with Google";
+        googleBtn.onclick = () => window.location.href = "/auth/google/login";
+        googleBtn.style.cssText = "padding: 12px 24px; font-size: 16px; background: #4285F4; color: white; border: none; border-radius: 5px; cursor: pointer;";
+        loginContainer.appendChild(googleBtn);
+    }
 
     document.body.innerHTML = "";
     document.body.appendChild(loginContainer);
@@ -783,16 +888,42 @@ function escapeHtml(text) {
 async function loadMeds() {
     if (initialAuthLoad) {
         initialAuthLoad = false;
+        // Cache medications from initial auth load
+        if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
+            await window.MedTrackerDB.MedicationStore.saveCache(medications);
+        }
         renderMeds();
         populateMedFilter();
         return;
     }
 
+    // Try to load from API
     const res = await apiCall('/api/medications?archived=true');
     if (res) {
         medications = res;
+
+        // Cache successful response for offline use
+        if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
+            await window.MedTrackerDB.MedicationStore.saveCache(medications);
+        }
+
         renderMeds();
         populateMedFilter();
+    } else {
+        // Failed to load from API (likely offline), try cache
+        console.log('[Meds] API failed, trying cache...');
+        if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
+            const cached = await window.MedTrackerDB.MedicationStore.getCache();
+            if (cached) {
+                console.log('[Meds] Loaded from cache:', cached.length, 'medications');
+                medications = cached;
+                renderMeds();
+                populateMedFilter();
+            } else {
+                console.log('[Meds] No cache available');
+                // Show empty state or offline message in UI
+            }
+        }
     }
 }
 
