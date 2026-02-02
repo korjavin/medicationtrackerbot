@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/bot"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	"github.com/korjavin/medicationtrackerbot/internal/webpush"
@@ -22,6 +23,7 @@ import (
 
 type Server struct {
 	store         *store.Store
+	bot           *bot.Bot
 	rxnorm        *rxnorm.Client
 	botToken      string
 	allowedUserID int64
@@ -38,9 +40,10 @@ type VAPIDConfig struct {
 	Subject    string
 }
 
-func New(s *store.Store, botToken string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidConfig VAPIDConfig) *Server {
+func New(s *store.Store, b *bot.Bot, botToken string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidConfig VAPIDConfig) *Server {
 	srv := &Server{
 		store:         s,
+		bot:           b,
 		rxnorm:        rxnorm.New(),
 		botToken:      botToken,
 		allowedUserID: allowedUserID,
@@ -1039,25 +1042,64 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	var req struct {
-		ScheduledAt   string  `json:"scheduled_at"` // RFC3339
+		ScheduledAt   string  `json:"scheduled_at"`
 		MedicationIDs []int64 `json:"medication_ids"`
+		IntakeIDs     []int64 `json:"intake_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
+	now := time.Now()
+
+	// 1. Prefer Intake IDs if available
+	if len(req.IntakeIDs) > 0 {
+		for _, id := range req.IntakeIDs {
+			// Verify ownership and status
+			intake, err := s.store.GetIntake(id)
+			if err != nil {
+				log.Printf("Error getting intake %d: %v", id, err)
+				continue
+			}
+			if intake == nil || intake.UserID != userID {
+				continue // access denied or not found
+			}
+
+			if intake.Status == "PENDING" {
+				// Delete Telegram Messages
+				reminders, _ := s.store.GetIntakeReminders(id)
+				for _, msgID := range reminders {
+					if s.bot != nil {
+						s.bot.DeleteMessage(msgID)
+					}
+				}
+
+				if err := s.store.ConfirmIntake(id, now); err != nil {
+					log.Printf("Error confirming intake %d: %v", intake.ID, err)
+				}
+
+				// Decrement inventory
+				if err := s.store.DecrementInventory(intake.MedicationID, 1); err != nil {
+					log.Printf("Error decrementing inventory: %v", err)
+				}
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// 2. Fallback to ScheduledAt + MedicationIDs
+	// Parse ScheduledAt
 	parsedTime, err := time.Parse(time.RFC3339, req.ScheduledAt)
 	if err != nil {
+		// Try other formats if needed, or just fail
+		log.Printf("Error parsing time %s: %v", req.ScheduledAt, err)
 		http.Error(w, "Invalid time format", http.StatusBadRequest)
 		return
 	}
 
-	now := time.Now()
-
-	// Confirm for each medication
 	for _, medID := range req.MedicationIDs {
-		// Verify this belongs to user/schedule
 		intake, err := s.store.GetIntakeBySchedule(medID, parsedTime)
 		if err != nil {
 			log.Printf("Error finding intake for med %d at %s: %v", medID, req.ScheduledAt, err)
@@ -1065,8 +1107,21 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if intake != nil && intake.UserID == userID && intake.Status == "PENDING" {
+			// Delete Telegram Messages
+			reminders, _ := s.store.GetIntakeReminders(intake.ID)
+			for _, msgID := range reminders {
+				if s.bot != nil {
+					s.bot.DeleteMessage(msgID)
+				}
+			}
+
 			if err := s.store.ConfirmIntake(intake.ID, now); err != nil {
 				log.Printf("Error confirming intake %d: %v", intake.ID, err)
+			}
+
+			// Decrement inventory
+			if err := s.store.DecrementInventory(medID, 1); err != nil {
+				log.Printf("Error decrementing inventory: %v", err)
 			}
 		} else if intake == nil {
 			log.Printf("Intake not found or not pending for med %d at %s", medID, req.ScheduledAt)
@@ -1163,7 +1218,7 @@ func (s *Server) handleSendTestMedicationNotification(w http.ResponseWriter, r *
 
 	// Send simulated Push
 	ctx := context.Background()
-	if err := s.webPush.SendMedicationNotification(ctx, userID, medsAtEarliest, earliestNext); err != nil {
+	if err := s.webPush.SendMedicationNotification(ctx, userID, medsAtEarliest, earliestNext, nil); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to send push: %v", err), http.StatusInternalServerError)
 		return
 	}
