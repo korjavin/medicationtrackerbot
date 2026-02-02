@@ -6,3 +6,4 @@ meds.db
 *.db-wal
 *.db-shm
 docs/screenshots
+.agent/rules/
