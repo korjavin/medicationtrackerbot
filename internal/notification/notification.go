@@ -63,13 +63,17 @@ type Provider interface {
 	// MaxActions returns the maximum number of actions this provider supports
 	MaxActions() int
 
-	// RemoveNotification removes/deletes a previously sent notification by its ID
-	// Returns nil if not supported by this provider
+	// RemoveNotification removes a specific notification from the user's device/chat
+	// Returns nil if removal is not supported or notification doesn't exist
 	RemoveNotification(ctx context.Context, notificationID interface{}) error
 
-	// SendSimpleMessage sends a simple text message without actions
-	// Used for reminders, confirmations, etc.
-	SendSimpleMessage(ctx context.Context, userID int64, message string) error
+	// ClearReminders removes all reminder messages for a specific intake
+	// This is called after a medication is confirmed to clean up pending reminders
+	ClearReminders(ctx context.Context, userID int64, intakeID int64) error
+
+	// SendSimpleMessage sends a plain text notification without actions
+	// Returns message ID that can be stored for later removal
+	SendSimpleMessage(ctx context.Context, userID int64, message string, notifType NotificationType) (messageID string, err error)
 
 	// SupportsNotificationRemoval indicates if this provider can remove notifications
 	SupportsNotificationRemoval() bool

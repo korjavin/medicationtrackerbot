@@ -44,7 +44,6 @@ func main() {
 		log.Fatalf("Failed to initialize store: %v", err)
 	}
 	defer s.Close()
-	defer s.Close()
 	log.Println("Database initialized at", dbPath)
 
 	// 3. Create action handler (needed by both bot and server)

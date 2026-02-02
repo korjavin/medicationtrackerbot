@@ -231,13 +231,29 @@ func (s *Scheduler) checkReminders() error {
 				med.Name, med.Dosage, scheduledAt.Format("15:04"))
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			err = s.notifService.SendSimpleMessage(ctx, s.allowedUserID, text, notification.TypeMedication)
-			cancel()
 
-			if err != nil {
-				log.Printf("Failed to send reminder: %v", err)
+			// Send reminder via notification service and store message IDs
+			providers := s.notifService.GetAllProviders()
+			for providerName, provider := range providers {
+				if !provider.IsEnabled() {
+					continue
+				}
+
+				messageID, err := provider.SendSimpleMessage(ctx, s.allowedUserID, text, notification.TypeReminder)
+				if err != nil {
+					log.Printf("Failed to send reminder via %s: %v", providerName, err)
+					continue
+				}
+
+				// Store message ID for later cleanup
+				if messageID != "" {
+					if err := s.store.StoreReminderMessage(s.allowedUserID, p.ID, providerName, messageID); err != nil {
+						log.Printf("Failed to store reminder message ID: %v", err)
+					}
+				}
 			}
-			// TODO: Store message IDs for reminders if needed for later deletion
+
+			cancel()
 		}
 	}
 	return nil

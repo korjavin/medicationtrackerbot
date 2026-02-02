@@ -1342,7 +1342,8 @@ input:checked+.toggle-slider:before {
 
 .notification-matrix th,
 .notification-matrix td {
-    padding: 12px;breaktext-align: left;
+    padding: 12px;
+    text-align: left;
     border-bottom: 1px solid #e0e0e0;
 }
 
