@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
+	"github.com/korjavin/medicationtrackerbot/internal/notification"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	"github.com/korjavin/medicationtrackerbot/internal/webpush"
@@ -32,6 +33,7 @@ type Server struct {
 	botUsername   string
 	vapidConfig   VAPIDConfig
 	webPush       *webpush.Service
+	actionHandler *notification.ActionHandler
 }
 
 type VAPIDConfig struct {
@@ -40,7 +42,7 @@ type VAPIDConfig struct {
 	Subject    string
 }
 
-func New(s *store.Store, b *bot.Bot, botToken string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidConfig VAPIDConfig) *Server {
+func New(s *store.Store, b *bot.Bot, botToken string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidConfig VAPIDConfig, actionHandler *notification.ActionHandler) *Server {
 	srv := &Server{
 		store:         s,
 		bot:           b,
@@ -50,6 +52,7 @@ func New(s *store.Store, b *bot.Bot, botToken string, allowedUserID int64, oidc 
 		oidcConfig:    oidc,
 		botUsername:   botUsername,
 		vapidConfig:   vapidConfig,
+		actionHandler: actionHandler,
 	}
 
 	if vapidConfig.PublicKey != "" && vapidConfig.PrivateKey != "" {
@@ -159,6 +162,14 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/webpush/subscriptions", s.handleListPushSubscriptions)
 	apiMux.HandleFunc("POST /api/webpush/test-medication", s.handleSendTestMedicationNotification)
 	apiMux.HandleFunc("POST /api/medications/confirm-schedule", s.handleConfirmSchedule)
+
+	// Notification action endpoint (unified for all providers)
+	apiMux.HandleFunc("POST /api/notifications/action", s.handleNotificationAction)
+	
+	// Notification settings endpoints
+	apiMux.HandleFunc("GET /api/notifications/settings", s.handleGetNotificationSettings)
+	apiMux.HandleFunc("POST /api/notifications/settings", s.handleUpdateNotificationSettings)
+	apiMux.HandleFunc("GET /api/notifications/providers", s.handleListNotificationProviders)
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
@@ -1225,4 +1236,55 @@ func (s *Server) handleSendTestMedicationNotification(w http.ResponseWriter, r *
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Sent simulated notification for %d medication(s) scheduled at %s", len(medsAtEarliest), earliestNext.Format("15:04"))
+}
+
+// handleNotificationAction handles action callbacks from web push notifications
+func (s *Server) handleNotificationAction(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	
+	var req struct {
+		ActionID string                 `json:"action_id"`
+		ActionType string               `json:"action_type"`
+		Data     map[string]interface{} `json:"data"`
+	}
+	
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	
+	// Convert action type string to NotificationType
+	var actionType notification.ActionType
+	switch req.ActionType {
+	case "confirm":
+		actionType = notification.ActionConfirm
+	case "snooze":
+		actionType = notification.ActionSnooze
+	case "skip":
+		actionType = notification.ActionSkip
+	case "start":
+		actionType = notification.ActionStart
+	default:
+		http.Error(w, "Unknown action type", http.StatusBadRequest)
+		return
+	}
+	
+	// Create notification action
+	action := notification.NotificationAction{
+		ID:   req.ActionID,
+		Type: actionType,
+		Data: req.Data,
+	}
+	
+	// Process action through handler
+	if err := s.actionHandler.HandleAction(r.Context(), userID, action); err != nil {
+		log.Printf("[Server] Action handler error: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "success",
+	})
 }

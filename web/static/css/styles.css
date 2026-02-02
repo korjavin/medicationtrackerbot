@@ -1333,3 +1333,76 @@ input:checked+.toggle-slider {
 input:checked+.toggle-slider:before {
     transform: translateX(22px);
 }
+/* Notification Matrix Styles */
+.notification-matrix {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.notification-matrix th,
+.notification-matrix td {
+    padding: 12px;breaktext-align: left;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.notification-matrix th {
+    background: #f5f5f5;
+    font-weight: 600;
+    font-size: 0.9em;
+    color: #333;
+}
+
+.notification-matrix td:first-child {
+    font-weight: 500;
+}
+
+.notification-matrix td:not(:first-child) {
+    text-align: center;
+}
+
+.provider-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 12px;
+    font-size: 0.85em;
+    margin: 4px 8px 4px 0;
+}
+
+.provider-status-badge.enabled {
+    background: #e7f5e7;
+    color: #2e7d32;
+}
+
+.provider-status-badge.disabled {
+    background: #f5f5f5;
+    color: #999;
+}
+
+.provider-status-badge .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.provider-status-badge.enabled .status-dot {
+    background: #4caf50;
+}
+
+.provider-status-badge.disabled .status-dot {
+    background: #bdbdbd;
+}
+
+.setting-section {
+    margin-bottom: 30px;
+}
+
+.setting-section h4 {
+    margin-bottom: 5px;
+}
+
+.notification-matrix .toggle {
+    margin: 0;
+}
