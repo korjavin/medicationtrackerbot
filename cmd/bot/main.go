@@ -93,7 +93,7 @@ func main() {
 		log.Println("Bot username:", botUsername)
 	}
 
-	srv := server.New(s, botToken, allowedUserID, oidcConfig, botUsername, vapidConfig)
+	srv := server.New(s, tgBot, botToken, allowedUserID, oidcConfig, botUsername, vapidConfig)
 
 	if tgBot != nil {
 		// Scheduler needs WebPush service from server

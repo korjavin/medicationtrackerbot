@@ -174,27 +174,34 @@ func (s *Scheduler) checkSchedule() error {
 			continue
 		}
 
-		// 1. Create Pending Logs for ALL in group
+		// Create Intakes for all meds in group
+		var intakeIDs []int64
 		for _, med := range group.Meds {
 			log.Printf("Triggering medication %s (%s) scheduled for %s", med.Name, med.Dosage, med.Schedule)
-			_, err := s.store.CreateIntake(med.ID, s.allowedUserID, group.Target)
+			id, err := s.store.CreateIntake(med.ID, s.allowedUserID, group.Target)
 			if err != nil {
 				log.Printf("Failed to create intake log: %v", err)
-				// Continue? If fail, it won't be confirmable.
+			} else {
+				intakeIDs = append(intakeIDs, id)
 			}
 		}
 
-		// 2. Send Group Notification
-		if err := s.bot.SendGroupNotification(group.Meds, group.Target); err != nil {
-			log.Printf("Failed to send group notification: %v", err)
-		}
+		// Send Telegram Notification
+		go func(meds []store.Medication, target time.Time) {
+			if err := s.bot.SendGroupNotification(meds, target); err != nil {
+				log.Printf("Failed to send group notification: %v", err)
+			}
+		}(group.Meds, group.Target)
 
-		// 3. Send Web Push
+		// Send Web Push Notification
 		if s.webPush != nil {
-			ctx := context.Background()
-			if err := s.webPush.SendMedicationNotification(ctx, s.allowedUserID, group.Meds, group.Target); err != nil {
-				log.Printf("Failed to send Web Push: %v", err)
-			}
+			go func(meds []store.Medication, target time.Time, iIDs []int64) {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if err := s.webPush.SendMedicationNotification(ctx, s.allowedUserID, meds, target, iIDs); err != nil {
+					log.Printf("Failed to send web push notification: %v", err)
+				}
+			}(group.Meds, group.Target, intakeIDs)
 		}
 	}
 

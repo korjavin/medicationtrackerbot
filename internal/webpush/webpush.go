@@ -45,7 +45,7 @@ type NotificationAction struct {
 	Title  string `json:"title"`
 }
 
-func (s *Service) SendMedicationNotification(ctx context.Context, userID int64, meds []store.Medication, scheduledTime time.Time) error {
+func (s *Service) SendMedicationNotification(ctx context.Context, userID int64, meds []store.Medication, scheduledTime time.Time, intakeIDs []int64) error {
 	if s.vapidPublicKey == "" || s.vapidPrivateKey == "" {
 		return nil // Web push disabled
 	}
@@ -75,6 +75,7 @@ func (s *Service) SendMedicationNotification(ctx context.Context, userID int64, 
 			"scheduled_at":     scheduledTime.Format(time.RFC3339),
 			"medication_ids":   medIDs,
 			"medication_names": medNames,
+			"intake_ids":       intakeIDs,
 		},
 		Actions: []NotificationAction{
 			{Action: "confirm_all", Title: "Confirm All"},

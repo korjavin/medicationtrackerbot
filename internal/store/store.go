@@ -540,6 +540,20 @@ func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
 	return logs, nil
 }
 
+func (s *Store) GetIntake(id int64) (*IntakeLog, error) {
+	var l IntakeLog
+	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at, taken_at, status FROM intake_log WHERE id = ?", id).Scan(
+		&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil // Not found
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &l, nil
+}
+
 func (s *Store) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*IntakeLog, error) {
 	// We want to find a log that matches the medication and the exact scheduled time (or within a small window if we used drift, but here we construct exact time)
 	// Since we construct scheduledAt based on "Today + HH:MM", it should be exact.
