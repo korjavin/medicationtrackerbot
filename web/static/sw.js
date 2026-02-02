@@ -281,6 +281,7 @@ self.addEventListener('notificationclick', (event) => {
             const params = new URLSearchParams();
             params.set('action', 'medication_confirm');
             if (data.medication_ids) params.set('ids', data.medication_ids.join(','));
+            if (data.intake_ids) params.set('intake_ids', data.intake_ids.join(','));
             if (data.scheduled_at) params.set('scheduled', data.scheduled_at);
             if (data.medication_names) params.set('names', data.medication_names.join(','));
 
@@ -309,7 +310,8 @@ async function handleMedicationConfirm(data) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 scheduled_at: data.scheduled_at,
-                medication_ids: data.medication_ids
+                medication_ids: data.medication_ids,
+                intake_ids: data.intake_ids
             })
         });
 
