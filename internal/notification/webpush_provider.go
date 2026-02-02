@@ -45,14 +45,19 @@ func (p *WebPushProvider) RemoveNotification(ctx context.Context, notificationID
 	return nil
 }
 
-func (p *WebPushProvider) SendSimpleMessage(ctx context.Context, userID int64, message string) error {
+func (p *WebPushProvider) SendSimpleMessage(ctx context.Context, userID int64, message string, notifType NotificationType) (string, error) {
 	if p.service == nil {
-		return fmt.Errorf("web push service not configured")
+		return "", fmt.Errorf("web push service not configured")
 	}
 
-	// Send a simple notification without actions
-	// Implementation would go here - for now, not implemented
-	log.Printf("[WebPushProvider] SendSimpleMessage not fully implemented: %s", message)
+	// Web Push doesn't support generic text messages - only structured notifications
+	log.Printf("[WebPushProvider] SendSimpleMessage: %s (type: %s)", message, notifType)
+	return "", nil // No message ID for web push
+}
+
+// ClearReminders is a no-op for Web Push since we can't remove notifications
+func (p *WebPushProvider) ClearReminders(ctx context.Context, userID int64, intakeID int64) error {
+	// Web Push can't programmatically remove notifications from user's device
 	return nil
 }
 

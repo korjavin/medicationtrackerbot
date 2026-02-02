@@ -229,13 +229,18 @@ func (s *Scheduler) sendWorkoutNotification(session *store.WorkoutSession, group
 
 	notif := notification.NotificationContext{
 		Type:  notification.TypeWorkout,
-		Title: fmt.Sprintf("🏋️ %s - %s", group.Name, variant.Name),
+		Title: fmt.Sprintf("🏋️ Workout: %s", group.Name),
 		Body:  message,
-		Tag:   fmt.Sprintf("workout_%d", session.ID),
+		Actions: []notification.NotificationAction{
+			{ID: "start_workout", Type: notification.ActionStart, Label: "Start Workout"},
+			{ID: "snooze_workout", Type: notification.ActionSnooze, Label: "Snooze 1h"},
+			{ID: "skip_workout", Type: notification.ActionSkip, Label: "Skip"},
+		},
 		Data: map[string]interface{}{
-			"session": session,
-			"group":   group,
-			"variant": variant,
+			"session_id":   session.ID,
+			"workout_name": group.Name,
+			"variant_name": variant.Name,
+			"scheduled_at": session.ScheduledTime,
 		},
 	}
 

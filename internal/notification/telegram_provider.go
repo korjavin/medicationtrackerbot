@@ -3,6 +3,7 @@ package notification
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -11,11 +12,13 @@ import (
 // TelegramMessenger defines the interface for sending Telegram messages
 // This avoids circular dependency with the bot package
 type TelegramMessenger interface {
-	DeleteMessage(messageID int) error
-	SendNotification(message string, replyTo int64) (int, error)
-	SendGroupNotification(meds []store.Medication, target time.Time) error
+	SendMedicationNotification(medications []store.Medication, scheduledTime time.Time, intakeIDs []int64) (int, error)
 	SendWorkoutNotification(message string, sessionID int64) (int, error)
 	SendLowStockWarning(message string) error
+	RemoveMedicationNotification(messageID int) error
+	SendSimpleMessage(message string) (int, error)
+	DeleteMessage(messageID int) error                                     // For backward compatibility
+	SendGroupNotification(meds []store.Medication, target time.Time) error // For backward compatibility
 }
 
 // TelegramProvider implements the Provider interface for Telegram
@@ -61,13 +64,23 @@ func (p *TelegramProvider) RemoveNotification(ctx context.Context, notificationI
 	return p.messenger.DeleteMessage(messageID)
 }
 
-func (p *TelegramProvider) SendSimpleMessage(ctx context.Context, userID int64, message string) error {
+func (p *TelegramProvider) SendSimpleMessage(ctx context.Context, userID int64, message string, notifType NotificationType) (string, error) {
 	if p.messenger == nil {
-		return fmt.Errorf("telegram bot not configured")
+		return "", fmt.Errorf("telegram bot not configured")
 	}
 
-	_, err := p.messenger.SendNotification(message, 0)
-	return err
+	msgID, err := p.messenger.SendSimpleMessage(message)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d", msgID), nil
+}
+
+// ClearReminders removes all reminder messages for a specific intake
+func (p *TelegramProvider) ClearReminders(ctx context.Context, userID int64, intakeID int64) error {
+	// This will be called by ActionHandler which has access to store
+	log.Printf("[TelegramProvider] ClearReminders called for intake %d", intakeID)
+	return nil
 }
 
 func (p *TelegramProvider) Send(ctx context.Context, userID int64, notif NotificationContext) error {

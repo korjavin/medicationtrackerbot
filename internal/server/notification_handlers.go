@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-
 )
 
 // handleGetNotificationSettings returns user's notification preferences
@@ -13,7 +12,7 @@ func (s *Server) handleGetNotificationSettings(w http.ResponseWriter, r *http.Re
 
 	// Get all notification types
 	notifTypes := []string{"medication", "workout", "low_stock", "reminder"}
-	providers := []string{"telegram", "webpush"}
+	providers := []string{"telegram", "web_push"}
 
 	type SettingResponse struct {
 		Provider string `json:"provider"`
@@ -61,7 +60,7 @@ func (s *Server) handleUpdateNotificationSettings(w http.ResponseWriter, r *http
 	}
 
 	// Validate provider and type
-	validProviders := map[string]bool{"telegram": true, "webpush": true}
+	validProviders := map[string]bool{"telegram": true, "web_push": true}
 	validTypes := map[string]bool{"medication": true, "workout": true, "low_stock": true, "reminder": true}
 
 	if !validProviders[req.Provider] {
@@ -90,11 +89,11 @@ func (s *Server) handleUpdateNotificationSettings(w http.ResponseWriter, r *http
 // handleListNotificationProviders returns available notification providers and their capabilities
 func (s *Server) handleListNotificationProviders(w http.ResponseWriter, r *http.Request) {
 	type ProviderInfo struct {
-		Name                     string   `json:"name"`
-		DisplayName              string   `json:"display_name"`
-		Enabled                  bool     `json:"enabled"`
-		SupportsActions          bool     `json:"supports_actions"`
-		SupportsRemoval          bool     `json:"supports_removal"`
+		Name                       string   `json:"name"`
+		DisplayName                string   `json:"display_name"`
+		Enabled                    bool     `json:"enabled"`
+		SupportsActions            bool     `json:"supports_actions"`
+		SupportsRemoval            bool     `json:"supports_removal"`
 		SupportedNotificationTypes []string `json:"supported_types"`
 	}
 
@@ -108,7 +107,7 @@ func (s *Server) handleListNotificationProviders(w http.ResponseWriter, r *http.
 			SupportedNotificationTypes: []string{"medication", "workout", "low_stock", "reminder"},
 		},
 		{
-			Name:                       "webpush",
+			Name:                       "web_push",
 			DisplayName:                "Web Push",
 			Enabled:                    s.webPush != nil,
 			SupportsActions:            true,

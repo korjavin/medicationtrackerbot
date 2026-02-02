@@ -103,6 +103,11 @@ func (s *Service) GetProviders() []ProviderInfo {
 	return providers
 }
 
+// GetAllProviders returns all registered providers
+func (s *Service) GetAllProviders() map[string]Provider {
+	return s.providers
+}
+
 // SendSimpleMessage sends a simple text message without actions to enabled providers
 func (s *Service) SendSimpleMessage(ctx context.Context, userID int64, message string, notifType NotificationType) error {
 	// Get enabled providers for this notification type
@@ -123,7 +128,8 @@ func (s *Service) SendSimpleMessage(ctx context.Context, userID int64, message s
 			continue
 		}
 
-		if err := provider.SendSimpleMessage(ctx, userID, message); err != nil {
+		_, err := provider.SendSimpleMessage(ctx, userID, message, notifType)
+		if err != nil {
 			log.Printf("[NotificationService] Provider %s failed to send simple message: %v", providerName, err)
 			lastErr = err
 		}

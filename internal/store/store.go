@@ -1388,6 +1388,49 @@ func (s *Store) UpdateNotificationSetting(userID int64, provider, notificationTy
 	return err
 }
 
+// StoreReminderMessage stores a reminder message ID for later cleanup
+func (s *Store) StoreReminderMessage(userID int64, intakeID int64, provider string, messageID string) error {
+	query := `INSERT INTO reminder_messages (user_id, intake_id, provider, message_id) VALUES (?, ?, ?, ?)`
+	_, err := s.db.Exec(query, userID, intakeID, provider, messageID)
+	return err
+}
+
+// GetReminderMessages retrieves all reminder message IDs for a specific intake
+func (s *Store) GetReminderMessages(intakeID int64) ([]struct {
+	Provider  string
+	MessageID string
+}, error) {
+	query := `SELECT provider, message_id FROM reminder_messages WHERE intake_id = ?`
+	rows, err := s.db.Query(query, intakeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var reminders []struct {
+		Provider  string
+		MessageID string
+	}
+	for rows.Next() {
+		var r struct {
+			Provider  string
+			MessageID string
+		}
+		if err := rows.Scan(&r.Provider, &r.MessageID); err != nil {
+			return nil, err
+		}
+		reminders = append(reminders, r)
+	}
+	return reminders, rows.Err()
+}
+
+// DeleteReminderMessages removes all reminder messages for a specific intake
+func (s *Store) DeleteReminderMessages(intakeID int64) error {
+	query := `DELETE FROM reminder_messages WHERE intake_id = ?`
+	_, err := s.db.Exec(query, intakeID)
+	return err
+}
+
 // GetEnabledProviders returns list of enabled provider names for a user and notification type
 func (s *Store) GetEnabledProviders(userID int64, notificationType string) ([]string, error) {
 	query := `SELECT provider FROM notification_settings 
