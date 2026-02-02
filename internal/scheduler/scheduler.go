@@ -7,25 +7,22 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/korjavin/medicationtrackerbot/internal/bot"
+	"github.com/korjavin/medicationtrackerbot/internal/notification"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
-	"github.com/korjavin/medicationtrackerbot/internal/webpush"
 )
 
 type Scheduler struct {
 	store             *store.Store
-	bot               *bot.Bot
+	notifService      *notification.Service
 	allowedUserID     int64
 	lastLowStockCheck time.Time
-	webPush           *webpush.Service
 }
 
-func New(store *store.Store, bot *bot.Bot, allowedUserID int64, webPush *webpush.Service) *Scheduler {
+func New(store *store.Store, notifService *notification.Service, allowedUserID int64) *Scheduler {
 	return &Scheduler{
 		store:         store,
-		bot:           bot,
+		notifService:  notifService,
 		allowedUserID: allowedUserID,
-		webPush:       webPush,
 	}
 }
 
@@ -186,23 +183,27 @@ func (s *Scheduler) checkSchedule() error {
 			}
 		}
 
-		// Send Telegram Notification
-		go func(meds []store.Medication, target time.Time) {
-			if err := s.bot.SendGroupNotification(meds, target); err != nil {
-				log.Printf("Failed to send group notification: %v", err)
-			}
-		}(group.Meds, group.Target)
+		// Send notifications via service
+		go func(meds []store.Medication, target time.Time, iIDs []int64) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 
-		// Send Web Push Notification
-		if s.webPush != nil {
-			go func(meds []store.Medication, target time.Time, iIDs []int64) {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				if err := s.webPush.SendMedicationNotification(ctx, s.allowedUserID, meds, target, iIDs); err != nil {
-					log.Printf("Failed to send web push notification: %v", err)
-				}
-			}(group.Meds, group.Target, intakeIDs)
-		}
+			notif := notification.NotificationContext{
+				Type:  notification.TypeMedication,
+				Title: "Medication Reminder",
+				Body:  buildMedicationMessage(meds, target),
+				Tag:   fmt.Sprintf("medication_%d", target.Unix()),
+				Data: map[string]interface{}{
+					"medications":    meds,
+					"scheduled_time": target,
+					"intake_ids":     iIDs,
+				},
+			}
+
+			if err := s.notifService.Send(ctx, s.allowedUserID, notif); err != nil {
+				log.Printf("Failed to send medication notification: %v", err)
+			}
+		}(group.Meds, group.Target, intakeIDs)
 	}
 
 	return nil
@@ -229,12 +230,14 @@ func (s *Scheduler) checkReminders() error {
 			text := fmt.Sprintf("🔔 REMINDER: You haven't confirmed taking %s (%s) yet on %s!",
 				med.Name, med.Dosage, scheduledAt.Format("15:04"))
 
-			msgID, err := s.bot.SendNotification(text, med.ID)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err = s.notifService.SendSimpleMessage(ctx, s.allowedUserID, text, notification.TypeMedication)
+			cancel()
+
 			if err != nil {
 				log.Printf("Failed to send reminder: %v", err)
-			} else {
-				s.store.AddIntakeReminder(p.ID, msgID)
 			}
+			// TODO: Store message IDs for reminders if needed for later deletion
 		}
 	}
 	return nil
@@ -284,16 +287,39 @@ func (s *Scheduler) checkLowStock() {
 
 	sb += "\nPlease restock soon!"
 
-	if err := s.bot.SendLowStockWarning(sb); err != nil {
-		log.Printf("Failed to send low stock warning: %v", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	notif := notification.NotificationContext{
+		Type:  notification.TypeLowStock,
+		Title: "⚠️ Low Stock Warning",
+		Body:  sb,
+		Tag:   fmt.Sprintf("low_stock_%s", time.Now().Format("2006-01-02")),
+		Data: map[string]interface{}{
+			"medications": meds,
+		},
 	}
 
-	if s.webPush != nil {
-		ctx := context.Background()
-		if err := s.webPush.SendLowStockNotification(ctx, s.allowedUserID, meds); err != nil {
-			log.Printf("Failed to send Web Push low stock: %v", err)
-		}
+	if err := s.notifService.Send(ctx, s.allowedUserID, notif); err != nil {
+		log.Printf("Failed to send low stock notification: %v", err)
 	}
 
 	s.lastLowStockCheck = time.Now()
+}
+
+// buildMedicationMessage creates a formatted message for medication notifications
+func buildMedicationMessage(meds []store.Medication, target time.Time) string {
+	if len(meds) == 0 {
+		return ""
+	}
+	if len(meds) == 1 {
+		return fmt.Sprintf("Time to take %s (%s)", meds[0].Name, meds[0].Dosage)
+	}
+
+	var msg string
+	msg = fmt.Sprintf("Time to take %d medications:", len(meds))
+	for _, m := range meds {
+		msg += fmt.Sprintf("\n• %s (%s)", m.Name, m.Dosage)
+	}
+	return msg
 }

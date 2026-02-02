@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/notification"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -33,15 +34,26 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 	if activeSession != nil && activeSession.StartedAt != nil {
 		duration := now.Sub(*activeSession.StartedAt)
 		if duration > 90*time.Minute && !strings.Contains(activeSession.Notes, "stale_reminded") {
-			s.bot.SendNotification("🏋️ Still training? It's been 1.5 hours. Don't forget to log your results!", 0)
+			// Send stale reminder via notification service
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err := s.notifService.SendSimpleMessage(ctx, s.allowedUserID,
+				"🏋️ Still training? It's been 1.5 hours. Don't forget to log your results!",
+				notification.TypeWorkout)
+			cancel()
+			if err != nil {
+				log.Printf("Failed to send stale workout reminder: %v", err)
+			}
 			s.store.UpdateWorkoutSessionNotes(activeSession.ID, activeSession.Notes+" stale_reminded")
 		}
 
 		// Clear blocked state after 4 hours of inactivity to prevent blocking next day's workouts
 		if duration > 4*time.Hour {
 			s.store.SkipSession(activeSession.ID)
+			// Delete notification message via notification service (Telegram only)
 			if activeSession.NotificationMessageID != nil {
-				s.bot.DeleteMessage(*activeSession.NotificationMessageID)
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				s.notifService.RemoveNotification(ctx, "telegram", *activeSession.NotificationMessageID)
+				cancel()
 			}
 			activeSession = nil
 		}
@@ -155,7 +167,9 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 					// Auto-skip after 6 hours of silence
 					s.store.SkipSession(existing.ID)
 					if existing.NotificationMessageID != nil {
-						s.bot.DeleteMessage(*existing.NotificationMessageID)
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						s.notifService.RemoveNotification(ctx, "telegram", *existing.NotificationMessageID)
+						cancel()
 					}
 				}
 			}
@@ -209,28 +223,25 @@ func (s *Scheduler) sendWorkoutNotification(session *store.WorkoutSession, group
 		}
 	}
 
-	// Delete previous notification if exists to avoid clutter
-	if session.NotificationMessageID != nil {
-		s.bot.DeleteMessage(*session.NotificationMessageID)
+	// Send via notification service
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	notif := notification.NotificationContext{
+		Type:  notification.TypeWorkout,
+		Title: fmt.Sprintf("🏋️ %s - %s", group.Name, variant.Name),
+		Body:  message,
+		Tag:   fmt.Sprintf("workout_%d", session.ID),
+		Data: map[string]interface{}{
+			"session": session,
+			"group":   group,
+			"variant": variant,
+		},
 	}
 
-	// Send notification with inline buttons via bot
-	messageID, err := s.bot.SendWorkoutNotification(message, session.ID)
-	if err != nil {
+	if err := s.notifService.Send(ctx, s.allowedUserID, notif); err != nil {
+		log.Printf("Failed to send workout notification: %v", err)
 		return err
-	}
-
-	// Store message ID for later editing
-	if err := s.store.SetSessionNotificationMessageID(session.ID, messageID); err != nil {
-		log.Printf("Failed to store notification message ID: %v", err)
-	}
-
-	// Send Web Push
-	if s.webPush != nil {
-		ctx := context.Background()
-		if err := s.webPush.SendWorkoutNotification(ctx, s.allowedUserID, session, group, variant); err != nil {
-			log.Printf("Failed to send Web Push workout: %v", err)
-		}
 	}
 
 	return nil

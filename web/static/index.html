@@ -137,17 +137,34 @@
         <div id="settings-view" class="view">
             <h3>Settings</h3>
 
-            <div class="setting-item">
-                <div>
-                    <h3>Web Push Notifications</h3>
-                    <p class="setting-desc">Browser notifications for medications</p>
+            <!-- Notification Providers Section -->
+            <div class="setting-section">
+                <h4>Notification Providers</h4>
+                <p class="setting-desc">Choose which platforms receive notifications</p>
+
+                <div id="notification-providers-loading" style="text-align: center; padding: 20px; color: #999;">
+                    Loading providers...
                 </div>
-                <label class="toggle">
-                    <input type="checkbox" id="webpush-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
+
+                <div id="notification-providers-matrix" style="display: none;">
+                    <!-- Provider status indicators -->
+                    <div id="provider-status" style="margin-bottom: 20px;"></div>
+
+                    <!-- Notification matrix table -->
+                    <table class="notification-matrix">
+                        <thead>
+                            <tr>
+                                <th>Notification Type</th>
+                                <th>Telegram</th>
+                                <th>Web Push</th>
+                            </tr>
+                        </thead>
+                        <tbody id="notification-matrix-body">
+                            <!-- Rows will be injected here -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
-            <div id="webpush-status" style="display:none; padding: 8px; margin-top: 8px; border-radius: 4px;"></div>
 
             <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
                 <div>
@@ -501,6 +518,7 @@
     <script src="static/js/app.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/workout.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/push.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="static/js/settings.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script>
         // Register Service Worker
         if ('serviceWorker' in navigator) {

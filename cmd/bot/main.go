@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
+	"github.com/korjavin/medicationtrackerbot/internal/notification"
 	"github.com/korjavin/medicationtrackerbot/internal/scheduler"
 	"github.com/korjavin/medicationtrackerbot/internal/server"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -43,12 +44,16 @@ func main() {
 		log.Fatalf("Failed to initialize store: %v", err)
 	}
 	defer s.Close()
+	defer s.Close()
 	log.Println("Database initialized at", dbPath)
 
-	// 3. Bot
+	// 3. Create action handler (needed by both bot and server)
+	actionHandler := notification.NewActionHandler(s)
+
+	// 4. Bot
 	var tgBot *bot.Bot
 	if botToken != "" {
-		tgBot, err = bot.New(botToken, allowedUserID, s)
+		tgBot, err = bot.New(botToken, allowedUserID, s, actionHandler)
 		if err != nil {
 			log.Fatalf("Failed to start bot: %v", err)
 		}
@@ -93,13 +98,43 @@ func main() {
 		log.Println("Bot username:", botUsername)
 	}
 
-	srv := server.New(s, tgBot, botToken, allowedUserID, oidcConfig, botUsername, vapidConfig)
+	srv := server.New(s, tgBot, botToken, allowedUserID, oidcConfig, botUsername, vapidConfig, actionHandler)
+
+	// Create notification service and register providers
+	notifService := notification.NewService(s)
 
 	if tgBot != nil {
-		// Scheduler needs WebPush service from server
-		sch := scheduler.New(s, tgBot, allowedUserID, srv.GetWebPushService())
+		telegramProvider := notification.NewTelegramProvider(tgBot)
+		notifService.RegisterProvider(telegramProvider)
+		log.Println("Registered Telegram notification provider")
+	}
+
+	webPushService := srv.GetWebPushService()
+	if webPushService != nil {
+		webPushProvider := notification.NewWebPushProvider(webPushService)
+		notifService.RegisterProvider(webPushProvider)
+		log.Println("Registered Web Push notification provider")
+	}
+
+	// Initialize default notification settings for the allowed user
+	// This ensures the user has settings even if they haven't been through migration yet
+	if allowedUserID > 0 {
+		for _, notifType := range []string{"medication", "workout", "low_stock"} {
+			if tgBot != nil {
+				s.UpdateNotificationSetting(allowedUserID, "telegram", notifType, true)
+			}
+			if webPushService != nil {
+				s.UpdateNotificationSetting(allowedUserID, "web_push", notifType, true)
+			}
+		}
+		log.Println("Initialized notification settings for user", allowedUserID)
+	}
+
+	if tgBot != nil || webPushService != nil {
+		// Start scheduler with notification service
+		sch := scheduler.New(s, notifService, allowedUserID)
 		sch.Start()
-		log.Println("Scheduler started")
+		log.Println("Scheduler started with notification service")
 	}
 
 	// Start Server
