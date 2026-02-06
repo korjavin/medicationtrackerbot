@@ -395,6 +395,9 @@ TELEGRAM_BOT_TOKEN=$(prompt_secret "Telegram Bot Token")
 if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
   die "Telegram Bot Token is required"
 fi
+say ""
+say "Your Telegram User ID is used as an access allowlist (extra security)."
+say "Get it by messaging @userinfobot or @myidbot in Telegram."
 ALLOWED_USER_ID=$(prompt "Your Telegram User ID" "")
 if [ -z "$ALLOWED_USER_ID" ]; then
   die "Telegram User ID is required"

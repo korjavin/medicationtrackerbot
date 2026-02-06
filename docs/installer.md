@@ -59,7 +59,7 @@ docker compose up -d
 ## Telegram Setup
 
 - Create a bot with BotFather and copy the token.
-- Get your numeric Telegram user ID via @userinfobot or @myidbot.
+- Get your numeric Telegram user ID via @userinfobot or @myidbot. This ID is used as an allowlist to restrict access.
 
 ## Optional Local Telegram Bot API
 
