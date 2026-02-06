@@ -206,17 +206,97 @@ gen_vapid_keys() {
 }
 
 print_container_install_help() {
+  local os_id=""
+  local os_name=""
+  local os_version=""
+  local os_codename=""
+  if [ -f /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    os_id="${ID:-}"
+    os_name="${NAME:-}"
+    os_version="${VERSION_ID:-}"
+    os_codename="${VERSION_CODENAME:-}"
+  fi
+
   say "No Docker/Podman compose command was found."
   say ""
-  say "Install one of these options, then re-run this installer:"
+  say "Install Docker (recommended), then re-run this installer."
   say ""
-  say "Docker (recommended):"
-  say "  1. Install Docker Engine and Docker Compose plugin for your OS."
-  say "  2. Ensure your user can run docker (e.g., add to the docker group)."
+
+  case "$os_id" in
+    ubuntu|debian)
+      local distro="$os_id"
+      local codename="$os_codename"
+      local codename_note=""
+      if [ -z "$codename" ]; then
+        codename="<codename>"
+        codename_note="(replace <codename> with your distro codename, e.g., jammy or bookworm)"
+      fi
+      say "Detected: ${os_name:-$os_id} ${os_version}"
+      say ""
+      say "Copy/paste these commands:"
+      say "  sudo apt-get update"
+      say "  sudo apt-get install -y ca-certificates curl gnupg"
+      say "  sudo install -m 0755 -d /etc/apt/keyrings"
+      say "  curl -fsSL https://download.docker.com/linux/${distro}/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg"
+      say "  sudo chmod a+r /etc/apt/keyrings/docker.gpg"
+      say "  echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${distro} ${codename} stable\" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null"
+      say "  sudo apt-get update"
+      say "  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+      say "  sudo usermod -aG docker \$USER"
+      say "  newgrp docker"
+      say "  docker compose version"
+      if [ -n "$codename_note" ]; then
+        say "  ${codename_note}"
+      fi
+      ;;
+    fedora)
+      say "Detected: ${os_name:-$os_id} ${os_version}"
+      say ""
+      say "Copy/paste these commands:"
+      say "  sudo dnf -y install dnf-plugins-core"
+      say "  sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo"
+      say "  sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+      say "  sudo systemctl enable --now docker"
+      say "  sudo usermod -aG docker \$USER"
+      say "  newgrp docker"
+      say "  docker compose version"
+      ;;
+    rhel|centos|rocky|almalinux)
+      say "Detected: ${os_name:-$os_id} ${os_version}"
+      say ""
+      say "Copy/paste these commands:"
+      say "  sudo dnf -y install dnf-plugins-core"
+      say "  sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo"
+      say "  sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+      say "  sudo systemctl enable --now docker"
+      say "  sudo usermod -aG docker \$USER"
+      say "  newgrp docker"
+      say "  docker compose version"
+      ;;
+    amzn)
+      say "Detected: ${os_name:-Amazon Linux} ${os_version}"
+      say ""
+      say "Copy/paste these commands:"
+      say "  sudo yum -y install docker"
+      say "  sudo systemctl enable --now docker"
+      say "  sudo usermod -aG docker \$USER"
+      say "  newgrp docker"
+      say "  docker compose version"
+      ;;
+    *)
+      say "Detected: ${os_name:-Unknown Linux}"
+      say ""
+      say "Please install Docker Engine and the Docker Compose plugin for your OS."
+      say "After installing, ensure your user can run docker, then re-run this installer."
+      ;;
+  esac
+
   say ""
-  say "Podman:"
-  say "  1. Install podman and podman-compose (or ensure podman compose works)."
-  say "  2. Ensure the Podman socket is enabled if you plan to use Traefik."
+  say "If you prefer Podman instead of Docker:"
+  say "  - Install podman and podman-compose (or ensure 'podman compose' works)."
+  say "  - Enable the Podman socket if you plan to use Traefik."
   say ""
 }
 
