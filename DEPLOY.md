@@ -1,5 +1,7 @@
 # Deployment Guide
 
+For the simplest self-hosted install, use the interactive installer in `install.sh` and see `docs/installer.md`.
+
 ## Prerequisites
 - Docker & Docker Compose
 - A domain configured (e.g., `meds.your-domain.com`) pointing to your server.
