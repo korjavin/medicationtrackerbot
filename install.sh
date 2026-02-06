@@ -733,7 +733,7 @@ R2_ENDPOINT=""
 R2_BUCKET=""
 
 say ""
-say "Litestream replicates your SQLite DB to Cloudflare R2 for backups."
+say "Litestream replicates your SQLite DB to any S3-compatible storage (R2, S3, Wasabi, B2, MinIO)."
 say "Risks: backups contain sensitive health data. Use a private bucket, restrict keys, and secure access."
 say "If your R2 credentials leak, your data can be accessed."
 if confirm_state "ENABLE_LITESTREAM" "Enable Litestream backup to Cloudflare R2 (optional)?" "no"; then

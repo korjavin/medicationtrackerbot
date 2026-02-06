@@ -130,9 +130,17 @@ Use a plain email address for the VAPID subject (no `mailto:` prefix).
 
 ## Litestream Backups (Optional)
 
-Litestream replicates your SQLite DB to Cloudflare R2.
+Litestream replicates your SQLite DB to any S3-compatible storage.
 
 Why use it? It protects you from server loss.
+
+Common options:
+
+- Cloudflare R2
+- Backblaze B2 (S3-compatible)
+- Wasabi
+- AWS S3
+- MinIO (self-hosted)
 
 Risks:
 
