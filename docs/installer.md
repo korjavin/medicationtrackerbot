@@ -80,6 +80,8 @@ Minimum settings:
 - Restrict access by email or by subject (`sub`).
 If both are set, both must match.
 
+Subject (`sub`) is the unique user ID from your OIDC provider. In Pocket-ID, open your user profile and copy the Subject.
+
 OIDC discovery uses the system CA trust store. Ensure your server has up-to-date CA certificates.
 
 Rate limiting for auth endpoints trusts proxy headers by default. If you are not behind a reverse proxy, set `AUTH_TRUST_PROXY=false`.

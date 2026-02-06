@@ -471,6 +471,9 @@ if confirm "Use Pocket-ID for browser login and MCP (recommended)?" "yes"; then
   fi
 
   OIDC_ADMIN_EMAIL=$(prompt "Allowed email for web login (optional)" "")
+  say "Allowed subject is the unique user ID from your OIDC provider."
+  say "For Pocket-ID: open your user profile and copy the Subject (sub)."
+  say "Leave blank if you want to restrict by email only."
   OIDC_ALLOWED_SUBJECT=$(prompt "Allowed subject (sub UUID) for web login (optional)" "")
   if [ -z "$OIDC_ADMIN_EMAIL" ] && [ -z "$OIDC_ALLOWED_SUBJECT" ]; then
     if $OIDC_NEEDS_SETUP; then
@@ -514,6 +517,9 @@ elif confirm "Enable browser login (OIDC)?" "no"; then
   fi
 
   OIDC_ADMIN_EMAIL=$(prompt "Allowed email for web login (optional)" "")
+  say "Allowed subject is the unique user ID from your OIDC provider."
+  say "For Pocket-ID: open your user profile and copy the Subject (sub)."
+  say "Leave blank if you want to restrict by email only."
   OIDC_ALLOWED_SUBJECT=$(prompt "Allowed subject (sub UUID) for web login (optional)" "")
   if [ -z "$OIDC_ADMIN_EMAIL" ] && [ -z "$OIDC_ALLOWED_SUBJECT" ]; then
     if $OIDC_NEEDS_SETUP; then
