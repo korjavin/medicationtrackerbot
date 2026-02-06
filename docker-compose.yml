@@ -15,6 +15,7 @@ services:
       - PORT=${PORT:-8080}
       - TZ=${TZ:-Europe/Berlin}
       - SESSION_SECRET=${SESSION_SECRET}
+      - AUTH_TRUST_PROXY=${AUTH_TRUST_PROXY}
       - APP_DOMAIN=${DOMAIN}
       - MCP_DOMAIN=${MCP_DOMAIN}
       - POCKET_ID_DOMAIN=${POCKET_ID_DOMAIN}

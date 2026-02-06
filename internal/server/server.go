@@ -52,10 +52,37 @@ type rateLimiter struct {
 }
 
 func newRateLimiter(max int, window time.Duration) *rateLimiter {
-	return &rateLimiter{
+	rl := &rateLimiter{
 		window: window,
 		max:    max,
 		hits:   make(map[string][]time.Time),
+	}
+	rl.startCleanup()
+	return rl
+}
+
+func (r *rateLimiter) startCleanup() {
+	ticker := time.NewTicker(r.window)
+	go func() {
+		for range ticker.C {
+			r.cleanup()
+		}
+	}()
+}
+
+func (r *rateLimiter) cleanup() {
+	now := time.Now()
+	cutoff := now.Add(-r.window)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key, hits := range r.hits {
+		if len(hits) == 0 {
+			delete(r.hits, key)
+			continue
+		}
+		if hits[len(hits)-1].Before(cutoff) {
+			delete(r.hits, key)
+		}
 	}
 }
 
@@ -77,19 +104,25 @@ func (r *rateLimiter) Allow(key string) bool {
 		return false
 	}
 	pruned = append(pruned, now)
-	r.hits[key] = pruned
+	if len(pruned) == 0 {
+		delete(r.hits, key)
+	} else {
+		r.hits[key] = pruned
+	}
 	return true
 }
 
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
+func clientIP(r *http.Request, trustProxy bool) string {
+	if trustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			if len(parts) > 0 {
+				return strings.TrimSpace(parts[0])
+			}
 		}
-	}
-	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
-		return xrip
+		if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
+			return xrip
+		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil && host != "" {
@@ -98,10 +131,10 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-func rateLimitMiddleware(limiter *rateLimiter) func(http.Handler) http.Handler {
+func rateLimitMiddleware(limiter *rateLimiter, trustProxy bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := clientIP(r)
+			ip := clientIP(r, trustProxy)
 			if !limiter.Allow(ip) {
 				http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 				return
@@ -109,6 +142,14 @@ func rateLimitMiddleware(limiter *rateLimiter) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func parseBoolEnv(key string, defaultValue bool) bool {
+	val := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if val == "" {
+		return defaultValue
+	}
+	return val == "1" || val == "true" || val == "yes" || val == "y"
 }
 
 func New(s *store.Store, b *bot.Bot, botToken, sessionSecret string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidConfig VAPIDConfig) *Server {
@@ -171,8 +212,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/bp_add", s.serveIndexWithBotUsername)
 
 	// Auth Routes (rate-limited)
-	authLimiter := newRateLimiter(20, time.Minute)
-	authLimit := rateLimitMiddleware(authLimiter)
+	authLimiter := newRateLimiter(10, time.Minute)
+	trustProxy := parseBoolEnv("AUTH_TRUST_PROXY", true)
+	authLimit := rateLimitMiddleware(authLimiter, trustProxy)
 	mux.Handle("/auth/oidc/login", authLimit(http.HandlerFunc(s.handleOIDCLogin)))
 	mux.Handle("/auth/oidc/callback", authLimit(http.HandlerFunc(s.handleOIDCCallback)))
 	// Backward compatibility for older Google-only URLs

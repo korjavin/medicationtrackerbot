@@ -567,6 +567,7 @@ PUBLIC_IP=$(detect_public_ip)
   printf 'TELEGRAM_API_ID=%s\n' "$TELEGRAM_API_ID"
   printf 'TELEGRAM_API_HASH=%s\n' "$TELEGRAM_API_HASH"
   printf 'SESSION_SECRET=%s\n' "$SESSION_SECRET"
+  printf 'AUTH_TRUST_PROXY=%s\n' "true"
   printf 'GOOGLE_CLIENT_ID=%s\n' ""
   printf 'GOOGLE_CLIENT_SECRET=%s\n' ""
   printf 'GOOGLE_REDIRECT_URL=%s\n' ""
@@ -613,6 +614,8 @@ PUBLIC_IP=$(detect_public_ip)
     printf 'LE_EMAIL=%s\n' "$LE_EMAIL"
   fi
 } > "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+say "Created ${ENV_FILE} with mode 600 (owner read/write only)."
 
 # Build compose file
 {
@@ -695,6 +698,7 @@ PUBLIC_IP=$(detect_public_ip)
   printf "      - PORT=\${PORT:-8080}\n"
   printf "      - TZ=\${TZ}\n"
   printf "      - SESSION_SECRET=\${SESSION_SECRET}\n"
+  printf "      - AUTH_TRUST_PROXY=\${AUTH_TRUST_PROXY}\n"
   printf "      - APP_DOMAIN=\${DOMAIN}\n"
   printf "      - MCP_DOMAIN=\${MCP_DOMAIN}\n"
   printf "      - POCKET_ID_DOMAIN=\${POCKET_ID_DOMAIN}\n"
