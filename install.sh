@@ -7,6 +7,7 @@ COMPOSE_FILE="docker-compose.yml"
 ENV_FILE=".env"
 DEFAULT_PUID="$(id -u 2>/dev/null || echo 1000)"
 DEFAULT_PGID="$(id -g 2>/dev/null || echo 1000)"
+STATE_FILE=""
 
 say() { printf '%s\n' "$*"; }
 warn() { printf 'Warning: %s\n' "$*" >&2; }
@@ -42,6 +43,89 @@ prompt_secret() {
     printf '\n'
   fi
   printf '%s' "$value"
+}
+
+get_state() {
+  local key="$1"
+  if [ -z "$STATE_FILE" ] || [ ! -f "$STATE_FILE" ]; then
+    return 0
+  fi
+  grep -m1 "^${key}=" "$STATE_FILE" | sed "s/^${key}=//"
+}
+
+set_state() {
+  local key="$1"
+  local value="$2"
+  if [ -z "$STATE_FILE" ]; then
+    return 0
+  fi
+  local tmp
+  tmp=$(mktemp)
+  if [ -f "$STATE_FILE" ]; then
+    grep -v "^${key}=" "$STATE_FILE" > "$tmp" || true
+  fi
+  printf '%s=%s\n' "$key" "$value" >> "$tmp"
+  mv "$tmp" "$STATE_FILE"
+  chmod 600 "$STATE_FILE" 2>/dev/null || true
+}
+
+prompt_state() {
+  local key="$1"
+  local message="$2"
+  local default="$3"
+  local saved
+  saved=$(get_state "$key")
+  if [ -n "$saved" ]; then
+    default="$saved"
+  fi
+  local value
+  value=$(prompt "$message" "$default")
+  set_state "$key" "$value"
+  printf '%s' "$value"
+}
+
+prompt_secret_state() {
+  local key="$1"
+  local message="$2"
+  local saved
+  saved=$(get_state "$key")
+  local value=""
+  if [ -n "$saved" ]; then
+    if "$USE_WHIPTAIL"; then
+      if whiptail --yesno "Reuse saved value for ${message}?" 10 78; then
+        value="$saved"
+      else
+        value=$(whiptail --passwordbox "$message" 10 78 3>&1 1>&2 2>&3) || exit 1
+      fi
+    else
+      read -r -s -p "$message (press Enter to keep existing): " value
+      printf '\n'
+      if [ -z "$value" ]; then
+        value="$saved"
+      fi
+    fi
+  else
+    value=$(prompt_secret "$message")
+  fi
+  set_state "$key" "$value"
+  printf '%s' "$value"
+}
+
+confirm_state() {
+  local key="$1"
+  local message="$2"
+  local default_yes="$3"
+  local saved
+  saved=$(get_state "$key")
+  if [ -n "$saved" ]; then
+    default_yes="$saved"
+  fi
+  if confirm "$message" "$default_yes"; then
+    set_state "$key" "yes"
+    return 0
+  fi
+  set_state "$key" "no"
+  return 1
 }
 
 confirm() {
@@ -332,7 +416,7 @@ if [ -z "$COMPOSE_CMD" ]; then
   exit 1
 fi
 
-INSTALL_DIR=$(prompt "Install directory" "$DEFAULT_INSTALL_DIR")
+INSTALL_DIR=$(prompt_state "INSTALL_DIR" "Install directory" "$DEFAULT_INSTALL_DIR")
 if [ -z "$INSTALL_DIR" ]; then
   die "Install directory is required"
 fi
@@ -349,21 +433,38 @@ if [ ! -d "$INSTALL_DIR" ]; then
   fi
 fi
 
+if ! touch "$INSTALL_DIR/.write_test" 2>/dev/null; then
+  if has_cmd sudo; then
+    if confirm "Install directory is not writable. Use sudo to make it writable?" "yes"; then
+      sudo chown -R "$(id -u):$(id -g)" "$INSTALL_DIR" || true
+    else
+      die "Install directory must be writable. Choose another directory or run as root."
+    fi
+  else
+    die "Install directory must be writable. Choose another directory or run as root."
+  fi
+fi
+rm -f "$INSTALL_DIR/.write_test" 2>/dev/null || true
+
+STATE_FILE="$INSTALL_DIR/.installer_state"
+touch "$STATE_FILE" 2>/dev/null || true
+chmod 600 "$STATE_FILE" 2>/dev/null || true
+
 if [ -f "$INSTALL_DIR/$COMPOSE_FILE" ] || [ -f "$INSTALL_DIR/$ENV_FILE" ]; then
-  if ! confirm "Existing config found in $INSTALL_DIR. Overwrite?" "no"; then
+  if ! confirm_state "OVERWRITE_EXISTING" "Existing config found in $INSTALL_DIR. Overwrite?" "no"; then
     die "Aborted"
   fi
 fi
 
 cd "$INSTALL_DIR"
 
-DOMAIN=$(prompt "Primary domain for web app (e.g., meds.example.com)" "")
+DOMAIN=$(prompt_state "DOMAIN" "Primary domain for web app (e.g., meds.example.com)" "")
 if [ -z "$DOMAIN" ]; then
   die "Domain is required"
 fi
 
 USE_TRAEFIK=true
-if ! confirm "Use bundled Traefik + Let's Encrypt (recommended)?" "yes"; then
+if ! confirm_state "USE_TRAEFIK" "Use bundled Traefik + Let's Encrypt (recommended)?" "yes"; then
   USE_TRAEFIK=false
 fi
 
@@ -372,16 +473,16 @@ LE_EMAIL=""
 NETWORK_NAME=""
 
 if $USE_TRAEFIK; then
-  LE_EMAIL=$(prompt "Email for Let's Encrypt" "user@domain.example")
+  LE_EMAIL=$(prompt_state "LE_EMAIL" "Email for Let's Encrypt" "user@domain.example")
   if [ -z "$LE_EMAIL" ]; then
     die "Let's Encrypt email is required"
   fi
 else
-  NETWORK_NAME=$(prompt "Existing Traefik network name" "traefik_net")
-  CERT_RESOLVER=$(prompt "Existing Traefik cert resolver name" "myresolver")
+  NETWORK_NAME=$(prompt_state "NETWORK_NAME" "Existing Traefik network name" "traefik_net")
+  CERT_RESOLVER=$(prompt_state "CERT_RESOLVER" "Existing Traefik cert resolver name" "myresolver")
 fi
 
-TZ=$(prompt "Timezone" "$(detect_timezone)")
+TZ=$(prompt_state "TZ" "Timezone" "$(detect_timezone)")
 
 TELEGRAM_BOT_TOKEN=""
 ALLOWED_USER_ID=""
@@ -391,22 +492,22 @@ TELEGRAM_API_HASH=""
 TELEGRAM_API_ENDPOINT=""
 SESSION_SECRET=""
 
-TELEGRAM_BOT_TOKEN=$(prompt_secret "Telegram Bot Token")
+TELEGRAM_BOT_TOKEN=$(prompt_secret_state "TELEGRAM_BOT_TOKEN" "Telegram Bot Token")
 if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
   die "Telegram Bot Token is required"
 fi
 say ""
 say "Your Telegram User ID is used as an access allowlist (extra security)."
 say "Get it by messaging @userinfobot or @myidbot in Telegram."
-ALLOWED_USER_ID=$(prompt "Your Telegram User ID" "")
+ALLOWED_USER_ID=$(prompt_state "ALLOWED_USER_ID" "Your Telegram User ID" "")
 if [ -z "$ALLOWED_USER_ID" ]; then
   die "Telegram User ID is required"
 fi
 
-if confirm "Use local Telegram Bot API server (larger files, more setup)?" "no"; then
+if confirm_state "ENABLE_LOCAL_TG_API" "Use local Telegram Bot API server (larger files, more setup)?" "no"; then
   ENABLE_LOCAL_TG_API=true
-  TELEGRAM_API_ID=$(prompt "Telegram API ID (from my.telegram.org)" "")
-  TELEGRAM_API_HASH=$(prompt_secret "Telegram API Hash")
+  TELEGRAM_API_ID=$(prompt_state "TELEGRAM_API_ID" "Telegram API ID (from my.telegram.org)" "")
+  TELEGRAM_API_HASH=$(prompt_secret_state "TELEGRAM_API_HASH" "Telegram API Hash")
   if [ -z "$TELEGRAM_API_ID" ] || [ -z "$TELEGRAM_API_HASH" ]; then
     die "Telegram API ID and Hash are required for local Telegram API"
   fi
@@ -443,12 +544,12 @@ OIDC_SCOPES=""
 OIDC_NEEDS_SETUP=false
 POCKET_ID_BUNDLE=false
 
-if confirm "Use Pocket-ID for browser login and MCP (recommended)?" "yes"; then
+if confirm_state "POCKET_ID_BUNDLE" "Use Pocket-ID for browser login and MCP (recommended)?" "yes"; then
   POCKET_ID_BUNDLE=true
   ENABLE_OIDC=true
   ENABLE_MCP=true
   ENABLE_POCKET_ID=true
-  POCKET_ID_DOMAIN=$(prompt "Pocket-ID domain (e.g., id.example.com)" "")
+  POCKET_ID_DOMAIN=$(prompt_state "POCKET_ID_DOMAIN" "Pocket-ID domain (e.g., id.example.com)" "")
   if [ -z "$POCKET_ID_DOMAIN" ]; then
     die "Pocket-ID domain is required"
   fi
@@ -460,9 +561,9 @@ if confirm "Use Pocket-ID for browser login and MCP (recommended)?" "yes"; then
   OIDC_ISSUER_URL="$POCKET_ID_APP_URL"
   OIDC_BUTTON_LABEL="Login with Pocket-ID"
 
-  if confirm "Do you already have an OIDC client for web login?" "no"; then
-    OIDC_CLIENT_ID=$(prompt "OIDC Client ID" "")
-    OIDC_CLIENT_SECRET=$(prompt_secret "OIDC Client Secret")
+  if confirm_state "OIDC_HAS_CLIENT" "Do you already have an OIDC client for web login?" "no"; then
+    OIDC_CLIENT_ID=$(prompt_state "OIDC_CLIENT_ID" "OIDC Client ID" "")
+    OIDC_CLIENT_SECRET=$(prompt_secret_state "OIDC_CLIENT_SECRET" "OIDC Client Secret")
     if [ -z "$OIDC_CLIENT_ID" ] || [ -z "$OIDC_CLIENT_SECRET" ]; then
       die "OIDC Client ID and Secret are required"
     fi
@@ -470,11 +571,11 @@ if confirm "Use Pocket-ID for browser login and MCP (recommended)?" "yes"; then
     OIDC_NEEDS_SETUP=true
   fi
 
-  OIDC_ADMIN_EMAIL=$(prompt "Allowed email for web login (optional)" "")
+  OIDC_ADMIN_EMAIL=$(prompt_state "OIDC_ADMIN_EMAIL" "Allowed email for web login (optional)" "")
   say "Allowed subject is the unique user ID from your OIDC provider."
   say "For Pocket-ID: open your user profile and copy the Subject (sub)."
   say "Leave blank if you want to restrict by email only."
-  OIDC_ALLOWED_SUBJECT=$(prompt "Allowed subject (sub UUID) for web login (optional)" "")
+  OIDC_ALLOWED_SUBJECT=$(prompt_state "OIDC_ALLOWED_SUBJECT" "Allowed subject (sub UUID) for web login (optional)" "")
   if [ -z "$OIDC_ADMIN_EMAIL" ] && [ -z "$OIDC_ALLOWED_SUBJECT" ]; then
     if $OIDC_NEEDS_SETUP; then
       warn "No allowed email/subject set. You must set OIDC_ADMIN_EMAIL or OIDC_ALLOWED_SUBJECT before enabling OIDC."
@@ -482,14 +583,14 @@ if confirm "Use Pocket-ID for browser login and MCP (recommended)?" "yes"; then
       die "Set at least one of allowed email or allowed subject for OIDC login"
     fi
   fi
-elif confirm "Enable browser login (OIDC)?" "no"; then
+elif confirm_state "ENABLE_OIDC" "Enable browser login (OIDC)?" "no"; then
   ENABLE_OIDC=true
   OIDC_REDIRECT_URL="https://${DOMAIN}/auth/oidc/callback"
 
-  if confirm "Use Pocket-ID for browser login (recommended)?" "yes"; then
+  if confirm_state "OIDC_USE_POCKET_ID" "Use Pocket-ID for browser login (recommended)?" "yes"; then
     if ! $ENABLE_POCKET_ID; then
       ENABLE_POCKET_ID=true
-      POCKET_ID_DOMAIN=$(prompt "Pocket-ID domain (e.g., id.example.com)" "")
+      POCKET_ID_DOMAIN=$(prompt_state "POCKET_ID_DOMAIN" "Pocket-ID domain (e.g., id.example.com)" "")
       if [ -z "$POCKET_ID_DOMAIN" ]; then
         die "Pocket-ID domain is required"
       fi
@@ -500,15 +601,15 @@ elif confirm "Enable browser login (OIDC)?" "no"; then
     OIDC_ISSUER_URL="$POCKET_ID_APP_URL"
     OIDC_BUTTON_LABEL="Login with Pocket-ID"
   else
-    OIDC_ISSUER_URL=$(prompt "OIDC Issuer URL (e.g., https://id.example.com)" "")
+    OIDC_ISSUER_URL=$(prompt_state "OIDC_ISSUER_URL" "OIDC Issuer URL (e.g., https://id.example.com)" "")
     if [ -z "$OIDC_ISSUER_URL" ]; then
       die "OIDC Issuer URL is required"
     fi
   fi
 
-  if confirm "Do you already have OIDC client credentials?" "no"; then
-    OIDC_CLIENT_ID=$(prompt "OIDC Client ID" "")
-    OIDC_CLIENT_SECRET=$(prompt_secret "OIDC Client Secret")
+  if confirm_state "OIDC_HAS_CLIENT" "Do you already have OIDC client credentials?" "no"; then
+    OIDC_CLIENT_ID=$(prompt_state "OIDC_CLIENT_ID" "OIDC Client ID" "")
+    OIDC_CLIENT_SECRET=$(prompt_secret_state "OIDC_CLIENT_SECRET" "OIDC Client Secret")
     if [ -z "$OIDC_CLIENT_ID" ] || [ -z "$OIDC_CLIENT_SECRET" ]; then
       die "OIDC Client ID and Secret are required"
     fi
@@ -516,11 +617,11 @@ elif confirm "Enable browser login (OIDC)?" "no"; then
     OIDC_NEEDS_SETUP=true
   fi
 
-  OIDC_ADMIN_EMAIL=$(prompt "Allowed email for web login (optional)" "")
+  OIDC_ADMIN_EMAIL=$(prompt_state "OIDC_ADMIN_EMAIL" "Allowed email for web login (optional)" "")
   say "Allowed subject is the unique user ID from your OIDC provider."
   say "For Pocket-ID: open your user profile and copy the Subject (sub)."
   say "Leave blank if you want to restrict by email only."
-  OIDC_ALLOWED_SUBJECT=$(prompt "Allowed subject (sub UUID) for web login (optional)" "")
+  OIDC_ALLOWED_SUBJECT=$(prompt_state "OIDC_ALLOWED_SUBJECT" "Allowed subject (sub UUID) for web login (optional)" "")
   if [ -z "$OIDC_ADMIN_EMAIL" ] && [ -z "$OIDC_ALLOWED_SUBJECT" ]; then
     if $OIDC_NEEDS_SETUP; then
       warn "No allowed email/subject set. You must set OIDC_ADMIN_EMAIL or OIDC_ALLOWED_SUBJECT before enabling OIDC."
@@ -535,18 +636,18 @@ VAPID_PUBLIC_KEY=""
 VAPID_PRIVATE_KEY=""
 VAPID_SUBJECT=""
 
-if confirm "Enable web push (browser notifications)?" "yes"; then
+if confirm_state "ENABLE_WEBPUSH" "Enable web push (browser notifications)?" "yes"; then
   ENABLE_WEBPUSH=true
   VAPID_SUBJECT_DEFAULT="$LE_EMAIL"
   if [ -z "$VAPID_SUBJECT_DEFAULT" ]; then
     VAPID_SUBJECT_DEFAULT="user@domain.example"
   fi
-  VAPID_SUBJECT=$(prompt "VAPID subject email" "$VAPID_SUBJECT_DEFAULT")
-  if confirm "Auto-generate VAPID keys now?" "yes"; then
+  VAPID_SUBJECT=$(prompt_state "VAPID_SUBJECT" "VAPID subject email" "$VAPID_SUBJECT_DEFAULT")
+  if confirm_state "VAPID_AUTOGEN" "Auto-generate VAPID keys now?" "yes"; then
     gen_vapid_keys
   else
-    VAPID_PUBLIC_KEY=$(prompt "VAPID public key" "")
-    VAPID_PRIVATE_KEY=$(prompt_secret "VAPID private key")
+    VAPID_PUBLIC_KEY=$(prompt_state "VAPID_PUBLIC_KEY" "VAPID public key" "")
+    VAPID_PRIVATE_KEY=$(prompt_secret_state "VAPID_PRIVATE_KEY" "VAPID private key")
   fi
   if [ -z "$VAPID_PUBLIC_KEY" ] || [ -z "$VAPID_PRIVATE_KEY" ] || [ -z "$VAPID_SUBJECT" ]; then
     die "VAPID public key, private key, and subject are required for web push."
@@ -562,17 +663,17 @@ MCP_PROFILE_ENABLED=false
 MCP_NEEDS_SETUP=false
 
 if $ENABLE_MCP; then
-  MCP_DOMAIN=$(prompt "MCP domain (e.g., mcp.example.com)" "")
+  MCP_DOMAIN=$(prompt_state "MCP_DOMAIN" "MCP domain (e.g., mcp.example.com)" "")
   if [ -z "$MCP_DOMAIN" ]; then
     die "MCP domain is required"
   fi
   MCP_SERVER_URL="https://${MCP_DOMAIN}"
 
-  if confirm "Do you already have Pocket-ID client credentials + user subject for MCP?" "no"; then
-    MCP_ALLOWED_SUBJECT=$(prompt "Pocket-ID user subject (sub UUID)" "")
-    POCKET_ID_CLIENT_ID=$(prompt "Pocket-ID Client ID" "")
-    POCKET_ID_CLIENT_SECRET=$(prompt_secret "Pocket-ID Client Secret")
-    MCP_MAX_QUERY_DAYS=$(prompt "MCP max query days" "$MCP_MAX_QUERY_DAYS")
+  if confirm_state "MCP_HAS_CLIENT" "Do you already have Pocket-ID client credentials + user subject for MCP?" "no"; then
+    MCP_ALLOWED_SUBJECT=$(prompt_state "MCP_ALLOWED_SUBJECT" "Pocket-ID user subject (sub UUID)" "")
+    POCKET_ID_CLIENT_ID=$(prompt_state "POCKET_ID_CLIENT_ID" "Pocket-ID Client ID" "")
+    POCKET_ID_CLIENT_SECRET=$(prompt_secret_state "POCKET_ID_CLIENT_SECRET" "Pocket-ID Client Secret")
+    MCP_MAX_QUERY_DAYS=$(prompt_state "MCP_MAX_QUERY_DAYS" "MCP max query days" "$MCP_MAX_QUERY_DAYS")
 
     if [ -z "$MCP_ALLOWED_SUBJECT" ] || [ -z "$POCKET_ID_CLIENT_ID" ] || [ -z "$POCKET_ID_CLIENT_SECRET" ]; then
       die "Pocket-ID client ID/secret and user subject are required for MCP"
@@ -581,9 +682,9 @@ if $ENABLE_MCP; then
   else
     MCP_NEEDS_SETUP=true
   fi
-elif confirm "Enable Claude MCP connector (optional)?" "no"; then
+elif confirm_state "ENABLE_MCP" "Enable Claude MCP connector (optional)?" "no"; then
   ENABLE_MCP=true
-  MCP_DOMAIN=$(prompt "MCP domain (e.g., mcp.example.com)" "")
+  MCP_DOMAIN=$(prompt_state "MCP_DOMAIN" "MCP domain (e.g., mcp.example.com)" "")
   if [ -z "$MCP_DOMAIN" ]; then
     die "MCP domain is required"
   fi
@@ -593,9 +694,9 @@ elif confirm "Enable Claude MCP connector (optional)?" "no"; then
       POCKET_ID_URL="$POCKET_ID_APP_URL"
     fi
   else
-    if confirm "Install Pocket-ID on this server?" "yes"; then
+    if confirm_state "INSTALL_POCKET_ID" "Install Pocket-ID on this server?" "yes"; then
       ENABLE_POCKET_ID=true
-      POCKET_ID_DOMAIN=$(prompt "Pocket-ID domain (e.g., id.example.com)" "")
+      POCKET_ID_DOMAIN=$(prompt_state "POCKET_ID_DOMAIN" "Pocket-ID domain (e.g., id.example.com)" "")
       if [ -z "$POCKET_ID_DOMAIN" ]; then
         die "Pocket-ID domain is required"
       fi
@@ -603,18 +704,18 @@ elif confirm "Enable Claude MCP connector (optional)?" "no"; then
       POCKET_ID_URL="$POCKET_ID_APP_URL"
       POCKET_ID_ENCRYPTION_KEY=$(gen_random_base64)
     else
-      POCKET_ID_URL=$(prompt "Pocket-ID URL (e.g., https://id.example.com)" "")
+      POCKET_ID_URL=$(prompt_state "POCKET_ID_URL" "Pocket-ID URL (e.g., https://id.example.com)" "")
       if [ -z "$POCKET_ID_URL" ]; then
         die "Pocket-ID URL is required"
       fi
     fi
   fi
 
-  if confirm "Do you already have Pocket-ID client credentials + user subject?" "no"; then
-    MCP_ALLOWED_SUBJECT=$(prompt "Pocket-ID user subject (sub UUID)" "")
-    POCKET_ID_CLIENT_ID=$(prompt "Pocket-ID Client ID" "")
-    POCKET_ID_CLIENT_SECRET=$(prompt_secret "Pocket-ID Client Secret")
-    MCP_MAX_QUERY_DAYS=$(prompt "MCP max query days" "$MCP_MAX_QUERY_DAYS")
+  if confirm_state "MCP_HAS_CLIENT" "Do you already have Pocket-ID client credentials + user subject?" "no"; then
+    MCP_ALLOWED_SUBJECT=$(prompt_state "MCP_ALLOWED_SUBJECT" "Pocket-ID user subject (sub UUID)" "")
+    POCKET_ID_CLIENT_ID=$(prompt_state "POCKET_ID_CLIENT_ID" "Pocket-ID Client ID" "")
+    POCKET_ID_CLIENT_SECRET=$(prompt_secret_state "POCKET_ID_CLIENT_SECRET" "Pocket-ID Client Secret")
+    MCP_MAX_QUERY_DAYS=$(prompt_state "MCP_MAX_QUERY_DAYS" "MCP max query days" "$MCP_MAX_QUERY_DAYS")
 
     if [ -z "$MCP_ALLOWED_SUBJECT" ] || [ -z "$POCKET_ID_CLIENT_ID" ] || [ -z "$POCKET_ID_CLIENT_SECRET" ]; then
       die "Pocket-ID client ID/secret and user subject are required for MCP"
@@ -631,12 +732,16 @@ LITESTREAM_SECRET_ACCESS_KEY=""
 R2_ENDPOINT=""
 R2_BUCKET=""
 
-if confirm "Enable Litestream backup to Cloudflare R2 (optional)?" "no"; then
+say ""
+say "Litestream replicates your SQLite DB to Cloudflare R2 for backups."
+say "Risks: backups contain sensitive health data. Use a private bucket, restrict keys, and secure access."
+say "If your R2 credentials leak, your data can be accessed."
+if confirm_state "ENABLE_LITESTREAM" "Enable Litestream backup to Cloudflare R2 (optional)?" "no"; then
   ENABLE_LITESTREAM=true
-  LITESTREAM_ACCESS_KEY_ID=$(prompt "R2 Access Key ID" "")
-  LITESTREAM_SECRET_ACCESS_KEY=$(prompt_secret "R2 Secret Access Key")
-  R2_ENDPOINT=$(prompt "R2 Endpoint (e.g., https://<account>.r2.cloudflarestorage.com)" "")
-  R2_BUCKET=$(prompt "R2 Bucket name" "")
+  LITESTREAM_ACCESS_KEY_ID=$(prompt_state "LITESTREAM_ACCESS_KEY_ID" "R2 Access Key ID" "")
+  LITESTREAM_SECRET_ACCESS_KEY=$(prompt_secret_state "LITESTREAM_SECRET_ACCESS_KEY" "R2 Secret Access Key")
+  R2_ENDPOINT=$(prompt_state "R2_ENDPOINT" "R2 Endpoint (e.g., https://<account>.r2.cloudflarestorage.com)" "")
+  R2_BUCKET=$(prompt_state "R2_BUCKET" "R2 Bucket name" "")
   if [ -z "$LITESTREAM_ACCESS_KEY_ID" ] || [ -z "$LITESTREAM_SECRET_ACCESS_KEY" ] || [ -z "$R2_ENDPOINT" ] || [ -z "$R2_BUCKET" ]; then
     die "R2 credentials are required for Litestream"
   fi

@@ -124,3 +124,4 @@ Litestream replicates your SQLite DB to Cloudflare R2. This is optional but reco
 - Keep your R2 bucket private.
 - Use access keys with minimal permissions.
 - Treat backups as sensitive medical data.
+- If your R2 credentials leak, your data can be accessed.
