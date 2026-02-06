@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
@@ -26,6 +28,7 @@ type Server struct {
 	bot           *bot.Bot
 	rxnorm        *rxnorm.Client
 	botToken      string
+	sessionSecret string
 	allowedUserID int64
 	oidcConfig    OIDCConfig
 	oauthConfig   *oauth2.Config
@@ -41,12 +44,80 @@ type VAPIDConfig struct {
 	Subject    string
 }
 
-func New(s *store.Store, b *bot.Bot, botToken string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidConfig VAPIDConfig) *Server {
+type rateLimiter struct {
+	mu     sync.Mutex
+	window time.Duration
+	max    int
+	hits   map[string][]time.Time
+}
+
+func newRateLimiter(max int, window time.Duration) *rateLimiter {
+	return &rateLimiter{
+		window: window,
+		max:    max,
+		hits:   make(map[string][]time.Time),
+	}
+}
+
+func (r *rateLimiter) Allow(key string) bool {
+	now := time.Now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	hits := r.hits[key]
+	cutoff := now.Add(-r.window)
+	pruned := hits[:0]
+	for _, t := range hits {
+		if t.After(cutoff) {
+			pruned = append(pruned, t)
+		}
+	}
+	if len(pruned) >= r.max {
+		r.hits[key] = pruned
+		return false
+	}
+	pruned = append(pruned, now)
+	r.hits[key] = pruned
+	return true
+}
+
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
+		return xrip
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+func rateLimitMiddleware(limiter *rateLimiter) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := clientIP(r)
+			if !limiter.Allow(ip) {
+				http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func New(s *store.Store, b *bot.Bot, botToken, sessionSecret string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidConfig VAPIDConfig) *Server {
 	srv := &Server{
 		store:         s,
 		bot:           b,
 		rxnorm:        rxnorm.New(),
 		botToken:      botToken,
+		sessionSecret: sessionSecret,
 		allowedUserID: allowedUserID,
 		oidcConfig:    oidc,
 		botUsername:   botUsername,
@@ -99,13 +170,15 @@ func (s *Server) Routes() http.Handler {
 	// Deep link routes - serve SPA, JS handles the path
 	mux.HandleFunc("/bp_add", s.serveIndexWithBotUsername)
 
-	// Auth Routes
-	mux.HandleFunc("/auth/oidc/login", s.handleOIDCLogin)
-	mux.HandleFunc("/auth/oidc/callback", s.handleOIDCCallback)
+	// Auth Routes (rate-limited)
+	authLimiter := newRateLimiter(20, time.Minute)
+	authLimit := rateLimitMiddleware(authLimiter)
+	mux.Handle("/auth/oidc/login", authLimit(http.HandlerFunc(s.handleOIDCLogin)))
+	mux.Handle("/auth/oidc/callback", authLimit(http.HandlerFunc(s.handleOIDCCallback)))
 	// Backward compatibility for older Google-only URLs
-	mux.HandleFunc("/auth/google/login", s.handleOIDCLogin)
-	mux.HandleFunc("/auth/google/callback", s.handleOIDCCallback)
-	mux.HandleFunc("/auth/telegram/callback", s.handleTelegramCallback)
+	mux.Handle("/auth/google/login", authLimit(http.HandlerFunc(s.handleOIDCLogin)))
+	mux.Handle("/auth/google/callback", authLimit(http.HandlerFunc(s.handleOIDCCallback)))
+	mux.Handle("/auth/telegram/callback", authLimit(http.HandlerFunc(s.handleTelegramCallback)))
 
 	// API
 	apiMux := http.NewServeMux()
@@ -168,7 +241,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/medications/confirm-schedule", s.handleConfirmSchedule)
 
 	// Apply Middleware to API
-	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
+	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)
 	mux.Handle("/api/", authMW(apiMux))
 
 	return mux
@@ -1049,7 +1122,7 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Create session (same as OIDC auth)
-	sessionValue := createSessionToken(user.Username, s.botToken)
+	sessionValue := createSessionToken(user.Username, s.sessionSecret)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_session",
 		Value:    sessionValue,

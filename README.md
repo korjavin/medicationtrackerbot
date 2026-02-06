@@ -82,6 +82,7 @@ The application is configured via Environment Variables:
 | `DB_PATH` | Path to SQLite DB (default: `meds.db`) |
 | `PORT` | HTTP port (default: `8080`) |
 | `TZ` | Timezone (e.g., `Europe/Berlin`). Critical for correct scheduling. |
+| `SESSION_SECRET` | Secret used to sign web auth sessions |
 | `GOOGLE_CLIENT_ID` | (Optional, legacy) For Google Login in browser |
 | `GOOGLE_CLIENT_SECRET` | (Optional, legacy) For Google Login in browser |
 | `GOOGLE_REDIRECT_URL` | (Optional, legacy) Callback URL (e.g., `https://your-domain.com/auth/google/callback`) |
@@ -99,6 +100,8 @@ The application is configured via Environment Variables:
 | `OIDC_USERINFO_URL` | (Optional) Override userinfo URL if discovery is not available |
 | `OIDC_AUTH_URL` | (Optional) Override authorization endpoint |
 | `OIDC_TOKEN_URL` | (Optional) Override token endpoint |
+
+If both `OIDC_ADMIN_EMAIL` and `OIDC_ALLOWED_SUBJECT` are set, both must match for access.
 
 ## Quick Start
 

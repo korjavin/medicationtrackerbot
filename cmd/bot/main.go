@@ -27,6 +27,16 @@ func main() {
 		// In local dev sometimes we might want to skip if only testing web
 	}
 
+	sessionSecret := os.Getenv("SESSION_SECRET")
+	if sessionSecret == "" {
+		if botToken != "" {
+			sessionSecret = botToken
+			log.Println("SESSION_SECRET not set. Falling back to TELEGRAM_BOT_TOKEN (not recommended).")
+		} else {
+			log.Fatal("SESSION_SECRET is required for web auth.")
+		}
+	}
+
 	userIDStr := os.Getenv("ALLOWED_USER_ID")
 	if userIDStr == "" {
 		log.Println("ALLOWED_USER_ID is required for notifications.")
@@ -115,7 +125,7 @@ func main() {
 		log.Println("Bot username:", botUsername)
 	}
 
-	srv := server.New(s, tgBot, botToken, allowedUserID, oidcConfig, botUsername, vapidConfig)
+	srv := server.New(s, tgBot, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidConfig)
 
 	if tgBot != nil {
 		// Scheduler needs WebPush service from server
