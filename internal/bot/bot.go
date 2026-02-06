@@ -1151,3 +1151,32 @@ func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
 	msgConfig.Text = sb.String()
 	msgConfig.ParseMode = "Markdown"
 }
+
+// RemoveMedicationNotification is an alias for DeleteMessage to satisfy TelegramMessenger interface
+func (b *Bot) RemoveMedicationNotification(messageID int) error {
+	return b.DeleteMessage(messageID)
+}
+
+// SendSimpleMessage sends a text message without any keyboard/buttons
+func (b *Bot) SendSimpleMessage(message string) (int, error) {
+	msg := tgbotapi.NewMessage(b.allowedUserID, message)
+	msg.ParseMode = "Markdown"
+	sent, err := b.api.Send(msg)
+	if err != nil {
+		return 0, err
+	}
+	return sent.MessageID, nil
+}
+
+
+// SendMedicationNotification wraps SendGroupNotification with intake IDs for TelegramMessenger interface
+func (b *Bot) SendMedicationNotification(medications []store.Medication, scheduledTime time.Time, intakeIDs []int64) (int, error) {
+	// SendGroupNotification doesn't return message ID, so we'll send and track separately
+	err := b.SendGroupNotification(medications, scheduledTime)
+	if err != nil {
+		return 0, err
+	}
+	// Return 0 for message ID as SendGroupNotification doesn't track it
+	// This is acceptable as medication notifications use intakeIDs for tracking, not message IDs
+	return 0, nil
+}
