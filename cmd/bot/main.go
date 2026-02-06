@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
@@ -79,11 +80,32 @@ func main() {
 	}
 
 	// 5. Server (Initialize first to get WebPush service)
-	oidcConfig := server.OIDCConfig{
-		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-		RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
-		AdminEmail:   os.Getenv("ADMIN_EMAIL"),
+	oidcConfig := server.OIDCConfig{}
+	if os.Getenv("OIDC_ISSUER_URL") != "" || os.Getenv("OIDC_CLIENT_ID") != "" {
+		oidcConfig = server.OIDCConfig{
+			Provider:       "oidc",
+			IssuerURL:      os.Getenv("OIDC_ISSUER_URL"),
+			AuthURL:        os.Getenv("OIDC_AUTH_URL"),
+			TokenURL:       os.Getenv("OIDC_TOKEN_URL"),
+			UserInfoURL:    os.Getenv("OIDC_USERINFO_URL"),
+			ClientID:       os.Getenv("OIDC_CLIENT_ID"),
+			ClientSecret:   os.Getenv("OIDC_CLIENT_SECRET"),
+			RedirectURL:    os.Getenv("OIDC_REDIRECT_URL"),
+			AdminEmail:     os.Getenv("OIDC_ADMIN_EMAIL"),
+			AllowedSubject: os.Getenv("OIDC_ALLOWED_SUBJECT"),
+			ButtonLabel:    os.Getenv("OIDC_BUTTON_LABEL"),
+			ButtonColor:    os.Getenv("OIDC_BUTTON_COLOR"),
+			ButtonText:     os.Getenv("OIDC_BUTTON_TEXT_COLOR"),
+			Scopes:         parseOIDCScopes(os.Getenv("OIDC_SCOPES")),
+		}
+	} else {
+		oidcConfig = server.OIDCConfig{
+			Provider:     "google",
+			ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+			ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+			RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
+			AdminEmail:   os.Getenv("ADMIN_EMAIL"),
+		}
 	}
 
 	// Get bot username for Telegram Login Widget
@@ -117,4 +139,21 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func parseOIDCScopes(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\n' || r == '\t'
+	})
+	var scopes []string
+	for _, s := range fields {
+		if s != "" {
+			scopes = append(scopes, s)
+		}
+	}
+	return scopes
 }

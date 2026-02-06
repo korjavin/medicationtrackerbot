@@ -29,6 +29,7 @@ type Server struct {
 	allowedUserID int64
 	oidcConfig    OIDCConfig
 	oauthConfig   *oauth2.Config
+	oidcUserInfo  string
 	botUsername   string
 	vapidConfig   VAPIDConfig
 	webPush       *webpush.Service
@@ -89,6 +90,9 @@ func (s *Server) Routes() http.Handler {
 		http.ServeFile(w, r, "web/static/pitch.html")
 	})
 
+	// OIDC Setup Helper
+	mux.HandleFunc("/oidc-setup", s.serveOIDCSetup)
+
 	// Main Page with no-cache headers and bot username injection
 	mux.HandleFunc("/", s.serveIndexWithBotUsername)
 
@@ -96,8 +100,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/bp_add", s.serveIndexWithBotUsername)
 
 	// Auth Routes
-	mux.HandleFunc("/auth/google/login", s.handleGoogleLogin)
-	mux.HandleFunc("/auth/google/callback", s.handleGoogleCallback)
+	mux.HandleFunc("/auth/oidc/login", s.handleOIDCLogin)
+	mux.HandleFunc("/auth/oidc/callback", s.handleOIDCCallback)
+	// Backward compatibility for older Google-only URLs
+	mux.HandleFunc("/auth/google/login", s.handleOIDCLogin)
+	mux.HandleFunc("/auth/google/callback", s.handleOIDCCallback)
 	mux.HandleFunc("/auth/telegram/callback", s.handleTelegramCallback)
 
 	// API
@@ -937,6 +944,74 @@ func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Reques
 	// Inject bot username
 	html := strings.ReplaceAll(string(content), "BOT_USERNAME_PLACEHOLDER", s.botUsername)
 
+	oidcClient := struct {
+		Enabled     bool   `json:"enabled"`
+		Label       string `json:"label,omitempty"`
+		LoginURL    string `json:"loginUrl,omitempty"`
+		ButtonColor string `json:"buttonColor,omitempty"`
+		ButtonText  string `json:"buttonText,omitempty"`
+	}{
+		Enabled: s.oauthConfig != nil,
+	}
+	if oidcClient.Enabled {
+		oidcClient.Label = defaultOIDCButtonLabel(s.oidcConfig)
+		oidcClient.LoginURL = "/auth/oidc/login"
+		oidcClient.ButtonColor = s.oidcConfig.ButtonColor
+		oidcClient.ButtonText = s.oidcConfig.ButtonText
+	}
+	oidcJSON, err := json.Marshal(oidcClient)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	html = strings.ReplaceAll(html, "OIDC_CONFIG_PLACEHOLDER", string(oidcJSON))
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(html))
+}
+
+// serveOIDCSetup serves a helper page with copyable OIDC redirect URIs
+func (s *Server) serveOIDCSetup(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
+	f, err := os.Open("./web/static/oidc-setup.html")
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	content, err := io.ReadAll(f)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	appDomain := os.Getenv("APP_DOMAIN")
+	if appDomain == "" {
+		appDomain = os.Getenv("DOMAIN")
+	}
+	if appDomain == "" {
+		appDomain = strings.Split(r.Host, ":")[0]
+	}
+
+	pocketIDDomain := os.Getenv("POCKET_ID_DOMAIN")
+	if pocketIDDomain == "" {
+		pocketIDDomain = "id.example.com"
+	}
+
+	mcpDomain := os.Getenv("MCP_DOMAIN")
+	if mcpDomain == "" {
+		mcpDomain = "mcp.example.com"
+	}
+
+	html := string(content)
+	html = strings.ReplaceAll(html, "APP_DOMAIN_PLACEHOLDER", appDomain)
+	html = strings.ReplaceAll(html, "POCKET_ID_DOMAIN_PLACEHOLDER", pocketIDDomain)
+	html = strings.ReplaceAll(html, "MCP_DOMAIN_PLACEHOLDER", mcpDomain)
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(html))
 }
@@ -973,7 +1048,7 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Create session (same as Google auth)
+	// Create session (same as OIDC auth)
 	sessionValue := createSessionToken(user.Username, s.botToken)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_session",
