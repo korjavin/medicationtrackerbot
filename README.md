@@ -83,6 +83,7 @@ The application is configured via Environment Variables:
 | `PORT` | HTTP port (default: `8080`) |
 | `TZ` | Timezone (e.g., `Europe/Berlin`). Critical for correct scheduling. |
 | `SESSION_SECRET` | Secret used to sign web auth sessions |
+| `AUTH_TRUST_PROXY` | (Optional) Trust `X-Forwarded-For` / `X-Real-IP` headers for rate limiting (default: `true`) |
 | `GOOGLE_CLIENT_ID` | (Optional, legacy) For Google Login in browser |
 | `GOOGLE_CLIENT_SECRET` | (Optional, legacy) For Google Login in browser |
 | `GOOGLE_REDIRECT_URL` | (Optional, legacy) Callback URL (e.g., `https://your-domain.com/auth/google/callback`) |
@@ -108,7 +109,9 @@ If both `OIDC_ADMIN_EMAIL` and `OIDC_ALLOWED_SUBJECT` are set, both must match f
 ### Easy Installer (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/korjavin/medicationtrackerbot/main/install.sh | bash
+curl -fsSLO https://raw.githubusercontent.com/korjavin/medicationtrackerbot/main/install.sh
+chmod +x install.sh
+./install.sh
 ```
 
 See `docs/installer.md` for details, and `docs/hosting_hetzner.md` for a Hetzner guide.

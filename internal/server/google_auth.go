@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -179,12 +178,9 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Forbidden: access denied", http.StatusForbidden)
 			return
 		}
-		if userInfo.EmailVerified != nil && !*userInfo.EmailVerified {
+		if userInfo.EmailVerified == nil || !*userInfo.EmailVerified {
 			http.Error(w, "Forbidden: access denied", http.StatusForbidden)
 			return
-		}
-		if userInfo.EmailVerified == nil {
-			log.Printf("[OIDC] Email verification claim missing for %s", userInfo.Email)
 		}
 	}
 

@@ -29,12 +29,7 @@ func main() {
 
 	sessionSecret := os.Getenv("SESSION_SECRET")
 	if sessionSecret == "" {
-		if botToken != "" {
-			sessionSecret = botToken
-			log.Println("SESSION_SECRET not set. Falling back to TELEGRAM_BOT_TOKEN (not recommended).")
-		} else {
-			log.Fatal("SESSION_SECRET is required for web auth.")
-		}
+		log.Fatal("SESSION_SECRET is required. Generate one with: openssl rand -base64 32")
 	}
 
 	userIDStr := os.Getenv("ALLOWED_USER_ID")

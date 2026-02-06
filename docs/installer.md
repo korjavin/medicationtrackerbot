@@ -13,6 +13,14 @@ This installer sets up a simple single-server deployment with HTTPS, optional MC
 ## One-Line Install
 
 ```bash
+curl -fsSLO https://raw.githubusercontent.com/korjavin/medicationtrackerbot/main/install.sh
+chmod +x install.sh
+./install.sh
+```
+
+If you prefer one-line install, you can pipe to bash, but review the script first:
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/korjavin/medicationtrackerbot/main/install.sh | bash
 ```
 
@@ -73,6 +81,8 @@ Minimum settings:
 If both are set, both must match.
 
 OIDC discovery uses the system CA trust store. Ensure your server has up-to-date CA certificates.
+
+Rate limiting for auth endpoints trusts proxy headers by default. If you are not behind a reverse proxy, set `AUTH_TRUST_PROXY=false`.
 
 If you choose the combined Pocket-ID flow, the installer will deploy Pocket-ID once and guide you to set up:
 
