@@ -104,7 +104,11 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify State
-	oauthState, _ := r.Cookie("oauthstate")
+	oauthState, err := r.Cookie("oauthstate")
+	if err != nil {
+		http.Error(w, "missing oauth state", http.StatusBadRequest)
+		return
+	}
 	if r.FormValue("state") != oauthState.Value {
 		http.Error(w, "invalid oauth state", http.StatusUnauthorized)
 		return
@@ -144,7 +148,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 
 	var userInfo struct {
 		Email             string `json:"email"`
-		EmailVerified     bool   `json:"email_verified"`
+		EmailVerified     *bool  `json:"email_verified"`
 		Sub               string `json:"sub"`
 		ID                string `json:"id"`
 		PreferredUsername string `json:"preferred_username"`
@@ -160,21 +164,28 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Authorize
+	if s.oidcConfig.AllowedSubject == "" && s.oidcConfig.AdminEmail == "" {
+		http.Error(w, "Forbidden: access denied", http.StatusForbidden)
+		return
+	}
 	if s.oidcConfig.AllowedSubject != "" {
 		if subject == "" || subject != s.oidcConfig.AllowedSubject {
-			http.Error(w, "Forbidden: subject not authorized", http.StatusForbidden)
+			http.Error(w, "Forbidden: access denied", http.StatusForbidden)
 			return
 		}
 	}
 	if s.oidcConfig.AdminEmail != "" {
 		if userInfo.Email == "" || userInfo.Email != s.oidcConfig.AdminEmail {
-			http.Error(w, fmt.Sprintf("Forbidden: %s is not authorized", userInfo.Email), http.StatusForbidden)
+			http.Error(w, "Forbidden: access denied", http.StatusForbidden)
 			return
 		}
-	}
-	if s.oidcConfig.AllowedSubject == "" && s.oidcConfig.AdminEmail == "" {
-		http.Error(w, "OIDC is configured but no allowed subject or email is set", http.StatusForbidden)
-		return
+		if userInfo.EmailVerified != nil && !*userInfo.EmailVerified {
+			http.Error(w, "Forbidden: access denied", http.StatusForbidden)
+			return
+		}
+		if userInfo.EmailVerified == nil {
+			log.Printf("[OIDC] Email verification claim missing for %s", userInfo.Email)
+		}
 	}
 
 	// Create Session (Simple implementation)
@@ -183,7 +194,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	// We'll trust this cookie in auth middleware.
 
 	// Just use the email as session value, signed with bot token to prevent tampering
-	sessionValue := createSessionToken(firstNonEmpty(userInfo.Email, subject, userInfo.PreferredUsername), s.botToken)
+	sessionValue := createSessionToken(firstNonEmpty(userInfo.Email, subject, userInfo.PreferredUsername), s.sessionSecret)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_session",
 		Value:    sessionValue,
@@ -217,6 +228,9 @@ func resolveOIDCEndpoints(cfg OIDCConfig) (oauth2.Endpoint, string, error) {
 
 	if cfg.IssuerURL == "" {
 		return oauth2.Endpoint{}, "", errors.New("OIDC_ISSUER_URL is required")
+	}
+	if strings.HasPrefix(cfg.IssuerURL, "http://") {
+		return oauth2.Endpoint{}, "", errors.New("OIDC_ISSUER_URL must use https")
 	}
 
 	discoveryURL := strings.TrimSuffix(cfg.IssuerURL, "/") + "/.well-known/openid-configuration"

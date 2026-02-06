@@ -46,6 +46,7 @@ docker compose up -d
 
 - `docker-compose.yml` and `.env` are written to the install directory (default: `/opt/medtracker`).
 - Edit `.env` to change settings, then re-run `docker compose up -d`.
+- `SESSION_SECRET` is generated automatically for web auth sessions.
 
 ## Telegram Setup
 
@@ -69,6 +70,9 @@ Minimum settings:
 
 - Redirect URL: `https://your-domain/auth/oidc/callback`.
 - Restrict access by email or by subject (`sub`).
+If both are set, both must match.
+
+OIDC discovery uses the system CA trust store. Ensure your server has up-to-date CA certificates.
 
 If you choose the combined Pocket-ID flow, the installer will deploy Pocket-ID once and guide you to set up:
 

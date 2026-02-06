@@ -292,7 +292,7 @@ LE_EMAIL=""
 NETWORK_NAME=""
 
 if $USE_TRAEFIK; then
-  LE_EMAIL=$(prompt "Email for Let's Encrypt" "admin@example.com")
+  LE_EMAIL=$(prompt "Email for Let's Encrypt" "user@domain.example")
   if [ -z "$LE_EMAIL" ]; then
     die "Let's Encrypt email is required"
   fi
@@ -309,6 +309,7 @@ ENABLE_LOCAL_TG_API=false
 TELEGRAM_API_ID=""
 TELEGRAM_API_HASH=""
 TELEGRAM_API_ENDPOINT=""
+SESSION_SECRET=""
 
 TELEGRAM_BOT_TOKEN=$(prompt_secret "Telegram Bot Token")
 if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
@@ -328,6 +329,8 @@ if confirm "Use local Telegram Bot API server (larger files, more setup)?" "no";
   fi
   TELEGRAM_API_ENDPOINT="http://telegram-bot-api:8081"
 fi
+
+SESSION_SECRET=$(gen_random_base64)
 
 ENABLE_POCKET_ID=false
 POCKET_ID_DOMAIN=""
@@ -447,7 +450,7 @@ if confirm "Enable web push (browser notifications)?" "yes"; then
   ENABLE_WEBPUSH=true
   VAPID_SUBJECT_DEFAULT="$LE_EMAIL"
   if [ -z "$VAPID_SUBJECT_DEFAULT" ]; then
-    VAPID_SUBJECT_DEFAULT="admin@example.com"
+    VAPID_SUBJECT_DEFAULT="user@domain.example"
   fi
   VAPID_SUBJECT=$(prompt "VAPID subject email" "$VAPID_SUBJECT_DEFAULT")
   if confirm "Auto-generate VAPID keys now?" "yes"; then
@@ -563,6 +566,7 @@ PUBLIC_IP=$(detect_public_ip)
   printf 'TELEGRAM_API_ENDPOINT=%s\n' "$TELEGRAM_API_ENDPOINT"
   printf 'TELEGRAM_API_ID=%s\n' "$TELEGRAM_API_ID"
   printf 'TELEGRAM_API_HASH=%s\n' "$TELEGRAM_API_HASH"
+  printf 'SESSION_SECRET=%s\n' "$SESSION_SECRET"
   printf 'GOOGLE_CLIENT_ID=%s\n' ""
   printf 'GOOGLE_CLIENT_SECRET=%s\n' ""
   printf 'GOOGLE_REDIRECT_URL=%s\n' ""
@@ -690,6 +694,7 @@ PUBLIC_IP=$(detect_public_ip)
   printf "      - DB_PATH=\${DB_PATH:-/app/data/meds.db}\n"
   printf "      - PORT=\${PORT:-8080}\n"
   printf "      - TZ=\${TZ}\n"
+  printf "      - SESSION_SECRET=\${SESSION_SECRET}\n"
   printf "      - APP_DOMAIN=\${DOMAIN}\n"
   printf "      - MCP_DOMAIN=\${MCP_DOMAIN}\n"
   printf "      - POCKET_ID_DOMAIN=\${POCKET_ID_DOMAIN}\n"
