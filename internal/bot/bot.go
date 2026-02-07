@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/korjavin/medicationtrackerbot/internal/notification"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -19,9 +20,10 @@ type Bot struct {
 	api           *tgbotapi.BotAPI
 	store         *store.Store
 	allowedUserID int64
+	actionHandler *notification.ActionHandler
 }
 
-func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
+func New(token string, allowedUserID int64, s *store.Store, actionHandler *notification.ActionHandler) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
@@ -37,6 +39,7 @@ func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 		api:           api,
 		store:         s,
 		allowedUserID: allowedUserID,
+		actionHandler: actionHandler,
 	}, nil
 }
 
@@ -201,6 +204,45 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	callbackCfg := tgbotapi.NewCallback(cb.ID, "")
 	b.api.Request(callbackCfg)
 
+	// Use action handler for unified callback processing
+	action, err := notification.DecodeCallbackData(cb.Data)
+	if err != nil {
+		log.Printf("[Bot] Failed to decode callback data: %v", err)
+		// Fallback to legacy handling for unknown formats
+		b.handleLegacyCallback(cb)
+		return
+	}
+
+	ctx := context.Background()
+	if err := b.actionHandler.HandleAction(ctx, b.allowedUserID, *action); err != nil {
+		log.Printf("[Bot] Action handler error: %v", err)
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error processing action."))
+		return
+	}
+
+	// Provider-specific cleanup: remove keyboard and send confirmation
+	edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
+	})
+	b.api.Send(edit)
+
+	// Send confirmation based on action type
+	switch action.Type {
+	case notification.ActionConfirm:
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ Marked as taken."))
+	case notification.ActionStart:
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ Workout started!"))
+	case notification.ActionSnooze:
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⏰ Snoozed for 1 hour."))
+	case notification.ActionSkip:
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⏭️ Skipped."))
+	default:
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ Done."))
+	}
+}
+
+// handleLegacyCallback handles old callback formats that aren't yet migrated
+func (b *Bot) handleLegacyCallback(cb *tgbotapi.CallbackQuery) {
 	data := cb.Data
 	// data format: "confirm:<medID>", "confirm_schedule:<unix>", or "log:<medID>"
 	if len(data) > 8 && data[:8] == "confirm:" {
@@ -1108,4 +1150,33 @@ func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
 
 	msgConfig.Text = sb.String()
 	msgConfig.ParseMode = "Markdown"
+}
+
+// RemoveMedicationNotification is an alias for DeleteMessage to satisfy TelegramMessenger interface
+func (b *Bot) RemoveMedicationNotification(messageID int) error {
+	return b.DeleteMessage(messageID)
+}
+
+// SendSimpleMessage sends a text message without any keyboard/buttons
+func (b *Bot) SendSimpleMessage(message string) (int, error) {
+	msg := tgbotapi.NewMessage(b.allowedUserID, message)
+	msg.ParseMode = "Markdown"
+	sent, err := b.api.Send(msg)
+	if err != nil {
+		return 0, err
+	}
+	return sent.MessageID, nil
+}
+
+
+// SendMedicationNotification wraps SendGroupNotification with intake IDs for TelegramMessenger interface
+func (b *Bot) SendMedicationNotification(medications []store.Medication, scheduledTime time.Time, intakeIDs []int64) (int, error) {
+	// SendGroupNotification doesn't return message ID, so we'll send and track separately
+	err := b.SendGroupNotification(medications, scheduledTime)
+	if err != nil {
+		return 0, err
+	}
+	// Return 0 for message ID as SendGroupNotification doesn't track it
+	// This is acceptable as medication notifications use intakeIDs for tracking, not message IDs
+	return 0, nil
 }

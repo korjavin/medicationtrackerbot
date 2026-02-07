@@ -165,6 +165,11 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
 	}
 
+	// Enable foreign keys for CASCADE DELETE support
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
+	}
+
 	// Set dialect
 	if err := goose.SetDialect("sqlite3"); err != nil {
 		return nil, err
@@ -287,8 +292,22 @@ func (s *Store) GetMedication(id int64) (*Medication, error) {
 }
 
 func (s *Store) UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int) error {
+	// If archiving the medication, first delete all pending intakes and their notifications
+	if archived {
+		if err := s.DeletePendingIntakesForMedication(id); err != nil {
+			return fmt.Errorf("failed to delete pending intakes: %w", err)
+		}
+	}
+
 	_, err := s.db.Exec("UPDATE medications SET name = ?, dosage = ?, schedule = ?, archived = ?, start_date = ?, end_date = ?, rxcui = ?, normalized_name = ?, inventory_count = ? WHERE id = ?",
 		name, dosage, schedule, archived, startDate, endDate, rxcui, normalizedName, inventoryCount, id)
+	return err
+}
+
+// DeletePendingIntakesForMedication deletes all pending intakes for a medication
+// This also cascades to delete reminder_messages due to the foreign key constraint
+func (s *Store) DeletePendingIntakesForMedication(medID int64) error {
+	_, err := s.db.Exec("DELETE FROM intake_log WHERE medication_id = ? AND status = 'PENDING'", medID)
 	return err
 }
 
@@ -576,8 +595,18 @@ func (s *Store) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*Intake
 }
 
 func (s *Store) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) error {
-	_, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at = ? WHERE user_id = ? AND scheduled_at = ? AND status = 'PENDING'",
-		takenAt, userID, scheduledAt)
+	// Only confirm intakes for active (non-archived) medications
+	query := `
+		UPDATE intake_log 
+		SET status = 'TAKEN', taken_at = ? 
+		WHERE user_id = ? 
+		  AND scheduled_at = ? 
+		  AND status = 'PENDING'
+		  AND medication_id IN (
+		    SELECT id FROM medications WHERE archived = 0
+		  )
+	`
+	_, err := s.db.Exec(query, takenAt, userID, scheduledAt)
 	return err
 }
 
@@ -1282,4 +1311,178 @@ func (s *Store) DeletePushSubscription(endpoint string) error {
 func (s *Store) DisablePushSubscription(endpoint string) error {
 	_, err := s.db.Exec("UPDATE push_subscriptions SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE endpoint = ?", endpoint)
 	return err
+}
+
+// -- Notification Settings --
+
+// NotificationSetting represents a user's preference for a provider and notification type
+type NotificationSetting struct {
+	ID               int64     `json:"id"`
+	UserID           int64     `json:"user_id"`
+	Provider         string    `json:"provider"`          // "telegram", "web_push", "sms", etc.
+	NotificationType string    `json:"notification_type"` // "medication", "workout", "low_stock", "reminder"
+	Enabled          bool      `json:"enabled"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// GetNotificationSetting gets a single setting for a user, provider, and notification type
+func (s *Store) GetNotificationSetting(userID int64, provider, notificationType string) (*NotificationSetting, error) {
+	var setting NotificationSetting
+	query := `SELECT id, user_id, provider, notification_type, enabled, created_at, updated_at
+	          FROM notification_settings
+	          WHERE user_id = ? AND provider = ? AND notification_type = ?`
+
+	err := s.db.QueryRow(query, userID, provider, notificationType).Scan(
+		&setting.ID, &setting.UserID, &setting.Provider, &setting.NotificationType,
+		&setting.Enabled, &setting.CreatedAt, &setting.UpdatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &setting, nil
+}
+
+// GetNotificationSettings returns all settings for a user, optionally filtered by notification type
+// Returns a map of provider name -> enabled status
+func (s *Store) GetNotificationSettings(userID int64, notificationType string) (map[string]bool, error) {
+	query := `SELECT provider, enabled FROM notification_settings WHERE user_id = ?`
+	args := []interface{}{userID}
+
+	if notificationType != "" {
+		query += " AND notification_type = ?"
+		args = append(args, notificationType)
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	settings := make(map[string]bool)
+	for rows.Next() {
+		var provider string
+		var enabled bool
+		if err := rows.Scan(&provider, &enabled); err != nil {
+			return nil, err
+		}
+		settings[provider] = enabled
+	}
+	return settings, nil
+}
+
+// GetAllNotificationSettings returns all settings for a user grouped by notification type
+// Returns a map of notification_type -> (map of provider -> enabled)
+func (s *Store) GetAllNotificationSettings(userID int64) (map[string]map[string]bool, error) {
+	query := `SELECT notification_type, provider, enabled 
+	          FROM notification_settings 
+	          WHERE user_id = ?
+	          ORDER BY notification_type, provider`
+
+	rows, err := s.db.Query(query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	settings := make(map[string]map[string]bool)
+	for rows.Next() {
+		var notifType, provider string
+		var enabled bool
+		if err := rows.Scan(&notifType, &provider, &enabled); err != nil {
+			return nil, err
+		}
+		if settings[notifType] == nil {
+			settings[notifType] = make(map[string]bool)
+		}
+		settings[notifType][provider] = enabled
+	}
+	return settings, nil
+}
+
+// UpdateNotificationSetting updates or creates a notification setting
+func (s *Store) UpdateNotificationSetting(userID int64, provider, notificationType string, enabled bool) error {
+	query := `
+		INSERT INTO notification_settings (user_id, provider, notification_type, enabled, updated_at)
+		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(user_id, provider, notification_type) DO UPDATE SET
+			enabled = excluded.enabled,
+			updated_at = CURRENT_TIMESTAMP
+	`
+	_, err := s.db.Exec(query, userID, provider, notificationType, enabled)
+	return err
+}
+
+// StoreReminderMessage stores a reminder message ID for later cleanup
+func (s *Store) StoreReminderMessage(userID int64, intakeID int64, provider string, messageID string) error {
+	query := `INSERT INTO reminder_messages (user_id, intake_id, provider, message_id) VALUES (?, ?, ?, ?)`
+	_, err := s.db.Exec(query, userID, intakeID, provider, messageID)
+	return err
+}
+
+// GetReminderMessages retrieves all reminder message IDs for a specific intake
+func (s *Store) GetReminderMessages(intakeID int64) ([]struct {
+	Provider  string
+	MessageID string
+}, error) {
+	query := `SELECT provider, message_id FROM reminder_messages WHERE intake_id = ?`
+	rows, err := s.db.Query(query, intakeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var reminders []struct {
+		Provider  string
+		MessageID string
+	}
+	for rows.Next() {
+		var r struct {
+			Provider  string
+			MessageID string
+		}
+		if err := rows.Scan(&r.Provider, &r.MessageID); err != nil {
+			return nil, err
+		}
+		reminders = append(reminders, r)
+	}
+	return reminders, rows.Err()
+}
+
+// DeleteReminderMessages removes all reminder messages for a specific intake
+func (s *Store) DeleteReminderMessages(intakeID int64) error {
+	query := `DELETE FROM reminder_messages WHERE intake_id = ?`
+	_, err := s.db.Exec(query, intakeID)
+	return err
+}
+
+// GetEnabledProviders returns list of enabled provider names for a user and notification type
+func (s *Store) GetEnabledProviders(userID int64, notificationType string) ([]string, error) {
+	query := `SELECT provider FROM notification_settings 
+	          WHERE user_id = ? AND notification_type = ? AND enabled = 1`
+
+	rows, err := s.db.Query(query, userID, notificationType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var providers []string
+	for rows.Next() {
+		var provider string
+		if err := rows.Scan(&provider); err != nil {
+			return nil, err
+		}
+		providers = append(providers, provider)
+	}
+	return providers, nil
+}
+
+// SetNotificationEnabled is a convenience wrapper for UpdateNotificationSetting
+func (s *Store) SetNotificationEnabled(userID int64, provider, notificationType string, enabled bool) error {
+	return s.UpdateNotificationSetting(userID, provider, notificationType, enabled)
 }
