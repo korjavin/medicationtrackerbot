@@ -497,6 +497,15 @@ if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
   die "Telegram Bot Token is required"
 fi
 say ""
+say "IMPORTANT: Configure your bot in Telegram to enable the web app:"
+say "1. Open @BotFather in Telegram"
+say "2. Send /setdomain"
+say "3. Select your bot"
+say "4. Send: ${DOMAIN}"
+say ""
+say "This allows your bot to open the web app correctly."
+say "You can do this later, but the bot won't work properly until configured."
+say ""
 say "Your Telegram User ID is used as an access allowlist (extra security)."
 say "Get it by messaging @userinfobot or @myidbot in Telegram."
 ALLOWED_USER_ID=$(prompt_state "ALLOWED_USER_ID" "Your Telegram User ID" "")
@@ -818,7 +827,7 @@ say "Created ${ENV_FILE} with mode 600 (owner read/write only)."
 
   if $USE_TRAEFIK; then
     printf "  traefik:\n"
-    printf "    image: traefik:v3.1\n"
+    printf "    image: traefik:v3.6\n"
     printf "    container_name: ${APP_NAME}-traefik\n"
     printf "    restart: unless-stopped\n"
     printf "    command:\n"
@@ -1094,6 +1103,9 @@ fi
 
 say "- Wait for DNS to propagate, then open https://${DOMAIN}."
 
+if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+  say "- Configure your bot's domain: In @BotFather, use /setdomain and set it to ${DOMAIN}"
+fi
 say "- In Telegram, open your bot and send /start to launch the app."
 
 if $ENABLE_POCKET_ID; then

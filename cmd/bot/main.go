@@ -103,7 +103,8 @@ func main() {
 			ButtonText:     os.Getenv("OIDC_BUTTON_TEXT_COLOR"),
 			Scopes:         parseOIDCScopes(os.Getenv("OIDC_SCOPES")),
 		}
-	} else {
+	} else if os.Getenv("GOOGLE_CLIENT_ID") != "" {
+		// Only configure Google OAuth if credentials are actually provided
 		oidcConfig = server.OIDCConfig{
 			Provider:     "google",
 			ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
