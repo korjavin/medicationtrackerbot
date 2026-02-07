@@ -226,8 +226,11 @@ func resolveOIDCEndpoints(cfg OIDCConfig) (oauth2.Endpoint, string, error) {
 	if cfg.IssuerURL == "" {
 		return oauth2.Endpoint{}, "", errors.New("OIDC_ISSUER_URL is required")
 	}
+	// Allow HTTP for localhost and internal container URLs, require HTTPS for external URLs
 	if strings.HasPrefix(cfg.IssuerURL, "http://") {
-		return oauth2.Endpoint{}, "", errors.New("OIDC_ISSUER_URL must use https")
+		if !strings.Contains(cfg.IssuerURL, "localhost") && !strings.Contains(cfg.IssuerURL, "127.0.0.1") && !strings.Contains(cfg.IssuerURL, ":") {
+			return oauth2.Endpoint{}, "", errors.New("OIDC_ISSUER_URL must use https for external URLs")
+		}
 	}
 
 	discoveryURL := strings.TrimSuffix(cfg.IssuerURL, "/") + "/.well-known/openid-configuration"
