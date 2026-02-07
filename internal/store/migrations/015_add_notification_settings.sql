@@ -14,13 +14,13 @@ CREATE INDEX idx_notification_settings_user ON notification_settings(user_id);
 CREATE INDEX idx_notification_settings_enabled ON notification_settings(enabled, user_id);
 
 -- Initialize settings for existing users with Telegram enabled by default
--- This assumes user_id is available from existing tables
+-- Get user_id from intake_log since medications table doesn't have user_id
 INSERT INTO notification_settings (user_id, provider, notification_type, enabled)
-SELECT DISTINCT user_id, 'telegram', 'medication', 1 FROM medications WHERE user_id IS NOT NULL
+SELECT DISTINCT user_id, 'telegram', 'medication', 1 FROM intake_log
 UNION
-SELECT DISTINCT user_id, 'telegram', 'workout', 1 FROM workout_groups WHERE user_id IS NOT NULL
+SELECT DISTINCT user_id, 'telegram', 'workout', 1 FROM workout_sessions WHERE user_id IS NOT NULL
 UNION
-SELECT DISTINCT user_id, 'telegram', 'low_stock', 1 FROM medications WHERE user_id IS NOT NULL;
+SELECT DISTINCT user_id, 'telegram', 'low_stock', 1 FROM blood_pressure_readings;
 
 -- Enable web_push for users who already have push subscriptions
 INSERT OR IGNORE INTO notification_settings (user_id, provider, notification_type, enabled)

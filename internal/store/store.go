@@ -165,6 +165,11 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
 	}
 
+	// Enable foreign keys for CASCADE DELETE support
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
+	}
+
 	// Set dialect
 	if err := goose.SetDialect("sqlite3"); err != nil {
 		return nil, err
@@ -287,8 +292,22 @@ func (s *Store) GetMedication(id int64) (*Medication, error) {
 }
 
 func (s *Store) UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int) error {
+	// If archiving the medication, first delete all pending intakes and their notifications
+	if archived {
+		if err := s.DeletePendingIntakesForMedication(id); err != nil {
+			return fmt.Errorf("failed to delete pending intakes: %w", err)
+		}
+	}
+
 	_, err := s.db.Exec("UPDATE medications SET name = ?, dosage = ?, schedule = ?, archived = ?, start_date = ?, end_date = ?, rxcui = ?, normalized_name = ?, inventory_count = ? WHERE id = ?",
 		name, dosage, schedule, archived, startDate, endDate, rxcui, normalizedName, inventoryCount, id)
+	return err
+}
+
+// DeletePendingIntakesForMedication deletes all pending intakes for a medication
+// This also cascades to delete reminder_messages due to the foreign key constraint
+func (s *Store) DeletePendingIntakesForMedication(medID int64) error {
+	_, err := s.db.Exec("DELETE FROM intake_log WHERE medication_id = ? AND status = 'PENDING'", medID)
 	return err
 }
 
@@ -576,8 +595,18 @@ func (s *Store) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*Intake
 }
 
 func (s *Store) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) error {
-	_, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at = ? WHERE user_id = ? AND scheduled_at = ? AND status = 'PENDING'",
-		takenAt, userID, scheduledAt)
+	// Only confirm intakes for active (non-archived) medications
+	query := `
+		UPDATE intake_log 
+		SET status = 'TAKEN', taken_at = ? 
+		WHERE user_id = ? 
+		  AND scheduled_at = ? 
+		  AND status = 'PENDING'
+		  AND medication_id IN (
+		    SELECT id FROM medications WHERE archived = 0
+		  )
+	`
+	_, err := s.db.Exec(query, takenAt, userID, scheduledAt)
 	return err
 }
 
