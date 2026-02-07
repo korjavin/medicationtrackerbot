@@ -261,6 +261,26 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 	// Search RxNorm (Always update on edit to handle renames or missing data)
 	rxcui, normalizedName, _ := s.rxnorm.SearchRxNorm(req.Name)
 
+	// If archiving, clean up pending notifications/intakes
+	if req.Archived {
+		pending, err := s.store.GetPendingIntakesForMedication(id)
+		if err == nil {
+			for _, p := range pending {
+				// 1. Delete Telegram messages
+				msgIDs, err := s.store.GetIntakeReminders(p.ID)
+				if err == nil {
+					for _, msgID := range msgIDs {
+						s.bot.DeleteMessage(msgID)
+					}
+				}
+				// 2. Delete the pending intake
+				s.store.DeleteIntake(p.ID)
+			}
+		} else {
+			log.Printf("Error getting pending intakes for cleanup: %v", err)
+		}
+	}
+
 	if err := s.store.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate, rxcui, normalizedName, req.InventoryCount); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

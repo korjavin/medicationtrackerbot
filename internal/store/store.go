@@ -576,8 +576,15 @@ func (s *Store) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*Intake
 }
 
 func (s *Store) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) error {
-	_, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at = ? WHERE user_id = ? AND scheduled_at = ? AND status = 'PENDING'",
-		takenAt, userID, scheduledAt)
+	// Only confirm intakes for medications that are NOT archived (archived = 0)
+	_, err := s.db.Exec(`
+		UPDATE intake_log 
+		SET status = 'TAKEN', taken_at = ? 
+		WHERE user_id = ? 
+		  AND scheduled_at = ? 
+		  AND status = 'PENDING'
+		  AND medication_id IN (SELECT id FROM medications WHERE archived = 0)
+	`, takenAt, userID, scheduledAt)
 	return err
 }
 
@@ -618,6 +625,28 @@ func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time)
 		logs = append(logs, l)
 	}
 	return logs, nil
+}
+
+func (s *Store) GetPendingIntakesForMedication(medID int64) ([]IntakeLog, error) {
+	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status FROM intake_log WHERE medication_id = ? AND status = 'PENDING'", medID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var logs []IntakeLog
+	for rows.Next() {
+		var l IntakeLog
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status); err != nil {
+			return nil, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
+func (s *Store) DeleteIntake(id int64) error {
+	_, err := s.db.Exec("DELETE FROM intake_log WHERE id = ?", id)
+	return err
 }
 
 // -- Settings --
