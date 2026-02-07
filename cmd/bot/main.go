@@ -87,14 +87,23 @@ func main() {
 	// 5. Server (Initialize first to get WebPush service)
 	oidcConfig := server.OIDCConfig{}
 	if os.Getenv("OIDC_ISSUER_URL") != "" || os.Getenv("OIDC_CLIENT_ID") != "" {
+		// Use POCKET_ID credentials as fallback if OIDC credentials not set
+		clientID := os.Getenv("OIDC_CLIENT_ID")
+		clientSecret := os.Getenv("OIDC_CLIENT_SECRET")
+		if clientID == "" && os.Getenv("POCKET_ID_CLIENT_ID") != "" {
+			clientID = os.Getenv("POCKET_ID_CLIENT_ID")
+			clientSecret = os.Getenv("POCKET_ID_CLIENT_SECRET")
+			log.Println("Using POCKET_ID credentials for OIDC web login")
+		}
+
 		oidcConfig = server.OIDCConfig{
 			Provider:       "oidc",
 			IssuerURL:      os.Getenv("OIDC_ISSUER_URL"),
 			AuthURL:        os.Getenv("OIDC_AUTH_URL"),
 			TokenURL:       os.Getenv("OIDC_TOKEN_URL"),
 			UserInfoURL:    os.Getenv("OIDC_USERINFO_URL"),
-			ClientID:       os.Getenv("OIDC_CLIENT_ID"),
-			ClientSecret:   os.Getenv("OIDC_CLIENT_SECRET"),
+			ClientID:       clientID,
+			ClientSecret:   clientSecret,
 			RedirectURL:    os.Getenv("OIDC_REDIRECT_URL"),
 			AdminEmail:     os.Getenv("OIDC_ADMIN_EMAIL"),
 			AllowedSubject: os.Getenv("OIDC_ALLOWED_SUBJECT"),
