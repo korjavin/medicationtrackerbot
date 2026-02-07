@@ -155,6 +155,8 @@ Risks:
 - In Telegram, open your bot and send `/start`.
 - If Pocket-ID was installed, complete setup at `https://id.example.com/setup`.
 
+**Note:** If you use Pocket-ID for web login, you can reuse the same OAuth client for both web login and MCP. The app will automatically use `POCKET_ID_CLIENT_ID` and `POCKET_ID_CLIENT_SECRET` when `OIDC_CLIENT_ID` is not set.
+
 ## Updating
 
 ```bash
