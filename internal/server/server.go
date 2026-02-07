@@ -1066,7 +1066,7 @@ func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Reques
 		ButtonColor string `json:"buttonColor,omitempty"`
 		ButtonText  string `json:"buttonText,omitempty"`
 	}{
-		Enabled: s.oauthConfig != nil,
+		Enabled: s.oauthConfig != nil && s.oidcConfig.ClientID != "",
 	}
 	if oidcClient.Enabled {
 		oidcClient.Label = defaultOIDCButtonLabel(s.oidcConfig)
