@@ -96,9 +96,17 @@ func main() {
 			log.Println("Using POCKET_ID credentials for OIDC web login")
 		}
 
+		issuerURL := os.Getenv("OIDC_ISSUER_URL")
+		// If POCKET_ID_DOMAIN is set and issuer matches, use internal container URL for discovery
+		if pocketDomain := os.Getenv("POCKET_ID_DOMAIN"); pocketDomain != "" && strings.Contains(issuerURL, pocketDomain) {
+			// Use internal container URL for OIDC discovery to avoid Traefik/DNS issues
+			issuerURL = "http://medtracker-pocket-id:1411"
+			log.Printf("Using internal Pocket-ID URL for OIDC discovery: %s", issuerURL)
+		}
+
 		oidcConfig = server.OIDCConfig{
 			Provider:       "oidc",
-			IssuerURL:      os.Getenv("OIDC_ISSUER_URL"),
+			IssuerURL:      issuerURL,
 			AuthURL:        os.Getenv("OIDC_AUTH_URL"),
 			TokenURL:       os.Getenv("OIDC_TOKEN_URL"),
 			UserInfoURL:    os.Getenv("OIDC_USERINFO_URL"),
