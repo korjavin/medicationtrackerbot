@@ -164,24 +164,27 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Authorize
+	// If both AdminEmail and AllowedSubject are empty, trust the OIDC provider (allow all authenticated users)
 	if s.oidcConfig.AllowedSubject == "" && s.oidcConfig.AdminEmail == "" {
-		http.Error(w, "Forbidden: access denied", http.StatusForbidden)
-		return
-	}
-	if s.oidcConfig.AllowedSubject != "" {
-		if subject == "" || subject != s.oidcConfig.AllowedSubject {
-			http.Error(w, "Forbidden: access denied", http.StatusForbidden)
-			return
+		// Allow all authenticated users from this OIDC provider
+		log.Printf("[OIDC] Allowing authenticated user (allow-all mode): %s", firstNonEmpty(userInfo.Email, subject, userInfo.PreferredUsername))
+	} else {
+		// Strict mode: check subject and/or email
+		if s.oidcConfig.AllowedSubject != "" {
+			if subject == "" || subject != s.oidcConfig.AllowedSubject {
+				http.Error(w, "Forbidden: access denied", http.StatusForbidden)
+				return
+			}
 		}
-	}
-	if s.oidcConfig.AdminEmail != "" {
-		if userInfo.Email == "" || userInfo.Email != s.oidcConfig.AdminEmail {
-			http.Error(w, "Forbidden: access denied", http.StatusForbidden)
-			return
-		}
-		if userInfo.EmailVerified == nil || !*userInfo.EmailVerified {
-			http.Error(w, "Forbidden: access denied", http.StatusForbidden)
-			return
+		if s.oidcConfig.AdminEmail != "" {
+			if userInfo.Email == "" || userInfo.Email != s.oidcConfig.AdminEmail {
+				http.Error(w, "Forbidden: access denied", http.StatusForbidden)
+				return
+			}
+			if userInfo.EmailVerified == nil || !*userInfo.EmailVerified {
+				http.Error(w, "Forbidden: access denied", http.StatusForbidden)
+				return
+			}
 		}
 	}
 
