@@ -174,18 +174,30 @@ async function checkAuth() {
         tgWidgetContainer.appendChild(tgScript);
         loginContainer.appendChild(tgWidgetContainer);
 
-        // Divider
-        const divider = document.createElement('div');
-        divider.style.cssText = "display:flex; align-items:center; gap:10px; color: #999; margin: 10px 0;";
-        divider.innerHTML = '<span style="flex:1; height:1px; background:#ddd;"></span><span>or</span><span style="flex:1; height:1px; background:#ddd;"></span>';
-        loginContainer.appendChild(divider);
+        const oidcConfig = window.OIDC_CONFIG || { enabled: false };
+        if (oidcConfig.enabled) {
+            // Divider
+            const divider = document.createElement('div');
+            divider.style.cssText = "display:flex; align-items:center; gap:10px; color: #999; margin: 10px 0;";
+            divider.innerHTML = '<span style=\"flex:1; height:1px; background:#ddd;\"></span><span>or</span><span style=\"flex:1; height:1px; background:#ddd;\"></span>';
+            loginContainer.appendChild(divider);
 
-        // Google login button
-        const googleBtn = document.createElement('button');
-        googleBtn.innerText = "Login with Google";
-        googleBtn.onclick = () => window.location.href = "/auth/google/login";
-        googleBtn.style.cssText = "padding: 12px 24px; font-size: 16px; background: #4285F4; color: white; border: none; border-radius: 5px; cursor: pointer;";
-        loginContainer.appendChild(googleBtn);
+            // OIDC login button
+            const oidcBtn = document.createElement('button');
+            oidcBtn.innerText = oidcConfig.label || "Login";
+            oidcBtn.onclick = () => window.location.href = (oidcConfig.loginUrl || "/auth/oidc/login");
+            const oidcBg = oidcConfig.buttonColor || "var(--button-color, #2481cc)";
+            const oidcText = oidcConfig.buttonText || "var(--button-text-color, #fff)";
+            oidcBtn.style.cssText = `padding: 12px 24px; font-size: 16px; background: ${oidcBg}; color: ${oidcText}; border: none; border-radius: 5px; cursor: pointer;`;
+            loginContainer.appendChild(oidcBtn);
+
+            // Setup helper link
+            const setupLink = document.createElement('a');
+            setupLink.href = '/oidc-setup';
+            setupLink.innerText = 'Need setup info?';
+            setupLink.style.cssText = 'margin-top: 4px; font-size: 13px; color: var(--link-color, #2481cc);';
+            loginContainer.appendChild(setupLink);
+        }
     }
 
     document.body.innerHTML = "";
@@ -216,6 +228,41 @@ async function checkAuth() {
     return false;
 }
 
+function initOIDCSetupBanner() {
+    const container = document.getElementById('oidc-setup-container');
+    if (!container) return;
+
+    const oidcConfig = window.OIDC_CONFIG || { enabled: false };
+    if (!oidcConfig.enabled) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'setting-item';
+    wrapper.style.marginBottom = '16px';
+
+    const textWrap = document.createElement('div');
+    const title = document.createElement('h3');
+    title.innerText = 'OIDC Setup';
+    const desc = document.createElement('p');
+    desc.className = 'setting-desc';
+    desc.innerText = 'Copy redirect URIs for Pocket-ID / OIDC clients.';
+    textWrap.appendChild(title);
+    textWrap.appendChild(desc);
+
+    const actionBtn = document.createElement('button');
+    actionBtn.className = 'secondary';
+    actionBtn.style.margin = '0';
+    actionBtn.innerText = 'Open';
+    actionBtn.onclick = () => window.location.href = '/oidc-setup';
+
+    wrapper.appendChild(textWrap);
+    wrapper.appendChild(actionBtn);
+    container.innerHTML = '';
+    container.appendChild(wrapper);
+}
+
 // Initial Load
 checkAuth().then(authorized => {
     if (authorized) {
@@ -234,6 +281,8 @@ checkAuth().then(authorized => {
                 }
             });
         }
+
+        initOIDCSetupBanner();
 
         // Only load data if authorized
         // Determine start tab? default bp

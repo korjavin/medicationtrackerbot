@@ -97,10 +97,12 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 		}
 
 		// Check if the subject matches the allowed subject
-		if subject != h.config.AllowedSubject {
+		if h.config.AllowedSubject != "" && subject != h.config.AllowedSubject {
 			log.Printf("[MCP/OAuth] Subject %s not allowed (expected %s)", subject, h.config.AllowedSubject)
 			h.sendForbidden(w, "user not authorized")
 			return
+		} else if h.config.AllowedSubject == "" {
+			log.Printf("[MCP/OAuth] Any subject allowed (no restriction configured). User: %s", subject)
 		}
 
 		log.Printf("[MCP/OAuth] Authorized request from subject: %s", subject)

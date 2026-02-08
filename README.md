@@ -82,12 +82,39 @@ The application is configured via Environment Variables:
 | `DB_PATH` | Path to SQLite DB (default: `meds.db`) |
 | `PORT` | HTTP port (default: `8080`) |
 | `TZ` | Timezone (e.g., `Europe/Berlin`). Critical for correct scheduling. |
-| `GOOGLE_CLIENT_ID` | (Optional) For Google Login in browser |
-| `GOOGLE_CLIENT_SECRET` | (Optional) For Google Login in browser |
-| `GOOGLE_REDIRECT_URL` | (Optional) Callback URL (e.g., `https://your-domain.com/auth/google/callback`) |
-| `ADMIN_EMAIL` | (Optional) Allow Google Login only for this email |
+| `SESSION_SECRET` | Secret used to sign web auth sessions |
+| `AUTH_TRUST_PROXY` | (Optional) Trust `X-Forwarded-For` / `X-Real-IP` headers for rate limiting (default: `true`) |
+| `GOOGLE_CLIENT_ID` | (Optional, legacy) For Google Login in browser |
+| `GOOGLE_CLIENT_SECRET` | (Optional, legacy) For Google Login in browser |
+| `GOOGLE_REDIRECT_URL` | (Optional, legacy) Callback URL (e.g., `https://your-domain.com/auth/google/callback`) |
+| `ADMIN_EMAIL` | (Optional, legacy) Allow Google Login only for this email |
+| `OIDC_ISSUER_URL` | (Optional) OIDC issuer URL (e.g., `https://id.yourdomain.com`) |
+| `OIDC_CLIENT_ID` | (Optional) OIDC client ID |
+| `OIDC_CLIENT_SECRET` | (Optional) OIDC client secret |
+| `OIDC_REDIRECT_URL` | (Optional) Callback URL (e.g., `https://your-domain.com/auth/oidc/callback`) |
+| `OIDC_ADMIN_EMAIL` | (Optional) Allow OIDC login only for this email |
+| `OIDC_ALLOWED_SUBJECT` | (Optional) Allow OIDC login only for this subject (`sub`) |
+| `OIDC_BUTTON_LABEL` | (Optional) Override OIDC login button label |
+| `OIDC_BUTTON_COLOR` | (Optional) Override OIDC login button background color |
+| `OIDC_BUTTON_TEXT_COLOR` | (Optional) Override OIDC login button text color |
+| `OIDC_SCOPES` | (Optional) Comma/space-separated scopes (default: `openid email profile`) |
+| `OIDC_USERINFO_URL` | (Optional) Override userinfo URL if discovery is not available |
+| `OIDC_AUTH_URL` | (Optional) Override authorization endpoint |
+| `OIDC_TOKEN_URL` | (Optional) Override token endpoint |
+
+If both `OIDC_ADMIN_EMAIL` and `OIDC_ALLOWED_SUBJECT` are set, both must match for access.
 
 ## Quick Start
+
+### Easy Installer (Recommended)
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/korjavin/medicationtrackerbot/main/install.sh
+chmod +x install.sh
+./install.sh
+```
+
+See `docs/installer.md` for details, and `docs/hosting_hetzner.md` for a Hetzner guide.
 
 ### Docker Deployment (Recommended)
 
