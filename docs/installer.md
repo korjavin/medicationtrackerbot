@@ -1,7 +1,7 @@
 # 🚀 Step-by-Step Installation Guide
 
 <div align="center">
-  <img src="https://placehold.co/1200x500/1e293b/cbd5e1?text=Medication+Tracker+Installer" alt="Installer Hero Image" width="100%" />
+  <img src="img/hero_installer.png" alt="Installer Hero Image" width="100%" />
   <p><em>Deploy your own secure, private Medication Tracker in minutes.</em></p>
 </div>
 
