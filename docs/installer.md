@@ -60,17 +60,27 @@ Log in to your domain registrar (Cloudflare, Namecheap, GoDaddy, etc.) and creat
 <img src="img/cloudflare_dns.png" alt="Cloudflare DNS Records Example" width="600" />
 
 ### 3. Telegram Bot Token
-You need a Telegram Bot to send you reminders.
-1. Open **[@BotFather](https://t.me/BotFather)** in Telegram.
-2. Send `/newbot`.
-3. Name your bot (e.g., "My Med Tracker").
-4. Choose a username (e.g., `my_meds_bot`).
-5. **Copy the API Token** (it looks like `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`).
+Currently, the Telegram Bot is the core of the system. While we plan to make the web app fully standalone in the future, right now the bot is essential for:
+*   **Notifications**: Receiving timely reminders.
+*   **Quick Logging**: Recording meds with a single tap.
+*   **File Imports**: Sending files (like **Mi Band** exports) to the tracker for processing.
+
+**Steps:**
+1.  Open **[@BotFather](https://t.me/BotFather)**.
+2.  Send `/newbot` and follow the prompts to get your token.
+    <img src="img/bot_create.png" alt="Creating a new bot" width="600" />
+3.  **Important**: You must link your domain to the bot to allow logging in to the website via Telegram.
+    *   Send `/setdomain` to BotFather.
+    *   Select your bot.
+    *   Type your domain name (e.g., `meds.yourdomain.com`).
+    <img src="img/bot_domain.png" alt="Setting the bot domain" width="600" />
 
 ### 4. Your Telegram User ID
-This ensures **only YOU** can access your data.
-1. Open **[@userinfobot](https://t.me/userinfobot)** or **[@myidbot](https://t.me/myidbot)**.
-2. Copy your numeric ID (e.g., `123456789`).
+This is a critical security feature. We implement a strict **Allowlist**.
+
+*   **How it works**: The bot checks every message against this ID.
+*   **Security**: If anyone else tries to message your bot, they will be ignored. The bot **only** responds to you.
+*   **Get your ID**: Open **[@userinfobot](https://t.me/userinfobot)** and copy the numeric ID.
 
 ---
 
