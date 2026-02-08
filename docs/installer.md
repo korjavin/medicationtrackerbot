@@ -1,172 +1,180 @@
-# Easy Installer (Recommended)
+# 🚀 Step-by-Step Installation Guide
 
-This guide is written for non-technical users. It explains what each step does and why it is required.
+<div align="center">
+  <img src="https://placehold.co/1200x500/1e293b/cbd5e1?text=Medication+Tracker+Installer" alt="Installer Hero Image" width="100%" />
+  <p><em>Deploy your own secure, private Medication Tracker in minutes.</em></p>
+</div>
 
-## What This Installer Does
+---
 
-The installer sets up a single server with HTTPS, the web app, the Telegram bot, and optional extras like browser login, Claude MCP connector, and backups.
+## 👋 Introduction
 
-## Requirements (Why You Need These)
+Welcome! This guide will walk you through setting up your own **Medication Tracker Bot**. 
 
-- A Linux server with public IPv4/IPv6. The app runs on your own machine.
-- A domain name you control. HTTPS requires a domain to issue certificates.
-- Ports 80 and 443 open to the internet. HTTPS needs these ports.
-- Docker + Docker Compose plugin, or Podman. This is how the app runs.
-- A Telegram bot token and your Telegram user ID. These protect access to your data.
+The installer automates the complex parts (Docker, SSL certificates, Nginx/Traefik configuration), asking you simple questions to customize your setup. By the end, you will have a fully functional web app and Telegram bot running on your own server.
 
-## DNS Names You May Need (Important)
+### What You Pull Build
+- **Web App**: A modern dashboard to manage meds, schedule, and history.
+- **Telegram Bot**: For notifications and quick logging on the go.
+- **Automatic HTTPS**: Secure encrypted connection via Let's Encrypt.
+- **(Optional) Pocket-ID**: Secure browser login.
+- **(Optional) MCP Server**: Connect Claude AI to your health data.
 
-You can use up to three DNS names. Not everyone needs all three.
+---
 
-- Web app domain, for example `meds.example.com`. Required.
-- Pocket-ID domain, for example `id.example.com`. Required if you want browser login or MCP.
-- MCP domain, for example `mcp.example.com`. Required if you want Claude MCP connector.
+## 🛠 Prerequisites
 
-Why three domains?
+Before running the installer, ensure you have the following:
 
-- Web app is the main UI.
-- Pocket-ID is the identity provider (login server).
-- MCP is a separate endpoint Claude connects to.
+### 1. A Linux Server (VPS)
+You need a server running **Ubuntu**, **Debian**, **Fedora**, or **CentOS**.
+- **Recommended**: Ubuntu 22.04 LTS or 24.04 LTS.
+- **Hardware**: Only 1 CPU and 1GB RAM needed (very lightweight).
+- **Public IP**: You need a public IPv4 address.
+- **Firewall**: Ports `80` (HTTP) and `443` (HTTPS) must be open.
 
-If you skip browser login and MCP, you only need the web app domain.
+> **Tip for Hetzner Users:**
+> Create a **CX22** instance with **Ubuntu 24.04**. Add your SSH key. That's it!
 
-## Install (Recommended)
+### 2. A Domain Name
+You need a domain (e.g., `yourname-meds.com` or `meds.yourdomain.com`).
+- You will need to point DNS records (A Records) to your server's IP.
+
+### 3. Telegram Bot Token
+You need a Telegram Bot to send you reminders.
+1. Open **[@BotFather](https://t.me/BotFather)** in Telegram.
+2. Send `/newbot`.
+3. Name your bot (e.g., "My Med Tracker").
+4. Choose a username (e.g., `my_meds_bot`).
+5. **Copy the API Token** (it looks like `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`).
+
+### 4. Your Telegram User ID
+This ensures **only YOU** can access your data.
+1. Open **[@userinfobot](https://t.me/userinfobot)** or **[@myidbot](https://t.me/myidbot)**.
+2. Copy your numeric ID (e.g., `123456789`).
+
+---
+
+## 📥 Installation
+
+### Step 1: Connect to Your Server
+SSH into your server. Windows users can use **PuTTY** or **PowerShell**; Mac/Linux users use **Terminal**.
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/korjavin/medicationtrackerbot/main/install.sh
-chmod +x install.sh
-./install.sh
+ssh root@<your-server-ip>
 ```
 
-If you prefer one-line install, you can pipe to bash, but review the script first:
+### Step 2: Download & Run Installer
+Run this single command to start the interactive wizard:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/korjavin/medicationtrackerbot/main/install.sh | bash
 ```
 
-If Docker is missing, the installer will detect your OS and print exact install commands.
+![Screenshot: Running the curl command](https://placehold.co/800x200/1e293b/cbd5e1?text=Running+curl+command)
 
-## What the Installer Asks (With Explanations)
+---
 
-- **Install directory**: Where files like `.env` and `docker-compose.yml` will live.
-- **Web app domain**: Your main domain for the app, used for HTTPS.
-- **Traefik + Let's Encrypt**: Handles HTTPS certificates automatically.
-- **Timezone**: Required to schedule medication reminders correctly.
-- **Telegram bot token**: Required to run the bot.
-- **Telegram user ID**: Extra security. Only this ID can access your data.
-- **Local Telegram Bot API (optional)**: Removes Telegram file size limits, more setup.
-- **Browser login (OIDC) (optional)**: Lets you log in via browser without Telegram.
-- **Web push (optional)**: Browser notifications. Installer can auto-generate keys.
-- **Claude MCP connector (optional)**: Lets Claude read your data via MCP.
-- **Litestream backup (optional)**: Replicates SQLite to Cloudflare R2.
+## 🧙 The Interactive Walkthrough
 
-The installer saves your answers in `INSTALL_DIR/.installer_state` so you can rerun without losing progress.
+The installer will ask you a series of questions. Here is what they mean and how to answer them.
 
-## Telegram Setup (Simple Steps)
+### 1. Install Directory
+> "Install directory [/opt/medtracker]:"
 
-- Create a bot with BotFather and copy the token.
-- Get your numeric Telegram user ID via @userinfobot or @myidbot.
-- This ID is an allowlist to prevent anyone else from accessing your data.
+- **What it is**: Where all your data, configuration, and database files will live.
+- **Recommendation**: Press **Enter** to use the default (`/opt/medtracker`).
 
-## Browser Login (OIDC)
+### 2. Primary Domain
+> "Primary domain for web app (e.g., meds.example.com):"
 
-Why use it? If you want to log in from a browser without Telegram.
+- **What it is**: The address you will type in your browser to access the dashboard.
+- **Action**: Enter your domain (e.g., `meds.mysite.com`).
 
-The installer defaults to Pocket-ID (recommended), but any OIDC provider works.
+![Screenshot: Domain Prompt](https://placehold.co/800x200/1e293b/cbd5e1?text=Domain+Prompt)
 
-Minimum settings:
+### 3. HTTPS & Traefik
+> "Use bundled Traefik + Let's Encrypt (recommended)? [Y/n]"
 
-- Redirect URL: `https://your-domain/auth/oidc/callback`.
-- Restrict access by email or by subject (`sub`). If both are set, both must match.
+- **What it is**: Traefik handles secure HTTPS connections automatically.
+- **Recommendation**: **Yes**. Unless you are an expert running your own reverse proxy, let the installer handle this.
+- **Email**: Enter your email to receive SSL expiry alerts (rare).
 
-What is "subject" (`sub`)?
+### 4. Timezone
+> "Timezone [UTC]:"
 
-- It is the unique user ID from your OIDC provider.
-- In Pocket-ID, open your user profile and copy the Subject.
+- **What it is**: Critical for correct medication reminders!
+- **Action**: Enter your timezone (e.g., `America/New_York` or `Europe/Berlin`). The installer tries to guess it.
 
-Helper page with copy buttons:
+### 5. Telegram Configuration
+> "Telegram Bot Token:"
+> "Your Telegram User ID:"
 
-- `https://your-domain/oidc-setup`
+- **Action**: Paste the Token and ID you got in the Prerequisites section.
+- **Security**: The ID acts as an allowlist. The bot will ignore everyone else.
 
-OIDC discovery uses the system CA trust store. Ensure your server has up-to-date CA certificates.
+![Screenshot: Telegram Prompts](https://placehold.co/800x400/1e293b/cbd5e1?text=Telegram+Configuration)
 
-Rate limiting for auth endpoints trusts proxy headers by default. If you are not behind a reverse proxy, set `AUTH_TRUST_PROXY=false`.
+### 6. Browser Login (Optional)
+> "Enable browser login (OIDC)? [y/N]"
 
-## Pocket-ID (If You Use Browser Login or MCP)
+- **What it is**: Allows you to log in via a browser (Chrome, Safari) to manage meds without Telegram.
+- **Recommendation**: **Yes**. It makes setting up schedules much easier.
+- **Pocket-ID**: The installer can set up [Pocket-ID](https://github.com/pocket-id/pocket-id) for you automatically. It's a simple, local login system.
+    - If you choose this, you'll need a second domain (e.g., `id.mysite.com`).
 
-Pocket-ID is the login server.
+![Screenshot: Login Options](https://placehold.co/800x400/1e293b/cbd5e1?text=Browser+Login+Options)
 
-If the installer deploys Pocket-ID, you need a separate domain like `id.example.com` and a DNS record pointing to your server.
+### 7. Litestream Backups (Advanced)
+> "Enable Litestream backup to Cloudflare R2? [y/N]"
 
-You will create two Pocket-ID clients:
+- **What it is**: Real-time streaming backups of your database to the cloud.
+- **Why**: If your server dies, you lose nothing.
+- **Requirements**: Cloudflare R2 or Amazon S3 credentials.
 
-- Web login client, redirect URL: `https://your-domain/auth/oidc/callback`.
-- MCP client, redirect URI: `https://claude.ai/api/mcp/auth_callback`.
-- MCP client, redirect URI: `https://claude.com/api/mcp/auth_callback`.
+---
 
-After Pocket-ID starts, open:
+## ✅ Post-Installation
 
-- `https://id.example.com/setup` to create your admin user.
+Once the installer finishes, you will see a success message.
 
-## Claude MCP Connector (Optional)
+### 1. Configure DNS
+If you haven't already, go to your Domain Registrar (Namecheap, GoDaddy, Cloudflare) and create **A Records** pointing to your server IP.
 
-Why use it? This lets Claude query your health data with your permission.
+| Type | Name | Content |
+|------|------|---------|
+| A | `meds` | `<your-server-ip>` |
+| A | `id` | `<your-server-ip>` (if using Pocket-ID) |
 
-You need a separate domain like `mcp.example.com`, pointing to your server.
+### 2. Configure Telegram Bot
+You need to tell Telegram which domain your bot uses for its Web App.
 
-If you chose "setup later", update `.env` with:
+1. Open **[@BotFather](https://t.me/BotFather)**.
+2. Send `/setdomain`.
+3. Select your bot.
+4. Send your domain: `meds.mysite.com` (or whatever you chose).
 
-- `POCKET_ID_CLIENT_ID`
-- `POCKET_ID_CLIENT_SECRET`
-- `MCP_ALLOWED_SUBJECT`
+### 3. Log In!
+- Open `https://meds.mysite.com` in your browser.
+- Or open your bot in Telegram and tap **Launch**.
 
-Then set `COMPOSE_PROFILES=mcp` and run `docker compose up -d`.
+---
 
-## Web Push (Optional)
+## ❓ Troubleshooting
 
-If enabled, the installer can auto-generate VAPID keys.
+**"Client version 1.24 is too old"**
+- Your Docker version is outdated. The installer prints instructions to update it. Run those commands and try again.
 
-Use a plain email address for the VAPID subject (no `mailto:` prefix).
+**"Permission Denied"**
+- Make sure you run the installer as `root` (use `sudo su` if needed).
 
-## Litestream Backups (Optional)
+**"502 Bad Gateway"**
+- Wait 30-60 seconds. The containers might still be starting up.
+- Check logs: `cd /opt/medtracker && docker compose logs -f`.
 
-Litestream replicates your SQLite DB to any S3-compatible storage.
+**Need more help?**
+- Check the issues on [GitHub](https://github.com/korjavin/medicationtrackerbot/issues).
 
-Why use it? It protects you from server loss.
+---
+*Last Updated: 2026-02-08*
 
-Common options:
-
-- Cloudflare R2
-- Backblaze B2 (S3-compatible)
-- Wasabi
-- AWS S3
-- MinIO (self-hosted)
-
-Risks:
-
-- Backups contain sensitive health data.
-- If R2 credentials leak, your data can be accessed.
-- Always keep the bucket private and restrict access keys.
-
-## After Install
-
-- Point your DNS A/AAAA records to your server IP.
-- Open `https://your-domain` and log in.
-- In Telegram, open your bot and send `/start`.
-- If Pocket-ID was installed, complete setup at `https://id.example.com/setup`.
-
-**Note:** If you use Pocket-ID for web login, you can reuse the same OAuth client for both web login and MCP. The app will automatically use `POCKET_ID_CLIENT_ID` and `POCKET_ID_CLIENT_SECRET` when `OIDC_CLIENT_ID` is not set.
-
-## Updating
-
-```bash
-cd /opt/medtracker
-docker compose pull
-docker compose up -d
-```
-
-## Where Files Live
-
-- `docker-compose.yml` and `.env` are in the install directory (default `/opt/medtracker`).
-- `SESSION_SECRET` is generated automatically for web auth sessions.
-- `.env` is created with mode 600 (owner read/write only).
