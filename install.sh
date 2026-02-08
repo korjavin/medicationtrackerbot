@@ -328,9 +328,6 @@ print_container_install_help() {
       say "  echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${distro} ${codename} stable\" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null"
       say "  sudo apt-get update"
       say "  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
-      say "  sudo usermod -aG docker \$USER"
-      say "  newgrp docker"
-      say "  docker compose version"
       if [ -n "$codename_note" ]; then
         say "  ${codename_note}"
       fi
@@ -564,7 +561,11 @@ if confirm_state "POCKET_ID_BUNDLE" "Use Pocket-ID for browser login and MCP (re
   fi
   POCKET_ID_APP_URL="https://${POCKET_ID_DOMAIN}"
   POCKET_ID_URL="$POCKET_ID_APP_URL"
-  POCKET_ID_ENCRYPTION_KEY=$(gen_random_base64)
+  POCKET_ID_ENCRYPTION_KEY=$(get_state "POCKET_ID_ENCRYPTION_KEY")
+  if [ -z "$POCKET_ID_ENCRYPTION_KEY" ]; then
+    POCKET_ID_ENCRYPTION_KEY=$(gen_random_base64)
+    set_state "POCKET_ID_ENCRYPTION_KEY" "$POCKET_ID_ENCRYPTION_KEY"
+  fi
 
   OIDC_REDIRECT_URL="https://${DOMAIN}/auth/oidc/callback"
   OIDC_ISSUER_URL="$POCKET_ID_APP_URL"
@@ -605,7 +606,11 @@ elif confirm_state "ENABLE_OIDC" "Enable browser login (OIDC)?" "no"; then
       fi
       POCKET_ID_APP_URL="https://${POCKET_ID_DOMAIN}"
       POCKET_ID_URL="$POCKET_ID_APP_URL"
-      POCKET_ID_ENCRYPTION_KEY=$(gen_random_base64)
+      POCKET_ID_ENCRYPTION_KEY=$(get_state "POCKET_ID_ENCRYPTION_KEY")
+      if [ -z "$POCKET_ID_ENCRYPTION_KEY" ]; then
+        POCKET_ID_ENCRYPTION_KEY=$(gen_random_base64)
+        set_state "POCKET_ID_ENCRYPTION_KEY" "$POCKET_ID_ENCRYPTION_KEY"
+      fi
     fi
     OIDC_ISSUER_URL="$POCKET_ID_APP_URL"
     OIDC_BUTTON_LABEL="Login with Pocket-ID"
@@ -711,7 +716,11 @@ elif confirm_state "ENABLE_MCP" "Enable Claude MCP connector (optional)?" "no"; 
       fi
       POCKET_ID_APP_URL="https://${POCKET_ID_DOMAIN}"
       POCKET_ID_URL="$POCKET_ID_APP_URL"
-      POCKET_ID_ENCRYPTION_KEY=$(gen_random_base64)
+      POCKET_ID_ENCRYPTION_KEY=$(get_state "POCKET_ID_ENCRYPTION_KEY")
+      if [ -z "$POCKET_ID_ENCRYPTION_KEY" ]; then
+        POCKET_ID_ENCRYPTION_KEY=$(gen_random_base64)
+        set_state "POCKET_ID_ENCRYPTION_KEY" "$POCKET_ID_ENCRYPTION_KEY"
+      fi
     else
       POCKET_ID_URL=$(prompt_state "POCKET_ID_URL" "Pocket-ID URL (e.g., https://id.example.com)" "")
       if [ -z "$POCKET_ID_URL" ]; then
