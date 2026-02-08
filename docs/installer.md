@@ -45,8 +45,19 @@ You need a server running **Ubuntu**, **Debian**, **Fedora**, or **CentOS**.
 > <img src="img/hetzner_panel.png" alt="Hetzner Control Panel" width="600" />
 
 ### 2. A Domain Name
-You need a domain (e.g., `yourname-meds.com` or `meds.yourdomain.com`).
-- You will need to point DNS records (A Records) to your server's IP.
+You need a domain name to access your tracker securely (HTTPS). Any domain you own works perfectly.
+
+**How to set it up:**
+Log in to your domain registrar (Cloudflare, Namecheap, GoDaddy, etc.) and create **A Records** that point to your server's IP address.
+
+> **Why do I need multiple records?**
+> As you can see in the screenshot below, I created three records. Here is why:
+>
+> 1.  **`meds`** (Checking your main site): This is the main web interface for the tracker.
+> 2.  **`id`** (Optional): Used for **Pocket-ID**, an open-source authentication server. This allows you to log in securely with Passkeys instead of just Telegram.
+> 3.  **`mcp`** (Optional): Required if you want to connect **Claude via MCP**. We use the auth server (`id`) to strictly control access to your data, ensuring only *you* and *your AI* can see it.
+
+<img src="img/cloudflare_dns.png" alt="Cloudflare DNS Records Example" width="600" />
 
 ### 3. Telegram Bot Token
 You need a Telegram Bot to send you reminders.
