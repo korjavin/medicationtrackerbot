@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
@@ -26,9 +28,11 @@ type Server struct {
 	bot           *bot.Bot
 	rxnorm        *rxnorm.Client
 	botToken      string
+	sessionSecret string
 	allowedUserID int64
 	oidcConfig    OIDCConfig
 	oauthConfig   *oauth2.Config
+	oidcUserInfo  string
 	botUsername   string
 	vapidConfig   VAPIDConfig
 	webPush       *webpush.Service
@@ -40,12 +44,121 @@ type VAPIDConfig struct {
 	Subject    string
 }
 
-func New(s *store.Store, b *bot.Bot, botToken string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidConfig VAPIDConfig) *Server {
+type rateLimiter struct {
+	mu     sync.Mutex
+	window time.Duration
+	max    int
+	hits   map[string][]time.Time
+}
+
+func newRateLimiter(max int, window time.Duration) *rateLimiter {
+	rl := &rateLimiter{
+		window: window,
+		max:    max,
+		hits:   make(map[string][]time.Time),
+	}
+	rl.startCleanup()
+	return rl
+}
+
+func (r *rateLimiter) startCleanup() {
+	ticker := time.NewTicker(r.window)
+	go func() {
+		for range ticker.C {
+			r.cleanup()
+		}
+	}()
+}
+
+func (r *rateLimiter) cleanup() {
+	now := time.Now()
+	cutoff := now.Add(-r.window)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key, hits := range r.hits {
+		if len(hits) == 0 {
+			delete(r.hits, key)
+			continue
+		}
+		if hits[len(hits)-1].Before(cutoff) {
+			delete(r.hits, key)
+		}
+	}
+}
+
+func (r *rateLimiter) Allow(key string) bool {
+	now := time.Now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	hits := r.hits[key]
+	cutoff := now.Add(-r.window)
+	pruned := hits[:0]
+	for _, t := range hits {
+		if t.After(cutoff) {
+			pruned = append(pruned, t)
+		}
+	}
+	if len(pruned) >= r.max {
+		r.hits[key] = pruned
+		return false
+	}
+	pruned = append(pruned, now)
+	if len(pruned) == 0 {
+		delete(r.hits, key)
+	} else {
+		r.hits[key] = pruned
+	}
+	return true
+}
+
+func clientIP(r *http.Request, trustProxy bool) string {
+	if trustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			if len(parts) > 0 {
+				return strings.TrimSpace(parts[0])
+			}
+		}
+		if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
+			return xrip
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+func rateLimitMiddleware(limiter *rateLimiter, trustProxy bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := clientIP(r, trustProxy)
+			if !limiter.Allow(ip) {
+				http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func parseBoolEnv(key string, defaultValue bool) bool {
+	val := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if val == "" {
+		return defaultValue
+	}
+	return val == "1" || val == "true" || val == "yes" || val == "y"
+}
+
+func New(s *store.Store, b *bot.Bot, botToken, sessionSecret string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidConfig VAPIDConfig) *Server {
 	srv := &Server{
 		store:         s,
 		bot:           b,
 		rxnorm:        rxnorm.New(),
 		botToken:      botToken,
+		sessionSecret: sessionSecret,
 		allowedUserID: allowedUserID,
 		oidcConfig:    oidc,
 		botUsername:   botUsername,
@@ -89,16 +202,25 @@ func (s *Server) Routes() http.Handler {
 		http.ServeFile(w, r, "web/static/pitch.html")
 	})
 
+	// OIDC Setup Helper
+	mux.HandleFunc("/oidc-setup", s.serveOIDCSetup)
+
 	// Main Page with no-cache headers and bot username injection
 	mux.HandleFunc("/", s.serveIndexWithBotUsername)
 
 	// Deep link routes - serve SPA, JS handles the path
 	mux.HandleFunc("/bp_add", s.serveIndexWithBotUsername)
 
-	// Auth Routes
-	mux.HandleFunc("/auth/google/login", s.handleGoogleLogin)
-	mux.HandleFunc("/auth/google/callback", s.handleGoogleCallback)
-	mux.HandleFunc("/auth/telegram/callback", s.handleTelegramCallback)
+	// Auth Routes (rate-limited)
+	authLimiter := newRateLimiter(10, time.Minute)
+	trustProxy := parseBoolEnv("AUTH_TRUST_PROXY", true)
+	authLimit := rateLimitMiddleware(authLimiter, trustProxy)
+	mux.Handle("/auth/oidc/login", authLimit(http.HandlerFunc(s.handleOIDCLogin)))
+	mux.Handle("/auth/oidc/callback", authLimit(http.HandlerFunc(s.handleOIDCCallback)))
+	// Backward compatibility for older Google-only URLs
+	mux.Handle("/auth/google/login", authLimit(http.HandlerFunc(s.handleOIDCLogin)))
+	mux.Handle("/auth/google/callback", authLimit(http.HandlerFunc(s.handleOIDCCallback)))
+	mux.Handle("/auth/telegram/callback", authLimit(http.HandlerFunc(s.handleTelegramCallback)))
 
 	// API
 	apiMux := http.NewServeMux()
@@ -161,7 +283,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/medications/confirm-schedule", s.handleConfirmSchedule)
 
 	// Apply Middleware to API
-	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
+	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)
 	mux.Handle("/api/", authMW(apiMux))
 
 	return mux
@@ -937,6 +1059,74 @@ func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Reques
 	// Inject bot username
 	html := strings.ReplaceAll(string(content), "BOT_USERNAME_PLACEHOLDER", s.botUsername)
 
+	oidcClient := struct {
+		Enabled     bool   `json:"enabled"`
+		Label       string `json:"label,omitempty"`
+		LoginURL    string `json:"loginUrl,omitempty"`
+		ButtonColor string `json:"buttonColor,omitempty"`
+		ButtonText  string `json:"buttonText,omitempty"`
+	}{
+		Enabled: s.oauthConfig != nil && s.oidcConfig.ClientID != "",
+	}
+	if oidcClient.Enabled {
+		oidcClient.Label = defaultOIDCButtonLabel(s.oidcConfig)
+		oidcClient.LoginURL = "/auth/oidc/login"
+		oidcClient.ButtonColor = s.oidcConfig.ButtonColor
+		oidcClient.ButtonText = s.oidcConfig.ButtonText
+	}
+	oidcJSON, err := json.Marshal(oidcClient)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	html = strings.ReplaceAll(html, "OIDC_CONFIG_PLACEHOLDER", string(oidcJSON))
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(html))
+}
+
+// serveOIDCSetup serves a helper page with copyable OIDC redirect URIs
+func (s *Server) serveOIDCSetup(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
+	f, err := os.Open("./web/static/oidc-setup.html")
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	content, err := io.ReadAll(f)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	appDomain := os.Getenv("APP_DOMAIN")
+	if appDomain == "" {
+		appDomain = os.Getenv("DOMAIN")
+	}
+	if appDomain == "" {
+		appDomain = strings.Split(r.Host, ":")[0]
+	}
+
+	pocketIDDomain := os.Getenv("POCKET_ID_DOMAIN")
+	if pocketIDDomain == "" {
+		pocketIDDomain = "id.example.com"
+	}
+
+	mcpDomain := os.Getenv("MCP_DOMAIN")
+	if mcpDomain == "" {
+		mcpDomain = "mcp.example.com"
+	}
+
+	html := string(content)
+	html = strings.ReplaceAll(html, "APP_DOMAIN_PLACEHOLDER", appDomain)
+	html = strings.ReplaceAll(html, "POCKET_ID_DOMAIN_PLACEHOLDER", pocketIDDomain)
+	html = strings.ReplaceAll(html, "MCP_DOMAIN_PLACEHOLDER", mcpDomain)
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(html))
 }
@@ -973,8 +1163,8 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Create session (same as Google auth)
-	sessionValue := createSessionToken(user.Username, s.botToken)
+	// Create session (same as OIDC auth)
+	sessionValue := createSessionToken(user.Username, s.sessionSecret)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_session",
 		Value:    sessionValue,

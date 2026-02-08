@@ -8,7 +8,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -19,10 +21,20 @@ import (
 
 // OIDC Configuration
 type OIDCConfig struct {
-	ClientID     string
-	ClientSecret string
-	RedirectURL  string
-	AdminEmail   string
+	Provider       string
+	ClientID       string
+	ClientSecret   string
+	RedirectURL    string
+	AdminEmail     string
+	AllowedSubject string
+	IssuerURL      string
+	AuthURL        string
+	TokenURL       string
+	UserInfoURL    string
+	ButtonLabel    string
+	ButtonColor    string
+	ButtonText     string
+	Scopes         []string
 }
 
 // Initialize OAuth2 config
@@ -30,16 +42,26 @@ func (s *Server) initOAUTH() {
 	if s.oidcConfig.ClientID == "" {
 		return
 	}
+
+	scopes := s.oidcConfig.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{"openid", "email", "profile"}
+	}
+
+	endpoint, userInfoURL, err := resolveOIDCEndpoints(s.oidcConfig)
+	if err != nil {
+		log.Printf("[OIDC] Failed to resolve OIDC endpoints: %v", err)
+		return
+	}
+
 	s.oauthConfig = &oauth2.Config{
 		ClientID:     s.oidcConfig.ClientID,
 		ClientSecret: s.oidcConfig.ClientSecret,
 		RedirectURL:  s.oidcConfig.RedirectURL,
-		Scopes: []string{
-			"https://www.googleapis.com/auth/userinfo.email",
-			"https://www.googleapis.com/auth/userinfo.profile",
-		},
-		Endpoint: google.Endpoint,
+		Scopes:       scopes,
+		Endpoint:     endpoint,
 	}
+	s.oidcUserInfo = userInfoURL
 }
 
 // Generate random state
@@ -64,9 +86,9 @@ func generateStateOauthCookie(w http.ResponseWriter) string {
 }
 
 // Handler: Start Login
-func (s *Server) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	if s.oauthConfig == nil {
-		http.Error(w, "Google Auth not configured", http.StatusInternalServerError)
+		http.Error(w, "OIDC not configured", http.StatusInternalServerError)
 		return
 	}
 	oauthState := generateStateOauthCookie(w)
@@ -75,16 +97,20 @@ func (s *Server) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // Handler: Callback
-func (s *Server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if s.oauthConfig == nil {
-		http.Error(w, "Google Auth not configured", http.StatusInternalServerError)
+		http.Error(w, "OIDC not configured", http.StatusInternalServerError)
 		return
 	}
 
 	// Verify State
-	oauthState, _ := r.Cookie("oauthstate")
+	oauthState, err := r.Cookie("oauthstate")
+	if err != nil {
+		http.Error(w, "missing oauth state", http.StatusBadRequest)
+		return
+	}
 	if r.FormValue("state") != oauthState.Value {
-		http.Error(w, "invalid oauth google state", http.StatusUnauthorized)
+		http.Error(w, "invalid oauth state", http.StatusUnauthorized)
 		return
 	}
 
@@ -96,27 +122,70 @@ func (s *Server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.oidcUserInfo == "" {
+		http.Error(w, "OIDC userinfo endpoint not configured", http.StatusInternalServerError)
+		return
+	}
+
 	// Get User Info
-	resp, err := http.Get("https://www.googleapis.com/oauth2/v2/userinfo?access_token=" + token.AccessToken)
+	req, err := http.NewRequest(http.MethodGet, s.oidcUserInfo, nil)
+	if err != nil {
+		http.Error(w, "failed creating userinfo request", http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("Accept", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		http.Error(w, "failed getting user info: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		http.Error(w, "failed getting user info: provider returned "+resp.Status, http.StatusInternalServerError)
+		return
+	}
 
 	var userInfo struct {
-		Email string `json:"email"`
-		ID    string `json:"id"`
+		Email             string `json:"email"`
+		EmailVerified     *bool  `json:"email_verified"`
+		Sub               string `json:"sub"`
+		ID                string `json:"id"`
+		PreferredUsername string `json:"preferred_username"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
 		http.Error(w, "failed decoding user info", http.StatusInternalServerError)
 		return
 	}
 
-	// Authorize Email
-	if userInfo.Email != s.oidcConfig.AdminEmail {
-		http.Error(w, fmt.Sprintf("Forbidden: %s is not authorized", userInfo.Email), http.StatusForbidden)
-		return
+	subject := userInfo.Sub
+	if subject == "" {
+		subject = userInfo.ID
+	}
+
+	// Authorize
+	// If both AdminEmail and AllowedSubject are empty, trust the OIDC provider (allow all authenticated users)
+	if s.oidcConfig.AllowedSubject == "" && s.oidcConfig.AdminEmail == "" {
+		// Allow all authenticated users from this OIDC provider
+		log.Printf("[OIDC] Allowing authenticated user (allow-all mode): %s", firstNonEmpty(userInfo.Email, subject, userInfo.PreferredUsername))
+	} else {
+		// Strict mode: check subject and/or email
+		if s.oidcConfig.AllowedSubject != "" {
+			if subject == "" || subject != s.oidcConfig.AllowedSubject {
+				http.Error(w, "Forbidden: access denied", http.StatusForbidden)
+				return
+			}
+		}
+		if s.oidcConfig.AdminEmail != "" {
+			if userInfo.Email == "" || userInfo.Email != s.oidcConfig.AdminEmail {
+				http.Error(w, "Forbidden: access denied", http.StatusForbidden)
+				return
+			}
+			if userInfo.EmailVerified == nil || !*userInfo.EmailVerified {
+				http.Error(w, "Forbidden: access denied", http.StatusForbidden)
+				return
+			}
+		}
 	}
 
 	// Create Session (Simple implementation)
@@ -125,18 +194,104 @@ func (s *Server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	// We'll trust this cookie in auth middleware.
 
 	// Just use the email as session value, signed with bot token to prevent tampering
-	sessionValue := createSessionToken(userInfo.Email, s.botToken)
+	sessionValue := createSessionToken(firstNonEmpty(userInfo.Email, subject, userInfo.PreferredUsername), s.sessionSecret)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_session",
 		Value:    sessionValue,
 		Expires:  time.Now().Add(24 * time.Hour * 30), // 30 days
 		HttpOnly: true,
-		Secure:   true,                    // Only send over HTTPS
-		SameSite: http.SameSiteLaxMode,    // CSRF protection
+		Secure:   true,                 // Only send over HTTPS
+		SameSite: http.SameSiteLaxMode, // CSRF protection
 		Path:     "/",
 	})
 
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+}
+
+func resolveOIDCEndpoints(cfg OIDCConfig) (oauth2.Endpoint, string, error) {
+	if cfg.Provider == "google" {
+		userInfo := cfg.UserInfoURL
+		if userInfo == "" {
+			userInfo = "https://www.googleapis.com/oauth2/v2/userinfo"
+		}
+		return google.Endpoint, userInfo, nil
+	}
+
+	// If explicit endpoints are set, use them.
+	if cfg.AuthURL != "" && cfg.TokenURL != "" {
+		userInfo := cfg.UserInfoURL
+		if userInfo == "" {
+			return oauth2.Endpoint{}, "", errors.New("OIDC_USERINFO_URL is required when using explicit auth/token URLs")
+		}
+		return oauth2.Endpoint{AuthURL: cfg.AuthURL, TokenURL: cfg.TokenURL}, userInfo, nil
+	}
+
+	if cfg.IssuerURL == "" {
+		return oauth2.Endpoint{}, "", errors.New("OIDC_ISSUER_URL is required")
+	}
+	// Allow HTTP for localhost and internal container URLs, require HTTPS for external URLs
+	if strings.HasPrefix(cfg.IssuerURL, "http://") {
+		if !strings.Contains(cfg.IssuerURL, "localhost") && !strings.Contains(cfg.IssuerURL, "127.0.0.1") && !strings.Contains(cfg.IssuerURL, ":") {
+			return oauth2.Endpoint{}, "", errors.New("OIDC_ISSUER_URL must use https for external URLs")
+		}
+	}
+
+	discoveryURL := strings.TrimSuffix(cfg.IssuerURL, "/") + "/.well-known/openid-configuration"
+	req, err := http.NewRequest(http.MethodGet, discoveryURL, nil)
+	if err != nil {
+		return oauth2.Endpoint{}, "", err
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return oauth2.Endpoint{}, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return oauth2.Endpoint{}, "", fmt.Errorf("discovery returned status %d", resp.StatusCode)
+	}
+
+	var discovery struct {
+		AuthorizationEndpoint string `json:"authorization_endpoint"`
+		TokenEndpoint         string `json:"token_endpoint"`
+		UserInfoEndpoint      string `json:"userinfo_endpoint"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&discovery); err != nil {
+		return oauth2.Endpoint{}, "", err
+	}
+	if discovery.AuthorizationEndpoint == "" || discovery.TokenEndpoint == "" {
+		return oauth2.Endpoint{}, "", errors.New("discovery response missing auth or token endpoint")
+	}
+	if discovery.UserInfoEndpoint == "" {
+		return oauth2.Endpoint{}, "", errors.New("discovery response missing userinfo endpoint")
+	}
+	return oauth2.Endpoint{
+		AuthURL:  discovery.AuthorizationEndpoint,
+		TokenURL: discovery.TokenEndpoint,
+	}, discovery.UserInfoEndpoint, nil
+}
+
+func defaultOIDCButtonLabel(cfg OIDCConfig) string {
+	if cfg.ButtonLabel != "" {
+		return cfg.ButtonLabel
+	}
+	if cfg.Provider == "google" {
+		return "Login with Google"
+	}
+	issuer := strings.ToLower(cfg.IssuerURL)
+	if strings.Contains(issuer, "pocket") {
+		return "Login with Pocket-ID"
+	}
+	return "Login"
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return "oidc-user"
 }
 
 func createSessionToken(email, secret string) string {
