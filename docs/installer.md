@@ -100,66 +100,53 @@ Run this single command to start the interactive wizard:
 curl -fsSL https://raw.githubusercontent.com/korjavin/medicationtrackerbot/main/install.sh | bash
 ```
 
-![Screenshot: Running the curl command](https://placehold.co/800x200/1e293b/cbd5e1?text=Running+curl+command)
+<img src="img/step_curl.png" alt="Running the curl command" width="600" />
 
 ---
 
 ## 🧙 The Interactive Walkthrough
 
-The installer will ask you a series of questions. Here is what they mean and how to answer them.
+The installer will ask you a series of questions. **We generally recommend accepting the default values (just press Enter)** unless you have a specific reason to change them.
 
 ### 1. Install Directory
 > "Install directory [/opt/medtracker]:"
 
-- **What it is**: Where all your data, configuration, and database files will live.
-- **Recommendation**: Press **Enter** to use the default (`/opt/medtracker`).
+- **Recommended**: Press **Enter** to use the default (`/opt/medtracker`).
 
 ### 2. Primary Domain
 > "Primary domain for web app (e.g., meds.example.com):"
 
-- **What it is**: The address you will type in your browser to access the dashboard.
 - **Action**: Enter your domain (e.g., `meds.mysite.com`).
 
-![Screenshot: Domain Prompt](https://placehold.co/800x200/1e293b/cbd5e1?text=Domain+Prompt)
+<img src="img/prompt_domain.png" alt="Domain Prompt" width="600" />
 
 ### 3. HTTPS & Traefik
 > "Use bundled Traefik + Let's Encrypt (recommended)? [Y/n]"
 
-- **What it is**: Traefik handles secure HTTPS connections automatically.
-- **Recommendation**: **Yes**. Unless you are an expert running your own reverse proxy, let the installer handle this.
-- **Email**: Enter your email to receive SSL expiry alerts (rare).
+- **Recommended**: **Yes**. It handles SSL certificates automatically.
 
 ### 4. Timezone
 > "Timezone [UTC]:"
 
-- **What it is**: Critical for correct medication reminders!
-- **Action**: Enter your timezone (e.g., `America/New_York` or `Europe/Berlin`). The installer tries to guess it.
+- **Action**: Enter your timezone (e.g., `America/New_York`) for accurate reminders.
 
 ### 5. Telegram Configuration
 > "Telegram Bot Token:"
 > "Your Telegram User ID:"
 
 - **Action**: Paste the Token and ID you got in the Prerequisites section.
-- **Security**: The ID acts as an allowlist. The bot will ignore everyone else.
-
-![Screenshot: Telegram Prompts](https://placehold.co/800x400/1e293b/cbd5e1?text=Telegram+Configuration)
 
 ### 6. Browser Login (Optional)
 > "Enable browser login (OIDC)? [y/N]"
 
-- **What it is**: Allows you to log in via a browser (Chrome, Safari) to manage meds without Telegram.
-- **Recommendation**: **Yes**. It makes setting up schedules much easier.
-- **Pocket-ID**: The installer can set up [Pocket-ID](https://github.com/pocket-id/pocket-id) for you automatically. It's a simple, local login system.
-    - If you choose this, you'll need a second domain (e.g., `id.mysite.com`).
+- **Recommendation**: **Yes**.
+- **Pocket-ID**: The installer can set up [Pocket-ID](https://github.com/pocket-id/pocket-id) for you automatically.
 
-![Screenshot: Login Options](https://placehold.co/800x400/1e293b/cbd5e1?text=Browser+Login+Options)
-
-### 7. Litestream Backups (Advanced)
+### 7. Litestream Backups (Optional)
 > "Enable Litestream backup to Cloudflare R2? [y/N]"
 
-- **What it is**: Real-time streaming backups of your database to the cloud.
-- **Why**: If your server dies, you lose nothing.
-- **Requirements**: Cloudflare R2 or Amazon S3 credentials.
+- **What it is**: Real-time streaming backups.
+- **Why**: Keeps your data safe if the server fails.
 
 ---
 
@@ -186,6 +173,18 @@ You need to tell Telegram which domain your bot uses for its Web App.
 ### 3. Log In!
 - Open `https://meds.mysite.com` in your browser.
 - Or open your bot in Telegram and tap **Launch**.
+
+### 4. Configure Pocket-ID (If Installed)
+If you chose to install **Pocket-ID**, you need to complete its setup to enable web login and the AI Connector.
+
+1.  Open your ID domain (e.g., `https://id.mysite.com/setup`) in your browser.
+2.  **Create your Admin User**: This will be your main identity.
+3.  **Create an OIDC Client**:
+    *   This "Client" is what connects your Medication Tracker (and Claude) to your identity.
+    *   It generates a **Client ID** and **Client Secret**.
+    *   This is essential for **Web Login** (if Telegram is unavailable) and for authorizing the **Claude MCP Connector**.
+
+*(Screenshots coming soon)*
 
 ---
 
