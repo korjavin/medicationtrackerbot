@@ -1,7 +1,7 @@
 # 🚀 Step-by-Step Installation Guide
 
 <div align="center">
-  <img src="img/hero_installer.png" alt="Installer Hero Image" width="100%" />
+  <img src="img/hero_installer.png" alt="Installer Hero Image" width="600" />
   <p><em>Deploy your own secure, private Medication Tracker in minutes.</em></p>
 </div>
 
@@ -13,12 +13,18 @@ Welcome! This guide will walk you through setting up your own **Medication Track
 
 The installer automates the complex parts (Docker, SSL certificates, Nginx/Traefik configuration), asking you simple questions to customize your setup. By the end, you will have a fully functional web app and Telegram bot running on your own server.
 
-### What You Pull Build
-- **Web App**: A modern dashboard to manage meds, schedule, and history.
-- **Telegram Bot**: For notifications and quick logging on the go.
-- **Automatic HTTPS**: Secure encrypted connection via Let's Encrypt.
-- **(Optional) Pocket-ID**: Secure browser login.
-- **(Optional) MCP Server**: Connect Claude AI to your health data.
+### Why a Separate Server?
+We strongly advise using a **dedicated server (VPS)** rather than a shared hosting environment. 
+
+*   **Privacy**: This is your medical data. Hosting it on your own private server ensures that **no one else**—including us—has access to it. It stays 100% yours.
+*   **Security**: Securing a dedicated isolated environment is simpler and more robust than shared hosting.
+*   **Simplicity**: Our "Simpler is Better" philosophy means you don't need complex cloud infrastructures. Any provider works (Digital Ocean, AWS, Google Cloud, etc.), but a simple VPS is best.
+
+**Network Requirements**:
+You only need 2 open ports:
+*   `22` for SSH (Secure Shell)
+*   `443` (or `8443`) for the Website (HTTPS)
+*   *All other ports can be safely blocked by your firewall.*
 
 ---
 
@@ -35,6 +41,8 @@ You need a server running **Ubuntu**, **Debian**, **Fedora**, or **CentOS**.
 
 > **Tip for Hetzner Users:**
 > Create a **CX22** instance with **Ubuntu 24.04**. Add your SSH key. That's it!
+>
+> <img src="img/hetzner_panel.png" alt="Hetzner Control Panel" width="600" />
 
 ### 2. A Domain Name
 You need a domain (e.g., `yourname-meds.com` or `meds.yourdomain.com`).
