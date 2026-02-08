@@ -1,222 +1,362 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Medication Tracker Bot - Installation Guide</title>
+    <title>MedTrackerBot - Installation Guide</title>
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-    <!-- Highlight.js for code blocks -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <!-- Highlight.js -->
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark-reasonable.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
-    
+
     <style>
         :root {
-            --bg-color: #0f172a;
-            --text-color: #e2e8f0;
-            --accent-color: #38bdf8;
-            --accent-glow: rgba(56, 189, 248, 0.2);
-            --card-bg: #1e293b;
-            --border-color: #334155;
-            --code-bg: #0f172a;
+            /* Pitch Palette */
+            --primary: #FF6B6B;
+            /* Friendly Coral */
+            --secondary: #4ECDC4;
+            /* Fresh Mint */
+            --accent: #FFE66D;
+            /* Sunny Yellow */
+            --dark: #292F36;
+            /* Soft Black */
+            --light: #F7FFF7;
+            /* Off-White */
+            --text-body: #4A4A4A;
+            --code-bg: #1e293b;
         }
 
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            line-height: 1.6;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            color: var(--text-body);
+            background-color: var(--light);
             margin: 0;
             padding: 0;
-        }
-
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 2rem;
+            line-height: 1.8;
+            background: radial-gradient(circle at 50% 0%, #fff 0%, #f0f7f4 100%);
+            min-height: 100vh;
         }
 
         /* Typography */
-        h1, h2, h3, h4, h5, h6 {
-            color: #fff;
-            margin-top: 2rem;
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6 {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            color: var(--dark);
+            margin-top: 2.5rem;
             margin-bottom: 1rem;
-            font-weight: 700;
+            line-height: 1.2;
         }
 
         h1 {
-            font-size: 2.5rem;
+            font-size: 3rem;
             text-align: center;
-            background: linear-gradient(to right, #38bdf8, #818cf8);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            color: var(--primary);
+            margin-top: 4rem;
             margin-bottom: 2rem;
+            letter-spacing: -1px;
         }
 
         h2 {
-            border-bottom: 1px solid var(--border-color);
+            font-size: 2rem;
+            border-bottom: 2px solid rgba(78, 205, 196, 0.2);
+            /* Soft underline with secondary color */
             padding-bottom: 0.5rem;
-            margin-top: 3rem;
         }
-        
+
+        h3 {
+            font-size: 1.5rem;
+            color: var(--secondary);
+            /* Accent color for subheadings */
+        }
+
+        p {
+            font-size: 1.1rem;
+            margin-bottom: 1.5rem;
+            color: #555;
+        }
+
         a {
-            color: var(--accent-color);
+            color: var(--primary);
             text-decoration: none;
+            font-weight: 600;
             transition: color 0.2s;
+            border-bottom: 2px solid transparent;
         }
 
         a:hover {
-            color: #818cf8;
-            text-decoration: underline;
+            color: #ff5252;
+            border-bottom-color: var(--primary);
+        }
+
+        strong {
+            color: var(--dark);
+            font-weight: 700;
+        }
+
+        /* Layout */
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem 2rem 6rem 2rem;
         }
 
         /* Images */
+        .image-wrapper {
+            margin: 2rem 0;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
         img {
             max-width: 100%;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
-            margin: 1rem 0;
-            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            background: #fff;
+            border: 8px solid #fff;
+            transition: transform 0.3s ease;
+            cursor: zoom-in;
         }
 
-        /* Blocks */
-        blockquote {
-            background-color: rgba(56, 189, 248, 0.1);
-            border-left: 4px solid var(--accent-color);
+        img:hover {
+            transform: translateY(-5px);
+        }
+
+        /* Lists */
+        ul {
+            list-style: none;
+            padding: 0;
             margin: 1.5rem 0;
-            padding: 1rem;
-            border-radius: 0 8px 8px 0;
-            color: #bae6fd;
         }
 
-        /* Code */
+        li {
+            position: relative;
+            padding-left: 2.5rem;
+            margin-bottom: 0.8rem;
+            font-size: 1.1rem;
+        }
+
+        li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 6px;
+            width: 1.5rem;
+            height: 1.5rem;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" fill="%234ECDC4" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>');
+            background-repeat: no-repeat;
+            background-size: contain;
+        }
+
+        /* Code Blocks */
         pre {
             background-color: var(--code-bg);
-            padding: 1rem;
-            border-radius: 8px;
+            padding: 1.5rem;
+            border-radius: 16px;
             overflow-x: auto;
-            border: 1px solid var(--border-color);
-            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.3);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            margin: 2rem 0;
+            color: #e2e8f0;
         }
 
         code {
             font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
-            font-size: 0.9em;
+            font-size: 0.95em;
         }
 
-        p code {
-            background-color: rgba(255, 255, 255, 0.1);
+        /* Inline Code */
+        p code,
+        li code {
+            background-color: rgba(78, 205, 196, 0.15);
+            /* Light secondary color bg */
+            color: #2d8a83;
             padding: 0.2rem 0.4rem;
-            border-radius: 4px;
-            color: #e2e8f0;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+
+        /* Blockquotes */
+        blockquote {
+            background: #fff;
+            border-left: none;
+            /* Remove default border */
+            border-radius: 0 20px 20px 20px;
+            padding: 1.5rem;
+            margin: 2rem 0;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            /* Match chat-bubble style */
+            position: relative;
+            font-style: italic;
+            border: 1px solid #eee;
+            color: var(--dark);
+        }
+
+        blockquote::before {
+            content: "💡";
+            font-style: normal;
+            margin-right: 0.5rem;
+            font-size: 1.2rem;
+        }
+
+        blockquote p {
+            margin: 0;
+            display: inline;
+            color: var(--dark);
         }
 
         /* Tables */
         table {
             width: 100%;
-            border-collapse: collapse;
-            margin: 1.5rem 0;
-            background-color: var(--card-bg);
-            border-radius: 8px;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 2rem 0;
+            background: #fff;
+            border-radius: 12px;
             overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            border: 1px solid #eee;
         }
 
-        th, td {
-            padding: 0.75rem 1rem;
+        th,
+        td {
+            padding: 1rem 1.5rem;
             text-align: left;
-            border-bottom: 1px solid var(--border-color);
+            border-bottom: 1px solid #eee;
         }
 
         th {
-            background-color: #334155;
-            color: #fff;
-            font-weight: 600;
+            background-color: #f8fafc;
+            color: var(--dark);
+            font-weight: 800;
+            font-family: 'Outfit', sans-serif;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
         }
-        
+
         tr:last-child td {
             border-bottom: none;
         }
 
-        /* Loading */
-        #content {
-            min-height: 50vh;
+        /* Lightbox */
+        #lightbox {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(41, 47, 54, 0.95);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            cursor: zoom-out;
+            backdrop-filter: blur(5px);
         }
-        
+
+        #lightbox img {
+            max-width: 90%;
+            max-height: 90vh;
+            border-radius: 8px;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+            border: none;
+        }
+
+        /* Loading State */
         .loading {
             text-align: center;
-            padding: 2rem;
-            color: #94a3b8;
+            padding: 4rem;
+            color: #999;
+            font-weight: 500;
         }
 
-        /* Interactive Elements */
-        .step-card {
-            background: var(--card-bg);
-            padding: 1.5rem;
-            border-radius: 12px;
-            margin-bottom: 1.5rem;
-            border: 1px solid var(--border-color);
-            transition: transform 0.2s, box-shadow 0.2s;
+        /* Divider */
+        hr {
+            border: 0;
+            height: 1px;
+            background: #e2e8f0;
+            margin: 3rem 0;
         }
-
-        .step-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-            border-color: var(--accent-color);
-        }
-
     </style>
 </head>
+
 <body>
 
-<div class="container">
-    <div id="content">
-        <div class="loading">Loading installation guide...</div>
+    <div class="container">
+        <div id="content">
+            <div class="loading">
+                Loading installation guide...
+            </div>
+        </div>
     </div>
-</div>
 
-<script>
-    // Fetch the markdown file
-    fetch('installer.md')
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Failed to load installer.md');
-            }
-            return response.text();
-        })
-        .then(text => {
-            // Configure marked
-            marked.use({
-                renderer: {
-                    // Hook into heading rendering to add IDs or special formatting if needed (optional)
+    <div id="lightbox">
+        <img id="lightbox-img" src="" alt="Enlarged view">
+    </div>
+
+    <script>
+        // Lightbox Logic
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightbox-img');
+
+        lightbox.addEventListener('click', () => {
+            lightbox.style.display = 'none';
+            lightboxImg.src = '';
+        });
+
+        function openLightbox(src) {
+            lightboxImg.src = src;
+            lightbox.style.display = 'flex';
+        }
+
+        // Markdown Fetch & Render
+        fetch('installer.md')
+            .then(response => {
+                if (!response.ok) throw new Error('Failed to load installer.md');
+                return response.text();
+            })
+            .then(text => {
+                // Customize Renderer
+                const renderer = new marked.Renderer();
+
+                // Wrap images in a div for styling and click handler
+                renderer.image = function (href, title, text) {
+                    return `<div class="image-wrapper"><img src="${href}" alt="${text}" onclick="openLightbox('${href}')"></div>`;
                 }
-            });
 
-            // Parse MD
-            const htmlContent = marked.parse(text);
-            const contentDiv = document.getElementById('content');
-            contentDiv.innerHTML = htmlContent;
+                marked.use({ renderer });
 
-            // Highlight code blocks
-            hljs.highlightAll();
+                // Render
+                const htmlContent = marked.parse(text);
+                document.getElementById('content').innerHTML = htmlContent;
 
-            // Optional: Wrap sections in cards or add animations
-            // This is a simple enhancement to verify it works
-            
-        })
-        .catch(error => {
-            console.error(error);
-            document.getElementById('content').innerHTML = `
-                <div style="text-align: center; color: #ef4444; padding: 2rem;">
-                    <h2>⚠️ Unable to load documentation</h2>
-                    <p>Please ensure you are viewing this page through a web server (like GitHub Pages) and that <code>installer.md</code> exists in the same directory.</p>
-                    <p>Error: ${error.message}</p>
+                // Highlight Code
+                hljs.highlightAll();
+            })
+            .catch(error => {
+                document.getElementById('content').innerHTML = `
+                <div style="text-align: center; padding: 4rem;">
+                    <h2 style="color: var(--primary);">⚠️ Unable to load documentation</h2>
+                    <p>${error.message}</p>
+                    <p>Make sure you are viewing this via a web server (http://) and not a local file (file://), as CORS blocks file access.</p>
                 </div>
             `;
-        });
-</script>
+            });
+    </script>
 
 </body>
+
 </html>
