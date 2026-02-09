@@ -647,6 +647,8 @@ async function loadWorkoutHistoryTab() {
 }
 
 let currentSessionLogs = [];
+let currentSessionData = null;
+let originalSessionStatus = null;
 
 async function showWorkoutSessionModal(sessionId) {
     const modal = document.getElementById('workout-session-modal');
@@ -659,10 +661,32 @@ async function showWorkoutSessionModal(sessionId) {
         if (!data) return;
 
         currentSessionLogs = data.logs || [];
+        currentSessionData = data.session;
+        originalSessionStatus = data.session.status;
+
+        // Build info section with status dropdown
+        const statusOptions = [
+            { value: 'completed', label: '✅ Completed' },
+            { value: 'skipped', label: '⏭ Skipped' }
+        ];
+
+        const statusDropdown = statusOptions.map(opt =>
+            `<option value="${opt.value}" ${data.session.status === opt.value ? 'selected' : ''}>${opt.label}</option>`
+        ).join('');
 
         infoContainer.innerHTML = `
-            <strong>${escapeHtml(data.session.scheduled_time)}</strong> • 
-            ${new Date(data.session.scheduled_date).toLocaleDateString()}
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div>
+                    <strong>${escapeHtml(data.session.scheduled_time)}</strong> • 
+                    ${new Date(data.session.scheduled_date).toLocaleDateString()}
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <label style="font-size: 0.9em; color: #666; margin: 0;">Status:</label>
+                    <select id="session-status-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #ddd;">
+                        ${statusDropdown}
+                    </select>
+                </div>
+            </div>
         `;
 
         let html = '';
@@ -726,6 +750,8 @@ function closeWorkoutSessionModal() {
     overlay.onclick = null; // Remove click handler
     document.getElementById('workout-session-modal').classList.add('hidden');
     overlay.classList.add('hidden');
+    currentSessionData = null;
+    originalSessionStatus = null;
 }
 
 async function saveWorkoutSessionDetails() {
@@ -738,6 +764,11 @@ async function saveWorkoutSessionDetails() {
         saveButton.textContent = 'Saving...';
         saveButton.style.opacity = '0.6';
 
+        // Check if status has changed
+        const statusSelect = document.getElementById('session-status-select');
+        const newStatus = statusSelect ? statusSelect.value : originalSessionStatus;
+        const statusChanged = newStatus !== originalSessionStatus;
+
         // Validate all logs before saving
         for (const log of currentSessionLogs) {
             if (log.sets_completed < 0 || log.reps_completed < 0 || log.weight_kg < 0) {
@@ -746,6 +777,13 @@ async function saveWorkoutSessionDetails() {
             if (log.sets_completed > 20 || log.reps_completed > 100 || log.weight_kg > 500) {
                 throw new Error('Values exceed maximum allowed');
             }
+        }
+
+        // Save status if changed
+        if (statusChanged && currentSessionData) {
+            await apiCall(`/api/workout/sessions/status?id=${currentSessionData.id}`, 'PUT', {
+                status: newStatus
+            });
         }
 
         // Save each log

@@ -844,3 +844,38 @@ func (s *Server) handleStartWorkoutSession(w http.ResponseWriter, r *http.Reques
 
 	w.WriteHeader(http.StatusOK)
 }
+
+func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Query().Get("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid session ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate status - only allow final states
+	validStatuses := map[string]bool{
+		"completed": true,
+		"skipped":   true,
+	}
+	if !validStatuses[req.Status] {
+		http.Error(w, "Invalid status. Allowed values: completed, skipped", http.StatusBadRequest)
+		return
+	}
+
+	err = s.store.UpdateSessionStatus(id, req.Status)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
