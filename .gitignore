@@ -7,3 +7,4 @@ meds.db
 *.db-shm
 docs/screenshots
 .agent/rules/
+.agent/workflows/
