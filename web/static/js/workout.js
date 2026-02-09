@@ -116,8 +116,10 @@ async function loadNextWorkout() {
             weekday: 'short'
         });
 
-        // Show Start button for pending, notified, or snoozed workouts
-        const canStart = sessionId && (status === 'pending' || status === 'notified' || isSnoozed);
+        // Show Start button for workouts that can actually be started:
+        // 1. Workouts with existing sessions (sessionId > 0)
+        // 2. Today's workouts even without session yet (can create session on start)
+        const canStart = sessionId > 0 || isToday;
         const startButton = canStart
             ? `<button onclick="startWorkoutSession(${sessionId})" class="primary" style="margin-top: 12px; width: 100%;">🏋️ Start Workout</button>`
             : '';
@@ -807,8 +809,6 @@ async function loadWorkoutStatsTab() {
                 </div>
             </div>
         `;
-
-        container.innerHTML = html;
     } catch (error) {
         console.error('Error loading stats:', error);
         container.innerHTML = '<p style="color: red;">Error loading statistics</p>';
@@ -820,8 +820,9 @@ async function loadWorkoutStatsTab() {
 // ====================================
 
 async function startWorkoutSession(sessionId) {
-    if (!sessionId) {
-        safeAlert('❌ Invalid session ID');
+    // If no sessionId, show message that this needs to be created first
+    if (!sessionId || sessionId === 0) {
+        safeAlert('⚠️ Cannot start: workout session not created yet. Please wait for the scheduled time.');
         return;
     }
 
