@@ -65,7 +65,9 @@ async function loadNextWorkout() {
         }
 
         const session = data.session;
+        const sessionId = session.id;
         const status = session.status;
+        const isSnoozed = session.is_snoozed || false;
         const date = new Date(session.scheduled_date);
         const today = new Date();
 
@@ -76,20 +78,13 @@ async function loadNextWorkout() {
 
         // Debug logging
         console.log('Next workout debug:', {
+            session_id: sessionId,
             scheduled_date: session.scheduled_date,
             status: session.status,
+            is_snoozed: isSnoozed,
+            snoozed_until: session.snoozed_until,
             parsed_date: date.toISOString(),
             today: today.toISOString(),
-            date_parts: {
-                year: date.getFullYear(),
-                month: date.getMonth(),
-                day: date.getDate()
-            },
-            today_parts: {
-                year: today.getFullYear(),
-                month: today.getMonth(),
-                day: today.getDate()
-            },
             isToday: isToday
         });
 
@@ -98,7 +93,11 @@ async function loadNextWorkout() {
         let statusEmoji = '📅';
         let statusText = 'Upcoming';
 
-        if (status === 'in_progress') {
+        if (isSnoozed) {
+            cardClass += ' notified';
+            statusEmoji = '⏰';
+            statusText = 'Snoozed';
+        } else if (status === 'in_progress') {
             cardClass += ' in-progress';
             statusEmoji = '🏋️';
             statusText = 'In Progress';
@@ -117,6 +116,12 @@ async function loadNextWorkout() {
             weekday: 'short'
         });
 
+        // Show Start button for pending, notified, or snoozed workouts
+        const canStart = sessionId && (status === 'pending' || status === 'notified' || isSnoozed);
+        const startButton = canStart
+            ? `<button onclick="startWorkoutSession(${sessionId})" class="primary" style="margin-top: 12px; width: 100%;">🏋️ Start Workout</button>`
+            : '';
+
         container.innerHTML = `
             <div class="${cardClass}">
                 <div class="next-workout-header">
@@ -127,6 +132,7 @@ async function loadNextWorkout() {
                     <h3>${escapeHtml(data.group_name)}</h3>
                     <p>${escapeHtml(data.variant_name)} • ${data.exercises_count} exercises</p>
                 </div>
+                ${startButton}
             </div>
         `;
     } catch (error) {
@@ -801,8 +807,43 @@ async function loadWorkoutStatsTab() {
                 </div>
             </div>
         `;
+
+        container.innerHTML = html;
     } catch (error) {
         console.error('Error loading stats:', error);
         container.innerHTML = '<p style="color: red;">Error loading statistics</p>';
+    }
+}
+
+// ====================================
+// START WORKOUT SESSION
+// ====================================
+
+async function startWorkoutSession(sessionId) {
+    if (!sessionId) {
+        safeAlert('❌ Invalid session ID');
+        return;
+    }
+
+    if (!confirm('Start this workout now?')) {
+        return;
+    }
+
+    try {
+        await apiCall(`/api/workout/sessions/${sessionId}/start`, 'POST');
+
+        // Show success message
+        safeAlert('✅ Workout started! You can now log exercises.');
+
+        // Refresh the next workout card
+        loadNextWorkout();
+
+        // Optionally open the session details to log exercises
+        // Uncomment if you want to auto-open the session modal:
+        // showWorkoutSessionModal(sessionId);
+
+    } catch (error) {
+        console.error('Error starting workout:', error);
+        safeAlert('❌ Failed to start workout. Please try again.');
     }
 }

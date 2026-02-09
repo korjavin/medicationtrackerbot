@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -175,4 +176,213 @@ func TestUpdateWorkoutExercise_OrderIndexChange(t *testing.T) {
 	if updatedEx3.OrderIndex != 2 {
 		t.Errorf("Expected ex3 order_index to be 2, got %d", updatedEx3.OrderIndex)
 	}
+}
+
+// TestStartSession verifies that starting a session updates status and sets started_at
+func TestStartSession(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.db.Close()
+
+	// Create test data
+	group, err := store.CreateWorkoutGroup("Test Group", "", false, 1, "[1]", "09:00", 15)
+	if err != nil {
+		t.Fatalf("Failed to create workout group: %v", err)
+	}
+
+	variant, err := store.CreateWorkoutVariant(group.ID, "Day A", nil, "")
+	if err != nil {
+		t.Fatalf("Failed to create variant: %v", err)
+	}
+
+	// Create a workout session
+	session, err := store.CreateWorkoutSession(group.ID, variant.ID, 1,
+		mustParseTime("2026-02-09T00:00:00Z"), "09:00")
+	if err != nil {
+		t.Fatalf("Failed to create session: %v", err)
+	}
+
+	// Verify initial state
+	if session.Status != "pending" {
+		t.Errorf("Expected initial status 'pending', got '%s'", session.Status)
+	}
+	if session.StartedAt != nil {
+		t.Errorf("Expected StartedAt to be nil initially, got %v", session.StartedAt)
+	}
+
+	// Start the session
+	err = store.StartSession(session.ID)
+	if err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
+
+	// Verify session was updated
+	updated, err := store.GetWorkoutSession(session.ID)
+	if err != nil {
+		t.Fatalf("Failed to get updated session: %v", err)
+	}
+
+	if updated.Status != "in_progress" {
+		t.Errorf("Expected status 'in_progress', got '%s'", updated.Status)
+	}
+	if updated.StartedAt == nil {
+		t.Error("Expected StartedAt to be set, got nil")
+	}
+}
+
+// TestSnoozeSession verifies that snoozing a session sets snoozed_until
+func TestSnoozeSession(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.db.Close()
+
+	// Create test data
+	group, _ := store.CreateWorkoutGroup("Test Group", "", false, 1, "[1]", "09:00", 15)
+	variant, _ := store.CreateWorkoutVariant(group.ID, "Day A", nil, "")
+	session, _ := store.CreateWorkoutSession(group.ID, variant.ID, 1,
+		mustParseTime("2026-02-09T00:00:00Z"), "09:00")
+
+	// Snooze for 2 hours
+	err := store.SnoozeSession(session.ID, 2*60*60*1000000000) // 2 hours in nanoseconds
+	if err != nil {
+		t.Fatalf("Failed to snooze session: %v", err)
+	}
+
+	// Verify session was updated
+	updated, err := store.GetWorkoutSession(session.ID)
+	if err != nil {
+		t.Fatalf("Failed to get updated session: %v", err)
+	}
+
+	if updated.SnoozedUntil == nil {
+		t.Error("Expected SnoozedUntil to be set, got nil")
+	}
+	if updated.SnoozeCount != 1 {
+		t.Errorf("Expected SnoozeCount to be 1, got %d", updated.SnoozeCount)
+	}
+
+	// Snooze again
+	err = store.SnoozeSession(session.ID, 1*60*60*1000000000) // 1 hour
+	if err != nil {
+		t.Fatalf("Failed to snooze session again: %v", err)
+	}
+
+	updated, _ = store.GetWorkoutSession(session.ID)
+	if updated.SnoozeCount != 2 {
+		t.Errorf("Expected SnoozeCount to be 2 after second snooze, got %d", updated.SnoozeCount)
+	}
+}
+
+// TestClearSnooze verifies that clearing snooze removes snoozed_until
+func TestClearSnooze(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.db.Close()
+
+	// Create test data
+	group, _ := store.CreateWorkoutGroup("Test Group", "", false, 1, "[1]", "09:00", 15)
+	variant, _ := store.CreateWorkoutVariant(group.ID, "Day A", nil, "")
+	session, _ := store.CreateWorkoutSession(group.ID, variant.ID, 1,
+		mustParseTime("2026-02-09T00:00:00Z"), "09:00")
+
+	// Snooze the session
+	store.SnoozeSession(session.ID, 2*60*60*1000000000)
+
+	// Verify it's snoozed
+	snoozed, _ := store.GetWorkoutSession(session.ID)
+	if snoozed.SnoozedUntil == nil {
+		t.Fatal("Session should be snoozed")
+	}
+
+	// Clear the snooze
+	err := store.ClearSnooze(session.ID)
+	if err != nil {
+		t.Fatalf("Failed to clear snooze: %v", err)
+	}
+
+	// Verify snooze was cleared
+	cleared, err := store.GetWorkoutSession(session.ID)
+	if err != nil {
+		t.Fatalf("Failed to get session after clearing snooze: %v", err)
+	}
+
+	if cleared.SnoozedUntil != nil {
+		t.Errorf("Expected SnoozedUntil to be nil after clearing, got %v", cleared.SnoozedUntil)
+	}
+}
+
+// TestGetSnoozedSessions verifies retrieving snoozed sessions
+func TestGetSnoozedSessions(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.db.Close()
+
+	userID := int64(1)
+
+	// Create test data
+	group, _ := store.CreateWorkoutGroup("Test Group", "", false, userID, "[1]", "09:00", 15)
+	variant, _ := store.CreateWorkoutVariant(group.ID, "Day A", nil, "")
+
+	// Create multiple sessions
+	session1, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID,
+		mustParseTime("2026-02-09T00:00:00Z"), "09:00")
+	session2, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID,
+		mustParseTime("2026-02-10T00:00:00Z"), "09:00")
+	session3, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID,
+		mustParseTime("2026-02-11T00:00:00Z"), "09:00")
+
+	// Manually set snoozed_until in the PAST using direct SQL
+	// Use UTC to match CURRENT_TIMESTAMP behavior in SQLite
+	pastTime1 := time.Now().UTC().Add(-3 * time.Hour)
+	pastTime2 := time.Now().UTC().Add(-2 * time.Hour)
+
+	_, err := store.db.Exec("UPDATE workout_sessions SET snoozed_until = ? WHERE id = ?", pastTime1, session1.ID)
+	if err != nil {
+		t.Fatalf("Failed to set snoozed_until for session1: %v", err)
+	}
+
+	_, err = store.db.Exec("UPDATE workout_sessions SET snoozed_until = ? WHERE id = ?", pastTime2, session2.ID)
+	if err != nil {
+		t.Fatalf("Failed to set snoozed_until for session2: %v", err)
+	}
+
+	// Don't snooze session3
+
+	// Get snoozed sessions
+	snoozed, err := store.GetSnoozedSessions(userID)
+	if err != nil {
+		t.Fatalf("Failed to get snoozed sessions: %v", err)
+	}
+
+	// Should return 2 snoozed sessions
+	if len(snoozed) != 2 {
+		t.Errorf("Expected 2 snoozed sessions, got %d", len(snoozed))
+	}
+
+	// Verify the sessions are the right ones
+	foundSession1 := false
+	foundSession2 := false
+	for _, s := range snoozed {
+		if s.ID == session1.ID {
+			foundSession1 = true
+		}
+		if s.ID == session2.ID {
+			foundSession2 = true
+		}
+		if s.ID == session3.ID {
+			t.Error("Session3 should not be in snoozed sessions")
+		}
+	}
+
+	if !foundSession1 {
+		t.Error("Session1 should be in snoozed sessions")
+	}
+	if !foundSession2 {
+		t.Error("Session2 should be in snoozed sessions")
+	}
+}
+
+// Helper function to parse time strings for tests
+func mustParseTime(s string) time.Time {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		panic(err)
+	}
+	return t
 }
