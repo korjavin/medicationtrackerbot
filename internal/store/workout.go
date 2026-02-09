@@ -572,6 +572,14 @@ func (s *Store) SnoozeSession(id int64, snoozeDuration time.Duration) error {
 	return err
 }
 
+func (s *Store) ClearSnooze(id int64) error {
+	_, err := s.db.Exec(`
+		UPDATE workout_sessions 
+		SET snoozed_until = NULL 
+		WHERE id = ?`, id)
+	return err
+}
+
 func (s *Store) SetSessionNotificationMessageID(id int64, messageID int) error {
 	_, err := s.db.Exec("UPDATE workout_sessions SET notification_message_id = ? WHERE id = ?", messageID, id)
 	return err
