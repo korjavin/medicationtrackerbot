@@ -671,10 +671,12 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 		if session.ScheduledDate.Before(since) {
 			continue
 		}
-		if session.Status == "completed" {
+
+		switch session.Status {
+		case "completed":
 			completedSessions++
 			totalSessions++
-		} else if session.Status == "skipped" {
+		case "skipped":
 			skippedSessions++
 			totalSessions++
 		}

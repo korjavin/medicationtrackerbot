@@ -430,10 +430,12 @@ func TestWorkoutStatistics(t *testing.T) {
 	var streak int
 
 	for _, session := range sessions {
-		if session.Status == "completed" {
+
+		switch session.Status {
+		case "completed":
 			completedSessions++
 			totalSessions++
-		} else if session.Status == "skipped" {
+		case "skipped":
 			skippedSessions++
 			totalSessions++
 		}
