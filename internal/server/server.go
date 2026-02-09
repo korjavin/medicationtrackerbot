@@ -152,6 +152,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/workout/sessions/{id}/snooze", s.handleSnoozeWorkoutSession)
 	apiMux.HandleFunc("POST /api/workout/sessions/{id}/skip", s.handleSkipWorkoutSession)
 	apiMux.HandleFunc("POST /api/workout/sessions/{id}/start", s.handleStartWorkoutSession)
+	apiMux.HandleFunc("PUT /api/workout/sessions/status", s.handleUpdateSessionStatus)
 
 	// Web Push endpoints
 	apiMux.HandleFunc("GET /api/webpush/vapid-public-key", s.handleGetVAPIDPublicKey)
