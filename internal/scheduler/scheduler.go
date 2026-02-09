@@ -71,6 +71,22 @@ func (s *Scheduler) Start() {
 			}
 		}
 	}()
+
+	// Check BP reminders every 15 minutes
+	bpReminderTicker := time.NewTicker(15 * time.Minute)
+	go func() {
+		// Initial check after 2 minutes
+		time.Sleep(2 * time.Minute)
+		if err := s.checkBPReminders(); err != nil {
+			log.Printf("Error checking BP reminders: %v", err)
+		}
+
+		for range bpReminderTicker.C {
+			if err := s.checkBPReminders(); err != nil {
+				log.Printf("Error checking BP reminders: %v", err)
+			}
+		}
+	}()
 }
 
 func (s *Scheduler) checkSchedule() error {
