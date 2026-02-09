@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -119,14 +120,18 @@ func (s *Scheduler) checkBPReminders() error {
 
 // sendBPReminder sends a BP reminder notification via Telegram and Web Push
 func (s *Scheduler) sendBPReminder(ctx context.Context, userID int64, enhanced bool) error {
-	// Send Telegram notification
 	var messageID *int
+	telegramSuccess := false
+	webPushSuccess := false
+
+	// Send Telegram notification
 	if s.bot != nil {
 		msgID, err := s.bot.SendBPReminderNotification(userID, enhanced)
 		if err != nil {
 			log.Printf("Failed to send Telegram BP reminder: %v", err)
 		} else {
 			messageID = &msgID
+			telegramSuccess = true
 		}
 	}
 
@@ -134,9 +139,16 @@ func (s *Scheduler) sendBPReminder(ctx context.Context, userID int64, enhanced b
 	if s.webPush != nil {
 		if err := s.webPush.SendBPReminderNotification(ctx, userID, enhanced); err != nil {
 			log.Printf("Failed to send Web Push BP reminder: %v", err)
+		} else {
+			webPushSuccess = true
 		}
 	}
 
-	// Update state
+	// Only update state if at least one channel succeeded
+	if !telegramSuccess && !webPushSuccess {
+		return fmt.Errorf("failed to send BP reminder via any channel")
+	}
+
+	// Update state with successful delivery
 	return s.store.UpdateBPReminderNotificationSent(userID, messageID)
 }

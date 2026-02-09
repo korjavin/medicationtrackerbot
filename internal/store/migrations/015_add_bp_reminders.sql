@@ -18,6 +18,12 @@ CREATE INDEX IF NOT EXISTS idx_bp_reminder_enabled ON bp_reminder_state(enabled)
 CREATE INDEX IF NOT EXISTS idx_bp_reminder_snoozed ON bp_reminder_state(snoozed_until);
 CREATE INDEX IF NOT EXISTS idx_bp_reminder_dont_remind ON bp_reminder_state(dont_remind_until);
 
+-- Backfill existing users from blood_pressure_readings
+-- This ensures all users who have BP data get reminders enabled by default
+INSERT OR IGNORE INTO bp_reminder_state (user_id, enabled, preferred_reminder_hour)
+SELECT DISTINCT user_id, 1, 20
+FROM blood_pressure_readings;
+
 -- +goose Down
 DROP INDEX IF EXISTS idx_bp_reminder_dont_remind;
 DROP INDEX IF EXISTS idx_bp_reminder_snoozed;
