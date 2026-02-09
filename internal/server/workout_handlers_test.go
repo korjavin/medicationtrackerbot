@@ -140,3 +140,94 @@ func TestHandleUpdateSessionStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleGetNextWorkout_LazyCreation(t *testing.T) {
+	// Create test database
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	defer db.Close()
+
+	// Create test server
+	userID := int64(123456)
+	srv := &Server{
+		store:         db,
+		allowedUserID: userID,
+	}
+
+	// Create workout group active every day at 23:59 (to ensure it's in future for today, or definitely tomorrow)
+	// We want to test that it picks up *some* future workout.
+	// We'll use tomorrow to be safe from "time passed today" logic.
+	group, err := db.CreateWorkoutGroup("Everyday Group", "Test", false, userID, "[0,1,2,3,4,5,6]", "23:59", 15)
+	if err != nil {
+		t.Fatalf("Failed to create workout group: %v", err)
+	}
+
+	// Create variant
+	rotationOrder := 0
+	_, err = db.CreateWorkoutVariant(group.ID, "Variant A", &rotationOrder, "")
+	if err != nil {
+		t.Fatalf("Failed to create workout variant: %v", err)
+	}
+
+	// Verify NO sessions exist initially
+	sessions, err := db.GetWorkoutHistory(userID, 100)
+	if err != nil {
+		t.Fatalf("Failed to get history: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Errorf("Expected 0 sessions initially, got %d", len(sessions))
+	}
+
+	// Call handleGetNextWorkout
+	req := httptest.NewRequest(http.MethodGet, "/api/workout/sessions/next", nil)
+	w := httptest.NewRecorder()
+
+	srv.handleGetNextWorkout(w, req)
+
+	// Check status code
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Parse response
+	var resp struct {
+		Session struct {
+			ID            int64  `json:"id"`
+			Status        string `json:"status"`
+			ScheduledTime string `json:"scheduled_time"`
+		} `json:"session"`
+		GroupName string `json:"group_name"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Verify session ID is not 0
+	if resp.Session.ID == 0 {
+		t.Error("Expected session ID > 0, got 0")
+	}
+
+	// Verify session was created in DB
+	// Check history again
+	sessions, err = db.GetWorkoutHistory(userID, 100)
+	if err != nil {
+		t.Fatalf("Failed to get history: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Errorf("Expected 1 session created, got %d", len(sessions))
+	} else {
+		createdSession := sessions[0]
+		if createdSession.ID != resp.Session.ID {
+			t.Errorf("DB session ID %d does not match response ID %d", createdSession.ID, resp.Session.ID)
+		}
+		if createdSession.GroupID != group.ID {
+			t.Errorf("Expected group ID %d, got %d", group.ID, createdSession.GroupID)
+		}
+		// Status should be pending
+		if createdSession.Status != "pending" {
+			t.Errorf("Expected status 'pending', got %q", createdSession.Status)
+		}
+	}
+}
