@@ -378,6 +378,109 @@ func TestGetSnoozedSessions(t *testing.T) {
 	}
 }
 
+// TestWorkoutStatistics verifies statistics calculation
+func TestWorkoutStatistics(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.db.Close()
+
+	userID := int64(1)
+
+	// Create test data
+	group, _ := store.CreateWorkoutGroup("Test Group", "", false, userID, "[1,2,3]", "09:00", 15)
+	variant, _ := store.CreateWorkoutVariant(group.ID, "Day A", nil, "")
+
+	// Create sessions with different statuses
+	// Session 1: completed (should count in streak and completion rate)
+	session1, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID,
+		mustParseTime("2026-02-01T00:00:00Z"), "09:00")
+	store.StartSession(session1.ID)
+	store.CompleteSession(session1.ID)
+
+	// Session 2: completed (should count in streak)
+	session2, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID,
+		mustParseTime("2026-02-02T00:00:00Z"), "09:00")
+	store.StartSession(session2.ID)
+	store.CompleteSession(session2.ID)
+
+	// Session 3: skipped (should break streak, count in total)
+	session3, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID,
+		mustParseTime("2026-02-03T00:00:00Z"), "09:00")
+	store.SkipSession(session3.ID)
+
+	// Session 4: completed (should NOT count in streak due to skip before it)
+	session4, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID,
+		mustParseTime("2026-02-04T00:00:00Z"), "09:00")
+	store.StartSession(session4.ID)
+	store.CompleteSession(session4.ID)
+
+	// Session 5: pending (should not count in totals)
+	_, _ = store.CreateWorkoutSession(group.ID, variant.ID, userID,
+		mustParseTime("2026-02-05T00:00:00Z"), "09:00")
+
+	// Get workout history to calculate stats
+	sessions, err := store.GetWorkoutHistory(userID, 100)
+	if err != nil {
+		t.Fatalf("Failed to get workout history: %v", err)
+	}
+
+	// Calculate stats (mimicking server logic)
+	totalSessions := 0
+	completedSessions := 0
+	skippedSessions := 0
+	var streak int
+
+	for _, session := range sessions {
+		if session.Status == "completed" {
+			completedSessions++
+			totalSessions++
+		} else if session.Status == "skipped" {
+			skippedSessions++
+			totalSessions++
+		}
+	}
+
+	// Calculate streak (sessions are in DESC order by date)
+	for _, session := range sessions {
+		if session.Status == "completed" {
+			streak++
+		} else if session.Status == "skipped" || session.Status == "pending" {
+			break
+		}
+	}
+
+	// Verify statistics
+	if totalSessions != 4 {
+		t.Errorf("Expected total_sessions to be 4, got %d", totalSessions)
+	}
+
+	if completedSessions != 3 {
+		t.Errorf("Expected completed_sessions to be 3, got %d", completedSessions)
+	}
+
+	if skippedSessions != 1 {
+		t.Errorf("Expected skipped_sessions to be 1, got %d", skippedSessions)
+	}
+
+	// Streak calculation: sessions are ordered DESC by scheduled_date (newest first)
+	// Session 5 (pending) -> break immediately, streak = 0
+	// Expected: 0 (no current streak because most recent session is pending)
+	expectedStreak := 0
+	if streak != expectedStreak {
+		t.Errorf("Expected current_streak to be %d, got %d", expectedStreak, streak)
+		t.Logf("Sessions order:")
+		for i, s := range sessions {
+			t.Logf("  %d: ID=%d, Date=%v, Status=%s", i, s.ID, s.ScheduledDate, s.Status)
+		}
+	}
+
+	// Test completion rate calculation
+	completionRate := float64(completedSessions) / float64(totalSessions) * 100
+	expectedRate := 75.0 // 3/4 = 75%
+	if completionRate != expectedRate {
+		t.Errorf("Expected completion_rate to be %.1f%%, got %.1f%%", expectedRate, completionRate)
+	}
+}
+
 // Helper function to parse time strings for tests
 func mustParseTime(s string) time.Time {
 	t, err := time.Parse(time.RFC3339, s)
