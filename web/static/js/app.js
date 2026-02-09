@@ -239,12 +239,20 @@ checkAuth().then(authorized => {
         // Determine start tab? default bp
         switchTab('bp');
 
-        // Handle deep links
+        // Handle deep links (supported: /bp_add, /weight_add)
+        const deepLinkRoutes = {
+            '/bp_add': { tab: 'bp', open: showBPRecordModal },
+            '/weight_add': { tab: 'weight', open: showWeightModal }
+        };
         const path = window.location.pathname;
-        if (path === '/bp_add') {
-            // Wait for BP data to load, then open modal
+        const deepLink = deepLinkRoutes[path];
+        if (deepLink) {
+            if (deepLink.tab) {
+                switchTab(deepLink.tab);
+            }
+            // Wait for data to load, then open modal
             setTimeout(() => {
-                showBPRecordModal();
+                deepLink.open();
                 // Clean up URL without reload
                 window.history.replaceState({}, '', '/');
             }, 100);
