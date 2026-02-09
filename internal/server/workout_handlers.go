@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // -- Workout Group Handlers --
@@ -435,6 +437,61 @@ func (s *Server) handleGetSessionDetails(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 
+	// FIRST: Check for snoozed sessions that are ready to start
+	snoozedSessions, err := s.store.GetSnoozedSessions(s.allowedUserID)
+	if err == nil && len(snoozedSessions) > 0 {
+		// Find the earliest snoozed session
+		var earliestSnoozed *store.WorkoutSession
+		for i := range snoozedSessions {
+			session := &snoozedSessions[i]
+			if session.SnoozedUntil != nil && session.SnoozedUntil.Before(now) {
+				if earliestSnoozed == nil || session.SnoozedUntil.Before(*earliestSnoozed.SnoozedUntil) {
+					earliestSnoozed = session
+				}
+			}
+		}
+
+		// If we found a snoozed session, return it as the next workout
+		if earliestSnoozed != nil {
+			group, _ := s.store.GetWorkoutGroup(earliestSnoozed.GroupID)
+			variant, _ := s.store.GetWorkoutVariant(earliestSnoozed.VariantID)
+			exercises, _ := s.store.ListExercisesByVariant(earliestSnoozed.VariantID)
+
+			groupName := "Unknown"
+			variantName := "Unknown"
+			if group != nil {
+				groupName = group.Name
+			}
+			if variant != nil {
+				variantName = variant.Name
+			}
+
+			response := struct {
+				Session        interface{} `json:"session"`
+				GroupName      string      `json:"group_name"`
+				VariantName    string      `json:"variant_name"`
+				ExercisesCount int         `json:"exercises_count"`
+			}{
+				Session: map[string]interface{}{
+					"id":             earliestSnoozed.ID,
+					"scheduled_date": earliestSnoozed.ScheduledDate,
+					"scheduled_time": earliestSnoozed.ScheduledTime,
+					"status":         earliestSnoozed.Status,
+					"snoozed_until":  earliestSnoozed.SnoozedUntil,
+					"is_snoozed":     true,
+				},
+				GroupName:      groupName,
+				VariantName:    variantName,
+				ExercisesCount: len(exercises),
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+	}
+
+	// SECOND: Fall back to scheduled workouts
 	// Get all active workout groups
 	groups, err := s.store.ListWorkoutGroups(s.allowedUserID, true)
 	if err != nil {
@@ -443,6 +500,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var nextWorkout *struct {
+		SessionID      int64
 		GroupID        int64
 		GroupName      string
 		VariantID      int64
@@ -520,11 +578,14 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 				existing, _ := s.store.GetSessionByGroupAndDate(group.ID, sessionDate)
 
 				status := "pending"
+				var sessionID int64
 				if existing != nil {
 					status = existing.Status
+					sessionID = existing.ID
 				}
 
 				nextWorkout = &struct {
+					SessionID      int64
 					GroupID        int64
 					GroupName      string
 					VariantID      int64
@@ -534,6 +595,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 					ExercisesCount int
 					Status         string
 				}{
+					SessionID:      sessionID,
 					GroupID:        group.ID,
 					GroupName:      group.Name,
 					VariantID:      variantID,
@@ -563,9 +625,11 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		ExercisesCount int         `json:"exercises_count"`
 	}{
 		Session: map[string]interface{}{
+			"id":             nextWorkout.SessionID,
 			"scheduled_date": nextWorkout.ScheduledDate,
 			"scheduled_time": nextWorkout.ScheduledTime,
 			"status":         nextWorkout.Status,
+			"is_snoozed":     false,
 		},
 		GroupName:      nextWorkout.GroupName,
 		VariantName:    nextWorkout.VariantName,
@@ -748,6 +812,31 @@ func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request
 	}
 
 	err = s.store.SkipSession(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleStartWorkoutSession(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	// Mark session as in_progress and set started_at
+	err = s.store.StartSession(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Clear snooze if it was snoozed
+	err = s.store.ClearSnooze(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
