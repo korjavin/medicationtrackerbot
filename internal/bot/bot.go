@@ -341,6 +341,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	} else if len(data) > 9 && data[:9] == "download:" {
 		option := data[9:]
 		b.handleDownloadCallback(cb, option)
+	} else if len(data) > 3 && (data == "bp_confirm" || data == "bp_snooze" || data == "bp_dontbug") {
+		// BP reminder callbacks
+		b.handleBPReminderCallback(cb, data)
 	}
 }
 

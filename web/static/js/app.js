@@ -304,6 +304,20 @@ document.getElementById('webpush-toggle').addEventListener('change', async funct
     }, 3000);
 });
 
+// BP Reminders Toggle Handler
+document.getElementById('bp-reminders-toggle').addEventListener('change', async function () {
+    const enabled = this.checked;
+    try {
+        const response = await apiCall('/api/bp/reminder/toggle', 'POST', { enabled });
+        console.log('BP reminders toggled:', enabled);
+    } catch (error) {
+        console.error('Failed to toggle BP reminders:', error);
+        // Revert toggle on error
+        this.checked = !enabled;
+        alert('Failed to update BP reminder settings. Please try again.');
+    }
+});
+
 // Listen for service worker messages
 navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', event => {
     if (event.data.type === 'MEDICATION_CONFIRMED') {
@@ -443,6 +457,18 @@ function switchTab(tab) {
     } else if (tab === 'settings') {
         document.querySelector('button[onclick="switchTab(\'settings\')"]').classList.add('active');
         document.getElementById('settings-view').classList.add('active');
+        loadSettings();
+    }
+}
+
+// Load settings (BP reminders status, etc.)
+async function loadSettings() {
+    try {
+        // Load BP reminder status
+        const bpReminderStatus = await apiCall('/api/bp/reminder/status', 'GET');
+        document.getElementById('bp-reminders-toggle').checked = bpReminderStatus.enabled;
+    } catch (error) {
+        console.error('Failed to load settings:', error);
     }
 }
 
