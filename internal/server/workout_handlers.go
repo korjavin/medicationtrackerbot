@@ -618,6 +618,34 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If the session doesn't exist yet (SessionID is 0), create it now
+	// This ensures the frontend has a valid ID to call /start on
+	if nextWorkout.SessionID == 0 {
+		// Need to strip time component from ScheduledDate for consistency with how it was checked
+		// Actually CreateWorkoutSession takes time.Time for date, which we have (scheduledDateTime)
+		// but we typically store just the date part for ScheduledDate in DB?
+		// Let's check CreateWorkoutSession impl. It stores what we pass.
+		// Standardize on using the date part for the Date field
+		dateOnly := time.Date(nextWorkout.ScheduledDate.Year(), nextWorkout.ScheduledDate.Month(), nextWorkout.ScheduledDate.Day(), 0, 0, 0, 0, nextWorkout.ScheduledDate.Location())
+
+		newSession, err := s.store.CreateWorkoutSession(
+			nextWorkout.GroupID,
+			nextWorkout.VariantID,
+			s.allowedUserID,
+			dateOnly,
+			nextWorkout.ScheduledTime,
+		)
+		if err != nil {
+			// Log error but maybe return what we have? Or fail?
+			// If we fail here, the user sees nothing. Better to return the transient object but they can't start it?
+			// No, better to fail so we see the error.
+			http.Error(w, fmt.Sprintf("Error creating session: %v", err), http.StatusInternalServerError)
+			return
+		}
+		nextWorkout.SessionID = newSession.ID
+		nextWorkout.Status = newSession.Status
+	}
+
 	response := struct {
 		Session        interface{} `json:"session"`
 		GroupName      string      `json:"group_name"`
