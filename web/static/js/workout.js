@@ -117,12 +117,8 @@ async function loadNextWorkout() {
         });
 
         // Show Start button for workouts that can actually be started:
-        // 1. Workouts with existing sessions (sessionId > 0)
-        // 2. Today's workouts even without session yet (can create session on start)
-        const canStart = sessionId > 0 || isToday;
-        const startButton = canStart
-            ? `<button onclick="startWorkoutSession(${sessionId})" class="primary" style="margin-top: 12px; width: 100%;">🏋️ Start Workout</button>`
-            : '';
+        // Backend now ensures we always have a session ID for the next workout
+        const startButton = `<button onclick="startWorkoutSession(${session.id})" class="primary" style="margin-top: 12px; width: 100%;">🏋️ Start Workout</button>`;
 
         container.innerHTML = `
             <div class="${cardClass}">
@@ -858,12 +854,6 @@ async function loadWorkoutStatsTab() {
 // ====================================
 
 async function startWorkoutSession(sessionId) {
-    // If no sessionId, show message that this needs to be created first
-    if (!sessionId || sessionId === 0) {
-        safeAlert('⚠️ Cannot start: workout session not created yet. Please wait for the scheduled time.');
-        return;
-    }
-
     if (!confirm('Start this workout now?')) {
         return;
     }
