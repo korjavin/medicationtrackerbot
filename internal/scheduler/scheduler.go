@@ -87,6 +87,22 @@ func (s *Scheduler) Start() {
 			}
 		}
 	}()
+
+	// Check weight reminders every 30 minutes (less frequent than BP)
+	weightReminderTicker := time.NewTicker(30 * time.Minute)
+	go func() {
+		// Initial check after 3 minutes (offset from BP checker)
+		time.Sleep(3 * time.Minute)
+		if err := s.checkWeightReminders(); err != nil {
+			log.Printf("Error checking weight reminders: %v", err)
+		}
+
+		for range weightReminderTicker.C {
+			if err := s.checkWeightReminders(); err != nil {
+				log.Printf("Error checking weight reminders: %v", err)
+			}
+		}
+	}()
 }
 
 func (s *Scheduler) checkSchedule() error {

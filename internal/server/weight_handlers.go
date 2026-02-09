@@ -227,3 +227,62 @@ func (s *Server) handleGetWeightGoal(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
+
+// Weight Reminder handlers
+
+func (s *Server) handleGetWeightReminderStatus(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	state, err := s.store.GetWeightReminderState(userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(state)
+}
+
+func (s *Server) handleToggleWeightReminder(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.SetWeightReminderEnabled(userID, req.Enabled); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"enabled": req.Enabled,
+		"status":  "success",
+	})
+}
+
+func (s *Server) handleSnoozeWeightReminder(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	if err := s.store.SnoozeWeightReminder(userID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "success",
+		"message": "Weight reminder snoozed for 2 hours",
+	})
+}
+
+func (s *Server) handleDontBugMeWeightReminder(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	if err := s.store.DontBugMeWeightReminder(userID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "success",
+		"message": "Weight reminders disabled for 24 hours",
+	})
+}

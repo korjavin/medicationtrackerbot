@@ -129,6 +129,12 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/weight/export", s.handleExportWeight)
 	apiMux.HandleFunc("GET /api/weight/goal", s.handleGetWeightGoal)
 
+	// Weight Reminder endpoints
+	apiMux.HandleFunc("GET /api/weight/reminder/status", s.handleGetWeightReminderStatus)
+	apiMux.HandleFunc("POST /api/weight/reminder/toggle", s.handleToggleWeightReminder)
+	apiMux.HandleFunc("POST /api/weight/reminder/snooze", s.handleSnoozeWeightReminder)
+	apiMux.HandleFunc("POST /api/weight/reminder/dontbug", s.handleDontBugMeWeightReminder)
+
 	// Inventory endpoints
 	apiMux.HandleFunc("POST /api/medications/{id}/restock", s.handleRestock)
 	apiMux.HandleFunc("GET /api/medications/{id}/restocks", s.handleGetRestockHistory)

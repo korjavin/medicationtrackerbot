@@ -311,6 +311,20 @@ self.addEventListener('notificationclick', (event) => {
             // Body click -> Open BP tab
             event.waitUntil(clients.openWindow('/?tab=bp'));
         }
+    } else if (data.type === 'weight_reminder') {
+        if (action === 'weight_confirm') {
+            // Open app to weight add page
+            event.waitUntil(clients.openWindow('/?tab=weight&action=add'));
+        } else if (action === 'weight_snooze') {
+            // Snooze for 2 hours
+            event.waitUntil(handleWeightSnooze());
+        } else if (action === 'weight_dontbug') {
+            // Don't bug me for 24 hours
+            event.waitUntil(handleWeightDontBug());
+        } else {
+            // Body click -> Open weight tab
+            event.waitUntil(clients.openWindow('/?tab=weight'));
+        }
     } else {
         event.waitUntil(clients.openWindow('/'));
     }
@@ -371,5 +385,35 @@ async function handleBPDontBug() {
         }
     } catch (e) {
         console.error('[SW] Failed to disable BP reminder', e);
+    }
+}
+
+async function handleWeightSnooze() {
+    try {
+        const response = await fetch('/api/weight/reminder/snooze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.ok) {
+            console.log('[SW] Weight reminder snoozed');
+        }
+    } catch (e) {
+        console.error('[SW] Failed to snooze weight reminder', e);
+    }
+}
+
+async function handleWeightDontBug() {
+    try {
+        const response = await fetch('/api/weight/reminder/dontbug', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.ok) {
+            console.log('[SW] Weight reminder disabled for 24h');
+        }
+    } catch (e) {
+        console.error('[SW] Failed to disable weight reminder', e);
     }
 }
