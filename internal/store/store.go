@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -18,6 +19,8 @@ var embedMigrations embed.FS
 type Store struct {
 	db *sql.DB
 }
+
+var nowFunc = time.Now
 
 type ScheduleConfig struct {
 	Type  string   `json:"type"`            // "daily", "weekly", "as_needed"
@@ -892,93 +895,146 @@ type BPPeriodStats struct {
 	Readings  int `json:"readings"` // Total number of readings
 }
 
-// BPStats contains daily-weighted blood pressure statistics for multiple time periods
+// BPStats contains daily time-weighted blood pressure statistics for multiple time periods
 type BPStats struct {
 	Stats14 *BPPeriodStats `json:"stats_14,omitempty"`
 	Stats30 *BPPeriodStats `json:"stats_30,omitempty"`
 	Stats60 *BPPeriodStats `json:"stats_60,omitempty"`
 }
 
-// GetBPDailyWeightedStats calculates daily-weighted blood pressure averages
-// It first averages readings per day, then averages the daily averages.
-// This prevents clustered readings from skewing results.
+// GetBPDailyWeightedStats calculates daily time-weighted blood pressure averages.
+// It weights each reading by the time until the next reading, computes a per-day
+// time-weighted average, then averages daily averages across the period.
 func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPStats, error) {
-	// SQL query that:
-	// 1. Groups readings by date (using DATE function)
-	// 2. Calculates average systolic/diastolic per day
-	// 3. Returns the average of daily averages for each period
-	query := `
-		WITH daily_avgs AS (
-			SELECT 
-				DATE(measured_at) as day,
-				AVG(systolic) as avg_sys,
-				AVG(diastolic) as avg_dia,
-				COUNT(*) as reading_count
-			FROM blood_pressure_readings
-			WHERE user_id = ? AND ignore_calc = 0
-			GROUP BY DATE(measured_at)
-		)
-		SELECT 
-			-- 14-day stats
-			(SELECT ROUND(AVG(avg_sys)) FROM daily_avgs WHERE day >= DATE('now', '-14 days')) as sys_14,
-			(SELECT ROUND(AVG(avg_dia)) FROM daily_avgs WHERE day >= DATE('now', '-14 days')) as dia_14,
-			(SELECT COUNT(*) FROM daily_avgs WHERE day >= DATE('now', '-14 days')) as days_14,
-			(SELECT SUM(reading_count) FROM daily_avgs WHERE day >= DATE('now', '-14 days')) as readings_14,
-			-- 30-day stats
-			(SELECT ROUND(AVG(avg_sys)) FROM daily_avgs WHERE day >= DATE('now', '-30 days')) as sys_30,
-			(SELECT ROUND(AVG(avg_dia)) FROM daily_avgs WHERE day >= DATE('now', '-30 days')) as dia_30,
-			(SELECT COUNT(*) FROM daily_avgs WHERE day >= DATE('now', '-30 days')) as days_30,
-			(SELECT SUM(reading_count) FROM daily_avgs WHERE day >= DATE('now', '-30 days')) as readings_30,
-			-- 60-day stats
-			(SELECT ROUND(AVG(avg_sys)) FROM daily_avgs WHERE day >= DATE('now', '-60 days')) as sys_60,
-			(SELECT ROUND(AVG(avg_dia)) FROM daily_avgs WHERE day >= DATE('now', '-60 days')) as dia_60,
-			(SELECT COUNT(*) FROM daily_avgs WHERE day >= DATE('now', '-60 days')) as days_60,
-			(SELECT SUM(reading_count) FROM daily_avgs WHERE day >= DATE('now', '-60 days')) as readings_60
-	`
+	now := nowFunc().UTC()
+	maxDays := 60
+	windowStart := truncateToDayUTC(now.AddDate(0, 0, -maxDays))
 
-	var sys14, dia14, days14, readings14 sql.NullInt64
-	var sys30, dia30, days30, readings30 sql.NullInt64
-	var sys60, dia60, days60, readings60 sql.NullInt64
+	var readings []BloodPressure
+	{
+		rows, err := s.db.QueryContext(ctx,
+			"SELECT measured_at, systolic, diastolic FROM blood_pressure_readings WHERE user_id = ? AND ignore_calc = 0 AND measured_at >= ? ORDER BY measured_at ASC",
+			userID, windowStart)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
 
-	err := s.db.QueryRowContext(ctx, query, userID).Scan(
-		&sys14, &dia14, &days14, &readings14,
-		&sys30, &dia30, &days30, &readings30,
-		&sys60, &dia60, &days60, &readings60,
-	)
-	if err != nil {
-		return nil, err
+		for rows.Next() {
+			var bp BloodPressure
+			if err := rows.Scan(&bp.MeasuredAt, &bp.Systolic, &bp.Diastolic); err != nil {
+				return nil, err
+			}
+			readings = append(readings, bp)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(readings) == 0 {
+		return &BPStats{}, nil
+	}
+
+	type dayAgg struct {
+		sumSys float64
+		sumDia float64
+		durSec float64
+	}
+
+	dayAggs := map[time.Time]*dayAgg{}
+
+	// For each day, weight readings only within that day.
+	for i := 0; i < len(readings); i++ {
+		if i+1 < len(readings) && readings[i+1].MeasuredAt.Equal(readings[i].MeasuredAt) {
+			continue
+		}
+		start := readings[i].MeasuredAt.UTC()
+		if start.After(now) {
+			continue
+		}
+		dayStart := truncateToDayUTC(start)
+		dayEnd := dayStart.Add(24 * time.Hour)
+
+		end := dayEnd
+		if i+1 < len(readings) {
+			next := readings[i+1].MeasuredAt.UTC()
+			if truncateToDayUTC(next).Equal(dayStart) {
+				end = next
+			}
+		}
+		if end.After(now) {
+			end = now
+		}
+		if !end.After(start) {
+			continue
+		}
+
+		dur := end.Sub(start).Seconds()
+		if dur <= 0 {
+			continue
+		}
+		agg := dayAggs[dayStart]
+		if agg == nil {
+			agg = &dayAgg{}
+			dayAggs[dayStart] = agg
+		}
+		agg.sumSys += float64(readings[i].Systolic) * dur
+		agg.sumDia += float64(readings[i].Diastolic) * dur
+		agg.durSec += dur
+	}
+
+	buildStats := func(periodDays int) *BPPeriodStats {
+		periodStart := truncateToDayUTC(now.AddDate(0, 0, -periodDays))
+		var sumSys, sumDia float64
+		var days int
+
+		for day, agg := range dayAggs {
+			if day.Before(periodStart) || day.After(truncateToDayUTC(now)) {
+				continue
+			}
+			if agg.durSec <= 0 {
+				continue
+			}
+			avgSys := agg.sumSys / agg.durSec
+			avgDia := agg.sumDia / agg.durSec
+			sumSys += avgSys
+			sumDia += avgDia
+			days++
+		}
+
+		if days == 0 {
+			return nil
+		}
+
+		readingsCount := 0
+		for _, bp := range readings {
+			measured := bp.MeasuredAt.UTC()
+			if measured.Before(periodStart) || measured.After(now) {
+				continue
+			}
+			readingsCount++
+		}
+
+		return &BPPeriodStats{
+			Systolic:  int(math.Round(sumSys / float64(days))),
+			Diastolic: int(math.Round(sumDia / float64(days))),
+			Days:      days,
+			Readings:  readingsCount,
+		}
 	}
 
 	result := &BPStats{}
-
-	if sys14.Valid && dia14.Valid && days14.Valid && days14.Int64 > 0 {
-		result.Stats14 = &BPPeriodStats{
-			Systolic:  int(sys14.Int64),
-			Diastolic: int(dia14.Int64),
-			Days:      int(days14.Int64),
-			Readings:  int(readings14.Int64),
-		}
-	}
-
-	if sys30.Valid && dia30.Valid && days30.Valid && days30.Int64 > 0 {
-		result.Stats30 = &BPPeriodStats{
-			Systolic:  int(sys30.Int64),
-			Diastolic: int(dia30.Int64),
-			Days:      int(days30.Int64),
-			Readings:  int(readings30.Int64),
-		}
-	}
-
-	if sys60.Valid && dia60.Valid && days60.Valid && days60.Int64 > 0 {
-		result.Stats60 = &BPPeriodStats{
-			Systolic:  int(sys60.Int64),
-			Diastolic: int(dia60.Int64),
-			Days:      int(days60.Int64),
-			Readings:  int(readings60.Int64),
-		}
-	}
+	result.Stats14 = buildStats(14)
+	result.Stats30 = buildStats(30)
+	result.Stats60 = buildStats(60)
 
 	return result, nil
+}
+
+func truncateToDayUTC(t time.Time) time.Time {
+	utc := t.UTC()
+	return time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 // -- Weight Tracking --
