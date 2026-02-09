@@ -90,8 +90,9 @@ func (s *Server) Routes() http.Handler {
 	// Main Page with no-cache headers and bot username injection
 	mux.HandleFunc("/", s.serveIndexWithBotUsername)
 
-	// Deep link routes - serve SPA, JS handles the path
+	// Deep link routes - serve SPA, JS handles the path (see web/static/js/app.js)
 	mux.HandleFunc("/bp_add", s.serveIndexWithBotUsername)
+	mux.HandleFunc("/weight_add", s.serveIndexWithBotUsername)
 
 	// Auth Routes
 	mux.HandleFunc("/auth/google/login", s.handleGoogleLogin)
