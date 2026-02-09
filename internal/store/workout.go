@@ -342,12 +342,12 @@ func (s *Store) GetWorkoutExercise(id int64) (*WorkoutExercise, error) {
 	return &e, nil
 }
 
-func (s *Store) UpdateWorkoutExercise(id int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64) error {
+func (s *Store) UpdateWorkoutExercise(id int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) error {
 	_, err := s.db.Exec(`
 		UPDATE workout_exercises 
-		SET exercise_name = ?, target_sets = ?, target_reps_min = ?, target_reps_max = ?, target_weight_kg = ?
+		SET exercise_name = ?, target_sets = ?, target_reps_min = ?, target_reps_max = ?, target_weight_kg = ?, order_index = ?
 		WHERE id = ?`,
-		exerciseName, targetSets, targetRepsMin, targetRepsMax, targetWeightKg, id)
+		exerciseName, targetSets, targetRepsMin, targetRepsMax, targetWeightKg, orderIndex, id)
 	return err
 }
 
