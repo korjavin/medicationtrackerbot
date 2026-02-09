@@ -318,6 +318,20 @@ document.getElementById('bp-reminders-toggle').addEventListener('change', async 
     }
 });
 
+// Weight Reminders Toggle Handler
+document.getElementById('weight-reminders-toggle').addEventListener('change', async function () {
+    const enabled = this.checked;
+    try {
+        const response = await apiCall('/api/weight/reminder/toggle', 'POST', { enabled });
+        console.log('Weight reminders toggled:', enabled);
+    } catch (error) {
+        console.error('Failed to toggle weight reminders:', error);
+        // Revert toggle on error
+        this.checked = !enabled;
+        alert('Failed to update weight reminder settings. Please try again.');
+    }
+});
+
 // Listen for service worker messages
 navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', event => {
     if (event.data.type === 'MEDICATION_CONFIRMED') {
@@ -467,6 +481,10 @@ async function loadSettings() {
         // Load BP reminder status
         const bpReminderStatus = await apiCall('/api/bp/reminder/status', 'GET');
         document.getElementById('bp-reminders-toggle').checked = bpReminderStatus.enabled;
+
+        // Load weight reminder status
+        const weightReminderStatus = await apiCall('/api/weight/reminder/status', 'GET');
+        document.getElementById('weight-reminders-toggle').checked = weightReminderStatus.enabled;
     } catch (error) {
         console.error('Failed to load settings:', error);
     }

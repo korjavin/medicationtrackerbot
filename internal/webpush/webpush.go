@@ -171,6 +171,33 @@ func (s *Service) SendBPReminderNotification(ctx context.Context, userID int64, 
 	return s.sendToUser(userID, payload)
 }
 
+// SendWeightReminderNotification sends a weight reminder notification via Web Push
+func (s *Service) SendWeightReminderNotification(ctx context.Context, userID int64) error {
+	if s.vapidPublicKey == "" || s.vapidPrivateKey == "" {
+		return nil
+	}
+
+	title := "Time to track your weight"
+	body := "It's been about a week since your last measurement. Stay on track with your goals!"
+
+	payload := NotificationPayload{
+		Title: title,
+		Body:  body,
+		Icon:  "/static/android-chrome-192x192.png",
+		Tag:   "weight-reminder",
+		Data: map[string]interface{}{
+			"type": "weight_reminder",
+		},
+		Actions: []NotificationAction{
+			{Action: "weight_confirm", Title: "Add Weight"},
+			{Action: "weight_snooze", Title: "Snooze 2h"},
+			{Action: "weight_dontbug", Title: "Don't Bug Me"},
+		},
+	}
+
+	return s.sendToUser(userID, payload)
+}
+
 func (s *Service) sendToUser(userID int64, payload NotificationPayload) error {
 	subs, err := s.store.GetPushSubscriptions(userID)
 	if err != nil {
