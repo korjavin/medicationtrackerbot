@@ -116,6 +116,12 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/bp/goal", s.handleGetBPGoal)
 	apiMux.HandleFunc("GET /api/bp/stats", s.handleGetBPStats)
 
+	// BP Reminder endpoints
+	apiMux.HandleFunc("GET /api/bp/reminder/status", s.handleGetBPReminderStatus)
+	apiMux.HandleFunc("POST /api/bp/reminder/toggle", s.handleToggleBPReminder)
+	apiMux.HandleFunc("POST /api/bp/reminder/snooze", s.handleSnoozeBPReminder)
+	apiMux.HandleFunc("POST /api/bp/reminder/dontbug", s.handleDontBugMeBPReminder)
+
 	// Weight endpoints
 	apiMux.HandleFunc("POST /api/weight", s.handleCreateWeight)
 	apiMux.HandleFunc("GET /api/weight", s.handleListWeight)
