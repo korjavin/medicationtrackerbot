@@ -166,8 +166,13 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 			if activeSession == nil {
 				if err := s.sendWorkoutNotification(existing, &group, variantID); err != nil {
 					log.Printf("Failed to re-send snoozed notification: %v", err)
+				} else {
+					// Clear snoozed_until to prevent sending notifications every minute
+					// The notification has been sent, so we reset the snooze state
+					if err := s.store.ClearSnooze(existing.ID); err != nil {
+						log.Printf("Failed to clear snooze state: %v", err)
+					}
 				}
-				// Note: snooze is typically cleared on user interaction
 			}
 		}
 	}
