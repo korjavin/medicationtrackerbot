@@ -297,6 +297,20 @@ self.addEventListener('notificationclick', (event) => {
 
         const url = '/?' + params.toString();
         event.waitUntil(clients.openWindow(url));
+    } else if (data.type === 'bp_reminder') {
+        if (action === 'bp_confirm') {
+            // Open app to BP add page
+            event.waitUntil(clients.openWindow('/?tab=bp&action=add'));
+        } else if (action === 'bp_snooze') {
+            // Snooze for 2 hours
+            event.waitUntil(handleBPSnooze());
+        } else if (action === 'bp_dontbug') {
+            // Don't bug me for 24 hours
+            event.waitUntil(handleBPDontBug());
+        } else {
+            // Body click -> Open BP tab
+            event.waitUntil(clients.openWindow('/?tab=bp'));
+        }
     } else {
         event.waitUntil(clients.openWindow('/'));
     }
@@ -328,4 +342,34 @@ async function handleMedicationConfirm(data) {
     clients.forEach(client => {
         client.postMessage({ type: 'MEDICATION_CONFIRMED' });
     });
+}
+
+async function handleBPSnooze() {
+    try {
+        const response = await fetch('/api/bp/reminder/snooze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.ok) {
+            console.log('[SW] BP reminder snoozed');
+        }
+    } catch (e) {
+        console.error('[SW] Failed to snooze BP reminder', e);
+    }
+}
+
+async function handleBPDontBug() {
+    try {
+        const response = await fetch('/api/bp/reminder/dontbug', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.ok) {
+            console.log('[SW] BP reminder disabled for 24h');
+        }
+    } catch (e) {
+        console.error('[SW] Failed to disable BP reminder', e);
+    }
 }

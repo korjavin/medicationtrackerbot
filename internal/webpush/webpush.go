@@ -141,6 +141,36 @@ func (s *Service) SendWorkoutNotification(ctx context.Context, userID int64, ses
 	return s.sendToUser(userID, payload)
 }
 
+func (s *Service) SendBPReminderNotification(ctx context.Context, userID int64, enhanced bool) error {
+	if s.vapidPublicKey == "" || s.vapidPrivateKey == "" {
+		return nil
+	}
+
+	title := "Time to measure your blood pressure"
+	body := "Please take a moment to measure and record your BP."
+	if enhanced {
+		body = "⚠️ Your recent readings have been higher than usual. Please measure your BP."
+	}
+
+	payload := NotificationPayload{
+		Title: title,
+		Body:  body,
+		Icon:  "/static/android-chrome-192x192.png",
+		Tag:   "bp-reminder",
+		Data: map[string]interface{}{
+			"type":     "bp_reminder",
+			"enhanced": enhanced,
+		},
+		Actions: []NotificationAction{
+			{Action: "bp_confirm", Title: "Add BP Reading"},
+			{Action: "bp_snooze", Title: "Snooze 2h"},
+			{Action: "bp_dontbug", Title: "Don't Bug Me"},
+		},
+	}
+
+	return s.sendToUser(userID, payload)
+}
+
 func (s *Service) sendToUser(userID int64, payload NotificationPayload) error {
 	subs, err := s.store.GetPushSubscriptions(userID)
 	if err != nil {
