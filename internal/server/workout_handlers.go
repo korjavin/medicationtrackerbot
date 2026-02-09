@@ -288,6 +288,7 @@ func (s *Server) handleUpdateExercise(w http.ResponseWriter, r *http.Request) {
 		TargetRepsMin  int      `json:"target_reps_min"`
 		TargetRepsMax  *int     `json:"target_reps_max"`
 		TargetWeightKg *float64 `json:"target_weight_kg"`
+		OrderIndex     int      `json:"order_index"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -302,6 +303,7 @@ func (s *Server) handleUpdateExercise(w http.ResponseWriter, r *http.Request) {
 		req.TargetRepsMin,
 		req.TargetRepsMax,
 		req.TargetWeightKg,
+		req.OrderIndex,
 	)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
