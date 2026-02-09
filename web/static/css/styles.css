@@ -1166,6 +1166,13 @@ svg.chart-svg {
     padding: 4px 16px;
 }
 
+#settings-view .sync-status-bar {
+    margin: 0;
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 999px;
+}
+
 .sync-icon {
     font-size: 16px;
 }

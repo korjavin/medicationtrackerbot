@@ -25,9 +25,6 @@
 
 <body>
     <div id="app">
-        <!-- Sync Status Bar -->
-        <div id="sync-status-bar" class="sync-status-bar" style="display: none;"></div>
-
         <div id="tabs">
             <button class="tab active" onclick="switchTab('bp')">Blood Pressure</button>
             <button class="tab" onclick="switchTab('weight')">Weight</button>
@@ -132,6 +129,14 @@
 
         <div id="settings-view" class="view">
             <h3>Settings</h3>
+
+            <div class="setting-item sync-status-item">
+                <div>
+                    <h3>Sync Status</h3>
+                    <p class="setting-desc">Connectivity and background sync</p>
+                </div>
+                <div id="sync-status-bar" class="sync-status-bar" style="display: none;"></div>
+            </div>
 
             <div class="setting-item">
                 <div>
