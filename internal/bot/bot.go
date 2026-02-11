@@ -351,6 +351,16 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			exerciseID, _ := strconv.ParseInt(parts[3], 10, 64)
 			b.handleSelectExerciseCallback(cb, sessionID, exerciseID)
 		}
+	} else if strings.HasPrefix(data, "exercise_page_") {
+		// Exercise pagination callback
+		parts := strings.Split(data, "_")
+		if len(parts) == 4 {
+			sessionID, _ := strconv.ParseInt(parts[2], 10, 64)
+			page, _ := strconv.ParseInt(parts[3], 10, 64)
+			b.handleExercisePageCallback(cb, sessionID, int(page))
+		}
+	} else if strings.HasPrefix(data, "page_info_") {
+		// Page info button - ignore (it's just a display, not actionable)
 	} else if len(data) > 9 && data[:9] == "download:" {
 		option := data[9:]
 		b.handleDownloadCallback(cb, option)
