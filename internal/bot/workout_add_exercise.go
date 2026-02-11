@@ -138,8 +138,22 @@ func (b *Bot) sendExerciseListPage(sessionID int64, chatID int64, page int) (int
 
 // handleAddExerciseCallback shows the list of all exercises
 func (b *Bot) handleAddExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID int64) {
+	// Validation: Get and verify session ownership
+	session, err := b.store.GetWorkoutSession(sessionID)
+	if err != nil || session == nil {
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Session not found."))
+		return
+	}
+
+	// Validation: Verify session belongs to the callback sender
+	if session.UserID != cb.From.ID {
+		log.Printf("Security: User %d attempted to view exercise list for session %d owned by %d", cb.From.ID, sessionID, session.UserID)
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Access denied."))
+		return
+	}
+
 	// Send exercise list
-	_, err := b.SendExerciseList(sessionID, cb.Message.Chat.ID)
+	_, err = b.SendExerciseList(sessionID, cb.Message.Chat.ID)
 	if err != nil {
 		log.Printf("Failed to send exercise list: %v", err)
 		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error loading exercises."))
@@ -155,8 +169,22 @@ func (b *Bot) handleAddExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID in
 
 // handleExercisePageCallback handles pagination for the exercise list
 func (b *Bot) handleExercisePageCallback(cb *tgbotapi.CallbackQuery, sessionID int64, page int) {
+	// Validation: Get and verify session ownership
+	session, err := b.store.GetWorkoutSession(sessionID)
+	if err != nil || session == nil {
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Session not found."))
+		return
+	}
+
+	// Validation: Verify session belongs to the callback sender
+	if session.UserID != cb.From.ID {
+		log.Printf("Security: User %d attempted to paginate exercise list for session %d owned by %d", cb.From.ID, sessionID, session.UserID)
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Access denied."))
+		return
+	}
+
 	// Update the message with the new page
-	_, err := b.sendExerciseListPage(sessionID, cb.Message.Chat.ID, page)
+	_, err = b.sendExerciseListPage(sessionID, cb.Message.Chat.ID, page)
 	if err != nil {
 		log.Printf("Failed to send exercise page: %v", err)
 		return
