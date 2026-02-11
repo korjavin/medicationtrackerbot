@@ -1457,7 +1457,14 @@ async function loadBPReadings() {
 
     renderBPChart(allReadings, goalRes || {});
     renderBPAverages(statsRes || {});  // Use backend stats
-    renderBPReadings(allReadings);
+
+    // Filter list to only show last 3 days (Today, Yesterday, and Day Before)
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 2);
+    cutoff.setHours(0, 0, 0, 0);
+
+    const filteredReadings = allReadings.filter(r => new Date(r.measured_at) >= cutoff);
+    renderBPReadings(filteredReadings);
 }
 
 // Render BP Chart with color-coded points and segments
