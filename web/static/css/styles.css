@@ -113,7 +113,10 @@ h1 {
 #workout-variant-modal,
 #workout-exercise-modal,
 #bp-modal,
-#weight-modal {
+#weight-modal,
+#workout-session-modal,
+#med-confirm-modal,
+#workout-start-modal {
     position: fixed;
     top: 50%;
     left: 50%;
@@ -131,20 +134,7 @@ h1 {
 }
 
 #workout-session-modal {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: var(--secondary-bg-color, #fff);
-    padding: 24px;
-    border-radius: 16px;
-    width: 90%;
     max-width: 500px;
-    max-height: 85vh;
-    overflow-y: auto;
-    z-index: 1001;
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    box-shadow: 0 6px 28px rgba(0, 0, 0, 0.25);
 }
 
 
@@ -927,6 +917,7 @@ svg.chart-svg {
     padding: 0;
     margin: 0;
     -moz-appearance: textfield;
+    appearance: textfield;
     /* Remove spinner in Firefox */
 }
 
