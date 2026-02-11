@@ -787,6 +787,7 @@ func (s *Store) GetSnoozedSessions(userID int64) ([]WorkoutSession, error) {
 		SELECT id, group_id, variant_id, user_id, scheduled_date, scheduled_time, status, started_at, completed_at, snoozed_until, snooze_count, notification_message_id, notes
 		FROM workout_sessions 
 		WHERE user_id = ? AND snoozed_until IS NOT NULL AND snoozed_until <= CURRENT_TIMESTAMP
+        AND status NOT IN ('completed', 'skipped')
 		ORDER BY snoozed_until ASC`
 
 	rows, err := s.db.Query(query, userID)
