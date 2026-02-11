@@ -580,6 +580,10 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 				status := "pending"
 				var sessionID int64
 				if existing != nil {
+					// If the session is already completed or skipped, we don't need to show it as upcoming
+					if existing.Status == "completed" || existing.Status == "skipped" {
+						continue
+					}
 					status = existing.Status
 					sessionID = existing.ID
 				}
