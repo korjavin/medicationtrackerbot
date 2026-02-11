@@ -230,13 +230,6 @@ func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
 		return
 	}
 
-	// Guard: Don't re-complete if session is already completed
-	// This prevents duplicate completion messages and multiple rotation advances
-	// when users add exercises after completing the workout
-	if session.Status == "completed" {
-		return
-	}
-
 	// Get all exercises for this variant
 	exercises, err := b.store.ListExercisesByVariant(session.VariantID)
 	if err != nil {
@@ -250,29 +243,56 @@ func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
 	}
 
 	// If all exercises have logs, complete the session
-	if len(logs) >= len(exercises) {
-		if err := b.store.CompleteSession(sessionID); err != nil {
-			log.Printf("Failed to complete session: %v", err)
-			return
-		}
+	// Fix: Ensure we have at least one completed/skipped log for EVERY exercise in the variant
+	allExercisesHandled := true
 
-		// Advance rotation if applicable
-		group, err := b.store.GetWorkoutGroup(session.GroupID)
-		if err == nil && group != nil && group.IsRotating {
-			if err := b.store.AdvanceRotation(group.ID); err != nil {
-				log.Printf("Failed to advance rotation: %v", err)
+	// Track which exercises are handled (completed or skipped) and which are actually completed
+	handledExerciseIDs := make(map[int64]bool)
+	completedExerciseIDs := make(map[int64]bool)
+
+	for _, log := range logs {
+		if log.Status == "completed" || log.Status == "skipped" {
+			handledExerciseIDs[log.ExerciseID] = true
+		}
+		if log.Status == "completed" {
+			completedExerciseIDs[log.ExerciseID] = true
+		}
+	}
+
+	// Check if every variant exercise is handled
+	for _, ex := range exercises {
+		if !handledExerciseIDs[ex.ID] {
+			allExercisesHandled = false
+			break
+		}
+	}
+
+	if allExercisesHandled {
+		// Only update DB status and advance rotation if not already completed
+		if session.Status != "completed" {
+			if err := b.store.CompleteSession(sessionID); err != nil {
+				log.Printf("Failed to complete session: %v", err)
+				return
+			}
+
+			// Advance rotation if applicable
+			group, err := b.store.GetWorkoutGroup(session.GroupID)
+			if err == nil && group != nil && group.IsRotating {
+				if err := b.store.AdvanceRotation(group.ID); err != nil {
+					log.Printf("Failed to advance rotation: %v", err)
+				}
 			}
 		}
 
-		// Count completed exercises
+		// Count completed exercises (unique, only "completed" status)
 		completedCount := 0
-		for _, log := range logs {
-			if log.Status == "completed" {
+		for _, ex := range exercises {
+			if completedExerciseIDs[ex.ID] {
 				completedCount++
 			}
 		}
 
-		// Send completion message
+		// Send completion message (always, so users can add more exercises)
 		b.SendWorkoutComplete(sessionID, completedCount, len(exercises))
 	}
 }
