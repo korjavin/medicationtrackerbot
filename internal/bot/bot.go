@@ -338,6 +338,19 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	} else if len(data) > 13 && (data[:14] == "exercise_done_" || data[:14] == "exercise_edit_" || data[:14] == "exercise_skip_") {
 		// Exercise callbacks
 		b.handleExerciseCallback(cb, data)
+	} else if strings.HasPrefix(data, "add_exercise_") {
+		// Add exercise callback
+		sessionIDStr := data[13:]
+		sessionID, _ := strconv.ParseInt(sessionIDStr, 10, 64)
+		b.handleAddExerciseCallback(cb, sessionID)
+	} else if strings.HasPrefix(data, "select_exercise_") {
+		// Select exercise callback
+		parts := strings.Split(data, "_")
+		if len(parts) == 4 {
+			sessionID, _ := strconv.ParseInt(parts[2], 10, 64)
+			exerciseID, _ := strconv.ParseInt(parts[3], 10, 64)
+			b.handleSelectExerciseCallback(cb, sessionID, exerciseID)
+		}
 	} else if len(data) > 9 && data[:9] == "download:" {
 		option := data[9:]
 		b.handleDownloadCallback(cb, option)
