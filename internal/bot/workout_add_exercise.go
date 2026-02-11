@@ -81,9 +81,10 @@ func (b *Bot) sendExerciseListPage(sessionID int64, chatID int64, page int) (int
 		label += ")"
 
 		// Truncate label to stay within Telegram limits (callback_data max is 64 bytes)
-		// Keep button text reasonable - aim for max 60 chars to be safe
-		if len(label) > 60 {
-			label = label[:57] + "..."
+		// Use rune-based truncation to avoid splitting UTF-8 characters
+		if len([]rune(label)) > 60 {
+			runes := []rune(label)
+			label = string(runes[:57]) + "..."
 		}
 
 		// Create callback button
@@ -167,6 +168,26 @@ func (b *Bot) handleExercisePageCallback(cb *tgbotapi.CallbackQuery, sessionID i
 
 // handleSelectExerciseCallback adds the selected exercise to the session
 func (b *Bot) handleSelectExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID, exerciseID int64) {
+	// Validation: Get and verify session
+	session, err := b.store.GetWorkoutSession(sessionID)
+	if err != nil || session == nil {
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Session not found."))
+		return
+	}
+
+	// Validation: Verify session is still valid for adding exercises
+	if session.Status != "in_progress" && session.Status != "completed" {
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ This workout is no longer active."))
+		return
+	}
+
+	// Validation: Verify session belongs to the callback sender
+	if session.UserID != cb.From.ID {
+		log.Printf("Security: User %d attempted to add exercise to session %d owned by %d", cb.From.ID, sessionID, session.UserID)
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Access denied."))
+		return
+	}
+
 	// Get exercise details
 	exercise, err := b.store.GetWorkoutExercise(exerciseID)
 	if err != nil || exercise == nil {
@@ -174,11 +195,34 @@ func (b *Bot) handleSelectExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID
 		return
 	}
 
-	// Delete the exercise list message
+	// Validation: Verify exercise belongs to user's active workout groups
+	// Get all unique exercises for this user to ensure the selected one is valid
+	allowedExercises, err := b.store.GetAllUniqueExercises(session.UserID)
+	if err != nil {
+		log.Printf("Failed to validate exercise ownership: %v", err)
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Validation error."))
+		return
+	}
+
+	// Check if the selected exercise is in the allowed list
+	isAllowed := false
+	for _, allowed := range allowedExercises {
+		if allowed.ID == exerciseID {
+			isAllowed = true
+			break
+		}
+	}
+
+	if !isAllowed {
+		log.Printf("Security: User %d attempted to add exercise %d which is not in their workout groups", session.UserID, exerciseID)
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ This exercise is not available."))
+		return
+	}
+
+	// All validations passed - delete the exercise list message
 	b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID))
 
 	// Send exercise prompt for the selected exercise
-	// Use a counter to display the exercise number (we'll just use a generic number)
 	_, err = b.SendExercisePrompt(sessionID, exerciseID, exercise.ExerciseName,
 		exercise.TargetSets, exercise.TargetRepsMin, exercise.TargetRepsMax, exercise.TargetWeightKg)
 	if err != nil {
