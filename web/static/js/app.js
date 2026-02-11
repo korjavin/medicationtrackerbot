@@ -1732,11 +1732,16 @@ function renderBPReadings(readings) {
     const renderGroup = (headerText, readings) => {
         if (readings.length === 0) return '';
 
+        // Sort readings within this group by time (newest first)
+        const sortedReadings = [...readings].sort((a, b) =>
+            new Date(b.measured_at) - new Date(a.measured_at)
+        );
+
         let html = `<li class="bp-date-group">
             <div class="bp-date-header">${headerText}</div>
             <ul style="list-style:none;padding:0;margin:0;">`;
 
-        readings.forEach(r => {
+        sortedReadings.forEach(r => {
             const category = getBPCategory(r.systolic, r.diastolic);
             const timeStr = formatDate(r.measured_at).split(' ')[1]; // Get HH:MM part
             const pendingClass = r.isLocal ? ' pending-sync' : '';

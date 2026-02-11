@@ -475,3 +475,60 @@ func TestUpdateBPReminderNotificationSent(t *testing.T) {
 		t.Errorf("Expected last_notification_sent_at to be recent (within 5 minutes), got %v (diff: %v)", state.LastNotificationSentAt, diff)
 	}
 }
+
+func TestGetBloodPressureReadings_Sorting(t *testing.T) {
+	store := setupBPReminderTestDB(t)
+	defer store.Close()
+
+	ctx := context.Background()
+	userID := int64(12345)
+
+	// Create readings on the same day with different times
+	today := time.Now().Truncate(24 * time.Hour)
+
+	// Earlier reading: 21:56
+	time1 := today.Add(21*time.Hour + 56*time.Minute)
+	// Later reading: 22:14
+	time2 := today.Add(22*time.Hour + 14*time.Minute)
+
+	// Insert in "wrong" order (earlier first) to ensure sorting works
+	_, err := store.CreateBloodPressureReading(ctx, &BloodPressure{
+		UserID:     userID,
+		MeasuredAt: time1,
+		Systolic:   120,
+		Diastolic:  80,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create first BP reading: %v", err)
+	}
+
+	_, err = store.CreateBloodPressureReading(ctx, &BloodPressure{
+		UserID:     userID,
+		MeasuredAt: time2,
+		Systolic:   130,
+		Diastolic:  85,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create second BP reading: %v", err)
+	}
+
+	// Fetch readings
+	readings, err := store.GetBloodPressureReadings(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("Failed to get BP readings: %v", err)
+	}
+
+	if len(readings) != 2 {
+		t.Fatalf("Expected 2 readings, got %d", len(readings))
+	}
+
+	// First reading (index 0) should be the NEWEST (time2: 22:14)
+	if !readings[0].MeasuredAt.Equal(time2) {
+		t.Errorf("Expected first reading to be more recent (%v), got %v", time2, readings[0].MeasuredAt)
+	}
+
+	// Second reading (index 1) should be the OLDEST (time1: 21:56)
+	if !readings[1].MeasuredAt.Equal(time1) {
+		t.Errorf("Expected second reading to be less recent (%v), got %v", time1, readings[1].MeasuredAt)
+	}
+}
