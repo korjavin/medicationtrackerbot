@@ -491,3 +491,150 @@ func mustParseTime(s string) time.Time {
 	}
 	return t
 }
+
+// TestGetAllUniqueExercises verifies that unique exercises are retrieved across all active workouts
+func TestGetAllUniqueExercises(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.db.Close()
+
+	userID := int64(1)
+
+	// Create test data: 2 groups, each with variants
+	group1, err := store.CreateWorkoutGroup("Morning Swings", "", false, userID, "[1,2,3]", "09:00", 15)
+	if err != nil {
+		t.Fatalf("Failed to create group1: %v", err)
+	}
+
+	group2, err := store.CreateWorkoutGroup("Evening Main", "", true, userID, "[1,3,5]", "18:00", 15)
+	if err != nil {
+		t.Fatalf("Failed to create group2: %v", err)
+	}
+
+	variant1, err := store.CreateWorkoutVariant(group1.ID, "Default", nil, "")
+	if err != nil {
+		t.Fatalf("Failed to create variant1: %v", err)
+	}
+
+	zero := 0
+	variant2, err := store.CreateWorkoutVariant(group2.ID, "Day A", &zero, "")
+	if err != nil {
+		t.Fatalf("Failed to create variant2: %v", err)
+	}
+
+	variant3, err := store.CreateWorkoutVariant(group2.ID, "Day B", &zero, "")
+	if err != nil {
+		t.Fatalf("Failed to create variant3: %v", err)
+	}
+
+	// Add exercises to variants
+	weight30 := 30.0
+	weight40 := 40.0
+	repsMax15 := 15
+	repsMax20 := 20
+	repsMax10 := 10
+
+	// Variant 1: Kettlebell Swings
+	_, err = store.AddExerciseToVariant(variant1.ID, "Kettlebell Swings", 3, 15, &repsMax20, &weight30, 0)
+	if err != nil {
+		t.Fatalf("Failed to create exercise: %v", err)
+	}
+
+	// Variant 2 (Day A): Barbell Rows
+	_, err = store.AddExerciseToVariant(variant2.ID, "Barbell Rows", 4, 8, &repsMax10, &weight40, 0)
+	if err != nil {
+		t.Fatalf("Failed to create exercise: %v", err)
+	}
+
+	// Variant 3 (Day B): Bench Press + Kettlebell Swings (duplicate)
+	_, err = store.AddExerciseToVariant(variant3.ID, "Bench Press", 4, 8, &repsMax10, &weight40, 0)
+	if err != nil {
+		t.Fatalf("Failed to create exercise: %v", err)
+	}
+	_, err = store.AddExerciseToVariant(variant3.ID, "Kettlebell Swings", 2, 10, &repsMax15, &weight30, 1)
+	if err != nil {
+		t.Fatalf("Failed to create duplicate exercise: %v", err)
+	}
+
+	// Test 1: Get all unique exercises
+	exercises, err := store.GetAllUniqueExercises(userID)
+	if err != nil {
+		t.Fatalf("Failed to get unique exercises: %v", err)
+	}
+
+	// Should return 3 unique exercises (Kettlebell Swings deduplicated)
+	if len(exercises) != 3 {
+		t.Errorf("Expected 3 unique exercises, got %d", len(exercises))
+	}
+
+	// Verify exercise names are unique
+	exerciseNames := make(map[string]bool)
+	for _, ex := range exercises {
+		if exerciseNames[ex.ExerciseName] {
+			t.Errorf("Duplicate exercise name found: %s", ex.ExerciseName)
+		}
+		exerciseNames[ex.ExerciseName] = true
+	}
+
+	// Verify expected exercises are present
+	expectedNames := map[string]bool{
+		"Kettlebell Swings": false,
+		"Barbell Rows":      false,
+		"Bench Press":       false,
+	}
+
+	for _, ex := range exercises {
+		if _, exists := expectedNames[ex.ExerciseName]; exists {
+			expectedNames[ex.ExerciseName] = true
+		} else {
+			t.Errorf("Unexpected exercise: %s", ex.ExerciseName)
+		}
+	}
+
+	for name, found := range expectedNames {
+		if !found {
+			t.Errorf("Expected exercise not found: %s", name)
+		}
+	}
+
+	// Test 2: Verify filtering by active groups
+	// Deactivate group1
+	err = store.UpdateWorkoutGroup(group1.ID, "Morning Swings", "", false, "[1,2,3]", "09:00", 15, false)
+	if err != nil {
+		t.Fatalf("Failed to deactivate group1: %v", err)
+	}
+
+	// Get unique exercises again
+	activeExercises, err := store.GetAllUniqueExercises(userID)
+	if err != nil {
+		t.Fatalf("Failed to get unique exercises after deactivation: %v", err)
+	}
+
+	// Should only return exercises from active group2: Barbell Rows, Bench Press, Kettlebell Swings
+	// (Kettlebell Swings is still present in variant3)
+	if len(activeExercises) != 3 {
+		t.Errorf("Expected 3 exercises from active groups, got %d", len(activeExercises))
+	}
+
+	// Verify Kettlebell Swings is still present (from variant3)
+	foundKettlebell := false
+	for _, ex := range activeExercises {
+		if ex.ExerciseName == "Kettlebell Swings" {
+			foundKettlebell = true
+			break
+		}
+	}
+	if !foundKettlebell {
+		t.Error("Kettlebell Swings from variant3 should still be present")
+	}
+
+	// Test 3: Verify empty list when no exercises exist
+	userID2 := int64(2)
+	emptyExercises, err := store.GetAllUniqueExercises(userID2)
+	if err != nil {
+		t.Fatalf("Failed to get unique exercises for user2: %v", err)
+	}
+
+	if len(emptyExercises) != 0 {
+		t.Errorf("Expected 0 exercises for user2, got %d", len(emptyExercises))
+	}
+}

@@ -230,6 +230,13 @@ func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
 		return
 	}
 
+	// Guard: Don't re-complete if session is already completed
+	// This prevents duplicate completion messages and multiple rotation advances
+	// when users add exercises after completing the workout
+	if session.Status == "completed" {
+		return
+	}
+
 	// Get all exercises for this variant
 	exercises, err := b.store.ListExercisesByVariant(session.VariantID)
 	if err != nil {
