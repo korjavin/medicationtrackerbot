@@ -116,7 +116,8 @@ h1 {
 #weight-modal,
 #workout-session-modal,
 #med-confirm-modal,
-#workout-start-modal {
+#workout-start-modal,
+#workout-add-exercise-to-session-modal {
     position: fixed;
     top: 50%;
     left: 50%;
@@ -145,6 +146,7 @@ h1 {
 #bp-modal.hidden,
 #weight-modal.hidden,
 #workout-session-modal.hidden,
+#workout-add-exercise-to-session-modal.hidden,
 #modal-overlay.hidden,
 .view {
     display: none;
