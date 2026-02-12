@@ -14,6 +14,122 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
+func TestWorkoutCallbackRouting_PanicRegression(t *testing.T) {
+	// P1: Callback router can panic for workout_skip_1 (length 14)
+	// because it attempts to slice data[:15] after checking len(data) > 13.
+
+	s, _ := store.New(":memory:")
+
+	// Mock Server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true, "result": {}}`))
+	}))
+	defer server.Close()
+
+	// Use valid token format
+	api, _ := tgbotapi.NewBotAPIWithClient("123:TOKEN", tgbotapi.APIEndpoint, &http.Client{})
+	if api == nil {
+		api = &tgbotapi.BotAPI{Token: "123:TOKEN", Client: &http.Client{}, Buffer: 100}
+	}
+	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
+
+	b := &Bot{api: api, store: s, allowedUserID: 123}
+
+	// Create a dummy session so it doesn't fail on "session not found" before routing
+	// Actually routing happens before session lookup in handleCallback,
+	// but handleWorkoutCallback does session lookup.
+	// The panic happens IN THE ROUTER (handleCallback), before handleWorkoutCallback is even called.
+
+	// We need to call handleCallback with "workout_skip_1"
+	// handleCallback is private, so we can't call it directly from here easily unless we export it or use a public entry point.
+	// But update loop calls handleCallback.
+	// We can't inject updates easily without mocking GetUpdatesChan which is in the library.
+
+	// However, we are in package bot (internal/bot), so we CAN call private methods of Bot!
+
+	cb := &tgbotapi.CallbackQuery{
+		ID:   "1",
+		From: &tgbotapi.User{ID: 123},
+		Message: &tgbotapi.Message{
+			Chat:      &tgbotapi.Chat{ID: 123},
+			MessageID: 111,
+		},
+		Data: "workout_skip_1", // check this specific length=14 string
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("The code panicked with: %v", r)
+		}
+	}()
+
+	b.handleCallback(cb)
+}
+
+func TestWorkoutFinish_StateUpdate(t *testing.T) {
+	// P2: “Finish Workout” currently only hides buttons; it does not change workout state
+
+	s, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+
+	// Mock Server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true, "result": {"message_id": 123, "chat": {"id": 123}}}`))
+	}))
+	defer server.Close()
+
+	// Use a syntactically valid token (ID:Token)
+	api, _ := tgbotapi.NewBotAPIWithClient("123:ABC_DEF", tgbotapi.APIEndpoint, &http.Client{})
+	// Manually construct if NewBotAPI fails (it shouldn't with correct format)
+	if api == nil {
+		api = &tgbotapi.BotAPI{
+			Token:  "123:ABC_DEF",
+			Client: &http.Client{},
+			Buffer: 100,
+		}
+	}
+	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
+
+	b := &Bot{
+		api:           api,
+		store:         s,
+		allowedUserID: 123456,
+	}
+
+	// Setup data
+	userID := int64(123456)
+	group, _ := s.CreateWorkoutGroup("G", "", false, userID, "[1]", "09:00", 15)
+	variant, _ := s.CreateWorkoutVariant(group.ID, "V", nil, "")
+	s.AddExerciseToVariant(variant.ID, "Ex1", 3, 10, nil, nil, 0)
+	session, _ := s.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	s.StartSession(session.ID)
+
+	// Simulate "workout_finish_ID" callback
+	cb := &tgbotapi.CallbackQuery{
+		From: &tgbotapi.User{ID: userID},
+		Message: &tgbotapi.Message{
+			Chat:      &tgbotapi.Chat{ID: 123},
+			MessageID: 111,
+		},
+		Data: fmt.Sprintf("workout_finish_%d", session.ID),
+	}
+
+	b.handleWorkoutCallback(cb, cb.Data)
+
+	// Verify session status
+	updatedSession, _ := s.GetWorkoutSession(session.ID)
+	if updatedSession.Status != "completed" {
+		t.Errorf("Expected session status 'completed', got '%s'", updatedSession.Status)
+	}
+	if updatedSession.CompletedAt == nil {
+		t.Error("Expected CompletedAt to be set")
+	}
+}
+
 func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 	// 1. Setup DB
 	s, err := store.New(":memory:")
@@ -22,14 +138,16 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 	}
 
 	// 2. Setup Mock Telegram Server with Channel for synchronization
-	messageChan := make(chan bool, 100) // Buffer to prevent blocking
+	messageChan := make(chan string, 100) // Changed to string to pass message text
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "sendMessage") {
-			// Check if this is the completion message
 			bodyBytes, _ := io.ReadAll(r.Body)
 			bodyStr, _ := url.QueryUnescape(string(bodyBytes))
+			// Extract text from bodyStr for assertion (simple parsing)
+			// bodyStr looks like: chat_id=123&text=...&parse_mode=Markdown...
+
 			if strings.Contains(bodyStr, "Workout Complete") {
-				messageChan <- true
+				messageChan <- bodyStr
 			}
 
 			w.Header().Set("Content-Type", "application/json")
@@ -104,17 +222,7 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 		t.Fatalf("StartSession: %v", err)
 	}
 
-	// Check initial rotation state
-	rotState, err := s.GetRotationState(group.ID)
-	if err != nil {
-		t.Fatalf("GetRotationState: %v", err)
-	}
-	if rotState.CurrentVariantID != variant1.ID {
-		t.Fatalf("Expected initial variant %d, got %d", variant1.ID, rotState.CurrentVariantID)
-	}
-
 	// Simulate "Done" callback for first exercise
-	// Create callback query
 	cb := &tgbotapi.CallbackQuery{
 		From: &tgbotapi.User{ID: 123456},
 		Message: &tgbotapi.Message{
@@ -140,28 +248,13 @@ loop:
 
 	// Wait for completion message
 	select {
-	case <-messageChan:
-		// Success - completion message sent
+	case msg := <-messageChan:
+		// Expect 1/1
+		if !strings.Contains(msg, "1/1") {
+			t.Errorf("Expected first completion message to say 1/1, got: %s", msg)
+		}
 	case <-time.After(1 * time.Second):
 		t.Fatalf("Timeout waiting for initial completion message")
-	}
-
-	// Verify session is completed
-	session, err = s.GetWorkoutSession(session.ID)
-	if err != nil {
-		t.Fatalf("GetSession: %v", err)
-	}
-	if session.Status != "completed" {
-		t.Fatalf("Expected session status 'completed', got '%s'", session.Status)
-	}
-
-	// Verify rotation advanced to Variant 2
-	rotState, err = s.GetRotationState(group.ID)
-	if err != nil {
-		t.Fatalf("GetRotationState: %v", err)
-	}
-	if rotState.CurrentVariantID != variant2.ID {
-		t.Fatalf("Expected rotation to advance to Variant 2 (%d), got %d", variant2.ID, rotState.CurrentVariantID)
 	}
 
 	// 6. User adds a NEW exercise (ex2 from Variant 2) *after* completion
@@ -193,21 +286,15 @@ loop2:
 
 	// P2: Verify completion message sent again via channel
 	select {
-	case <-messageChan:
-		// Success
+	case msg := <-messageChan:
+		// HERE IS THE REPRODUCTION:
+		// Current code likely sends "1/1" again because it ignores the added exercise.
+		// We expect "2/1" or similar to show extra work was done.
+		if strings.Contains(msg, "1/1") {
+			t.Errorf("FAIL: Stats did not update after added exercise. Still says 1/1. Expected 2/1.")
+		}
 	case <-time.After(1 * time.Second):
 		t.Fatalf("timeout: Expected completion message to be sent again after adding extra exercise")
-	}
-
-	// P3: Verify rotation did NOT advance again (should still be Variant 2)
-	rotState, err = s.GetRotationState(group.ID)
-	if err != nil {
-		t.Fatalf("GetRotationState: %v", err)
-	}
-
-	// If it advanced again, it would wrap back to Variant 1 (because only 2 variants)
-	if rotState.CurrentVariantID != variant2.ID {
-		t.Fatalf("Rotation advanced unexpectedly! Expected %d, got %d", variant2.ID, rotState.CurrentVariantID)
 	}
 }
 

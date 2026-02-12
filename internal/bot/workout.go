@@ -78,6 +78,7 @@ func (b *Bot) SendWorkoutComplete(sessionID int64, completedExercises, totalExer
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("➕ Add Exercise", fmt.Sprintf("add_exercise_%d", sessionID)),
+			tgbotapi.NewInlineKeyboardButtonData("🏁 Finish Workout", fmt.Sprintf("workout_finish_%d", sessionID)),
 		),
 	)
 

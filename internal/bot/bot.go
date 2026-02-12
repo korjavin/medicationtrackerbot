@@ -332,7 +332,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		b.api.Send(edit)
 
 		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ All medications for this time marked as taken."))
-	} else if len(data) > 14 && (data[:14] == "workout_start_" || data[:15] == "workout_snooze1" || data[:15] == "workout_snooze2" || data[:13] == "workout_skip_") {
+	} else if strings.HasPrefix(data, "workout_start_") || strings.HasPrefix(data, "workout_snooze1") || strings.HasPrefix(data, "workout_snooze2") || strings.HasPrefix(data, "workout_skip_") || strings.HasPrefix(data, "workout_finish_") {
 		// Workout callbacks
 		b.handleWorkoutCallback(cb, data)
 	} else if len(data) > 13 && (data[:14] == "exercise_done_" || data[:14] == "exercise_edit_" || data[:14] == "exercise_skip_") {
