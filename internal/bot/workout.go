@@ -71,7 +71,7 @@ func (b *Bot) SendExercisePrompt(sessionID int64, exerciseID int64, exerciseName
 }
 
 // SendWorkoutComplete sends a completion message
-func (b *Bot) SendWorkoutComplete(sessionID int64, completedExercises, totalExercises int) error {
+func (b *Bot) SendWorkoutComplete(chatID, sessionID int64, completedExercises, totalExercises int) error {
 	text := fmt.Sprintf("✅ **Workout Complete!**\n\nCompleted %d/%d exercises", completedExercises, totalExercises)
 
 	// Add "Add Exercise" button
@@ -82,7 +82,7 @@ func (b *Bot) SendWorkoutComplete(sessionID int64, completedExercises, totalExer
 		),
 	)
 
-	msg := tgbotapi.NewMessage(b.allowedUserID, text)
+	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
 

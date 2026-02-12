@@ -322,6 +322,6 @@ func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
 		totalCount := len(allRelatedExerciseIDs)
 
 		// Send completion message (always, so users can add more exercises)
-		b.SendWorkoutComplete(sessionID, completedCount, totalCount)
+		b.SendWorkoutComplete(chatID, sessionID, completedCount, totalCount)
 	}
 }
