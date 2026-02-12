@@ -896,3 +896,135 @@ async function cancelWorkoutSession(sessionId) {
         }
     }
 }
+
+// ====================================
+// ADD EXERCISE TO SESSION
+// ====================================
+
+async function showAddExerciseToSessionModal() {
+    if (!currentSessionData) return;
+
+    // Reset fields
+    document.getElementById('session-add-exercise-name').value = '';
+    document.getElementById('session-add-exercise-id').value = '';
+    document.getElementById('session-add-exercise-sets').value = '';
+    document.getElementById('session-add-exercise-reps').value = '';
+    document.getElementById('session-add-exercise-weight').value = '';
+    document.getElementById('session-add-exercise-notes').value = '';
+
+    // Load unique exercises
+    const datalist = document.getElementById('unique-exercises-list');
+    datalist.innerHTML = '';
+
+    try {
+        const exercises = await apiCall('/api/workout/exercises/unique');
+        if (exercises && exercises.length > 0) {
+            exercises.forEach(ex => {
+                const option = document.createElement('option');
+                option.value = ex.exercise_name;
+                option.dataset.id = ex.id;
+                // Store default targets in data attributes if we want to autofill
+                option.dataset.sets = ex.target_sets;
+                option.dataset.reps = ex.target_reps_min;
+                option.dataset.weight = ex.target_weight_kg || '';
+                datalist.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading unique exercises:', error);
+    }
+
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    document.getElementById('workout-add-exercise-to-session-modal').classList.remove('hidden');
+
+    // Ensure overlay closes this modal too
+    const overlay = document.getElementById('modal-overlay');
+    overlay.onclick = function (e) {
+        if (e.target === overlay) {
+            closeAddExerciseToSessionModal();
+        }
+    };
+}
+
+function closeAddExerciseToSessionModal() {
+    document.getElementById('workout-add-exercise-to-session-modal').classList.add('hidden');
+
+    // Revert overlay onclick to close session modal
+    const overlay = document.getElementById('modal-overlay');
+    overlay.onclick = function (e) {
+        if (e.target === overlay) {
+            closeWorkoutSessionModal();
+        }
+    };
+}
+
+function onSessionExerciseSelect() {
+    const input = document.getElementById('session-add-exercise-name');
+    const datalist = document.getElementById('unique-exercises-list');
+    const hiddenId = document.getElementById('session-add-exercise-id');
+
+    const val = input.value;
+    const option = Array.from(datalist.options).find(o => o.value === val);
+
+    if (option) {
+        hiddenId.value = option.dataset.id;
+        // Autofill if empty
+        if (!document.getElementById('session-add-exercise-sets').value)
+            document.getElementById('session-add-exercise-sets').value = option.dataset.sets;
+        if (!document.getElementById('session-add-exercise-reps').value)
+            document.getElementById('session-add-exercise-reps').value = option.dataset.reps;
+        if (!document.getElementById('session-add-exercise-weight').value && option.dataset.weight)
+            document.getElementById('session-add-exercise-weight').value = option.dataset.weight;
+    } else {
+        hiddenId.value = '';
+    }
+}
+
+async function saveNewSessionExercise() {
+    if (!currentSessionData) return;
+
+    const name = document.getElementById('session-add-exercise-name').value.trim();
+    let exerciseId = document.getElementById('session-add-exercise-id').value;
+    const sets = parseInt(document.getElementById('session-add-exercise-sets').value);
+    const reps = parseInt(document.getElementById('session-add-exercise-reps').value);
+    const weightRaw = document.getElementById('session-add-exercise-weight').value;
+    const weight = weightRaw !== '' ? parseFloat(weightRaw) : null;
+    const notes = document.getElementById('session-add-exercise-notes').value.trim();
+
+    if (!name || !sets || !reps) {
+        safeAlert('Name, sets, and reps are required');
+        return;
+    }
+
+    if (!exerciseId) {
+        // Try to find in datalist again
+        const datalist = document.getElementById('unique-exercises-list');
+        const option = Array.from(datalist.options).find(o => o.value === name);
+        if (option) {
+            exerciseId = option.dataset.id;
+        } else {
+            safeAlert('Please select an existing exercise from the list. Adding new unknown exercises to a session is not supported yet.');
+            return;
+        }
+    }
+
+    try {
+        await apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: currentSessionData.id,
+            exercise_id: parseInt(exerciseId),
+            exercise_name: name,
+            target_sets: sets,
+            target_reps_min: reps,
+            target_weight_kg: weight,
+            status: 'completed',
+            notes: notes
+        });
+
+        closeAddExerciseToSessionModal();
+        // Refresh session modal
+        showWorkoutSessionModal(currentSessionData.id);
+    } catch (error) {
+        console.error(error);
+        safeAlert('Failed to add exercise');
+    }
+}
