@@ -28,6 +28,9 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 	} else if strings.HasPrefix(data, "workout_skip_") {
 		action = "skip"
 		sessionIDStr = data[13:]
+	} else if strings.HasPrefix(data, "workout_finish_") {
+		action = "finish"
+		sessionIDStr = data[15:]
 	}
 
 	sessionID, err := strconv.ParseInt(sessionIDStr, 10, 64)
@@ -100,6 +103,31 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		}
 		// Delete notification
 		b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID))
+
+	case "finish":
+		// User explicitly finished the workout
+		if session.Status != "completed" {
+			if err := b.store.CompleteSession(sessionID); err != nil {
+				log.Printf("Failed to complete session: %v", err)
+				b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error saving workout."))
+				return
+			}
+
+			// Advance rotation if applicable
+			if group.IsRotating {
+				if err := b.store.AdvanceRotation(group.ID); err != nil {
+					log.Printf("Failed to advance rotation: %v", err)
+				}
+			}
+		}
+
+		// Remove buttons
+		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
+			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
+		})
+		b.api.Send(edit)
+
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "👍 Workout saved."))
 	}
 }
 
@@ -243,31 +271,36 @@ func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
 	}
 
 	// If all exercises have logs, complete the session
-	// Fix: Ensure we have at least one completed/skipped log for EVERY exercise in the variant
-	allExercisesHandled := true
-
-	// Track which exercises are handled (completed or skipped) and which are actually completed
+	// Fix: Ensure we have at least one completed/skipped log for EVERY exercise in the planned variant
+	allPlannedCompleted := true
 	handledExerciseIDs := make(map[int64]bool)
-	completedExerciseIDs := make(map[int64]bool)
+	uniqueCompletedIDs := make(map[int64]bool)
+	allRelatedExerciseIDs := make(map[int64]bool) // Union of planned and logged
+
+	// Track planned exercises
+	for _, ex := range exercises {
+		allRelatedExerciseIDs[ex.ID] = true
+	}
 
 	for _, log := range logs {
+		allRelatedExerciseIDs[log.ExerciseID] = true
 		if log.Status == "completed" || log.Status == "skipped" {
 			handledExerciseIDs[log.ExerciseID] = true
 		}
 		if log.Status == "completed" {
-			completedExerciseIDs[log.ExerciseID] = true
+			uniqueCompletedIDs[log.ExerciseID] = true
 		}
 	}
 
-	// Check if every variant exercise is handled
+	// Check if every planned exercise is handled
 	for _, ex := range exercises {
 		if !handledExerciseIDs[ex.ID] {
-			allExercisesHandled = false
+			allPlannedCompleted = false
 			break
 		}
 	}
 
-	if allExercisesHandled {
+	if allPlannedCompleted {
 		// Only update DB status and advance rotation if not already completed
 		if session.Status != "completed" {
 			if err := b.store.CompleteSession(sessionID); err != nil {
@@ -285,14 +318,10 @@ func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
 		}
 
 		// Count completed exercises (unique, only "completed" status)
-		completedCount := 0
-		for _, ex := range exercises {
-			if completedExerciseIDs[ex.ID] {
-				completedCount++
-			}
-		}
+		completedCount := len(uniqueCompletedIDs)
+		totalCount := len(allRelatedExerciseIDs)
 
 		// Send completion message (always, so users can add more exercises)
-		b.SendWorkoutComplete(sessionID, completedCount, len(exercises))
+		b.SendWorkoutComplete(sessionID, completedCount, totalCount)
 	}
 }
