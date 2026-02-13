@@ -261,11 +261,14 @@ type WorkoutHistoryResponse struct {
 }
 
 // handleGetWorkoutHistory handles the get_workout_history tool
+// handleGetWorkoutHistory handles the get_workout_history tool
 func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolRequest, input WorkoutHistoryInput) (*mcp.CallToolResult, WorkoutHistoryResponse, error) {
 	startDate, endDate, warning, err := s.parseDateRange(input.StartDate, input.EndDate)
 	if err != nil {
+		log.Printf("[MCP] Date parsing failed for Workout History: %v", err)
 		return nil, WorkoutHistoryResponse{}, err
 	}
+	log.Printf("[MCP] Fetching Workout History for date range: %s to %s", startDate, endDate)
 
 	userID := s.config.UserID
 
@@ -273,8 +276,10 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 	// We'll need to filter by date range
 	sessions, err := s.store.GetWorkoutHistory(userID, 1000) // Get plenty, then filter
 	if err != nil {
+		log.Printf("[MCP] Failed to fetch workout history: %v", err)
 		return nil, WorkoutHistoryResponse{}, err
 	}
+	log.Printf("[MCP] Found %d total workout sessions (before filtering)", len(sessions))
 
 	var results []WorkoutSessionResult
 	for _, session := range sessions {
@@ -284,8 +289,14 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 		}
 
 		// Get group and variant names
-		group, _ := s.store.GetWorkoutGroup(session.GroupID)
-		variant, _ := s.store.GetWorkoutVariant(session.VariantID)
+		group, err := s.store.GetWorkoutGroup(session.GroupID)
+		if err != nil {
+			log.Printf("[MCP] Error fetching group %d: %v", session.GroupID, err)
+		}
+		variant, err := s.store.GetWorkoutVariant(session.VariantID)
+		if err != nil {
+			log.Printf("[MCP] Error fetching variant %d: %v", session.VariantID, err)
+		}
 
 		groupName := ""
 		variantName := ""
@@ -316,6 +327,9 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 		// Include exercises if requested
 		if input.IncludeExercises {
 			logs, err := s.store.GetExerciseLogs(session.ID)
+			if err != nil {
+				log.Printf("[MCP] Error fetching exercise logs for session %d: %v", session.ID, err)
+			}
 			if err == nil {
 				var totalVolume float64
 				for _, log := range logs {
@@ -342,6 +356,8 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 
 		results = append(results, result)
 	}
+
+	log.Printf("[MCP] Returning %d workout sessions after filtering", len(results))
 
 	response := WorkoutHistoryResponse{
 		Sessions: results,
