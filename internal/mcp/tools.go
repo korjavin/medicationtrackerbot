@@ -2,7 +2,7 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -265,10 +265,8 @@ type WorkoutHistoryResponse struct {
 func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolRequest, input WorkoutHistoryInput) (*mcp.CallToolResult, WorkoutHistoryResponse, error) {
 	startDate, endDate, warning, err := s.parseDateRange(input.StartDate, input.EndDate)
 	if err != nil {
-		log.Printf("[MCP] Date parsing failed for Workout History: %v", err)
 		return nil, WorkoutHistoryResponse{}, err
 	}
-	log.Printf("[MCP] Fetching Workout History for date range: %s to %s", startDate, endDate)
 
 	userID := s.config.UserID
 
@@ -276,35 +274,19 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 	// We'll need to filter by date range
 	sessions, err := s.store.GetWorkoutHistory(userID, 1000) // Get plenty, then filter
 	if err != nil {
-		log.Printf("[MCP] Failed to fetch workout history: %v", err)
 		return nil, WorkoutHistoryResponse{}, err
 	}
-	log.Printf("[MCP] Found %d total workout sessions (before filtering)", len(sessions))
 
 	var results []WorkoutSessionResult
-	droppedCount := 0
 	for _, session := range sessions {
 		// Filter by date range
 		if session.ScheduledDate.Before(startDate) || session.ScheduledDate.After(endDate) {
-			if droppedCount < 3 {
-				log.Printf("[MCP] Dropping session date: %s (Outside range %s - %s)",
-					session.ScheduledDate.Format("2006-01-02"),
-					startDate.Format("2006-01-02"),
-					endDate.Format("2006-01-02"))
-			}
-			droppedCount++
 			continue
 		}
 
 		// Get group and variant names
-		group, err := s.store.GetWorkoutGroup(session.GroupID)
-		if err != nil {
-			log.Printf("[MCP] Error fetching group %d: %v", session.GroupID, err)
-		}
-		variant, err := s.store.GetWorkoutVariant(session.VariantID)
-		if err != nil {
-			log.Printf("[MCP] Error fetching variant %d: %v", session.VariantID, err)
-		}
+		group, _ := s.store.GetWorkoutGroup(session.GroupID)
+		variant, _ := s.store.GetWorkoutVariant(session.VariantID)
 
 		groupName := ""
 		variantName := ""
@@ -335,9 +317,6 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 		// Include exercises if requested
 		if input.IncludeExercises {
 			logs, err := s.store.GetExerciseLogs(session.ID)
-			if err != nil {
-				log.Printf("[MCP] Error fetching exercise logs for session %d: %v", session.ID, err)
-			}
 			if err == nil {
 				var totalVolume float64
 				for _, log := range logs {
@@ -365,13 +344,22 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 		results = append(results, result)
 	}
 
-	log.Printf("[MCP] Returning %d workout sessions after filtering", len(results))
+	// Check for likely year hallucination if no results found
+	if len(results) == 0 {
+		// If the query end date is more than 30 days in the past
+		if time.Since(endDate) > 30*24*time.Hour {
+			warning += fmt.Sprintf(" No data found for %s to %s. Note: Current date is %s. Please verify the year.",
+				startDate.Format("2006-01-02"),
+				endDate.Format("2006-01-02"),
+				time.Now().Format("2006-01-02"))
+		}
+	}
 
 	response := WorkoutHistoryResponse{
 		Sessions: results,
 		Count:    len(results),
 		Period:   formatPeriod(startDate, endDate),
-		Warning:  warning,
+		Warning:  strings.TrimSpace(warning),
 	}
 
 	return nil, response, nil
@@ -380,22 +368,6 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 // formatPeriod formats the date range as a human-readable string
 func formatPeriod(start, end time.Time) string {
 	return start.Format("2006-01-02") + " to " + end.Format("2006-01-02")
-}
-
-// marshalToolResult converts a response struct to a CallToolResult
-func marshalToolResult(data interface{}) (*mcp.CallToolResult, error) {
-	jsonBytes, err := json.Marshal(data)
-	if err != nil {
-		return nil, err
-	}
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{
-				Text: string(jsonBytes),
-			},
-		},
-	}, nil
 }
 
 // SleepLogResult represents a sleep log for the tool response
