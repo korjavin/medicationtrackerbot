@@ -282,9 +282,17 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 	log.Printf("[MCP] Found %d total workout sessions (before filtering)", len(sessions))
 
 	var results []WorkoutSessionResult
+	droppedCount := 0
 	for _, session := range sessions {
 		// Filter by date range
 		if session.ScheduledDate.Before(startDate) || session.ScheduledDate.After(endDate) {
+			if droppedCount < 3 {
+				log.Printf("[MCP] Dropping session date: %s (Outside range %s - %s)",
+					session.ScheduledDate.Format("2006-01-02"),
+					startDate.Format("2006-01-02"),
+					endDate.Format("2006-01-02"))
+			}
+			droppedCount++
 			continue
 		}
 
