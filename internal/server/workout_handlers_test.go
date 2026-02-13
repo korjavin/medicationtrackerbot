@@ -95,13 +95,13 @@ func TestHandleUpdateSessionStatus(t *testing.T) {
 			name:           "Non-existent session ID",
 			sessionID:      99999,
 			reqBody:        map[string]string{"status": "completed"},
-			expectedStatus: http.StatusOK,
+			expectedStatus: http.StatusNotFound,
 		},
 		{
 			name:           "Session ID 0",
 			sessionID:      0,
 			reqBody:        map[string]string{"status": "completed"},
-			expectedStatus: http.StatusOK,
+			expectedStatus: http.StatusNotFound,
 		},
 	}
 

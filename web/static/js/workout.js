@@ -116,9 +116,18 @@ async function loadNextWorkout() {
             weekday: 'short'
         });
 
-        // Show Start button for workouts that can actually be started:
-        // Backend now ensures we always have a session ID for the next workout
-        const startButton = `<button onclick="startWorkoutSession(${session.id})" class="primary" style="margin-top: 12px; width: 100%;">🏋️ Start Workout</button>`;
+        // Show appropriate buttons based on status
+        let actionButtons = '';
+        if (status === 'in_progress') {
+            actionButtons = `
+                <div style="display: flex; gap: 10px; margin-top: 12px;">
+                    <button onclick="showWorkoutSessionModal(${session.id})" class="primary" style="flex: 1;">🏋️ Continue</button>
+                    <button onclick="cancelWorkoutSession(${session.id})" class="secondary" style="flex: 1; background-color: #ffebee; color: #c62828; border: 1px solid #ef9a9a;">🛑 Stop</button>
+                </div>
+            `;
+        } else {
+            actionButtons = `<button onclick="startWorkoutSession(${session.id})" class="primary" style="margin-top: 12px; width: 100%;">🏋️ Start Workout</button>`;
+        }
 
         container.innerHTML = `
             <div class="${cardClass}">
@@ -130,7 +139,7 @@ async function loadNextWorkout() {
                     <h3>${escapeHtml(data.group_name)}</h3>
                     <p>${escapeHtml(data.variant_name)} • ${data.exercises_count} exercises</p>
                 </div>
-                ${startButton}
+                ${actionButtons}
             </div>
         `;
     } catch (error) {
@@ -868,11 +877,22 @@ async function startWorkoutSession(sessionId) {
         loadNextWorkout();
 
         // Optionally open the session details to log exercises
-        // Uncomment if you want to auto-open the session modal:
-        // showWorkoutSessionModal(sessionId);
 
     } catch (error) {
         console.error('Error starting workout:', error);
         safeAlert('❌ Failed to start workout. Please try again.');
+    }
+}
+
+async function cancelWorkoutSession(sessionId) {
+    if (confirm('Are you sure you want to stop/cancel this workout? It will be marked as skipped.')) {
+        try {
+            await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'skipped' });
+            loadNextWorkout();
+            loadWorkoutHistoryTab(); // Refresh history if visible
+        } catch (e) {
+            console.error(e);
+            safeAlert('Failed to cancel workout');
+        }
     }
 }

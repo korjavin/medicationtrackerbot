@@ -905,10 +905,29 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Get session to check for notification message
+	session, err := s.store.GetWorkoutSession(id)
+	if err != nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+	if session == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+
 	err = s.store.UpdateSessionStatus(id, req.Status)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// If skipped or completed, try to delete the notification message
+	if (req.Status == "skipped" || req.Status == "completed") && session.NotificationMessageID != nil {
+		if s.bot != nil {
+			// We ignore error here as the message might already be deleted or too old
+			_ = s.bot.DeleteMessage(*session.NotificationMessageID)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
