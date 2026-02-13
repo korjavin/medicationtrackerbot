@@ -30,33 +30,45 @@
             <button class="tab" onclick="switchTab('weight')">Weight</button>
             <button class="tab" onclick="switchTab('workouts')">Workouts</button>
             <button class="tab" onclick="switchTab('meds')">Medications</button>
-            <button class="tab" onclick="switchTab('history')">History</button>
             <button class="tab" onclick="switchTab('settings')">Settings</button>
         </div>
 
         <div id="meds-view" class="view active">
-            <div id="weekly-hub-container"></div>
-            <div id="med-list">
-                <!-- Meds injected here -->
-            </div>
-            <button id="add-btn" onclick="showAddModal()">+ Add Medication</button>
-        </div>
-
-        <div id="history-view" class="view">
-            <h3>Intake History</h3>
-
-            <div class="filters">
-                <select id="history-filter-med" onchange="loadHistory()">
-                    <option value="0">All Medications</option>
-                </select>
-                <select id="history-filter-days" onchange="loadHistory()">
-                    <option value="1">Last 24 Hours</option>
-                    <option value="3" selected>Last 3 Days</option>
-                    <option value="7">Last 7 Days</option>
-                </select>
+            <!-- Med Tabs -->
+            <div class="med-tabs"
+                style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #e0e0e0;">
+                <button class="med-tab active" onclick="switchMedTab('schedule')"
+                    style="padding: 10px 20px; border: none; background: none; cursor: pointer; border-bottom: 3px solid #667eea;">
+                    Schedule
+                </button>
+                <button class="med-tab" onclick="switchMedTab('history')"
+                    style="padding: 10px 20px; border: none; background: none; cursor: pointer;">
+                    History
+                </button>
             </div>
 
-            <div id="history-list"></div>
+            <div id="med-schedule-tab" class="med-tab-content">
+                <div id="weekly-hub-container"></div>
+                <div id="med-list">
+                    <!-- Meds injected here -->
+                </div>
+                <button id="add-btn" onclick="showAddModal()">+ Add Medication</button>
+            </div>
+
+            <div id="med-history-tab" class="med-tab-content" style="display: none;">
+                <h3>Intake History</h3>
+                <div class="filters">
+                    <select id="history-filter-med" onchange="loadHistory()">
+                        <option value="0">All Medications</option>
+                    </select>
+                    <select id="history-filter-days" onchange="loadHistory()">
+                        <option value="1">Last 24 Hours</option>
+                        <option value="3" selected>Last 3 Days</option>
+                        <option value="7">Last 7 Days</option>
+                    </select>
+                </div>
+                <div id="history-list"></div>
+            </div>
         </div>
 
         <div id="bp-view" class="view">
@@ -488,14 +500,23 @@
 
     <!-- Modal for Medication Confirmation (from Push) -->
     <div id="med-confirm-modal" class="hidden">
-        <h3>Time for Meds!</h3>
-        <p id="med-confirm-time" style="color: #666; margin-bottom: 15px;"></p>
+        <h3 id="med-confirm-title">Time for Meds!</h3>
+        <p id="med-confirm-subtitle" style="color: #666; margin-bottom: 15px;"></p>
+
+        <!-- Editable Time Input (Initially Hidden) -->
+        <div id="med-confirm-time-edit" style="display: none; margin-bottom: 15px;">
+            <label>Time Taken:</label>
+            <input type="datetime-local" id="med-confirm-datetime">
+        </div>
+
         <div id="med-confirm-list" style="margin-bottom: 20px;">
             <!-- Checkboxes injected here -->
         </div>
         <div class="actions">
-            <button onclick="snoozeMedicationConfirm()" class="secondary">Snooze 10m</button>
-            <button onclick="confirmSelectedMedications()" class="primary">Confirm Selected</button>
+            <button id="med-confirm-snooze-btn" onclick="snoozeMedicationConfirm()" class="secondary">Snooze
+                10m</button>
+            <button id="med-confirm-action-btn" onclick="confirmSelectedMedications()" class="primary">Confirm
+                Selected</button>
         </div>
         <div style="margin-top: 10px; text-align: center;">
             <button onclick="closeMedicationConfirmModal()" class="text-btn" style="color: #999;">Dismiss</button>

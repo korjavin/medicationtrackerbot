@@ -491,6 +491,17 @@ func (s *Store) ConfirmIntake(id int64, takenAt time.Time) error {
 	return err
 }
 
+func (s *Store) UpdateIntake(id int64, takenAt time.Time, status string) error {
+	var takenAtVal interface{}
+	if status == "TAKEN" {
+		takenAtVal = takenAt
+	} else {
+		takenAtVal = nil
+	}
+	_, err := s.db.Exec("UPDATE intake_log SET status = ?, taken_at = ? WHERE id = ?", status, takenAtVal, id)
+	return err
+}
+
 func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
 	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status FROM intake_log WHERE status = 'PENDING'")
 	if err != nil {

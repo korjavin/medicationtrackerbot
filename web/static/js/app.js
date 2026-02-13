@@ -451,11 +451,12 @@ function switchTab(tab) {
     if (tab === 'meds') {
         document.querySelector('button[onclick="switchTab(\'meds\')"]').classList.add('active');
         document.getElementById('meds-view').classList.add('active');
-        loadMeds();
-    } else if (tab === 'history') {
-        document.querySelector('button[onclick="switchTab(\'history\')"]').classList.add('active');
-        document.getElementById('history-view').classList.add('active');
-        loadHistory();
+        // Default to loading schedule tab if not set
+        if (!document.querySelector('.med-tab.active')) {
+            switchMedTab('schedule');
+        } else {
+            reloadCurrentTab(); // Reload current med tab
+        }
     } else if (tab === 'bp') {
         document.querySelector('button[onclick="switchTab(\'bp\')"]').classList.add('active');
         document.getElementById('bp-view').classList.add('active');
@@ -472,6 +473,20 @@ function switchTab(tab) {
         document.querySelector('button[onclick="switchTab(\'settings\')"]').classList.add('active');
         document.getElementById('settings-view').classList.add('active');
         loadSettings();
+    }
+}
+
+function switchMedTab(tab) {
+    document.querySelectorAll('.med-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.med-tab-content').forEach(c => c.style.display = 'none');
+
+    document.querySelector(`button[onclick="switchMedTab('${tab}')"]`).classList.add('active');
+    document.getElementById(`med-${tab}-tab`).style.display = 'block';
+
+    if (tab === 'schedule') {
+        loadMeds();
+    } else if (tab === 'history') {
+        loadHistory();
     }
 }
 
@@ -497,9 +512,16 @@ function reloadCurrentTab() {
 
     const tabText = activeTab.textContent.trim();
     if (tabText.includes('Medications')) {
-        loadMeds();
-    } else if (tabText.includes('History')) {
-        loadHistory();
+        const activeMedTab = document.querySelector('.med-tab.active');
+        if (activeMedTab) {
+            if (activeMedTab.textContent.trim().includes('Schedule')) {
+                loadMeds();
+            } else {
+                loadHistory();
+            }
+        } else {
+            loadMeds();
+        }
     } else if (tabText.includes('Blood Pressure')) {
         loadBPReadings();
     } else if (tabText.includes('Weight')) {
@@ -978,7 +1000,8 @@ function renderHistory(logs) {
         const div = document.createElement('div');
         div.className = 'history-group';
 
-        if (g.status === 'PENDING') {
+        // Make PENDING and TAKEN items clickable
+        if (g.status === 'PENDING' || g.status === 'TAKEN') {
             div.style.cursor = 'pointer';
             div.onclick = () => {
                 // Collect med ids and names
@@ -987,17 +1010,40 @@ function renderHistory(logs) {
                     const med = medications.find(m => m.id === i.medication_id);
                     return med ? med.name : 'Unknown';
                 });
-                showMedicationConfirmModal(ids, names, g.key); // g.key is the scheduled time
+
+                // Collect intake IDs for updating specific rows
+                const intakeIds = g.items.map(i => i.id);
+
+                // Determine mode and time
+                const mode = g.status === 'TAKEN' ? 'edit' : 'confirm';
+                // Use the group key (which is formatted time) or a raw timestamp if available
+                // For editing, we want the actual taken time to populate the input
+                let time = g.key;
+                if (mode === 'edit' && g.items[0].taken_at) {
+                    time = g.items[0].taken_at;
+                } else if (g.items[0].scheduled_at) {
+                    time = g.items[0].scheduled_at;
+                }
+
+                showMedicationConfirmModal(ids, names, time, mode, intakeIds);
             };
         }
 
         const statusIcon = g.status === 'TAKEN' ? '✅' : (g.status === 'PENDING' ? '⏳' : '❌');
-        let headerHTML = `<div class="history-header"><strong>${statusIcon} ${escapeHtml(g.timeLabel)}</strong></div>`;
+        // Better header formatting
+        let headerTime = g.timeLabel;
+        if (g.status === 'TAKEN') {
+            // If taken, maybe show "Taken at HH:MM"
+            // But timeLabel is already formatted.
+        }
+
+        let headerHTML = `<div class="history-header"><strong>${statusIcon} ${escapeHtml(headerTime)}</strong></div>`;
 
         let itemsHTML = '<div class="history-items">';
         g.items.forEach(l => {
-            const med = medications.find(m => m.id === l.medication_id) || { name: 'Unknown Med', dosage: '' };
-            itemsHTML += `<div class="history-subitem">${escapeHtml(med.name)}</div>`;
+            const med = medications.find(m => m.id === l.medication_id);
+            const medName = med ? med.name : 'Unknown Med';
+            itemsHTML += `<div class="history-subitem">${escapeHtml(medName)}</div>`;
         });
         itemsHTML += '</div>';
 
@@ -2721,21 +2767,63 @@ function handlePushAction(action, params) {
 let pendingMedConfirmIds = [];
 let pendingMedConfirmScheduled = null;
 let pendingWorkoutSessionId = null;
+let pendingMedConfirmMode = 'confirm'; // 'confirm' or 'edit'
+let pendingMedConfirmIntakeIds = []; // For edit mode
 
-function showMedicationConfirmModal(ids, names, scheduledAt) {
+function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', intakeIds = []) {
     pendingMedConfirmIds = ids;
     pendingMedConfirmScheduled = scheduledAt;
+    pendingMedConfirmMode = mode;
+    pendingMedConfirmIntakeIds = intakeIds;
 
     document.getElementById('modal-overlay').classList.remove('hidden');
     document.getElementById('med-confirm-modal').classList.remove('hidden');
 
-    // Format time
-    let timeStr = scheduledAt;
-    try {
-        const d = new Date(scheduledAt);
-        timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } catch (e) { }
-    document.getElementById('med-confirm-time').innerText = "Scheduled for: " + timeStr;
+    const titleEl = document.getElementById('med-confirm-title');
+    const subtitleEl = document.getElementById('med-confirm-subtitle');
+    const timeEditEl = document.getElementById('med-confirm-time-edit');
+    const timeInput = document.getElementById('med-confirm-datetime');
+    const actionBtn = document.getElementById('med-confirm-action-btn');
+    const snoozeBtn = document.getElementById('med-confirm-snooze-btn');
+
+    // UI based on mode
+    if (mode === 'edit') {
+        titleEl.innerText = "Edit Intake";
+        subtitleEl.innerText = "";
+        timeEditEl.style.display = 'block';
+
+        // Set time input (handling both ISO strings and formatted strings if parsable)
+        // We expect scheduledAt/takenAt to be a Date object or parsable string
+        try {
+            const d = new Date(scheduledAt);
+            // datetime-local needs YYYY-MM-DDTHH:mm
+            const isoLocal = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+            timeInput.value = isoLocal;
+        } catch (e) {
+            console.error("Error formatting date for input", e);
+        }
+
+        actionBtn.innerText = "Update";
+        actionBtn.onclick = updateIntakeHistory;
+        snoozeBtn.style.display = 'none';
+
+    } else {
+        // Confirm Mode
+        titleEl.innerText = "Time for Meds!";
+        timeEditEl.style.display = 'none';
+
+        // Format time display
+        let timeStr = scheduledAt;
+        try {
+            const d = new Date(scheduledAt);
+            timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch (e) { }
+        subtitleEl.innerText = "Scheduled for: " + timeStr;
+
+        actionBtn.innerText = "Confirm Selected";
+        actionBtn.onclick = confirmSelectedMedications;
+        snoozeBtn.style.display = 'inline-block';
+    }
 
     const list = document.getElementById('med-confirm-list');
     list.innerHTML = '';
@@ -2788,6 +2876,74 @@ async function confirmSelectedMedications() {
 
     closeMedicationConfirmModal();
 }
+
+async function updateIntakeHistory() {
+    const checks = document.querySelectorAll('.med-confirm-check');
+    const selectedIds = [];
+    const unselectedIds = [];
+
+    checks.forEach(c => {
+        const medId = parseInt(c.value);
+        if (c.checked) {
+            selectedIds.push(medId);
+        } else {
+            unselectedIds.push(medId);
+        }
+    });
+
+    const timeInput = document.getElementById('med-confirm-datetime');
+    const takenAt = new Date(timeInput.value).toISOString();
+
+    const updates = [];
+
+    // Map medication IDs back to intake IDs if possible. 
+    // We have pendingMedConfirmIds (order matches pendingMedConfirmIntakeIds)
+    // We need to find the intake ID for each medication ID.
+
+    // For selected items (TAKEN)
+    selectedIds.forEach(medId => {
+        const idx = pendingMedConfirmIds.indexOf(medId);
+        if (idx !== -1 && pendingMedConfirmIntakeIds[idx]) {
+            updates.push({
+                id: pendingMedConfirmIntakeIds[idx],
+                status: 'TAKEN',
+                taken_at: takenAt
+            });
+        }
+    });
+
+    // For unselected items (PENDING - Reverting)
+    unselectedIds.forEach(medId => {
+        const idx = pendingMedConfirmIds.indexOf(medId);
+        if (idx !== -1 && pendingMedConfirmIntakeIds[idx]) {
+            updates.push({
+                id: pendingMedConfirmIntakeIds[idx],
+                status: 'PENDING',
+                taken_at: '' // Backend handles null/empty
+            });
+        }
+    });
+
+    if (updates.length === 0) {
+        closeMedicationConfirmModal();
+        return;
+    }
+
+    try {
+        const res = await apiCall('/api/intakes/update', 'POST', { updates });
+        if (res) { // status 200 assumed
+            safeAlert("Updated!");
+            loadMeds(); // Stocks might change
+            loadHistory();
+        }
+    } catch (e) {
+        console.error(e);
+        safeAlert("Error updating: " + e.message);
+    }
+
+    closeMedicationConfirmModal();
+}
+
 
 function snoozeMedicationConfirm() {
     closeMedicationConfirmModal();
