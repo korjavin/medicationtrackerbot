@@ -68,6 +68,7 @@ services:
     image: aiogram/telegram-bot-api:latest
     container_name: medtracker-telegram-api
     restart: unless-stopped
+    user: "0:0"
     # Default entrypoint forces user 101. We override it to run our own setup.
     entrypoint: /bin/sh
     command:
