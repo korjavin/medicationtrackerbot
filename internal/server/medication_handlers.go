@@ -178,3 +178,76 @@ func (s *Server) handleDeleteMedication(w http.ResponseWriter, r *http.Request) 
 
 	w.WriteHeader(http.StatusOK)
 }
+
+func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
+	userId := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	var req struct {
+		Updates []struct {
+			ID      int64  `json:"id"`
+			Status  string `json:"status"`
+			TakenAt string `json:"taken_at"` // RFC3339
+		} `json:"updates"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	for _, up := range req.Updates {
+		// Verify ownership
+		intake, err := s.store.GetIntake(up.ID)
+		if err != nil {
+			log.Printf("Error getting intake %d: %v", up.ID, err)
+			continue
+		}
+		if intake == nil || intake.UserID != userId {
+			continue
+		}
+
+		var takenAt time.Time
+		if up.TakenAt != "" {
+			t, err := time.Parse(time.RFC3339, up.TakenAt)
+			if err == nil {
+				takenAt = t
+			}
+		} else if up.Status == "TAKEN" {
+			// If not provided but status is TAKEN, default to now? Or keep old?
+			// Let's assume frontend sends it. logic in store uses it if Status==TAKEN
+			takenAt = time.Now()
+		}
+
+		// Reverting to PENDING logic
+		if up.Status == "PENDING" {
+			// If it was TAKEN, we are reverting.
+			// Inventory increment?
+			if intake.Status == "TAKEN" {
+				// Reverting a taken status, so add back to inventory
+				if err := s.store.DecrementInventory(intake.MedicationID, -1); err != nil {
+					log.Printf("Error incrementing inventory on revert: %v", err)
+				}
+			}
+		} else if up.Status == "TAKEN" {
+			// If it was PENDING, we are confirming.
+			if intake.Status == "PENDING" {
+				if err := s.store.DecrementInventory(intake.MedicationID, 1); err != nil {
+					log.Printf("Error decrementing inventory: %v", err)
+				}
+				// Clear reminders?
+				reminders, _ := s.store.GetIntakeReminders(intake.ID)
+				for _, msgID := range reminders {
+					if s.bot != nil {
+						s.bot.DeleteMessage(msgID)
+					}
+				}
+			}
+		}
+
+		if err := s.store.UpdateIntake(up.ID, takenAt, up.Status); err != nil {
+			log.Printf("Error updating intake %d: %v", up.ID, err)
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+}

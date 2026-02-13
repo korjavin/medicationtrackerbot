@@ -172,6 +172,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/webpush/subscriptions", s.handleListPushSubscriptions)
 	apiMux.HandleFunc("POST /api/webpush/test-medication", s.handleSendTestMedicationNotification)
 	apiMux.HandleFunc("POST /api/medications/confirm-schedule", s.handleConfirmSchedule)
+	apiMux.HandleFunc("POST /api/intakes/update", s.handleUpdateIntake)
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
@@ -179,8 +180,6 @@ func (s *Server) Routes() http.Handler {
 
 	return mux
 }
-
-// -- Handlers --
 
 // -- Blood Pressure Handlers --
 

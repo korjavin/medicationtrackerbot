@@ -2,12 +2,14 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
@@ -207,5 +209,76 @@ func TestHandleDeleteMedication_InvalidID(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status 400, got %d", w.Code)
+	}
+}
+
+func TestHandleUpdateIntake(t *testing.T) {
+	srv, db := createTestServer(t)
+	defer db.Close()
+
+	// 1. Setup Data
+	medID, _ := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "")
+	userID := int64(123456)
+	schedule := time.Now().Add(-1 * time.Hour)
+	intakeID, _ := db.CreateIntake(medID, userID, schedule)
+
+	// 2. Test: Mark as TAKEN
+	reqBody := map[string]interface{}{
+		"updates": []map[string]interface{}{
+			{
+				"id":       intakeID,
+				"status":   "TAKEN",
+				"taken_at": time.Now().Format(time.RFC3339),
+			},
+		},
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("POST", "/api/intakes/update", bytes.NewReader(body))
+
+	// Inject User Context
+	ctx := context.WithValue(req.Context(), UserCtxKey, &TelegramUser{ID: userID})
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	srv.handleUpdateIntake(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify in DB
+	intake, _ := db.GetIntake(intakeID)
+	if intake.Status != "TAKEN" {
+		t.Errorf("Expected status TAKEN, got %s", intake.Status)
+	}
+	if intake.TakenAt == nil {
+		t.Error("Expected TakenAt to be set")
+	}
+
+	// 3. Test: Revert to PENDING
+	reqBodyRevert := map[string]interface{}{
+		"updates": []map[string]interface{}{
+			{
+				"id":     intakeID,
+				"status": "PENDING",
+			},
+		},
+	}
+	bodyRevert, _ := json.Marshal(reqBodyRevert)
+	reqRevert := httptest.NewRequest("POST", "/api/intakes/update", bytes.NewReader(bodyRevert))
+	reqRevert = reqRevert.WithContext(ctx)
+	wRevert := httptest.NewRecorder()
+
+	srv.handleUpdateIntake(wRevert, reqRevert)
+
+	if wRevert.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", wRevert.Code)
+	}
+
+	// Verify Revert
+	intakeReverted, _ := db.GetIntake(intakeID)
+	if intakeReverted.Status != "PENDING" {
+		t.Errorf("Expected status PENDING, got %s", intakeReverted.Status)
 	}
 }
