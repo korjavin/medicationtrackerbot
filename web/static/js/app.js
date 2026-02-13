@@ -978,6 +978,19 @@ function renderHistory(logs) {
         const div = document.createElement('div');
         div.className = 'history-group';
 
+        if (g.status === 'PENDING') {
+            div.style.cursor = 'pointer';
+            div.onclick = () => {
+                // Collect med ids and names
+                const ids = g.items.map(i => i.medication_id);
+                const names = g.items.map(i => {
+                    const med = medications.find(m => m.id === i.medication_id);
+                    return med ? med.name : 'Unknown';
+                });
+                showMedicationConfirmModal(ids, names, g.key); // g.key is the scheduled time
+            };
+        }
+
         const statusIcon = g.status === 'TAKEN' ? '✅' : (g.status === 'PENDING' ? '⏳' : '❌');
         let headerHTML = `<div class="history-header"><strong>${statusIcon} ${escapeHtml(g.timeLabel)}</strong></div>`;
 
