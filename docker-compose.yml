@@ -80,6 +80,7 @@ services:
         grep -q :1000: /etc/passwd || echo "appuser:x:1000:1000:appuser:/var/lib/telegram-bot-api:/bin/sh" >> /etc/passwd
         
         # Fix permissions so appuser can write
+        mkdir -p /var/lib/telegram-bot-api/data
         chown -R 1000:1000 /var/lib/telegram-bot-api
         
         # Run server, telling it to switch to our new user
@@ -87,7 +88,7 @@ services:
         exec telegram-bot-api --local \
           --api-id=$${TELEGRAM_API_ID} \
           --api-hash=$${TELEGRAM_API_HASH} \
-          --dir=/var/lib/telegram-bot-api \
+          --dir=/var/lib/telegram-bot-api/data \
           --temp-dir=/tmp \
           --username=appuser \
           --groupname=appgroup \
