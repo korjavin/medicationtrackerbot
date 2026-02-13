@@ -33,7 +33,7 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 	if activeSession != nil && activeSession.StartedAt != nil {
 		duration := now.Sub(*activeSession.StartedAt)
 		if duration > 90*time.Minute && !strings.Contains(activeSession.Notes, "stale_reminded") {
-			s.bot.SendNotification("🏋️ Still training? It's been 1.5 hours. Don't forget to log your results!", 0)
+			s.bot.SendWorkoutStaleNotification("🏋️ Still training? It's been 1.5 hours. Don't forget to log your results!", activeSession.ID)
 			s.store.UpdateWorkoutSessionNotes(activeSession.ID, activeSession.Notes+" stale_reminded")
 		}
 

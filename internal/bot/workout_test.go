@@ -377,3 +377,44 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 		t.Error("Session not marked completed after all exercises done")
 	}
 }
+
+func TestDismissNotification(t *testing.T) {
+	s, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+
+	// Mock Server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check if it's a deleteMessage request
+		if strings.Contains(r.URL.Path, "deleteMessage") {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"ok":true, "result": true}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true, "result": {}}`))
+	}))
+	defer server.Close()
+
+	api, _ := tgbotapi.NewBotAPIWithClient("123:TOKEN", tgbotapi.APIEndpoint, &http.Client{})
+	if api == nil {
+		api = &tgbotapi.BotAPI{Token: "123:TOKEN", Client: &http.Client{}, Buffer: 100}
+	}
+	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
+
+	b := &Bot{api: api, store: s, allowedUserID: 123}
+
+	cb := &tgbotapi.CallbackQuery{
+		ID:   "1",
+		From: &tgbotapi.User{ID: 123},
+		Message: &tgbotapi.Message{
+			Chat:      &tgbotapi.Chat{ID: 123},
+			MessageID: 111,
+		},
+		Data: "dismiss_notification",
+	}
+
+	// This should not panic and should call deleteMessage
+	b.handleCallback(cb)
+}

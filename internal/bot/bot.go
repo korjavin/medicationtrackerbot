@@ -370,6 +370,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	} else if data == "weight_confirm" || data == "weight_snooze" || data == "weight_dontbug" {
 		// Weight reminder callbacks
 		b.handleWeightReminderCallback(cb, data)
+	} else if data == "dismiss_notification" {
+		// Just delete the message
+		b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID))
 	}
 }
 
@@ -381,6 +384,38 @@ func (b *Bot) SendNotification(text string, medicationID int64) (int, error) {
 	data := "confirm:" + strconv.FormatInt(medicationID, 10)
 	btn := tgbotapi.NewInlineKeyboardButtonData("✅ Confirm Intake", data)
 	row := tgbotapi.NewInlineKeyboardRow(btn)
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(row)
+
+	sentMsg, err := b.api.Send(msg)
+	return sentMsg.MessageID, err
+}
+
+// SendSimpleNotification sends a notification with custom buttons
+// SendSimpleNotification sends a notification with custom buttons
+func (b *Bot) SendSimpleNotification(text string, buttons []tgbotapi.InlineKeyboardButton) (int, error) {
+	msg := tgbotapi.NewMessage(b.allowedUserID, text)
+
+	if len(buttons) > 0 {
+		rows := make([][]tgbotapi.InlineKeyboardButton, 0)
+		for _, btn := range buttons {
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(btn))
+		}
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	}
+
+	sentMsg, err := b.api.Send(msg)
+	return sentMsg.MessageID, err
+}
+
+// SendWorkoutStaleNotification sends a notification for a stale workout with Finish and Dismiss buttons
+func (b *Bot) SendWorkoutStaleNotification(text string, sessionID int64) (int, error) {
+	msg := tgbotapi.NewMessage(b.allowedUserID, text)
+
+	// Create buttons
+	finishBtn := tgbotapi.NewInlineKeyboardButtonData("Finish Workout", fmt.Sprintf("workout_finish_%d", sessionID))
+	dismissBtn := tgbotapi.NewInlineKeyboardButtonData("Dismiss", "dismiss_notification")
+
+	row := tgbotapi.NewInlineKeyboardRow(finishBtn, dismissBtn)
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(row)
 
 	sentMsg, err := b.api.Send(msg)
