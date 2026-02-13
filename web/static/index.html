@@ -326,9 +326,53 @@
         <div id="workout-session-logs" style="display: flex; flex-direction: column; gap: 15px;">
             <!-- Exercise logs injected here -->
         </div>
+
+        <div style="margin-top: 15px; text-align: center;">
+            <button onclick="showAddExerciseToSessionModal()" class="secondary"
+                style="width: 100%; border: 1px dashed #667eea; color: #667eea;">+ Add Exercise</button>
+        </div>
+
         <div class="actions" style="margin-top: 20px;">
             <button onclick="closeWorkoutSessionModal()" class="secondary">Cancel</button>
             <button onclick="saveWorkoutSessionDetails()" class="primary">Save Changes</button>
+        </div>
+    </div>
+
+    <!-- Modal for Adding Exercise to Session -->
+    <div id="workout-add-exercise-to-session-modal" class="hidden">
+        <h3>Add Exercise to Session</h3>
+
+        <div class="form-row">
+            <label>Exercise Name:</label>
+            <input type="text" id="session-add-exercise-name" list="unique-exercises-list" placeholder="Start typing..."
+                onchange="onSessionExerciseSelect()">
+            <datalist id="unique-exercises-list"></datalist>
+            <input type="hidden" id="session-add-exercise-id">
+        </div>
+
+        <div class="form-row">
+            <label>Sets Completed:</label>
+            <input type="number" id="session-add-exercise-sets" min="1" max="20" placeholder="3">
+        </div>
+
+        <div class="form-row">
+            <label>Reps Completed:</label>
+            <input type="number" id="session-add-exercise-reps" min="1" max="100" placeholder="10">
+        </div>
+
+        <div class="form-row">
+            <label>Weight (kg):</label>
+            <input type="number" id="session-add-exercise-weight" step="0.5" min="0" placeholder="0">
+        </div>
+
+        <div class="form-row">
+            <label>Notes:</label>
+            <input type="text" id="session-add-exercise-notes" placeholder="Optional notes">
+        </div>
+
+        <div class="actions">
+            <button onclick="closeAddExerciseToSessionModal()" class="secondary">Cancel</button>
+            <button onclick="saveNewSessionExercise()" class="primary">Add</button>
         </div>
     </div>
 

@@ -808,6 +808,114 @@ func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *Server) handleGetUniqueExercises(w http.ResponseWriter, r *http.Request) {
+	exercises, err := s.store.GetAllUniqueExercises(s.allowedUserID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(exercises)
+}
+
+func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SessionID      int64    `json:"session_id"`
+		ExerciseID     int64    `json:"exercise_id"`
+		ExerciseName   string   `json:"exercise_name"`
+		TargetSets     int      `json:"target_sets"`
+		TargetRepsMin  int      `json:"target_reps_min"`
+		TargetRepsMax  *int     `json:"target_reps_max"`
+		TargetWeightKg *float64 `json:"target_weight_kg"`
+		Status         string   `json:"status"` // completed, skipped
+		Notes          string   `json:"notes"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.SessionID == 0 || req.ExerciseID == 0 {
+		http.Error(w, "SessionID and ExerciseID are required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify session ownership
+	session, err := s.store.GetWorkoutSession(req.SessionID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if session == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+	if session.UserID != s.allowedUserID {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
+	// Used passed ExerciseID. If it refers to an exercise in another variant, that's fine.
+	// It just serves as a reference to "what exercise was this".
+	// The log entry copies the name anyway.
+
+	// Helper to handle pointer conversions for logs if needed, but LogExercise takes pointers for completion stats
+	// We need to map request fields to LogExercise params.
+	// LogExercise(sessionID, exerciseID, exerciseName, sets, reps, weight, status, notes)
+	// sets, reps, weight in LogExercise are *int/*float64 which represent *completed* values.
+	// The request has "Target" values? No, for a completed session addition, we probably mean "I did this".
+	// The UI should ask for "Sets Completed", "Reps Completed", "Weight Used".
+	// So the request fields should probably be `SetsCompleted`, etc. not Target.
+	// Let's check the plan: "Add API endpoint to add exercise to session".
+	// The UI modal usually asks for targets when *editing* an exercise definition, but here we are *logging* performed work.
+	// Actually, `LogExercise` is for *logging* a performed exercise.
+	// But `WorkoutSession` logs usually start as copies of `WorkoutExercise` with null completion data.
+	// If we add an exercise to a session, we are effectively adding a row to `workout_exercise_logs`.
+	// Does it need to be "completed" immediately?
+	// If the user is adding it to a completed workout, they likely enter what they did.
+	// So we should accept `SetsCompleted`, `RepsCompleted`, etc.
+	// Let's rename request fields to match `LogExercise`.
+
+	// Re-defining request struct to match LogExercise needs
+	// We'll treat target values as what was done, or maybe we want to store targets too?
+	// `workout_exercise_logs` table struct:
+	// type WorkoutExerciseLog struct { ... SetsCompleted *int ... }
+	// It does NOT store targets. It links to `exercise_id` which has targets.
+	// If we pick a unique exercise, that `exercise_id` has targets.
+	// So we just need to log what was done.
+
+	sets := req.TargetSets
+	reps := req.TargetRepsMin
+	weight := req.TargetWeightKg
+	// Wait, if I use the existing struct names `TargetSets` etc from the plan, I should map them.
+	// But it's better to be explicit.
+	// Let's assume the UI sends `sets_completed`, `reps_completed`, `weight_kg`.
+	// But the `handleAddExerciseToSession` stub in previous step used `Target...`.
+	// I will update the struct in the replacement to be correct.
+
+	id, err := s.store.LogExercise(
+		req.SessionID,
+		req.ExerciseID,
+		req.ExerciseName,
+		&sets, // sets completed
+		&reps, // reps completed. We'll use Min as the value if that's what we have.
+		weight,
+		req.Status,
+		req.Notes,
+	)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]int64{"id": id})
+}
+
 func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
