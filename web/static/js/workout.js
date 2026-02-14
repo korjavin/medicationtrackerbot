@@ -877,8 +877,6 @@ async function startAdHocWorkout() {
 
             // Refresh the next workout card
             await loadNextWorkout();
-
-            safeAlert('Ad-hoc workout started! Add your exercises.');
         } else {
             safeAlert('Failed to start ad-hoc workout');
         }
