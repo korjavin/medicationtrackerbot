@@ -862,6 +862,36 @@ async function loadWorkoutStatsTab() {
 // START WORKOUT SESSION
 // ====================================
 
+// ====================================
+// AD-HOC WORKOUT
+// ====================================
+
+async function startAdHocWorkout() {
+    try {
+        // Create ad-hoc workout session via API
+        const result = await apiCall('/api/workout/sessions/adhoc', 'POST');
+
+        if (result && result.session) {
+            // Immediately open the session modal to start logging exercises
+            await showWorkoutSessionModal(result.session.id);
+
+            // Refresh the next workout card
+            await loadNextWorkout();
+
+            safeAlert('Ad-hoc workout started! Add your exercises.');
+        } else {
+            safeAlert('Failed to start ad-hoc workout');
+        }
+    } catch (error) {
+        console.error('Error starting ad-hoc workout:', error);
+        safeAlert('Error starting ad-hoc workout: ' + error.message);
+    }
+}
+
+// ====================================
+// WORKOUT SESSION MANAGEMENT
+// ====================================
+
 async function startWorkoutSession(sessionId) {
     if (!confirm('Start this workout now?')) {
         return;
