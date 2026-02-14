@@ -110,6 +110,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
   Example: /goal 110 2026-06-01
 
 **Workout Commands:**
+/workout - Start an ad-hoc (unscheduled) workout
 /startnext - Manually start next scheduled workout
 /workoutstatus - View today's workout status
 /workouthistory - View recent workouts and your streak 🔥
@@ -184,6 +185,8 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		b.handleBPGoalCommand(msg, &msgConfig)
 	case "stock":
 		b.handleStockCommand(&msgConfig)
+	case "workout":
+		b.handleAdHocWorkoutCommand(&msgConfig)
 	case "startnext":
 		b.handleStartNextCommand(&msgConfig)
 	case "workoutstatus":

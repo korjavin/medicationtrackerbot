@@ -48,8 +48,8 @@ type WorkoutExercise struct {
 // WorkoutSession represents an actual workout instance
 type WorkoutSession struct {
 	ID                    int64      `json:"id"`
-	GroupID               int64      `json:"group_id"`    // -1 for ad-hoc workouts
-	VariantID             int64      `json:"variant_id"`  // -1 for ad-hoc workouts
+	GroupID               *int64     `json:"group_id,omitempty"`   // Nullable for ad-hoc workouts
+	VariantID             *int64     `json:"variant_id,omitempty"` // Nullable for ad-hoc workouts
 	UserID                int64      `json:"user_id"`
 	ScheduledDate         time.Time  `json:"scheduled_date"`
 	ScheduledTime         string     `json:"scheduled_time"`
