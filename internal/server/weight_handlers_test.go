@@ -20,7 +20,7 @@ func createWeightTestServer(t *testing.T) (*Server, *store.Store) {
 		t.Fatalf("Failed to create test store: %v", err)
 	}
 
-	srv := New(db, nil, "test-token", 123456, OIDCConfig{}, "test-bot", VAPIDConfig{})
+	srv := New(db, nil, "test-token", "test-secret", 123456, OIDCConfig{}, "test-bot", VAPIDConfig{})
 	return srv, db
 }
 
