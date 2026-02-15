@@ -171,6 +171,34 @@ date,time,systolic,diastolic,pulse
 2024-01-15,20:15,118,78,70
 ```
 
+### Backups & Recovery (Litestream)
+
+The bot includes [Litestream](https://litestream.io/) for real-time SQLite replication to Cloudflare R2 (or any S3-compatible storage).
+
+#### Restore Database from Backup
+To restore your database from the cloud using environment variables from your `.env` or current session:
+
+```bash
+docker run --rm \
+  -e LITESTREAM_ACCESS_KEY_ID=$LITESTREAM_ACCESS_KEY_ID \
+  -e LITESTREAM_SECRET_ACCESS_KEY=$LITESTREAM_SECRET_ACCESS_KEY \
+  -e R2_ENDPOINT=$R2_ENDPOINT \
+  -e R2_BUCKET=$R2_BUCKET \
+  -v $(pwd):/app/data \
+  --entrypoint /bin/sh \
+  litestream/litestream:latest \
+  -c 'cat <<EOF > /tmp/litestream.yml
+dbs:
+  - path: /app/data/meds.db
+    replicas:
+      - type: s3
+        bucket: $R2_BUCKET
+        path: medtracker
+        endpoint: $R2_ENDPOINT
+EOF
+litestream restore -config /tmp/litestream.yml -o /app/data/meds.db /app/data/meds.db'
+```
+
 ### Blood Pressure Classification (ISH 2020 Guidelines)
 
 The app uses **ISH 2020 (International Society of Hypertension)** guidelines for blood pressure classification, configured for users under 65 years.
