@@ -122,13 +122,13 @@ func (b *Bot) handleWorkoutStatusCommand(msgConfig *tgbotapi.MessageConfig) {
 			continue
 		}
 
-		variant, _ := b.store.GetWorkoutVariant(session.VariantID)
-		variantName := "Unknown"
-		if variant != nil {
-			variantName = variant.Name
-		}
-
 		if session != nil {
+			variant, _ := b.store.GetWorkoutVariant(session.VariantID)
+			variantName := "Unknown"
+			if variant != nil {
+				variantName = variant.Name
+			}
+
 			statusEmoji := ""
 			switch session.Status {
 			case "completed":
