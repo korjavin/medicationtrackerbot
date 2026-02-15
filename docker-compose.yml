@@ -2,7 +2,7 @@ version: '3'
 
 services:
   medtracker:
-    image: ghcr.io/korjavin/medicationtrackerbot:latest
+    image: ghcr.io/korjavin/medicationtrackerbot:a9bb3ef6e99baf25b26162fc18603a74451949c3
     container_name: medtracker
     restart: unless-stopped
     volumes:
@@ -33,7 +33,7 @@ services:
       - "traefik.http.services.medtracker.loadbalancer.server.port=${PORT:-8080}"
 
   mcp-server:
-    image: ghcr.io/korjavin/medicationtrackerbot:latest
+    image: ghcr.io/korjavin/medicationtrackerbot:a9bb3ef6e99baf25b26162fc18603a74451949c3
     container_name: medtracker-mcp
     restart: unless-stopped
     command: ["./mcptool"]
