@@ -163,7 +163,7 @@ func AuthMiddleware(botToken string, allowedUserID int64) func(http.Handler) htt
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-			// 1. Check for Google Session Cookie
+			// 1. Check for OIDC Session Cookie
 			cookie, err := r.Cookie("auth_session")
 			if err == nil {
 				if email, ok := verifySessionToken(cookie.Value, botToken); ok {
@@ -171,7 +171,7 @@ func AuthMiddleware(botToken string, allowedUserID int64) func(http.Handler) htt
 					user := &TelegramUser{
 						ID:        allowedUserID, // Map admin email to allowed user ID for DB consistency
 						FirstName: "Admin",
-						LastName:  "(Google)",
+						LastName:  "(OIDC)",
 						Username:  email,
 					}
 					ctx := context.WithValue(r.Context(), UserCtxKey, user)

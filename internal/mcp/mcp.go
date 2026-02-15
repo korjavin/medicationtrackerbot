@@ -66,9 +66,10 @@ func LoadConfigFromEnv() (*Config, error) {
 	if cfg.PocketIDURL == "" {
 		return nil, fmt.Errorf("POCKET_ID_URL is required")
 	}
-	if cfg.AllowedSubject == "" {
-		return nil, fmt.Errorf("MCP_ALLOWED_SUBJECT is required")
-	}
+	// AllowedSubject is optional if you want to allow any subject (though not recommended for production)
+	// if cfg.AllowedSubject == "" {
+	// 	return nil, fmt.Errorf("MCP_ALLOWED_SUBJECT is required")
+	// }
 	if cfg.MCPServerURL == "" {
 		return nil, fmt.Errorf("MCP_SERVER_URL is required")
 	}
