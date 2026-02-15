@@ -26,36 +26,21 @@
 <body>
     <div id="app">
         <div id="tabs">
-            <button class="tab active" onclick="switchTab('bp')">Blood Pressure</button>
-            <button class="tab" onclick="switchTab('weight')">Weight</button>
-            <button class="tab" onclick="switchTab('workouts')">Workouts</button>
-            <button class="tab" onclick="switchTab('meds')">Medications</button>
-            <button class="tab" onclick="switchTab('settings')">Settings</button>
+            <button class="tab active" data-tab="bp" onclick="switchTab('bp')">Blood Pressure</button>
+            <button class="tab" data-tab="weight" onclick="switchTab('weight')">Weight</button>
+            <button class="tab" data-tab="workouts" onclick="switchTab('workouts')">Workouts</button>
+            <button class="tab" data-tab="meds" onclick="switchTab('meds')">Medications</button>
+            <button class="tab" data-tab="settings" onclick="switchTab('settings')">Settings</button>
         </div>
 
         <div id="meds-view" class="view active">
             <!-- Med Tabs -->
-            <div class="med-tabs"
-                style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #e0e0e0;">
-                <button class="med-tab active" onclick="switchMedTab('schedule')"
-                    style="padding: 10px 20px; border: none; background: none; cursor: pointer; border-bottom: 3px solid #667eea;">
-                    Schedule
-                </button>
-                <button class="med-tab" onclick="switchMedTab('history')"
-                    style="padding: 10px 20px; border: none; background: none; cursor: pointer;">
-                    History
-                </button>
+            <div class="med-tabs">
+                <button class="med-tab active" data-tab="history" onclick="switchMedTab('history')">History</button>
+                <button class="med-tab" data-tab="schedule" onclick="switchMedTab('schedule')">Schedule</button>
             </div>
 
-            <div id="med-schedule-tab" class="med-tab-content">
-                <div id="weekly-hub-container"></div>
-                <div id="med-list">
-                    <!-- Meds injected here -->
-                </div>
-                <button id="add-btn" onclick="showAddModal()">+ Add Medication</button>
-            </div>
-
-            <div id="med-history-tab" class="med-tab-content" style="display: none;">
+            <div id="med-history-tab" class="med-tab-content active">
                 <h3>Intake History</h3>
                 <div class="filters">
                     <select id="history-filter-med" onchange="loadHistory()">
@@ -68,6 +53,14 @@
                     </select>
                 </div>
                 <div id="history-list"></div>
+            </div>
+
+            <div id="med-schedule-tab" class="med-tab-content">
+                <div id="weekly-hub-container"></div>
+                <div id="med-list">
+                    <!-- Meds injected here -->
+                </div>
+                <button id="add-btn" onclick="showAddModal()">+ Add Medication</button>
             </div>
         </div>
 
@@ -95,24 +88,14 @@
             <h3>🏋️ Workout Planner</h3>
 
             <!-- Tab Navigation for Workouts -->
-            <div class="workout-tabs"
-                style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #e0e0e0;">
-                <button class="workout-tab active" onclick="switchWorkoutTab('groups')"
-                    style="padding: 10px 20px; border: none; background: none; cursor: pointer; border-bottom: 3px solid #667eea;">
-                    Groups
-                </button>
-                <button class="workout-tab" onclick="switchWorkoutTab('history')"
-                    style="padding: 10px 20px; border: none; background: none; cursor: pointer;">
-                    History
-                </button>
-                <button class="workout-tab" onclick="switchWorkoutTab('stats')"
-                    style="padding: 10px 20px; border: none; background: none; cursor: pointer;">
-                    Statistics
-                </button>
+            <div class="workout-tabs">
+                <button class="workout-tab active" data-tab="groups" onclick="switchWorkoutTab('groups')">Groups</button>
+                <button class="workout-tab" data-tab="history" onclick="switchWorkoutTab('history')">History</button>
+                <button class="workout-tab" data-tab="stats" onclick="switchWorkoutTab('stats')">Statistics</button>
             </div>
 
             <!-- Groups Management View -->
-            <div id="workout-groups-tab" class="workout-tab-content">
+            <div id="workout-groups-tab" class="workout-tab-content active">
                 <!-- Next Workout Card -->
                 <div id="next-workout-card"></div>
 
@@ -131,14 +114,14 @@
             </div>
 
             <!-- History View -->
-            <div id="workout-history-tab" class="workout-tab-content" style="display: none;">
+            <div id="workout-history-tab" class="workout-tab-content">
                 <div id="workout-history-display">
                     Loading...
                 </div>
             </div>
 
             <!-- Stats View -->
-            <div id="workout-stats-tab" class="workout-tab-content" style="display: none;">
+            <div id="workout-stats-tab" class="workout-tab-content">
                 <div id="workout-stats-display">
                     Loading...
                 </div>
@@ -598,6 +581,8 @@
     <script>
         // Register Service Worker
         if ('serviceWorker' in navigator) {
+            let refreshing = false;
+
             window.addEventListener('load', async () => {
                 try {
                     const registration = await navigator.serviceWorker.register('/static/sw.js', {
@@ -609,12 +594,10 @@
                     registration.onupdatefound = () => {
                         const newWorker = registration.installing;
                         newWorker.onstatechange = () => {
-                            if (newWorker.state === 'installed') {
-                                if (navigator.serviceWorker.controller) {
-                                    // New version found!
-                                    console.log('New SW available, reloading...');
-                                    window.location.reload();
-                                }
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                // New version available — show toast instead of reloading
+                                console.log('New SW available, showing update toast');
+                                showUpdateToast(newWorker);
                             }
                         };
                     };
@@ -623,11 +606,39 @@
                 }
             });
 
-            // Reload when the controller changes (e.g. after skipWaiting)
+            // Reload once when the new SW takes over (after user clicks "Update")
             navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (refreshing) return;
+                refreshing = true;
                 console.log('Controller changed, reloading...');
                 window.location.reload();
             });
+        }
+
+        function showUpdateToast(worker) {
+            // Remove existing toast if any
+            const existing = document.getElementById('sw-update-toast');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.id = 'sw-update-toast';
+            toast.style.cssText = 'position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:var(--button-color,#2481cc);color:var(--button-text-color,#fff);padding:10px 16px;border-radius:12px;font-size:14px;z-index:2000;display:flex;align-items:center;gap:12px;box-shadow:0 4px 16px rgba(0,0,0,0.2);max-width:90%;';
+
+            const text = document.createElement('span');
+            text.textContent = 'New version available';
+
+            const btn = document.createElement('button');
+            btn.textContent = 'Update';
+            btn.style.cssText = 'background:rgba(255,255,255,0.25);color:inherit;border:none;padding:6px 14px;border-radius:8px;font-weight:600;cursor:pointer;white-space:nowrap;';
+            btn.onclick = () => {
+                btn.textContent = 'Updating…';
+                btn.disabled = true;
+                worker.postMessage({ type: 'SKIP_WAITING' });
+            };
+
+            toast.appendChild(text);
+            toast.appendChild(btn);
+            document.body.appendChild(toast);
         }
 
         // Request persistent storage for Telegram WebApp context
