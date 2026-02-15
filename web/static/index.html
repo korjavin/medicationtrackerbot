@@ -26,36 +26,21 @@
 <body>
     <div id="app">
         <div id="tabs">
-            <button class="tab active" onclick="switchTab('bp')">Blood Pressure</button>
-            <button class="tab" onclick="switchTab('weight')">Weight</button>
-            <button class="tab" onclick="switchTab('workouts')">Workouts</button>
-            <button class="tab" onclick="switchTab('meds')">Medications</button>
-            <button class="tab" onclick="switchTab('settings')">Settings</button>
+            <button class="tab active" data-tab="bp" onclick="switchTab('bp')">Blood Pressure</button>
+            <button class="tab" data-tab="weight" onclick="switchTab('weight')">Weight</button>
+            <button class="tab" data-tab="workouts" onclick="switchTab('workouts')">Workouts</button>
+            <button class="tab" data-tab="meds" onclick="switchTab('meds')">Medications</button>
+            <button class="tab" data-tab="settings" onclick="switchTab('settings')">Settings</button>
         </div>
 
         <div id="meds-view" class="view active">
             <!-- Med Tabs -->
-            <div class="med-tabs"
-                style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #e0e0e0;">
-                <button class="med-tab active" onclick="switchMedTab('schedule')"
-                    style="padding: 10px 20px; border: none; background: none; cursor: pointer; border-bottom: 3px solid #667eea;">
-                    Schedule
-                </button>
-                <button class="med-tab" onclick="switchMedTab('history')"
-                    style="padding: 10px 20px; border: none; background: none; cursor: pointer;">
-                    History
-                </button>
+            <div class="med-tabs">
+                <button class="med-tab active" data-tab="history" onclick="switchMedTab('history')">History</button>
+                <button class="med-tab" data-tab="schedule" onclick="switchMedTab('schedule')">Schedule</button>
             </div>
 
-            <div id="med-schedule-tab" class="med-tab-content">
-                <div id="weekly-hub-container"></div>
-                <div id="med-list">
-                    <!-- Meds injected here -->
-                </div>
-                <button id="add-btn" onclick="showAddModal()">+ Add Medication</button>
-            </div>
-
-            <div id="med-history-tab" class="med-tab-content" style="display: none;">
+            <div id="med-history-tab" class="med-tab-content active">
                 <h3>Intake History</h3>
                 <div class="filters">
                     <select id="history-filter-med" onchange="loadHistory()">
@@ -68,6 +53,14 @@
                     </select>
                 </div>
                 <div id="history-list"></div>
+            </div>
+
+            <div id="med-schedule-tab" class="med-tab-content">
+                <div id="weekly-hub-container"></div>
+                <div id="med-list">
+                    <!-- Meds injected here -->
+                </div>
+                <button id="add-btn" onclick="showAddModal()">+ Add Medication</button>
             </div>
         </div>
 
@@ -95,24 +88,15 @@
             <h3>🏋️ Workout Planner</h3>
 
             <!-- Tab Navigation for Workouts -->
-            <div class="workout-tabs"
-                style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #e0e0e0;">
-                <button class="workout-tab active" onclick="switchWorkoutTab('groups')"
-                    style="padding: 10px 20px; border: none; background: none; cursor: pointer; border-bottom: 3px solid #667eea;">
-                    Groups
-                </button>
-                <button class="workout-tab" onclick="switchWorkoutTab('history')"
-                    style="padding: 10px 20px; border: none; background: none; cursor: pointer;">
-                    History
-                </button>
-                <button class="workout-tab" onclick="switchWorkoutTab('stats')"
-                    style="padding: 10px 20px; border: none; background: none; cursor: pointer;">
-                    Statistics
-                </button>
+            <div class="workout-tabs">
+                <button class="workout-tab active" data-tab="groups"
+                    onclick="switchWorkoutTab('groups')">Groups</button>
+                <button class="workout-tab" data-tab="history" onclick="switchWorkoutTab('history')">History</button>
+                <button class="workout-tab" data-tab="stats" onclick="switchWorkoutTab('stats')">Statistics</button>
             </div>
 
             <!-- Groups Management View -->
-            <div id="workout-groups-tab" class="workout-tab-content">
+            <div id="workout-groups-tab" class="workout-tab-content active">
                 <!-- Next Workout Card -->
                 <div id="next-workout-card"></div>
 
@@ -131,14 +115,14 @@
             </div>
 
             <!-- History View -->
-            <div id="workout-history-tab" class="workout-tab-content" style="display: none;">
+            <div id="workout-history-tab" class="workout-tab-content">
                 <div id="workout-history-display">
                     Loading...
                 </div>
             </div>
 
             <!-- Stats View -->
-            <div id="workout-stats-tab" class="workout-tab-content" style="display: none;">
+            <div id="workout-stats-tab" class="workout-tab-content">
                 <div id="workout-stats-display">
                     Loading...
                 </div>
