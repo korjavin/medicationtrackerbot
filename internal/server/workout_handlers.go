@@ -437,6 +437,52 @@ func (s *Server) handleGetSessionDetails(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 
+	// PRIORITY 0: Check for active sessions today (notified or in_progress)
+	// This ensures that workouts that have been notified but not yet started/completed
+	// are still visible in the UI even if their scheduled time has passed
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	activeSessions, err := s.store.GetActiveSessions(s.allowedUserID, today)
+	if err == nil && len(activeSessions) > 0 {
+		// Return the earliest active session
+		session := &activeSessions[0] // Already ordered by scheduled_time ASC
+
+		group, _ := s.store.GetWorkoutGroup(session.GroupID)
+		variant, _ := s.store.GetWorkoutVariant(session.VariantID)
+		exercises, _ := s.store.ListExercisesByVariant(session.VariantID)
+
+		groupName := "Unknown"
+		variantName := "Unknown"
+		if group != nil {
+			groupName = group.Name
+		}
+		if variant != nil {
+			variantName = variant.Name
+		}
+
+		response := struct {
+			Session        interface{} `json:"session"`
+			GroupName      string      `json:"group_name"`
+			VariantName    string      `json:"variant_name"`
+			ExercisesCount int         `json:"exercises_count"`
+		}{
+			Session: map[string]interface{}{
+				"id":             session.ID,
+				"scheduled_date": session.ScheduledDate,
+				"scheduled_time": session.ScheduledTime,
+				"status":         session.Status,
+				"is_snoozed":     session.SnoozedUntil != nil,
+				"snoozed_until":  session.SnoozedUntil,
+			},
+			GroupName:      groupName,
+			VariantName:    variantName,
+			ExercisesCount: len(exercises),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
 	// FIRST: Check for snoozed sessions that are ready to start
 	snoozedSessions, err := s.store.GetSnoozedSessions(s.allowedUserID)
 	if err == nil && len(snoozedSessions) > 0 {

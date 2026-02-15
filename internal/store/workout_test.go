@@ -638,3 +638,71 @@ func TestGetAllUniqueExercises(t *testing.T) {
 		t.Errorf("Expected 0 exercises for user2, got %d", len(emptyExercises))
 	}
 }
+
+// TestGetActiveSessions verifies retrieving active (notified/in_progress) sessions for a specific date
+func TestGetActiveSessions(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.db.Close()
+
+	userID := int64(1)
+
+	// Create a workout group
+	group, err := store.CreateWorkoutGroup("Morning Swings", "Kettlebell", false, userID, "[1,3,5]", "09:00", 15)
+	if err != nil {
+		t.Fatalf("Failed to create workout group: %v", err)
+	}
+
+	// Create a variant
+	variant, err := store.CreateWorkoutVariant(group.ID, "Default", nil, "")
+	if err != nil {
+		t.Fatalf("Failed to create variant: %v", err)
+	}
+
+	today := time.Now()
+	yesterday := today.AddDate(0, 0, -1)
+
+	// Create sessions with different statuses
+	sessionNotified, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID, today, "09:00")
+	store.UpdateSessionStatus(sessionNotified.ID, "notified")
+
+	sessionInProgress, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID, today, "10:00")
+	store.StartSession(sessionInProgress.ID)
+
+	// Create a pending session (not included in active sessions)
+	_, _ = store.CreateWorkoutSession(group.ID, variant.ID, userID, today, "11:00")
+
+	sessionCompleted, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID, today, "14:00")
+	store.CompleteSession(sessionCompleted.ID)
+
+	sessionYesterday, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID, yesterday, "09:00")
+	store.UpdateSessionStatus(sessionYesterday.ID, "notified")
+
+	// Get active sessions for today
+	activeSessions, err := store.GetActiveSessions(userID, today)
+	if err != nil {
+		t.Fatalf("Failed to get active sessions: %v", err)
+	}
+
+	// Should return only the notified and in_progress sessions from today
+	if len(activeSessions) != 2 {
+		t.Errorf("Expected 2 active sessions, got %d", len(activeSessions))
+	}
+
+	// Verify they are ordered by scheduled_time
+	if len(activeSessions) == 2 {
+		if activeSessions[0].ScheduledTime != "09:00" {
+			t.Errorf("Expected first session at 09:00, got %s", activeSessions[0].ScheduledTime)
+		}
+		if activeSessions[1].ScheduledTime != "10:00" {
+			t.Errorf("Expected second session at 10:00, got %s", activeSessions[1].ScheduledTime)
+		}
+
+		// Verify statuses
+		if activeSessions[0].Status != "notified" {
+			t.Errorf("Expected first session status 'notified', got %s", activeSessions[0].Status)
+		}
+		if activeSessions[1].Status != "in_progress" {
+			t.Errorf("Expected second session status 'in_progress', got %s", activeSessions[1].Status)
+		}
+	}
+}

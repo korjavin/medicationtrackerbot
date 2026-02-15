@@ -861,3 +861,57 @@ func (s *Store) GetSnoozedSessions(userID int64) ([]WorkoutSession, error) {
 	}
 	return sessions, nil
 }
+
+// GetActiveSessions returns all sessions for a given date that are in 'notified' or 'in_progress' status
+// This is used to display workouts that have been notified but not yet started/completed, even if their scheduled time has passed
+func (s *Store) GetActiveSessions(userID int64, date time.Time) ([]WorkoutSession, error) {
+	// Format date as YYYY-MM-DD for comparison
+	dateStr := date.Format("2006-01-02")
+
+	query := `
+		SELECT id, group_id, variant_id, user_id, scheduled_date, scheduled_time, status, started_at, completed_at, snoozed_until, snooze_count, notification_message_id, notes
+		FROM workout_sessions 
+		WHERE user_id = ? 
+		  AND scheduled_date LIKE ?
+		  AND status IN ('notified', 'in_progress')
+		ORDER BY scheduled_time ASC`
+
+	rows, err := s.db.Query(query, userID, dateStr+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []WorkoutSession
+	for rows.Next() {
+		var ws WorkoutSession
+		var startedAt, completedAt, snoozedUntil sql.NullTime
+		var notificationMsgID sql.NullInt64
+		var notes sql.NullString
+
+		if err := rows.Scan(&ws.ID, &ws.GroupID, &ws.VariantID, &ws.UserID, &ws.ScheduledDate, &ws.ScheduledTime, &ws.Status,
+			&startedAt, &completedAt, &snoozedUntil, &ws.SnoozeCount, &notificationMsgID, &notes); err != nil {
+			return nil, err
+		}
+
+		if startedAt.Valid {
+			ws.StartedAt = &startedAt.Time
+		}
+		if completedAt.Valid {
+			ws.CompletedAt = &completedAt.Time
+		}
+		if snoozedUntil.Valid {
+			ws.SnoozedUntil = &snoozedUntil.Time
+		}
+		if notificationMsgID.Valid {
+			msgID := int(notificationMsgID.Int64)
+			ws.NotificationMessageID = &msgID
+		}
+		if notes.Valid {
+			ws.Notes = notes.String
+		}
+
+		sessions = append(sessions, ws)
+	}
+	return sessions, nil
+}

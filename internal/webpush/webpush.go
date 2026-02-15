@@ -115,11 +115,14 @@ func (s *Service) SendLowStockNotification(ctx context.Context, userID int64, me
 
 func (s *Service) SendWorkoutNotification(ctx context.Context, userID int64, session *store.WorkoutSession, group *store.WorkoutGroup, variant *store.WorkoutVariant) error {
 	if s.vapidPublicKey == "" || s.vapidPrivateKey == "" {
+		log.Printf("WebPush: Skipping workout notification (VAPID not configured) for user %d, session %d", userID, session.ID)
 		return nil
 	}
 
 	title := "Time to Workout!"
 	body := fmt.Sprintf("%s - %s", group.Name, variant.Name)
+
+	log.Printf("WebPush: Preparing workout notification for user %d, session %d: %s", userID, session.ID, body)
 
 	payload := NotificationPayload{
 		Title: title,
@@ -139,7 +142,14 @@ func (s *Service) SendWorkoutNotification(ctx context.Context, userID int64, ses
 		},
 	}
 
-	return s.sendToUser(userID, payload)
+	err := s.sendToUser(userID, payload)
+	if err != nil {
+		log.Printf("WebPush: Error sending workout notification for user %d, session %d: %v", userID, session.ID, err)
+		return err
+	}
+
+	log.Printf("WebPush: Successfully sent workout notification for user %d, session %d", userID, session.ID)
+	return nil
 }
 
 func (s *Service) SendBPReminderNotification(ctx context.Context, userID int64, enhanced bool) error {
