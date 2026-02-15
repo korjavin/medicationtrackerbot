@@ -300,6 +300,15 @@ func (m *deployModel) executeTask(name string) error {
 			"https://"+m.state.Config.PocketID.Domain,
 			m.state.Secrets.PocketIDAPIKey,
 		)
+
+		// First wait for local container to be up
+		m.log("Waiting for container to be ready on port 1411...\n")
+		if err := waitForHTTP(ctx, "http://127.0.0.1:1411/health", 60*time.Second); err != nil {
+			m.log(fmt.Sprintf("Warning: local health check failed: %v\n", err))
+		} else {
+			m.log("Container is running locally.\n")
+		}
+
 		m.log(fmt.Sprintf("Polling https://%s/health...\n", m.state.Config.PocketID.Domain))
 		return client.WaitForReady(ctx, 120*time.Second)
 
@@ -486,27 +495,34 @@ func (m *deployModel) verifyServices(ctx context.Context) error {
 }
 
 func waitForHTTP(ctx context.Context, url string, timeout time.Duration) error {
-	client := &http.Client{Timeout: 5 * time.Second}
-	deadline := time.Now().Add(timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-	for time.Now().Before(deadline) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			return err
-		}
-		resp, err := client.Do(req)
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode < 500 {
-				return nil
-			}
-		}
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
 
+	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(2 * time.Second):
+		case <-ticker.C:
+			// Use a short timeout for the check itself
+			checkCtx, checkCancel := context.WithTimeout(ctx, 3*time.Second)
+			req, err := http.NewRequestWithContext(checkCtx, "GET", url, nil)
+			if err != nil {
+				checkCancel()
+				continue
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			checkCancel()
+
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					return nil
+				}
+			}
 		}
 	}
-	return fmt.Errorf("timed out after %v", timeout)
 }
