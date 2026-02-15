@@ -261,3 +261,45 @@ func (s *Service) sendToSubscription(sub store.PushSubscription, payload []byte)
 		}
 	}
 }
+
+// SendEarlyIntakeConfirmation sends a confirmation notification when user takes medication early
+func (s *Service) SendEarlyIntakeConfirmation(ctx context.Context, userID int64, meds []store.Medication, scheduledTime, takenTime time.Time, intakeIDs []int64) error {
+	if s.vapidPublicKey == "" || s.vapidPrivateKey == "" {
+		return nil // Web push disabled
+	}
+
+	medNames := make([]string, len(meds))
+	medIDs := make([]int64, len(meds))
+	for i, m := range meds {
+		name := m.Name
+		if m.Dosage != "" {
+			name += " " + m.Dosage
+		}
+		medNames[i] = name
+		medIDs[i] = m.ID
+	}
+
+	title := "✅ Medication taken early"
+	body := fmt.Sprintf("%s (scheduled for %s)", strings.Join(medNames, ", "), scheduledTime.Format("15:04"))
+
+	payload := NotificationPayload{
+		Title: title,
+		Body:  body,
+		Icon:  "/static/android-chrome-192x192.png",
+		Badge: "/static/android-chrome-192x192.png",
+		Tag:   fmt.Sprintf("medication-early-%s", scheduledTime.Format(time.RFC3339)),
+		Data: map[string]interface{}{
+			"type":             "medication_early_confirmed",
+			"scheduled_at":     scheduledTime.Format(time.RFC3339),
+			"taken_at":         takenTime.Format(time.RFC3339),
+			"medication_ids":   medIDs,
+			"medication_names": medNames,
+			"intake_ids":       intakeIDs,
+		},
+		Actions: []NotificationAction{
+			{Action: "cancel_intake", Title: "Cancel (Undo)"},
+		},
+	}
+
+	return s.sendToUser(userID, payload)
+}
