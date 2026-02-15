@@ -16,15 +16,32 @@ let currentVariantForExercise = null;
 // ====================================
 
 function switchWorkoutTab(tab) {
-    document.querySelectorAll('.workout-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.workout-tab-content').forEach(c => c.classList.remove('active'));
+    // Update tab buttons
+    document.querySelectorAll('.workout-tab').forEach(t => {
+        t.classList.remove('active');
+        t.style.borderBottom = 'none';
+    });
 
-    document.querySelector(`.workout-tab[data-tab="${tab}"]`).classList.add('active');
-    document.getElementById(`workout-${tab}-tab`).classList.add('active');
+    // Update content
+    document.querySelectorAll('.workout-tab-content').forEach(c => c.style.display = 'none');
 
-    if (tab === 'groups') { loadNextWorkout(); loadWorkoutGroups(); }
-    else if (tab === 'history') { loadWorkoutHistoryTab(); }
-    else if (tab === 'stats') { loadWorkoutStatsTab(); }
+    if (tab === 'groups') {
+        document.querySelector('.workout-tab[onclick*="groups"]').classList.add('active');
+        document.querySelector('.workout-tab[onclick*="groups"]').style.borderBottom = '3px solid #667eea';
+        document.getElementById('workout-groups-tab').style.display = 'block';
+        loadNextWorkout();
+        loadWorkoutGroups();
+    } else if (tab === 'history') {
+        document.querySelector('.workout-tab[onclick*="history"]').classList.add('active');
+        document.querySelector('.workout-tab[onclick*="history"]').style.borderBottom = '3px solid #667eea';
+        document.getElementById('workout-history-tab').style.display = 'block';
+        loadWorkoutHistoryTab();
+    } else if (tab === 'stats') {
+        document.querySelector('.workout-tab[onclick*="stats"]').classList.add('active');
+        document.querySelector('.workout-tab[onclick*="stats"]').style.borderBottom = '3px solid #667eea';
+        document.getElementById('workout-stats-tab').style.display = 'block';
+        loadWorkoutStatsTab();
+    }
 }
 
 // Main load function called when switching to workouts tab
