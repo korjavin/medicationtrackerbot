@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -35,16 +36,31 @@ const (
 
 // deployModel is the Bubble Tea model for the deployment screen.
 type deployModel struct {
-	tasks   []deployTask
-	current int
-	done    bool
-	err     error
-	state   *config.InstallerState
-	runtime *docker.Runtime
+	tasks    []deployTask
+	current  int
+	done     bool
+	err      error
+	state    *config.InstallerState
+	runtime  *docker.Runtime
+	viewport viewport.Model
+	showLogs bool
+	width    int
+	height   int
 }
 
 type taskCompleteMsg struct {
 	err error
+}
+
+type logMsg string
+
+type logWriter struct {
+	program *tea.Program
+}
+
+func (w *logWriter) Write(p []byte) (n int, err error) {
+	w.program.Send(logMsg(string(p)))
+	return len(p), nil
 }
 
 func runDeploy(state *config.InstallerState, rt *docker.Runtime) error {
@@ -57,6 +73,11 @@ func runDeploy(state *config.InstallerState, rt *docker.Runtime) error {
 	}
 
 	p := tea.NewProgram(m)
+
+	// Set up log redirection
+	rt.Stdout = &logWriter{program: p}
+	rt.Stderr = &logWriter{program: p}
+
 	finalModel, err := p.Run()
 	if err != nil {
 		return fmt.Errorf("deploy TUI: %w", err)
@@ -118,11 +139,40 @@ func (m *deployModel) Init() tea.Cmd {
 }
 
 func (m *deployModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
-			return m, tea.Quit
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		if !m.showLogs {
+			m.viewport = viewport.New(msg.Width-4, 10)
+		} else {
+			m.viewport.Width = msg.Width - 4
+			m.viewport.Height = msg.Height - len(m.tasks) - 6
 		}
+
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "l":
+			m.showLogs = !m.showLogs
+			if m.showLogs {
+				m.viewport.Height = m.height - len(m.tasks) - 6
+			}
+		}
+
+		if m.showLogs {
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
+		}
+
+	case logMsg:
+		m.viewport.SetContent(m.viewport.View() + string(msg))
+		m.viewport.GotoBottom()
+
 	case taskCompleteMsg:
 		if msg.err != nil {
 			m.tasks[m.current].status = taskFailed
@@ -142,7 +192,7 @@ func (m *deployModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, m.runCurrentTask()
 	}
-	return m, nil
+	return m, tea.Batch(cmds...)
 }
 
 func (m *deployModel) View() string {
@@ -169,17 +219,23 @@ func (m *deployModel) View() string {
 			line += "\n     " + ui.ErrorStyle.Render(t.err.Error())
 		}
 		b.WriteString(line)
-		if i < len(m.tasks)-1 {
-			b.WriteString("\n")
-		}
+		b.WriteString("\n")
+		_ = i
+	}
+
+	if m.showLogs {
+		b.WriteString("\n")
+		b.WriteString(ui.BoxStyle.Width(m.width - 4).Render(m.viewport.View()))
+		b.WriteString("\n")
 	}
 
 	if m.done && m.err == nil {
-		b.WriteString("\n\n")
+		b.WriteString("\n")
 		b.WriteString(ui.SuccessStyle.Render("All services deployed successfully!"))
 	}
 
 	b.WriteString("\n")
+	b.WriteString(ui.SubtitleStyle.Render("Press 'l' to toggle logs • ctrl+c to quit"))
 	return b.String()
 }
 

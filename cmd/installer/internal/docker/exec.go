@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -17,8 +18,17 @@ func (rt *Runtime) Compose(ctx context.Context, dir string, args ...string) (str
 	cmd.Env = append(os.Environ(), "COMPOSE_PROJECT_NAME=medtracker")
 
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	if rt.Stdout != nil {
+		cmd.Stdout = io.MultiWriter(&stdout, rt.Stdout)
+	} else {
+		cmd.Stdout = &stdout
+	}
+
+	if rt.Stderr != nil {
+		cmd.Stderr = io.MultiWriter(&stderr, rt.Stderr)
+	} else {
+		cmd.Stderr = &stderr
+	}
 
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("%s: %s", err, strings.TrimSpace(stderr.String()))

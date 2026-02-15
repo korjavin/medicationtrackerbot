@@ -2,6 +2,7 @@ package docker
 
 import (
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 )
@@ -13,6 +14,8 @@ type Runtime struct {
 	SocketPath     string
 	Version        string
 	ComposeVersion string
+	Stdout         io.Writer
+	Stderr         io.Writer
 }
 
 // Detect finds an available container runtime (Docker or Podman).
