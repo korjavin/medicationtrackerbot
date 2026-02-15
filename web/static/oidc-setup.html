@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OIDC Setup</title>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --text: #0f172a;
+            --muted: #64748b;
+            --card: #f8fafc;
+            --border: #e2e8f0;
+            --primary: #111827;
+            --primary-text: #ffffff;
+        }
+        body {
+            margin: 0;
+            padding: 24px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        h1 { margin: 0 0 8px; font-size: 24px; }
+        p { color: var(--muted); }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 16px;
+            margin-top: 20px;
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .row:last-child { border-bottom: none; }
+        .label { font-weight: 600; }
+        .value { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 13px; }
+        button {
+            padding: 6px 10px;
+            background: var(--primary);
+            color: var(--primary-text);
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .note {
+            margin-top: 12px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Pocket-ID / OIDC Setup</h1>
+    <p>Use these values when creating OIDC clients.</p>
+
+    <div class="grid">
+        <div class="card">
+            <div class="row">
+                <div>
+                    <div class="label">Web Login Redirect URL</div>
+                    <div class="value" id="web-redirect">https://APP_DOMAIN_PLACEHOLDER/auth/oidc/callback</div>
+                </div>
+                <button data-copy="web-redirect">Copy</button>
+            </div>
+            <div class="row">
+                <div>
+                    <div class="label">OIDC Issuer URL</div>
+                    <div class="value" id="issuer-url">https://POCKET_ID_DOMAIN_PLACEHOLDER</div>
+                </div>
+                <button data-copy="issuer-url">Copy</button>
+            </div>
+            <div class="note">Restrict access by email or by subject (`sub`).</div>
+        </div>
+
+        <div class="card">
+            <div class="row">
+                <div>
+                    <div class="label">Claude MCP Redirect URI (claude.ai)</div>
+                    <div class="value" id="mcp-redirect-ai">https://claude.ai/api/mcp/auth_callback</div>
+                </div>
+                <button data-copy="mcp-redirect-ai">Copy</button>
+            </div>
+            <div class="row">
+                <div>
+                    <div class="label">Claude MCP Redirect URI (claude.com)</div>
+                    <div class="value" id="mcp-redirect-com">https://claude.com/api/mcp/auth_callback</div>
+                </div>
+                <button data-copy="mcp-redirect-com">Copy</button>
+            </div>
+            <div class="row">
+                <div>
+                    <div class="label">MCP Server URL</div>
+                    <div class="value" id="mcp-url">https://MCP_DOMAIN_PLACEHOLDER</div>
+                </div>
+                <button data-copy="mcp-url">Copy</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.querySelectorAll('button[data-copy]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const id = btn.getAttribute('data-copy');
+                const el = document.getElementById(id);
+                if (!el) return;
+                const text = el.textContent.trim();
+                navigator.clipboard.writeText(text).then(() => {
+                    const old = btn.textContent;
+                    btn.textContent = 'Copied';
+                    setTimeout(() => { btn.textContent = old; }, 1200);
+                });
+            });
+        });
+    </script>
+</body>
+</html>
