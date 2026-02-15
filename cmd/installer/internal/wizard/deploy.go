@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -293,6 +294,34 @@ func (m *deployModel) executeTask(name string) error {
 			return err
 		}
 		m.state.Deploy.PocketIDStarted = true
+		return nil
+
+	case "Verify network connectivity":
+		// Ensure pocket-id is connected to traefik_proxy
+		// Sometimes docker compose fails to attach external networks correctly
+		m.log("Checking network connectivity for medtracker-pocket-id...\n")
+		networkName := "traefik_proxy"
+		if !m.state.Config.Features.Traefik && m.state.Config.Traefik.ExternalNetwork != "" {
+			networkName = m.state.Config.Traefik.ExternalNetwork
+		}
+
+		// Check if connected
+		checkCmd := exec.CommandContext(ctx, rt.Command, "inspect", "medtracker-pocket-id", "--format", fmt.Sprintf("{{.NetworkSettings.Networks.%s}}", networkName))
+		out, err := checkCmd.Output()
+		if err != nil || strings.TrimSpace(string(out)) == "<no value>" || string(out) == "null" {
+			m.log(fmt.Sprintf("Connecting medtracker-pocket-id to %s...\n", networkName))
+			connectCmd := exec.CommandContext(ctx, rt.Command, "network", "connect", networkName, "medtracker-pocket-id")
+			if out, err := connectCmd.CombinedOutput(); err != nil {
+				// Ignore if already connected (race condition or check failure)
+				if !strings.Contains(string(out), "already exists") {
+					m.log(fmt.Sprintf("Warning: failed to connect network: %v, output: %s\n", err, string(out)))
+				}
+			} else {
+				m.log(fmt.Sprintf("Connected to %s\n", networkName))
+			}
+		} else {
+			m.log(fmt.Sprintf("Already connected to %s\n", networkName))
+		}
 		return nil
 
 	case "Wait for Pocket-ID to be ready":
