@@ -105,6 +105,7 @@ func buildDeployTasks(state *config.InstallerState) []deployTask {
 	if state.Config.Features.PocketID {
 		tasks = append(tasks,
 			deployTask{name: "Start Pocket-ID"},
+			deployTask{name: "Verify network connectivity"},
 			deployTask{name: "Wait for Pocket-ID to be ready"},
 			deployTask{name: "Create Pocket-ID admin user"},
 			deployTask{name: "Create OIDC client for MedTracker"},
