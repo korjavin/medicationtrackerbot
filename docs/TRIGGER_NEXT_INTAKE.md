@@ -10,54 +10,43 @@ Added a "Take Now" button in the medication history section that allows users to
 ### Backend Changes
 
 **File: `/internal/server/medication_handlers.go`**
-- Added `handleTriggerNextIntake()` function that:
-  1. Finds the next scheduled intake across all active medications
-  2. Looks for the earliest upcoming scheduled time
-  3. Either confirms an existing pending intake OR creates a new intake log
-  4. Marks the intake as taken at the current time (not the scheduled time)
-  5. Deletes any pending Telegram reminder messages
-  6. Decrements medication inventory
-  7. **Sends confirmation notification** (web push + Telegram)
-  8. Returns confirmation with medication names and times
-
-**File: `/internal/server/cancel_intake_handler.go`** (New)
-- Added `handleCancelIntake()` function that:
-  1. Accepts a list of intake IDs to cancel
-  2. Verifies ownership and current status (must be TAKEN)
-  3. Reverts intake status from TAKEN back to PENDING
-  4. Increments inventory (undoing the decrement)
-  5. Returns confirmation of cancellation
-  - **Important**: This allows the scheduled notification to still fire!
+- Added `handleTriggerNextIntake()` function:
+  - logic same as before but checks **next 12 hours**
+- Added `handleGetNextIntake()` function:
+  - Returns the next scheduled intake for the UI
+  - Filters out already TAKEN/SKIPPED intakes
+  - Returns 204 No Content if nothing found
 
 **File: `/internal/server/server.go`**
 - Registered new endpoints:
   - `POST /api/medications/trigger-next-intake`
+  - `GET /api/medications/next-intake`
   - `POST /api/medications/cancel-intake`
-
-**File: `/internal/webpush/webpush.go`**
-- Added `SendEarlyIntakeConfirmation()` function that:
-  1. Sends web push notification with "✅ Medication taken early" title
-  2. Shows scheduled vs actual time in the notification body
-  3. Includes a "Cancel (Undo)" action button
-  4. Passes intake IDs for cancellation functionality
 
 ### Frontend Changes
 
 **File: `/web/static/index.html`**
-- Added `<div id="next-intake-trigger">` container in the history tab to display the next intake button
+- Added `<div id="next-intake-trigger">` container
 
 **File: `/web/static/js/app.js`**
-- **`renderNextIntakeTrigger()`**: Calculates and displays the next scheduled intake with a "Take Now" button
-  - Shows medication names and scheduled time
-  - Beautiful gradient purple button for visual appeal
-  - Automatically hidden if no upcoming intakes
+- **`renderNextIntakeTrigger()`**: 
+  - Calls `GET /api/medications/next-intake`
+  - Renders the card if API returns data
+  - Shows "Take Now" button
   
-- **`triggerNextIntake()`**: Handles the button click
-  - Calls the backend API to confirm the intake
-  - Shows success message with details
-  - Refreshes the history view to show the newly taken medication
+- **`triggerNextIntake()`**:
+  - Calls `POST /api/medications/trigger-next-intake`
+  - Reloads history on success
 
-- **Modified `loadHistory()`**: Now also calls `renderNextIntakeTrigger()` to keep the button updated
+### Telegram Bot
+- Added `/next` command to trigger the notification flow manually
+
+## User Experience
+
+1. **Visual Display**:
+   - Checks next 12 hours only
+   - Uses backend logic for consistency
+   - Shows "Next scheduled intake" card
 
 **File: `/web/static/sw.js`**
 - Added handling for `medication_early_confirmed` notification type

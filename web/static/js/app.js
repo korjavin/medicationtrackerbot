@@ -1229,86 +1229,41 @@ async function renderNextIntakeTrigger() {
     const container = document.getElementById('next-intake-trigger');
     if (!container) return;
 
-    // Calculate next scheduled intake locally to show in UI
-    const now = new Date();
-    let nextTime = null;
-    let nextMedNames = [];
+    try {
+        // Use backend to calculate next intake
+        const res = await apiCall('/api/medications/next-intake', 'GET');
 
-    medications.forEach(m => {
-        if (m.archived) return;
-
-        try {
-            const sched = JSON.parse(m.schedule);
-            if (sched.type === 'as_needed') return;
-
-            // Check next 2 days
-            for (let daysAhead = 0; daysAhead < 2; daysAhead++) {
-                const checkDay = new Date(now);
-                checkDay.setDate(now.getDate() + daysAhead);
-
-                // If weekly, check day of week
-                if (sched.type === 'weekly') {
-                    const dayIdx = checkDay.getDay();
-                    if (!sched.days || !sched.days.includes(dayIdx)) {
-                        continue;
-                    }
-                }
-
-                // Check each time in the schedule
-                if (sched.times) {
-                    sched.times.forEach(timeStr => {
-                        const [hour, min] = timeStr.split(':').map(Number);
-                        const target = new Date(checkDay);
-                        target.setHours(hour, min, 0, 0);
-
-                        // Skip past times
-                        if (target < now) return;
-
-                        // Check start/end dates
-                        if (m.start_date && target < new Date(m.start_date)) return;
-                        if (m.end_date && target > new Date(m.end_date)) return;
-
-                        // Is this the earliest?
-                        if (!nextTime || target < nextTime) {
-                            nextTime = target;
-                            nextMedNames = [m.name];
-                        } else if (target.getTime() === nextTime.getTime()) {
-                            nextMedNames.push(m.name);
-                        }
-                    });
-                }
-            }
-        } catch (e) {
-            console.error('Error parsing schedule for med', m.name, e);
+        if (!res || !res.scheduled_at) {
+            container.innerHTML = '';
+            return;
         }
-    });
 
-    if (!nextTime || nextMedNames.length === 0) {
-        container.innerHTML = '';
-        return;
-    }
+        const nextTime = new Date(res.scheduled_at);
+        const medNamesStr = res.medication_names.join(', ');
 
-    // Format the next time
-    const timeStr = nextTime.toLocaleString('de-DE', {
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+        // Format the next time
+        const timeStr = nextTime.toLocaleString('de-DE', {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
 
-    const medNamesStr = nextMedNames.join(', ');
-
-    container.innerHTML = `
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <div style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">Next scheduled intake</div>
-                <div style="font-size: 12px; opacity: 0.9;">${escapeHtml(medNamesStr)} at ${timeStr}</div>
+        container.innerHTML = `
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">Next scheduled intake</div>
+                    <div style="font-size: 12px; opacity: 0.9;">${escapeHtml(medNamesStr)} at ${timeStr}</div>
+                </div>
+                <button onclick="triggerNextIntake()" style="background: rgba(255,255,255,0.25); color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; white-space: nowrap;">
+                    Take Now
+                </button>
             </div>
-            <button onclick="triggerNextIntake()" style="background: rgba(255,255,255,0.25); color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; white-space: nowrap;">
-                Take Now
-            </button>
-        </div>
-    `;
+        `;
+    } catch (e) {
+        console.error("Error fetching next intake:", e);
+        container.innerHTML = '';
+    }
 }
 
 async function triggerNextIntake() {
@@ -1319,9 +1274,8 @@ async function triggerNextIntake() {
             const medNamesStr = res.medication_names ? res.medication_names.join(', ') : `${res.medication_count} medication(s)`;
             safeAlert(`✅ Confirmed: ${medNamesStr}\n\nScheduled for: ${formatDate(res.scheduled_at)}\nTaken at: ${formatDate(res.taken_at)}`);
 
-            // Reload history and next intake display
-            loadHistory();
-            loadMeds(); // Update medication list if needed
+            // Reload history which will also recalculate the next intake trigger
+            await loadHistory();
         }
     } catch (error) {
         console.error('Error triggering next intake:', error);

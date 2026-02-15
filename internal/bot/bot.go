@@ -95,6 +95,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 **Medication Commands:**
 /start - Start the bot and open the Mini App
 /log - Manually log a dose for any medication (useful for "As Needed" meds)
+/next - Trigger notification for next scheduled medication (with cancel option)
 /stock - View medication inventory status
 /download - Export medication, blood pressure, and weight history to CSV
 
@@ -193,6 +194,8 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		b.handleWorkoutStatusCommand(&msgConfig)
 	case "workouthistory":
 		b.handleWorkoutHistoryCommand(&msgConfig)
+	case "next":
+		b.handleNextIntakeCommand(&msgConfig)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}
@@ -1175,4 +1178,142 @@ func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
 
 	msgConfig.Text = sb.String()
 	msgConfig.ParseMode = "Markdown"
+}
+
+// handleNextIntakeCommand sends a notification for the next scheduled medication with confirm/cancel buttons
+func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
+	// Get all active medications
+	meds, err := b.store.ListMedications(false)
+	if err != nil {
+		msgConfig.Text = "❌ Error fetching medications."
+		return
+	}
+
+	now := time.Now()
+	var nextTime time.Time
+	var nextMeds []store.Medication
+
+	// Find the next scheduled intake (within 12 hours)
+	for _, med := range meds {
+		cfg, err := med.ValidSchedule()
+		if err != nil || cfg.Type == "as_needed" {
+			continue
+		}
+
+		// Check today and tomorrow
+		for daysAhead := 0; daysAhead < 1; daysAhead++ {
+			checkDay := now.AddDate(0, 0, daysAhead)
+
+			// If "weekly", check day
+			if cfg.Type == "weekly" {
+				dayIdx := int(checkDay.Weekday())
+				found := false
+				for _, d := range cfg.Days {
+					if d == dayIdx {
+						found = true
+						break
+					}
+				}
+				if !found {
+					continue
+				}
+			}
+
+			// Iterate over times
+			for _, timeStr := range cfg.Times {
+				if len(timeStr) != 5 {
+					continue
+				}
+				var hour, minute int
+				fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
+
+				target := time.Date(checkDay.Year(), checkDay.Month(), checkDay.Day(), hour, minute, 0, 0, now.Location())
+
+				// Skip if in the past
+				if target.Before(now) {
+					continue
+				}
+
+				// Skip if more than 12 hours in the future
+				if target.Sub(now) > 12*time.Hour {
+					continue
+				}
+
+				// Check Start/End Dates
+				if med.StartDate != nil && target.Before(*med.StartDate) {
+					continue
+				}
+				if med.EndDate != nil && target.After(*med.EndDate) {
+					continue
+				}
+
+				// Is this the earliest we've found?
+				if nextTime.IsZero() || target.Before(nextTime) {
+					nextTime = target
+					nextMeds = []store.Medication{med}
+				} else if target.Equal(nextTime) {
+					nextMeds = append(nextMeds, med)
+				}
+			}
+		}
+	}
+
+	if len(nextMeds) == 0 {
+		msgConfig.Text = "No upcoming scheduled medications found (within next 12 hours)."
+		return
+	}
+
+	// Create or find existing pending intakes for this schedule
+	var intakeIDs []int64
+	for _, med := range nextMeds {
+		intake, _ := b.store.GetIntakeBySchedule(med.ID, nextTime)
+		if intake == nil {
+			// Create pending intake
+			id, err := b.store.CreateIntake(med.ID, b.allowedUserID, nextTime)
+			if err != nil {
+				log.Printf("Error creating intake for /next command: %v", err)
+				continue
+			}
+			intakeIDs = append(intakeIDs, id)
+		} else if intake.Status == "PENDING" {
+			intakeIDs = append(intakeIDs, intake.ID)
+		}
+	}
+
+	if len(intakeIDs) == 0 {
+		msgConfig.Text = "⚠️ All upcoming medications already taken or no pending intakes found."
+		return
+	}
+
+	// Send a group notification with confirm buttons
+	var sb string
+	sb = fmt.Sprintf("💊 Your next scheduled medications (%s):\n\n", nextTime.Format("15:04"))
+	for _, m := range nextMeds {
+		if m.Dosage != "" {
+			sb += fmt.Sprintf("- %s (%s)\n", m.Name, m.Dosage)
+		} else {
+			sb += fmt.Sprintf("- %s\n", m.Name)
+		}
+	}
+
+	msg := tgbotapi.NewMessage(b.allowedUserID, sb)
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+
+	// Individual confirm buttons
+	for _, m := range nextMeds {
+		data := "confirm:" + strconv.FormatInt(m.ID, 10)
+		btn := tgbotapi.NewInlineKeyboardButtonData("Take "+m.Name, data)
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(btn))
+	}
+
+	// Confirm All Button
+	data := "confirm_schedule:" + strconv.FormatInt(nextTime.Unix(), 10)
+	btn := tgbotapi.NewInlineKeyboardButtonData("✅✅ Confirm ALL", data)
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(btn))
+
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	b.api.Send(msg)
+	msgConfig.Text = "" // Don't send the original message config
 }
