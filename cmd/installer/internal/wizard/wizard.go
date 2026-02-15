@@ -247,6 +247,14 @@ func (w *Wizard) stepDNS() error {
 }
 
 func (w *Wizard) stepDeploy() error {
+	// Regenerate docker-compose.yml to pick up any template updates
+	// This is important when resuming from a previous installation
+	fmt.Printf("\n%s  Regenerating configuration files...\n", ui.Spinner)
+	if err := w.generateFiles(false); err != nil {
+		return fmt.Errorf("regenerate files: %w", err)
+	}
+	fmt.Printf("%s  Configuration files updated\n", ui.CheckMark)
+
 	return runDeploy(w.state, w.runtime)
 }
 
