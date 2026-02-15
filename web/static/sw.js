@@ -45,6 +45,7 @@ self.addEventListener('install', (event) => {
                         );
                     });
             })
+            .then(() => self.skipWaiting())
             .catch((err) => {
                 console.error('[SW] Failed to cache static assets:', err);
             })

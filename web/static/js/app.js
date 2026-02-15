@@ -448,30 +448,46 @@ function switchTab(tab) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
 
-    document.querySelector(`.tab[data-tab="${tab}"]`).classList.add('active');
-    document.getElementById(`${tab}-view`).classList.add('active');
-
     if (tab === 'meds') {
+        document.querySelector('button[onclick="switchTab(\'meds\')"]').classList.add('active');
+        document.getElementById('meds-view').classList.add('active');
+        // Default to loading schedule tab if not set
         if (!document.querySelector('.med-tab.active')) {
-            switchMedTab('history');
+            switchMedTab('schedule');
         } else {
-            reloadCurrentTab();
+            reloadCurrentTab(); // Reload current med tab
         }
-    } else if (tab === 'bp') { loadBPReadings(); }
-    else if (tab === 'weight') { loadWeightLogs(); }
-    else if (tab === 'workouts') { loadWorkouts(); }
-    else if (tab === 'settings') { loadSettings(); }
+    } else if (tab === 'bp') {
+        document.querySelector('button[onclick="switchTab(\'bp\')"]').classList.add('active');
+        document.getElementById('bp-view').classList.add('active');
+        loadBPReadings();
+    } else if (tab === 'weight') {
+        document.querySelector('button[onclick="switchTab(\'weight\')"]').classList.add('active');
+        document.getElementById('weight-view').classList.add('active');
+        loadWeightLogs();
+    } else if (tab === 'workouts') {
+        document.querySelector('button[onclick="switchTab(\'workouts\')"]').classList.add('active');
+        document.getElementById('workouts-view').classList.add('active');
+        loadWorkouts();
+    } else if (tab === 'settings') {
+        document.querySelector('button[onclick="switchTab(\'settings\')"]').classList.add('active');
+        document.getElementById('settings-view').classList.add('active');
+        loadSettings();
+    }
 }
 
 function switchMedTab(tab) {
     document.querySelectorAll('.med-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.med-tab-content').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.med-tab-content').forEach(c => c.style.display = 'none');
 
-    document.querySelector(`.med-tab[data-tab="${tab}"]`).classList.add('active');
-    document.getElementById(`med-${tab}-tab`).classList.add('active');
+    document.querySelector(`button[onclick="switchMedTab('${tab}')"]`).classList.add('active');
+    document.getElementById(`med-${tab}-tab`).style.display = 'block';
 
-    if (tab === 'schedule') { loadMeds(); }
-    else if (tab === 'history') { loadHistory(); }
+    if (tab === 'schedule') {
+        loadMeds();
+    } else if (tab === 'history') {
+        loadHistory();
+    }
 }
 
 // Load settings (BP reminders status, etc.)
@@ -494,15 +510,25 @@ function reloadCurrentTab() {
     const activeTab = document.querySelector('.tab.active');
     if (!activeTab) return;
 
-    const tab = activeTab.dataset.tab;
-    if (tab === 'meds') {
+    const tabText = activeTab.textContent.trim();
+    if (tabText.includes('Medications')) {
         const activeMedTab = document.querySelector('.med-tab.active');
-        const medTab = activeMedTab ? activeMedTab.dataset.tab : 'history';
-        if (medTab === 'schedule') { loadMeds(); }
-        else { loadHistory(); }
-    } else if (tab === 'bp') { loadBPReadings(); }
-    else if (tab === 'weight') { loadWeightLogs(); }
-    else if (tab === 'workouts') { loadWorkouts(); }
+        if (activeMedTab) {
+            if (activeMedTab.textContent.trim().includes('Schedule')) {
+                loadMeds();
+            } else {
+                loadHistory();
+            }
+        } else {
+            loadMeds();
+        }
+    } else if (tabText.includes('Blood Pressure')) {
+        loadBPReadings();
+    } else if (tabText.includes('Weight')) {
+        loadWeightLogs();
+    } else if (tabText.includes('Workouts')) {
+        loadWorkouts();
+    }
 }
 
 // Expose for sync manager
