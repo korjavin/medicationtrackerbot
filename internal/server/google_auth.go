@@ -131,8 +131,8 @@ func (s *Server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		Value:    sessionValue,
 		Expires:  time.Now().Add(24 * time.Hour * 30), // 30 days
 		HttpOnly: true,
-		Secure:   true,                    // Only send over HTTPS
-		SameSite: http.SameSiteLaxMode,    // CSRF protection
+		Secure:   true,                 // Only send over HTTPS
+		SameSite: http.SameSiteLaxMode, // CSRF protection
 		Path:     "/",
 	})
 

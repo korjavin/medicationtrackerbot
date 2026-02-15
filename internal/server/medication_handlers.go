@@ -278,8 +278,8 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 
-		// Check next 2 days for the earliest occurrence
-		for daysAhead := 0; daysAhead < 2; daysAhead++ {
+		// Check next 12 hours for the earliest occurrence (0.5 days)
+		for daysAhead := 0; daysAhead < 1; daysAhead++ {
 			checkDay := now.AddDate(0, 0, daysAhead)
 
 			// If "weekly", check day
@@ -309,6 +309,11 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 
 				// Skip if in the past
 				if target.Before(now) {
+					continue
+				}
+
+				// Skip if more than 12 hours in the future
+				if target.Sub(now) > 12*time.Hour {
 					continue
 				}
 
@@ -418,6 +423,108 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 		"scheduled_at":     nextTime.Format(time.RFC3339),
 		"taken_at":         now.Format(time.RFC3339),
 		"medication_count": confirmedCount,
+		"medication_names": medNames,
+	})
+}
+
+// handleGetNextIntake returns the next scheduled intake for the UI
+func (s *Server) handleGetNextIntake(w http.ResponseWriter, r *http.Request) {
+	// Get all active medications
+	meds, err := s.store.ListMedications(false)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	now := time.Now()
+	var nextTime time.Time
+	var nextMeds []store.Medication
+
+	// Find the next scheduled intake
+	for _, med := range meds {
+		cfg, err := med.ValidSchedule()
+		if err != nil || cfg.Type == "as_needed" {
+			continue
+		}
+
+		// Check next 12 hours (same as trigger logic)
+		for daysAhead := 0; daysAhead < 1; daysAhead++ {
+			checkDay := now.AddDate(0, 0, daysAhead)
+
+			// If "weekly", check day
+			if cfg.Type == "weekly" {
+				found := false
+				dayIdx := int(checkDay.Weekday())
+				for _, d := range cfg.Days {
+					if d == dayIdx {
+						found = true
+						break
+					}
+				}
+				if !found {
+					continue
+				}
+			}
+
+			// Iterate over times
+			for _, timeStr := range cfg.Times {
+				if len(timeStr) != 5 {
+					continue
+				}
+				var hour, minute int
+				fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
+
+				target := time.Date(checkDay.Year(), checkDay.Month(), checkDay.Day(), hour, minute, 0, 0, now.Location())
+
+				// Skip if in the past
+				if target.Before(now) {
+					continue
+				}
+
+				// Skip if more than 12 hours in the future
+				if target.Sub(now) > 12*time.Hour {
+					continue
+				}
+
+				// Check Start/End Dates
+				if med.StartDate != nil && target.Before(*med.StartDate) {
+					continue
+				}
+				if med.EndDate != nil && target.After(*med.EndDate) {
+					continue
+				}
+
+				// Check if already taken
+				intake, _ := s.store.GetIntakeBySchedule(med.ID, target)
+				if intake != nil && (intake.Status == "TAKEN" || intake.Status == "SKIPPED") {
+					continue
+				}
+
+				// Is this the earliest we've found?
+				if nextTime.IsZero() || target.Before(nextTime) {
+					nextTime = target
+					nextMeds = []store.Medication{med}
+				} else if target.Equal(nextTime) {
+					nextMeds = append(nextMeds, med)
+				}
+			}
+		}
+	}
+
+	if len(nextMeds) == 0 {
+		// Return 204 No Content if nothing found
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	medNames := make([]string, len(nextMeds))
+	for i, m := range nextMeds {
+		medNames[i] = m.Name
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"scheduled_at":     nextTime.Format(time.RFC3339),
 		"medication_names": medNames,
 	})
 }
