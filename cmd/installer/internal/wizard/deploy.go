@@ -300,7 +300,7 @@ func (m *deployModel) executeTask(name string) error {
 			"https://"+m.state.Config.PocketID.Domain,
 			m.state.Secrets.PocketIDAPIKey,
 		)
-		m.log(fmt.Sprintf("Polling %s/health...\n", client.BaseURL))
+		m.log(fmt.Sprintf("Polling https://%s/health...\n", m.state.Config.PocketID.Domain))
 		return client.WaitForReady(ctx, 120*time.Second)
 
 	case "Create Pocket-ID admin user":
