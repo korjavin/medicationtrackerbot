@@ -106,6 +106,8 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/medications/{id}", s.handleUpdateMedication)
 	apiMux.HandleFunc("DELETE /api/medications/{id}", s.handleDeleteMedication)
 	apiMux.HandleFunc("GET /api/history", s.handleListHistory)
+	apiMux.HandleFunc("POST /api/medications/trigger-next-intake", s.handleTriggerNextIntake)
+	apiMux.HandleFunc("POST /api/medications/cancel-intake", s.handleCancelIntake)
 
 	// Blood Pressure endpoints
 	apiMux.HandleFunc("POST /api/bp", s.handleCreateBloodPressure)

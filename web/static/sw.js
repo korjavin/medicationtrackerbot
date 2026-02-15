@@ -324,10 +324,50 @@ self.addEventListener('notificationclick', (event) => {
             // Body click -> Open weight tab
             event.waitUntil(clients.openWindow('/?tab=weight'));
         }
+    } else if (data.type === 'medication_early_confirmed') {
+        // User took medication early and got a confirmation notification
+        if (action === 'cancel_intake') {
+            // Cancel/undo the early intake
+            event.waitUntil(handleCancelIntake(data));
+        } else {
+            // Body click -> Open history tab
+            event.waitUntil(clients.openWindow('/?tab=history'));
+        }
     } else {
         event.waitUntil(clients.openWindow('/'));
     }
 });
+
+async function handleCancelIntake(data) {
+    // POST to API to cancel
+    try {
+        const response = await fetch('/api/medications/cancel-intake', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                intake_ids: data.intake_ids
+            })
+        });
+
+        if (response.ok) {
+            console.log('[SW] Intake cancelled, reverted to PENDING');
+            // Show a new notification confirming the cancellation
+            await self.registration.showNotification('Intake Cancelled', {
+                body: 'Your medication has been unmarked. The scheduled notification will still arrive.',
+                icon: '/static/icons/icon-192.png',
+                tag: 'intake-cancelled'
+            });
+        }
+    } catch (e) {
+        console.error('[SW] Failed to cancel intake', e);
+    }
+
+    // Notify all clients to update UI
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => {
+        client.postMessage({ type: 'INTAKE_CANCELLED' });
+    });
+}
 
 async function handleMedicationConfirm(data) {
     // POST to API
