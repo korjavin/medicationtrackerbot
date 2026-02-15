@@ -8,10 +8,10 @@ import (
 
 // Runtime represents the detected container runtime.
 type Runtime struct {
-	Command       string // "docker" or "podman"
-	ComposeCmd    []string // e.g., ["docker", "compose"] or ["podman", "compose"]
-	SocketPath    string
-	Version       string
+	Command        string   // "docker" or "podman"
+	ComposeCmd     []string // e.g., ["docker", "compose"] or ["podman", "compose"]
+	SocketPath     string
+	Version        string
 	ComposeVersion string
 }
 
@@ -70,5 +70,14 @@ func Detect() (*Runtime, error) {
 		return nil, fmt.Errorf("Podman found but compose is not available.\nInstall podman-compose: pip install podman-compose")
 	}
 
-	return nil, fmt.Errorf("Neither Docker nor Podman found.\nInstall Docker: https://docs.docker.com/engine/install/")
+	// Neither found, suggest installation
+	msg := "Neither Docker nor Podman found."
+	if distro, err := GetDistroInfo(); err == nil {
+		_, cmd := distro.InstallCommand()
+		msg = fmt.Sprintf("%s\nTo install Docker on %s, run:\n\n  %s", msg, distro.Name, cmd)
+	} else {
+		msg = fmt.Sprintf("%s\nInstall Docker: https://docs.docker.com/engine/install/", msg)
+	}
+
+	return nil, fmt.Errorf("%s", msg)
 }

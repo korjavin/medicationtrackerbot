@@ -29,7 +29,17 @@ func Run() error {
 	if err != nil {
 		fmt.Println(ui.ErrorStyle.Render("Prerequisite check failed:"))
 		fmt.Println(ui.ErrorStyle.Render(err.Error()))
-		return err
+		fmt.Println()
+
+		if err := offerDockerInstall(); err != nil {
+			return err
+		}
+
+		// Re-detect after install
+		rt, err = docker.Detect()
+		if err != nil {
+			return err
+		}
 	}
 	fmt.Printf("%s  %s %s (compose %s)\n\n",
 		ui.CheckMark, rt.Command, rt.Version, rt.ComposeVersion)
@@ -427,4 +437,39 @@ func composeCmdStr(tool string) string {
 		return "podman compose"
 	}
 	return "docker compose"
+}
+
+func offerDockerInstall() error {
+	distro, err := docker.GetDistroInfo()
+	if err != nil {
+		return fmt.Errorf("could not detect OS distribution: %w", err)
+	}
+
+	_, cmd := distro.InstallCommand()
+
+	var confirm bool
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title(fmt.Sprintf("Would you like to install Docker on %s?", distro.Name)).
+				Description(fmt.Sprintf("This will run: %s\n(requires sudo/root access)", cmd)).
+				Value(&confirm),
+		),
+	).WithTheme(ui.InstallerTheme())
+
+	if err := form.Run(); err != nil {
+		return err
+	}
+
+	if !confirm {
+		return fmt.Errorf("installation aborted: Docker is required")
+	}
+
+	fmt.Printf("\nInstalling Docker...\n")
+	if err := docker.RunInstallCommand(cmd); err != nil {
+		return fmt.Errorf("docker installation failed: %w", err)
+	}
+
+	fmt.Printf("\n%s  Docker installed successfully!\n\n", ui.CheckMark)
+	return nil
 }
