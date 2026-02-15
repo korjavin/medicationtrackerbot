@@ -1,0 +1,29 @@
+name: Release Installer
+
+on:
+  push:
+    tags:
+      - "installer-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cmd/installer/go.mod
+          cache-dependency-path: cmd/installer/go.sum
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+          workdir: cmd/installer
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,196 @@
+version: '3'
+
+services:
+{{- if .Traefik }}
+  traefik:
+    image: traefik:v3.4
+    container_name: medtracker-traefik
+    restart: unless-stopped
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entryPoints.web.address=:80"
+      - "--entryPoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.myresolver.acme.email=${LE_EMAIL}"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - letsencrypt_data:/letsencrypt
+      - {{ .SocketPath }}:/var/run/docker.sock:ro
+    networks:
+      - {{ .NetworkName }}
+{{ end }}
+{{- if .PocketID }}
+  pocket-id:
+    image: stonith404/pocket-id:latest
+    container_name: medtracker-pocket-id
+    restart: unless-stopped
+    volumes:
+      - pocketid_data:/app/backend/data
+    environment:
+      - PUBLIC_APP_URL=https://${POCKET_ID_DOMAIN}
+      - TRUST_PROXY=true
+      - MAXMIND_LICENSE_KEY=
+{{- if .PocketIDAPIKey }}
+      - POCKET_ID_API_KEY={{ .PocketIDAPIKey }}
+      - BACKEND_ENCRYPTION_KEY={{ .PocketIDEncryptKey }}
+{{- else }}
+      - BACKEND_ENCRYPTION_KEY={{ .PocketIDEncryptKey }}
+{{- end }}
+    networks:
+      - default
+      - {{ .NetworkName }}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pocket-id.rule=Host(`${POCKET_ID_DOMAIN}`)"
+      - "traefik.http.routers.pocket-id.entrypoints=websecure"
+      - "traefik.http.routers.pocket-id.tls.certresolver=myresolver"
+      - "traefik.http.services.pocket-id.loadbalancer.server.port=80"
+{{ end }}
+  medtracker:
+    image: ghcr.io/korjavin/medicationtrackerbot:latest
+    container_name: medtracker
+    restart: unless-stopped
+    volumes:
+      - medtracker_data:/app/data
+{{- if .TelegramAPI }}
+      - telegram_bot_api_data:/var/lib/telegram-bot-api
+{{- end }}
+    env_file:
+      - .env
+    networks:
+      - default
+      - {{ .NetworkName }}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.medtracker.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.medtracker.entrypoints=websecure"
+      - "traefik.http.routers.medtracker.tls.certresolver=myresolver"
+      - "traefik.http.services.medtracker.loadbalancer.server.port=${PORT:-8080}"
+{{- if .PocketID }}
+    depends_on:
+      - pocket-id
+{{- end }}
+
+{{- if .MCP }}
+
+  mcp-server:
+    image: ghcr.io/korjavin/medicationtrackerbot:latest
+    container_name: medtracker-mcp
+    restart: unless-stopped
+    command: ["./mcptool"]
+    volumes:
+      - medtracker_data:/app/data:ro
+    env_file:
+      - .env.mcp
+    environment:
+      - ALLOWED_USER_ID=${ALLOWED_USER_ID}
+      - SKIP_PERMS_FIX=true
+      - TZ=${TZ:-Europe/Berlin}
+    networks:
+      - default
+      - {{ .NetworkName }}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.medtracker-mcp.rule=Host(`${MCP_DOMAIN}`)"
+      - "traefik.http.routers.medtracker-mcp.entrypoints=websecure"
+      - "traefik.http.routers.medtracker-mcp.tls.certresolver=myresolver"
+      - "traefik.http.services.medtracker-mcp.loadbalancer.server.port=${MCP_PORT:-8081}"
+{{- end }}
+
+{{- if .TelegramAPI }}
+
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:latest
+    container_name: medtracker-telegram-api
+    restart: unless-stopped
+    user: "0:0"
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        grep -q :1000: /etc/group || echo "appgroup:x:1000:" >> /etc/group
+        grep -q :1000: /etc/passwd || echo "appuser:x:1000:1000:appuser:/var/lib/telegram-bot-api:/bin/sh" >> /etc/passwd
+        mkdir -p /var/lib/telegram-bot-api/data
+        chown -R 1000:1000 /var/lib/telegram-bot-api
+        exec telegram-bot-api --local \
+          --api-id=$${TELEGRAM_API_ID} \
+          --api-hash=$${TELEGRAM_API_HASH} \
+          --dir=/var/lib/telegram-bot-api/data \
+          --temp-dir=/tmp \
+          --username=appuser \
+          --groupname=appgroup \
+          --http-port=8081
+    volumes:
+      - telegram_bot_api_data:/var/lib/telegram-bot-api
+    environment:
+      - TELEGRAM_API_ID=${TELEGRAM_API_ID}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
+      - TELEGRAM_LOCAL=1
+    ports:
+      - "8082:8081"
+    networks:
+      - default
+{{- end }}
+
+{{- if .Litestream }}
+
+  litestream:
+    image: litestream/litestream:latest
+    container_name: medtracker-litestream
+    restart: unless-stopped
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        cat << EOF > /tmp/litestream.yml
+        dbs:
+          - path: /app/data/meds.db
+            replicas:
+              - type: s3
+                bucket: $${R2_BUCKET}
+                path: medtracker
+                endpoint: $${R2_ENDPOINT}
+                sync-interval: 1h
+                snapshot-interval: 24h
+                retention: 168h
+        EOF
+        exec litestream replicate -config /tmp/litestream.yml
+    volumes:
+      - medtracker_data:/app/data
+    environment:
+      - LITESTREAM_ACCESS_KEY_ID=${LITESTREAM_ACCESS_KEY_ID}
+      - LITESTREAM_SECRET_ACCESS_KEY=${LITESTREAM_SECRET_ACCESS_KEY}
+      - R2_ENDPOINT=${R2_ENDPOINT}
+      - R2_BUCKET=${R2_BUCKET}
+    depends_on:
+      - medtracker
+{{- end }}
+
+networks:
+{{- if .Traefik }}
+  {{ .NetworkName }}:
+    name: {{ .NetworkName }}
+{{- else }}
+  {{ .NetworkName }}:
+    external: true
+    name: {{ .NetworkName }}
+{{- end }}
+
+volumes:
+  medtracker_data:
+{{- if .Traefik }}
+  letsencrypt_data:
+{{- end }}
+{{- if .PocketID }}
+  pocketid_data:
+{{- end }}
+{{- if .TelegramAPI }}
+  telegram_bot_api_data:
+{{- end }}
