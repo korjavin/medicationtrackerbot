@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -251,6 +252,12 @@ func (s *Service) sendToSubscription(sub store.PushSubscription, payload []byte)
 			log.Printf("Failed to disable subscription: %v", err)
 		}
 	} else if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		log.Printf("WebPush unexpected status %d for %s", resp.StatusCode, sub.Endpoint)
+		// Read response body for error details
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		if readErr == nil && len(bodyBytes) > 0 {
+			log.Printf("WebPush unexpected status %d for %s: %s", resp.StatusCode, sub.Endpoint, string(bodyBytes))
+		} else {
+			log.Printf("WebPush unexpected status %d for %s", resp.StatusCode, sub.Endpoint)
+		}
 	}
 }
