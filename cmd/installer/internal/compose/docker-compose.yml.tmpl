@@ -29,6 +29,8 @@ services:
     image: ghcr.io/pocket-id/pocket-id:v1.14.2
     container_name: medtracker-pocket-id
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:1411:1411"
     volumes:
       - pocketid_data:/app/backend/data
     environment:
