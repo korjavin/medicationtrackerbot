@@ -666,7 +666,7 @@ Pulse: heart rate (optional)`
 
 	bp := &store.BloodPressure{
 		UserID:     b.allowedUserID,
-		MeasuredAt: time.Now(),
+		MeasuredAt: time.Unix(int64(msg.Date), 0),
 		Systolic:   systolic,
 		Diastolic:  diastolic,
 		Category:   category,
@@ -943,7 +943,7 @@ The system will automatically calculate your weight trend over time.`
 
 	wLog := &store.WeightLog{
 		UserID:      b.allowedUserID,
-		MeasuredAt:  time.Now(),
+		MeasuredAt:  time.Unix(int64(msg.Date), 0),
 		Weight:      weight,
 		WeightTrend: &weightTrend,
 	}

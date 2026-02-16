@@ -110,13 +110,30 @@ h1 {
     color: var(--hint-color);
 }
 
+.med-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
 .delete-btn {
     color: #ff3b30;
     background: none;
     border: none;
     font-size: 20px;
     padding: 8px;
+    cursor: pointer;
 }
+
+.small-btn.secondary {
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text-color);
+}
+
 
 /* FAB */
 #add-btn {

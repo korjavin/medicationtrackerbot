@@ -529,3 +529,47 @@ func (s *Server) handleGetNextIntake(w http.ResponseWriter, r *http.Request) {
 		"medication_names": medNames,
 	})
 }
+
+func (s *Server) handleLogPastIntake(w http.ResponseWriter, r *http.Request) {
+	userId := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	var req struct {
+		MedicationID int64  `json:"medication_id"`
+		TakenAt      string `json:"taken_at"` // RFC3339
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	takenAt, err := time.Parse(time.RFC3339, req.TakenAt)
+	if err != nil {
+		http.Error(w, "Invalid time format", http.StatusBadRequest)
+		return
+	}
+
+	// Verify medication belongs to user (all meds are shared for now, but good practice)
+	med, err := s.store.GetMedication(req.MedicationID)
+	if err != nil || med == nil {
+		http.Error(w, "Medication not found", http.StatusNotFound)
+		return
+	}
+
+	// Create manual intake
+	id, err := s.store.CreateManualIntake(req.MedicationID, userId, takenAt)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Decrement inventory
+	if err := s.store.DecrementInventory(req.MedicationID, 1); err != nil {
+		log.Printf("Error decrementing inventory: %v", err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":     id,
+		"status": "created",
+	})
+}

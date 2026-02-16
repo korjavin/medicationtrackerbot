@@ -228,6 +228,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/history", s.handleListHistory)
 	apiMux.HandleFunc("POST /api/medications/trigger-next-intake", s.handleTriggerNextIntake)
 	apiMux.HandleFunc("GET /api/medications/next-intake", s.handleGetNextIntake)
+	apiMux.HandleFunc("POST /api/medications/log-past", s.handleLogPastIntake)
 	apiMux.HandleFunc("POST /api/medications/cancel-intake", s.handleCancelIntake)
 
 	// Blood Pressure endpoints

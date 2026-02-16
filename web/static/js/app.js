@@ -967,11 +967,19 @@ function renderMeds() {
                 ${dateRangeText}
                 ${inventoryText}
             </div>
-            <button class="delete-btn" onclick="deleteMed(${m.id})">&times;</button>
+            <div class="med-actions">
+                <button class="small-btn secondary" onclick="logMedicationPast(${m.id}, '${escapeHtml(m.name)}')">Log Past</button>
+                <button class="delete-btn" onclick="deleteMed(${m.id})">&times;</button>
+            </div>
         `;
         list.appendChild(div);
     });
 }
+
+function logMedicationPast(id, name) {
+    showMedicationConfirmModal([id], [name], new Date(), 'log_past');
+}
+
 
 function renderHistory(logs) {
     const list = document.getElementById('history-list');
@@ -2872,27 +2880,26 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
     const snoozeBtn = document.getElementById('med-confirm-snooze-btn');
 
     // UI based on mode
-    if (mode === 'edit') {
-        titleEl.innerText = "Edit Intake";
+    if (mode === 'edit' || mode === 'log_past') {
+        titleEl.innerText = mode === 'edit' ? "Edit Intake" : "Log Past Intake";
         subtitleEl.innerText = "";
         timeEditEl.style.display = 'block';
 
         // Set time input (handling both ISO strings and formatted strings if parsable)
-        // We expect scheduledAt/takenAt to be a Date object or parsable string
         try {
             const d = new Date(scheduledAt);
-            // datetime-local needs YYYY-MM-DDTHH:mm
             const isoLocal = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
             timeInput.value = isoLocal;
         } catch (e) {
             console.error("Error formatting date for input", e);
         }
 
-        actionBtn.innerText = "Update";
-        actionBtn.onclick = updateIntakeHistory;
+        actionBtn.innerText = mode === 'edit' ? "Update" : "Log Intake";
+        actionBtn.onclick = mode === 'edit' ? updateIntakeHistory : confirmLogPast;
         snoozeBtn.style.display = 'none';
 
     } else {
+
         // Confirm Mode
         titleEl.innerText = "Time for Meds!";
         timeEditEl.style.display = 'none';
@@ -3028,6 +3035,33 @@ async function updateIntakeHistory() {
 
     closeMedicationConfirmModal();
 }
+
+async function confirmLogPast() {
+    const timeInput = document.getElementById('med-confirm-datetime');
+    const takenAt = new Date(timeInput.value).toISOString();
+
+    // In log_past mode, we only support one med at a time for simplicity in this UI
+    const medId = pendingMedConfirmIds[0];
+
+    try {
+        const res = await apiCall('/api/medications/log-past', 'POST', {
+            medication_id: medId,
+            taken_at: takenAt
+        });
+
+        if (res) {
+            safeAlert("Intake logged!");
+            loadMeds();
+            loadHistory();
+        }
+    } catch (e) {
+        console.error(e);
+        safeAlert("Error logging: " + e.message);
+    }
+
+    closeMedicationConfirmModal();
+}
+
 
 
 function snoozeMedicationConfirm() {

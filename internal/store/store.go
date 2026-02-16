@@ -486,6 +486,16 @@ func (s *Store) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64,
 	return res.LastInsertId()
 }
 
+func (s *Store) CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error) {
+	// For manual intake, scheduled_at = taken_at
+	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at, taken_at, status) VALUES (?, ?, ?, ?, 'TAKEN')",
+		medID, userID, takenAt, takenAt)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
 func (s *Store) ConfirmIntake(id int64, takenAt time.Time) error {
 	_, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at = ? WHERE id = ?", takenAt, id)
 	return err
