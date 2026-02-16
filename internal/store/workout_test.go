@@ -706,3 +706,85 @@ func TestGetActiveSessions(t *testing.T) {
 		}
 	}
 }
+
+// TestInitializeAndAdvanceRotation verifies workout rotation logic
+func TestInitializeAndAdvanceRotation(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.db.Close()
+
+	userID := int64(1)
+	group, _ := store.CreateWorkoutGroup("Rotating Group", "", true, userID, "[1]", "09:00", 15)
+
+	variant1, _ := store.CreateWorkoutVariant(group.ID, "Variant 1", intPtr(1), "")
+	variant2, _ := store.CreateWorkoutVariant(group.ID, "Variant 2", intPtr(2), "")
+
+	// Initialize rotation
+	err := store.InitializeRotation(group.ID, variant1.ID)
+	if err != nil {
+		t.Fatalf("Failed to initialize rotation: %v", err)
+	}
+
+	state, _ := store.GetRotationState(group.ID)
+	if state.CurrentVariantID != variant1.ID {
+		t.Errorf("Expected current variant %d, got %d", variant1.ID, state.CurrentVariantID)
+	}
+
+	// Advance rotation
+	err = store.AdvanceRotation(group.ID)
+	if err != nil {
+		t.Fatalf("Failed to advance rotation: %v", err)
+	}
+
+	state, _ = store.GetRotationState(group.ID)
+	if state.CurrentVariantID != variant2.ID {
+		t.Errorf("Expected current variant %d, got %d", variant2.ID, state.CurrentVariantID)
+	}
+
+	// Advance again (circular)
+	store.AdvanceRotation(group.ID)
+	state, _ = store.GetRotationState(group.ID)
+	if state.CurrentVariantID != variant1.ID {
+		t.Errorf("Expected current variant %d (circular), got %d", variant1.ID, state.CurrentVariantID)
+	}
+}
+
+// TestListWorkoutGroups verifies listing groups for a user
+func TestListWorkoutGroups(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.db.Close()
+
+	userID := int64(1)
+	store.CreateWorkoutGroup("Group 1", "", false, userID, "[1]", "09:00", 15)
+	store.CreateWorkoutGroup("Group 2", "", false, userID, "[1]", "10:00", 15)
+	store.CreateWorkoutGroup("Group 3", "", false, int64(999), "[1]", "11:00", 15)
+
+	groups, err := store.ListWorkoutGroups(userID, false)
+	if err != nil {
+		t.Fatalf("Failed to list groups: %v", err)
+	}
+
+	if len(groups) != 2 {
+		t.Errorf("Expected 2 groups for user %d, got %d", userID, len(groups))
+	}
+}
+
+// TestUpdateWorkoutVariant verifies updating a variant
+func TestUpdateWorkoutVariant(t *testing.T) {
+	store := setupTestDB(t)
+	defer store.db.Close()
+
+	group, _ := store.CreateWorkoutGroup("G", "", false, 1, "[1]", "09:00", 15)
+	variant, _ := store.CreateWorkoutVariant(group.ID, "Old Name", intPtr(1), "Old Desc")
+
+	err := store.UpdateWorkoutVariant(variant.ID, "New Name", intPtr(2), "New Desc")
+	if err != nil {
+		t.Fatalf("Failed to update variant: %v", err)
+	}
+
+	updated, _ := store.GetWorkoutVariant(variant.ID)
+	if updated.Name != "New Name" || *updated.RotationOrder != 2 || updated.Description != "New Desc" {
+		t.Errorf("Variant not updated correctly: %+v", updated)
+	}
+}
+
+func intPtr(i int) *int { return &i }
