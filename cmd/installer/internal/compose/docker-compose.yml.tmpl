@@ -1,9 +1,7 @@
-version: '3'
-
 services:
 {{- if .Traefik }}
   traefik:
-    image: traefik:v3.4
+    image: traefik:v2.10
     container_name: medtracker-traefik
     restart: unless-stopped
     command:
@@ -178,14 +176,9 @@ services:
 {{- end }}
 
 networks:
-{{- if .Traefik }}
   {{ .NetworkName }}:
     name: {{ .NetworkName }}
-{{- else }}
-  {{ .NetworkName }}:
     external: true
-    name: {{ .NetworkName }}
-{{- end }}
 
 volumes:
   medtracker_data:

@@ -112,7 +112,7 @@ The easiest way to get started is with our interactive installer:
 > Always check for the latest version on the [**Releases**](https://github.com/korjavin/medicationtrackerbot/releases) page.
 
 ```bash
-wget -qO- https://github.com/korjavin/medicationtrackerbot/releases/download/v0.1.6/medtracker-installer_linux_amd64.tar.gz | tar xvz && ./medtracker-installer
+wget -qO- https://github.com/korjavin/medicationtrackerbot/releases/download/v0.1.7/medtracker-installer_linux_amd64.tar.gz | tar xvz && ./medtracker-installer
 ```
 
 See the [**Quick Installation Guide (install.md)**](install.md) for server recommendations and prerequisites.
