@@ -106,13 +106,19 @@ The application is configured via Environment Variables:
 
 ### Easy Installer (Recommended)
 
+The easiest way to get started is with our interactive installer:
+
+> [!TIP]
+> Always check for the latest version on the [**Releases**](https://github.com/korjavin/medicationtrackerbot/releases) page.
+
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/korjavin/medicationtrackerbot/main/install.sh
-chmod +x install.sh
-./install.sh
+wget https://github.com/korjavin/medicationtrackerbot/releases/download/v0.1.3/medtracker-installer_linux_amd64.tar.gz
+tar xf medtracker-installer_linux_amd64.tar.gz 
+./medtracker-installer 
 ```
 
-See `docs/installer.md` for details, and `docs/hosting_hetzner.md` for a Hetzner guide.
+See the [**Quick Installation Guide (install.md)**](install.md) for server recommendations and prerequisites.
+Detailed walkthrough available in [docs/installer.md](docs/installer.md).
 
 ### Docker Deployment (Recommended)
 
