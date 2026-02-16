@@ -12,15 +12,16 @@ import (
 
 // TemplateData holds the data passed to the docker-compose template.
 type TemplateData struct {
-	Traefik          bool
-	PocketID         bool
-	MCP              bool
-	TelegramAPI      bool
-	Litestream       bool
-	NetworkName      string
-	SocketPath       string
-	PocketIDAPIKey   string
+	Traefik            bool
+	PocketID           bool
+	MCP                bool
+	TelegramAPI        bool
+	Litestream         bool
+	NetworkName        string
+	SocketPath         string
+	PocketIDAPIKey     string
 	PocketIDEncryptKey string
+	Config             config.Config
 }
 
 // NewTemplateData creates template data from a config and secrets.
@@ -36,14 +37,15 @@ func NewTemplateData(cfg *config.Config, secrets *config.Secrets, includeAPIKey 
 	}
 
 	data := TemplateData{
-		Traefik:          cfg.Features.Traefik,
-		PocketID:         cfg.Features.PocketID,
-		MCP:              cfg.Features.MCP,
-		TelegramAPI:      cfg.Features.TelegramAPI,
-		Litestream:       cfg.Features.Litestream,
-		NetworkName:      networkName,
-		SocketPath:       socketPath,
+		Traefik:            cfg.Features.Traefik,
+		PocketID:           cfg.Features.PocketID,
+		MCP:                cfg.Features.MCP,
+		TelegramAPI:        cfg.Features.TelegramAPI,
+		Litestream:         cfg.Features.Litestream,
+		NetworkName:        networkName,
+		SocketPath:         socketPath,
 		PocketIDEncryptKey: secrets.PocketIDEncryptKey,
+		Config:             *cfg,
 	}
 
 	if includeAPIKey && secrets.PocketIDAPIKey != "" {
