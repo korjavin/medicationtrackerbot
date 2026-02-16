@@ -82,12 +82,37 @@ The application is configured via Environment Variables:
 | `DB_PATH` | Path to SQLite DB (default: `meds.db`) |
 | `PORT` | HTTP port (default: `8080`) |
 | `TZ` | Timezone (e.g., `Europe/Berlin`). Critical for correct scheduling. |
-| `GOOGLE_CLIENT_ID` | (Optional) For Google Login in browser |
-| `GOOGLE_CLIENT_SECRET` | (Optional) For Google Login in browser |
-| `GOOGLE_REDIRECT_URL` | (Optional) Callback URL (e.g., `https://your-domain.com/auth/google/callback`) |
-| `ADMIN_EMAIL` | (Optional) Allow Google Login only for this email |
+| `SESSION_SECRET` | Secret used to sign web auth sessions |
+| `AUTH_TRUST_PROXY` | (Optional) Trust `X-Forwarded-For` / `X-Real-IP` headers for rate limiting (default: `true`) |
+| `GOOGLE_CLIENT_ID` | (Optional, legacy) For Google Login in browser |
+| `GOOGLE_CLIENT_SECRET` | (Optional, legacy) For Google Login in browser |
+| `GOOGLE_REDIRECT_URL` | (Optional, legacy) Callback URL (e.g., `https://your-domain.com/auth/google/callback`) |
+| `ADMIN_EMAIL` | (Optional, legacy) Allow Google Login only for this email |
+| `OIDC_ISSUER_URL` | (Optional) OIDC issuer URL (e.g., `https://id.yourdomain.com`) |
+| `OIDC_CLIENT_ID` | (Optional) OIDC client ID |
+| `OIDC_CLIENT_SECRET` | (Optional) OIDC client secret |
+| `OIDC_REDIRECT_URL` | (Optional) Callback URL (e.g., `https://your-domain.com/auth/oidc/callback`) |
+| `OIDC_ADMIN_EMAIL` | (Optional) Allow OIDC login only for this email |
+| `OIDC_ALLOWED_SUBJECT` | (Optional) Allow OIDC login only for this subject (`sub`) |
+| `OIDC_BUTTON_LABEL` | (Optional) Override OIDC login button label |
+| `OIDC_BUTTON_COLOR` | (Optional) Override OIDC login button background color |
+| `OIDC_BUTTON_TEXT_COLOR` | (Optional) Override OIDC login button text color |
+| `OIDC_SCOPES` | (Optional) Comma/space-separated scopes (default: `openid email profile`) |
+| `OIDC_USERINFO_URL` | (Optional) Override userinfo URL if discovery is not available |
+| `OIDC_AUTH_URL` | (Optional) Override authorization endpoint |
+| `OIDC_TOKEN_URL` | (Optional) Override token endpoint |
 
 ## Quick Start
+
+### Easy Installer (Recommended)
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/korjavin/medicationtrackerbot/main/install.sh
+chmod +x install.sh
+./install.sh
+```
+
+See `docs/installer.md` for details, and `docs/hosting_hetzner.md` for a Hetzner guide.
 
 ### Docker Deployment (Recommended)
 
@@ -144,6 +169,34 @@ Example CSV format:
 date,time,systolic,diastolic,pulse
 2024-01-15,08:30,120,80,72
 2024-01-15,20:15,118,78,70
+```
+
+### Backups & Recovery (Litestream)
+
+The bot includes [Litestream](https://litestream.io/) for real-time SQLite replication to Cloudflare R2 (or any S3-compatible storage).
+
+#### Restore Database from Backup
+To restore your database from the cloud using environment variables from your `.env` or current session:
+
+```bash
+docker run --rm \
+  -e LITESTREAM_ACCESS_KEY_ID=$LITESTREAM_ACCESS_KEY_ID \
+  -e LITESTREAM_SECRET_ACCESS_KEY=$LITESTREAM_SECRET_ACCESS_KEY \
+  -e R2_ENDPOINT=$R2_ENDPOINT \
+  -e R2_BUCKET=$R2_BUCKET \
+  -v $(pwd):/app/data \
+  --entrypoint /bin/sh \
+  litestream/litestream:latest \
+  -c 'cat <<EOF > /tmp/litestream.yml
+dbs:
+  - path: /app/data/meds.db
+    replicas:
+      - type: s3
+        bucket: $R2_BUCKET
+        path: medtracker
+        endpoint: $R2_ENDPOINT
+EOF
+litestream restore -config /tmp/litestream.yml -o /app/data/meds.db /app/data/meds.db'
 ```
 
 ### Blood Pressure Classification (ISH 2020 Guidelines)
