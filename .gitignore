@@ -8,3 +8,4 @@ meds.db
 docs/screenshots
 .agent/rules/
 .agent/workflows/
+import.sql
