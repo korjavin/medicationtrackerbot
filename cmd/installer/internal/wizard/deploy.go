@@ -36,16 +36,17 @@ const (
 
 // deployModel is the Bubble Tea model for the deployment screen.
 type deployModel struct {
-	tasks    []deployTask
-	current  int
-	done     bool
-	err      error
-	state    *config.InstallerState
-	runtime  *docker.Runtime
-	viewport viewport.Model
-	showLogs bool
-	width    int
-	height   int
+	tasks      []deployTask
+	current    int
+	done       bool
+	err        error
+	state      *config.InstallerState
+	runtime    *docker.Runtime
+	viewport   viewport.Model
+	showLogs   bool
+	width      int
+	height     int
+	logContent strings.Builder
 }
 
 type taskCompleteMsg struct {
@@ -170,7 +171,8 @@ func (m *deployModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case logMsg:
-		m.viewport.SetContent(m.viewport.View() + string(msg))
+		m.logContent.WriteString(string(msg))
+		m.viewport.SetContent(m.logContent.String())
 		m.viewport.GotoBottom()
 
 	case taskCompleteMsg:
@@ -244,8 +246,20 @@ func (m *deployModel) runCurrentTask() tea.Cmd {
 	taskName := m.tasks[m.current].name
 
 	return func() tea.Msg {
+		m.log(fmt.Sprintf("\n--- Starting: %s ---\n", taskName))
 		err := m.executeTask(taskName)
+		if err != nil {
+			m.log(fmt.Sprintf("Error: %v\n", err))
+		} else {
+			m.log(fmt.Sprintf("Step completed successfully.\n"))
+		}
 		return taskCompleteMsg{err: err}
+	}
+}
+
+func (m *deployModel) log(msg string) {
+	if m.runtime.Stdout != nil {
+		m.runtime.Stdout.Write([]byte(msg))
 	}
 }
 
@@ -286,6 +300,7 @@ func (m *deployModel) executeTask(name string) error {
 			"https://"+m.state.Config.PocketID.Domain,
 			m.state.Secrets.PocketIDAPIKey,
 		)
+		m.log(fmt.Sprintf("Polling %s/health...\n", client.BaseURL))
 		return client.WaitForReady(ctx, 120*time.Second)
 
 	case "Create Pocket-ID admin user":
