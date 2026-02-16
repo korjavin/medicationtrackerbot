@@ -968,7 +968,7 @@ function renderMeds() {
                 ${inventoryText}
             </div>
             <div class="med-actions">
-                <button class="small-btn secondary" onclick="logMedicationPast(${m.id}, '${escapeHtml(m.name)}')">Log Past</button>
+                <button class="small-btn secondary" onclick="logMedicationPast(${m.id}, '${escapeHtml(m.name)}')">Log</button>
                 <button class="delete-btn" onclick="deleteMed(${m.id})">&times;</button>
             </div>
         `;
@@ -2881,7 +2881,7 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
 
     // UI based on mode
     if (mode === 'edit' || mode === 'log_past') {
-        titleEl.innerText = mode === 'edit' ? "Edit Intake" : "Log Past Intake";
+        titleEl.innerText = mode === 'edit' ? "Edit Intake" : "Log Intake";
         subtitleEl.innerText = "";
         timeEditEl.style.display = 'block';
 
