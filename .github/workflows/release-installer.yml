@@ -21,6 +21,12 @@ jobs:
           go-version-file: cmd/installer/go.mod
           cache-dependency-path: cmd/installer/go.sum
 
+      - name: Clean Tag
+        run: |
+          # Takes 'installer-v0.1.1' and turns it into 'v0.1.1'
+          CLEAN_TAG=${GITHUB_REF_NAME#installer-}
+          echo "GORELEASER_CURRENT_TAG=$CLEAN_TAG" >> $GITHUB_ENV
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -29,4 +35,4 @@ jobs:
           workdir: cmd/installer
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_CURRENT_TAG: ${{ replace(github.ref_name, 'installer-', '') }}
+          GORELEASER_CURRENT_TAG: ${{ env.GORELEASER_CURRENT_TAG }}
