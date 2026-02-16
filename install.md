@@ -60,7 +60,7 @@ Run these commands to download and start the interactive wizard.
 > Always check for the latest version on the [**Releases**](https://github.com/korjavin/medicationtrackerbot/releases) page. Replace `v0.1.3` in the commands below with the latest version number if available.
 
 ```bash
-wget -qO- https://github.com/korjavin/medicationtrackerbot/releases/download/v0.1.5/medtracker-installer_linux_amd64.tar.gz | tar xvz && ./medtracker-installer
+wget -qO- https://github.com/korjavin/medicationtrackerbot/releases/download/v0.1.6/medtracker-installer_linux_amd64.tar.gz | tar xvz && ./medtracker-installer
 ```
 
 ---
