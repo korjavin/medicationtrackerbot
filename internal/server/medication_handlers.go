@@ -223,7 +223,8 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Reverting to PENDING logic
-		if up.Status == "PENDING" {
+		switch up.Status {
+		case "PENDING":
 			// If it was TAKEN, we are reverting.
 			// Inventory increment?
 			if intake.Status == "TAKEN" {
@@ -232,7 +233,7 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 					log.Printf("Error incrementing inventory on revert: %v", err)
 				}
 			}
-		} else if up.Status == "TAKEN" {
+		case "TAKEN":
 			// If it was PENDING, we are confirming.
 			if intake.Status == "PENDING" {
 				if err := s.store.DecrementInventory(intake.MedicationID, 1); err != nil {
