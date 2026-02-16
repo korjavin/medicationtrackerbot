@@ -210,7 +210,7 @@ func buildPocketIDForm(cfg *config.Config) *huh.Form {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Pocket-ID domain").
-				Description("Domain for the authentication service").
+				Description("Domain for the authentication service. MUST be a separate subdomain (e.g., id.example.com)").
 				Value(&cfg.PocketID.Domain).
 				Validate(func(s string) error { return config.ValidateDomain(s) }),
 
@@ -226,10 +226,7 @@ func buildPocketIDForm(cfg *config.Config) *huh.Form {
 
 func buildMCPForm(cfg *config.Config) *huh.Form {
 	if cfg.MCP.Domain == "" && cfg.Domain != "" {
-		parts := strings.SplitN(cfg.Domain, ".", 2)
-		if len(parts) == 2 {
-			cfg.MCP.Domain = "mcp." + parts[1]
-		}
+		cfg.MCP.Domain = cfg.Domain
 	}
 
 	return huh.NewForm(

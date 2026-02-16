@@ -28,7 +28,7 @@ services:
 {{ end }}
 {{- if .PocketID }}
   pocket-id:
-    image: stonith404/pocket-id:latest
+    image: ghcr.io/pocket-id/pocket-id:v1.14.2
     container_name: medtracker-pocket-id
     restart: unless-stopped
     volumes:
@@ -98,7 +98,11 @@ services:
       - {{ .NetworkName }}
     labels:
       - "traefik.enable=true"
+      {{- if eq .Config.MCP.Domain .Config.Domain }}
+      - "traefik.http.routers.medtracker-mcp.rule=Host(`${DOMAIN}`) && (PathPrefix(`/mcp`) || PathPrefix(`/.well-known/oauth-protected-resource`))"
+      {{- else }}
       - "traefik.http.routers.medtracker-mcp.rule=Host(`${MCP_DOMAIN}`)"
+      {{- end }}
       - "traefik.http.routers.medtracker-mcp.entrypoints=websecure"
       - "traefik.http.routers.medtracker-mcp.tls.certresolver=myresolver"
       - "traefik.http.services.medtracker-mcp.loadbalancer.server.port=${MCP_PORT:-8081}"
