@@ -435,7 +435,7 @@ func (b *Bot) DeleteMessage(messageID int) error {
 	return err
 }
 
-func (b *Bot) SendGroupNotification(meds []store.Medication, target time.Time) error {
+func (b *Bot) SendGroupNotification(meds []store.Medication, target time.Time) (int, error) {
 	var sb string
 	sb = fmt.Sprintf("💊 Time to take your medications (%s):\n\n", target.Format("15:04"))
 	for _, m := range meds {
@@ -465,8 +465,11 @@ func (b *Bot) SendGroupNotification(meds []store.Medication, target time.Time) e
 
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 
-	_, err := b.api.Send(msg)
-	return err
+	sentMsg, err := b.api.Send(msg)
+	if err != nil {
+		return 0, err
+	}
+	return sentMsg.MessageID, nil
 }
 
 // SendLowStockWarning sends a low stock warning message to the user
@@ -1316,4 +1319,24 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 
 	b.api.Send(msg)
 	msgConfig.Text = "" // Don't send the original message config
+}
+
+// UpdateWorkoutMessage updates a workout notification message
+func (b *Bot) UpdateWorkoutMessage(msgID int, text string) error {
+	// 1. Edit Text
+	edit := tgbotapi.NewEditMessageText(b.allowedUserID, msgID, text)
+	edit.ParseMode = "Markdown"
+	if _, err := b.api.Send(edit); err != nil {
+		return err
+	}
+
+	// 2. Remove Buttons (EditReplyMarkup with empty markup)
+	editMarkup := tgbotapi.NewEditMessageReplyMarkup(b.allowedUserID, msgID, tgbotapi.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
+	})
+	if _, err := b.api.Send(editMarkup); err != nil {
+		return err
+	}
+
+	return nil
 }

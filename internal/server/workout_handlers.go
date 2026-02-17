@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -1028,6 +1029,29 @@ func (s *Server) handleStartWorkoutSession(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Update Telegram notification
+	if s.bot != nil {
+		go func() {
+			session, err := s.store.GetWorkoutSession(id)
+			if err != nil || session == nil || session.NotificationMessageID == nil {
+				return
+			}
+
+			group, _ := s.store.GetWorkoutGroup(session.GroupID)
+			variant, _ := s.store.GetWorkoutVariant(session.VariantID)
+
+			text := "✅ **Workout started**"
+			if group != nil && variant != nil {
+				text += fmt.Sprintf("\n%s - %s", group.Name, variant.Name)
+			}
+			text += "\n\nLet's go! 💪"
+
+			if err := s.bot.UpdateWorkoutMessage(*session.NotificationMessageID, text); err != nil {
+				log.Printf("Failed to update workout message: %v", err)
+			}
+		}()
 	}
 
 	w.WriteHeader(http.StatusOK)

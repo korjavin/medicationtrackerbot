@@ -219,11 +219,18 @@ func (s *Scheduler) checkSchedule() error {
 		}
 
 		// Send Telegram Notification
-		go func(meds []store.Medication, target time.Time) {
-			if err := s.bot.SendGroupNotification(meds, target); err != nil {
+		go func(meds []store.Medication, target time.Time, iIDs []int64) {
+			msgID, err := s.bot.SendGroupNotification(meds, target)
+			if err != nil {
 				log.Printf("Failed to send group notification: %v", err)
+				return
 			}
-		}(group.Meds, group.Target)
+			for _, iID := range iIDs {
+				if err := s.store.AddIntakeReminder(iID, msgID); err != nil {
+					log.Printf("Failed to add intake reminder for int %d msg %d: %v", iID, msgID, err)
+				}
+			}
+		}(group.Meds, group.Target, intakeIDs)
 
 		// Send Web Push Notification
 		if s.webPush != nil {
