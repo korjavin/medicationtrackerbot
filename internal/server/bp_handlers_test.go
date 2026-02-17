@@ -458,3 +458,22 @@ func TestHandleDontBugMeBPReminder(t *testing.T) {
 		t.Errorf("Expected dont_remind_until to be ~24 hours from now, got %v", state.DontRemindUntil)
 	}
 }
+
+func TestHandleSendTestBPNotification_NoWebPush(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest("POST", "/api/bp/reminder/test", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleSendTestBPNotification(w, req)
+
+	// Expect 400 because WebPush is not configured in test server
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status 400, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Web Push not configured") {
+		t.Errorf("Expected error message 'Web Push not configured', got %s", w.Body.String())
+	}
+}

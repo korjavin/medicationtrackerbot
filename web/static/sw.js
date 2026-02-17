@@ -325,8 +325,8 @@ self.addEventListener('notificationclick', (event) => {
             // Don't bug me for 24 hours
             event.waitUntil(handleBPDontBug());
         } else {
-            // Body click -> Open BP tab
-            event.waitUntil(clients.openWindow('/?tab=bp'));
+            // Body click -> Open BP add modal directly
+            event.waitUntil(clients.openWindow('/?tab=bp&action=add'));
         }
     } else if (data.type === 'weight_reminder') {
         if (action === 'weight_confirm') {

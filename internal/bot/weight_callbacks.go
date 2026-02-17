@@ -3,6 +3,7 @@ package bot
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -46,8 +47,18 @@ func (b *Bot) handleWeightReminderCallback(cb *tgbotapi.CallbackQuery, data stri
 		})
 		b.api.Send(edit)
 
-		// Send instruction message with deep link
-		webAppURL := fmt.Sprintf("https://t.me/%s/app?startapp=weight_add", b.Username())
+		// Send instruction message
+		var webAppURL string
+		if b.appDomain != "" {
+			domain := b.appDomain
+			if !strings.HasPrefix(domain, "http") {
+				domain = "https://" + domain
+			}
+			webAppURL = fmt.Sprintf("%s/?tab=weight&action=add", domain)
+		} else {
+			webAppURL = fmt.Sprintf("https://t.me/%s/app?startapp=weight_add", b.Username())
+		}
+
 		msg := tgbotapi.NewMessage(cb.Message.Chat.ID,
 			"📱 Please open the app to log your weight:\n\n"+
 				"[Open App to Add Weight]("+webAppURL+")")

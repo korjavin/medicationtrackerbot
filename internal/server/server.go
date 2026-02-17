@@ -245,6 +245,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/bp/reminder/toggle", s.handleToggleBPReminder)
 	apiMux.HandleFunc("POST /api/bp/reminder/snooze", s.handleSnoozeBPReminder)
 	apiMux.HandleFunc("POST /api/bp/reminder/dontbug", s.handleDontBugMeBPReminder)
+	apiMux.HandleFunc("POST /api/bp/reminder/test", s.handleSendTestBPNotification)
 
 	// Weight endpoints
 	apiMux.HandleFunc("POST /api/weight", s.handleCreateWeight)

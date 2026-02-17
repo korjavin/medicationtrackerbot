@@ -3,6 +3,7 @@ package bot
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -48,8 +49,18 @@ func (b *Bot) handleBPReminderCallback(cb *tgbotapi.CallbackQuery, data string) 
 		})
 		b.api.Send(edit)
 
-		// Send instruction message with deep link
-		webAppURL := fmt.Sprintf("https://t.me/%s/app?startapp=bp_add", b.Username())
+		// Send instruction message
+		var webAppURL string
+		if b.appDomain != "" {
+			domain := b.appDomain
+			if !strings.HasPrefix(domain, "http") {
+				domain = "https://" + domain
+			}
+			webAppURL = fmt.Sprintf("%s/bp_add", domain) // Keep direct link for web app
+		} else {
+			webAppURL = fmt.Sprintf("https://t.me/%s/app?startapp=bp_add", b.Username())
+		}
+
 		msg := tgbotapi.NewMessage(cb.Message.Chat.ID,
 			"📱 Please open the app to record your blood pressure reading:\n\n"+
 				"[Open App to Add BP Reading]("+webAppURL+")")

@@ -306,3 +306,23 @@ func (s *Server) handleDontBugMeBPReminder(w http.ResponseWriter, r *http.Reques
 		"message": "BP reminders disabled for 24 hours",
 	})
 }
+
+func (s *Server) handleSendTestBPNotification(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	if s.webPush == nil {
+		http.Error(w, "Web Push not configured", http.StatusBadRequest)
+		return
+	}
+
+	// Send test notification with enhanced=false
+	if err := s.webPush.SendBPReminderNotification(r.Context(), userID, false); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "sent",
+	})
+}

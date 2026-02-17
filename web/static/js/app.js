@@ -324,6 +324,30 @@ checkAuth().then(authorized => {
     }
 });
 
+// Check for Telegram start_param
+if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.start_param === 'bp_add') {
+    // Wait for auth then open
+    const checkInterval = setInterval(() => {
+        if (typeof showBPRecordModal === 'function') {
+            clearInterval(checkInterval);
+            switchTab('bp');
+            setTimeout(showBPRecordModal, 500);
+        }
+    }, 100);
+}
+
+async function sendTestBPNotification() {
+    try {
+        const res = await apiCall('/api/bp/reminder/test', 'POST');
+        if (res) {
+            safeAlert("Notification sent! Check your device.");
+        }
+    } catch (e) {
+        console.error(e);
+        safeAlert("Failed to send test notification: " + e.message);
+    }
+}
+
 // Settings Toggle Handler
 document.getElementById('webpush-toggle').addEventListener('change', async function () {
     const status = document.getElementById('webpush-status');

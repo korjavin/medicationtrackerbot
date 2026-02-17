@@ -19,6 +19,7 @@ type Bot struct {
 	api           *tgbotapi.BotAPI
 	store         *store.Store
 	allowedUserID int64
+	appDomain     string
 }
 
 func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
@@ -33,10 +34,16 @@ func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 		api.SetAPIEndpoint(apiEndpoint)
 	}
 
+	appDomain := os.Getenv("APP_DOMAIN")
+	if appDomain == "" {
+		appDomain = os.Getenv("DOMAIN")
+	}
+
 	return &Bot{
 		api:           api,
 		store:         s,
 		allowedUserID: allowedUserID,
+		appDomain:     appDomain,
 	}, nil
 }
 
