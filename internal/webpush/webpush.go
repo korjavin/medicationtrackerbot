@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -72,8 +73,8 @@ func (s *Service) SendMedicationNotification(ctx context.Context, userID int64, 
 	payload := NotificationPayload{
 		Title: title,
 		Body:  body,
-		Icon:  "/static/android-chrome-192x192.png",
-		Badge: "/static/android-chrome-192x192.png", // Monochrome badge preferred, but using icon for now
+		Icon:  "/static/icons/icon-192.png",
+		Badge: "/static/icons/icon-192.png", // Monochrome badge preferred, but using icon for now
 		Tag:   fmt.Sprintf("medication-%s", scheduledTime.Format(time.RFC3339)),
 		Data: map[string]interface{}{
 			"type":             "medication",
@@ -107,7 +108,7 @@ func (s *Service) SendLowStockNotification(ctx context.Context, userID int64, me
 	payload := NotificationPayload{
 		Title: title,
 		Body:  body,
-		Icon:  "/static/android-chrome-192x192.png",
+		Icon:  "/static/icons/icon-192.png",
 		Tag:   "low-stock",
 		Data: map[string]interface{}{
 			"type": "low_stock",
@@ -131,7 +132,7 @@ func (s *Service) SendWorkoutNotification(ctx context.Context, userID int64, ses
 	payload := NotificationPayload{
 		Title: title,
 		Body:  body,
-		Icon:  "/static/android-chrome-192x192.png",
+		Icon:  "/static/icons/icon-192.png",
 		Tag:   fmt.Sprintf("workout-%d", session.ID),
 		Data: map[string]interface{}{
 			"type":       "workout",
@@ -170,7 +171,7 @@ func (s *Service) SendBPReminderNotification(ctx context.Context, userID int64, 
 	payload := NotificationPayload{
 		Title: title,
 		Body:  body,
-		Icon:  "/static/android-chrome-192x192.png",
+		Icon:  "/static/icons/icon-192.png",
 		Tag:   "bp-reminder",
 		Data: map[string]interface{}{
 			"type":     "bp_reminder",
@@ -198,7 +199,7 @@ func (s *Service) SendWeightReminderNotification(ctx context.Context, userID int
 	payload := NotificationPayload{
 		Title: title,
 		Body:  body,
-		Icon:  "/static/android-chrome-192x192.png",
+		Icon:  "/static/icons/icon-192.png",
 		Tag:   "weight-reminder",
 		Data: map[string]interface{}{
 			"type": "weight_reminder",
@@ -279,6 +280,13 @@ func (s *Service) sendToSubscription(sub store.PushSubscription, payload []byte)
 		}
 	}
 
+	// Log the decision for debugging
+	host := "unknown"
+	if u, err := url.Parse(sub.Endpoint); err == nil {
+		host = u.Host
+	}
+	log.Printf("WebPush: Sending to %s (Apple=%v) using Subject: %s", host, isApple, subject)
+
 	resp, err := webpush.SendNotification(payload, wpSub, &webpush.Options{
 		Subscriber:      subject,
 		VAPIDPublicKey:  s.vapidPublicKey,
@@ -331,8 +339,8 @@ func (s *Service) SendEarlyIntakeConfirmation(ctx context.Context, userID int64,
 	payload := NotificationPayload{
 		Title: title,
 		Body:  body,
-		Icon:  "/static/android-chrome-192x192.png",
-		Badge: "/static/android-chrome-192x192.png",
+		Icon:  "/static/icons/icon-192.png",
+		Badge: "/static/icons/icon-192.png",
 		Tag:   fmt.Sprintf("medication-early-%s", scheduledTime.Format(time.RFC3339)),
 		Data: map[string]interface{}{
 			"type":             "medication_early_confirmed",
