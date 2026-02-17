@@ -10,7 +10,7 @@ import (
 
 func TestSendMedicationNotification(t *testing.T) {
 	s, _ := store.New(":memory:")
-	svc := New(s, "pub", "priv", "mailto:test@test.com")
+	svc := New(s, "pub", "priv", "mailto:test@test.com", "admin@test.com", "example.com")
 
 	ctx := context.Background()
 	userID := int64(123)
@@ -27,7 +27,7 @@ func TestSendMedicationNotification(t *testing.T) {
 	}
 
 	// Test with no VAPID keys
-	svcNoKeys := New(s, "", "", "")
+	svcNoKeys := New(s, "", "", "", "", "")
 	err = svcNoKeys.SendMedicationNotification(ctx, userID, meds, scheduledTime, intakeIDs)
 	if err != nil {
 		t.Errorf("Expected nil error when keys missing, got %v", err)
@@ -36,7 +36,7 @@ func TestSendMedicationNotification(t *testing.T) {
 
 func TestSendLowStockNotification(t *testing.T) {
 	s, _ := store.New(":memory:")
-	svc := New(s, "pub", "priv", "subject")
+	svc := New(s, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	ctx := context.Background()
 	userID := int64(123)
@@ -50,7 +50,7 @@ func TestSendLowStockNotification(t *testing.T) {
 
 func TestSendWorkoutNotification(t *testing.T) {
 	s, _ := store.New(":memory:")
-	svc := New(s, "pub", "priv", "subject")
+	svc := New(s, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	ctx := context.Background()
 	userID := int64(123)
@@ -66,7 +66,7 @@ func TestSendWorkoutNotification(t *testing.T) {
 
 func TestSendBPReminderNotification(t *testing.T) {
 	s, _ := store.New(":memory:")
-	svc := New(s, "pub", "priv", "subject")
+	svc := New(s, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	err := svc.SendBPReminderNotification(context.Background(), 123, true)
 	if err != nil {
@@ -76,7 +76,7 @@ func TestSendBPReminderNotification(t *testing.T) {
 
 func TestSendWeightReminderNotification(t *testing.T) {
 	s, _ := store.New(":memory:")
-	svc := New(s, "pub", "priv", "subject")
+	svc := New(s, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	err := svc.SendWeightReminderNotification(context.Background(), 123)
 	if err != nil {
@@ -86,7 +86,7 @@ func TestSendWeightReminderNotification(t *testing.T) {
 
 func TestSendEarlyIntakeConfirmation(t *testing.T) {
 	s, _ := store.New(":memory:")
-	svc := New(s, "pub", "priv", "subject")
+	svc := New(s, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	err := svc.SendEarlyIntakeConfirmation(context.Background(), 123, []store.Medication{{Name: "Med"}}, time.Now(), time.Now(), []int64{1})
 	if err != nil {

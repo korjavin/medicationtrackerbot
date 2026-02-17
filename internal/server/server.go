@@ -39,6 +39,8 @@ type VAPIDConfig struct {
 	PublicKey  string
 	PrivateKey string
 	Subject    string
+	AdminEmail string
+	Domain     string
 }
 
 type rateLimiter struct {
@@ -162,7 +164,7 @@ func New(s *store.Store, b *bot.Bot, botToken, sessionSecret string, allowedUser
 	}
 
 	if vapidConfig.PublicKey != "" && vapidConfig.PrivateKey != "" {
-		srv.webPush = webpush.New(s, vapidConfig.PublicKey, vapidConfig.PrivateKey, vapidConfig.Subject)
+		srv.webPush = webpush.New(s, vapidConfig.PublicKey, vapidConfig.PrivateKey, vapidConfig.Subject, vapidConfig.AdminEmail, vapidConfig.Domain)
 	}
 
 	srv.initOAUTH()

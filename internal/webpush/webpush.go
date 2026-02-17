@@ -19,14 +19,18 @@ type Service struct {
 	vapidPublicKey  string
 	vapidPrivateKey string
 	vapidSubject    string
+	adminEmail      string
+	domain          string
 }
 
-func New(store *store.Store, publicKey, privateKey, subject string) *Service {
+func New(store *store.Store, publicKey, privateKey, subject, adminEmail, domain string) *Service {
 	return &Service{
 		store:           store,
 		vapidPublicKey:  publicKey,
 		vapidPrivateKey: privateKey,
 		vapidSubject:    subject,
+		adminEmail:      adminEmail,
+		domain:          domain,
 	}
 }
 
@@ -243,8 +247,40 @@ func (s *Service) sendToSubscription(sub store.PushSubscription, payload []byte)
 		},
 	}
 
+	// Determine Subject based on Endpoint
+	subject := s.vapidSubject
+
+	// Apple Push Notification Service (APNs) often requires a URL-based subject (https://...)
+	// whereas others (FCM, Mozilla) often prefer 'mailto:'.
+	// If the user provided a URL in VAPID_SUBJECT, that's great for Apple.
+	// If they provided a mailto, we might need to swap it for a URL for Apple?
+	// Or vice-versa.
+	// The user reported:
+	// - VAPID_SUBJECT=https://... -> Works on iPhone, breaks Android/Web
+	// - VAPID_SUBJECT=mailto:... -> Works on Android/Web, breaks iPhone
+
+	isApple := strings.Contains(sub.Endpoint, "push.apple.com")
+
+	if isApple {
+		// Prefer URL
+		if strings.HasPrefix(subject, "mailto:") {
+			// Try to fallback to domain if available
+			if s.domain != "" {
+				subject = "https://" + s.domain
+			}
+		}
+	} else {
+		// Prefer mailto
+		if strings.HasPrefix(subject, "http") || !strings.HasPrefix(subject, "mailto:") {
+			// Try to fallback to admin email
+			if s.adminEmail != "" {
+				subject = "mailto:" + s.adminEmail
+			}
+		}
+	}
+
 	resp, err := webpush.SendNotification(payload, wpSub, &webpush.Options{
-		Subscriber:      s.vapidSubject,
+		Subscriber:      subject,
 		VAPIDPublicKey:  s.vapidPublicKey,
 		VAPIDPrivateKey: s.vapidPrivateKey,
 		TTL:             3600 * 12, // 12 hours

@@ -82,6 +82,11 @@ func main() {
 		PublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
 		PrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
 		Subject:    os.Getenv("VAPID_SUBJECT"),
+		AdminEmail: os.Getenv("ADMIN_EMAIL"),
+		Domain:     os.Getenv("DOMAIN"),
+	}
+	if vapidConfig.Domain == "" {
+		vapidConfig.Domain = os.Getenv("APP_DOMAIN")
 	}
 
 	// 5. Server (Initialize first to get WebPush service)
