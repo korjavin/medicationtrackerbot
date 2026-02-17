@@ -28,6 +28,20 @@ db.version(2).stores({
     medication_cache: 'id, timestamp'
 });
 
+// Version 3: Add caches for history/workout tabs + offline intake queue
+db.version(3).stores({
+    bp_readings: '++localId, serverId, measured_at, syncStatus',
+    weight_logs: '++localId, serverId, measured_at, syncStatus',
+    medication_cache: 'id, timestamp',
+
+    // API response caches (TTL-based, keyed by cache key)
+    intake_history_cache: 'id, timestamp',
+    workout_cache: 'id, timestamp',
+
+    // Offline write queues
+    intake_queue: '++localId, medication_id, syncStatus'
+});
+
 // Simple logger for db operations (will be enhanced by sync.js SyncDebug)
 const dbLog = (msg, data) => {
     console.log(`[DB] ${msg}`, data || '');
@@ -331,10 +345,127 @@ const MedicationStore = {
     }
 };
 
+// Intake History Cache (for medication history tab)
+const IntakeHistoryStore = {
+    CACHE_TTL: 30 * 60 * 1000, // 30 minutes
+
+    async saveCache(key, data) {
+        dbLog('Saving intake history cache', { key, count: data.length });
+        await db.intake_history_cache.put({
+            id: key,
+            timestamp: Date.now(),
+            data: data
+        });
+    },
+
+    async getCache(key) {
+        const cache = await db.intake_history_cache.get(key);
+        if (!cache) return null;
+
+        const age = Date.now() - cache.timestamp;
+        if (age > this.CACHE_TTL) {
+            dbLog('Intake history cache expired', { key });
+            await db.intake_history_cache.delete(key);
+            return null;
+        }
+
+        dbLog('Intake history cache hit', { key, count: cache.data.length });
+        return cache.data;
+    },
+
+    async clearCache() {
+        await db.intake_history_cache.clear();
+        dbLog('Intake history cache cleared');
+    }
+};
+
+// Workout Cache (for workout tabs)
+const WorkoutStore = {
+    CACHE_TTL: 30 * 60 * 1000, // 30 minutes
+
+    async saveCache(key, data) {
+        dbLog('Saving workout cache', { key });
+        await db.workout_cache.put({
+            id: key,
+            timestamp: Date.now(),
+            data: data
+        });
+    },
+
+    async getCache(key) {
+        const cache = await db.workout_cache.get(key);
+        if (!cache) return null;
+
+        const age = Date.now() - cache.timestamp;
+        if (age > this.CACHE_TTL) {
+            dbLog('Workout cache expired', { key });
+            await db.workout_cache.delete(key);
+            return null;
+        }
+
+        dbLog('Workout cache hit', { key });
+        return cache.data;
+    },
+
+    async clearCache() {
+        await db.workout_cache.clear();
+        dbLog('Workout cache cleared');
+    }
+};
+
+// Offline Intake Queue (for medication confirmations while offline)
+const IntakeQueueStore = {
+    async save(entry) {
+        dbLog('Saving offline intake', { medication_ids: entry.medication_ids });
+        const record = {
+            ...entry,
+            syncStatus: 'pending',
+            createdAt: new Date().toISOString()
+        };
+        const localId = await db.intake_queue.add(record);
+        dbLog('Intake queued', { localId });
+        return { ...record, localId };
+    },
+
+    async getPending() {
+        const pending = await db.intake_queue
+            .where('syncStatus')
+            .equals('pending')
+            .toArray();
+        dbLog('Intake getPending', { count: pending.length });
+        return pending;
+    },
+
+    async markSynced(localId) {
+        await db.intake_queue.delete(localId);
+    },
+
+    async markError(localId, errorMessage) {
+        await db.intake_queue.update(localId, {
+            syncStatus: 'error',
+            errorMessage
+        });
+    },
+
+    async getPendingCount() {
+        return await db.intake_queue
+            .where('syncStatus')
+            .equals('pending')
+            .count();
+    },
+
+    async clear() {
+        await db.intake_queue.clear();
+    }
+};
+
 // Export for use in other modules
 window.MedTrackerDB = {
     db,
     BPStore,
     WeightStore,
-    MedicationStore
+    MedicationStore,
+    IntakeHistoryStore,
+    WorkoutStore,
+    IntakeQueueStore
 };

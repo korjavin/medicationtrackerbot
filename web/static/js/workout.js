@@ -140,6 +140,12 @@ async function loadWorkoutGroups() {
 
     try {
         workoutGroups = await apiCall('/api/workout/groups');
+
+        // Cache for offline use
+        if (workoutGroups && window.MedTrackerDB && window.MedTrackerDB.WorkoutStore) {
+            await window.MedTrackerDB.WorkoutStore.saveCache('groups', workoutGroups);
+        }
+
         if (!workoutGroups || workoutGroups.length === 0) {
             container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout groups yet. Click "+ Add Workout Group" to get started!</p>';
             return;
@@ -577,6 +583,12 @@ async function loadWorkoutHistoryTab() {
 
     try {
         const response = await apiCall('/api/workout/sessions?limit=30');
+
+        // Cache for offline use
+        if (response && window.MedTrackerDB && window.MedTrackerDB.WorkoutStore) {
+            await window.MedTrackerDB.WorkoutStore.saveCache('sessions', response);
+        }
+
         if (!response || response.length === 0) {
             container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout history yet</p>';
             return;

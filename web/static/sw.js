@@ -93,6 +93,12 @@ self.addEventListener('fetch', (event) => {
                                 console.log('[SW] Cached API response:', url.pathname);
                             });
                     }
+                    // Server error (e.g. 502 from reverse proxy) — try cache before returning error
+                    if (response.status >= 500) {
+                        console.log('[SW] Server error', response.status, '- trying cache for:', url.pathname);
+                        return caches.match(event.request)
+                            .then(cached => cached || response);
+                    }
                     return response;
                 })
                 .catch(() => {
@@ -166,11 +172,14 @@ self.addEventListener('sync', (event) => {
         event.waitUntil(syncBPReadings());
     } else if (event.tag === 'sync-weight-logs') {
         event.waitUntil(syncWeightLogs());
+    } else if (event.tag === 'sync-intake-logs') {
+        event.waitUntil(syncIntakeLogs());
     } else if (event.tag === 'sync-all') {
         event.waitUntil(
             Promise.all([
                 syncBPReadings(),
-                syncWeightLogs()
+                syncWeightLogs(),
+                syncIntakeLogs()
             ])
         );
     }
@@ -210,6 +219,15 @@ async function syncWeightLogs() {
     const clients = await self.clients.matchAll();
     clients.forEach((client) => {
         client.postMessage({ type: 'SYNC_WEIGHT_LOGS' });
+    });
+}
+
+// Sync intake logs to server
+async function syncIntakeLogs() {
+    console.log('[SW] Syncing intake logs...');
+    const clients = await self.clients.matchAll();
+    clients.forEach((client) => {
+        client.postMessage({ type: 'SYNC_INTAKE_LOGS' });
     });
 }
 

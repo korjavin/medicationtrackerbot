@@ -79,6 +79,7 @@ async function checkAuth() {
     const cachedAuth = getCachedAuthState();
 
     // Try to access API to see if we have valid Session Cookie
+    let serverUnavailable = false;
     try {
         // Optimization: Fetch full data here to avoid second request
         const res = await fetch('/api/medications?archived=true', { method: 'GET' });
@@ -98,26 +99,31 @@ async function checkAuth() {
         } else if (res.status === 401 || res.status === 403) {
             // Definitely not authorized, clear cache
             clearAuthState();
+        } else if (res.status >= 500) {
+            // Server error (e.g. 502 from reverse proxy when container is down)
+            console.log('[Auth] Server error', res.status, '- will try cached auth');
+            serverUnavailable = true;
         }
     } catch (e) {
         console.log("[Auth] Network check failed:", e);
+        serverUnavailable = true;
+    }
 
-        // Network error - check if we're offline and have cached auth
-        if (cachedAuth && cachedAuth.authenticated) {
-            console.log('[Auth] Offline but using cached auth state');
+    // Server unavailable or network error — use cached auth if available
+    if (serverUnavailable && cachedAuth && cachedAuth.authenticated) {
+        console.log('[Auth] Server unavailable, using cached auth state');
 
-            // Load medications from cache for offline use
-            if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
-                const cached = await window.MedTrackerDB.MedicationStore.getCache();
-                if (cached) {
-                    console.log('[Auth] Loaded medications from cache:', cached.length);
-                    medications = cached;
-                    initialAuthLoad = true;
-                }
+        // Load medications from cache for offline use
+        if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
+            const cached = await window.MedTrackerDB.MedicationStore.getCache();
+            if (cached) {
+                console.log('[Auth] Loaded medications from cache:', cached.length);
+                medications = cached;
+                initialAuthLoad = true;
             }
-
-            return true; // Trust cached state when offline
         }
+
+        return true; // Trust cached state when server is down
     }
 
     // Not authorized and no valid cache. Show login options
@@ -1274,7 +1280,14 @@ async function loadHistory() {
     const days = document.getElementById('history-filter-days').value;
     const medId = document.getElementById('history-filter-med').value;
 
+    const cacheKey = `history_${days}_${medId}`;
     const res = await apiCall(`/api/history?days=${days}&med_id=${medId}`);
+
+    // Cache successful response for offline use
+    if (res && window.MedTrackerDB && window.MedTrackerDB.IntakeHistoryStore) {
+        await window.MedTrackerDB.IntakeHistoryStore.saveCache(cacheKey, res);
+    }
+
     // If res is null (not found or error), pass empty array to clear list
     renderHistory(res || []);
 

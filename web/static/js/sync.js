@@ -112,6 +112,8 @@ const SyncManager = {
                     this.syncBPReadings();
                 } else if (event.data.type === 'SYNC_WEIGHT_LOGS') {
                     this.syncWeightLogs();
+                } else if (event.data.type === 'SYNC_INTAKE_LOGS') {
+                    this.syncIntakeLogs();
                 }
             });
         } else {
@@ -159,7 +161,9 @@ const SyncManager = {
     async updateStatus() {
         const bpPending = await window.MedTrackerDB.BPStore.getPendingCount();
         const weightPending = await window.MedTrackerDB.WeightStore.getPendingCount();
-        const totalPending = bpPending + weightPending;
+        const intakePending = window.MedTrackerDB.IntakeQueueStore
+            ? await window.MedTrackerDB.IntakeQueueStore.getPendingCount() : 0;
+        const totalPending = bpPending + weightPending + intakePending;
 
         const status = {
             isOnline: this.isOnline,
@@ -219,7 +223,8 @@ const SyncManager = {
         try {
             await Promise.all([
                 this.syncBPReadings(),
-                this.syncWeightLogs()
+                this.syncWeightLogs(),
+                this.syncIntakeLogs()
             ]);
             SyncDebug.info('Full sync completed');
         } catch (err) {
@@ -320,6 +325,46 @@ const SyncManager = {
         this.updateStatus();
     },
 
+    // Sync intake logs to server
+    async syncIntakeLogs() {
+        if (!this.isOnline) return;
+        if (!window.MedTrackerDB || !window.MedTrackerDB.IntakeQueueStore) return;
+
+        const pending = await window.MedTrackerDB.IntakeQueueStore.getPending();
+        if (pending.length === 0) {
+            SyncDebug.info('No pending intake logs');
+            return;
+        }
+
+        SyncDebug.info(`Syncing ${pending.length} intake logs...`);
+
+        for (const entry of pending) {
+            try {
+                const payload = {
+                    scheduled_at: entry.scheduled_at,
+                    medication_ids: entry.medication_ids,
+                    intake_ids: entry.intake_ids || []
+                };
+
+                SyncDebug.info('Sending intake to server', { localId: entry.localId });
+
+                const result = await window.apiCallDirect('/api/medications/confirm-schedule', 'POST', payload);
+
+                if (result) {
+                    await window.MedTrackerDB.IntakeQueueStore.markSynced(entry.localId);
+                    SyncDebug.info('Intake synced', { localId: entry.localId });
+                } else {
+                    throw new Error('No response from server');
+                }
+            } catch (err) {
+                SyncDebug.error(`Intake sync failed for ${entry.localId}`, { error: err.message });
+                await window.MedTrackerDB.IntakeQueueStore.markError(entry.localId, err.message);
+            }
+        }
+
+        this.updateStatus();
+    },
+
     // Register background sync with Service Worker
     async registerBackgroundSync(tag) {
         if ('serviceWorker' in navigator && 'SyncManager' in window) {
@@ -373,6 +418,10 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
         if (endpoint === '/api/weight' && method === 'POST') {
             return await handleOfflineWeightWrite(body);
         }
+        // Handle offline medication intake confirmations
+        if (endpoint === '/api/medications/confirm-schedule' && method === 'POST') {
+            return await handleOfflineIntakeWrite(body);
+        }
         // Other endpoints don't support offline writes - silently fail
         // The calling code will handle the null return appropriately
         SyncDebug.warn('Endpoint does not support offline writes', { endpoint });
@@ -402,6 +451,9 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
             if (endpoint === '/api/weight' && method === 'POST') {
                 return await handleOfflineWeightWrite(body);
             }
+            if (endpoint === '/api/medications/confirm-schedule' && method === 'POST') {
+                return await handleOfflineIntakeWrite(body);
+            }
         }
 
         // For read operations when offline, try to serve from cache
@@ -412,6 +464,12 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
             }
             if (endpoint.startsWith('/api/weight')) {
                 return await handleOfflineWeightRead(endpoint);
+            }
+            if (endpoint.startsWith('/api/history')) {
+                return await handleOfflineHistoryRead(endpoint);
+            }
+            if (endpoint.startsWith('/api/workout')) {
+                return await handleOfflineWorkoutRead(endpoint);
             }
             // For other GET endpoints that don't have offline support,
             // return empty data instead of throwing to avoid alerts
@@ -494,13 +552,101 @@ async function handleOfflineWeightRead(endpoint) {
     }));
 }
 
-// Check if error is a network error
+// Handle offline history read
+async function handleOfflineHistoryRead(endpoint) {
+    if (!window.MedTrackerDB || !window.MedTrackerDB.IntakeHistoryStore) return null;
+
+    // Parse query params to build cache key
+    const url = new URL(endpoint, window.location.origin);
+    const days = url.searchParams.get('days') || '7';
+    const medId = url.searchParams.get('med_id') || '';
+    const cacheKey = `history_${days}_${medId}`;
+
+    const cached = await window.MedTrackerDB.IntakeHistoryStore.getCache(cacheKey);
+    if (cached) {
+        SyncDebug.info('Serving intake history from cache', { key: cacheKey, count: cached.length });
+        return cached;
+    }
+
+    SyncDebug.warn('No cached intake history', { key: cacheKey });
+    return [];
+}
+
+// Handle offline workout read
+async function handleOfflineWorkoutRead(endpoint) {
+    if (!window.MedTrackerDB || !window.MedTrackerDB.WorkoutStore) return null;
+
+    if (endpoint.includes('/api/workout/groups')) {
+        const cached = await window.MedTrackerDB.WorkoutStore.getCache('groups');
+        if (cached) {
+            SyncDebug.info('Serving workout groups from cache');
+            return cached;
+        }
+    }
+
+    if (endpoint.includes('/api/workout/sessions')) {
+        const cached = await window.MedTrackerDB.WorkoutStore.getCache('sessions');
+        if (cached) {
+            SyncDebug.info('Serving workout sessions from cache');
+            return cached;
+        }
+    }
+
+    SyncDebug.warn('No cached workout data', { endpoint });
+    return null;
+}
+
+// Handle offline medication intake confirmation
+async function handleOfflineIntakeWrite(body) {
+    if (!window.MedTrackerDB || !window.MedTrackerDB.IntakeQueueStore) return null;
+
+    SyncDebug.info('Saving intake confirmation offline', { medication_ids: body.medication_ids });
+
+    const localEntry = await window.MedTrackerDB.IntakeQueueStore.save({
+        scheduled_at: body.scheduled_at,
+        medication_ids: body.medication_ids,
+        intake_ids: body.intake_ids || [],
+        taken_at: new Date().toISOString()
+    });
+
+    // Register background sync
+    SyncManager.registerBackgroundSync('sync-intake-logs');
+
+    // Show toast
+    SyncManager.showToast('Intake saved offline - will sync when online', 'info');
+
+    // Update status
+    SyncManager.updateStatus();
+
+    return {
+        ...body,
+        id: `local_${localEntry.localId}`,
+        localId: localEntry.localId,
+        isLocal: true
+    };
+}
+
+// Check if error is a network error or server unavailable
 function isNetworkError(err) {
     return (
         err instanceof TypeError && err.message.includes('fetch') ||
         err.message === 'Network request failed' ||
         err.message === 'Failed to fetch' ||
-        err.name === 'TypeError' && !navigator.onLine
+        err.name === 'TypeError' && !navigator.onLine ||
+        isServerError(err)
+    );
+}
+
+// Check if error indicates server is down (5xx from reverse proxy)
+function isServerError(err) {
+    const msg = err.message || '';
+    return (
+        msg.includes('Bad Gateway') ||
+        msg.includes('Service Unavailable') ||
+        msg.includes('Gateway Timeout') ||
+        msg.includes('502') ||
+        msg.includes('503') ||
+        msg.includes('504')
     );
 }
 
