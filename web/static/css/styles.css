@@ -1389,3 +1389,23 @@ input:checked+.toggle-slider {
 input:checked+.toggle-slider:before {
     transform: translateX(22px);
 }
+#food-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--secondary-bg-color, #fff);
+    padding: 24px;
+    border-radius: 16px;
+    width: 90%;
+    max-width: 320px;
+    max-height: 85vh;
+    overflow-y: auto;
+    z-index: 1001;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 6px 28px rgba(0, 0, 0, 0.25);
+}
+
+#food-modal.hidden {
+    display: none;
+}

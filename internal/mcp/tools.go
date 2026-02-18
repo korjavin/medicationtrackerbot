@@ -582,3 +582,94 @@ func (s *Server) handleGetSleepLogs(ctx context.Context, req *mcp.CallToolReques
 
 	return nil, response, nil
 }
+
+// FoodIntakeResult represents a food log for the tool response
+type FoodIntakeResult struct {
+	EatenAt  string `json:"eaten_at"`
+	Meal     string `json:"meal"` // Breakfast, Lunch, Dinner, Snack
+	Name     string `json:"name,omitempty"`
+	Weight   int    `json:"weight_g"`
+	Calories int    `json:"calories"`
+	Carbs    int    `json:"carbs_g"`
+	Protein  int    `json:"protein_g"`
+	Fat      int    `json:"fat_g"`
+}
+
+// FoodIntakeResponse is the response for the get_food_intake tool
+type FoodIntakeResponse struct {
+	Logs    []FoodIntakeResult `json:"logs"`
+	Count   int                `json:"count"`
+	Period  string             `json:"period"`
+	Warning string             `json:"warning,omitempty"`
+}
+
+// handleGetFoodIntake handles the get_food_intake tool
+func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolRequest, input DateRangeInput) (*mcp.CallToolResult, FoodIntakeResponse, error) {
+	startDate, endDate, warning, err := s.parseDateRange(input.StartDate, input.EndDate)
+	if err != nil {
+		return nil, FoodIntakeResponse{}, err
+	}
+
+	// Guardrail: Max 7 days range
+	if endDate.Sub(startDate) > 7*24*time.Hour {
+		return nil, FoodIntakeResponse{}, fmt.Errorf("Date range too large. Max 7 days allowed for food logs.")
+	}
+
+	log.Printf("[MCP] Fetching Food Logs for date range: %s to %s", startDate, endDate)
+
+	userID := s.config.UserID
+
+	// We need to fetch day by day or range. Store has GetFoodLogs(date).
+	// Let's iterate through days or add a range method to store?
+	// The current store method GetFoodLogs takes a single date.
+	// Efficient way: loop through days in range. Max 7 days is small enough.
+
+	var results []FoodIntakeResult
+
+	current := startDate
+	for !current.After(endDate) {
+		logs, err := s.store.GetFoodLogs(ctx, userID, current)
+		if err != nil {
+			log.Printf("[MCP] Failed to fetch food logs for %s: %v", current, err)
+			continue
+		}
+
+		// Helper to determine meal name based on time
+		getMealName := func(t time.Time) string {
+			hour := t.Hour()
+			if hour >= 5 && hour < 11 {
+				return "Breakfast"
+			} else if hour >= 11 && hour < 16 {
+				return "Lunch"
+			} else if hour >= 16 && hour < 22 {
+				return "Dinner"
+			}
+			return "Snack"
+		}
+
+		for _, l := range logs {
+			res := FoodIntakeResult{
+				EatenAt:  l.EatenAt.Format("2006-01-02 15:04"),
+				Meal:     getMealName(l.EatenAt),
+				Name:     l.Name,
+				Weight:   l.Weight,
+				Calories: l.Calories,
+				Carbs:    l.Carbs,
+				Protein:  l.Protein,
+				Fat:      l.Fat,
+			}
+			results = append(results, res)
+		}
+
+		current = current.Add(24 * time.Hour)
+	}
+
+	response := FoodIntakeResponse{
+		Logs:    results,
+		Count:   len(results),
+		Period:  formatPeriod(startDate, endDate),
+		Warning: warning,
+	}
+
+	return nil, response, nil
+}

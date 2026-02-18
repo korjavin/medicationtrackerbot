@@ -30,6 +30,7 @@
             <button class="tab active" data-tab="bp" onclick="switchTab('bp')">Blood Pressure</button>
             <button class="tab" data-tab="weight" onclick="switchTab('weight')">Weight</button>
             <button class="tab" data-tab="workouts" onclick="switchTab('workouts')">Workouts</button>
+            <button class="tab" data-tab="food" onclick="switchTab('food')">Food</button>
             <button class="tab" data-tab="meds" onclick="switchTab('meds')">Medications</button>
             <button class="tab" data-tab="settings" onclick="switchTab('settings')">Settings</button>
         </div>
@@ -131,6 +132,22 @@
             </div>
         </div>
 
+        <div id="food-view" class="view">
+            <h3>Food Intake</h3>
+            <div class="food-actions" style="margin-bottom: 16px;">
+                <button onclick="showAddFoodModal()" class="primary" style="width: 100%;">+ Log Food</button>
+            </div>
+
+            <div class="filters" style="margin-bottom: 16px;">
+                <input type="date" id="food-date-filter" onchange="loadFoodLogs()">
+            </div>
+
+            <div id="food-summary"
+                style="margin-bottom: 16px; font-weight: bold; padding: 10px; background: var(--secondary-bg-color); border-radius: 8px;">
+            </div>
+            <div id="food-list"></div>
+        </div>
+
         <div id="settings-view" class="view">
             <h3>Settings</h3>
 
@@ -175,6 +192,20 @@
                 <label class="toggle">
                     <input type="checkbox" id="weight-reminders-toggle">
                     <span class="toggle-slider"></span>
+                    <label class="toggle">
+                        <input type="checkbox" id="weight-reminders-toggle">
+                        <span class="toggle-slider"></span>
+                    </label>
+            </div>
+
+            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
+                <div>
+                    <h3>Food Intake Tracking</h3>
+                    <p class="setting-desc">Enable food logging feature</p>
+                </div>
+                <label class="toggle">
+                    <input type="checkbox" id="food-intake-toggle">
+                    <span class="toggle-slider"></span>
                 </label>
             </div>
 
@@ -183,8 +214,10 @@
                     <h3>Test Notifications</h3>
                     <p class="setting-desc">Simulate upcoming notifications</p>
                 </div>
-                <button onclick="sendTestMedicationNotification()" class="secondary" style="margin: 0;">Test Meds</button>
-                <button onclick="sendTestBPNotification()" class="secondary" style="margin: 0; margin-left: 10px;">Test BP</button>
+                <button onclick="sendTestMedicationNotification()" class="secondary" style="margin: 0;">Test
+                    Meds</button>
+                <button onclick="sendTestBPNotification()" class="secondary" style="margin: 0; margin-left: 10px;">Test
+                    BP</button>
             </div>
         </div>
     </div>
@@ -369,6 +402,63 @@
             <button onclick="saveNewSessionExercise()" class="primary">Add</button>
         </div>
     </div>
+
+    <!-- Modal for Adding Food -->
+    <div id="food-modal" class="hidden">
+        <h3>Log Food</h3>
+
+        <div class="form-row">
+            <label>Food Name:</label>
+            <input type="text" id="food-name" placeholder="e.g. Apple">
+        </div>
+
+        <div class="form-row">
+            <label>Weight (g):</label>
+            <input type="number" id="food-weight" placeholder="e.g. 150" oninput="calculateFoodCalories()">
+        </div>
+
+        <div class="form-row">
+            <label class="checkbox-label">
+                <input type="checkbox" id="food-per-100g" checked onchange="calculateFoodCalories()"> Values are per
+                100g
+            </label>
+        </div>
+
+        <div class="form-row">
+            <label>Macros:</label>
+            <div class="bp-inputs-row">
+                <div class="bp-input-group">
+                    <label>Carbs</label>
+                    <input type="number" id="food-carbs" placeholder="C" oninput="calculateFoodCalories()">
+                </div>
+                <div class="bp-input-group">
+                    <label>Protein</label>
+                    <input type="number" id="food-protein" placeholder="P" oninput="calculateFoodCalories()">
+                </div>
+                <div class="bp-input-group">
+                    <label>Fat</label>
+                    <input type="number" id="food-fat" placeholder="F" oninput="calculateFoodCalories()">
+                </div>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <label>Total Calories:</label>
+            <input type="number" id="food-calories" placeholder="Kcal" readonly
+                style="font-weight: bold; background: #f9f9f9;">
+        </div>
+
+        <div class="form-row">
+            <label>Date & Time:</label>
+            <input type="datetime-local" id="food-datetime">
+        </div>
+
+        <div class="actions">
+            <button onclick="closeFoodModal()" class="secondary">Cancel</button>
+            <button onclick="saveFoodLog()" class="primary">Save</button>
+        </div>
+    </div>
+
 
     <!-- Modal for Adding Med -->
     <div id="modal-overlay" class="hidden"></div>

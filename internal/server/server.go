@@ -304,6 +304,15 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/medications/confirm-schedule", s.handleConfirmSchedule)
 	apiMux.HandleFunc("POST /api/intakes/update", s.handleUpdateIntake)
 
+	// Food Intake endpoints
+	apiMux.HandleFunc("POST /api/food/log", s.handleCreateFoodLog)
+	apiMux.HandleFunc("GET /api/food/log", s.handleGetFoodLogs)
+	apiMux.HandleFunc("DELETE /api/food/log/{id}", s.handleDeleteFoodLog)
+
+	// Settings endpoints
+	apiMux.HandleFunc("GET /api/settings/food-intake", s.handleGetFoodIntakeEnabled)
+	apiMux.HandleFunc("POST /api/settings/food-intake", s.handleSetFoodIntakeEnabled)
+
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
 	mux.Handle("/api/", authMW(apiMux))

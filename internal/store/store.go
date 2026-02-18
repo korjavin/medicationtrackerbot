@@ -1389,3 +1389,95 @@ func (s *Store) DisablePushSubscription(endpoint string) error {
 	_, err := s.db.Exec("UPDATE push_subscriptions SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE endpoint = ?", endpoint)
 	return err
 }
+
+// -- Food Logs --
+
+type FoodLog struct {
+	ID       int64     `json:"id"`
+	UserID   int64     `json:"user_id"`
+	EatenAt  time.Time `json:"eaten_at"`
+	Weight   int       `json:"weight"`
+	Carbs    int       `json:"carbs"`    // total grams
+	Protein  int       `json:"protein"`  // total grams
+	Fat      int       `json:"fat"`      // total grams
+	Calories int       `json:"calories"` // total kcal
+	Name     string    `json:"name,omitempty"`
+}
+
+func (s *Store) CreateFoodLog(ctx context.Context, f *FoodLog) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		"INSERT INTO food_log (user_id, eaten_at, weight, carbs, protein, fat, calories, name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		f.UserID, f.EatenAt, f.Weight, f.Carbs, f.Protein, f.Fat, f.Calories, f.Name)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) GetFoodLogs(ctx context.Context, userID int64, date time.Time) ([]FoodLog, error) {
+	// Range for the day
+	startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+	endOfDay := startOfDay.Add(24 * time.Hour)
+
+	query := "SELECT id, user_id, eaten_at, weight, carbs, protein, fat, calories, name FROM food_log WHERE user_id = ? AND eaten_at >= ? AND eaten_at < ? ORDER BY eaten_at ASC"
+
+	rows, err := s.db.QueryContext(ctx, query, userID, startOfDay, endOfDay)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []FoodLog
+	for rows.Next() {
+		var l FoodLog
+		var name sql.NullString
+		if err := rows.Scan(&l.ID, &l.UserID, &l.EatenAt, &l.Weight, &l.Carbs, &l.Protein, &l.Fat, &l.Calories, &name); err != nil {
+			return nil, err
+		}
+		if name.Valid {
+			l.Name = name.String
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
+func (s *Store) DeleteFoodLog(ctx context.Context, id, userID int64) error {
+	res, err := s.db.ExecContext(ctx, "DELETE FROM food_log WHERE id = ? AND user_id = ?", id, userID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) GetFoodIntakeEnabled(ctx context.Context) (bool, error) {
+	var val interface{} // Can be int(0/1) or bool depending on driver/schema
+	// sqlite uses 0/1 for boolean
+	err := s.db.QueryRowContext(ctx, "SELECT food_intake_enabled FROM settings WHERE id = 1").Scan(&val)
+	if err != nil {
+		// If column doesn't exist yet (migration not run?), handle gracefully or return error
+		// For now, assume migration is run.
+		return false, err
+	}
+
+	switch v := val.(type) {
+	case int64:
+		return v == 1, nil
+	case bool:
+		return v, nil
+	case []uint8: // some drivers return []byte for boolean/bit
+		return len(v) > 0 && v[0] == 1, nil
+	default:
+		// Attempt simple cast or default false
+		return false, nil
+	}
+}
+
+func (s *Store) SetFoodIntakeEnabled(ctx context.Context, enabled bool) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE settings SET food_intake_enabled = ? WHERE id = 1", enabled)
+	return err
+}

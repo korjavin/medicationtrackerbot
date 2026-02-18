@@ -203,6 +203,8 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		b.handleWorkoutHistoryCommand(&msgConfig)
 	case "next":
 		b.handleNextIntakeCommand(&msgConfig)
+	case "intake":
+		b.handleIntakeCommand(msg, &msgConfig)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}

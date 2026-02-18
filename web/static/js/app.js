@@ -539,7 +539,187 @@ function switchTab(tab) {
     } else if (tab === 'bp') { loadBPReadings(); }
     else if (tab === 'weight') { loadWeightLogs(); }
     else if (tab === 'workouts') { loadWorkouts(); }
+    else if (tab === 'food') { loadFoodLogs(); }
     else if (tab === 'settings') { loadSettings(); }
+}
+
+// -- Food Intake Functions --
+
+function calculateFoodCalories() {
+    const weight = parseFloat(document.getElementById('food-weight').value) || 0;
+    const carbs = parseFloat(document.getElementById('food-carbs').value) || 0;
+    const protein = parseFloat(document.getElementById('food-protein').value) || 0;
+    const fat = parseFloat(document.getElementById('food-fat').value) || 0;
+    const per100g = document.getElementById('food-per-100g').checked;
+
+    let totalCals = 0;
+    let totalCarbs = carbs;
+    let totalProt = protein;
+    let totalFat = fat;
+
+    if (per100g) {
+        totalCarbs = (carbs * weight) / 100;
+        totalProt = (protein * weight) / 100;
+        totalFat = (fat * weight) / 100;
+    }
+
+    totalCals = (4 * totalCarbs) + (4 * totalProt) + (9 * totalFat);
+    document.getElementById('food-calories').value = Math.round(totalCals);
+}
+
+function showAddFoodModal() {
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    document.getElementById('food-modal').classList.remove('hidden');
+
+    // Set default date/time
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    document.getElementById('food-datetime').value = now.toISOString().slice(0, 16);
+
+    // Clear inputs
+    document.getElementById('food-name').value = '';
+    document.getElementById('food-weight').value = '';
+    document.getElementById('food-carbs').value = '';
+    document.getElementById('food-protein').value = '';
+    document.getElementById('food-fat').value = '';
+    document.getElementById('food-calories').value = '';
+}
+
+function closeFoodModal() {
+    document.getElementById('modal-overlay').classList.add('hidden');
+    document.getElementById('food-modal').classList.add('hidden');
+}
+
+async function saveFoodLog() {
+    const name = document.getElementById('food-name').value;
+    const weight = parseInt(document.getElementById('food-weight').value);
+    const dateStr = document.getElementById('food-datetime').value;
+
+    if (!weight || !dateStr) {
+        safeAlert("Please enter weight and date.");
+        return;
+    }
+
+    const carbsInput = parseFloat(document.getElementById('food-carbs').value) || 0;
+    const proteinInput = parseFloat(document.getElementById('food-protein').value) || 0;
+    const fatInput = parseFloat(document.getElementById('food-fat').value) || 0;
+    const per100g = document.getElementById('food-per-100g').checked;
+
+    // Calculate totals passed to server
+    // Server expects TOTAL grams if we calculate here, OR we can pass unit?
+    // The API expects TOTAL grams/cals.
+
+    let totalCarbs = carbsInput;
+    let totalProt = proteinInput;
+    let totalFat = fatInput;
+
+    if (per100g) {
+        totalCarbs = Math.round((carbsInput * weight) / 100);
+        totalProt = Math.round((proteinInput * weight) / 100);
+        totalFat = Math.round((fatInput * weight) / 100);
+    }
+
+    const totalCals = (4 * totalCarbs) + (4 * totalProt) + (9 * totalFat);
+
+    const payload = {
+        eaten_at: new Date(dateStr).toISOString(),
+        weight: weight,
+        carbs: totalCarbs,
+        protein: totalProt,
+        fat: totalFat,
+        calories: totalCals,
+        name: name
+    };
+
+    try {
+        await apiCall('/api/food/log', 'POST', payload);
+        closeFoodModal();
+        loadFoodLogs();
+    } catch (e) {
+        console.error(e);
+        safeAlert("Failed to save food log.");
+    }
+}
+
+async function loadFoodLogs() {
+    const list = document.getElementById('food-list');
+    const summary = document.getElementById('food-summary');
+    list.innerHTML = 'Loading...';
+
+    const dateFilter = document.getElementById('food-date-filter');
+    let dateStr = dateFilter.value;
+    if (!dateStr) {
+        const now = new Date();
+        dateStr = now.toISOString().split('T')[0];
+        dateFilter.value = dateStr;
+    }
+
+    try {
+        const groups = await apiCall(`/api/food/log?date=${dateStr}`, 'GET');
+        list.innerHTML = '';
+
+        if (!groups || groups.length === 0) {
+            list.innerHTML = '<p class="hint" style="text-align:center;">No food logs for this day.</p>';
+            summary.style.display = 'none';
+            return;
+        }
+
+        let dayCals = 0;
+        let dayCarbs = 0;
+        let dayProt = 0;
+        let dayFat = 0;
+
+        groups.forEach(group => {
+            dayCals += group.calories;
+            dayCarbs += group.carbs;
+            dayProt += group.protein;
+            dayFat += group.fat;
+
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'history-group';
+
+            let html = `<div class="history-header">
+                <strong>${group.name}</strong> 
+                <span style="font-weight:normal; color:var(--hint-color);">(${group.time})</span>
+                <span style="margin-left:auto; font-size:0.9em;">
+                    ${group.calories} kcal (C:${group.carbs} P:${group.protein} F:${group.fat})
+                </span>
+            </div>`;
+
+            group.logs.forEach(log => {
+                html += `<div class="history-item" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.05);">
+                    <div style="flex:1;">
+                        <div style="font-weight:500;">${log.name || 'Food'}</div>
+                        <div style="font-size:0.85em; color:var(--hint-color);">
+                            ${log.weight}g • ${log.calories} kcal
+                        </div>
+                    </div>
+                    <button class="delete-btn" onclick="deleteFoodLog(${log.id})" style="font-size:16px;">×</button>
+                </div>`;
+            });
+
+            groupDiv.innerHTML = html;
+            list.appendChild(groupDiv);
+        });
+
+        summary.style.display = 'block';
+        summary.innerHTML = `Daily Total: ${dayCals} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${dayCarbs} P:${dayProt} F:${dayFat})</span>`;
+
+    } catch (e) {
+        console.error(e);
+        list.innerHTML = '<p class="error">Failed to load food logs.</p>';
+    }
+}
+
+async function deleteFoodLog(id) {
+    if (!confirm("Delete this entry?")) return;
+    try {
+        await apiCall(`/api/food/log/${id}`, 'DELETE');
+        loadFoodLogs();
+    } catch (e) {
+        console.error(e);
+        safeAlert("Failed to delete.");
+    }
 }
 
 
