@@ -9,7 +9,10 @@ import (
 )
 
 func TestSendMedicationNotification(t *testing.T) {
-	s, _ := store.New(":memory:")
+	s, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
 	svc := New(s, "pub", "priv", "mailto:test@test.com", "admin@test.com", "example.com")
 
 	ctx := context.Background()
@@ -21,7 +24,7 @@ func TestSendMedicationNotification(t *testing.T) {
 	intakeIDs := []int64{1}
 
 	// Should return nil even if no subscriptions (just doesn't send)
-	err := svc.SendMedicationNotification(ctx, userID, meds, scheduledTime, intakeIDs)
+	err = svc.SendMedicationNotification(ctx, userID, meds, scheduledTime, intakeIDs)
 	if err != nil {
 		t.Errorf("Expected nil error, got %v", err)
 	}
@@ -35,21 +38,27 @@ func TestSendMedicationNotification(t *testing.T) {
 }
 
 func TestSendLowStockNotification(t *testing.T) {
-	s, _ := store.New(":memory:")
+	s, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
 	svc := New(s, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	ctx := context.Background()
 	userID := int64(123)
 	meds := []store.Medication{{Name: "Test Med"}}
 
-	err := svc.SendLowStockNotification(ctx, userID, meds)
+	err = svc.SendLowStockNotification(ctx, userID, meds)
 	if err != nil {
 		t.Errorf("Expected nil error, got %v", err)
 	}
 }
 
 func TestSendWorkoutNotification(t *testing.T) {
-	s, _ := store.New(":memory:")
+	s, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
 	svc := New(s, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	ctx := context.Background()
@@ -58,37 +67,46 @@ func TestSendWorkoutNotification(t *testing.T) {
 	group := &store.WorkoutGroup{Name: "Group"}
 	variant := &store.WorkoutVariant{Name: "Variant"}
 
-	err := svc.SendWorkoutNotification(ctx, userID, session, group, variant)
+	err = svc.SendWorkoutNotification(ctx, userID, session, group, variant)
 	if err != nil {
 		t.Errorf("Expected nil error, got %v", err)
 	}
 }
 
 func TestSendBPReminderNotification(t *testing.T) {
-	s, _ := store.New(":memory:")
+	s, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
 	svc := New(s, "pub", "priv", "subject", "admin@test.com", "example.com")
 
-	err := svc.SendBPReminderNotification(context.Background(), 123, true)
+	err = svc.SendBPReminderNotification(context.Background(), 123, true)
 	if err != nil {
 		t.Errorf("Expected nil error, got %v", err)
 	}
 }
 
 func TestSendWeightReminderNotification(t *testing.T) {
-	s, _ := store.New(":memory:")
+	s, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
 	svc := New(s, "pub", "priv", "subject", "admin@test.com", "example.com")
 
-	err := svc.SendWeightReminderNotification(context.Background(), 123)
+	err = svc.SendWeightReminderNotification(context.Background(), 123)
 	if err != nil {
 		t.Errorf("Expected nil error, got %v", err)
 	}
 }
 
 func TestSendEarlyIntakeConfirmation(t *testing.T) {
-	s, _ := store.New(":memory:")
+	s, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
 	svc := New(s, "pub", "priv", "subject", "admin@test.com", "example.com")
 
-	err := svc.SendEarlyIntakeConfirmation(context.Background(), 123, []store.Medication{{Name: "Med"}}, time.Now(), time.Now(), []int64{1})
+	err = svc.SendEarlyIntakeConfirmation(context.Background(), 123, []store.Medication{{Name: "Med"}}, time.Now(), time.Now(), []int64{1})
 	if err != nil {
 		t.Errorf("Expected nil error, got %v", err)
 	}

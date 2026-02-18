@@ -3,8 +3,10 @@ module github.com/korjavin/medicationtrackerbot
 go 1.24.0
 
 require (
+	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/mattn/go-sqlite3 v1.14.34
 	github.com/modelcontextprotocol/go-sdk v1.2.0
 	github.com/pressly/goose/v3 v3.26.0
 	golang.org/x/oauth2 v0.34.0
@@ -13,7 +15,6 @@ require (
 
 require (
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
-	github.com/SherClockHolmes/webpush-go v1.4.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/jsonschema-go v0.3.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect

@@ -42,6 +42,19 @@ db.version(3).stores({
     intake_queue: '++localId, medication_id, syncStatus'
 });
 
+// Version 4: Add Food Products Cache
+db.version(4).stores({
+    bp_readings: '++localId, serverId, measured_at, syncStatus',
+    weight_logs: '++localId, serverId, measured_at, syncStatus',
+    medication_cache: 'id, timestamp',
+    intake_history_cache: 'id, timestamp',
+    workout_cache: 'id, timestamp',
+    intake_queue: '++localId, medication_id, syncStatus',
+
+    // Food products cache
+    food_products_cache: 'id, timestamp'
+});
+
 // Simple logger for db operations (will be enhanced by sync.js SyncDebug)
 const dbLog = (msg, data) => {
     console.log(`[DB] ${msg}`, data || '');
@@ -459,6 +472,40 @@ const IntakeQueueStore = {
     }
 };
 
+// Food Products Cache
+const FoodProductsStore = {
+    CACHE_TTL: 7 * 24 * 60 * 60 * 1000, // 7 days
+
+    async saveCache(products) {
+        dbLog('Saving food products cache', { count: products.length });
+        await db.food_products_cache.put({
+            id: 'recent_products',
+            timestamp: Date.now(),
+            data: products
+        });
+    },
+
+    async getCache() {
+        const cache = await db.food_products_cache.get('recent_products');
+        if (!cache) return null;
+
+        const age = Date.now() - cache.timestamp;
+        if (age > this.CACHE_TTL) {
+            dbLog('Food products cache expired');
+            await db.food_products_cache.delete('recent_products');
+            return null;
+        }
+
+        dbLog('Food products cache hit', { count: cache.data.length });
+        return cache.data;
+    },
+
+    async clearCache() {
+        await db.food_products_cache.clear();
+        dbLog('Food products cache cleared');
+    }
+};
+
 // Export for use in other modules
 window.MedTrackerDB = {
     db,
@@ -467,5 +514,6 @@ window.MedTrackerDB = {
     MedicationStore,
     IntakeHistoryStore,
     WorkoutStore,
-    IntakeQueueStore
+    IntakeQueueStore,
+    FoodProductsStore
 };

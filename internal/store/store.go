@@ -1404,6 +1404,122 @@ type FoodLog struct {
 	Name     string    `json:"name,omitempty"`
 }
 
+type FoodProduct struct {
+	ID             int64     `json:"id"`
+	UserID         int64     `json:"user_id"`
+	Name           string    `json:"name"`
+	Barcode        *string   `json:"barcode,omitempty"`
+	Carbs100g      float64   `json:"carbs_100g"`
+	Protein100g    float64   `json:"protein_100g"`
+	Fat100g        float64   `json:"fat_100g"`
+	EnergyKcal100g float64   `json:"energy_kcal_100g"`
+	UsageCount     int       `json:"usage_count"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastUsedAt     time.Time `json:"last_used_at"`
+}
+
+type OpenFoodFact struct {
+	Barcode        string  `json:"barcode"`
+	Name           string  `json:"name"`
+	Carbs100g      float64 `json:"carbs_100g"`
+	Protein100g    float64 `json:"protein_100g"`
+	Fat100g        float64 `json:"fat_100g"`
+	EnergyKcal100g float64 `json:"energy_kcal_100g"`
+}
+
+func (s *Store) UpsertFoodProduct(ctx context.Context, p *FoodProduct) error {
+	query := `
+		INSERT INTO food_products (user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, last_used_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+		ON CONFLICT(user_id, name) DO UPDATE SET
+			barcode = excluded.barcode,
+			carbs_100g = excluded.carbs_100g,
+			protein_100g = excluded.protein_100g,
+			fat_100g = excluded.fat_100g,
+			energy_kcal_100g = excluded.energy_kcal_100g,
+			usage_count = food_products.usage_count + 1,
+			last_used_at = CURRENT_TIMESTAMP
+	`
+	var barcode interface{}
+	if p.Barcode != nil && *p.Barcode != "" {
+		barcode = *p.Barcode
+	}
+	_, err := s.db.ExecContext(ctx, query, p.UserID, p.Name, barcode, p.Carbs100g, p.Protein100g, p.Fat100g, p.EnergyKcal100g)
+	return err
+}
+
+func (s *Store) GetFoodProducts(ctx context.Context, userID int64, limit int) ([]FoodProduct, error) {
+	query := `
+		SELECT id, user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, created_at, last_used_at
+		FROM food_products
+		WHERE user_id = ?
+		ORDER BY usage_count DESC, last_used_at DESC
+		LIMIT ?
+	`
+	rows, err := s.db.QueryContext(ctx, query, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var products []FoodProduct
+	for rows.Next() {
+		var p FoodProduct
+		var barcode sql.NullString
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &barcode, &p.Carbs100g, &p.Protein100g, &p.Fat100g, &p.EnergyKcal100g, &p.UsageCount, &p.CreatedAt, &p.LastUsedAt); err != nil {
+			return nil, err
+		}
+		if barcode.Valid {
+			b := barcode.String
+			p.Barcode = &b
+		}
+		products = append(products, p)
+	}
+	return products, nil
+}
+
+func (s *Store) SearchFoodProducts(ctx context.Context, userID int64, queryStr string) ([]FoodProduct, error) {
+	// Search in user's food_products and globally in open_food_facts.
+	// We'll return them as FoodProduct structs. For open_food_facts, ID and UserID will be 0.
+
+	likeQuery := "%" + queryStr + "%"
+
+	query := `
+		SELECT id, user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, created_at, last_used_at
+		FROM food_products
+		WHERE user_id = ? AND (name LIKE ? OR barcode LIKE ?)
+		
+		UNION ALL
+		
+		SELECT 0 as id, 0 as user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, 0 as usage_count, CURRENT_TIMESTAMP as created_at, CURRENT_TIMESTAMP as last_used_at
+		FROM open_food_facts
+		WHERE name LIKE ? OR barcode LIKE ?
+		
+		ORDER BY usage_count DESC, name COLLATE NOCASE ASC
+		LIMIT 50
+	`
+	rows, err := s.db.QueryContext(ctx, query, userID, likeQuery, likeQuery, likeQuery, likeQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var products []FoodProduct
+	for rows.Next() {
+		var p FoodProduct
+		var barcode sql.NullString
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &barcode, &p.Carbs100g, &p.Protein100g, &p.Fat100g, &p.EnergyKcal100g, &p.UsageCount, &p.CreatedAt, &p.LastUsedAt); err != nil {
+			return nil, err
+		}
+		if barcode.Valid {
+			b := barcode.String
+			p.Barcode = &b
+		}
+		products = append(products, p)
+	}
+	return products, nil
+}
+
 func (s *Store) CreateFoodLog(ctx context.Context, f *FoodLog) (int64, error) {
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO food_log (user_id, eaten_at, weight, carbs, protein, fat, calories, name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

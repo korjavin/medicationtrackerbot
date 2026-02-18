@@ -24,6 +24,8 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 		Fat      int    `json:"fat"`      // total grams
 		Calories int    `json:"calories"` // total kcal
 		Name     string `json:"name"`
+		Barcode  string `json:"barcode"`
+		Per100g  bool   `json:"per_100g"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -56,6 +58,34 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Upsert to food_products
+	if req.Name != "" {
+		carbs, protein, fat, kcal := float64(req.Carbs), float64(req.Protein), float64(req.Fat), float64(req.Calories)
+		var c100, p100, f100, k100 float64
+		if req.Per100g {
+			c100, p100, f100, k100 = carbs, protein, fat, kcal
+		} else if req.Weight > 0 {
+			mult := 100.0 / float64(req.Weight)
+			c100, p100, f100, k100 = carbs*mult, protein*mult, fat*mult, kcal*mult
+		}
+
+		var barcodePtr *string
+		if req.Barcode != "" {
+			barcodePtr = &req.Barcode
+		}
+		p := &store.FoodProduct{
+			UserID:         userID,
+			Name:           req.Name,
+			Barcode:        barcodePtr,
+			Carbs100g:      c100,
+			Protein100g:    p100,
+			Fat100g:        f100,
+			EnergyKcal100g: k100,
+		}
+		// Ignore error as this is a background optimization
+		_ = s.store.UpsertFoodProduct(context.Background(), p)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -134,6 +164,8 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 		Fat      int    `json:"fat"`      // total grams
 		Calories int    `json:"calories"` // total kcal
 		Name     string `json:"name"`
+		Barcode  string `json:"barcode"`
+		Per100g  bool   `json:"per_100g"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -170,6 +202,33 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Upsert to food_products
+	if req.Name != "" {
+		carbs, protein, fat, kcal := float64(req.Carbs), float64(req.Protein), float64(req.Fat), float64(req.Calories)
+		var c100, p100, f100, k100 float64
+		if req.Per100g {
+			c100, p100, f100, k100 = carbs, protein, fat, kcal
+		} else if req.Weight > 0 {
+			mult := 100.0 / float64(req.Weight)
+			c100, p100, f100, k100 = carbs*mult, protein*mult, fat*mult, kcal*mult
+		}
+
+		var barcodePtr *string
+		if req.Barcode != "" {
+			barcodePtr = &req.Barcode
+		}
+		p := &store.FoodProduct{
+			UserID:         userID,
+			Name:           req.Name,
+			Barcode:        barcodePtr,
+			Carbs100g:      c100,
+			Protein100g:    p100,
+			Fat100g:        f100,
+			EnergyKcal100g: k100,
+		}
+		_ = s.store.UpsertFoodProduct(context.Background(), p)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -274,4 +333,41 @@ func (s *Server) handleSetFoodIntakeEnabled(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleGetFoodProducts(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	products, err := s.store.GetFoodProducts(context.Background(), userID, 100)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if products == nil {
+		products = []store.FoodProduct{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(products)
+}
+
+func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	query := r.URL.Query().Get("q")
+	if len(query) < 2 {
+		json.NewEncoder(w).Encode([]store.FoodProduct{})
+		return
+	}
+
+	products, err := s.store.SearchFoodProducts(context.Background(), userID, query)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if products == nil {
+		products = []store.FoodProduct{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(products)
 }

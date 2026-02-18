@@ -309,6 +309,8 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("PUT /api/food/log/{id}", s.handleUpdateFoodLog)
 	apiMux.HandleFunc("GET /api/food/log", s.handleGetFoodLogs)
 	apiMux.HandleFunc("DELETE /api/food/log/{id}", s.handleDeleteFoodLog)
+	apiMux.HandleFunc("GET /api/food/products", s.handleGetFoodProducts)
+	apiMux.HandleFunc("GET /api/food/products/search", s.handleSearchFoodProducts)
 
 	// Settings endpoints
 	apiMux.HandleFunc("GET /api/food/settings/status", s.handleGetFoodIntakeEnabled)

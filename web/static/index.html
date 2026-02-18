@@ -407,7 +407,14 @@
 
         <div class="form-row">
             <label>Food Name (optional):</label>
-            <input type="text" id="food-name" placeholder="e.g. Apple">
+            <input type="text" id="food-name" placeholder="e.g. Apple" list="food-products-list" autocomplete="off"
+                oninput="onFoodNameChange()">
+            <datalist id="food-products-list"></datalist>
+        </div>
+
+        <div class="form-row">
+            <label>Barcode (optional):</label>
+            <input type="text" id="food-barcode" placeholder="e.g. 1234567890123" oninput="onFoodBarcodeChange()">
         </div>
 
         <div class="form-row">

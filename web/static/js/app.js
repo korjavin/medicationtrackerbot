@@ -545,6 +545,125 @@ function switchTab(tab) {
     else if (tab === 'settings') { loadSettings(); }
 }
 
+// -- Food Intake Autocomplete & Logic --
+
+let foodAutoCompleteSuggestions = [];
+let foodProductsCache = [];
+let foodSearchTimeout;
+
+async function initFoodProductsCache() {
+    if (window.MedTrackerDB) {
+        foodProductsCache = await window.MedTrackerDB.FoodProductsStore.getCache();
+    }
+    if (!foodProductsCache) {
+        try {
+            foodProductsCache = await apiCall('/api/food/products', 'GET') || [];
+            if (window.MedTrackerDB && foodProductsCache.length > 0) {
+                await window.MedTrackerDB.FoodProductsStore.saveCache(foodProductsCache);
+            }
+        } catch (e) {
+            console.error('Failed to load food products', e);
+            foodProductsCache = [];
+        }
+    }
+}
+
+async function onFoodNameChange() {
+    const query = document.getElementById('food-name').value;
+
+    // Check if user selected something from the datalist
+    const selected = foodAutoCompleteSuggestions.find(p => p.name === query);
+    if (selected) {
+        autofillFoodProduct(selected);
+        return;
+    }
+
+    if (query.length < 2) {
+        renderFoodDatalist(foodProductsCache);
+        return;
+    }
+
+    // Debounce search
+    clearTimeout(foodSearchTimeout);
+    foodSearchTimeout = setTimeout(async () => {
+        try {
+            const results = await apiCall(`/api/food/products/search?q=${encodeURIComponent(query)}`, 'GET');
+
+            // Merge with local cache results
+            const combined = [...(results || [])];
+
+            // Deduplicate by name
+            const unique = [];
+            const seen = new Set();
+            for (const p of combined) {
+                if (!seen.has(p.name)) {
+                    seen.add(p.name);
+                    unique.push(p);
+                }
+            }
+            renderFoodDatalist(unique);
+        } catch (e) {
+            console.error('Search failed', e);
+        }
+    }, 300);
+}
+
+async function onFoodBarcodeChange() {
+    const barcode = document.getElementById('food-barcode').value;
+    if (barcode.length < 5) return;
+
+    clearTimeout(foodSearchTimeout);
+    foodSearchTimeout = setTimeout(async () => {
+        try {
+            const results = await apiCall(`/api/food/products/search?q=${encodeURIComponent(barcode)}`, 'GET');
+            if (results && results.length > 0) {
+                // If an exact match by barcode is found, auto-fill it
+                const match = results.find(p => p.barcode === barcode);
+                if (match) {
+                    document.getElementById('food-name').value = match.name;
+                    autofillFoodProduct(match);
+                }
+            }
+        } catch (e) {
+            console.error('Barcode search failed', e);
+        }
+    }, 500);
+}
+
+function renderFoodDatalist(products) {
+    foodAutoCompleteSuggestions = products || [];
+    const list = document.getElementById('food-products-list');
+    if (!list) return;
+
+    list.innerHTML = '';
+
+    // Limit datalist options so browser doesn't choke
+    const displayList = foodAutoCompleteSuggestions.slice(0, 50);
+
+    displayList.forEach(p => {
+        const option = document.createElement('option');
+        option.value = p.name;
+        list.appendChild(option);
+    });
+}
+
+function autofillFoodProduct(product) {
+    if (product.barcode) {
+        document.getElementById('food-barcode').value = product.barcode;
+    }
+
+    // Check per 100g to auto-fill macros directly
+    document.getElementById('food-per-100g').checked = true;
+    document.getElementById('food-carbs').value = product.carbs_100g;
+    document.getElementById('food-protein').value = product.protein_100g;
+    document.getElementById('food-fat').value = product.fat_100g;
+    document.getElementById('food-calories').value = product.energy_kcal_100g;
+
+    // Focus weight input
+    document.getElementById('food-weight').focus();
+    calculateFoodCalories();
+}
+
 // -- Food Intake Functions --
 
 function calculateFoodCalories() {
@@ -582,12 +701,19 @@ function showAddFoodModal() {
     // Clear inputs
     document.getElementById('food-id').value = '';
     document.getElementById('food-name').value = '';
+    document.getElementById('food-barcode').value = '';
     document.getElementById('food-weight').value = '';
     document.getElementById('food-carbs').value = '';
     document.getElementById('food-protein').value = '';
     document.getElementById('food-fat').value = '';
     document.getElementById('food-calories').value = '';
     document.getElementById('food-per-100g').checked = true;
+
+    if (foodProductsCache.length === 0) {
+        initFoodProductsCache().then(() => renderFoodDatalist(foodProductsCache));
+    } else {
+        renderFoodDatalist(foodProductsCache);
+    }
 }
 
 function editFoodLog(id) {
@@ -600,6 +726,7 @@ function editFoodLog(id) {
 
     document.getElementById('food-id').value = log.id;
     document.getElementById('food-name').value = log.name || '';
+    document.getElementById('food-barcode').value = log.barcode || '';
     document.getElementById('food-weight').value = log.weight || '';
 
     // Server stores total raw values. Untick 'per 100g' so we can just set them.
@@ -659,7 +786,9 @@ async function saveFoodLog() {
         protein: totalProt,
         fat: totalFat,
         calories: totalCals,
-        name: name
+        name: name,
+        barcode: document.getElementById('food-barcode').value,
+        per_100g: per100g
     };
 
     const id = document.getElementById('food-id').value;
