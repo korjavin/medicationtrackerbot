@@ -364,6 +364,15 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// OpenFoodFacts Fallback if no local or offline global matches are found
+	if len(products) == 0 {
+		apiProducts, err := s.store.SearchOpenFoodFactsAPI(context.Background(), query)
+		if err == nil && len(apiProducts) > 0 {
+			products = apiProducts
+		}
+	}
+
 	if products == nil {
 		products = []store.FoodProduct{}
 	}
