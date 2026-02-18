@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -367,8 +368,13 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 
 	// OpenFoodFacts Fallback if no local or offline global matches are found
 	if len(products) == 0 {
-		apiProducts, err := s.store.SearchOpenFoodFactsAPI(context.Background(), query)
-		if err == nil && len(apiProducts) > 0 {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+
+		apiProducts, err := s.store.SearchOpenFoodFactsAPI(ctx, query)
+		if err != nil {
+			log.Printf("Debug: OpenFoodFacts API fallback failed for query %q: %v", query, err)
+		} else if len(apiProducts) > 0 {
 			products = apiProducts
 		}
 	}
