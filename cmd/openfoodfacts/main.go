@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func main() {
@@ -24,7 +24,7 @@ func main() {
 	dbPath := os.Args[1]
 	csvPath := os.Args[2]
 
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		log.Fatal("Error opening database:", err)
 	}
