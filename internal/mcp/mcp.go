@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -235,42 +236,77 @@ func (s *Server) registerTools() {
 func (s *Server) parseDateRange(startStr, endStr string) (time.Time, time.Time, string, error) {
 	now := time.Now()
 	var endDate, startDate time.Time
-	var warning string
+	var warningParts []string
+
+	startStr = strings.TrimSpace(startStr)
+	endStr = strings.TrimSpace(endStr)
+	loc := now.Location()
 
 	log.Printf("[MCP] parseDateRange Input: start=%q, end=%q", startStr, endStr)
 
 	// Parse end date (defaults to now)
 	if endStr == "" {
 		endDate = now
+		warningParts = append(warningParts,
+			fmt.Sprintf("end_date was omitted; defaulted to today (%s).", endDate.Format("2006-01-02")))
 	} else {
-		parsed, err := time.Parse("2006-01-02", endStr)
+		parsed, err := time.ParseInLocation("2006-01-02", endStr, loc)
 		if err != nil {
-			return time.Time{}, time.Time{}, "", fmt.Errorf("invalid end_date format, expected YYYY-MM-DD: %w", err)
+			return time.Time{}, time.Time{}, "", fmt.Errorf("invalid end_date %q: expected YYYY-MM-DD", endStr)
 		}
-		endDate = parsed.Add(23*time.Hour + 59*time.Minute + 59*time.Second) // End of day
+		endDate = time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 23, 59, 59, 0, loc) // End of day
 	}
 
 	// Parse start date (defaults to maxQueryDays before end)
 	if startStr == "" {
 		startDate = endDate.AddDate(0, 0, -s.config.MaxQueryDays)
+		warningParts = append(warningParts,
+			fmt.Sprintf("start_date was omitted; defaulted to %d days before end_date (%s).",
+				s.config.MaxQueryDays, startDate.Format("2006-01-02")))
 	} else {
-		parsed, err := time.Parse("2006-01-02", startStr)
+		parsed, err := time.ParseInLocation("2006-01-02", startStr, loc)
 		if err != nil {
-			return time.Time{}, time.Time{}, "", fmt.Errorf("invalid start_date format, expected YYYY-MM-DD: %w", err)
+			return time.Time{}, time.Time{}, "", fmt.Errorf("invalid start_date %q: expected YYYY-MM-DD", startStr)
 		}
-		startDate = parsed
+		startDate = time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, loc)
+	}
+
+	if startDate.After(endDate) {
+		return time.Time{}, time.Time{}, "", fmt.Errorf(
+			"invalid date range: start_date %s is after end_date %s",
+			startDate.Format("2006-01-02"),
+			endDate.Format("2006-01-02"),
+		)
 	}
 
 	// Enforce max query days
+	requestedStart := startDate
 	maxStart := endDate.AddDate(0, 0, -s.config.MaxQueryDays)
 	if startDate.Before(maxStart) {
-		warning = fmt.Sprintf("Query range exceeded maximum of %d days. Truncated to start from %s.",
-			s.config.MaxQueryDays, maxStart.Format("2006-01-02"))
+		warningParts = append(warningParts,
+			fmt.Sprintf("requested range exceeded maximum of %d days; start_date was truncated from %s to %s.",
+				s.config.MaxQueryDays,
+				requestedStart.Format("2006-01-02"),
+				maxStart.Format("2006-01-02")))
 		startDate = maxStart
 	}
 
-	log.Printf("[MCP] parseDateRange Output: start=%s, end=%s", startDate, endDate)
-	return startDate, endDate, warning, nil
+	log.Printf("[MCP] parseDateRange Output: start=%s, end=%s, max_days=%d",
+		startDate.Format(time.RFC3339),
+		endDate.Format(time.RFC3339),
+		s.config.MaxQueryDays)
+	return startDate, endDate, strings.Join(warningParts, " "), nil
+}
+
+func appendWarnings(parts ...string) string {
+	filtered := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			filtered = append(filtered, p)
+		}
+	}
+	return strings.Join(filtered, " ")
 }
 
 // Run starts the HTTP server and blocks until shutdown

@@ -2,8 +2,10 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +16,77 @@ import (
 type DateRangeInput struct {
 	StartDate string `json:"start_date"`
 	EndDate   string `json:"end_date"`
+}
+
+func (s *Server) resolveDateRangeArgs(req *mcp.CallToolRequest, startDate, endDate string) (string, string, string, error) {
+	if req == nil || req.Params == nil || len(req.Params.Arguments) == 0 {
+		return startDate, endDate, "", nil
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(req.Params.Arguments, &raw); err != nil {
+		return "", "", "", fmt.Errorf("invalid arguments payload: expected JSON object")
+	}
+
+	keys := make([]string, 0, len(raw))
+	for k := range raw {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	log.Printf("[MCP] Tool %q argument keys: %s", req.Params.Name, strings.Join(keys, ","))
+
+	var notes []string
+	if startDate == "" {
+		if v, ok, err := getStringArg(raw, "startDate"); err != nil {
+			return "", "", "", fmt.Errorf("invalid startDate: expected string")
+		} else if ok {
+			startDate = v
+			notes = append(notes, "Accepted compatibility alias startDate; prefer start_date.")
+		}
+	}
+	if endDate == "" {
+		if v, ok, err := getStringArg(raw, "endDate"); err != nil {
+			return "", "", "", fmt.Errorf("invalid endDate: expected string")
+		} else if ok {
+			endDate = v
+			notes = append(notes, "Accepted compatibility alias endDate; prefer end_date.")
+		}
+	}
+
+	return startDate, endDate, strings.Join(notes, " "), nil
+}
+
+func getStringArg(args map[string]json.RawMessage, key string) (string, bool, error) {
+	raw, ok := args[key]
+	if !ok {
+		return "", false, nil
+	}
+	var v string
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return "", true, err
+	}
+	return strings.TrimSpace(v), true, nil
+}
+
+func noDataWarning(entity string, startDate, endDate time.Time, storeCount, returnedCount int) string {
+	if returnedCount > 0 {
+		return ""
+	}
+	if storeCount > 0 {
+		return fmt.Sprintf(
+			"No %s in requested range %s to %s. Found %d record(s) after start_date, but all were outside end_date.",
+			entity,
+			startDate.Format("2006-01-02"),
+			endDate.Format("2006-01-02"),
+			storeCount,
+		)
+	}
+	return fmt.Sprintf(
+		"No %s found in effective range %s to %s.",
+		entity,
+		startDate.Format("2006-01-02"),
+		endDate.Format("2006-01-02"),
+	)
 }
 
 // BloodPressureResult represents a blood pressure reading for the tool response
@@ -36,11 +109,16 @@ type BloodPressureResponse struct {
 
 // handleGetBloodPressure handles the get_blood_pressure tool
 func (s *Server) handleGetBloodPressure(ctx context.Context, req *mcp.CallToolRequest, input DateRangeInput) (*mcp.CallToolResult, BloodPressureResponse, error) {
-	startDate, endDate, warning, err := s.parseDateRange(input.StartDate, input.EndDate)
+	startStr, endStr, argsWarning, err := s.resolveDateRangeArgs(req, input.StartDate, input.EndDate)
+	if err != nil {
+		return nil, BloodPressureResponse{}, err
+	}
+	startDate, endDate, warning, err := s.parseDateRange(startStr, endStr)
 	if err != nil {
 		log.Printf("[MCP] Date parsing failed for BP: %v", err)
 		return nil, BloodPressureResponse{}, err
 	}
+	warning = appendWarnings(argsWarning, warning)
 	log.Printf("[MCP] Fetching BP for date range: %s to %s", startDate, endDate)
 
 	// Get the user ID from config
@@ -74,6 +152,14 @@ func (s *Server) handleGetBloodPressure(ctx context.Context, req *mcp.CallToolRe
 			Notes:      r.Notes,
 		})
 	}
+	log.Printf("[MCP] BP query result: store_count=%d, returned_count=%d, period=%s",
+		len(readings), len(results), formatPeriod(startDate, endDate))
+	if len(results) == 0 {
+		reason := noDataWarning("blood pressure readings", startDate, endDate, len(readings), len(results))
+		warning = appendWarnings(warning, reason)
+		log.Printf("[MCP][WARN] BP query returned zero rows. user_id=%d, start=%s, end=%s, warning=%q",
+			userID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), warning)
+	}
 
 	response := BloodPressureResponse{
 		Readings: results,
@@ -104,11 +190,16 @@ type WeightResponse struct {
 
 // handleGetWeight handles the get_weight tool
 func (s *Server) handleGetWeight(ctx context.Context, req *mcp.CallToolRequest, input DateRangeInput) (*mcp.CallToolResult, WeightResponse, error) {
-	startDate, endDate, warning, err := s.parseDateRange(input.StartDate, input.EndDate)
+	startStr, endStr, argsWarning, err := s.resolveDateRangeArgs(req, input.StartDate, input.EndDate)
+	if err != nil {
+		return nil, WeightResponse{}, err
+	}
+	startDate, endDate, warning, err := s.parseDateRange(startStr, endStr)
 	if err != nil {
 		log.Printf("[MCP] Date parsing failed for Weight: %v", err)
 		return nil, WeightResponse{}, err
 	}
+	warning = appendWarnings(argsWarning, warning)
 	log.Printf("[MCP] Fetching Weight for date range: %s to %s", startDate, endDate)
 
 	userID := s.config.UserID
@@ -133,6 +224,14 @@ func (s *Server) handleGetWeight(ctx context.Context, req *mcp.CallToolRequest, 
 			BodyFat:    l.BodyFat,
 			Notes:      l.Notes,
 		})
+	}
+	log.Printf("[MCP] Weight query result: store_count=%d, returned_count=%d, period=%s",
+		len(logs), len(results), formatPeriod(startDate, endDate))
+	if len(results) == 0 {
+		reason := noDataWarning("weight logs", startDate, endDate, len(logs), len(results))
+		warning = appendWarnings(warning, reason)
+		log.Printf("[MCP][WARN] Weight query returned zero rows. user_id=%d, start=%s, end=%s, warning=%q",
+			userID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), warning)
 	}
 
 	response := WeightResponse{
@@ -171,10 +270,15 @@ type MedicationIntakeResponse struct {
 
 // handleGetMedicationIntake handles the get_medication_intake tool
 func (s *Server) handleGetMedicationIntake(ctx context.Context, req *mcp.CallToolRequest, input MedicationIntakeInput) (*mcp.CallToolResult, MedicationIntakeResponse, error) {
-	startDate, endDate, warning, err := s.parseDateRange(input.StartDate, input.EndDate)
+	startStr, endStr, argsWarning, err := s.resolveDateRangeArgs(req, input.StartDate, input.EndDate)
 	if err != nil {
 		return nil, MedicationIntakeResponse{}, err
 	}
+	startDate, endDate, warning, err := s.parseDateRange(startStr, endStr)
+	if err != nil {
+		return nil, MedicationIntakeResponse{}, err
+	}
+	warning = appendWarnings(argsWarning, warning)
 
 	// Get intakes since start date
 	intakes, err := s.store.GetIntakesSince(startDate)
@@ -210,6 +314,17 @@ func (s *Server) handleGetMedicationIntake(ctx context.Context, req *mcp.CallToo
 			TakenAt:        takenAt,
 			Status:         intake.Status,
 		})
+	}
+	log.Printf("[MCP] Medication query result: store_count=%d, returned_count=%d, period=%s, medication_filter=%q",
+		len(intakes), len(results), formatPeriod(startDate, endDate), input.MedicationName)
+	if len(results) == 0 {
+		reason := noDataWarning("medication intake records", startDate, endDate, len(intakes), len(results))
+		if strings.TrimSpace(input.MedicationName) != "" {
+			reason = reason + fmt.Sprintf(" Applied medication_name filter: %q.", input.MedicationName)
+		}
+		warning = appendWarnings(warning, reason)
+		log.Printf("[MCP][WARN] Medication query returned zero rows. start=%s, end=%s, medication_filter=%q, warning=%q",
+			startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), input.MedicationName, warning)
 	}
 
 	response := MedicationIntakeResponse{
@@ -263,10 +378,15 @@ type WorkoutHistoryResponse struct {
 // handleGetWorkoutHistory handles the get_workout_history tool
 // handleGetWorkoutHistory handles the get_workout_history tool
 func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolRequest, input WorkoutHistoryInput) (*mcp.CallToolResult, WorkoutHistoryResponse, error) {
-	startDate, endDate, warning, err := s.parseDateRange(input.StartDate, input.EndDate)
+	startStr, endStr, argsWarning, err := s.resolveDateRangeArgs(req, input.StartDate, input.EndDate)
 	if err != nil {
 		return nil, WorkoutHistoryResponse{}, err
 	}
+	startDate, endDate, warning, err := s.parseDateRange(startStr, endStr)
+	if err != nil {
+		return nil, WorkoutHistoryResponse{}, err
+	}
+	warning = appendWarnings(argsWarning, warning)
 
 	userID := s.config.UserID
 
@@ -343,6 +463,14 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 
 		results = append(results, result)
 	}
+	log.Printf("[MCP] Workout query result: store_count=%d, returned_count=%d, period=%s, include_exercises=%t",
+		len(sessions), len(results), formatPeriod(startDate, endDate), input.IncludeExercises)
+	if len(results) == 0 {
+		reason := noDataWarning("workout sessions", startDate, endDate, len(sessions), len(results))
+		warning = appendWarnings(warning, reason)
+		log.Printf("[MCP][WARN] Workout query returned zero rows. user_id=%d, start=%s, end=%s, warning=%q",
+			userID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), warning)
+	}
 
 	// Check for likely year hallucination if no results found
 	if len(results) == 0 {
@@ -394,10 +522,15 @@ type SleepLogResponse struct {
 
 // handleGetSleepLogs handles the get_sleep_logs tool
 func (s *Server) handleGetSleepLogs(ctx context.Context, req *mcp.CallToolRequest, input DateRangeInput) (*mcp.CallToolResult, SleepLogResponse, error) {
-	startDate, endDate, warning, err := s.parseDateRange(input.StartDate, input.EndDate)
+	startStr, endStr, argsWarning, err := s.resolveDateRangeArgs(req, input.StartDate, input.EndDate)
 	if err != nil {
 		return nil, SleepLogResponse{}, err
 	}
+	startDate, endDate, warning, err := s.parseDateRange(startStr, endStr)
+	if err != nil {
+		return nil, SleepLogResponse{}, err
+	}
+	warning = appendWarnings(argsWarning, warning)
 
 	log.Printf("[MCP] Fetching Sleep Logs for date range: %s to %s", startDate, endDate)
 
@@ -429,6 +562,15 @@ func (s *Server) handleGetSleepLogs(ctx context.Context, req *mcp.CallToolReques
 		}
 
 		results = append(results, res)
+	}
+
+	log.Printf("[MCP] Sleep logs query result: store_count=%d, returned_count=%d, period=%s",
+		len(logs), len(results), formatPeriod(startDate, endDate))
+	if len(results) == 0 {
+		emptyReason := noDataWarning("sleep logs", startDate, endDate, len(logs), len(results))
+		warning = appendWarnings(warning, emptyReason)
+		log.Printf("[MCP][WARN] Sleep logs query returned zero rows. user_id=%d, start=%s, end=%s, warning=%q",
+			userID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), warning)
 	}
 
 	response := SleepLogResponse{
