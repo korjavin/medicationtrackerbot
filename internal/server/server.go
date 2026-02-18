@@ -306,6 +306,7 @@ func (s *Server) Routes() http.Handler {
 
 	// Food Intake endpoints
 	apiMux.HandleFunc("POST /api/food/log", s.handleCreateFoodLog)
+	apiMux.HandleFunc("PUT /api/food/log/{id}", s.handleUpdateFoodLog)
 	apiMux.HandleFunc("GET /api/food/log", s.handleGetFoodLogs)
 	apiMux.HandleFunc("DELETE /api/food/log/{id}", s.handleDeleteFoodLog)
 

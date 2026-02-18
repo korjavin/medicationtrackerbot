@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -114,6 +115,67 @@ func (s *Server) handleDeleteFoodLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		EatenAt  string `json:"eaten_at"` // ISO8601
+		Weight   int    `json:"weight"`   // grams
+		Carbs    int    `json:"carbs"`    // total grams
+		Protein  int    `json:"protein"`  // total grams
+		Fat      int    `json:"fat"`      // total grams
+		Calories int    `json:"calories"` // total kcal
+		Name     string `json:"name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	eatenAt, err := time.Parse(time.RFC3339, req.EatenAt)
+	if err != nil {
+		// Try without timezone
+		eatenAt, err = time.Parse("2006-01-02T15:04", req.EatenAt)
+		if err != nil {
+			http.Error(w, "Invalid time format", http.StatusBadRequest)
+			return
+		}
+	}
+
+	log := &store.FoodLog{
+		ID:       id,
+		UserID:   userID,
+		EatenAt:  eatenAt,
+		Weight:   req.Weight,
+		Carbs:    req.Carbs,
+		Protein:  req.Protein,
+		Fat:      req.Fat,
+		Calories: req.Calories,
+		Name:     req.Name,
+	}
+
+	if err := s.store.UpdateFoodLog(context.Background(), log); err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "updated",
+	})
 }
 
 // groupFoodLogs groups logs into meals based on time proximity

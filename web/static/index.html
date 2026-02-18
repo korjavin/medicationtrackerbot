@@ -400,25 +400,19 @@
         </div>
     </div>
 
-    <!-- Modal for Adding Food -->
+    <!-- Modal for Adding/Editing Food -->
     <div id="food-modal" class="hidden">
-        <h3>Log Food</h3>
+        <h3 id="food-modal-title">Log Food</h3>
+        <input type="hidden" id="food-id">
 
         <div class="form-row">
-            <label>Food Name:</label>
+            <label>Food Name (optional):</label>
             <input type="text" id="food-name" placeholder="e.g. Apple">
         </div>
 
         <div class="form-row">
             <label>Weight (g):</label>
             <input type="number" id="food-weight" placeholder="e.g. 150" oninput="calculateFoodCalories()">
-        </div>
-
-        <div class="form-row">
-            <label class="checkbox-label">
-                <input type="checkbox" id="food-per-100g" checked onchange="calculateFoodCalories()"> Values are per
-                100g
-            </label>
         </div>
 
         <div class="form-row">
@@ -436,6 +430,13 @@
                     <label>Fat</label>
                     <input type="number" id="food-fat" placeholder="F" oninput="calculateFoodCalories()">
                 </div>
+            </div>
+            <div style="margin-top: 8px; font-size: 0.85em; text-align: right;">
+                <label class="checkbox-label"
+                    style="display:inline-flex; align-items:center; gap:4px; font-weight:normal;">
+                    <input type="checkbox" id="food-per-100g" checked onchange="calculateFoodCalories()" tabindex="-1"
+                        style="transform: scale(0.9);"> Values are per 100g
+                </label>
             </div>
         </div>
 

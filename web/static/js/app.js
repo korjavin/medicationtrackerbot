@@ -510,8 +510,7 @@ async function apiCall(endpoint, method = "GET", body = null) {
 // State
 let medications = [];
 let editingMedId = null;
-
-// Helper for European Date Format (DD.MM.YYYY HH:MM)
+let currentFoodLogs = {};
 const formatDate = (dateStr) => {
     if (!dateStr) return '';
     const d = new Date(dateStr);
@@ -573,6 +572,7 @@ function calculateFoodCalories() {
 function showAddFoodModal() {
     document.getElementById('modal-overlay').classList.remove('hidden');
     document.getElementById('food-modal').classList.remove('hidden');
+    document.getElementById('food-modal-title').innerText = 'Log Food';
 
     // Set default date/time
     const now = new Date();
@@ -580,12 +580,40 @@ function showAddFoodModal() {
     document.getElementById('food-datetime').value = now.toISOString().slice(0, 16);
 
     // Clear inputs
+    document.getElementById('food-id').value = '';
     document.getElementById('food-name').value = '';
     document.getElementById('food-weight').value = '';
     document.getElementById('food-carbs').value = '';
     document.getElementById('food-protein').value = '';
     document.getElementById('food-fat').value = '';
     document.getElementById('food-calories').value = '';
+    document.getElementById('food-per-100g').checked = true;
+}
+
+function editFoodLog(id) {
+    const log = currentFoodLogs[id];
+    if (!log) return;
+
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    document.getElementById('food-modal').classList.remove('hidden');
+    document.getElementById('food-modal-title').innerText = 'Edit Food';
+
+    document.getElementById('food-id').value = log.id;
+    document.getElementById('food-name').value = log.name || '';
+    document.getElementById('food-weight').value = log.weight || '';
+
+    // Server stores total raw values. Untick 'per 100g' so we can just set them.
+    document.getElementById('food-per-100g').checked = false;
+    document.getElementById('food-carbs').value = log.carbs || '';
+    document.getElementById('food-protein').value = log.protein || '';
+    document.getElementById('food-fat').value = log.fat || '';
+    document.getElementById('food-calories').value = log.calories || '';
+
+    if (log.eaten_at) {
+        const local = new Date(log.eaten_at);
+        local.setMinutes(local.getMinutes() - local.getTimezoneOffset());
+        document.getElementById('food-datetime').value = local.toISOString().slice(0, 16);
+    }
 }
 
 function closeFoodModal() {
@@ -634,8 +662,14 @@ async function saveFoodLog() {
         name: name
     };
 
+    const id = document.getElementById('food-id').value;
+
     try {
-        await apiCall('/api/food/log', 'POST', payload);
+        if (id) {
+            await apiCall(`/api/food/log/${id}`, 'PUT', payload);
+        } else {
+            await apiCall('/api/food/log', 'POST', payload);
+        }
         closeFoodModal();
         loadFoodLogs();
     } catch (e) {
@@ -672,6 +706,8 @@ async function loadFoodLogs() {
         let dayProt = 0;
         let dayFat = 0;
 
+        currentFoodLogs = {};
+
         groups.forEach(group => {
             dayCals += group.calories;
             dayCarbs += group.carbs;
@@ -690,14 +726,15 @@ async function loadFoodLogs() {
             </div>`;
 
             group.logs.forEach(log => {
-                html += `<div class="history-item" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.05);">
+                currentFoodLogs[log.id] = log;
+                html += `<div class="history-item" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer;" onclick="editFoodLog(${log.id})">
                     <div style="flex:1;">
                         <div style="font-weight:500;">${log.name || 'Food'}</div>
                         <div style="font-size:0.85em; color:var(--hint-color);">
                             ${log.weight}g • ${log.calories} kcal
                         </div>
                     </div>
-                    <button class="delete-btn" onclick="deleteFoodLog(${log.id})" style="font-size:16px;">×</button>
+                    <button class="delete-btn" onclick="event.stopPropagation(); deleteFoodLog(${log.id})" style="font-size:16px;">×</button>
                 </div>`;
             });
 

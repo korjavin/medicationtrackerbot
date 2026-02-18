@@ -1414,6 +1414,20 @@ func (s *Store) CreateFoodLog(ctx context.Context, f *FoodLog) (int64, error) {
 	return res.LastInsertId()
 }
 
+func (s *Store) UpdateFoodLog(ctx context.Context, f *FoodLog) error {
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE food_log SET eaten_at = ?, weight = ?, carbs = ?, protein = ?, fat = ?, calories = ?, name = ? WHERE id = ? AND user_id = ?",
+		f.EatenAt, f.Weight, f.Carbs, f.Protein, f.Fat, f.Calories, f.Name, f.ID, f.UserID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) GetFoodLogs(ctx context.Context, userID int64, date time.Time) ([]FoodLog, error) {
 	// Range for the day
 	startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
