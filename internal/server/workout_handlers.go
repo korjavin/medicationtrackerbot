@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -732,60 +733,142 @@ func contains(slice []int, val int) bool {
 // -- Stats Handlers --
 
 func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
-	// Get last 30 days of sessions
-	since := time.Now().AddDate(0, 0, -30)
-	sessions, err := s.store.GetWorkoutHistory(s.allowedUserID, 100)
+	// Fetch enough sessions for streak + 30-day stats
+	sessions, err := s.store.GetWorkoutHistory(s.allowedUserID, 500)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Calculate stats
+	since30 := time.Now().AddDate(0, 0, -30)
+
+	// 30-day counts
 	totalSessions := 0
 	completedSessions := 0
 	skippedSessions := 0
-	var streak int
+
+	// Streaks (sessions sorted newest-first)
+	currentStreak := 0
+	longestStreak := 0
+	tempStreak := 0
+	streakDone := false
+
+	// Weekly activity heatmap (last 12 weeks)
+	type WeekActivity struct {
+		Week      string `json:"week"`
+		Completed int    `json:"completed"`
+		Skipped   int    `json:"skipped"`
+	}
+	weekMap := make(map[string]*WeekActivity)
+	cutoff12w := time.Now().AddDate(0, 0, -84)
+	mondayOf := func(t time.Time) string {
+		d := t
+		for d.Weekday() != time.Monday {
+			d = d.AddDate(0, 0, -1)
+		}
+		return d.Format("2006-01-02")
+	}
 
 	for _, session := range sessions {
-		if session.ScheduledDate.Before(since) {
-			continue
+		// Current streak: walk newest-first, only break on "skipped"
+		if !streakDone {
+			switch session.Status {
+			case "completed":
+				currentStreak++
+			case "skipped":
+				streakDone = true
+			// pending, notified, in_progress, snoozed: ignore (don't break streak)
+			}
 		}
 
+		// Longest streak: track running count, reset on skipped
 		switch session.Status {
 		case "completed":
-			completedSessions++
-			totalSessions++
+			tempStreak++
+			if tempStreak > longestStreak {
+				longestStreak = tempStreak
+			}
 		case "skipped":
-			skippedSessions++
-			totalSessions++
+			tempStreak = 0
+		}
+
+		// 30-day stats
+		if !session.ScheduledDate.Before(since30) {
+			switch session.Status {
+			case "completed":
+				completedSessions++
+				totalSessions++
+			case "skipped":
+				skippedSessions++
+				totalSessions++
+			}
+		}
+
+		// Weekly heatmap
+		if !session.ScheduledDate.Before(cutoff12w) {
+			week := mondayOf(session.ScheduledDate)
+			if _, ok := weekMap[week]; !ok {
+				weekMap[week] = &WeekActivity{Week: week}
+			}
+			switch session.Status {
+			case "completed":
+				weekMap[week].Completed++
+			case "skipped":
+				weekMap[week].Skipped++
+			}
 		}
 	}
 
-	// Calculate current streak
-	for _, session := range sessions {
-		if session.Status == "completed" {
-			streak++
-		} else if session.Status == "skipped" || session.Status == "pending" {
-			break
-		}
+	// Ensure longest >= current (in case all sessions are completed)
+	if currentStreak > longestStreak {
+		longestStreak = currentStreak
+	}
+
+	// Sort weekly activity chronologically
+	var weekKeys []string
+	for w := range weekMap {
+		weekKeys = append(weekKeys, w)
+	}
+	sort.Strings(weekKeys)
+	var weeklyActivity []WeekActivity
+	for _, w := range weekKeys {
+		weeklyActivity = append(weeklyActivity, *weekMap[w])
+	}
+
+	// Exercise stats from DB
+	exerciseStats, _ := s.store.GetExerciseStats(s.allowedUserID)
+
+	// Total volume = sum across all exercises
+	totalVolumeKg := 0.0
+	for _, es := range exerciseStats {
+		totalVolumeKg += es.TotalVolumeKg
+	}
+
+	completionRate := 0.0
+	if totalSessions > 0 {
+		completionRate = float64(completedSessions) / float64(totalSessions) * 100
 	}
 
 	stats := struct {
-		TotalSessions     int     `json:"total_sessions"`
-		CompletedSessions int     `json:"completed_sessions"`
-		SkippedSessions   int     `json:"skipped_sessions"`
-		CompletionRate    float64 `json:"completion_rate"`
-		CurrentStreak     int     `json:"current_streak"`
+		TotalSessions     int                  `json:"total_sessions"`
+		CompletedSessions int                  `json:"completed_sessions"`
+		SkippedSessions   int                  `json:"skipped_sessions"`
+		CompletionRate    float64              `json:"completion_rate"`
+		CurrentStreak     int                  `json:"current_streak"`
+		LongestStreak     int                  `json:"longest_streak"`
+		TotalVolumeKg     float64              `json:"total_volume_kg"`
+		TopExercises      []store.ExerciseStat `json:"top_exercises"`
+		WeeklyActivity    []WeekActivity       `json:"weekly_activity"`
 	}{
 		TotalSessions:     totalSessions,
 		CompletedSessions: completedSessions,
 		SkippedSessions:   skippedSessions,
-		CompletionRate:    0,
-		CurrentStreak:     streak,
-	}
-
-	if totalSessions > 0 {
-		stats.CompletionRate = float64(completedSessions) / float64(totalSessions) * 100
+		CompletionRate:    completionRate,
+		CurrentStreak:     currentStreak,
+		LongestStreak:     longestStreak,
+		TotalVolumeKg:     totalVolumeKg,
+		TopExercises:      exerciseStats,
+		WeeklyActivity:    weeklyActivity,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

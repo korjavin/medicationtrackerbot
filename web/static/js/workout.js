@@ -854,31 +854,99 @@ async function loadWorkoutStatsTab() {
             return;
         }
 
+        const formatVolume = (kg) => {
+            if (!kg || kg === 0) return '—';
+            if (kg >= 1000) return `${(kg / 1000).toFixed(1)}t`;
+            return `${Math.round(kg).toLocaleString()} kg`;
+        };
+
+        // Top exercises section
+        let topExercisesHtml = '';
+        if (stats.top_exercises && stats.top_exercises.length > 0) {
+            const maxVol = stats.top_exercises[0].total_volume_kg || 1;
+            const medals = ['🥇', '🥈', '🥉'];
+            topExercisesHtml = `
+                <div style="margin-top: 20px;">
+                    <div style="font-size: 0.75em; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--hint-color); margin-bottom: 10px;">Top Exercises · Volume</div>
+                    ${stats.top_exercises.map((ex, i) => {
+                        const pct = maxVol > 0 ? (ex.total_volume_kg / maxVol * 100).toFixed(1) : 0;
+                        const medal = medals[i] || `${i + 1}.`;
+                        const maxW = ex.max_weight_kg > 0 ? `${ex.max_weight_kg} kg max` : '';
+                        return `
+                            <div style="margin-bottom: 10px;">
+                                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
+                                    <span style="font-size: 0.9em; font-weight: 500;">${medal} ${ex.exercise_name}</span>
+                                    <span style="font-size: 0.8em; color: var(--hint-color);">${formatVolume(ex.total_volume_kg)}${maxW ? ' · ' + maxW : ''}</span>
+                                </div>
+                                <div style="background: var(--secondary-bg-color, rgba(0,0,0,0.07)); border-radius: 4px; height: 5px; overflow: hidden;">
+                                    <div style="background: linear-gradient(90deg, #667eea, #764ba2); width: ${pct}%; height: 100%; border-radius: 4px; transition: width 0.4s;"></div>
+                                </div>
+                            </div>`;
+                    }).join('')}
+                </div>`;
+        }
+
+        // 12-week heatmap
+        let heatmapHtml = '';
+        if (stats.weekly_activity && stats.weekly_activity.length > 0) {
+            const squares = stats.weekly_activity.map(w => {
+                const total = w.completed + w.skipped;
+                let bg;
+                if (total === 0) bg = 'var(--secondary-bg-color, #e8e8e8)';
+                else if (w.completed === 0) bg = '#e05c5c';
+                else if (w.completed >= total) bg = '#28a745';
+                else if (w.completed / total >= 0.5) bg = '#85c17e';
+                else bg = '#ffc107';
+
+                const d = new Date(w.week + 'T00:00:00');
+                const label = d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+                return `<div title="${label}: ${w.completed} done, ${w.skipped} skipped"
+                             style="width: 26px; height: 26px; border-radius: 4px; background: ${bg}; flex-shrink: 0;"></div>`;
+            }).join('');
+
+            heatmapHtml = `
+                <div style="margin-top: 20px;">
+                    <div style="font-size: 0.75em; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--hint-color); margin-bottom: 10px;">12-Week Activity</div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 4px;">${squares}</div>
+                    <div style="display: flex; gap: 12px; margin-top: 8px; font-size: 0.72em; color: var(--hint-color);">
+                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#28a745;vertical-align:middle;margin-right:3px;"></span>All done</span>
+                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#85c17e;vertical-align:middle;margin-right:3px;"></span>Partial</span>
+                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#e05c5c;vertical-align:middle;margin-right:3px;"></span>Skipped</span>
+                    </div>
+                </div>`;
+        }
+
         container.innerHTML = `
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
-                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 24px; border-radius: 12px; text-align: center;">
-                    <div style="font-size: 3em; font-weight: bold; margin-bottom: 8px;">${stats.current_streak}</div>
-                    <div style="font-size: 1em; opacity: 0.95;">🔥 Day Streak</div>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 18px 8px; border-radius: 12px; text-align: center;">
+                    <div style="font-size: 2.4em; font-weight: bold; line-height: 1.1;">${stats.current_streak}</div>
+                    <div style="font-size: 0.78em; opacity: 0.92; margin-top: 5px;">🔥 Streak</div>
                 </div>
-                <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 24px; border-radius: 12px; text-align: center;">
-                    <div style="font-size: 3em; font-weight: bold; margin-bottom: 8px;">${Math.round(stats.completion_rate)}%</div>
-                    <div style="font-size: 1em; opacity: 0.95;">Completion Rate</div>
+                <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 18px 8px; border-radius: 12px; text-align: center;">
+                    <div style="font-size: 2.4em; font-weight: bold; line-height: 1.1;">${stats.longest_streak}</div>
+                    <div style="font-size: 0.78em; opacity: 0.92; margin-top: 5px;">🏆 Best</div>
                 </div>
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;">
-                <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; text-align: center; border: 2px solid #28a745;">
-                    <div style="font-size: 2em; font-weight: bold; color: #28a745;">${stats.completed_sessions}</div>
-                    <div style="font-size: 0.9em; color: #666; margin-top: 4px;">Completed</div>
-                </div>
-                <div style="background: #fffbf0; padding: 20px; border-radius: 8px; text-align: center; border: 2px solid #ffc107;">
-                    <div style="font-size: 2em; font-weight: bold; color: #ffc107;">${stats.skipped_sessions}</div>
-                    <div style="font-size: 0.9em; color: #666; margin-top: 4px;">Skipped</div>
-                </div>
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; border: 2px solid #667eea;">
-                    <div style="font-size: 2em; font-weight: bold; color: #667eea;">${stats.total_sessions}</div>
-                    <div style="font-size: 0.9em; color: #666; margin-top: 4px;">Total Sessions</div>
+                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 18px 8px; border-radius: 12px; text-align: center;">
+                    <div style="font-size: 2.4em; font-weight: bold; line-height: 1.1;">${Math.round(stats.completion_rate)}%</div>
+                    <div style="font-size: 0.78em; opacity: 0.92; margin-top: 5px;">💪 30-Day</div>
                 </div>
             </div>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                <div style="background: var(--secondary-bg-color, #f0fff4); padding: 14px 8px; border-radius: 8px; text-align: center; border: 1.5px solid #28a745;">
+                    <div style="font-size: 1.7em; font-weight: bold; color: #28a745;">${stats.completed_sessions}</div>
+                    <div style="font-size: 0.78em; color: var(--hint-color); margin-top: 2px;">Done</div>
+                </div>
+                <div style="background: var(--secondary-bg-color, #fffbf0); padding: 14px 8px; border-radius: 8px; text-align: center; border: 1.5px solid #ffc107;">
+                    <div style="font-size: 1.7em; font-weight: bold; color: #ffc107;">${stats.skipped_sessions}</div>
+                    <div style="font-size: 0.78em; color: var(--hint-color); margin-top: 2px;">Skipped</div>
+                </div>
+                <div style="background: var(--secondary-bg-color, #f5f0ff); padding: 14px 8px; border-radius: 8px; text-align: center; border: 1.5px solid #764ba2;">
+                    <div style="font-size: 1.7em; font-weight: bold; color: #764ba2;">${formatVolume(stats.total_volume_kg)}</div>
+                    <div style="font-size: 0.78em; color: var(--hint-color); margin-top: 2px;">Lifted</div>
+                </div>
+            </div>
+            ${topExercisesHtml}
+            ${heatmapHtml}
         `;
     } catch (error) {
         console.error('Error loading stats:', error);

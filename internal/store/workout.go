@@ -84,6 +84,14 @@ type WorkoutRotationState struct {
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
+// ExerciseStat holds aggregated statistics for a single exercise across all sessions
+type ExerciseStat struct {
+	ExerciseName  string  `json:"exercise_name"`
+	SessionCount  int     `json:"session_count"`
+	TotalVolumeKg float64 `json:"total_volume_kg"`
+	MaxWeightKg   float64 `json:"max_weight_kg"`
+}
+
 // WorkoutScheduleSnapshot represents a snapshot of a group's schedule
 type WorkoutScheduleSnapshot struct {
 	ID           int64     `json:"id"`
@@ -864,6 +872,43 @@ func (s *Store) GetSnoozedSessions(userID int64) ([]WorkoutSession, error) {
 
 // GetActiveSessions returns all sessions for a given date that are in 'notified' or 'in_progress' status
 // This is used to display workouts that have been notified but not yet started/completed, even if their scheduled time has passed
+// GetExerciseStats returns aggregated volume and max weight per exercise for a user.
+// Only considers completed exercise logs that have weight data.
+func (s *Store) GetExerciseStats(userID int64) ([]ExerciseStat, error) {
+	rows, err := s.db.Query(`
+		SELECT
+			wel.exercise_name,
+			COUNT(DISTINCT ws.id) as session_count,
+			COALESCE(SUM(
+				CASE WHEN wel.sets_completed IS NOT NULL
+				          AND wel.reps_completed IS NOT NULL
+				          AND wel.weight_kg IS NOT NULL
+				     THEN wel.sets_completed * wel.reps_completed * wel.weight_kg
+				     ELSE 0 END
+			), 0) as total_volume,
+			COALESCE(MAX(wel.weight_kg), 0) as max_weight
+		FROM workout_exercise_logs wel
+		JOIN workout_sessions ws ON ws.id = wel.session_id
+		WHERE ws.user_id = ? AND wel.status = 'completed'
+		GROUP BY wel.exercise_name
+		ORDER BY total_volume DESC
+		LIMIT 8`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var stats []ExerciseStat
+	for rows.Next() {
+		var es ExerciseStat
+		if err := rows.Scan(&es.ExerciseName, &es.SessionCount, &es.TotalVolumeKg, &es.MaxWeightKg); err != nil {
+			return nil, err
+		}
+		stats = append(stats, es)
+	}
+	return stats, nil
+}
+
 func (s *Store) GetActiveSessions(userID int64, date time.Time) ([]WorkoutSession, error) {
 	// Format date as YYYY-MM-DD for comparison
 	dateStr := date.Format("2006-01-02")
