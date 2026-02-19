@@ -45,10 +45,10 @@ services:
       - traefik_net
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.medtracker.rule=Host(`${DOMAIN}`)"
-      - "traefik.http.routers.medtracker.entrypoints=websecure"
-      - "traefik.http.routers.medtracker.tls.certresolver=myresolver"
-      - "traefik.http.services.medtracker.loadbalancer.server.port=${PORT:-8080}"
+      - "traefik.http.routers.medtracker-${INSTANCE}.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.medtracker-${INSTANCE}.entrypoints=websecure"
+      - "traefik.http.routers.medtracker-${INSTANCE}.tls.certresolver=myresolver"
+      - "traefik.http.services.medtracker-${INSTANCE}.loadbalancer.server.port=${PORT:-8080}"
 
   mcp-server:
     image: ghcr.io/korjavin/medicationtrackerbot:latest
@@ -76,10 +76,10 @@ services:
       - traefik_net
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.medtracker-mcp.rule=Host(`${MCP_DOMAIN}`)"
-      - "traefik.http.routers.medtracker-mcp.entrypoints=websecure"
-      - "traefik.http.routers.medtracker-mcp.tls.certresolver=myresolver"
-      - "traefik.http.services.medtracker-mcp.loadbalancer.server.port=${MCP_PORT:-8081}"
+      - "traefik.http.routers.medtracker-mcp-${INSTANCE}.rule=Host(`${MCP_DOMAIN}`)"
+      - "traefik.http.routers.medtracker-mcp-${INSTANCE}.entrypoints=websecure"
+      - "traefik.http.routers.medtracker-mcp-${INSTANCE}.tls.certresolver=myresolver"
+      - "traefik.http.services.medtracker-mcp-${INSTANCE}.loadbalancer.server.port=${MCP_PORT:-8081}"
 
   # Local Telegram Bot API Server - removes 20MB file download limit
   telegram-bot-api:
