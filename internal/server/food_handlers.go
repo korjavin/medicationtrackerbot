@@ -336,6 +336,34 @@ func (s *Server) handleSetFoodIntakeEnabled(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *Server) handleGetFoodTargets(w http.ResponseWriter, r *http.Request) {
+	targets, err := s.store.GetFoodTargets(context.Background())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(targets)
+}
+
+func (s *Server) handleSetFoodTargets(w http.ResponseWriter, r *http.Request) {
+	var req store.FoodTargets
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Calories < 0 || req.Carbs < 0 || req.Protein < 0 || req.Fat < 0 {
+		http.Error(w, "Targets must be non-negative", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.SetFoodTargets(context.Background(), req); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *Server) handleGetFoodProducts(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 

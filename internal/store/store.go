@@ -129,6 +129,13 @@ type SleepLog struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+type FoodTargets struct {
+	Calories int `json:"calories"`
+	Carbs    int `json:"carbs"`
+	Protein  int `json:"protein"`
+	Fat      int `json:"fat"`
+}
+
 func CalculateBPCategory(systolic, diastolic int) string {
 	// Hypertensive Crisis: >180 or >120
 	if systolic > 180 || diastolic > 120 {
@@ -1590,6 +1597,22 @@ func (s *Store) GetFoodIntakeEnabled(ctx context.Context) (bool, error) {
 
 func (s *Store) SetFoodIntakeEnabled(ctx context.Context, enabled bool) error {
 	return s.setSettingsBool(ctx, "food_intake_enabled", enabled)
+}
+
+func (s *Store) GetFoodTargets(ctx context.Context) (FoodTargets, error) {
+	var targets FoodTargets
+	err := s.db.QueryRowContext(ctx,
+		"SELECT food_target_calories, food_target_carbs, food_target_protein, food_target_fat FROM settings WHERE id = 1",
+	).Scan(&targets.Calories, &targets.Carbs, &targets.Protein, &targets.Fat)
+	return targets, err
+}
+
+func (s *Store) SetFoodTargets(ctx context.Context, targets FoodTargets) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE settings SET food_target_calories = ?, food_target_carbs = ?, food_target_protein = ?, food_target_fat = ? WHERE id = 1",
+		targets.Calories, targets.Carbs, targets.Protein, targets.Fat,
+	)
+	return err
 }
 
 func (s *Store) GetBloodPressureEnabled(ctx context.Context) (bool, error) {

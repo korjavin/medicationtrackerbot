@@ -420,6 +420,10 @@ document.getElementById('workout-feature-toggle').addEventListener('change', asy
     await toggleFeatureSetting('workout', this.checked);
 });
 
+document.getElementById('save-food-targets-btn').addEventListener('click', async function () {
+    await saveFoodTargets();
+});
+
 // Weight Reminders Toggle Handler
 document.getElementById('weight-reminders-toggle').addEventListener('change', async function () {
     const enabled = this.checked;
@@ -531,6 +535,12 @@ async function apiCall(endpoint, method = "GET", body = null) {
 let medications = [];
 let editingMedId = null;
 let currentFoodLogs = {};
+let foodTargets = {
+    calories: 0,
+    carbs: 0,
+    protein: 0,
+    fat: 0
+};
 let featureSettings = {
     food: false,
     bp: true,
@@ -728,6 +738,23 @@ function calculateFoodCalories() {
     document.getElementById('food-calories').value = Math.round(totalCals);
 }
 
+function toISODateLocal(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function shiftFoodDate(deltaDays) {
+    const dateFilter = document.getElementById('food-date-filter');
+    if (!dateFilter) return;
+
+    const baseDate = dateFilter.value ? new Date(`${dateFilter.value}T00:00:00`) : new Date();
+    baseDate.setDate(baseDate.getDate() + deltaDays);
+    dateFilter.value = toISODateLocal(baseDate);
+    loadFoodLogs();
+}
+
 function showAddFoodModal() {
     document.getElementById('modal-overlay').classList.remove('hidden');
     document.getElementById('food-modal').classList.remove('hidden');
@@ -855,8 +882,7 @@ async function loadFoodLogs() {
     const dateFilter = document.getElementById('food-date-filter');
     let dateStr = dateFilter.value;
     if (!dateStr) {
-        const now = new Date();
-        dateStr = now.toISOString().split('T')[0];
+        dateStr = toISODateLocal(new Date());
         dateFilter.value = dateStr;
     }
 
@@ -867,6 +893,7 @@ async function loadFoodLogs() {
         if (!groups || groups.length === 0) {
             list.innerHTML = '<p class="hint" style="text-align:center;">No food logs for this day.</p>';
             summary.style.display = 'none';
+            renderFoodTargetProgress(0, 0, 0, 0);
             return;
         }
 
@@ -913,10 +940,89 @@ async function loadFoodLogs() {
 
         summary.style.display = 'block';
         summary.innerHTML = `Daily Total: ${dayCals} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${dayCarbs} P:${dayProt} F:${dayFat})</span>`;
+        renderFoodTargetProgress(dayCals, dayCarbs, dayProt, dayFat);
 
     } catch (e) {
         console.error(e);
         list.innerHTML = '<p class="error">Failed to load food logs.</p>';
+    }
+}
+
+function renderFoodTargetProgress(dayCals, dayCarbs, dayProt, dayFat) {
+    const container = document.getElementById('food-target-progress');
+    if (!container) return;
+
+    const targets = [
+        { key: 'calories', label: 'Energy', unit: 'kcal', value: dayCals, color: '#60a5fa' },
+        { key: 'protein', label: 'Protein', unit: 'g', value: dayProt, color: '#4ade80' },
+        { key: 'carbs', label: 'Carbs', unit: 'g', value: dayCarbs, color: '#22d3ee' },
+        { key: 'fat', label: 'Fat', unit: 'g', value: dayFat, color: '#f59e0b' }
+    ];
+
+    const activeTargets = targets.filter(t => (foodTargets[t.key] || 0) > 0);
+    if (activeTargets.length === 0) {
+        container.classList.add('hidden');
+        container.innerHTML = '';
+        return;
+    }
+
+    container.classList.remove('hidden');
+    container.innerHTML = activeTargets.map(t => {
+        const targetValue = foodTargets[t.key];
+        const progress = Math.min(100, Math.round((t.value / targetValue) * 100));
+        return `<div class="food-target-row">
+            <div class="food-target-topline">
+                <span class="food-target-name">${t.label}</span>
+                <span class="food-target-values">${t.value} / ${targetValue} ${t.unit}</span>
+            </div>
+            <div class="food-target-bar">
+                <div class="food-target-fill" style="width:${progress}%; background:${t.color};"></div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+async function loadFoodTargets() {
+    try {
+        const targets = await apiCall('/api/food/settings/targets', 'GET');
+        foodTargets = {
+            calories: targets?.calories || 0,
+            carbs: targets?.carbs || 0,
+            protein: targets?.protein || 0,
+            fat: targets?.fat || 0
+        };
+
+        const calsInput = document.getElementById('food-target-calories');
+        const carbsInput = document.getElementById('food-target-carbs');
+        const protInput = document.getElementById('food-target-protein');
+        const fatInput = document.getElementById('food-target-fat');
+        if (calsInput) calsInput.value = foodTargets.calories || '';
+        if (carbsInput) carbsInput.value = foodTargets.carbs || '';
+        if (protInput) protInput.value = foodTargets.protein || '';
+        if (fatInput) fatInput.value = foodTargets.fat || '';
+    } catch (e) {
+        console.error('Failed to load food targets:', e);
+    }
+}
+
+async function saveFoodTargets() {
+    const payload = {
+        calories: parseInt(document.getElementById('food-target-calories').value, 10) || 0,
+        carbs: parseInt(document.getElementById('food-target-carbs').value, 10) || 0,
+        protein: parseInt(document.getElementById('food-target-protein').value, 10) || 0,
+        fat: parseInt(document.getElementById('food-target-fat').value, 10) || 0
+    };
+
+    try {
+        await apiCall('/api/food/settings/targets', 'POST', payload);
+        foodTargets = payload;
+        safeAlert('Food targets saved');
+        if (document.querySelector('.tab.active')?.dataset.tab === 'food') {
+            loadFoodLogs();
+        }
+    } catch (e) {
+        console.error('Failed to save food targets:', e);
+        safeAlert('Failed to save food targets');
     }
 }
 
@@ -947,6 +1053,7 @@ function switchMedTab(tab) {
 async function loadSettings() {
     try {
         await loadFeatureSettings();
+        await loadFoodTargets();
 
         // Load BP reminder status
         const bpReminderStatus = await apiCall('/api/bp/reminder/status', 'GET');
@@ -978,6 +1085,12 @@ function updateFeatureToggles() {
     document.getElementById('weight-feature-toggle').checked = !!featureSettings.weight;
     document.getElementById('medication-feature-toggle').checked = !!featureSettings.medication;
     document.getElementById('workout-feature-toggle').checked = !!featureSettings.workout;
+}
+
+function updateFoodTargetsVisibility() {
+    const settingsBlock = document.getElementById('food-target-settings');
+    if (!settingsBlock) return;
+    settingsBlock.style.display = featureSettings.food ? 'flex' : 'none';
 }
 
 async function toggleFeatureSetting(feature, enabled) {
@@ -1018,6 +1131,7 @@ function updateFeatureTabVisibility() {
             }) || 'settings';
         switchTab(fallback);
     }
+    updateFoodTargetsVisibility();
 }
 
 // Reload current active tab data (called when coming back online)
