@@ -3,7 +3,7 @@ version: '3'
 services:
   medtracker:
     image: ghcr.io/korjavin/medicationtrackerbot:latest
-    container_name: medtracker
+    container_name: medtracker-${INSTANCE}
     restart: unless-stopped
     volumes:
       - medtracker_data:/app/data
@@ -52,7 +52,7 @@ services:
 
   mcp-server:
     image: ghcr.io/korjavin/medicationtrackerbot:latest
-    container_name: medtracker-mcp
+    container_name: medtracker-mcp-${INSTANCE}
     restart: unless-stopped
     command: ["./mcptool"]
     volumes:
@@ -84,7 +84,7 @@ services:
   # Local Telegram Bot API Server - removes 20MB file download limit
   telegram-bot-api:
     image: aiogram/telegram-bot-api:latest
-    container_name: medtracker-telegram-api
+    container_name: medtracker-telegram-api-${INSTANCE}
     restart: unless-stopped
     user: "0:0"
     # Default entrypoint forces user 101. We override it to run our own setup.
@@ -126,7 +126,7 @@ services:
   # Litestream - SQLite replication to Cloudflare R2
   litestream:
     image: litestream/litestream:latest
-    container_name: medtracker-litestream
+    container_name: medtracker-litestream-${INSTANCE}
     restart: unless-stopped
     entrypoint: /bin/sh
     command:
