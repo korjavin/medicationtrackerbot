@@ -299,7 +299,13 @@
 
     <!-- Modal for Adding/Editing Workout Group -->
     <div id="workout-group-modal" class="hidden">
-        <h3 id="workout-group-modal-title">Add Workout Group</h3>
+        <div class="modal-header">
+            <h3 id="workout-group-modal-title">Add Workout Group</h3>
+            <div class="actions">
+                <button onclick="closeWorkoutGroupModal()" class="secondary">Cancel</button>
+                <button onclick="saveWorkoutGroup()" class="primary">Save</button>
+            </div>
+        </div>
 
         <input type="text" id="workout-group-name" placeholder="Group Name (e.g., Morning Cardio)">
         <textarea id="workout-group-description" placeholder="Description (optional)" rows="2"></textarea>
@@ -338,11 +344,6 @@
             </label>
         </div>
 
-        <div class="actions">
-            <button onclick="closeWorkoutGroupModal()" class="secondary">Cancel</button>
-            <button onclick="saveWorkoutGroup()" class="primary">Save</button>
-        </div>
-
         <!-- Variants Section (only shown when editing existing group) -->
         <div id="workout-variants-section"
             style="display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
@@ -354,7 +355,13 @@
 
     <!-- Modal for Adding/Editing Variant -->
     <div id="workout-variant-modal" class="hidden">
-        <h3 id="workout-variant-modal-title">Add Variant</h3>
+        <div class="modal-header">
+            <h3 id="workout-variant-modal-title">Add Variant</h3>
+            <div class="actions">
+                <button onclick="closeVariantModal()" class="secondary">Cancel</button>
+                <button onclick="saveVariant()" class="primary">Save</button>
+            </div>
+        </div>
 
         <input type="text" id="workout-variant-name" placeholder="Variant Name (e.g., Day A, Push Day)">
         <textarea id="workout-variant-description" placeholder="Description (optional)" rows="2"></textarea>
@@ -364,11 +371,6 @@
                 <label>Rotation Order:</label>
                 <input type="number" id="workout-variant-rotation" min="0" placeholder="0 = first, 1 = second, etc.">
             </div>
-        </div>
-
-        <div class="actions">
-            <button onclick="closeVariantModal()" class="secondary">Cancel</button>
-            <button onclick="saveVariant()" class="primary">Save</button>
         </div>
 
         <!-- Exercises Section (only shown when editing existing variant) -->
@@ -383,7 +385,13 @@
 
     <!-- Modal for Adding/Editing Exercise -->
     <div id="workout-exercise-modal" class="hidden">
-        <h3 id="workout-exercise-modal-title">Add Exercise</h3>
+        <div class="modal-header">
+            <h3 id="workout-exercise-modal-title">Add Exercise</h3>
+            <div class="actions">
+                <button onclick="closeExerciseModal()" class="secondary">Cancel</button>
+                <button onclick="saveExercise()" class="primary">Save</button>
+            </div>
+        </div>
 
         <input type="text" id="workout-exercise-name" placeholder="Exercise Name (e.g., Barbell Rows)">
 
@@ -411,16 +419,17 @@
             <label>Order in workout:</label>
             <input type="number" id="workout-exercise-order" min="0" placeholder="0 = first, 1 = second, etc.">
         </div>
-
-        <div class="actions">
-            <button onclick="closeExerciseModal()" class="secondary">Cancel</button>
-            <button onclick="saveExercise()" class="primary">Save</button>
-        </div>
     </div>
 
     <!-- Modal for Workout Session Details -->
     <div id="workout-session-modal" class="hidden">
-        <h3 id="workout-session-modal-title">Workout Details</h3>
+        <div class="modal-header">
+            <h3 id="workout-session-modal-title">Workout Details</h3>
+            <div class="actions">
+                <button onclick="closeWorkoutSessionModal()" class="secondary">Cancel</button>
+                <button onclick="saveWorkoutSessionDetails()" class="primary">Save Changes</button>
+            </div>
+        </div>
         <div id="workout-session-info"
             style="margin-bottom: 15px; font-size: 0.9em; color: #666; background: #f0f0f0; padding: 10px; border-radius: 8px;">
         </div>
@@ -433,15 +442,17 @@
                 style="width: 100%; border: 1px dashed #667eea; color: #667eea;">+ Add Exercise</button>
         </div>
 
-        <div class="actions" style="margin-top: 20px;">
-            <button onclick="closeWorkoutSessionModal()" class="secondary">Cancel</button>
-            <button onclick="saveWorkoutSessionDetails()" class="primary">Save Changes</button>
-        </div>
     </div>
 
     <!-- Modal for Adding Exercise to Session -->
     <div id="workout-add-exercise-to-session-modal" class="hidden">
-        <h3>Add Exercise to Session</h3>
+        <div class="modal-header">
+            <h3>Add Exercise to Session</h3>
+            <div class="actions">
+                <button onclick="closeAddExerciseToSessionModal()" class="secondary">Cancel</button>
+                <button onclick="saveNewSessionExercise()" class="primary">Add</button>
+            </div>
+        </div>
 
         <div class="form-row">
             <label>Exercise Name:</label>
@@ -471,15 +482,17 @@
             <input type="text" id="session-add-exercise-notes" placeholder="Optional notes">
         </div>
 
-        <div class="actions">
-            <button onclick="closeAddExerciseToSessionModal()" class="secondary">Cancel</button>
-            <button onclick="saveNewSessionExercise()" class="primary">Add</button>
-        </div>
     </div>
 
     <!-- Modal for Adding/Editing Food -->
     <div id="food-modal" class="hidden">
-        <h3 id="food-modal-title">Log Food</h3>
+        <div class="modal-header">
+            <h3 id="food-modal-title">Log Food</h3>
+            <div class="actions">
+                <button onclick="closeFoodModal()" class="secondary">Cancel</button>
+                <button onclick="saveFoodLog()" class="primary">Save</button>
+            </div>
+        </div>
         <input type="hidden" id="food-id">
 
         <div class="form-row">
@@ -539,27 +552,31 @@
             <input type="datetime-local" id="food-datetime">
         </div>
 
-        <div class="actions">
-            <button onclick="closeFoodModal()" class="secondary">Cancel</button>
-            <button onclick="saveFoodLog()" class="primary">Save</button>
-        </div>
     </div>
 
     <div id="food-scanner-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="food-scanner-title">
-        <h3 id="food-scanner-title">Scan Barcode / QR</h3>
+        <div class="modal-header">
+            <h3 id="food-scanner-title">Scan Barcode / QR</h3>
+            <div class="actions">
+                <button type="button" class="secondary" onclick="openPhotoPickerAndDecode()">Use Photo</button>
+                <button type="button" class="secondary" onclick="closeFoodScannerModal()">Close</button>
+            </div>
+        </div>
         <p id="food-scanner-status" class="food-scanner-status">Point camera at barcode or QR.</p>
         <video id="food-scanner-video" class="food-scanner-video" autoplay muted playsinline></video>
-        <div class="actions">
-            <button type="button" class="secondary" onclick="closeFoodScannerModal()">Close</button>
-            <button type="button" class="secondary" onclick="openPhotoPickerAndDecode()">Use Photo</button>
-        </div>
     </div>
 
 
     <!-- Modal for Adding Med -->
     <div id="modal-overlay" class="hidden"></div>
     <div id="med-modal" class="hidden">
-        <h3>Add Medication</h3>
+        <div class="modal-header">
+            <h3>Add Medication</h3>
+            <div class="actions">
+                <button onclick="closeModal()" class="secondary">Cancel</button>
+                <button onclick="saveMedication()" class="primary">Save</button>
+            </div>
+        </div>
         <input type="text" id="med-name" placeholder="Name (e.g. Aspirin)">
         <input type="text" id="med-dosage" placeholder="Dosage (e.g. 100mg)">
         <p id="med-rx-display" style="font-size: 0.85em; color: var(--hint-color); margin-top: 5px; display: none;"></p>
@@ -632,10 +649,6 @@
             </label>
         </div>
 
-        <div class="actions">
-            <button onclick="closeModal()" class="secondary">Cancel</button>
-            <button onclick="saveMedication()" class="primary">Save</button>
-        </div>
     </div>
 
     <!-- Modal for BP Recording -->
@@ -690,8 +703,14 @@
 
     <!-- Modal for Weight Logging -->
     <div id="weight-modal" class="hidden">
-        <h3>Log Weight</h3>
-        <form onsubmit="handleWeightSubmit(event)">
+        <div class="modal-header">
+            <h3>Log Weight</h3>
+            <div class="actions">
+                <button type="button" onclick="closeWeightModal()" class="secondary">Cancel</button>
+                <button type="submit" form="weight-form" class="primary">Save</button>
+            </div>
+        </div>
+        <form id="weight-form" onsubmit="handleWeightSubmit(event)">
             <input type="datetime-local" id="weight-datetime" required>
 
             <!-- Editable weight input styled as large display -->
@@ -714,10 +733,6 @@
             <div class="form-row">
                 <label>Notes (optional):</label>
                 <textarea id="weight-notes" placeholder="Any notes..." rows="2"></textarea>
-            </div>
-            <div class="actions">
-                <button type="button" onclick="closeWeightModal()" class="secondary">Cancel</button>
-                <button type="submit" class="primary">Save</button>
             </div>
         </form>
     </div>
