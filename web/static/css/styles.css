@@ -1476,3 +1476,54 @@ input:checked+.toggle-slider:before {
 #food-modal.hidden {
     display: none;
 }
+
+.food-barcode-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.food-barcode-row input {
+    margin-bottom: 0;
+}
+
+.food-scan-btn {
+    flex: 0 0 auto;
+    min-width: 76px;
+    padding: 0 12px;
+    font-size: 14px;
+}
+
+#food-scanner-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--secondary-bg-color, #fff);
+    padding: 16px;
+    border-radius: 16px;
+    width: min(92vw, 380px);
+    z-index: 1003;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 6px 28px rgba(0, 0, 0, 0.35);
+}
+
+#food-scanner-modal.hidden {
+    display: none;
+}
+
+.food-scanner-status {
+    margin: 8px 0 12px;
+    font-size: 13px;
+    color: var(--hint-color);
+}
+
+.food-scanner-video {
+    width: 100%;
+    min-height: 220px;
+    max-height: 52vh;
+    background: #000;
+    border-radius: 10px;
+    margin-bottom: 12px;
+    object-fit: cover;
+}

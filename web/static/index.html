@@ -13,6 +13,7 @@
     <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dexie@3/dist/dexie.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
     <script>window.BOT_USERNAME = "BOT_USERNAME_PLACEHOLDER";</script>
     <script>window.OIDC_CONFIG = OIDC_CONFIG_PLACEHOLDER;</script>
     <link rel="stylesheet" href="static/css/styles.css?v=TIMESTAMP_PLACEHOLDER">
@@ -490,7 +491,11 @@
 
         <div class="form-row">
             <label>Barcode (optional):</label>
-            <input type="text" id="food-barcode" placeholder="e.g. 1234567890123" oninput="onFoodBarcodeChange()">
+            <div class="food-barcode-row">
+                <input type="text" id="food-barcode" placeholder="e.g. 1234567890123" oninput="onFoodBarcodeChange()">
+                <button type="button" class="secondary food-scan-btn" onclick="openFoodScannerModal()"
+                    aria-label="Scan barcode or QR">Scan</button>
+            </div>
         </div>
 
         <div class="form-row">
@@ -537,6 +542,16 @@
         <div class="actions">
             <button onclick="closeFoodModal()" class="secondary">Cancel</button>
             <button onclick="saveFoodLog()" class="primary">Save</button>
+        </div>
+    </div>
+
+    <div id="food-scanner-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="food-scanner-title">
+        <h3 id="food-scanner-title">Scan Barcode / QR</h3>
+        <p id="food-scanner-status" class="food-scanner-status">Point camera at barcode or QR.</p>
+        <video id="food-scanner-video" class="food-scanner-video" autoplay muted playsinline></video>
+        <div class="actions">
+            <button type="button" class="secondary" onclick="closeFoodScannerModal()">Close</button>
+            <button type="button" class="secondary" onclick="openPhotoPickerAndDecode()">Use Photo</button>
         </div>
     </div>
 

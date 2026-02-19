@@ -600,6 +600,12 @@ function switchTab(tab) {
 let foodAutoCompleteSuggestions = [];
 let foodProductsCache = [];
 let foodSearchTimeout;
+let foodScannerStream = null;
+let foodScannerRunning = false;
+let foodScanLoopTimer = null;
+let foodBarcodeDetector = null;
+const FOOD_SCAN_THROTTLE_MS = 200;
+const FOOD_NUMERIC_BARCODE_MIN_LEN = 8;
 
 async function initFoodProductsCache() {
     if (window.MedTrackerDB) {
@@ -678,6 +684,233 @@ async function onFoodBarcodeChange() {
             console.error('Barcode search failed', e);
         }
     }, 500);
+}
+
+function setFoodScannerStatus(message) {
+    const status = document.getElementById('food-scanner-status');
+    if (status) status.innerText = message;
+}
+
+function createFoodBarcodeDetector() {
+    if (!window.BarcodeDetector) return null;
+    if (foodBarcodeDetector) return foodBarcodeDetector;
+
+    const formats = [
+        'qr_code',
+        'ean_13',
+        'ean_8',
+        'upc_a',
+        'upc_e',
+        'code_128',
+        'code_39',
+        'itf'
+    ];
+    try {
+        foodBarcodeDetector = new BarcodeDetector({ formats });
+    } catch (e) {
+        console.error('Failed to create BarcodeDetector with formats, retrying default:', e);
+        foodBarcodeDetector = new BarcodeDetector();
+    }
+    return foodBarcodeDetector;
+}
+
+function sanitizeScannedValue(rawValue) {
+    if (!rawValue) return { text: '', numeric: '' };
+    const text = String(rawValue).replace(/\u200B/g, '').trim();
+    const digitsOnly = text.replace(/\D/g, '');
+    const numeric = digitsOnly.length >= FOOD_NUMERIC_BARCODE_MIN_LEN ? digitsOnly : '';
+    return { text, numeric };
+}
+
+function handleDecodedValue(rawValue) {
+    const { text, numeric } = sanitizeScannedValue(rawValue);
+    if (!text) return false;
+
+    if (numeric) {
+        const barcodeInput = document.getElementById('food-barcode');
+        barcodeInput.value = numeric;
+        onFoodBarcodeChange();
+    } else {
+        const nameInput = document.getElementById('food-name');
+        nameInput.value = text;
+        safeAlert('Scanned QR text was added to Food Name.');
+    }
+    closeFoodScannerModal();
+    return true;
+}
+
+async function scanFrameLoop() {
+    if (!foodScannerRunning) return;
+
+    const video = document.getElementById('food-scanner-video');
+    const detector = createFoodBarcodeDetector();
+    if (!video || !detector || video.readyState < 2) {
+        foodScanLoopTimer = setTimeout(scanFrameLoop, FOOD_SCAN_THROTTLE_MS);
+        return;
+    }
+
+    try {
+        const results = await detector.detect(video);
+        if (results && results.length > 0) {
+            const first = results.find(r => r && r.rawValue) || results[0];
+            if (first && handleDecodedValue(first.rawValue)) return;
+        }
+    } catch (e) {
+        console.error('Food scanner frame decode failed:', e);
+    }
+
+    foodScanLoopTimer = setTimeout(scanFrameLoop, FOOD_SCAN_THROTTLE_MS);
+}
+
+async function startFoodScanner() {
+    const modal = document.getElementById('food-scanner-modal');
+    if (!modal) return;
+
+    if (!window.isSecureContext) {
+        setFoodScannerStatus('Camera requires HTTPS (or localhost). Use "Use Photo" or manual entry.');
+        return;
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setFoodScannerStatus('Camera is unavailable. Use "Use Photo" or manual entry.');
+        return;
+    }
+
+    if (!window.BarcodeDetector) {
+        setFoodScannerStatus('Live scan is unavailable on this browser. Use "Use Photo".');
+        return;
+    }
+
+    const video = document.getElementById('food-scanner-video');
+    try {
+        setFoodScannerStatus('Requesting camera access...');
+        foodScannerStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: { ideal: 'environment' } }
+        });
+        video.srcObject = foodScannerStream;
+        await video.play();
+        setFoodScannerStatus('Point camera at barcode or QR.');
+        foodScannerRunning = true;
+        scanFrameLoop();
+    } catch (e) {
+        console.error('Failed to start food scanner:', e);
+        setFoodScannerStatus('Camera access denied or unavailable. Use "Use Photo".');
+    }
+}
+
+function stopFoodScanner() {
+    foodScannerRunning = false;
+
+    if (foodScanLoopTimer) {
+        clearTimeout(foodScanLoopTimer);
+        foodScanLoopTimer = null;
+    }
+
+    const video = document.getElementById('food-scanner-video');
+    if (video) {
+        video.pause();
+        video.srcObject = null;
+    }
+
+    if (foodScannerStream) {
+        foodScannerStream.getTracks().forEach(track => track.stop());
+        foodScannerStream = null;
+    }
+}
+
+window.addEventListener('pagehide', stopFoodScanner);
+window.addEventListener('beforeunload', stopFoodScanner);
+
+function openFoodScannerModal() {
+    const scannerModal = document.getElementById('food-scanner-modal');
+    if (!scannerModal) return;
+    scannerModal.classList.remove('hidden');
+    setFoodScannerStatus('Point camera at barcode or QR.');
+    startFoodScanner();
+}
+
+function closeFoodScannerModal() {
+    stopFoodScanner();
+    const scannerModal = document.getElementById('food-scanner-modal');
+    if (scannerModal) {
+        scannerModal.classList.add('hidden');
+    }
+}
+
+function decodeBarcodeFromImageFallback(image) {
+    return new Promise((resolve, reject) => {
+        const ZXingGlobal = window.ZXing;
+        if (!ZXingGlobal || !ZXingGlobal.BrowserMultiFormatReader) {
+            reject(new Error('Fallback decoder is not available.'));
+            return;
+        }
+
+        const reader = new ZXingGlobal.BrowserMultiFormatReader();
+        reader.decodeFromImageElement(image)
+            .then(result => {
+                reader.reset();
+                resolve(result && result.text ? result.text : '');
+            })
+            .catch(err => {
+                reader.reset();
+                reject(err);
+            });
+    });
+}
+
+async function decodeFromImageWithDetector(image) {
+    const detector = createFoodBarcodeDetector();
+    if (!detector) return '';
+
+    const results = await detector.detect(image);
+    if (!results || results.length === 0) return '';
+    const first = results.find(r => r && r.rawValue) || results[0];
+    return first && first.rawValue ? first.rawValue : '';
+}
+
+async function openPhotoPickerAndDecode() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.capture = 'environment';
+
+    input.onchange = async (event) => {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+
+        setFoodScannerStatus('Decoding image...');
+        try {
+            const imageURL = URL.createObjectURL(file);
+            const image = new Image();
+            image.src = imageURL;
+            await image.decode();
+
+            let decoded = '';
+            try {
+                decoded = await decodeFromImageWithDetector(image);
+            } catch (e) {
+                console.log('Native image decode failed, using fallback:', e);
+            }
+
+            if (!decoded) {
+                decoded = await decodeBarcodeFromImageFallback(image);
+            }
+
+            URL.revokeObjectURL(imageURL);
+
+            if (!decoded || !handleDecodedValue(decoded)) {
+                setFoodScannerStatus('No barcode/QR found in photo. Try another image.');
+                safeAlert('No barcode or QR code found in the selected photo.');
+            }
+        } catch (e) {
+            console.error('Failed to decode from photo:', e);
+            setFoodScannerStatus('Failed to decode image. Try another photo or manual entry.');
+            safeAlert('Could not decode barcode/QR from image.');
+        }
+    };
+
+    input.click();
 }
 
 function renderFoodDatalist(products) {
@@ -811,6 +1044,7 @@ function editFoodLog(id) {
 }
 
 function closeFoodModal() {
+    closeFoodScannerModal();
     document.getElementById('modal-overlay').classList.add('hidden');
     document.getElementById('food-modal').classList.add('hidden');
 }
