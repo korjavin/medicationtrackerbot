@@ -38,9 +38,9 @@ Add a new service to your `docker-compose.yml` file to run the MCP server.
       - MCP_DATABASE_PATH=/app/data/meds.db
       - MCP_MAX_QUERY_DAYS=90
       - MCP_SERVER_URL=https://mcp.yourdomain.com  # Your public MCP URL
-      - MCP_ALLOWED_SUBJECT=your-user-uuid-here    # From Pocket-ID
+      - MCP_ALLOWED_SUBJECT=your-user-uuid-here    # Optional: empty = allow any; one or comma-separated list of allowed `sub` values
       - POCKET_ID_URL=https://id.yourdomain.com
-      - POCKET_ID_CLIENT_ID=your-client-id
+      - POCKET_ID_CLIENT_ID=your-client-id   # One or comma-separated client IDs accepted in token audience
       - POCKET_ID_CLIENT_SECRET=your-client-secret
       - TZ=${TZ:-Europe/Berlin}
     networks:

@@ -96,12 +96,12 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Check if the subject matches the allowed subject
-		if h.config.AllowedSubject != "" && subject != h.config.AllowedSubject {
-			log.Printf("[MCP/OAuth] Subject %s not allowed (expected %s)", subject, h.config.AllowedSubject)
+		// Check if the subject matches the allowed subject(s)
+		if !h.isSubjectAllowed(subject) {
+			log.Printf("[MCP/OAuth] Subject %s not allowed (expected one of: %s)", subject, h.config.AllowedSubject)
 			h.sendForbidden(w, "user not authorized")
 			return
-		} else if h.config.AllowedSubject == "" {
+		} else if strings.TrimSpace(h.config.AllowedSubject) == "" {
 			log.Printf("[MCP/OAuth] Any subject allowed (no restriction configured). User: %s", subject)
 		}
 
@@ -111,6 +111,21 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), UserSubjectCtxKey, subject)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func (h *OAuthHandler) isSubjectAllowed(subject string) bool {
+	raw := strings.TrimSpace(h.config.AllowedSubject)
+	if raw == "" {
+		return true
+	}
+
+	for _, candidate := range strings.Split(raw, ",") {
+		if strings.TrimSpace(candidate) == subject {
+			return true
+		}
+	}
+
+	return false
 }
 
 // validateToken validates a JWT token and returns the subject
@@ -165,7 +180,7 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 	}
 
 	// Manual Audience Validation
-	// We allow audience to be either the MCP Server URL OR the Client ID
+	// We allow audience to be either the MCP Server URL OR one of configured Client IDs.
 	// (Pocket-ID often uses Client ID as audience for access tokens)
 	audClaim, err := validToken.Claims.GetAudience()
 	if err != nil {
@@ -174,7 +189,7 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 
 	validAudience := false
 	for _, aud := range audClaim {
-		if aud == h.config.MCPServerURL || aud == h.config.ClientID {
+		if h.isAudienceAllowed(aud) {
 			validAudience = true
 			break
 		}
@@ -193,6 +208,20 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 	}
 
 	return subject, nil
+}
+
+func (h *OAuthHandler) isAudienceAllowed(aud string) bool {
+	if aud == h.config.MCPServerURL {
+		return true
+	}
+
+	for _, clientID := range strings.Split(strings.TrimSpace(h.config.ClientID), ",") {
+		if strings.TrimSpace(clientID) == aud {
+			return true
+		}
+	}
+
+	return false
 }
 
 // getPublicKey retrieves the public key for the given key ID from JWKS
