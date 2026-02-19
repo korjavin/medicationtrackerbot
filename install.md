@@ -2,7 +2,7 @@
 
 This guide will walk you through setting up your own **Medication Tracker Bot**. 
 
-The installer automates the complex parts (Docker, SSL certificates, Nginx/Traefik configuration), asking you simple questions to customize your setup. By the end, you will have a fully functional web app and Telegram bot running on your own server.
+The installer automates the complex parts (**Docker, SSL certificates via Traefik, authentication via Pocket-ID**), asking you simple questions to customize your setup. By the end, you will have a fully functional web app and Telegram bot running on your own server.
 
 ## 👋 Introduction
 

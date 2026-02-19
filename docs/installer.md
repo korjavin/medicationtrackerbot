@@ -205,5 +205,5 @@ If you chose to install **Pocket-ID**, you need to complete its setup to enable 
 - Check the issues on [GitHub](https://github.com/korjavin/medicationtrackerbot/issues).
 
 ---
-*Last Updated: 2026-02-08*
+*Last Updated: 2026-02-20*
 

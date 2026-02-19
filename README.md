@@ -16,6 +16,20 @@ We built this because health data was everywhere—and nowhere. Medications, blo
 
 ## Features
 
+- **Food Intake Tracking**:
+    - **Open Food Facts Integration**: Scan or search for products to get nutritional data automatically.
+    - **Macro Tracking**: Monitor Calories, Proteins, Fats, and Carbs.
+    - **Daily Targets**: Set and track nutritional goals.
+- **Workout Tracking**:
+    - **Hierarchical Structure**: Groups → Variants → Exercises.
+    - **Smart Schedules**: Rotating (PPL, PHUL) and non-rotating schedules.
+    - **Live Guidance**: Exercise-by-exercise logging via Telegram.
+    - **Performance Stats**: Streak tracking and completion analytics.
+    - See [docs/WORKOUT_TRACKING.md](docs/WORKOUT_TRACKING.md) for details.
+- **Web App Features**:
+    - **Offline Support (PWA)**: The application works offline; data syncs when back online.
+    - **Push Notifications**: Receive medication and workout reminders directly on your device.
+    - **Responsive Design**: Optimized for both mobile and desktop browsers.
 - **Medication Management**: Add, edit, archive medications with custom dosages and schedules.
 - **Dose History**:
     - **Smart Log**: Visually groups medications taken at the same time.
@@ -25,32 +39,22 @@ We built this because health data was everywhere—and nowhere. Medications, blo
     - Supports Daily, Weekly, and As-Needed schedules.
     - **Active Periods**: Set Start and End dates for medication courses.
 - **Intelligent Sorting**:
-    - Meds sorted by: Scheduled Soon (>14h), Recently Taken, As-Needed (by usage), Archived.
+    - Meds sorted by: Pending Now, Recently Taken, As-Needed (by usage), Archived.
 - **Notifications**:
-    - Telegram alerts with Scheduled Time and Dosage (e.g., `(08:20) - Med (10mg)`).
+    - Telegram alerts and **Web Push Notifications**.
     - Reminders repeat every hour if not confirmed.
-    - Respects Start/End dates to avoid false alerts.
 - **Privacy & Security**:
-    - **Authentication**: Telegram Web App validation + optional Google OIDC for browser access.
+    - **Authentication**: Telegram Web App validation + Passkeys/OIDC for browser access.
     - **Self-Hosted**: Your data stays on your server (SQLite).
-    - **Drug Interactions**:
-        - Automatically checks for interactions between your active medications using the [NLM RxNorm API](https://rxnav.nlm.nih.gov/).
-        - Normalizes medication names (e.g., "Advil" -> "Ibuprofen") for accurate checking.
-        - Warnings are displayed when adding or unarchiving medications.
+    - **Drug Interactions**: Automatic checks using NLM RxNorm API.
 
 - **Blood Pressure Tracking**:
-    - Log blood pressure readings (systolic, diastolic, pulse).
-    - Track 2-3x daily for accurate monitoring.
-    - View history, statistics, and trends.
-    - Export to CSV for analysis.
+    - Log readings, track trends, and export to CSV.
     - BP classification based on ISH 2020 guidelines.
 
 - **Weight Tracking**:
-    - Log weight in kilograms with automatic trend calculation.
-    - Exponential moving average for smooth trend visualization.
-    - View history with weight and trend comparison.
-    - Export to CSV in Libra format (compatible with Libra app).
-    - Weekly reminders if no weight logged.
+    - Log weight with automatic trend calculation (EMA).
+    - Weekly reminders and CSV export.
 
 ## Chat Commands
 
@@ -106,7 +110,7 @@ The application is configured via Environment Variables:
 
 ### Easy Installer (Recommended)
 
-The easiest way to get started is with our interactive installer:
+The easiest way to get started is with our **Automatic Installer**. It handles everything: Docker, Traefik, SSL certificates, and even external authentication with Pocket-ID.
 
 > [!TIP]
 > Always check for the latest version on the [**Releases**](https://github.com/korjavin/medicationtrackerbot/releases) page.
@@ -118,42 +122,14 @@ wget -qO- https://github.com/korjavin/medicationtrackerbot/releases/download/v0.
 See the [**Quick Installation Guide (install.md)**](install.md) for server recommendations and prerequisites.
 Detailed walkthrough available in [docs/installer.md](docs/installer.md).
 
-### Docker Deployment (Recommended)
-
-```yaml
-version: '3'
-services:
-  medtracker:
-    image: ghcr.io/korjavin/medicationtrackerbot:latest
-    container_name: medtracker
-    restart: unless-stopped
-    volumes:
-      - medtracker_data:/app/data
-    environment:
-      - TELEGRAM_BOT_TOKEN=your_token
-      - ALLOWED_USER_ID=123456789
-      - TZ=Europe/Berlin
-      # Optional: Google Auth
-      - GOOGLE_CLIENT_ID=...
-      - GOOGLE_CLIENT_SECRET=...
-      - GOOGLE_REDIRECT_URL=https://med.yourdomain.com/auth/google/callback
-      - ADMIN_EMAIL=you@gmail.com
-    labels:
-      - "traefik.enable=true"
-      # ... add your traefik labels here
-```
-
-### Local Development
-1.  Clone repo.
-2.  `go run ./cmd/bot`
-
 ### Web Interface
 
-Access the web interface at `http://localhost:8080` (or your domain when deployed). The interface includes:
+Access the web interface at your domain (or `http://localhost:8080` locally). The interface is a **Progressive Web App (PWA)** that supports offline access and push notifications.
 
-- **Medications** - Manage your medications and schedules.
-- **History** - View dose history with filters.
-- **Blood Pressure** - Blood pressure tracking dashboard.
+- **Medications** - Manage medications and intake history.
+- **Food Intake** - Log meals via Open Food Facts search.
+- **Workouts** - Plan and track exercise progress.
+- **Blood Pressure & Weight** - Dashboards with trends and statistics.
 
 ### Importing Data
 
