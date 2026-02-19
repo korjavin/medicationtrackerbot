@@ -33,9 +33,9 @@ func TestHandleLogFood(t *testing.T) {
 		"name":     "Apple",
 		"weight":   150,
 		"calories": 80,
-		"carbs":    20.0,
-		"protein":  0.5,
-		"fat":      0.2,
+		"carbs":    20,
+		"protein":  1, // 0.5 -> 1 for int
+		"fat":      0, // 0.2 -> 0 for int
 	}
 	body, _ := json.Marshal(reqBody)
 

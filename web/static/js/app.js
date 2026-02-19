@@ -95,6 +95,9 @@ async function checkAuth() {
                 await window.MedTrackerDB.MedicationStore.saveCache(medications);
             }
 
+            // Load feature flags/settings
+            loadFoodSettings();
+
             return true;
         } else if (res.status === 401 || res.status === 403) {
             // Definitely not authorized, clear cache
@@ -744,8 +747,61 @@ async function loadSettings() {
         // Load weight reminder status
         const weightReminderStatus = await apiCall('/api/weight/reminder/status', 'GET');
         document.getElementById('weight-reminders-toggle').checked = weightReminderStatus.enabled;
+
+        // Load Food Intake status
+        await loadFoodSettings();
+
     } catch (error) {
         console.error('Failed to load settings:', error);
+    }
+}
+
+// Food Intake Settings
+let foodIntakeEnabled = false;
+
+async function loadFoodSettings() {
+    try {
+        const res = await apiCall('/api/food/settings/status', 'GET');
+        foodIntakeEnabled = res.enabled;
+
+        // Update toggle if on settings page
+        const toggle = document.getElementById('food-intake-toggle');
+        if (toggle) {
+            toggle.checked = foodIntakeEnabled;
+            // Add listener if not already added (simple way: remove then add)
+            toggle.onchange = toggleFoodIntake;
+        }
+
+        updateFoodTabVisibility();
+    } catch (e) {
+        console.error('Failed to load food settings:', e);
+    }
+}
+
+async function toggleFoodIntake() {
+    const toggle = document.getElementById('food-intake-toggle');
+    const enabled = toggle.checked;
+
+    try {
+        await apiCall('/api/food/settings/toggle', 'POST', { enabled });
+        foodIntakeEnabled = enabled;
+        updateFoodTabVisibility();
+    } catch (e) {
+        console.error('Failed to toggle food intake:', e);
+        toggle.checked = !enabled; // Revert
+        alert('Failed to update setting');
+    }
+}
+
+function updateFoodTabVisibility() {
+    const foodTabBtn = document.querySelector('.tab[data-tab="food"]');
+    if (foodTabBtn) {
+        foodTabBtn.style.display = foodIntakeEnabled ? 'inline-block' : 'none';
+
+        // If we are currently on the food tab and it gets disabled, switch to first tab
+        if (!foodIntakeEnabled && document.querySelector('.tab.active[data-tab="food"]')) {
+            switchTab('meds'); // Default to meds
+        }
     }
 }
 
