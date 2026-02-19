@@ -48,6 +48,14 @@ func (s *Server) handleCreateBloodPressure(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Cross-channel sync: if reminder is handled from web, clear Telegram notification.
+	if state, err := s.store.GetBPReminderState(userID); err == nil && state != nil {
+		if state.NotificationMessageID != nil && s.bot != nil {
+			_ = s.bot.DeleteMessage(*state.NotificationMessageID)
+		}
+		_ = s.store.ClearBPReminderNotificationMessage(userID)
+	}
+
 	bp.ID = id
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(bp)
@@ -285,6 +293,14 @@ func (s *Server) handleSnoozeBPReminder(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Cross-channel sync: remove Telegram reminder message when snoozed from web/push.
+	if state, err := s.store.GetBPReminderState(userID); err == nil && state != nil {
+		if state.NotificationMessageID != nil && s.bot != nil {
+			_ = s.bot.DeleteMessage(*state.NotificationMessageID)
+		}
+		_ = s.store.ClearBPReminderNotificationMessage(userID)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "success",
@@ -298,6 +314,14 @@ func (s *Server) handleDontBugMeBPReminder(w http.ResponseWriter, r *http.Reques
 	if err := s.store.DontBugMeBPReminder(userID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Cross-channel sync: remove Telegram reminder message when disabled from web/push.
+	if state, err := s.store.GetBPReminderState(userID); err == nil && state != nil {
+		if state.NotificationMessageID != nil && s.bot != nil {
+			_ = s.bot.DeleteMessage(*state.NotificationMessageID)
+		}
+		_ = s.store.ClearBPReminderNotificationMessage(userID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

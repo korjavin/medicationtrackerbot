@@ -127,6 +127,17 @@ func (s *Store) UpdateWeightReminderNotificationSent(userID int64, messageID *in
 	return err
 }
 
+// ClearWeightReminderNotificationMessage clears the stored Telegram message ID for the current weight reminder.
+func (s *Store) ClearWeightReminderNotificationMessage(userID int64) error {
+	_, err := s.db.Exec(`
+		UPDATE weight_reminder_state
+		SET notification_message_id = NULL,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = ?`,
+		userID)
+	return err
+}
+
 // CalculatePreferredWeightReminderHour calculates the preferred reminder hour based on recent weight logs
 // Analyzes last 14 days of weight logs, averages the hour of measurement
 // Constraints: 6 AM - 12 PM range (morning weigh-ins recommended)

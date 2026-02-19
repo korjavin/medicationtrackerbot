@@ -127,6 +127,17 @@ func (s *Store) UpdateBPReminderNotificationSent(userID int64, messageID *int) e
 	return err
 }
 
+// ClearBPReminderNotificationMessage clears the stored Telegram message ID for the current BP reminder.
+func (s *Store) ClearBPReminderNotificationMessage(userID int64) error {
+	_, err := s.db.Exec(`
+		UPDATE bp_reminder_state
+		SET notification_message_id = NULL,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = ?`,
+		userID)
+	return err
+}
+
 // GetLastBPReading retrieves the most recent BP reading for a user
 func (s *Store) GetLastBPReading(ctx context.Context, userID int64) (*BloodPressure, error) {
 	var bp BloodPressure

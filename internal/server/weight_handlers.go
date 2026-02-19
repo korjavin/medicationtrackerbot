@@ -57,6 +57,14 @@ func (s *Server) handleCreateWeight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Cross-channel sync: if reminder is handled from web, clear Telegram notification.
+	if state, err := s.store.GetWeightReminderState(userID); err == nil && state != nil {
+		if state.NotificationMessageID != nil && s.bot != nil {
+			_ = s.bot.DeleteMessage(*state.NotificationMessageID)
+		}
+		_ = s.store.ClearWeightReminderNotificationMessage(userID)
+	}
+
 	wLog.ID = id
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(wLog)
@@ -267,6 +275,14 @@ func (s *Server) handleSnoozeWeightReminder(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Cross-channel sync: remove Telegram reminder message when snoozed from web/push.
+	if state, err := s.store.GetWeightReminderState(userID); err == nil && state != nil {
+		if state.NotificationMessageID != nil && s.bot != nil {
+			_ = s.bot.DeleteMessage(*state.NotificationMessageID)
+		}
+		_ = s.store.ClearWeightReminderNotificationMessage(userID)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "success",
@@ -279,6 +295,14 @@ func (s *Server) handleDontBugMeWeightReminder(w http.ResponseWriter, r *http.Re
 	if err := s.store.DontBugMeWeightReminder(userID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Cross-channel sync: remove Telegram reminder message when disabled from web/push.
+	if state, err := s.store.GetWeightReminderState(userID); err == nil && state != nil {
+		if state.NotificationMessageID != nil && s.bot != nil {
+			_ = s.bot.DeleteMessage(*state.NotificationMessageID)
+		}
+		_ = s.store.ClearWeightReminderNotificationMessage(userID)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

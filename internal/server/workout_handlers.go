@@ -1054,6 +1054,20 @@ func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	session, err := s.store.GetWorkoutSession(id)
+	if err != nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+	if session == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+	if session.UserID != s.allowedUserID {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
 	var req struct {
 		Minutes int `json:"minutes"`
 	}
@@ -1072,6 +1086,11 @@ func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	if session.NotificationMessageID != nil && s.bot != nil {
+		// Best effort: message might already be deleted or unavailable.
+		_ = s.bot.DeleteMessage(*session.NotificationMessageID)
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1083,10 +1102,28 @@ func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	session, err := s.store.GetWorkoutSession(id)
+	if err != nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+	if session == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+	if session.UserID != s.allowedUserID {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
 	err = s.store.SkipSession(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	if session.NotificationMessageID != nil && s.bot != nil {
+		_ = s.bot.DeleteMessage(*session.NotificationMessageID)
 	}
 
 	w.WriteHeader(http.StatusOK)
