@@ -7,6 +7,21 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+// StartWorkoutFlowFromWeb mirrors Telegram "Start" callback behavior when workout is started from web UI.
+// It sends a confirmation message and exercise prompts with inline action buttons.
+func (b *Bot) StartWorkoutFlowFromWeb(sessionID int64) error {
+	session, err := b.store.GetWorkoutSession(sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get workout session: %w", err)
+	}
+	if session == nil {
+		return fmt.Errorf("workout session not found: %d", sessionID)
+	}
+
+	b.startExerciseLoop(sessionID, session.VariantID, b.allowedUserID)
+	return nil
+}
+
 // SendWorkoutNotification sends a workout notification with inline buttons
 func (b *Bot) SendWorkoutNotification(text string, sessionID int64) (int, error) {
 	// Create inline keyboard with workout action buttons

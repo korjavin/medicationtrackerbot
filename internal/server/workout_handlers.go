@@ -1035,7 +1035,7 @@ func (s *Server) handleStartWorkoutSession(w http.ResponseWriter, r *http.Reques
 	if s.bot != nil {
 		go func() {
 			session, err := s.store.GetWorkoutSession(id)
-			if err != nil || session == nil || session.NotificationMessageID == nil {
+			if err != nil || session == nil {
 				return
 			}
 
@@ -1048,8 +1048,14 @@ func (s *Server) handleStartWorkoutSession(w http.ResponseWriter, r *http.Reques
 			}
 			text += "\n\nLet's go! 💪"
 
-			if err := s.bot.UpdateWorkoutMessage(*session.NotificationMessageID, text); err != nil {
-				log.Printf("Failed to update workout message: %v", err)
+			if session.NotificationMessageID != nil {
+				if err := s.bot.UpdateWorkoutMessage(*session.NotificationMessageID, text); err != nil {
+					log.Printf("Failed to update workout message: %v", err)
+				}
+			}
+
+			if err := s.bot.StartWorkoutFlowFromWeb(id); err != nil {
+				log.Printf("Failed to start workout Telegram flow from web: %v", err)
 			}
 		}()
 	}

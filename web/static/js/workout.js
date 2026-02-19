@@ -664,6 +664,26 @@ async function showWorkoutSessionModal(sessionId) {
         currentSessionData = data.session;
         originalSessionStatus = data.session.status;
 
+        if (currentSessionLogs.length === 0 && currentSessionData && currentSessionData.variant_id > 0) {
+            try {
+                const plannedExercises = await apiCall(`/api/workout/exercises?variant_id=${currentSessionData.variant_id}`);
+                if (Array.isArray(plannedExercises) && plannedExercises.length > 0) {
+                    currentSessionLogs = plannedExercises.map(ex => ({
+                        id: 0,
+                        exercise_id: ex.id,
+                        exercise_name: ex.exercise_name,
+                        sets_completed: ex.target_sets || 0,
+                        reps_completed: ex.target_reps_min || 0,
+                        weight_kg: ex.target_weight_kg || 0,
+                        notes: '',
+                        status: 'completed'
+                    }));
+                }
+            } catch (prefillError) {
+                console.error('Error pre-filling planned exercises:', prefillError);
+            }
+        }
+
         // Build info section with status dropdown
         const statusOptions = [
             { value: 'completed', label: '✅ Completed' },
@@ -788,13 +808,26 @@ async function saveWorkoutSessionDetails() {
 
         // Save each log
         for (const log of currentSessionLogs) {
-            await apiCall('/api/workout/sessions/logs/update', 'POST', {
-                id: log.id,
-                sets_completed: Math.round(log.sets_completed),
-                reps_completed: Math.round(log.reps_completed),
-                weight_kg: parseFloat(log.weight_kg),
-                notes: log.notes || ''
-            });
+            if (log.id && log.id > 0) {
+                await apiCall('/api/workout/sessions/logs/update', 'POST', {
+                    id: log.id,
+                    sets_completed: Math.round(log.sets_completed),
+                    reps_completed: Math.round(log.reps_completed),
+                    weight_kg: parseFloat(log.weight_kg),
+                    notes: log.notes || ''
+                });
+            } else {
+                await apiCall('/api/workout/sessions/logs/create', 'POST', {
+                    session_id: currentSessionData.id,
+                    exercise_id: log.exercise_id,
+                    exercise_name: log.exercise_name,
+                    target_sets: Math.round(log.sets_completed),
+                    target_reps_min: Math.round(log.reps_completed),
+                    target_weight_kg: parseFloat(log.weight_kg),
+                    status: 'completed',
+                    notes: log.notes || ''
+                });
+            }
         }
 
         closeWorkoutSessionModal();
@@ -908,14 +941,14 @@ async function startWorkoutSession(sessionId) {
 }
 
 async function cancelWorkoutSession(sessionId) {
-    if (confirm('Are you sure you want to stop/cancel this workout? It will be marked as skipped.')) {
+    if (confirm('Finish this workout now? It will be marked as completed.')) {
         try {
-            await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'skipped' });
+            await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
             loadNextWorkout();
             loadWorkoutHistoryTab(); // Refresh history if visible
         } catch (e) {
             console.error(e);
-            safeAlert('Failed to cancel workout');
+            safeAlert('Failed to finish workout');
         }
     }
 }
