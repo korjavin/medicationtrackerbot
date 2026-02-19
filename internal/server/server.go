@@ -315,6 +315,8 @@ func (s *Server) Routes() http.Handler {
 	// Settings endpoints
 	apiMux.HandleFunc("GET /api/food/settings/status", s.handleGetFoodIntakeEnabled)
 	apiMux.HandleFunc("POST /api/food/settings/toggle", s.handleSetFoodIntakeEnabled)
+	apiMux.HandleFunc("GET /api/settings/features", s.handleGetFeatureSettings)
+	apiMux.HandleFunc("POST /api/settings/features/{feature}", s.handleSetFeatureEnabled)
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.allowedUserID)

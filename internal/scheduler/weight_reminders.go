@@ -9,6 +9,14 @@ import (
 
 // checkWeightReminders checks if any users need weight reminder notifications
 func (s *Scheduler) checkWeightReminders() error {
+	enabled, err := s.store.GetWeightEnabled(context.Background())
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return nil
+	}
+
 	// Get all users with weight reminders enabled
 	userIDs, err := s.store.GetUsersForWeightReminders()
 	if err != nil {

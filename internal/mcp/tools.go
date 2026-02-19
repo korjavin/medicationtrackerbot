@@ -18,6 +18,34 @@ type DateRangeInput struct {
 	EndDate   string `json:"end_date"`
 }
 
+func (s *Server) ensureFeatureEnabled(ctx context.Context, feature string) error {
+	var enabled bool
+	var err error
+
+	switch feature {
+	case "bp":
+		enabled, err = s.store.GetBloodPressureEnabled(ctx)
+	case "weight":
+		enabled, err = s.store.GetWeightEnabled(ctx)
+	case "medication":
+		enabled, err = s.store.GetMedicationEnabled(ctx)
+	case "workout":
+		enabled, err = s.store.GetWorkoutEnabled(ctx)
+	case "food":
+		enabled, err = s.store.GetFoodIntakeEnabled(ctx)
+	default:
+		return nil
+	}
+
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return fmt.Errorf("%s feature is disabled in settings", feature)
+	}
+	return nil
+}
+
 func (s *Server) resolveDateRangeArgs(req *mcp.CallToolRequest, startDate, endDate string) (string, string, string, error) {
 	if req == nil || req.Params == nil || len(req.Params.Arguments) == 0 {
 		return startDate, endDate, "", nil
@@ -109,6 +137,10 @@ type BloodPressureResponse struct {
 
 // handleGetBloodPressure handles the get_blood_pressure tool
 func (s *Server) handleGetBloodPressure(ctx context.Context, req *mcp.CallToolRequest, input DateRangeInput) (*mcp.CallToolResult, BloodPressureResponse, error) {
+	if err := s.ensureFeatureEnabled(ctx, "bp"); err != nil {
+		return nil, BloodPressureResponse{}, err
+	}
+
 	startStr, endStr, argsWarning, err := s.resolveDateRangeArgs(req, input.StartDate, input.EndDate)
 	if err != nil {
 		return nil, BloodPressureResponse{}, err
@@ -190,6 +222,10 @@ type WeightResponse struct {
 
 // handleGetWeight handles the get_weight tool
 func (s *Server) handleGetWeight(ctx context.Context, req *mcp.CallToolRequest, input DateRangeInput) (*mcp.CallToolResult, WeightResponse, error) {
+	if err := s.ensureFeatureEnabled(ctx, "weight"); err != nil {
+		return nil, WeightResponse{}, err
+	}
+
 	startStr, endStr, argsWarning, err := s.resolveDateRangeArgs(req, input.StartDate, input.EndDate)
 	if err != nil {
 		return nil, WeightResponse{}, err
@@ -270,6 +306,10 @@ type MedicationIntakeResponse struct {
 
 // handleGetMedicationIntake handles the get_medication_intake tool
 func (s *Server) handleGetMedicationIntake(ctx context.Context, req *mcp.CallToolRequest, input MedicationIntakeInput) (*mcp.CallToolResult, MedicationIntakeResponse, error) {
+	if err := s.ensureFeatureEnabled(ctx, "medication"); err != nil {
+		return nil, MedicationIntakeResponse{}, err
+	}
+
 	startStr, endStr, argsWarning, err := s.resolveDateRangeArgs(req, input.StartDate, input.EndDate)
 	if err != nil {
 		return nil, MedicationIntakeResponse{}, err
@@ -378,6 +418,10 @@ type WorkoutHistoryResponse struct {
 // handleGetWorkoutHistory handles the get_workout_history tool
 // handleGetWorkoutHistory handles the get_workout_history tool
 func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolRequest, input WorkoutHistoryInput) (*mcp.CallToolResult, WorkoutHistoryResponse, error) {
+	if err := s.ensureFeatureEnabled(ctx, "workout"); err != nil {
+		return nil, WorkoutHistoryResponse{}, err
+	}
+
 	startStr, endStr, argsWarning, err := s.resolveDateRangeArgs(req, input.StartDate, input.EndDate)
 	if err != nil {
 		return nil, WorkoutHistoryResponse{}, err
@@ -605,6 +649,10 @@ type FoodIntakeResponse struct {
 
 // handleGetFoodIntake handles the get_food_intake tool
 func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolRequest, input DateRangeInput) (*mcp.CallToolResult, FoodIntakeResponse, error) {
+	if err := s.ensureFeatureEnabled(ctx, "food"); err != nil {
+		return nil, FoodIntakeResponse{}, err
+	}
+
 	startDate, endDate, warning, err := s.parseDateRange(input.StartDate, input.EndDate)
 	if err != nil {
 		return nil, FoodIntakeResponse{}, err

@@ -13,6 +13,14 @@ import (
 
 // checkWorkoutNotifications checks for scheduled workouts and sends notifications
 func (s *Scheduler) checkWorkoutNotifications() error {
+	enabled, err := s.store.GetWorkoutEnabled(context.Background())
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return nil
+	}
+
 	now := time.Now()
 
 	// 1. Get history to check for InProgress and Stale sessions

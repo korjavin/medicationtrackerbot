@@ -106,6 +106,14 @@ func (s *Scheduler) Start() {
 }
 
 func (s *Scheduler) checkSchedule() error {
+	enabled, err := s.store.GetMedicationEnabled(context.Background())
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return nil
+	}
+
 	now := time.Now()
 	// Truncate to minute to avoid sub-minute drifts if needed, but DB comparison handles equality.
 	// Actually, store stores time.Time. SQLite driver stores it as string usually or timestamp.

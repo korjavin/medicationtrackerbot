@@ -96,7 +96,7 @@ async function checkAuth() {
             }
 
             // Load feature flags/settings
-            loadFoodSettings();
+            loadFeatureSettings();
 
             return true;
         } else if (res.status === 401 || res.status === 403) {
@@ -400,6 +400,26 @@ document.getElementById('bp-reminders-toggle').addEventListener('change', async 
     }
 });
 
+document.getElementById('food-intake-toggle').addEventListener('change', async function () {
+    await toggleFeatureSetting('food', this.checked);
+});
+
+document.getElementById('bp-feature-toggle').addEventListener('change', async function () {
+    await toggleFeatureSetting('bp', this.checked);
+});
+
+document.getElementById('weight-feature-toggle').addEventListener('change', async function () {
+    await toggleFeatureSetting('weight', this.checked);
+});
+
+document.getElementById('medication-feature-toggle').addEventListener('change', async function () {
+    await toggleFeatureSetting('medication', this.checked);
+});
+
+document.getElementById('workout-feature-toggle').addEventListener('change', async function () {
+    await toggleFeatureSetting('workout', this.checked);
+});
+
 // Weight Reminders Toggle Handler
 document.getElementById('weight-reminders-toggle').addEventListener('change', async function () {
     const enabled = this.checked;
@@ -511,6 +531,13 @@ async function apiCall(endpoint, method = "GET", body = null) {
 let medications = [];
 let editingMedId = null;
 let currentFoodLogs = {};
+let featureSettings = {
+    food: false,
+    bp: true,
+    weight: true,
+    medication: true,
+    workout: true
+};
 const formatDate = (dateStr) => {
     if (!dateStr) return '';
     const d = new Date(dateStr);
@@ -526,6 +553,19 @@ const formatDate = (dateStr) => {
 
 // UI Functions
 function switchTab(tab) {
+    const tabToFeature = {
+        food: 'food',
+        bp: 'bp',
+        weight: 'weight',
+        meds: 'medication',
+        workouts: 'workout'
+    };
+    const feature = tabToFeature[tab];
+    if (feature && !featureSettings[feature]) {
+        switchTab('settings');
+        return;
+    }
+
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
 
@@ -906,6 +946,8 @@ function switchMedTab(tab) {
 // Load settings (BP reminders status, etc.)
 async function loadSettings() {
     try {
+        await loadFeatureSettings();
+
         // Load BP reminder status
         const bpReminderStatus = await apiCall('/api/bp/reminder/status', 'GET');
         document.getElementById('bp-reminders-toggle').checked = bpReminderStatus.enabled;
@@ -914,60 +956,67 @@ async function loadSettings() {
         const weightReminderStatus = await apiCall('/api/weight/reminder/status', 'GET');
         document.getElementById('weight-reminders-toggle').checked = weightReminderStatus.enabled;
 
-        // Load Food Intake status
-        await loadFoodSettings();
-
     } catch (error) {
         console.error('Failed to load settings:', error);
     }
 }
 
-// Food Intake Settings
-let foodIntakeEnabled = false;
-
-async function loadFoodSettings() {
+async function loadFeatureSettings() {
     try {
-        const res = await apiCall('/api/food/settings/status', 'GET');
-        foodIntakeEnabled = res.enabled;
-
-        // Update toggle if on settings page
-        const toggle = document.getElementById('food-intake-toggle');
-        if (toggle) {
-            toggle.checked = foodIntakeEnabled;
-            // Add listener if not already added (simple way: remove then add)
-            toggle.onchange = toggleFoodIntake;
-        }
-
-        updateFoodTabVisibility();
+        const res = await apiCall('/api/settings/features', 'GET');
+        featureSettings = { ...featureSettings, ...res };
+        updateFeatureToggles();
+        updateFeatureTabVisibility();
     } catch (e) {
-        console.error('Failed to load food settings:', e);
+        console.error('Failed to load feature settings:', e);
     }
 }
 
-async function toggleFoodIntake() {
-    const toggle = document.getElementById('food-intake-toggle');
-    const enabled = toggle.checked;
+function updateFeatureToggles() {
+    document.getElementById('food-intake-toggle').checked = !!featureSettings.food;
+    document.getElementById('bp-feature-toggle').checked = !!featureSettings.bp;
+    document.getElementById('weight-feature-toggle').checked = !!featureSettings.weight;
+    document.getElementById('medication-feature-toggle').checked = !!featureSettings.medication;
+    document.getElementById('workout-feature-toggle').checked = !!featureSettings.workout;
+}
 
+async function toggleFeatureSetting(feature, enabled) {
     try {
-        await apiCall('/api/food/settings/toggle', 'POST', { enabled });
-        foodIntakeEnabled = enabled;
-        updateFoodTabVisibility();
+        await apiCall(`/api/settings/features/${feature}`, 'POST', { enabled });
+        featureSettings[feature] = enabled;
+        updateFeatureTabVisibility();
     } catch (e) {
-        console.error('Failed to toggle food intake:', e);
-        toggle.checked = !enabled; // Revert
-        alert('Failed to update setting');
+        console.error(`Failed to toggle ${feature} feature:`, e);
+        updateFeatureToggles();
+        alert('Failed to update setting.');
     }
 }
 
-function updateFoodTabVisibility() {
-    const foodTabBtn = document.querySelector('.tab[data-tab="food"]');
-    if (foodTabBtn) {
-        foodTabBtn.style.display = foodIntakeEnabled ? 'inline-block' : 'none';
+function updateFeatureTabVisibility() {
+    const tabToFeature = {
+        food: 'food',
+        bp: 'bp',
+        weight: 'weight',
+        meds: 'medication',
+        workouts: 'workout'
+    };
 
-        // If we are currently on the food tab and it gets disabled, switch to first tab
-        if (!foodIntakeEnabled && document.querySelector('.tab.active[data-tab="food"]')) {
-            switchTab('meds'); // Default to meds
+    Object.entries(tabToFeature).forEach(([tab, feature]) => {
+        const tabBtn = document.querySelector(`.tab[data-tab="${tab}"]`);
+        if (tabBtn) {
+            tabBtn.style.display = featureSettings[feature] ? 'inline-block' : 'none';
         }
+    });
+
+    const activeTab = document.querySelector('.tab.active');
+    if (activeTab && activeTab.style.display === 'none') {
+        const fallback = ['meds', 'bp', 'weight', 'workouts', 'food', 'settings']
+            .find(tab => {
+                if (tab === 'settings') return true;
+                const feature = tabToFeature[tab];
+                return !!featureSettings[feature];
+            }) || 'settings';
+        switchTab(fallback);
     }
 }
 

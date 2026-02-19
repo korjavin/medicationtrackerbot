@@ -1585,12 +1585,49 @@ func (s *Store) DeleteFoodLog(ctx context.Context, id, userID int64) error {
 }
 
 func (s *Store) GetFoodIntakeEnabled(ctx context.Context) (bool, error) {
-	var val interface{} // Can be int(0/1) or bool depending on driver/schema
-	// sqlite uses 0/1 for boolean
-	err := s.db.QueryRowContext(ctx, "SELECT food_intake_enabled FROM settings WHERE id = 1").Scan(&val)
-	if err != nil {
-		// If column doesn't exist yet (migration not run?), handle gracefully or return error
-		// For now, assume migration is run.
+	return s.getSettingsBool(ctx, "food_intake_enabled")
+}
+
+func (s *Store) SetFoodIntakeEnabled(ctx context.Context, enabled bool) error {
+	return s.setSettingsBool(ctx, "food_intake_enabled", enabled)
+}
+
+func (s *Store) GetBloodPressureEnabled(ctx context.Context) (bool, error) {
+	return s.getSettingsBool(ctx, "blood_pressure_enabled")
+}
+
+func (s *Store) SetBloodPressureEnabled(ctx context.Context, enabled bool) error {
+	return s.setSettingsBool(ctx, "blood_pressure_enabled", enabled)
+}
+
+func (s *Store) GetWeightEnabled(ctx context.Context) (bool, error) {
+	return s.getSettingsBool(ctx, "weight_enabled")
+}
+
+func (s *Store) SetWeightEnabled(ctx context.Context, enabled bool) error {
+	return s.setSettingsBool(ctx, "weight_enabled", enabled)
+}
+
+func (s *Store) GetMedicationEnabled(ctx context.Context) (bool, error) {
+	return s.getSettingsBool(ctx, "medication_enabled")
+}
+
+func (s *Store) SetMedicationEnabled(ctx context.Context, enabled bool) error {
+	return s.setSettingsBool(ctx, "medication_enabled", enabled)
+}
+
+func (s *Store) GetWorkoutEnabled(ctx context.Context) (bool, error) {
+	return s.getSettingsBool(ctx, "workout_enabled")
+}
+
+func (s *Store) SetWorkoutEnabled(ctx context.Context, enabled bool) error {
+	return s.setSettingsBool(ctx, "workout_enabled", enabled)
+}
+
+func (s *Store) getSettingsBool(ctx context.Context, column string) (bool, error) {
+	var val interface{}
+	query := fmt.Sprintf("SELECT %s FROM settings WHERE id = 1", column)
+	if err := s.db.QueryRowContext(ctx, query).Scan(&val); err != nil {
 		return false, err
 	}
 
@@ -1599,15 +1636,15 @@ func (s *Store) GetFoodIntakeEnabled(ctx context.Context) (bool, error) {
 		return v == 1, nil
 	case bool:
 		return v, nil
-	case []uint8: // some drivers return []byte for boolean/bit
+	case []uint8:
 		return len(v) > 0 && v[0] == 1, nil
 	default:
-		// Attempt simple cast or default false
 		return false, nil
 	}
 }
 
-func (s *Store) SetFoodIntakeEnabled(ctx context.Context, enabled bool) error {
-	_, err := s.db.ExecContext(ctx, "UPDATE settings SET food_intake_enabled = ? WHERE id = 1", enabled)
+func (s *Store) setSettingsBool(ctx context.Context, column string, enabled bool) error {
+	query := fmt.Sprintf("UPDATE settings SET %s = ? WHERE id = 1", column)
+	_, err := s.db.ExecContext(ctx, query, enabled)
 	return err
 }

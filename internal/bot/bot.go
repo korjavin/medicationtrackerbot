@@ -22,6 +22,14 @@ type Bot struct {
 	appDomain     string
 }
 
+type featureFlags struct {
+	Medication bool
+	BP         bool
+	Weight     bool
+	Workout    bool
+	Food       bool
+}
+
 func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -50,6 +58,88 @@ func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 // Username returns the bot's username from the Telegram API
 func (b *Bot) Username() string {
 	return b.api.Self.UserName
+}
+
+func (b *Bot) getFeatureFlags(ctx context.Context) featureFlags {
+	flags := featureFlags{
+		Medication: true,
+		BP:         true,
+		Weight:     true,
+		Workout:    true,
+		Food:       false,
+	}
+
+	if v, err := b.store.GetMedicationEnabled(ctx); err == nil {
+		flags.Medication = v
+	}
+	if v, err := b.store.GetBloodPressureEnabled(ctx); err == nil {
+		flags.BP = v
+	}
+	if v, err := b.store.GetWeightEnabled(ctx); err == nil {
+		flags.Weight = v
+	}
+	if v, err := b.store.GetWorkoutEnabled(ctx); err == nil {
+		flags.Workout = v
+	}
+	if v, err := b.store.GetFoodIntakeEnabled(ctx); err == nil {
+		flags.Food = v
+	}
+
+	return flags
+}
+
+func (b *Bot) buildHelpText(flags featureFlags) string {
+	var sections []string
+	sections = append(sections, "**Medication Tracker Bot** - configurable tracker for meds, blood pressure, weight, workouts, and food.")
+
+	if flags.Medication {
+		sections = append(sections, `**Medication Commands:**
+/log - Manually log a dose for any medication
+/next - Trigger notification for next scheduled medication (with cancel option)
+/stock - View medication inventory status
+/download - Export medication, blood pressure, and weight history to CSV`)
+	}
+
+	if flags.BP || flags.Weight {
+		var block strings.Builder
+		block.WriteString("**Blood Pressure & Weight:**\n")
+		if flags.BP {
+			block.WriteString("/bp <systolic> <diastolic> [pulse] - Log blood pressure reading\n")
+			block.WriteString("  Example: /bp 130 80 72\n")
+			block.WriteString("/bphistory - View recent blood pressure history (last 10 readings)\n")
+			block.WriteString("/bpstats - View blood pressure statistics (30-day averages)\n")
+			block.WriteString("/bpgoal <systolic> <diastolic> - Set blood pressure goal\n")
+		}
+		if flags.Weight {
+			block.WriteString("/weight <kg> - Log weight in kilograms\n")
+			block.WriteString("  Example: /weight 75.5\n")
+			block.WriteString("/weighthistory - View recent weight history (last 10 entries)\n")
+			block.WriteString("/goal <weight> <date> - Set weight goal\n")
+			block.WriteString("  Example: /goal 110 2026-06-01\n")
+		}
+		sections = append(sections, strings.TrimSpace(block.String()))
+	}
+
+	if flags.Workout {
+		sections = append(sections, `**Workout Commands:**
+/workout - Start an ad-hoc (unscheduled) workout
+/startnext - Manually start next scheduled workout
+/workoutstatus - View today's workout status
+/workouthistory - View recent workouts and your streak 🔥`)
+	}
+
+	if flags.Food {
+		sections = append(sections, `**Food Command:**
+/intake <carbs> <protein> <fat> <weight> [name] - Log food intake`)
+	}
+
+	sections = append(sections, `**How to use:**
+1. Click the "Menu" button to open the App
+2. Enable or disable sections in Settings
+3. Use enabled commands from this help
+4. Use /help anytime after changing settings`)
+
+	return strings.Join(sections, "\n\n")
 }
 
 func (b *Bot) Start() {
@@ -95,50 +185,16 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	}
 
 	msgConfig := tgbotapi.NewMessage(msg.Chat.ID, "")
+	flags := b.getFeatureFlags(context.Background())
 	switch msg.Command() {
 	case "help":
-		msgConfig.Text = `**Medication Tracker Bot** - Track medications, blood pressure, weight, and workouts.
-
-**Medication Commands:**
-/start - Start the bot and open the Mini App
-/log - Manually log a dose for any medication (useful for "As Needed" meds)
-/next - Trigger notification for next scheduled medication (with cancel option)
-/stock - View medication inventory status
-/download - Export medication, blood pressure, and weight history to CSV
-
-**Blood Pressure & Weight:**
-/bp <systolic> <diastolic> [pulse] - Log blood pressure reading
-  Example: /bp 130 80 72
-/bphistory - View recent blood pressure history (last 10 readings)
-/bpstats - View blood pressure statistics (30-day averages)
-/weight <kg> - Log weight in kilograms
-  Example: /weight 75.5
-/weighthistory - View recent weight history (last 10 entries)
-/goal <weight> <date> - Set weight goal
-  Example: /goal 110 2026-06-01
-
-**Workout Commands:**
-/workout - Start an ad-hoc (unscheduled) workout
-/startnext - Manually start next scheduled workout
-/workoutstatus - View today's workout status
-/workouthistory - View recent workouts and your streak 🔥
-
-**How workouts work:**
-1. Workouts are scheduled in groups (e.g., "Morning Swings", "Evening A/B/C/D")
-2. You'll get notifications 15 minutes before scheduled time
-3. Click ▶️ Start, ⏰ Snooze, or ⏭ Skip
-4. Bot guides you through each exercise
-5. Rotation advances automatically for rotating workouts
-
-**How to use:**
-1. Click the "Menu" button to open the App
-2. Add your medications and set schedules
-3. The bot will notify you when it's time to take them
-4. Click "Confirm" on the notification to log usage
-5. Use the tabs to track your BP readings, weight, and workouts
-6. Use /download to export all data for any time period`
+		msgConfig.Text = b.buildHelpText(flags)
 		msgConfig.ParseMode = "Markdown"
 	case "log":
+		if !flags.Medication {
+			msgConfig.Text = "⚠️ Medication section is disabled in settings."
+			break
+		}
 		// Fetch active medications
 		meds, err := b.store.ListMedications(false)
 		if err != nil {
@@ -160,6 +216,10 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		msgConfig.Text = "Select medication to log:"
 		msgConfig.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 	case "download":
+		if !flags.Medication {
+			msgConfig.Text = "⚠️ Medication section is disabled in settings."
+			break
+		}
 		rows := [][]tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("Since last download", "download:since_last"),
@@ -178,32 +238,88 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		msgConfig.Text = "Select time period for export:"
 		msgConfig.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 	case "bp":
+		if !flags.BP {
+			msgConfig.Text = "⚠️ Blood Pressure section is disabled in settings."
+			break
+		}
 		b.handleBPCommand(msg, &msgConfig)
 	case "bphistory":
+		if !flags.BP {
+			msgConfig.Text = "⚠️ Blood Pressure section is disabled in settings."
+			break
+		}
 		b.handleBPHistoryCommand(&msgConfig)
 	case "bpstats":
+		if !flags.BP {
+			msgConfig.Text = "⚠️ Blood Pressure section is disabled in settings."
+			break
+		}
 		b.handleBPStatsCommand(&msgConfig)
 	case "weight":
+		if !flags.Weight {
+			msgConfig.Text = "⚠️ Weight section is disabled in settings."
+			break
+		}
 		b.handleWeightCommand(msg, &msgConfig)
 	case "weighthistory":
+		if !flags.Weight {
+			msgConfig.Text = "⚠️ Weight section is disabled in settings."
+			break
+		}
 		b.handleWeightHistoryCommand(&msgConfig)
 	case "goal":
+		if !flags.Weight {
+			msgConfig.Text = "⚠️ Weight section is disabled in settings."
+			break
+		}
 		b.handleGoalCommand(msg, &msgConfig)
 	case "bpgoal":
+		if !flags.BP {
+			msgConfig.Text = "⚠️ Blood Pressure section is disabled in settings."
+			break
+		}
 		b.handleBPGoalCommand(msg, &msgConfig)
 	case "stock":
+		if !flags.Medication {
+			msgConfig.Text = "⚠️ Medication section is disabled in settings."
+			break
+		}
 		b.handleStockCommand(&msgConfig)
 	case "workout":
+		if !flags.Workout {
+			msgConfig.Text = "⚠️ Workouts section is disabled in settings."
+			break
+		}
 		b.handleAdHocWorkoutCommand(&msgConfig)
 	case "startnext":
+		if !flags.Workout {
+			msgConfig.Text = "⚠️ Workouts section is disabled in settings."
+			break
+		}
 		b.handleStartNextCommand(&msgConfig)
 	case "workoutstatus":
+		if !flags.Workout {
+			msgConfig.Text = "⚠️ Workouts section is disabled in settings."
+			break
+		}
 		b.handleWorkoutStatusCommand(&msgConfig)
 	case "workouthistory":
+		if !flags.Workout {
+			msgConfig.Text = "⚠️ Workouts section is disabled in settings."
+			break
+		}
 		b.handleWorkoutHistoryCommand(&msgConfig)
 	case "next":
+		if !flags.Medication {
+			msgConfig.Text = "⚠️ Medication section is disabled in settings."
+			break
+		}
 		b.handleNextIntakeCommand(&msgConfig)
 	case "intake":
+		if !flags.Food {
+			msgConfig.Text = "⚠️ Food section is disabled in settings."
+			break
+		}
 		b.handleIntakeCommand(msg, &msgConfig)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."

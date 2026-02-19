@@ -11,6 +11,14 @@ import (
 
 // checkBPReminders checks if any users need BP reminder notifications
 func (s *Scheduler) checkBPReminders() error {
+	enabled, err := s.store.GetBloodPressureEnabled(context.Background())
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return nil
+	}
+
 	// Get all users with BP reminders enabled
 	userIDs, err := s.store.GetUsersForBPReminders()
 	if err != nil {
