@@ -396,7 +396,12 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 
 	// OpenFoodFacts Fallback if no local or offline global matches are found
 	if len(products) == 0 {
-		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		fallbackTimeout := 3 * time.Second
+		if !isBarcodeQuery(query) {
+			fallbackTimeout = 10 * time.Second
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), fallbackTimeout)
 		defer cancel()
 
 		apiProducts, err := s.store.SearchOpenFoodFactsAPI(ctx, query)
@@ -413,4 +418,16 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(products)
+}
+
+func isBarcodeQuery(query string) bool {
+	if len(query) < 8 {
+		return false
+	}
+	for _, c := range query {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
