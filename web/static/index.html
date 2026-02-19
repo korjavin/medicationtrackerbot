@@ -739,7 +739,13 @@
 
     <!-- Modal for Medication Confirmation (from Push) -->
     <div id="med-confirm-modal" class="hidden">
-        <h3 id="med-confirm-title">Time for Meds!</h3>
+        <div class="modal-header">
+            <h3 id="med-confirm-title">Time for Meds!</h3>
+            <div class="actions">
+                <button onclick="closeMedicationConfirmModal()" class="secondary">Dismiss</button>
+                <button id="med-confirm-action-btn" onclick="confirmSelectedMedications()" class="primary">Confirm Selected</button>
+            </div>
+        </div>
         <p id="med-confirm-subtitle" style="color: #666; margin-bottom: 15px;"></p>
 
         <!-- Editable Time Input (Initially Hidden) -->
@@ -752,13 +758,7 @@
             <!-- Checkboxes injected here -->
         </div>
         <div class="actions">
-            <button id="med-confirm-snooze-btn" onclick="snoozeMedicationConfirm()" class="secondary">Snooze
-                10m</button>
-            <button id="med-confirm-action-btn" onclick="confirmSelectedMedications()" class="primary">Confirm
-                Selected</button>
-        </div>
-        <div style="margin-top: 10px; text-align: center;">
-            <button onclick="closeMedicationConfirmModal()" class="text-btn" style="color: #999;">Dismiss</button>
+            <button id="med-confirm-snooze-btn" onclick="snoozeMedicationConfirm()" class="secondary">Snooze 10m</button>
         </div>
     </div>
 
