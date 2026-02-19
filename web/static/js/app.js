@@ -548,6 +548,7 @@ let featureSettings = {
     medication: true,
     workout: true
 };
+let featureSettingsLoaded = false;
 const formatDate = (dateStr) => {
     if (!dateStr) return '';
     const d = new Date(dateStr);
@@ -571,7 +572,7 @@ function switchTab(tab) {
         workouts: 'workout'
     };
     const feature = tabToFeature[tab];
-    if (feature && !featureSettings[feature]) {
+    if (feature && featureSettingsLoaded && !featureSettings[feature]) {
         switchTab('settings');
         return;
     }
@@ -1113,6 +1114,9 @@ async function loadFoodLogs() {
     const summary = document.getElementById('food-summary');
     list.innerHTML = 'Loading...';
 
+    // Ensure targets are available even if Settings tab hasn't been opened yet.
+    await loadFoodTargets();
+
     const dateFilter = document.getElementById('food-date-filter');
     let dateStr = dateFilter.value;
     if (!dateStr) {
@@ -1306,6 +1310,7 @@ async function loadFeatureSettings() {
     try {
         const res = await apiCall('/api/settings/features', 'GET');
         featureSettings = { ...featureSettings, ...res };
+        featureSettingsLoaded = true;
         updateFeatureToggles();
         updateFeatureTabVisibility();
     } catch (e) {
