@@ -119,7 +119,7 @@ services:
       - TELEGRAM_LOCAL=1
 
     ports:
-      - "8082:8081"
+      - "${TGPORT:-8082}:8081"
     networks:
       - default
       - traefik_net
