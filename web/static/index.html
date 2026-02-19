@@ -28,7 +28,7 @@
 <body>
     <div id="app">
         <div id="tabs">
-            <button class="tab active" data-tab="bp" onclick="switchTab('bp')">Blood Pressure</button>
+            <button class="tab active" data-tab="bp" onclick="switchTab('bp')">BP</button>
             <button class="tab" data-tab="weight" onclick="switchTab('weight')">Weight</button>
             <button class="tab" data-tab="workouts" onclick="switchTab('workouts')">Workouts</button>
             <button class="tab" data-tab="food" onclick="switchTab('food')">Food</button>
@@ -89,28 +89,27 @@
 
             <!-- Tab Navigation for Workouts -->
             <div class="workout-tabs">
-                <button class="workout-tab active" data-tab="groups"
-                    onclick="switchWorkoutTab('groups')">Groups</button>
-                <button class="workout-tab" data-tab="history" onclick="switchWorkoutTab('history')">History</button>
+                <button class="workout-tab active" data-tab="history" onclick="switchWorkoutTab('history')">History</button>
+                <button class="workout-tab" data-tab="groups" onclick="switchWorkoutTab('groups')">Groups</button>
                 <button class="workout-tab" data-tab="stats" onclick="switchWorkoutTab('stats')">Statistics</button>
             </div>
 
-            <!-- Groups Management View -->
-            <div id="workout-groups-tab" class="workout-tab-content active">
+            <!-- History View -->
+            <div id="workout-history-tab" class="workout-tab-content active">
                 <!-- Next Workout Card -->
                 <div id="next-workout-card"></div>
 
-                <button onclick="showAddWorkoutGroupModal()" class="btn-add">+ Add Workout Group</button>
-                <div id="workout-groups-list">
-                    Loading workout groups...
-                </div>
-            </div>
-
-            <!-- History View -->
-            <div id="workout-history-tab" class="workout-tab-content">
                 <button onclick="startAdHocWorkout()" class="btn-add">💪 Start Ad-hoc Workout</button>
                 <div id="workout-history-display">
                     Loading...
+                </div>
+            </div>
+
+            <!-- Groups Management View -->
+            <div id="workout-groups-tab" class="workout-tab-content">
+                <button onclick="showAddWorkoutGroupModal()" class="btn-add">+ Add Workout Group</button>
+                <div id="workout-groups-list">
+                    Loading workout groups...
                 </div>
             </div>
 
@@ -279,6 +278,9 @@
                     Meds</button>
                 <button onclick="sendTestBPNotification()" class="secondary" style="margin: 0; margin-left: 10px;">Test
                     BP</button>
+            </div>
+            <div style="text-align:center;color:var(--hint-color);font-size:10px;padding:20px 10px 10px;">
+                v: VERSION_PLACEHOLDER
             </div>
         </div>
     </div>
@@ -834,9 +836,6 @@
             });
         }
     </script>
-    <div style="text-align:center;color:var(--hint-color);font-size:10px;padding:10px;">
-        v: VERSION_PLACEHOLDER
-    </div>
 </body>
 
 </html>

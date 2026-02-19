@@ -22,14 +22,14 @@ function switchWorkoutTab(tab) {
     document.querySelector(`.workout-tab[data-tab="${tab}"]`).classList.add('active');
     document.getElementById(`workout-${tab}-tab`).classList.add('active');
 
-    if (tab === 'groups') { loadNextWorkout(); loadWorkoutGroups(); }
-    else if (tab === 'history') { loadWorkoutHistoryTab(); }
+    if (tab === 'groups') { loadWorkoutGroups(); }
+    else if (tab === 'history') { loadNextWorkout(); loadWorkoutHistoryTab(); }
     else if (tab === 'stats') { loadWorkoutStatsTab(); }
 }
 
 // Main load function called when switching to workouts tab
 function loadWorkouts() {
-    switchWorkoutTab('groups');
+    switchWorkoutTab('history');
 }
 
 // ====================================
