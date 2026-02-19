@@ -109,7 +109,7 @@ async function loadNextWorkout() {
                 </div>
             `;
         } else {
-            actionButtons = `<button onclick="startWorkoutSession(${session.id})" class="primary" style="margin-top: 12px; width: 100%;">🏋️ Start Workout</button>`;
+            actionButtons = `<button onclick="startWorkoutSession(${session.id})" class="btn-pill" style="margin-top: 12px; width: 100%;">🏋️ Start Workout</button>`;
         }
 
         container.innerHTML = `

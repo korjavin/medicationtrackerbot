@@ -2153,7 +2153,7 @@ async function renderNextIntakeTrigger() {
                     <div style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">Next scheduled intake</div>
                     <div style="font-size: 12px; opacity: 0.9;">${escapeHtml(medNamesStr)} at ${timeStr}</div>
                 </div>
-                <button onclick="triggerNextIntake()" style="background: rgba(255,255,255,0.25); color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; white-space: nowrap;">
+                <button onclick="triggerNextIntake()" class="btn-pill" style="background: rgba(255,255,255,0.25); color: white; white-space: nowrap;">
                     Take Now
                 </button>
             </div>
