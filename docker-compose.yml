@@ -122,6 +122,7 @@ services:
       - "8082:8081"
     networks:
       - default
+      - traefik_net
 
   # Litestream - SQLite replication to Cloudflare R2
   litestream:
