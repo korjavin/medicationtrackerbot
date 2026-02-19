@@ -230,6 +230,28 @@ func (s *Server) registerTools() {
 		},
 		s.handleGetSleepLogs,
 	)
+
+	// Food Intake Tool
+	mcp.AddTool(s.mcpServer,
+		&mcp.Tool{
+			Name:        "get_food_intake",
+			Description: "Retrieve food intake logs for a date range. Returns eaten time, meal type, food name, and macros (calories/carbs/protein/fat), plus optional configured daily target if set. Maximum MCP_MAX_QUERY_DAYS per query (default 90).",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"start_date": {
+						"type": "string",
+						"description": "Start date in YYYY-MM-DD format. Defaults to MCP_MAX_QUERY_DAYS before end_date (default 90) if omitted."
+					},
+					"end_date": {
+						"type": "string",
+						"description": "End date in YYYY-MM-DD format. Defaults to today if omitted."
+					}
+				}
+			}`),
+		},
+		s.handleGetFoodIntake,
+	)
 }
 
 // parseDateRange parses and validates the date range, enforcing the max query days limit

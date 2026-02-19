@@ -644,7 +644,16 @@ type FoodIntakeResponse struct {
 	Logs    []FoodIntakeResult `json:"logs"`
 	Count   int                `json:"count"`
 	Period  string             `json:"period"`
+	Target  *FoodTargetResult  `json:"target,omitempty"`
 	Warning string             `json:"warning,omitempty"`
+}
+
+// FoodTargetResult represents configured daily nutrition targets
+type FoodTargetResult struct {
+	Calories int `json:"calories"`
+	Carbs    int `json:"carbs_g"`
+	Protein  int `json:"protein_g"`
+	Fat      int `json:"fat_g"`
 }
 
 // handleGetFoodIntake handles the get_food_intake tool
@@ -653,34 +662,30 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 		return nil, FoodIntakeResponse{}, err
 	}
 
-	startDate, endDate, warning, err := s.parseDateRange(input.StartDate, input.EndDate)
+	startStr, endStr, argsWarning, err := s.resolveDateRangeArgs(req, input.StartDate, input.EndDate)
 	if err != nil {
 		return nil, FoodIntakeResponse{}, err
 	}
-
-	// Guardrail: Max 7 days range
-	if endDate.Sub(startDate) > 7*24*time.Hour {
-		return nil, FoodIntakeResponse{}, fmt.Errorf("Date range too large. Max 7 days allowed for food logs.")
+	startDate, endDate, warning, err := s.parseDateRange(startStr, endStr)
+	if err != nil {
+		return nil, FoodIntakeResponse{}, err
 	}
+	warning = appendWarnings(argsWarning, warning)
 
 	log.Printf("[MCP] Fetching Food Logs for date range: %s to %s", startDate, endDate)
 
 	userID := s.config.UserID
 
-	// We need to fetch day by day or range. Store has GetFoodLogs(date).
-	// Let's iterate through days or add a range method to store?
-	// The current store method GetFoodLogs takes a single date.
-	// Efficient way: loop through days in range. Max 7 days is small enough.
-
 	var results []FoodIntakeResult
+	var storeCount int
 
 	current := startDate
 	for !current.After(endDate) {
 		logs, err := s.store.GetFoodLogs(ctx, userID, current)
 		if err != nil {
-			log.Printf("[MCP] Failed to fetch food logs for %s: %v", current, err)
-			continue
+			return nil, FoodIntakeResponse{}, fmt.Errorf("failed to fetch food logs for %s: %w", current.Format("2006-01-02"), err)
 		}
+		storeCount += len(logs)
 
 		// Helper to determine meal name based on time
 		getMealName := func(t time.Time) string {
@@ -711,11 +716,34 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 
 		current = current.Add(24 * time.Hour)
 	}
+	log.Printf("[MCP] Food intake query result: store_count=%d, returned_count=%d, period=%s",
+		storeCount, len(results), formatPeriod(startDate, endDate))
+	if len(results) == 0 {
+		reason := noDataWarning("food intake logs", startDate, endDate, storeCount, len(results))
+		warning = appendWarnings(warning, reason)
+		log.Printf("[MCP][WARN] Food intake query returned zero rows. user_id=%d, start=%s, end=%s, warning=%q",
+			userID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), warning)
+	}
+
+	targets, err := s.store.GetFoodTargets(ctx)
+	if err != nil {
+		return nil, FoodIntakeResponse{}, fmt.Errorf("failed to fetch food intake targets: %w", err)
+	}
+	var target *FoodTargetResult
+	if targets.Calories > 0 || targets.Carbs > 0 || targets.Protein > 0 || targets.Fat > 0 {
+		target = &FoodTargetResult{
+			Calories: targets.Calories,
+			Carbs:    targets.Carbs,
+			Protein:  targets.Protein,
+			Fat:      targets.Fat,
+		}
+	}
 
 	response := FoodIntakeResponse{
 		Logs:    results,
 		Count:   len(results),
 		Period:  formatPeriod(startDate, endDate),
+		Target:  target,
 		Warning: warning,
 	}
 
