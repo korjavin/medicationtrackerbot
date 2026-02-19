@@ -136,10 +136,8 @@ h1 {
 
 
 /* FAB */
-#add-btn {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
+#add-btn,
+.btn-add {
     background-color: var(--button-color);
     color: var(--button-text-color);
     border: none;
@@ -149,6 +147,18 @@ h1 {
     font-weight: bold;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     cursor: pointer;
+}
+
+#add-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+}
+
+.btn-add {
+    display: block;
+    width: 100%;
+    margin-bottom: 16px;
 }
 
 /* Modal */
@@ -437,22 +447,6 @@ select {
 }
 
 /* BP Section */
-.bp-actions {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 16px;
-}
-
-.bp-actions button {
-    flex: 1;
-    padding: 12px;
-    border-radius: 8px;
-    font-weight: 500;
-    border: none;
-    cursor: pointer;
-    font-size: 14px;
-}
-
 #bp-list {
     list-style: none;
     padding: 0;
@@ -614,22 +608,6 @@ select {
 }
 
 /* Weight Section */
-.weight-actions {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 16px;
-}
-
-.weight-actions button {
-    flex: 1;
-    padding: 12px;
-    border-radius: 8px;
-    font-weight: 500;
-    border: none;
-    cursor: pointer;
-    font-size: 14px;
-}
-
 #weightChart {
     height: 250px;
     margin-bottom: 20px;
