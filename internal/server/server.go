@@ -310,8 +310,8 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("DELETE /api/food/log/{id}", s.handleDeleteFoodLog)
 
 	// Settings endpoints
-	apiMux.HandleFunc("GET /api/settings/food-intake", s.handleGetFoodIntakeEnabled)
-	apiMux.HandleFunc("POST /api/settings/food-intake", s.handleSetFoodIntakeEnabled)
+	apiMux.HandleFunc("GET /api/food/settings/status", s.handleGetFoodIntakeEnabled)
+	apiMux.HandleFunc("POST /api/food/settings/toggle", s.handleSetFoodIntakeEnabled)
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
