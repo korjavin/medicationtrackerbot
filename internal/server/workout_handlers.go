@@ -777,7 +777,7 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 				currentStreak++
 			case "skipped":
 				streakDone = true
-			// pending, notified, in_progress, snoozed: ignore (don't break streak)
+				// pending, notified, in_progress, snoozed: ignore (don't break streak)
 			}
 		}
 
@@ -1172,6 +1172,10 @@ func (s *Server) handleStartWorkoutSession(w http.ResponseWriter, r *http.Reques
 				if err := s.bot.UpdateWorkoutMessage(*session.NotificationMessageID, text); err != nil {
 					log.Printf("Failed to update workout message: %v", err)
 				}
+				// Keep UX consistent with Telegram-start flow: remove original notification card.
+				if err := s.bot.DeleteMessage(*session.NotificationMessageID); err != nil {
+					log.Printf("Failed to delete workout notification message: %v", err)
+				}
 			}
 
 			if err := s.bot.StartWorkoutFlowFromWeb(id); err != nil {
@@ -1201,11 +1205,12 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 
 	// Validate status - only allow final states
 	validStatuses := map[string]bool{
-		"completed": true,
-		"skipped":   true,
+		"in_progress": true,
+		"completed":   true,
+		"skipped":     true,
 	}
 	if !validStatuses[req.Status] {
-		http.Error(w, "Invalid status. Allowed values: completed, skipped", http.StatusBadRequest)
+		http.Error(w, "Invalid status. Allowed values: in_progress, completed, skipped", http.StatusBadRequest)
 		return
 	}
 

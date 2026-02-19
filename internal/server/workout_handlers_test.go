@@ -85,11 +85,11 @@ func TestHandleUpdateSessionStatus(t *testing.T) {
 			expectedError:  "Invalid status",
 		},
 		{
-			name:           "Invalid status value - in_progress",
+			name:           "Valid status update to in_progress",
 			sessionID:      session.ID,
 			reqBody:        map[string]string{"status": "in_progress"},
-			expectedStatus: http.StatusBadRequest,
-			expectedError:  "Invalid status",
+			expectedStatus: http.StatusOK,
+			finalStatus:    "in_progress",
 		},
 		{
 			name:           "Non-existent session ID",

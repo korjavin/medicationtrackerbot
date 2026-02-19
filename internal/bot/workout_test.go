@@ -146,7 +146,7 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 			// Extract text from bodyStr for assertion (simple parsing)
 			// bodyStr looks like: chat_id=123&text=...&parse_mode=Markdown...
 
-			if strings.Contains(bodyStr, "Workout Complete") {
+			if strings.Contains(bodyStr, "Planned exercises done") {
 				messageChan <- bodyStr
 			}
 
@@ -310,7 +310,7 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 		if strings.Contains(r.URL.Path, "sendMessage") {
 			bodyBytes, _ := io.ReadAll(r.Body)
 			bodyStr, _ := url.QueryUnescape(string(bodyBytes))
-			if strings.Contains(bodyStr, "Workout Complete") {
+			if strings.Contains(bodyStr, "Planned exercises done") {
 				messageChan <- true
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -364,7 +364,7 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 	}
 	b.handleExerciseCallback(cb2, cb2.Data)
 
-	// Should complete now
+	// Should send planned-complete message now
 	select {
 	case <-messageChan:
 		// OK
@@ -373,8 +373,8 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 	}
 
 	session, _ = s.GetWorkoutSession(session.ID)
-	if session.Status != "completed" {
-		t.Error("Session not marked completed after all exercises done")
+	if session.Status != "in_progress" {
+		t.Error("Session should stay in_progress until explicit finish")
 	}
 }
 

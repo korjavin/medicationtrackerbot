@@ -301,27 +301,11 @@ func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
 	}
 
 	if allPlannedCompleted {
-		// Only update DB status and advance rotation if not already completed
-		if session.Status != "completed" {
-			if err := b.store.CompleteSession(sessionID); err != nil {
-				log.Printf("Failed to complete session: %v", err)
-				return
-			}
-
-			// Advance rotation if applicable
-			group, err := b.store.GetWorkoutGroup(session.GroupID)
-			if err == nil && group != nil && group.IsRotating {
-				if err := b.store.AdvanceRotation(group.ID); err != nil {
-					log.Printf("Failed to advance rotation: %v", err)
-				}
-			}
-		}
-
 		// Count completed exercises (unique, only "completed" status)
 		completedCount := len(uniqueCompletedIDs)
 		totalCount := len(allRelatedExerciseIDs)
 
-		// Send completion message (always, so users can add more exercises)
+		// Planned exercises are done, but we keep session in_progress until user explicitly finishes.
 		b.SendWorkoutComplete(chatID, sessionID, completedCount, totalCount)
 	}
 }

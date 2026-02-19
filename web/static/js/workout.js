@@ -664,20 +664,31 @@ async function showWorkoutSessionModal(sessionId) {
         currentSessionData = data.session;
         originalSessionStatus = data.session.status;
 
-        if (currentSessionLogs.length === 0 && currentSessionData && currentSessionData.variant_id > 0) {
+        if (currentSessionData && currentSessionData.variant_id > 0) {
             try {
                 const plannedExercises = await apiCall(`/api/workout/exercises?variant_id=${currentSessionData.variant_id}`);
                 if (Array.isArray(plannedExercises) && plannedExercises.length > 0) {
-                    currentSessionLogs = plannedExercises.map(ex => ({
-                        id: 0,
-                        exercise_id: ex.id,
-                        exercise_name: ex.exercise_name,
-                        sets_completed: ex.target_sets || 0,
-                        reps_completed: ex.target_reps_min || 0,
-                        weight_kg: ex.target_weight_kg || 0,
-                        notes: '',
-                        status: 'completed'
-                    }));
+                    const existingByExerciseID = new Map();
+                    currentSessionLogs.forEach(log => {
+                        if (log.exercise_id && !existingByExerciseID.has(log.exercise_id)) {
+                            existingByExerciseID.set(log.exercise_id, true);
+                        }
+                    });
+
+                    const plannedMissingLogs = plannedExercises
+                        .filter(ex => !existingByExerciseID.has(ex.id))
+                        .map(ex => ({
+                            id: 0,
+                            exercise_id: ex.id,
+                            exercise_name: ex.exercise_name,
+                            sets_completed: ex.target_sets || 0,
+                            reps_completed: ex.target_reps_min || 0,
+                            weight_kg: ex.target_weight_kg || 0,
+                            notes: '',
+                            status: 'completed'
+                        }));
+
+                    currentSessionLogs = [...currentSessionLogs, ...plannedMissingLogs];
                 }
             } catch (prefillError) {
                 console.error('Error pre-filling planned exercises:', prefillError);
@@ -686,6 +697,7 @@ async function showWorkoutSessionModal(sessionId) {
 
         // Build info section with status dropdown
         const statusOptions = [
+            { value: 'in_progress', label: '🏋️ In Progress' },
             { value: 'completed', label: '✅ Completed' },
             { value: 'skipped', label: '⏭ Skipped' }
         ];
