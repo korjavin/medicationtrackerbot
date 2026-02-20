@@ -86,11 +86,15 @@ jobs:
           HOOKS: ${{ secrets.PORTAINER_REDEPLOY_HOOK }}
         run: |
           pids=()
+          idx=0
           while IFS= read -r url; do
             [[ -z "$url" ]] && continue
-            curl -sf -X POST "$url" &
+            idx=$((idx+1))
+            echo "Triggering hook #${idx}..."
+            curl -v -X POST "$url" 2>&1 &
             pids+=($!)
           done <<< "$HOOKS"
+          echo "Total hooks triggered: ${#pids[@]}"
           for pid in "${pids[@]}"; do
-            wait "$pid" || true
+            wait "$pid" || echo "Hook PID $pid exited with error"
           done
