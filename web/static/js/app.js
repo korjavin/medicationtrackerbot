@@ -602,12 +602,33 @@ let foodAutoCompleteSuggestions = [];
 let foodProductsCache = [];
 let foodSearchTimeout;
 let foodSearchRequestId = 0;
+let lastFoodSearchQueryNormalized = '';
 let foodScannerStream = null;
 let foodScannerRunning = false;
 let foodScanLoopTimer = null;
 let foodBarcodeDetector = null;
 const FOOD_SCAN_THROTTLE_MS = 200;
 const FOOD_NUMERIC_BARCODE_MIN_LEN = 8;
+
+function normalizeFoodSearchQuery(value) {
+    return (value || '').trim().toLowerCase();
+}
+
+function decodeFoodDisplayText(value) {
+    const raw = (value || '').toString();
+    if (!raw) return '';
+
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = raw;
+    let decoded = textarea.value.trim();
+
+    if (decoded.includes('%')) {
+        try {
+            decoded = decodeURIComponent(decoded);
+        } catch (e) { }
+    }
+    return decoded;
+}
 
 async function initFoodProductsCache() {
     if (window.MedTrackerDB) {
@@ -627,10 +648,20 @@ async function initFoodProductsCache() {
 }
 
 async function onFoodNameChange() {
-    const query = document.getElementById('food-name').value;
+    const foodNameInput = document.getElementById('food-name');
+    const query = foodNameInput.value;
+    const normalizedQuery = normalizeFoodSearchQuery(query);
+
+    if (normalizedQuery.length >= 2 && normalizedQuery === lastFoodSearchQueryNormalized) {
+        const list = document.getElementById('food-autocomplete-list');
+        if (list && foodAutoCompleteSuggestions.length > 0) {
+            list.classList.remove('hidden');
+        }
+        return;
+    }
 
     // Check if user selected something from the datalist
-    const selected = foodAutoCompleteSuggestions.find(p => p.name === query);
+    const selected = foodAutoCompleteSuggestions.find(p => decodeFoodDisplayText(p.name) === query);
     if (selected) {
         autofillFoodProduct(selected);
         setFoodSearchStatus('success', 'Product selected.');
@@ -639,6 +670,7 @@ async function onFoodNameChange() {
 
     if (query.length < 2) {
         renderFoodAutocomplete(foodProductsCache);
+        lastFoodSearchQueryNormalized = '';
         setFoodSearchStatus();
         return;
     }
@@ -647,6 +679,7 @@ async function onFoodNameChange() {
     clearTimeout(foodSearchTimeout);
     foodSearchTimeout = setTimeout(async () => {
         const requestId = ++foodSearchRequestId;
+        lastFoodSearchQueryNormalized = normalizedQuery;
         setFoodSearchStatus('loading', 'Searching local database...');
         try {
             if (!navigator.onLine) throw new Error("Network request failed");
@@ -847,7 +880,7 @@ async function onFoodBarcodeChange() {
             // Check for direct barcode match first
             const match = localResults.find(p => p.barcode === barcode);
             if (match) {
-                document.getElementById('food-name').value = match.name;
+                document.getElementById('food-name').value = decodeFoodDisplayText(match.name);
                 autofillFoodProduct(match);
                 setFoodSearchStatus('success', 'Product found and filled in.');
                 return;
@@ -905,7 +938,7 @@ async function onFoodBarcodeChange() {
                     // Check if remote found a direct match not seen locally
                     const remoteMatch = remoteResults.find(p => p.barcode === barcode);
                     if (remoteMatch) {
-                        document.getElementById('food-name').value = remoteMatch.name;
+                        document.getElementById('food-name').value = decodeFoodDisplayText(remoteMatch.name);
                         autofillFoodProduct(remoteMatch);
                         // Hide autocomplete list totally if we auto-filled from remote
                         const list = document.getElementById('food-autocomplete-list');
@@ -1223,14 +1256,15 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
     const displayList = foodAutoCompleteSuggestions.slice(0, 50);
 
     displayList.forEach(p => {
+        const displayName = decodeFoodDisplayText(p.name);
         const item = document.createElement('div');
         item.className = 'autocomplete-item';
-        item.textContent = p.name;
+        item.textContent = displayName;
         if (p.barcode) {
             item.textContent += ` (${p.barcode})`;
         }
         item.onclick = function () {
-            document.getElementById('food-name').value = p.name;
+            document.getElementById('food-name').value = displayName;
             autofillFoodProduct(p);
             setFoodSearchStatus('success', 'Product selected.');
             list.classList.add('hidden');
@@ -1254,6 +1288,14 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
     list.classList.remove('hidden');
 }
 
+function onFoodNameFocus() {
+    const list = document.getElementById('food-autocomplete-list');
+    if (!list) return;
+    if (foodAutoCompleteSuggestions.length > 0) {
+        list.classList.remove('hidden');
+    }
+}
+
 // Close autocomplete when clicking outside
 document.addEventListener("click", function (e) {
     const list = document.getElementById("food-autocomplete-list");
@@ -1264,6 +1306,12 @@ document.addEventListener("click", function (e) {
 });
 
 function autofillFoodProduct(product) {
+    const displayName = decodeFoodDisplayText(product.name);
+    const input = document.getElementById('food-name');
+    if (input && input.value !== displayName) {
+        input.value = displayName;
+    }
+
     if (product.barcode) {
         document.getElementById('food-barcode').value = product.barcode;
     }

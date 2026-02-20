@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -97,7 +99,7 @@ func mapOFFProductToLocal(p offAPIProduct) FoodProduct {
 	return FoodProduct{
 		ID:             0, // Global/Transient implies 0 ID and 0 UserID in context of cache mapping
 		UserID:         0,
-		Name:           p.ProductName,
+		Name:           normalizeFoodProductName(p.ProductName),
 		Barcode:        barcode,
 		Carbs100g:      p.Nutriments.Carbohydrates100G,
 		Protein100g:    p.Nutriments.Proteins100G,
@@ -107,6 +109,20 @@ func mapOFFProductToLocal(p offAPIProduct) FoodProduct {
 		CreatedAt:      now,
 		LastUsedAt:     now,
 	}
+}
+
+func normalizeFoodProductName(name string) string {
+	decoded := strings.TrimSpace(html.UnescapeString(name))
+	if decoded == "" {
+		return ""
+	}
+
+	if strings.Contains(decoded, "%") {
+		if unescaped, err := url.QueryUnescape(decoded); err == nil {
+			decoded = strings.TrimSpace(unescaped)
+		}
+	}
+	return decoded
 }
 
 func isNumeric(s string) bool {

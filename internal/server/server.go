@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/VictoriaMetrics/fastcache"
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -22,17 +23,19 @@ import (
 )
 
 type Server struct {
-	store         *store.Store
-	bot           *bot.Bot
-	rxnorm        *rxnorm.Client
-	botToken      string
-	allowedUserID int64
-	oidcConfig    OIDCConfig
-	oauthConfig   *oauth2.Config
-	oidcUserInfo  string
-	botUsername   string
-	vapidConfig   VAPIDConfig
-	webPush       *webpush.Service
+	store           *store.Store
+	bot             *bot.Bot
+	rxnorm          *rxnorm.Client
+	botToken        string
+	allowedUserID   int64
+	oidcConfig      OIDCConfig
+	oauthConfig     *oauth2.Config
+	oidcUserInfo    string
+	botUsername     string
+	vapidConfig     VAPIDConfig
+	webPush         *webpush.Service
+	foodSearchTTL   time.Duration
+	foodSearchCache *fastcache.Cache
 }
 
 type VAPIDConfig struct {
@@ -151,16 +154,32 @@ func parseBoolEnv(key string, defaultValue bool) bool {
 	return val == "1" || val == "true" || val == "yes" || val == "y"
 }
 
+func parseIntEnv(key string, defaultValue int) int {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.Atoi(val)
+	if err != nil || parsed <= 0 {
+		return defaultValue
+	}
+	return parsed
+}
+
 func New(s *store.Store, b *bot.Bot, botToken, sessionSecret string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidConfig VAPIDConfig) *Server {
+	foodSearchCacheSizeMB := parseIntEnv("FOOD_SEARCH_CACHE_MB", 40)
+
 	srv := &Server{
-		store:         s,
-		bot:           b,
-		rxnorm:        rxnorm.New(),
-		botToken:      botToken,
-		allowedUserID: allowedUserID,
-		oidcConfig:    oidc,
-		botUsername:   botUsername,
-		vapidConfig:   vapidConfig,
+		store:           s,
+		bot:             b,
+		rxnorm:          rxnorm.New(),
+		botToken:        botToken,
+		allowedUserID:   allowedUserID,
+		oidcConfig:      oidc,
+		botUsername:     botUsername,
+		vapidConfig:     vapidConfig,
+		foodSearchTTL:   30 * time.Minute,
+		foodSearchCache: fastcache.New(foodSearchCacheSizeMB * 1024 * 1024),
 	}
 
 	if vapidConfig.PublicKey != "" && vapidConfig.PrivateKey != "" {

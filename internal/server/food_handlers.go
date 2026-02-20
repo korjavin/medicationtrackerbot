@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -437,7 +438,7 @@ func (s *Server) handleGetFoodProducts(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
-	query := r.URL.Query().Get("q")
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
 
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -451,6 +452,14 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 
 	if len(query) < 2 {
 		json.NewEncoder(w).Encode([]store.FoodProduct{})
+		flusher.Flush()
+		return
+	}
+
+	remoteReq := r.URL.Query().Get("remote")
+	cacheKey := s.foodSearchCacheKey(userID, query, remoteReq == "true")
+	if cached, ok := s.getFoodSearchCache(cacheKey); ok {
+		json.NewEncoder(w).Encode(cached)
 		flusher.Flush()
 		return
 	}
@@ -469,8 +478,8 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 	flusher.Flush()
 
 	// Optionally try live OpenFoodFacts and merge with local/offline matches if requested.
-	remoteReq := r.URL.Query().Get("remote")
 	if remoteReq != "true" {
+		s.setFoodSearchCache(cacheKey, products)
 		return // Skip remote search unless explicitly requested via 'Load more'
 	}
 
@@ -492,7 +501,65 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 		merged := mergeFoodProducts(products, apiProducts)
 		json.NewEncoder(w).Encode(merged)
 		flusher.Flush()
+		s.setFoodSearchCache(cacheKey, merged)
+		return
 	}
+	s.setFoodSearchCache(cacheKey, products)
+}
+
+func (s *Server) foodSearchCacheKey(userID int64, query string, withRemote bool) string {
+	normalizedQuery := strings.ToLower(strings.TrimSpace(query))
+	return fmt.Sprintf("u:%d|remote:%t|q:%s", userID, withRemote, normalizedQuery)
+}
+
+func (s *Server) getFoodSearchCache(key string) ([]store.FoodProduct, bool) {
+	if s.foodSearchCache == nil {
+		return nil, false
+	}
+
+	raw := s.foodSearchCache.Get(nil, []byte(key))
+	if len(raw) == 0 {
+		return nil, false
+	}
+
+	var entry struct {
+		ExpiresAt time.Time           `json:"expires_at"`
+		Products  []store.FoodProduct `json:"products"`
+	}
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		return nil, false
+	}
+	if time.Now().After(entry.ExpiresAt) {
+		s.foodSearchCache.Del([]byte(key))
+		return nil, false
+	}
+
+	cached := make([]store.FoodProduct, len(entry.Products))
+	copy(cached, entry.Products)
+	return cached, true
+}
+
+func (s *Server) setFoodSearchCache(key string, products []store.FoodProduct) {
+	if s.foodSearchCache == nil {
+		return
+	}
+
+	copied := make([]store.FoodProduct, len(products))
+	copy(copied, products)
+
+	entry := struct {
+		ExpiresAt time.Time           `json:"expires_at"`
+		Products  []store.FoodProduct `json:"products"`
+	}{
+		ExpiresAt: time.Now().Add(s.foodSearchTTL),
+		Products:  copied,
+	}
+
+	raw, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	s.foodSearchCache.Set([]byte(key), raw)
 }
 
 func mergeFoodProducts(base []store.FoodProduct, extra []store.FoodProduct) []store.FoodProduct {

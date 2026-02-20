@@ -507,7 +507,7 @@
             <p id="food-search-status" class="food-search-status hidden" aria-live="polite"
                 style="margin-bottom: 8px; font-size: 13px; font-weight: 500;"></p>
             <input type="text" id="food-name" placeholder="e.g. Apple" autocomplete="off" oninput="onFoodNameChange()"
-                onfocus="if(this.value.length>=2) onFoodNameChange(); else document.getElementById('food-autocomplete-list').classList.remove('hidden');">
+                onfocus="onFoodNameFocus()">
             <div id="food-autocomplete-list" class="autocomplete-items hidden"></div>
         </div>
 
