@@ -1568,9 +1568,12 @@ input:checked+.toggle-slider:before {
     font-size: 13px !important;
     font-weight: 500;
     color: var(--link-color);
-    background-color: rgba(0, 0, 0, 0.02);
+    background-color: var(--secondary-bg-color, #f0f0f0);
     border-top: 1px solid rgba(0, 0, 0, 0.05) !important;
     border-bottom: none !important;
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
 }
 
 .autocomplete-load-more:hover {
@@ -1581,6 +1584,7 @@ input:checked+.toggle-slider:before {
 .autocomplete-load-more.loading {
     color: var(--hint-color);
     pointer-events: none;
+    background-color: var(--secondary-bg-color, #f0f0f0);
 }
 
 .autocomplete-active {
