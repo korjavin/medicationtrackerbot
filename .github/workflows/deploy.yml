@@ -80,9 +80,17 @@ jobs:
           git commit -m "ci: Update image tag to ${GITHUB_COMMIT_SHA}" || echo "No changes to commit"
           git push origin deploy --force
 
-      - name: Trigger Portainer Redeploy Webhook
+      - name: Trigger Portainer Redeploy Webhooks
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        uses: distributhor/workflow-webhook@2381f0e9c7b6bf061fb1405bd0804b8706116369 # v3.0.8
-        with:
-          webhook_url: ${{ secrets.PORTAINER_REDEPLOY_HOOK }}
-          webhook_secret: "trigger"
+        env:
+          HOOKS: ${{ secrets.PORTAINER_REDEPLOY_HOOK }}
+        run: |
+          pids=()
+          while IFS= read -r url; do
+            [[ -z "$url" ]] && continue
+            curl -sf -X POST "$url" &
+            pids+=($!)
+          done <<< "$HOOKS"
+          for pid in "${pids[@]}"; do
+            wait "$pid" || true
+          done
