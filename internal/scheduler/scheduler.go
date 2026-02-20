@@ -228,7 +228,12 @@ func (s *Scheduler) checkSchedule() error {
 
 		// Send Telegram Notification
 		go func(meds []store.Medication, target time.Time, iIDs []int64) {
-			msgID, err := s.bot.SendGroupNotification(meds, target)
+			intakeByMedication := make(map[int64]int64, len(meds))
+			for i := 0; i < len(meds) && i < len(iIDs); i++ {
+				intakeByMedication[meds[i].ID] = iIDs[i]
+			}
+
+			msgID, err := s.bot.SendGroupNotification(meds, intakeByMedication, target)
 			if err != nil {
 				log.Printf("Failed to send group notification: %v", err)
 				return
@@ -276,7 +281,7 @@ func (s *Scheduler) checkReminders() error {
 			text := fmt.Sprintf("🔔 REMINDER: You haven't confirmed taking %s (%s) yet on %s!",
 				med.Name, med.Dosage, scheduledAt.Format("15:04"))
 
-			msgID, err := s.bot.SendNotification(text, med.ID)
+			msgID, err := s.bot.SendNotification(text, p.ID, med.ID)
 			if err != nil {
 				log.Printf("Failed to send reminder: %v", err)
 			} else {

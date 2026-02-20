@@ -333,8 +333,47 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	b.api.Request(callbackCfg)
 
 	data := cb.Data
-	// data format: "confirm:<medID>", "confirm_schedule:<unix>", or "log:<medID>"
-	if len(data) > 8 && data[:8] == "confirm:" {
+	// data format: "confirm_intake:<intakeID>", "confirm:<medID>", "confirm_schedule:<unix>", or "log:<medID>"
+	if strings.HasPrefix(data, "confirm_intake:") {
+		intakeIDStr := strings.TrimPrefix(data, "confirm_intake:")
+		intakeID, _ := strconv.ParseInt(intakeIDStr, 10, 64)
+		if intakeID == 0 {
+			return
+		}
+
+		intake, err := b.store.GetIntake(intakeID)
+		if err != nil {
+			log.Printf("Error getting intake %d: %v", intakeID, err)
+			return
+		}
+		if intake == nil || intake.Status != "PENDING" {
+			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken)."))
+			return
+		}
+
+		// Clean up reminders for this exact intake.
+		reminders, _ := b.store.GetIntakeReminders(intakeID)
+		for _, msgID := range reminders {
+			if msgID != cb.Message.MessageID {
+				b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID))
+			}
+		}
+
+		if err := b.store.ConfirmIntake(intakeID, time.Now()); err != nil {
+			log.Printf("Error confirming intake %d: %v", intakeID, err)
+			return
+		}
+
+		// Decrement inventory (only affects medications with tracking enabled)
+		if err := b.store.DecrementInventory(intake.MedicationID, 1); err != nil {
+			log.Printf("Error decrementing inventory: %v", err)
+		}
+
+		// Remove only the pressed button from the current message.
+		b.removeButtonFromCallbackMessage(cb, data)
+
+		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ Marked as taken."))
+	} else if len(data) > 8 && data[:8] == "confirm:" {
 		medIDStr := data[8:]
 		medID, _ := strconv.ParseInt(medIDStr, 10, 64)
 
@@ -372,11 +411,8 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 				log.Printf("Error decrementing inventory: %v", err)
 			}
 
-			// Remove button
-			edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
-				InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
-			})
-			b.api.Send(edit)
+			// Legacy callback path: only remove the pressed button.
+			b.removeButtonFromCallbackMessage(cb, data)
 
 			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ Marked as taken."))
 		} else {
@@ -407,11 +443,8 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			log.Printf("Error decrementing inventory: %v", err)
 		}
 
-		// Remove buttons
-		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
-			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
-		})
-		b.api.Send(edit)
+		// Remove only the pressed button.
+		b.removeButtonFromCallbackMessage(cb, data)
 
 		// Fetch med name for confirmation
 		med, _ := b.store.GetMedication(medID) // Error ignored, just for display
@@ -507,12 +540,15 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	}
 }
 
-func (b *Bot) SendNotification(text string, medicationID int64) (int, error) {
+func (b *Bot) SendNotification(text string, intakeID int64, medicationID int64) (int, error) {
 	msg := tgbotapi.NewMessage(b.allowedUserID, text)
 
-	// Add Confirm Button
-	// Passing medicationID in callback data: "confirm:<id>"
-	data := "confirm:" + strconv.FormatInt(medicationID, 10)
+	// Add Confirm Button for an exact intake.
+	data := "confirm_intake:" + strconv.FormatInt(intakeID, 10)
+	if intakeID == 0 {
+		// Backward-compatible fallback for legacy callsites.
+		data = "confirm:" + strconv.FormatInt(medicationID, 10)
+	}
 	btn := tgbotapi.NewInlineKeyboardButtonData("✅ Confirm Intake", data)
 	row := tgbotapi.NewInlineKeyboardRow(btn)
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(row)
@@ -560,7 +596,7 @@ func (b *Bot) DeleteMessage(messageID int) error {
 	return err
 }
 
-func (b *Bot) SendGroupNotification(meds []store.Medication, target time.Time) (int, error) {
+func (b *Bot) SendGroupNotification(meds []store.Medication, intakeByMedication map[int64]int64, target time.Time) (int, error) {
 	var sb string
 	sb = fmt.Sprintf("💊 Time to take your medications (%s):\n\n", target.Format("15:04"))
 	for _, m := range meds {
@@ -578,6 +614,9 @@ func (b *Bot) SendGroupNotification(meds []store.Medication, target time.Time) (
 	// 1. Individual Buttons
 	for _, m := range meds {
 		data := "confirm:" + strconv.FormatInt(m.ID, 10)
+		if intakeID := intakeByMedication[m.ID]; intakeID != 0 {
+			data = "confirm_intake:" + strconv.FormatInt(intakeID, 10)
+		}
 		btn := tgbotapi.NewInlineKeyboardButtonData("Take "+m.Name, data) // Shorten text
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(btn))
 	}
@@ -1392,7 +1431,7 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 	}
 
 	// Create or find existing pending intakes for this schedule
-	var intakeIDs []int64
+	intakeByMedication := make(map[int64]int64, len(nextMeds))
 	for _, med := range nextMeds {
 		intake, _ := b.store.GetIntakeBySchedule(med.ID, nextTime)
 		if intake == nil {
@@ -1402,13 +1441,13 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 				log.Printf("Error creating intake for /next command: %v", err)
 				continue
 			}
-			intakeIDs = append(intakeIDs, id)
+			intakeByMedication[med.ID] = id
 		} else if intake.Status == "PENDING" {
-			intakeIDs = append(intakeIDs, intake.ID)
+			intakeByMedication[med.ID] = intake.ID
 		}
 	}
 
-	if len(intakeIDs) == 0 {
+	if len(intakeByMedication) == 0 {
 		msgConfig.Text = "⚠️ All upcoming medications already taken or no pending intakes found."
 		return
 	}
@@ -1431,6 +1470,9 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 	// Individual confirm buttons
 	for _, m := range nextMeds {
 		data := "confirm:" + strconv.FormatInt(m.ID, 10)
+		if intakeID := intakeByMedication[m.ID]; intakeID != 0 {
+			data = "confirm_intake:" + strconv.FormatInt(intakeID, 10)
+		}
 		btn := tgbotapi.NewInlineKeyboardButtonData("Take "+m.Name, data)
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(btn))
 	}
@@ -1444,6 +1486,41 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 
 	b.api.Send(msg)
 	msgConfig.Text = "" // Don't send the original message config
+}
+
+func (b *Bot) removeButtonFromCallbackMessage(cb *tgbotapi.CallbackQuery, callbackData string) {
+	if cb == nil || cb.Message == nil || cb.Message.Chat == nil {
+		return
+	}
+
+	current := cb.Message.ReplyMarkup.InlineKeyboard
+	if len(current) == 0 {
+		// Safe fallback when Telegram callback payload doesn't include current markup.
+		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
+			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
+		})
+		b.api.Send(edit)
+		return
+	}
+
+	rows := make([][]tgbotapi.InlineKeyboardButton, 0, len(current))
+	for _, row := range current {
+		filtered := make([]tgbotapi.InlineKeyboardButton, 0, len(row))
+		for _, btn := range row {
+			if btn.CallbackData != nil && *btn.CallbackData == callbackData {
+				continue
+			}
+			filtered = append(filtered, btn)
+		}
+		if len(filtered) > 0 {
+			rows = append(rows, filtered)
+		}
+	}
+
+	edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
+		InlineKeyboard: rows,
+	})
+	b.api.Send(edit)
 }
 
 // UpdateWorkoutMessage updates a workout notification message
