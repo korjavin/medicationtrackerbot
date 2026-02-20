@@ -647,10 +647,11 @@ async function onFoodNameChange() {
     clearTimeout(foodSearchTimeout);
     foodSearchTimeout = setTimeout(async () => {
         const requestId = ++foodSearchRequestId;
-        setFoodSearchStatus('loading', 'Searching...');
+        setFoodSearchStatus('loading', 'Searching local database...');
         try {
             if (!navigator.onLine) throw new Error("Network request failed");
 
+            // First pass: local fast search
             const endpoint = `/api/food/products/search?q=${encodeURIComponent(query)}`;
             const headers = { "X-Telegram-Init-Data": window.userInitData };
             const res = await fetch(endpoint, { method: "GET", headers });
@@ -662,34 +663,21 @@ async function onFoodNameChange() {
             const reader = res.body.getReader();
             const decoder = new TextDecoder("utf-8");
             let buffer = "";
+            let localResults = [];
 
             while (true) {
                 const { done, value } = await reader.read();
                 if (value) {
                     buffer += decoder.decode(value, { stream: true });
                     const lines = buffer.split('\n');
-                    buffer = lines.pop(); // keep incomplete line
+                    buffer = lines.pop();
 
                     for (const line of lines) {
                         if (!line.trim()) continue;
                         try {
                             const results = JSON.parse(line);
                             if (requestId !== foodSearchRequestId) return;
-
-                            const unique = [];
-                            const seen = new Set();
-                            for (const p of (results || [])) {
-                                if (!seen.has(p.name)) {
-                                    seen.add(p.name);
-                                    unique.push(p);
-                                }
-                            }
-                            renderFoodAutocomplete(unique);
-                            if (unique.length > 0) {
-                                setFoodSearchStatus('loading', `Found ${unique.length} local result(s). Searching OpenFoodFacts...`);
-                            } else {
-                                setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
-                            }
+                            localResults = results || [];
                         } catch (e) { console.error("Parse error on stream chunk", e); }
                     }
                 }
@@ -698,15 +686,7 @@ async function onFoodNameChange() {
                         try {
                             const results = JSON.parse(buffer);
                             if (requestId === foodSearchRequestId) {
-                                const unique = [];
-                                const seen = new Set();
-                                for (const p of (results || [])) {
-                                    if (!seen.has(p.name)) {
-                                        seen.add(p.name);
-                                        unique.push(p);
-                                    }
-                                }
-                                renderFoodAutocomplete(unique);
+                                localResults = results || [];
                             }
                         } catch (e) { }
                     }
@@ -715,11 +695,83 @@ async function onFoodNameChange() {
             }
 
             if (requestId !== foodSearchRequestId) return;
-            if (foodAutoCompleteSuggestions.length > 0) {
-                setFoodSearchStatus('success', `Found ${foodAutoCompleteSuggestions.length} result(s).`);
-            } else {
-                setFoodSearchStatus('empty', 'Search finished: no products found.');
+
+            const unique = [];
+            const seen = new Set();
+            for (const p of localResults) {
+                if (!seen.has(p.name)) {
+                    seen.add(p.name);
+                    unique.push(p);
+                }
             }
+
+            // Define the callback for loading remote OpenFoodFacts
+            const loadMoreCallback = async () => {
+                if (requestId !== foodSearchRequestId) return;
+                setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
+                try {
+                    const remoteEndpoint = `/api/food/products/search?q=${encodeURIComponent(query)}&remote=true`;
+                    const remoteRes = await fetch(remoteEndpoint, { method: "GET", headers });
+                    if (!remoteRes.ok) throw new Error("Remote search failed");
+                    if (requestId !== foodSearchRequestId) return;
+
+                    const remoteReader = remoteRes.body.getReader();
+                    const remoteDecoder = new TextDecoder("utf-8");
+                    let remoteBuffer = "";
+                    let remoteResults = [];
+
+                    while (true) {
+                        const { done, value } = await remoteReader.read();
+                        if (value) {
+                            remoteBuffer += remoteDecoder.decode(value, { stream: true });
+                            const lines = remoteBuffer.split('\n');
+                            remoteBuffer = lines.pop();
+                            for (const line of lines) {
+                                if (!line.trim()) continue;
+                                try {
+                                    remoteResults = JSON.parse(line) || [];
+                                } catch (e) { }
+                            }
+                        }
+                        if (done) {
+                            if (remoteBuffer.trim()) {
+                                try {
+                                    remoteResults = JSON.parse(remoteBuffer) || [];
+                                } catch (e) { }
+                            }
+                            break;
+                        }
+                    }
+
+                    if (requestId !== foodSearchRequestId) return;
+
+                    // Merge remote on top of local
+                    const mergedUnique = [...unique];
+                    for (const p of remoteResults) {
+                        if (!seen.has(p.name)) {
+                            seen.add(p.name);
+                            mergedUnique.push(p);
+                        }
+                    }
+
+                    renderFoodAutocomplete(mergedUnique, false, null); // Hide load more
+                    setFoodSearchStatus('success', `Found ${mergedUnique.length} result(s).`);
+
+                } catch (e) {
+                    console.error("Load more failed", e);
+                    setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote fetch failed.`);
+                    renderFoodAutocomplete(unique, false, null); // remove loading state
+                }
+            };
+
+            renderFoodAutocomplete(unique, navigator.onLine, loadMoreCallback);
+
+            if (unique.length > 0) {
+                setFoodSearchStatus('success', `Found ${unique.length} local result(s).`);
+            } else {
+                setFoodSearchStatus('empty', 'No local products found.');
+            }
+
         } catch (e) {
             if (requestId !== foodSearchRequestId) return;
             console.error('Search failed', e);
@@ -758,7 +810,7 @@ async function onFoodBarcodeChange() {
             const decoder = new TextDecoder("utf-8");
             let buffer = "";
             let matchFoundAndFilled = false;
-            let finalResults = [];
+            let localResults = [];
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -772,57 +824,16 @@ async function onFoodBarcodeChange() {
                         try {
                             const results = JSON.parse(line);
                             if (requestId !== foodSearchRequestId) return;
-
-                            if (results && results.length > 0) {
-                                if (!matchFoundAndFilled) {
-                                    const match = results.find(p => p.barcode === barcode);
-                                    if (match) {
-                                        document.getElementById('food-name').value = match.name;
-                                        autofillFoodProduct(match);
-                                        setFoodSearchStatus('success', 'Product found and filled in.');
-                                        matchFoundAndFilled = true;
-                                        reader.cancel();
-                                        return;
-                                    }
-                                    const unique = [];
-                                    const seen = new Set();
-                                    for (const p of results) {
-                                        if (!seen.has(p.name)) {
-                                            seen.add(p.name);
-                                            unique.push(p);
-                                        }
-                                    }
-                                    finalResults = unique;
-                                    renderFoodAutocomplete(unique);
-                                    setFoodSearchStatus('loading', `Found ${unique.length} local result(s). Searching OpenFoodFacts...`);
-                                }
-                            }
+                            localResults = results || [];
                         } catch (e) { console.error("Parse error on stream chunk", e); }
                     }
                 }
                 if (done) {
-                    if (buffer.trim() && !matchFoundAndFilled) {
+                    if (buffer.trim()) {
                         try {
                             const results = JSON.parse(buffer);
-                            if (requestId === foodSearchRequestId && results && results.length > 0) {
-                                const match = results.find(p => p.barcode === barcode);
-                                if (match) {
-                                    document.getElementById('food-name').value = match.name;
-                                    autofillFoodProduct(match);
-                                    setFoodSearchStatus('success', 'Product found and filled in.');
-                                    matchFoundAndFilled = true;
-                                } else {
-                                    const unique = [];
-                                    const seen = new Set();
-                                    for (const p of results) {
-                                        if (!seen.has(p.name)) {
-                                            seen.add(p.name);
-                                            unique.push(p);
-                                        }
-                                    }
-                                    finalResults = unique;
-                                    renderFoodAutocomplete(unique);
-                                }
+                            if (requestId === foodSearchRequestId) {
+                                localResults = results || [];
                             }
                         } catch (e) { }
                     }
@@ -830,12 +841,103 @@ async function onFoodBarcodeChange() {
                 }
             }
 
-            if (requestId !== foodSearchRequestId || matchFoundAndFilled) return;
+            if (requestId !== foodSearchRequestId) return;
 
-            if (finalResults.length > 0) {
-                setFoodSearchStatus('success', `Found ${finalResults.length} result${finalResults.length > 1 ? 's' : ''}.`);
+            // Check for direct barcode match first
+            const match = localResults.find(p => p.barcode === barcode);
+            if (match) {
+                document.getElementById('food-name').value = match.name;
+                autofillFoodProduct(match);
+                setFoodSearchStatus('success', 'Product found and filled in.');
+                return;
+            }
+
+            const unique = [];
+            const seen = new Set();
+            for (const p of localResults) {
+                if (!seen.has(p.name)) {
+                    seen.add(p.name);
+                    unique.push(p);
+                }
+            }
+
+            // Define the callback for loading remote OpenFoodFacts
+            const loadMoreCallback = async () => {
+                if (requestId !== foodSearchRequestId) return;
+                setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
+                try {
+                    const remoteEndpoint = `/api/food/products/search?q=${encodeURIComponent(barcode)}&remote=true`;
+                    const remoteRes = await fetch(remoteEndpoint, { method: "GET", headers });
+                    if (!remoteRes.ok) throw new Error("Remote search failed");
+                    if (requestId !== foodSearchRequestId) return;
+
+                    const remoteReader = remoteRes.body.getReader();
+                    const remoteDecoder = new TextDecoder("utf-8");
+                    let remoteBuffer = "";
+                    let remoteResults = [];
+
+                    while (true) {
+                        const { done, value } = await remoteReader.read();
+                        if (value) {
+                            remoteBuffer += remoteDecoder.decode(value, { stream: true });
+                            const lines = remoteBuffer.split('\n');
+                            remoteBuffer = lines.pop();
+                            for (const line of lines) {
+                                if (!line.trim()) continue;
+                                try {
+                                    remoteResults = JSON.parse(line) || [];
+                                } catch (e) { }
+                            }
+                        }
+                        if (done) {
+                            if (remoteBuffer.trim()) {
+                                try {
+                                    remoteResults = JSON.parse(remoteBuffer) || [];
+                                } catch (e) { }
+                            }
+                            break;
+                        }
+                    }
+
+                    if (requestId !== foodSearchRequestId) return;
+
+                    // Check if remote found a direct match not seen locally
+                    const remoteMatch = remoteResults.find(p => p.barcode === barcode);
+                    if (remoteMatch) {
+                        document.getElementById('food-name').value = remoteMatch.name;
+                        autofillFoodProduct(remoteMatch);
+                        // Hide autocomplete list totally if we auto-filled from remote
+                        const list = document.getElementById('food-autocomplete-list');
+                        if (list) list.classList.add('hidden');
+                        setFoodSearchStatus('success', 'Product found and filled in.');
+                        return;
+                    }
+
+                    // Merge remote on top of local
+                    const mergedUnique = [...unique];
+                    for (const p of remoteResults) {
+                        if (!seen.has(p.name)) {
+                            seen.add(p.name);
+                            mergedUnique.push(p);
+                        }
+                    }
+
+                    renderFoodAutocomplete(mergedUnique, false, null); // Hide load more
+                    setFoodSearchStatus('success', `Found ${mergedUnique.length} result(s).`);
+
+                } catch (e) {
+                    console.error("Load more failed", e);
+                    setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote fetch failed.`);
+                    renderFoodAutocomplete(unique, false, null); // remove loading state
+                }
+            };
+
+            renderFoodAutocomplete(unique, navigator.onLine, loadMoreCallback);
+
+            if (unique.length > 0) {
+                setFoodSearchStatus('success', `Found ${unique.length} local result(s).`);
             } else {
-                setFoodSearchStatus('empty', 'Search finished: no products found.');
+                setFoodSearchStatus('empty', 'No local products found.');
             }
 
         } catch (e) {
