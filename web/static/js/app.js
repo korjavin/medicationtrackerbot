@@ -1458,57 +1458,74 @@ async function loadFoodLogs() {
         const groups = await apiCall(`/api/food/log?date=${dateStr}`, 'GET');
         list.innerHTML = '';
 
-        if (!groups || groups.length === 0) {
-            list.innerHTML = '<p class="hint" style="text-align:center;">No food logs for this day.</p>';
-            summary.style.display = 'none';
-            renderFoodTargetProgress(0, 0, 0, 0);
-            return;
-        }
+        const periodSelect = document.getElementById('food-stats-period');
+        const period = periodSelect ? periodSelect.value : 'day';
 
         let dayCals = 0;
         let dayCarbs = 0;
         let dayProt = 0;
         let dayFat = 0;
-
         currentFoodLogs = {};
 
-        groups.forEach(group => {
-            dayCals += group.calories;
-            dayCarbs += group.carbs;
-            dayProt += group.protein;
-            dayFat += group.fat;
+        if (!groups || groups.length === 0) {
+            list.innerHTML = '<p class="hint" style="text-align:center;">No food logs for this day.</p>';
+        } else {
+            groups.forEach(group => {
+                dayCals += group.calories;
+                dayCarbs += group.carbs;
+                dayProt += group.protein;
+                dayFat += group.fat;
 
-            const groupDiv = document.createElement('div');
-            groupDiv.className = 'history-group';
+                const groupDiv = document.createElement('div');
+                groupDiv.className = 'history-group';
 
-            let html = `<div class="history-header">
-                <strong>${group.name}</strong> 
-                <span style="font-weight:normal; color:var(--hint-color);">(${group.time})</span>
-                <span style="margin-left:auto; font-size:0.9em;">
-                    ${group.calories} kcal (C:${group.carbs} P:${group.protein} F:${group.fat})
-                </span>
-            </div>`;
-
-            group.logs.forEach(log => {
-                currentFoodLogs[log.id] = log;
-                html += `<div class="history-item" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer;" onclick="editFoodLog(${log.id})">
-                    <div style="flex:1;">
-                        <div style="font-weight:500;">${log.name || 'Food'}</div>
-                        <div style="font-size:0.85em; color:var(--hint-color);">
-                            ${log.weight}g • ${log.calories} kcal
-                        </div>
-                    </div>
-                    <button class="delete-btn" onclick="event.stopPropagation(); deleteFoodLog(${log.id})" style="font-size:16px;">×</button>
+                let html = `<div class="history-header">
+                    <strong>${group.name}</strong> 
+                    <span style="font-weight:normal; color:var(--hint-color);">(${group.time})</span>
+                    <span style="margin-left:auto; font-size:0.9em;">
+                        ${group.calories} kcal (C:${group.carbs} P:${group.protein} F:${group.fat})
+                    </span>
                 </div>`;
+
+                group.logs.forEach(log => {
+                    currentFoodLogs[log.id] = log;
+                    html += `<div class="history-item" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer;" onclick="editFoodLog(${log.id})">
+                        <div style="flex:1;">
+                            <div style="font-weight:500;">${log.name || 'Food'}</div>
+                            <div style="font-size:0.85em; color:var(--hint-color);">
+                                ${log.weight}g • ${log.calories} kcal
+                            </div>
+                        </div>
+                        <button class="delete-btn" onclick="event.stopPropagation(); deleteFoodLog(${log.id})" style="font-size:16px;">×</button>
+                    </div>`;
+                });
+
+                groupDiv.innerHTML = html;
+                list.appendChild(groupDiv);
             });
+        }
 
-            groupDiv.innerHTML = html;
-            list.appendChild(groupDiv);
-        });
+        const hasTargets = foodTargets.calories > 0 || foodTargets.protein > 0 || foodTargets.carbs > 0 || foodTargets.fat > 0;
+        const periodContainer = document.getElementById('food-stats-period-container');
+        if (periodContainer) {
+            hasTargets ? periodContainer.classList.remove('hidden') : periodContainer.classList.add('hidden');
+        }
 
-        summary.style.display = 'block';
-        summary.innerHTML = `Daily Total: ${dayCals} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${dayCarbs} P:${dayProt} F:${dayFat})</span>`;
-        renderFoodTargetProgress(dayCals, dayCarbs, dayProt, dayFat);
+        if (period === 'week') {
+            const stats = await apiCall(`/api/food/stats?date=${dateStr}&days=7`, 'GET');
+            summary.style.display = 'block';
+            summary.innerHTML = `7-Day Total: ${stats?.calories || 0} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${stats?.carbs || 0} P:${stats?.protein || 0} F:${stats?.fat || 0})</span>`;
+            renderFoodTargetProgress(stats?.calories || 0, stats?.carbs || 0, stats?.protein || 0, stats?.fat || 0, period);
+        } else {
+            if (groups && groups.length > 0) {
+                summary.style.display = 'block';
+                summary.innerHTML = `Daily Total: ${dayCals} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${dayCarbs} P:${dayProt} F:${dayFat})</span>`;
+                renderFoodTargetProgress(dayCals, dayCarbs, dayProt, dayFat, period);
+            } else {
+                summary.style.display = 'none';
+                renderFoodTargetProgress(0, 0, 0, 0, period);
+            }
+        }
 
     } catch (e) {
         console.error(e);
@@ -1516,15 +1533,15 @@ async function loadFoodLogs() {
     }
 }
 
-function renderFoodTargetProgress(dayCals, dayCarbs, dayProt, dayFat) {
+function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = 'day') {
     const container = document.getElementById('food-target-progress');
     if (!container) return;
 
     const targets = [
-        { key: 'calories', label: 'Energy', unit: 'kcal', value: dayCals, color: '#60a5fa' },
-        { key: 'protein', label: 'Protein', unit: 'g', value: dayProt, color: '#4ade80' },
-        { key: 'carbs', label: 'Carbs', unit: 'g', value: dayCarbs, color: '#22d3ee' },
-        { key: 'fat', label: 'Fat', unit: 'g', value: dayFat, color: '#f59e0b' }
+        { key: 'calories', label: 'Energy', unit: 'kcal', value: valCals, color: '#60a5fa' },
+        { key: 'protein', label: 'Protein', unit: 'g', value: valProt, color: '#4ade80' },
+        { key: 'carbs', label: 'Carbs', unit: 'g', value: valCarbs, color: '#22d3ee' },
+        { key: 'fat', label: 'Fat', unit: 'g', value: valFat, color: '#f59e0b' }
     ];
 
     const activeTargets = targets.filter(t => (foodTargets[t.key] || 0) > 0);
@@ -1536,15 +1553,25 @@ function renderFoodTargetProgress(dayCals, dayCarbs, dayProt, dayFat) {
 
     container.classList.remove('hidden');
     container.innerHTML = activeTargets.map(t => {
-        const targetValue = foodTargets[t.key];
-        const progress = Math.min(100, Math.round((t.value / targetValue) * 100));
-        return `<div class="food-target-row">
+        let targetValue = foodTargets[t.key];
+        if (period === 'week') {
+            targetValue = targetValue * 7;
+        }
+
+        let progress = Math.round((t.value / targetValue) * 100);
+        const isExcess = progress > 100;
+        const displayProgress = Math.min(100, progress); // Cap the visual bar at 100%
+
+        const excessClass = isExcess ? ' excess' : '';
+        const bgColor = isExcess ? 'var(--danger-color, #ef4444)' : t.color; // Red if excess
+
+        return `<div class="food-target-row${excessClass}">
             <div class="food-target-topline">
                 <span class="food-target-name">${t.label}</span>
-                <span class="food-target-values">${t.value} / ${targetValue} ${t.unit}</span>
+                <span class="food-target-values${isExcess ? ' excess-text' : ''}">${t.value} / ${targetValue} ${t.unit}</span>
             </div>
-            <div class="food-target-bar">
-                <div class="food-target-fill" style="width:${progress}%; background:${t.color};"></div>
+            <div class="food-target-bar${excessClass}">
+                <div class="food-target-fill${excessClass}" style="width:${displayProgress}%; background:${bgColor};"></div>
             </div>
         </div>`;
     }).join('');

@@ -1388,6 +1388,16 @@ svg.chart-svg {
     border-radius: 999px;
 }
 
+.food-target-topline .food-target-values.excess-text {
+    color: var(--danger-color, #ef4444);
+    font-weight: bold;
+}
+
+.food-target-bar.excess {
+    height: 12px;
+    background: rgba(239, 68, 68, 0.15);
+}
+
 .toggle {
     position: relative;
     display: inline-block;

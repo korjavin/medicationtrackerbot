@@ -135,6 +135,14 @@
             </div>
 
             <div id="food-target-progress" class="food-target-progress hidden"></div>
+            <div id="food-stats-period-container" class="food-stats-period-container hidden"
+                style="text-align: right; margin-top: -8px; margin-bottom: 12px;">
+                <select id="food-stats-period" class="food-stats-period-select" onchange="loadFoodLogs()"
+                    style="font-size: 11px; padding: 2px 20px 2px 8px; border-radius: 4px; height: auto; min-height: auto; width: auto; display: inline-block; background-color: var(--secondary-bg-color); border: 1px solid var(--hint-color); color: var(--text-color);">
+                    <option value="day">Day</option>
+                    <option value="week">Week</option>
+                </select>
+            </div>
             <div id="food-summary"
                 style="margin-bottom: 16px; font-weight: bold; padding: 10px; background: var(--secondary-bg-color); border-radius: 8px;">
             </div>

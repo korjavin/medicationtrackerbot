@@ -1599,6 +1599,28 @@ func (s *Store) SetFoodIntakeEnabled(ctx context.Context, enabled bool) error {
 	return s.setSettingsBool(ctx, "food_intake_enabled", enabled)
 }
 
+type FoodStats struct {
+	Calories int `json:"calories"`
+	Carbs    int `json:"carbs"`
+	Protein  int `json:"protein"`
+	Fat      int `json:"fat"`
+}
+
+func (s *Store) GetFoodStats(ctx context.Context, userID int64, endDate time.Time, days int) (*FoodStats, error) {
+	// Range for the days
+	endOfDay := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 0, 0, 0, 0, endDate.Location()).Add(24 * time.Hour)
+	startOfDay := endOfDay.Add(-time.Duration(days) * 24 * time.Hour)
+
+	query := "SELECT COALESCE(SUM(calories), 0), COALESCE(SUM(carbs), 0), COALESCE(SUM(protein), 0), COALESCE(SUM(fat), 0) FROM food_log WHERE user_id = ? AND eaten_at >= ? AND eaten_at < ?"
+
+	var stats FoodStats
+	err := s.db.QueryRowContext(ctx, query, userID, startOfDay, endOfDay).Scan(&stats.Calories, &stats.Carbs, &stats.Protein, &stats.Fat)
+	if err != nil {
+		return nil, err
+	}
+	return &stats, nil
+}
+
 func (s *Store) GetFoodTargets(ctx context.Context) (FoodTargets, error) {
 	var targets FoodTargets
 	err := s.db.QueryRowContext(ctx,

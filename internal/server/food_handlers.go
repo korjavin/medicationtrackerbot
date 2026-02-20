@@ -312,6 +312,36 @@ func calculateGroupTotals(g FoodGroup) FoodGroup {
 
 // -- Settings Handlers --
 
+func (s *Server) handleGetFoodStats(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	dateStr := r.URL.Query().Get("date")
+	date := time.Now()
+	if dateStr != "" {
+		parsed, err := time.Parse("2006-01-02", dateStr)
+		if err == nil {
+			date = parsed
+		}
+	}
+
+	days := 7 // Default for week stats
+	daysStr := r.URL.Query().Get("days")
+	if daysStr != "" {
+		if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
+			days = d
+		}
+	}
+
+	stats, err := s.store.GetFoodStats(context.Background(), userID, date, days)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
 func (s *Server) handleGetFoodIntakeEnabled(w http.ResponseWriter, r *http.Request) {
 	enabled, err := s.store.GetFoodIntakeEnabled(context.Background())
 	if err != nil {
