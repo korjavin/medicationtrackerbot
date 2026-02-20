@@ -653,7 +653,7 @@ async function onFoodNameChange() {
 
             // First pass: local fast search
             const endpoint = `/api/food/products/search?q=${encodeURIComponent(query)}`;
-            const headers = { "X-Telegram-Init-Data": window.userInitData };
+            const headers = { "X-Telegram-Init-Data": userInitData };
             const res = await fetch(endpoint, { method: "GET", headers });
 
             if (res.status === 503) throw new Error("Network request failed");
@@ -770,6 +770,7 @@ async function onFoodNameChange() {
                 setFoodSearchStatus('success', `Found ${unique.length} local result(s).`);
             } else {
                 setFoodSearchStatus('empty', 'No local products found.');
+                loadMoreCallback(); // Auto-trigger openfoodfacts fallback if local is empty
             }
 
         } catch (e) {
@@ -938,6 +939,7 @@ async function onFoodBarcodeChange() {
                 setFoodSearchStatus('success', `Found ${unique.length} local result(s).`);
             } else {
                 setFoodSearchStatus('empty', 'No local products found.');
+                loadMoreCallback(); // Auto-fetch OFF if local barcode misses
             }
 
         } catch (e) {
@@ -1313,7 +1315,7 @@ function shiftFoodDate(deltaDays) {
     const dateFilter = document.getElementById('food-date-filter');
     if (!dateFilter) return;
 
-    const period = window.currentFoodStatsPeriod || 'day';
+    const period = currentFoodStatsPeriod || 'day';
     const multiplier = period === 'week' ? 7 : 1;
 
     const baseDate = dateFilter.value ? new Date(`${dateFilter.value}T00:00:00`) : new Date();
@@ -1471,7 +1473,7 @@ async function loadFoodLogs() {
         dateFilter.value = dateStr;
     }
 
-    const period = window.currentFoodStatsPeriod || 'day';
+    const period = currentFoodStatsPeriod || 'day';
     const weekDisplay = document.getElementById('food-week-display');
     if (period === 'week') {
         const dEnd = new Date(`${dateStr}T00:00:00`);

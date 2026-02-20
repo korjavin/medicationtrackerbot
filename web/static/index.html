@@ -504,7 +504,10 @@
 
         <div class="form-row" style="position: relative;">
             <label>Food Name (optional):</label>
-            <input type="text" id="food-name" placeholder="e.g. Apple" autocomplete="off" oninput="onFoodNameChange()">
+            <p id="food-search-status" class="food-search-status hidden" aria-live="polite"
+                style="margin-bottom: 8px; font-size: 13px; font-weight: 500;"></p>
+            <input type="text" id="food-name" placeholder="e.g. Apple" autocomplete="off" oninput="onFoodNameChange()"
+                onfocus="if(this.value.length>=2) onFoodNameChange(); else document.getElementById('food-autocomplete-list').classList.remove('hidden');">
             <div id="food-autocomplete-list" class="autocomplete-items hidden"></div>
         </div>
 
@@ -515,7 +518,6 @@
                 <button type="button" class="secondary food-scan-btn" onclick="openFoodScannerModal()"
                     aria-label="Scan barcode or QR">Scan</button>
             </div>
-            <p id="food-search-status" class="food-search-status hidden" aria-live="polite"></p>
         </div>
 
         <div class="form-row">
