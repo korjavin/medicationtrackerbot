@@ -89,7 +89,8 @@
 
             <!-- Tab Navigation for Workouts -->
             <div class="workout-tabs">
-                <button class="workout-tab active" data-tab="history" onclick="switchWorkoutTab('history')">History</button>
+                <button class="workout-tab active" data-tab="history"
+                    onclick="switchWorkoutTab('history')">History</button>
                 <button class="workout-tab" data-tab="groups" onclick="switchWorkoutTab('groups')">Groups</button>
                 <button class="workout-tab" data-tab="stats" onclick="switchWorkoutTab('stats')">Statistics</button>
             </div>
@@ -126,9 +127,11 @@
             <button onclick="showAddFoodModal()" class="btn-add">+ Log Food</button>
 
             <div class="food-date-nav">
-                <button class="secondary food-date-shift-btn" onclick="shiftFoodDate(-1)" aria-label="Previous day">←</button>
+                <button class="secondary food-date-shift-btn" onclick="shiftFoodDate(-1)"
+                    aria-label="Previous day">←</button>
                 <input type="date" id="food-date-filter" onchange="loadFoodLogs()">
-                <button class="secondary food-date-shift-btn" onclick="shiftFoodDate(1)" aria-label="Next day">→</button>
+                <button class="secondary food-date-shift-btn" onclick="shiftFoodDate(1)"
+                    aria-label="Next day">→</button>
             </div>
 
             <div id="food-target-progress" class="food-target-progress hidden"></div>
@@ -484,11 +487,10 @@
         </div>
         <input type="hidden" id="food-id">
 
-        <div class="form-row">
+        <div class="form-row" style="position: relative;">
             <label>Food Name (optional):</label>
-            <input type="text" id="food-name" placeholder="e.g. Apple" list="food-products-list" autocomplete="off"
-                oninput="onFoodNameChange()">
-            <datalist id="food-products-list"></datalist>
+            <input type="text" id="food-name" placeholder="e.g. Apple" autocomplete="off" oninput="onFoodNameChange()">
+            <div id="food-autocomplete-list" class="autocomplete-items hidden"></div>
         </div>
 
         <div class="form-row">
@@ -733,7 +735,8 @@
             <h3 id="med-confirm-title">Time for Meds!</h3>
             <div class="actions">
                 <button onclick="closeMedicationConfirmModal()" class="secondary">Dismiss</button>
-                <button id="med-confirm-action-btn" onclick="confirmSelectedMedications()" class="primary">Confirm Selected</button>
+                <button id="med-confirm-action-btn" onclick="confirmSelectedMedications()" class="primary">Confirm
+                    Selected</button>
             </div>
         </div>
         <p id="med-confirm-subtitle" style="color: #666; margin-bottom: 15px;"></p>
@@ -748,7 +751,8 @@
             <!-- Checkboxes injected here -->
         </div>
         <div class="actions">
-            <button id="med-confirm-snooze-btn" onclick="snoozeMedicationConfirm()" class="secondary">Snooze 10m</button>
+            <button id="med-confirm-snooze-btn" onclick="snoozeMedicationConfirm()" class="secondary">Snooze
+                10m</button>
         </div>
     </div>
 

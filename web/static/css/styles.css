@@ -1432,6 +1432,7 @@ input:checked+.toggle-slider {
 input:checked+.toggle-slider:before {
     transform: translateX(22px);
 }
+
 #food-modal {
     position: fixed;
     top: 50%;
@@ -1489,6 +1490,39 @@ input:checked+.toggle-slider:before {
     vertical-align: -1px;
 }
 
+/* Custom Autocomplete */
+.autocomplete-items {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid var(--hint-color);
+    border-top: none;
+    z-index: 1002;
+    background-color: var(--secondary-bg-color, #fff);
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.autocomplete-items div {
+    padding: 10px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    font-size: 14px;
+}
+
+.autocomplete-items div:hover {
+    background-color: var(--link-color);
+    color: #ffffff;
+}
+
+.autocomplete-active {
+    background-color: var(--link-color) !important;
+    color: #ffffff;
+}
+
 .food-search-status.success {
     color: #2e7d32;
 }
@@ -1502,8 +1536,13 @@ input:checked+.toggle-slider:before {
 }
 
 @keyframes food-search-spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 #food-scanner-modal {

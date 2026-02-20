@@ -638,7 +638,7 @@ async function onFoodNameChange() {
     }
 
     if (query.length < 2) {
-        renderFoodDatalist(foodProductsCache);
+        renderFoodAutocomplete(foodProductsCache);
         setFoodSearchStatus();
         return;
     }
@@ -684,7 +684,7 @@ async function onFoodNameChange() {
                                     unique.push(p);
                                 }
                             }
-                            renderFoodDatalist(unique);
+                            renderFoodAutocomplete(unique);
                             if (unique.length > 0) {
                                 setFoodSearchStatus('loading', `Found ${unique.length} local result(s). Searching OpenFoodFacts...`);
                             } else {
@@ -706,7 +706,7 @@ async function onFoodNameChange() {
                                         unique.push(p);
                                     }
                                 }
-                                renderFoodDatalist(unique);
+                                renderFoodAutocomplete(unique);
                             }
                         } catch (e) { }
                     }
@@ -793,7 +793,7 @@ async function onFoodBarcodeChange() {
                                         }
                                     }
                                     finalResults = unique;
-                                    renderFoodDatalist(unique);
+                                    renderFoodAutocomplete(unique);
                                     setFoodSearchStatus('loading', `Found ${unique.length} local result(s). Searching OpenFoodFacts...`);
                                 }
                             }
@@ -821,7 +821,7 @@ async function onFoodBarcodeChange() {
                                         }
                                     }
                                     finalResults = unique;
-                                    renderFoodDatalist(unique);
+                                    renderFoodAutocomplete(unique);
                                 }
                             }
                         } catch (e) { }
@@ -1093,22 +1093,47 @@ async function openPhotoPickerAndDecode() {
     input.click();
 }
 
-function renderFoodDatalist(products) {
+function renderFoodAutocomplete(products) {
     foodAutoCompleteSuggestions = products || [];
-    const list = document.getElementById('food-products-list');
+    const list = document.getElementById('food-autocomplete-list');
     if (!list) return;
 
     list.innerHTML = '';
+
+    if (foodAutoCompleteSuggestions.length === 0) {
+        list.classList.add('hidden');
+        return;
+    }
 
     // Limit datalist options so browser doesn't choke
     const displayList = foodAutoCompleteSuggestions.slice(0, 50);
 
     displayList.forEach(p => {
-        const option = document.createElement('option');
-        option.value = p.name;
-        list.appendChild(option);
+        const item = document.createElement('div');
+        item.textContent = p.name;
+        if (p.barcode) {
+            item.textContent += ` (${p.barcode})`;
+        }
+        item.onclick = function () {
+            document.getElementById('food-name').value = p.name;
+            autofillFoodProduct(p);
+            setFoodSearchStatus('success', 'Product selected.');
+            list.classList.add('hidden');
+        };
+        list.appendChild(item);
     });
+
+    list.classList.remove('hidden');
 }
+
+// Close autocomplete when clicking outside
+document.addEventListener("click", function (e) {
+    const list = document.getElementById("food-autocomplete-list");
+    const input = document.getElementById("food-name");
+    if (list && e.target !== input && e.target !== list && !list.contains(e.target)) {
+        list.classList.add('hidden');
+    }
+});
 
 function autofillFoodProduct(product) {
     if (product.barcode) {
@@ -1190,9 +1215,9 @@ function showAddFoodModal() {
     document.getElementById('food-per-100g').checked = true;
 
     if (foodProductsCache.length === 0) {
-        initFoodProductsCache().then(() => renderFoodDatalist(foodProductsCache));
+        initFoodProductsCache().then(() => renderFoodAutocomplete(foodProductsCache));
     } else {
-        renderFoodDatalist(foodProductsCache);
+        renderFoodAutocomplete(foodProductsCache);
     }
 }
 
