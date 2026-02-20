@@ -91,7 +91,7 @@ jobs:
             [[ -z "$url" ]] && continue
             idx=$((idx+1))
             echo "Triggering hook #${idx}..."
-            curl -v -X POST "$url" 2>&1 &
+            curl -s -w "\n[HTTP %{http_code}]\n" -X POST "$url" &
             pids+=($!)
           done <<< "$HOOKS"
           echo "Total hooks triggered: ${#pids[@]}"
