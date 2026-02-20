@@ -729,7 +729,7 @@ async function onFoodNameChange() {
             }
             setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
         }
-    }, 300);
+    }, 800);
 }
 
 async function onFoodBarcodeChange() {
@@ -828,7 +828,7 @@ async function onFoodBarcodeChange() {
             }
             setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
         }
-    }, 500);
+    }, 800);
 }
 
 function setFoodSearchStatus(type, message) {

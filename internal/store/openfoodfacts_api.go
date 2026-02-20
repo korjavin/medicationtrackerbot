@@ -69,7 +69,7 @@ func (s *Store) SearchOpenFoodFactsAPI(ctx context.Context, query string) ([]Foo
 	} else {
 		// Parse search response
 		var raw struct {
-			Count    int             `json:"count"`
+			Count    interface{}     `json:"count"`
 			Products []offAPIProduct `json:"products"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
