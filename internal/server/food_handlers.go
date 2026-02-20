@@ -384,22 +384,40 @@ func (s *Server) handleGetFoodProducts(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 	query := r.URL.Query().Get("q")
+
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
 	if len(query) < 2 {
 		json.NewEncoder(w).Encode([]store.FoodProduct{})
+		flusher.Flush()
 		return
 	}
 
 	products, err := s.store.SearchFoodProducts(context.Background(), userID, query)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		log.Printf("Debug: Local food search failed for query %q: %v", query, err)
+		products = []store.FoodProduct{}
+	}
+	if products == nil {
+		products = []store.FoodProduct{}
 	}
 
+	// Send local results instantly
+	json.NewEncoder(w).Encode(products)
+	flusher.Flush()
+
 	// Always try live OpenFoodFacts and merge with local/offline matches.
-	// This prevents local hits from masking additional remote results.
-	fallbackTimeout := 3 * time.Second
+	fallbackTimeout := 5 * time.Second
 	if !isBarcodeQuery(query) {
-		fallbackTimeout = 10 * time.Second
+		fallbackTimeout = 30 * time.Second
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), fallbackTimeout)
@@ -408,16 +426,14 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 	apiProducts, err := s.store.SearchOpenFoodFactsAPI(ctx, query)
 	if err != nil {
 		log.Printf("Debug: OpenFoodFacts API fallback failed for query %q: %v", query, err)
-	} else if len(apiProducts) > 0 {
-		products = mergeFoodProducts(products, apiProducts)
+		return // Just stop streaming if remote fetch fails
 	}
 
-	if products == nil {
-		products = []store.FoodProduct{}
+	if len(apiProducts) > 0 {
+		merged := mergeFoodProducts(products, apiProducts)
+		json.NewEncoder(w).Encode(merged)
+		flusher.Flush()
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(products)
 }
 
 func mergeFoodProducts(base []store.FoodProduct, extra []store.FoodProduct) []store.FoodProduct {

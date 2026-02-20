@@ -32,7 +32,7 @@ func (s *Store) SearchOpenFoodFactsAPI(ctx context.Context, query string) ([]Foo
 	if isBarcode {
 		targetURL = fmt.Sprintf("https://world.openfoodfacts.org/api/v0/product/%s.json", url.PathEscape(query))
 	} else {
-		targetURL = fmt.Sprintf("https://world.openfoodfacts.org/cgi/search.pl?search_terms=%s&search_simple=1&action=process&json=1", url.QueryEscape(query))
+		targetURL = fmt.Sprintf("https://world.openfoodfacts.org/cgi/search.pl?search_terms=%s&search_simple=1&action=process&json=1&page_size=6", url.QueryEscape(query))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
@@ -41,7 +41,7 @@ func (s *Store) SearchOpenFoodFactsAPI(ctx context.Context, query string) ([]Foo
 	}
 	req.Header.Set("User-Agent", "MedTrackerBot - Go - Version 1.0 - (https://github.com/korjavin/medicationtrackerbot)") // API requires user agent
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

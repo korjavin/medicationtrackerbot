@@ -647,32 +647,86 @@ async function onFoodNameChange() {
     clearTimeout(foodSearchTimeout);
     foodSearchTimeout = setTimeout(async () => {
         const requestId = ++foodSearchRequestId;
-        setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
+        setFoodSearchStatus('loading', 'Searching...');
         try {
-            const results = await apiCall(`/api/food/products/search?q=${encodeURIComponent(query)}`, 'GET');
+            if (!navigator.onLine) throw new Error("Network request failed");
+
+            const endpoint = `/api/food/products/search?q=${encodeURIComponent(query)}`;
+            const headers = { "X-Telegram-Init-Data": window.userInitData };
+            const res = await fetch(endpoint, { method: "GET", headers });
+
+            if (res.status === 503) throw new Error("Network request failed");
+            if (!res.ok) throw new Error("Search failed");
             if (requestId !== foodSearchRequestId) return;
 
-            // Merge with local cache results
-            const combined = [...(results || [])];
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = "";
 
-            // Deduplicate by name
-            const unique = [];
-            const seen = new Set();
-            for (const p of combined) {
-                if (!seen.has(p.name)) {
-                    seen.add(p.name);
-                    unique.push(p);
+            while (true) {
+                const { done, value } = await reader.read();
+                if (value) {
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // keep incomplete line
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            const results = JSON.parse(line);
+                            if (requestId !== foodSearchRequestId) return;
+
+                            const unique = [];
+                            const seen = new Set();
+                            for (const p of (results || [])) {
+                                if (!seen.has(p.name)) {
+                                    seen.add(p.name);
+                                    unique.push(p);
+                                }
+                            }
+                            renderFoodDatalist(unique);
+                            if (unique.length > 0) {
+                                setFoodSearchStatus('loading', `Found ${unique.length} local result(s). Searching OpenFoodFacts...`);
+                            } else {
+                                setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
+                            }
+                        } catch (e) { console.error("Parse error on stream chunk", e); }
+                    }
+                }
+                if (done) {
+                    if (buffer.trim()) {
+                        try {
+                            const results = JSON.parse(buffer);
+                            if (requestId === foodSearchRequestId) {
+                                const unique = [];
+                                const seen = new Set();
+                                for (const p of (results || [])) {
+                                    if (!seen.has(p.name)) {
+                                        seen.add(p.name);
+                                        unique.push(p);
+                                    }
+                                }
+                                renderFoodDatalist(unique);
+                            }
+                        } catch (e) { }
+                    }
+                    break;
                 }
             }
-            renderFoodDatalist(unique);
-            if (unique.length > 0) {
-                setFoodSearchStatus('success', `Found ${unique.length} result${unique.length > 1 ? 's' : ''}.`);
+
+            if (requestId !== foodSearchRequestId) return;
+            if (foodAutoCompleteSuggestions.length > 0) {
+                setFoodSearchStatus('success', `Found ${foodAutoCompleteSuggestions.length} result(s).`);
             } else {
                 setFoodSearchStatus('empty', 'Search finished: no products found.');
             }
         } catch (e) {
             if (requestId !== foodSearchRequestId) return;
             console.error('Search failed', e);
+            if (e.message.includes('fetch') || e.message === 'Network request failed' || e.message === 'Failed to fetch' || !navigator.onLine) {
+                setFoodSearchStatus('empty', 'Search finished: no products found.');
+                return;
+            }
             setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
         }
     }, 300);
@@ -690,24 +744,88 @@ async function onFoodBarcodeChange() {
         const requestId = ++foodSearchRequestId;
         setFoodSearchStatus('loading', 'Searching by barcode...');
         try {
-            const results = await apiCall(`/api/food/products/search?q=${encodeURIComponent(barcode)}`, 'GET');
+            if (!navigator.onLine) throw new Error("Network request failed");
+
+            const endpoint = `/api/food/products/search?q=${encodeURIComponent(barcode)}`;
+            const headers = { "X-Telegram-Init-Data": window.userInitData };
+            const res = await fetch(endpoint, { method: "GET", headers });
+
+            if (res.status === 503) throw new Error("Network request failed");
+            if (!res.ok) throw new Error("Search failed");
             if (requestId !== foodSearchRequestId) return;
-            if (results && results.length > 0) {
-                // If an exact match by barcode is found, auto-fill it
-                const match = results.find(p => p.barcode === barcode);
-                if (match) {
-                    document.getElementById('food-name').value = match.name;
-                    autofillFoodProduct(match);
-                    setFoodSearchStatus('success', 'Product found and filled in.');
-                    return;
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = "";
+            let matchFoundAndFilled = false;
+            let finalResults = [];
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (value) {
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // keep incomplete line
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            const results = JSON.parse(line);
+                            if (requestId !== foodSearchRequestId) return;
+
+                            if (results && results.length > 0) {
+                                finalResults = results;
+                                if (!matchFoundAndFilled) {
+                                    const match = results.find(p => p.barcode === barcode);
+                                    if (match) {
+                                        document.getElementById('food-name').value = match.name;
+                                        autofillFoodProduct(match);
+                                        setFoodSearchStatus('success', 'Product found and filled in.');
+                                        matchFoundAndFilled = true;
+                                        reader.cancel();
+                                        return;
+                                    }
+                                    setFoodSearchStatus('loading', `Found ${results.length} local result(s). Searching OpenFoodFacts...`);
+                                }
+                            }
+                        } catch (e) { console.error("Parse error on stream chunk", e); }
+                    }
                 }
-                setFoodSearchStatus('success', `Found ${results.length} result${results.length > 1 ? 's' : ''}.`);
-                return;
+                if (done) {
+                    if (buffer.trim() && !matchFoundAndFilled) {
+                        try {
+                            const results = JSON.parse(buffer);
+                            if (requestId === foodSearchRequestId && results && results.length > 0) {
+                                finalResults = results;
+                                const match = results.find(p => p.barcode === barcode);
+                                if (match) {
+                                    document.getElementById('food-name').value = match.name;
+                                    autofillFoodProduct(match);
+                                    setFoodSearchStatus('success', 'Product found and filled in.');
+                                    matchFoundAndFilled = true;
+                                }
+                            }
+                        } catch (e) { }
+                    }
+                    break;
+                }
             }
-            setFoodSearchStatus('empty', 'Search finished: no products found.');
+
+            if (requestId !== foodSearchRequestId || matchFoundAndFilled) return;
+
+            if (finalResults.length > 0) {
+                setFoodSearchStatus('success', `Found ${finalResults.length} result${finalResults.length > 1 ? 's' : ''}.`);
+            } else {
+                setFoodSearchStatus('empty', 'Search finished: no products found.');
+            }
+
         } catch (e) {
             if (requestId !== foodSearchRequestId) return;
             console.error('Barcode search failed', e);
+            if (e.message.includes('fetch') || e.message === 'Network request failed' || e.message === 'Failed to fetch' || !navigator.onLine) {
+                setFoodSearchStatus('empty', 'Search finished: no products found.');
+                return;
+            }
             setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
         }
     }, 500);
