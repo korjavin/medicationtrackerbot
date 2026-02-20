@@ -161,7 +161,7 @@ func main() {
 		Addr:         serverAddr,
 		Handler:      srvHandler,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		WriteTimeout: 45 * time.Second, // Increased to support 30s OpenFoodFacts search
 	}
 
 	if err := server.ListenAndServe(); err != nil {

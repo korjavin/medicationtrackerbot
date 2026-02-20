@@ -723,7 +723,7 @@ async function onFoodNameChange() {
         } catch (e) {
             if (requestId !== foodSearchRequestId) return;
             console.error('Search failed', e);
-            if (e.message.includes('fetch') || e.message === 'Network request failed' || e.message === 'Failed to fetch' || !navigator.onLine) {
+            if (e.name === 'TypeError' || e.message.includes('fetch') || e.message === 'Network request failed' || e.message === 'Failed to fetch' || !navigator.onLine) {
                 setFoodSearchStatus('empty', 'Search finished: no products found.');
                 return;
             }
@@ -841,7 +841,7 @@ async function onFoodBarcodeChange() {
         } catch (e) {
             if (requestId !== foodSearchRequestId) return;
             console.error('Barcode search failed', e);
-            if (e.message.includes('fetch') || e.message === 'Network request failed' || e.message === 'Failed to fetch' || !navigator.onLine) {
+            if (e.name === 'TypeError' || e.message.includes('fetch') || e.message === 'Network request failed' || e.message === 'Failed to fetch' || !navigator.onLine) {
                 setFoodSearchStatus('empty', 'Search finished: no products found.');
                 return;
             }
