@@ -1093,7 +1093,7 @@ async function openPhotoPickerAndDecode() {
     input.click();
 }
 
-function renderFoodAutocomplete(products) {
+function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback = null) {
     foodAutoCompleteSuggestions = products || [];
     const list = document.getElementById('food-autocomplete-list');
     if (!list) return;
@@ -1105,11 +1105,22 @@ function renderFoodAutocomplete(products) {
         return;
     }
 
+    // Add a close button at the top
+    const closeBtn = document.createElement('div');
+    closeBtn.className = 'autocomplete-close';
+    closeBtn.innerHTML = '<span>&#x25B2; Close</span>'; // Up arrow
+    closeBtn.onclick = function (e) {
+        e.stopPropagation(); // prevent document click listener
+        list.classList.add('hidden');
+    };
+    list.appendChild(closeBtn);
+
     // Limit datalist options so browser doesn't choke
     const displayList = foodAutoCompleteSuggestions.slice(0, 50);
 
     displayList.forEach(p => {
         const item = document.createElement('div');
+        item.className = 'autocomplete-item';
         item.textContent = p.name;
         if (p.barcode) {
             item.textContent += ` (${p.barcode})`;
@@ -1122,6 +1133,19 @@ function renderFoodAutocomplete(products) {
         };
         list.appendChild(item);
     });
+
+    if (showLoadMore && loadMoreCallback) {
+        const loadMoreBtn = document.createElement('div');
+        loadMoreBtn.className = 'autocomplete-load-more';
+        loadMoreBtn.textContent = '... Load more from OpenFoodFacts ...';
+        loadMoreBtn.onclick = function (e) {
+            e.stopPropagation();
+            loadMoreBtn.textContent = 'Loading...';
+            loadMoreBtn.classList.add('loading');
+            loadMoreCallback();
+        };
+        list.appendChild(loadMoreBtn);
+    }
 
     list.classList.remove('hidden');
 }

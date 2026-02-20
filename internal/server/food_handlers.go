@@ -414,7 +414,12 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(products)
 	flusher.Flush()
 
-	// Always try live OpenFoodFacts and merge with local/offline matches.
+	// Optionally try live OpenFoodFacts and merge with local/offline matches if requested.
+	remoteReq := r.URL.Query().Get("remote")
+	if remoteReq != "true" {
+		return // Skip remote search unless explicitly requested via 'Load more'
+	}
+
 	fallbackTimeout := 5 * time.Second
 	if !isBarcodeQuery(query) {
 		fallbackTimeout = 30 * time.Second
