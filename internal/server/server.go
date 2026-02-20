@@ -480,8 +480,9 @@ func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Inject bot username
+	// Inject bot username & timestamp for cache busting
 	html := strings.ReplaceAll(string(content), "BOT_USERNAME_PLACEHOLDER", s.botUsername)
+	html = strings.ReplaceAll(html, "TIMESTAMP_PLACEHOLDER", fmt.Sprintf("%d", time.Now().UnixNano()))
 
 	oidcClient := struct {
 		Enabled     bool   `json:"enabled"`

@@ -137,10 +137,11 @@
             <div class="food-date-nav">
                 <button class="secondary food-date-shift-btn" onclick="shiftFoodDate(-1)"
                     aria-label="Previous day">←</button>
-                <div style="position: relative; display: inline-block;">
-                    <input type="date" id="food-date-filter" onchange="loadFoodLogs()">
+                <div style="position: relative; flex: 1;">
+                    <input type="date" id="food-date-filter" onchange="loadFoodLogs()"
+                        style="width: 100%; box-sizing: border-box;">
                     <div id="food-week-display" class="hidden"
-                        style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-color); color: var(--text-color); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 14px; pointer-events: none;">
+                        style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--secondary-bg-color); color: var(--text-color); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 14px; pointer-events: none; border: 1px solid var(--border-color); border-radius: 8px;">
                     </div>
                 </div>
                 <button class="secondary food-date-shift-btn" onclick="shiftFoodDate(1)"
@@ -148,14 +149,7 @@
             </div>
 
             <div id="food-target-progress" class="food-target-progress hidden"></div>
-            <div id="food-stats-period-container" class="food-stats-period-container hidden"
-                style="text-align: right; margin-top: -8px; margin-bottom: 12px;">
-                <select id="food-stats-period" class="food-stats-period-select" onchange="loadFoodLogs()"
-                    style="font-size: 11px; padding: 2px 20px 2px 8px; border-radius: 4px; height: auto; min-height: auto; width: auto; display: inline-block; background-color: var(--secondary-bg-color); border: 1px solid var(--hint-color); color: var(--text-color);">
-                    <option value="day">Day</option>
-                    <option value="week">Week</option>
-                </select>
-            </div>
+
             <div id="food-summary"
                 style="margin-bottom: 16px; font-weight: bold; padding: 10px; background: var(--secondary-bg-color); border-radius: 8px;">
             </div>
