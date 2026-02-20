@@ -123,13 +123,26 @@
         </div>
 
         <div id="food-view" class="view">
-            <h3>Food Intake</h3>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;">
+                <h3 style="margin-bottom: 0;">Food Intake</h3>
+                <div id="food-stats-period-container" class="food-stats-period-container"
+                    style="font-size: 13px; font-weight: normal;">
+                    <span class="period-link active" data-period="day" onclick="setFoodStatsPeriod('day')">Day</span>
+                    <span style="color:var(--hint-color)">|</span>
+                    <span class="period-link" data-period="week" onclick="setFoodStatsPeriod('week')">Week</span>
+                </div>
+            </div>
             <button onclick="showAddFoodModal()" class="btn-add">+ Log Food</button>
 
             <div class="food-date-nav">
                 <button class="secondary food-date-shift-btn" onclick="shiftFoodDate(-1)"
                     aria-label="Previous day">←</button>
-                <input type="date" id="food-date-filter" onchange="loadFoodLogs()">
+                <div style="position: relative; display: inline-block;">
+                    <input type="date" id="food-date-filter" onchange="loadFoodLogs()">
+                    <div id="food-week-display" class="hidden"
+                        style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-color); color: var(--text-color); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 14px; pointer-events: none;">
+                    </div>
+                </div>
                 <button class="secondary food-date-shift-btn" onclick="shiftFoodDate(1)"
                     aria-label="Next day">→</button>
             </div>

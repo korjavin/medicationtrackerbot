@@ -1398,6 +1398,22 @@ svg.chart-svg {
     background: rgba(239, 68, 68, 0.15);
 }
 
+.period-link {
+    color: var(--primary-color, #2481cc);
+    cursor: pointer;
+    transition: color 0.2s, font-weight 0.2s;
+}
+
+.period-link:active {
+    opacity: 0.7;
+}
+
+.period-link.active {
+    font-weight: bold;
+    color: var(--text-color);
+    text-decoration: underline;
+}
+
 .toggle {
     position: relative;
     display: inline-block;

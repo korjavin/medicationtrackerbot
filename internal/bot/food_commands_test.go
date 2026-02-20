@@ -56,7 +56,7 @@ func TestIntakeCommand(t *testing.T) {
 	b.handleMessage(msg)
 
 	// Verify log created
-	logs, err := s.GetFoodLogs(context.Background(), 123456, time.Now())
+	logs, err := s.GetFoodLogs(context.Background(), 123456, time.Now(), 1)
 	if err != nil {
 		t.Fatalf("GetFoodLogs error: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestIntakeCommand_Disabled(t *testing.T) {
 	b.handleMessage(msg)
 
 	// Verify NO log created
-	logs, _ := s.GetFoodLogs(context.Background(), 123456, time.Now())
+	logs, _ := s.GetFoodLogs(context.Background(), 123456, time.Now(), 1)
 	if len(logs) != 0 {
 		t.Errorf("Expected 0 logs (feature disabled), got %d", len(logs))
 	}

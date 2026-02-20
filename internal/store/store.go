@@ -1551,10 +1551,10 @@ func (s *Store) UpdateFoodLog(ctx context.Context, f *FoodLog) error {
 	return nil
 }
 
-func (s *Store) GetFoodLogs(ctx context.Context, userID int64, date time.Time) ([]FoodLog, error) {
-	// Range for the day
-	startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
-	endOfDay := startOfDay.Add(24 * time.Hour)
+func (s *Store) GetFoodLogs(ctx context.Context, userID int64, date time.Time, days int) ([]FoodLog, error) {
+	// Range for the days
+	endOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location()).Add(24 * time.Hour)
+	startOfDay := endOfDay.Add(-time.Duration(days) * 24 * time.Hour)
 
 	query := "SELECT id, user_id, eaten_at, weight, carbs, protein, fat, calories, name FROM food_log WHERE user_id = ? AND eaten_at >= ? AND eaten_at < ? ORDER BY eaten_at ASC"
 

@@ -120,7 +120,7 @@ func TestHandleDeleteFoodLog(t *testing.T) {
 	}
 
 	// Verify
-	logs, _ := db.GetFoodLogs(ctx, 123456, time.Now())
+	logs, _ := db.GetFoodLogs(ctx, 123456, time.Now(), 1)
 	if len(logs) != 0 {
 		t.Errorf("Expected 0 logs, got %d", len(logs))
 	}

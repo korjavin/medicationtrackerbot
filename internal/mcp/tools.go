@@ -681,7 +681,7 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 
 	current := startDate
 	for !current.After(endDate) {
-		logs, err := s.store.GetFoodLogs(ctx, userID, current)
+		logs, err := s.store.GetFoodLogs(ctx, userID, current, 1)
 		if err != nil {
 			return nil, FoodIntakeResponse{}, fmt.Errorf("failed to fetch food logs for %s: %w", current.Format("2006-01-02"), err)
 		}

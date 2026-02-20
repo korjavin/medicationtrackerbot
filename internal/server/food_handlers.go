@@ -119,14 +119,22 @@ func (s *Server) handleGetFoodLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	logs, err := s.store.GetFoodLogs(context.Background(), userID, date)
+	days := 1
+	daysStr := r.URL.Query().Get("days")
+	if daysStr != "" {
+		if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
+			days = d
+		}
+	}
+
+	logs, err := s.store.GetFoodLogs(context.Background(), userID, date, days)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Group logs logic
-	groups := groupFoodLogs(logs)
+	groups := groupFoodLogs(logs, days > 1)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(groups)
@@ -240,7 +248,7 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 }
 
 // groupFoodLogs groups logs into meals based on time proximity
-func groupFoodLogs(logs []store.FoodLog) []FoodGroup {
+func groupFoodLogs(logs []store.FoodLog, isMultiDay bool) []FoodGroup {
 	if len(logs) == 0 {
 		return []FoodGroup{}
 	}
@@ -260,22 +268,38 @@ func groupFoodLogs(logs []store.FoodLog) []FoodGroup {
 		return "Snack"
 	}
 
-	// Simple clustering: if logs are within 30 mins of previous, add to group.
-	// Otherwise start new group.
-
 	currentGroup := FoodGroup{}
 
 	for i, log := range logs {
+		var timeStr string
+		var groupName string
+
+		if isMultiDay {
+			timeStr = log.EatenAt.Format("Mon, Jan 02")
+			groupName = log.EatenAt.Format("Mon, Jan 02") // Simplified for multi-day
+		} else {
+			timeStr = log.EatenAt.Format("15:04")
+			groupName = getMealName(log.EatenAt)
+		}
+
 		if i == 0 {
 			currentGroup = FoodGroup{
-				Name: getMealName(log.EatenAt),
-				Time: log.EatenAt.Format("15:04"),
+				Name: groupName,
+				Time: timeStr,
 				Logs: []store.FoodLog{log},
 			}
 		} else {
 			lastLog := logs[i-1]
-			diff := log.EatenAt.Sub(lastLog.EatenAt)
-			if diff < 30*time.Minute && diff > -30*time.Minute {
+			var shouldGroup bool
+
+			if isMultiDay {
+				shouldGroup = log.EatenAt.Format("2006-01-02") == lastLog.EatenAt.Format("2006-01-02")
+			} else {
+				diff := log.EatenAt.Sub(lastLog.EatenAt)
+				shouldGroup = diff < 30*time.Minute && diff > -30*time.Minute
+			}
+
+			if shouldGroup {
 				// Add to current group
 				currentGroup.Logs = append(currentGroup.Logs, log)
 			} else {
@@ -284,8 +308,8 @@ func groupFoodLogs(logs []store.FoodLog) []FoodGroup {
 				groups = append(groups, calculateGroupTotals(currentGroup))
 
 				currentGroup = FoodGroup{
-					Name: getMealName(log.EatenAt),
-					Time: log.EatenAt.Format("15:04"),
+					Name: groupName,
+					Time: timeStr,
 					Logs: []store.FoodLog{log},
 				}
 			}

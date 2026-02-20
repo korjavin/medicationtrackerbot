@@ -1313,8 +1313,11 @@ function shiftFoodDate(deltaDays) {
     const dateFilter = document.getElementById('food-date-filter');
     if (!dateFilter) return;
 
+    const period = window.currentFoodStatsPeriod || 'day';
+    const multiplier = period === 'week' ? 7 : 1;
+
     const baseDate = dateFilter.value ? new Date(`${dateFilter.value}T00:00:00`) : new Date();
-    baseDate.setDate(baseDate.getDate() + deltaDays);
+    baseDate.setDate(baseDate.getDate() + (deltaDays * multiplier));
     dateFilter.value = toISODateLocal(baseDate);
     loadFoodLogs();
 }
@@ -1439,6 +1442,20 @@ async function saveFoodLog() {
     }
 }
 
+let currentFoodStatsPeriod = 'day';
+
+window.setFoodStatsPeriod = function (period) {
+    currentFoodStatsPeriod = period;
+    document.querySelectorAll('#food-stats-period-container .period-link').forEach(el => {
+        if (el.dataset.period === period) {
+            el.classList.add('active');
+        } else {
+            el.classList.remove('active');
+        }
+    });
+    loadFoodLogs();
+};
+
 async function loadFoodLogs() {
     const list = document.getElementById('food-list');
     const summary = document.getElementById('food-summary');
@@ -1454,12 +1471,25 @@ async function loadFoodLogs() {
         dateFilter.value = dateStr;
     }
 
-    try {
-        const groups = await apiCall(`/api/food/log?date=${dateStr}`, 'GET');
-        list.innerHTML = '';
+    const period = window.currentFoodStatsPeriod || 'day';
+    const weekDisplay = document.getElementById('food-week-display');
+    if (period === 'week') {
+        const dEnd = new Date(`${dateStr}T00:00:00`);
+        const dStart = new Date(dEnd);
+        dStart.setDate(dEnd.getDate() - 6);
+        const fmt = { month: 'short', day: 'numeric' };
+        if (weekDisplay) {
+            weekDisplay.innerText = `${dStart.toLocaleDateString(undefined, fmt)} - ${dEnd.toLocaleDateString(undefined, fmt)}`;
+            weekDisplay.classList.remove('hidden');
+        }
+    } else {
+        if (weekDisplay) weekDisplay.classList.add('hidden');
+    }
 
-        const periodSelect = document.getElementById('food-stats-period');
-        const period = periodSelect ? periodSelect.value : 'day';
+    try {
+        const daysParam = period === 'week' ? '&days=7' : '';
+        const groups = await apiCall(`/api/food/log?date=${dateStr}${daysParam}`, 'GET');
+        list.innerHTML = '';
 
         let dayCals = 0;
         let dayCarbs = 0;
@@ -1511,10 +1541,12 @@ async function loadFoodLogs() {
             hasTargets ? periodContainer.classList.remove('hidden') : periodContainer.classList.add('hidden');
         }
 
-        if (period === 'week') {
-            const stats = await apiCall(`/api/food/stats?date=${dateStr}&days=7`, 'GET');
+        if (period === 'week' || period === '2weeks') {
+            const daysCount = period === 'week' ? 7 : 14;
+            const stats = await apiCall(`/api/food/stats?date=${dateStr}&days=${daysCount}`, 'GET');
             summary.style.display = 'block';
-            summary.innerHTML = `7-Day Total: ${stats?.calories || 0} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${stats?.carbs || 0} P:${stats?.protein || 0} F:${stats?.fat || 0})</span>`;
+            const label = period === 'week' ? '7-Day Total' : '14-Day Total';
+            summary.innerHTML = `${label}: ${stats?.calories || 0} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${stats?.carbs || 0} P:${stats?.protein || 0} F:${stats?.fat || 0})</span>`;
             renderFoodTargetProgress(stats?.calories || 0, stats?.carbs || 0, stats?.protein || 0, stats?.fat || 0, period);
         } else {
             if (groups && groups.length > 0) {
@@ -1556,6 +1588,8 @@ function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = '
         let targetValue = foodTargets[t.key];
         if (period === 'week') {
             targetValue = targetValue * 7;
+        } else if (period === '2weeks') {
+            targetValue = targetValue * 14;
         }
 
         let progress = Math.round((t.value / targetValue) * 100);
