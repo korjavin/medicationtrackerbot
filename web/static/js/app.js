@@ -774,7 +774,6 @@ async function onFoodBarcodeChange() {
                             if (requestId !== foodSearchRequestId) return;
 
                             if (results && results.length > 0) {
-                                finalResults = results;
                                 if (!matchFoundAndFilled) {
                                     const match = results.find(p => p.barcode === barcode);
                                     if (match) {
@@ -785,7 +784,17 @@ async function onFoodBarcodeChange() {
                                         reader.cancel();
                                         return;
                                     }
-                                    setFoodSearchStatus('loading', `Found ${results.length} local result(s). Searching OpenFoodFacts...`);
+                                    const unique = [];
+                                    const seen = new Set();
+                                    for (const p of results) {
+                                        if (!seen.has(p.name)) {
+                                            seen.add(p.name);
+                                            unique.push(p);
+                                        }
+                                    }
+                                    finalResults = unique;
+                                    renderFoodDatalist(unique);
+                                    setFoodSearchStatus('loading', `Found ${unique.length} local result(s). Searching OpenFoodFacts...`);
                                 }
                             }
                         } catch (e) { console.error("Parse error on stream chunk", e); }
@@ -796,13 +805,23 @@ async function onFoodBarcodeChange() {
                         try {
                             const results = JSON.parse(buffer);
                             if (requestId === foodSearchRequestId && results && results.length > 0) {
-                                finalResults = results;
                                 const match = results.find(p => p.barcode === barcode);
                                 if (match) {
                                     document.getElementById('food-name').value = match.name;
                                     autofillFoodProduct(match);
                                     setFoodSearchStatus('success', 'Product found and filled in.');
                                     matchFoundAndFilled = true;
+                                } else {
+                                    const unique = [];
+                                    const seen = new Set();
+                                    for (const p of results) {
+                                        if (!seen.has(p.name)) {
+                                            seen.add(p.name);
+                                            unique.push(p);
+                                        }
+                                    }
+                                    finalResults = unique;
+                                    renderFoodDatalist(unique);
                                 }
                             }
                         } catch (e) { }
