@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -394,22 +395,21 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// OpenFoodFacts Fallback if no local or offline global matches are found
-	if len(products) == 0 {
-		fallbackTimeout := 3 * time.Second
-		if !isBarcodeQuery(query) {
-			fallbackTimeout = 10 * time.Second
-		}
+	// Always try live OpenFoodFacts and merge with local/offline matches.
+	// This prevents local hits from masking additional remote results.
+	fallbackTimeout := 3 * time.Second
+	if !isBarcodeQuery(query) {
+		fallbackTimeout = 10 * time.Second
+	}
 
-		ctx, cancel := context.WithTimeout(r.Context(), fallbackTimeout)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(r.Context(), fallbackTimeout)
+	defer cancel()
 
-		apiProducts, err := s.store.SearchOpenFoodFactsAPI(ctx, query)
-		if err != nil {
-			log.Printf("Debug: OpenFoodFacts API fallback failed for query %q: %v", query, err)
-		} else if len(apiProducts) > 0 {
-			products = apiProducts
-		}
+	apiProducts, err := s.store.SearchOpenFoodFactsAPI(ctx, query)
+	if err != nil {
+		log.Printf("Debug: OpenFoodFacts API fallback failed for query %q: %v", query, err)
+	} else if len(apiProducts) > 0 {
+		products = mergeFoodProducts(products, apiProducts)
 	}
 
 	if products == nil {
@@ -418,6 +418,46 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(products)
+}
+
+func mergeFoodProducts(base []store.FoodProduct, extra []store.FoodProduct) []store.FoodProduct {
+	if len(extra) == 0 {
+		return base
+	}
+
+	merged := make([]store.FoodProduct, 0, len(base)+len(extra))
+	seen := make(map[string]struct{}, len(base)+len(extra))
+
+	add := func(p store.FoodProduct) {
+		key := foodProductUniqueKey(p)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		merged = append(merged, p)
+	}
+
+	for _, p := range base {
+		add(p)
+	}
+	for _, p := range extra {
+		add(p)
+	}
+
+	if len(merged) > 50 {
+		merged = merged[:50]
+	}
+	return merged
+}
+
+func foodProductUniqueKey(p store.FoodProduct) string {
+	if p.Barcode != nil {
+		barcode := strings.TrimSpace(*p.Barcode)
+		if barcode != "" {
+			return "barcode:" + strings.ToLower(barcode)
+		}
+	}
+	return "name:" + strings.ToLower(strings.TrimSpace(p.Name))
 }
 
 func isBarcodeQuery(query string) bool {

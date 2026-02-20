@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -169,5 +170,51 @@ func TestHandleGetFoodIntakeStatus(t *testing.T) {
 
 	if enabled, ok := resp["enabled"].(bool); !ok || !enabled {
 		t.Error("Expected enabled=true")
+	}
+}
+
+func TestMergeFoodProducts_DedupAndOrder(t *testing.T) {
+	localBarcode := "111"
+	local := []store.FoodProduct{
+		{Name: "Cheese pancakes", Barcode: &localBarcode},
+		{Name: "Oatmeal"},
+	}
+
+	remoteBarcodeDup := "111"
+	remoteBarcodeUnique := "222"
+	remote := []store.FoodProduct{
+		{Name: "Cheese Pancakes OFF", Barcode: &remoteBarcodeDup}, // duplicate by barcode
+		{Name: "Pancakes", Barcode: &remoteBarcodeUnique},
+		{Name: "OATMEAL"}, // duplicate by name (case-insensitive)
+	}
+
+	merged := mergeFoodProducts(local, remote)
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 merged products, got %d", len(merged))
+	}
+
+	if merged[0].Name != "Cheese pancakes" {
+		t.Fatalf("expected local product to keep priority at index 0, got %q", merged[0].Name)
+	}
+	if merged[1].Name != "Oatmeal" {
+		t.Fatalf("expected local product to keep priority at index 1, got %q", merged[1].Name)
+	}
+	if merged[2].Name != "Pancakes" {
+		t.Fatalf("expected unique remote product to be appended, got %q", merged[2].Name)
+	}
+}
+
+func TestMergeFoodProducts_Limit50(t *testing.T) {
+	base := make([]store.FoodProduct, 0, 60)
+	for i := 0; i < 60; i++ {
+		base = append(base, store.FoodProduct{Name: fmt.Sprintf("Food %d", i)})
+	}
+
+	merged := mergeFoodProducts(base[:30], base[30:])
+	if len(merged) != 50 {
+		t.Fatalf("expected merged length 50, got %d", len(merged))
+	}
+	if !strings.EqualFold(merged[49].Name, "Food 49") {
+		t.Fatalf("expected last kept item to be Food 49, got %q", merged[49].Name)
 	}
 }
