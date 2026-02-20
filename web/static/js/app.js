@@ -601,6 +601,7 @@ function switchTab(tab) {
 let foodAutoCompleteSuggestions = [];
 let foodProductsCache = [];
 let foodSearchTimeout;
+let foodSearchRequestId = 0;
 let foodScannerStream = null;
 let foodScannerRunning = false;
 let foodScanLoopTimer = null;
@@ -632,19 +633,24 @@ async function onFoodNameChange() {
     const selected = foodAutoCompleteSuggestions.find(p => p.name === query);
     if (selected) {
         autofillFoodProduct(selected);
+        setFoodSearchStatus('success', 'Product selected.');
         return;
     }
 
     if (query.length < 2) {
         renderFoodDatalist(foodProductsCache);
+        setFoodSearchStatus();
         return;
     }
 
     // Debounce search
     clearTimeout(foodSearchTimeout);
     foodSearchTimeout = setTimeout(async () => {
+        const requestId = ++foodSearchRequestId;
+        setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
         try {
             const results = await apiCall(`/api/food/products/search?q=${encodeURIComponent(query)}`, 'GET');
+            if (requestId !== foodSearchRequestId) return;
 
             // Merge with local cache results
             const combined = [...(results || [])];
@@ -659,32 +665,68 @@ async function onFoodNameChange() {
                 }
             }
             renderFoodDatalist(unique);
+            if (unique.length > 0) {
+                setFoodSearchStatus('success', `Found ${unique.length} result${unique.length > 1 ? 's' : ''}.`);
+            } else {
+                setFoodSearchStatus('empty', 'Search finished: no products found.');
+            }
         } catch (e) {
+            if (requestId !== foodSearchRequestId) return;
             console.error('Search failed', e);
+            setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
         }
     }, 300);
 }
 
 async function onFoodBarcodeChange() {
     const barcode = document.getElementById('food-barcode').value;
-    if (barcode.length < 5) return;
+    if (barcode.length < 5) {
+        setFoodSearchStatus();
+        return;
+    }
 
     clearTimeout(foodSearchTimeout);
     foodSearchTimeout = setTimeout(async () => {
+        const requestId = ++foodSearchRequestId;
+        setFoodSearchStatus('loading', 'Searching by barcode...');
         try {
             const results = await apiCall(`/api/food/products/search?q=${encodeURIComponent(barcode)}`, 'GET');
+            if (requestId !== foodSearchRequestId) return;
             if (results && results.length > 0) {
                 // If an exact match by barcode is found, auto-fill it
                 const match = results.find(p => p.barcode === barcode);
                 if (match) {
                     document.getElementById('food-name').value = match.name;
                     autofillFoodProduct(match);
+                    setFoodSearchStatus('success', 'Product found and filled in.');
+                    return;
                 }
+                setFoodSearchStatus('success', `Found ${results.length} result${results.length > 1 ? 's' : ''}.`);
+                return;
             }
+            setFoodSearchStatus('empty', 'Search finished: no products found.');
         } catch (e) {
+            if (requestId !== foodSearchRequestId) return;
             console.error('Barcode search failed', e);
+            setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
         }
     }, 500);
+}
+
+function setFoodSearchStatus(type, message) {
+    const status = document.getElementById('food-search-status');
+    if (!status) return;
+
+    status.className = 'food-search-status';
+    if (!type || !message) {
+        status.classList.add('hidden');
+        status.innerText = '';
+        return;
+    }
+
+    status.classList.remove('hidden');
+    status.classList.add(type);
+    status.innerText = message;
 }
 
 function setFoodScannerStatus(message) {

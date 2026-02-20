@@ -1470,6 +1470,42 @@ input:checked+.toggle-slider:before {
     font-size: 14px;
 }
 
+.food-search-status {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: var(--hint-color);
+}
+
+.food-search-status.loading::before {
+    content: "";
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 6px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: food-search-spin 0.8s linear infinite;
+    vertical-align: -1px;
+}
+
+.food-search-status.success {
+    color: #2e7d32;
+}
+
+.food-search-status.empty {
+    color: #7a6a00;
+}
+
+.food-search-status.error {
+    color: #c62828;
+}
+
+@keyframes food-search-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 #food-scanner-modal {
     position: fixed;
     top: 50%;
