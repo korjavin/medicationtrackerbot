@@ -308,8 +308,9 @@ func (w *Wizard) stepConditional() error {
 			return err
 		}
 	}
-	// Reuse Let's Encrypt email for Pocket-ID admin — no need to ask twice.
+	// Reuse Let's Encrypt email for all services — no need to ask multiple times.
 	w.state.Config.PocketID.AdminEmail = w.state.Config.Traefik.LetsEncryptEmail
+	w.state.Config.WebPush.ContactEmail = w.state.Config.Traefik.LetsEncryptEmail
 	return nil
 }
 

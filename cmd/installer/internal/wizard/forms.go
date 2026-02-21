@@ -95,10 +95,6 @@ func buildConditionalForms(cfg *config.Config) []*huh.Form {
 		cfg.MCP.Domain = cfg.Domain
 	}
 
-	if cfg.Features.WebPush {
-		forms = append(forms, buildWebPushForm(cfg))
-	}
-
 	return forms
 }
 
@@ -127,19 +123,6 @@ func buildExternalProxyForm(cfg *config.Config) *huh.Form {
 				Value(&cfg.Traefik.ExternalNetwork).
 				Validate(func(s string) error { return config.ValidateNonEmpty(s) }),
 		).Title("External Proxy"),
-	).WithTheme(ui.InstallerTheme())
-}
-
-func buildWebPushForm(cfg *config.Config) *huh.Form {
-	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("VAPID contact email").
-				Description("Required by web push spec, rarely used").
-				Placeholder("you@example.com").
-				Value(&cfg.WebPush.ContactEmail).
-				Validate(func(s string) error { return config.ValidateEmail(s) }),
-		).Title("Web Push Notifications"),
 	).WithTheme(ui.InstallerTheme())
 }
 
