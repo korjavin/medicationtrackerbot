@@ -4,8 +4,8 @@ WORKDIR /app
 COPY go.mod go.sum ./
 COPY . .
 # CGO_ENABLED=0 for static binary, works with Checkpoint/ModernC SQLite
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -o bot ./cmd/bot
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -o mcptool ./cmd/mcptool
+RUN CGO_ENABLED=0 GOOS=linux go build -o bot ./cmd/bot
+RUN CGO_ENABLED=0 GOOS=linux go build -o mcptool ./cmd/mcptool
 
 FROM alpine:latest
 WORKDIR /app
