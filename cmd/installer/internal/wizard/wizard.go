@@ -435,7 +435,7 @@ func (w *Wizard) ensureSecrets() error {
 	return nil
 }
 
-// generateFiles creates .env, .env.mcp, and docker-compose.yml in the install directory.
+// generateFiles creates .env, .env.mcp, docker-compose.yml, and update.sh in the install directory.
 func (w *Wizard) generateFiles(includeAPIKey bool) error {
 	dir := w.state.Config.InstallDir
 
@@ -467,6 +467,49 @@ func (w *Wizard) generateFiles(includeAPIKey bool) error {
 		return err
 	}
 
+	// update.sh
+	if err := writeUpdateScript(dir, w.state.Config.ContainerTool); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// writeUpdateScript writes a safe update script that never removes volumes.
+func writeUpdateScript(dir, containerTool string) error {
+	composeCmd := "docker compose"
+	if containerTool == "podman" {
+		composeCmd = "podman compose"
+	}
+
+	script := fmt.Sprintf(`#!/bin/sh
+# MedTracker update script — safely pulls and restarts only the app containers.
+# Pocket-ID and Traefik are intentionally left untouched (they have pinned versions
+# and Pocket-ID stores passkey credentials that must not be disrupted).
+#
+# NEVER use 'docker compose down' to update — it can break Pocket-ID passkeys.
+# Use this script or '%s up -d' instead.
+
+set -e
+cd "$(dirname "$0")"
+
+echo "Pulling latest app images..."
+%s pull medtracker mcp-server
+
+echo "Restarting app containers..."
+%s up -d medtracker mcp-server
+
+echo "Done. Cleaning up unused images..."
+docker image prune -f
+
+echo ""
+echo "Update complete!"
+`, composeCmd, composeCmd, composeCmd)
+
+	path := dir + "/update.sh"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		return fmt.Errorf("write update.sh: %w", err)
+	}
 	return nil
 }
 
@@ -543,17 +586,24 @@ func printFinalSummary(state *config.InstallerState) {
 	}
 	fmt.Println()
 
-	fmt.Println(ui.SubtitleStyle.Render("Management commands:"))
+	fmt.Println(ui.SubtitleStyle.Render("Update (safe — never removes volumes):"))
+	fmt.Printf("  cd %s && ./update.sh\n", state.Config.InstallDir)
+	fmt.Println()
+
+	fmt.Println(ui.SubtitleStyle.Render("Other management commands:"))
 	fmt.Printf("  cd %s\n", state.Config.InstallDir)
 	fmt.Printf("  %s logs -f medtracker\n", composeCmdStr(state.Config.ContainerTool))
-	fmt.Printf("  %s restart\n", composeCmdStr(state.Config.ContainerTool))
-	fmt.Printf("  %s down\n", composeCmdStr(state.Config.ContainerTool))
+	fmt.Printf("  %s restart medtracker mcp-server\n", composeCmdStr(state.Config.ContainerTool))
+	fmt.Println()
+	fmt.Println(ui.WarningStyle.Render("  ⚠  Never run 'docker compose down' to update — it can break Pocket-ID passkeys."))
+	fmt.Println(ui.WarningStyle.Render("     Use update.sh or 'docker compose up -d' instead."))
 	fmt.Println()
 
 	fmt.Println(ui.SubtitleStyle.Render("Next steps:"))
 	fmt.Printf("  1. Set up your bot's domain in @BotFather:\n")
 	fmt.Printf("     /mybots → your bot → Bot Settings → Menu Button → Set domain: %s\n", state.Config.Domain)
 	fmt.Printf("  2. Send /start to your bot on Telegram\n")
+	fmt.Printf("  3. OIDC credentials: https://%s/oidc-setup\n", state.Config.Domain)
 	fmt.Println()
 }
 
