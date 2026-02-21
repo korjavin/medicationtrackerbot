@@ -67,11 +67,27 @@ function clearAuthState() {
     console.log('[Auth] Cleared auth state cache');
 }
 
+// Load init data (feature settings) needed before first render.
+// Falls back gracefully so auth flow is not blocked on failure.
+async function loadInitData() {
+    try {
+        const res = await apiCall('/api/init', 'GET');
+        if (res && res.features) {
+            featureSettings = { ...featureSettings, ...res.features };
+            featureSettingsLoaded = true;
+            updateFeatureTabVisibility();
+        }
+    } catch (e) {
+        console.error('[Init] Failed to load init data:', e);
+    }
+}
+
 // Check Auth Environment
 async function checkAuth() {
     if (userInitData) {
         // We are in Telegram, proceed as normal
         saveAuthState('telegram');
+        await loadInitData();
         return true;
     }
 
@@ -95,8 +111,9 @@ async function checkAuth() {
                 await window.MedTrackerDB.MedicationStore.saveCache(medications);
             }
 
-            // Load feature flags/settings
-            loadFeatureSettings();
+            // Load feature flags/settings before returning so tabs are
+            // correctly shown/hidden when switchTab() is called.
+            await loadInitData();
 
             return true;
         } else if (res.status === 401 || res.status === 403) {

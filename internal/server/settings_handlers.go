@@ -6,41 +6,54 @@ import (
 	"net/http"
 )
 
-func (s *Server) handleGetFeatureSettings(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
-
+func (s *Server) getFeatureMap(ctx context.Context) (map[string]bool, error) {
 	foodEnabled, err := s.store.GetFoodIntakeEnabled(ctx)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	bpEnabled, err := s.store.GetBloodPressureEnabled(ctx)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	weightEnabled, err := s.store.GetWeightEnabled(ctx)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	medicationEnabled, err := s.store.GetMedicationEnabled(ctx)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	workoutEnabled, err := s.store.GetWorkoutEnabled(ctx)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
-
-	_ = json.NewEncoder(w).Encode(map[string]bool{
+	return map[string]bool{
 		"food":       foodEnabled,
 		"bp":         bpEnabled,
 		"weight":     weightEnabled,
 		"medication": medicationEnabled,
 		"workout":    workoutEnabled,
+	}, nil
+}
+
+func (s *Server) handleGetFeatureSettings(w http.ResponseWriter, r *http.Request) {
+	features, err := s.getFeatureMap(context.Background())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(features)
+}
+
+// handleInit returns all data needed to render the app on first load.
+func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
+	features, err := s.getFeatureMap(context.Background())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"features": features,
 	})
 }
 
