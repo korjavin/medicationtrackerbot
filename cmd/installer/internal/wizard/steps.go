@@ -6,6 +6,7 @@ type Step string
 const (
 	StepWelcome     Step = "welcome"
 	StepDomain      Step = "domain"
+	StepTelegram    Step = "telegram"
 	StepCore        Step = "core"
 	StepFeatures    Step = "features"
 	StepConditional Step = "conditional"
@@ -22,6 +23,7 @@ func AllSteps() []Step {
 	return []Step{
 		StepWelcome,
 		StepDomain,
+		StepTelegram,
 		StepCore,
 		StepFeatures,
 		StepConditional,

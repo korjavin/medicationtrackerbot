@@ -62,7 +62,7 @@ func Run() error {
 		return w.runFrom(resumeStep)
 	}
 
-	return w.runFrom(StepCore)
+	return w.runFrom(StepDomain)
 }
 
 func printWelcome() {
@@ -158,6 +158,8 @@ func (w *Wizard) runStep(step Step) error {
 		return nil // already handled
 	case StepDomain:
 		return w.stepDomain()
+	case StepTelegram:
+		return w.stepTelegram()
 	case StepCore:
 		return w.stepCore()
 	case StepFeatures:
@@ -228,6 +230,43 @@ func (w *Wizard) stepDomain() error {
 	fmt.Println()
 
 	return buildDomainForm(&w.state.Config).Run()
+}
+
+func (w *Wizard) stepTelegram() error {
+	fmt.Println()
+	fmt.Println(ui.TitleStyle.Render("Step 2 — Telegram Bot Setup"))
+	fmt.Println()
+
+	infoBox := fmt.Sprintf(
+		"MedTracker is tightly integrated with Telegram.\n\n"+
+			"The app uses your Telegram bot to:\n"+
+			"  • Send medication reminders and confirmations\n"+
+			"  • Notify about workouts, blood pressure, and weight\n"+
+			"  • Let you respond directly from chat (confirm, skip, snooze)\n\n"+
+			"⚠  Running without a Telegram bot is technically possible,\n"+
+			"   but you will lose all notifications and chat interaction.\n"+
+			"   This is strongly not recommended.\n\n"+
+			"─────────────────────────────────────────────────────\n\n"+
+			"How to create a bot:\n\n"+
+			"  1. Open Telegram and start a chat with @BotFather\n"+
+			"  2. Send /newbot and follow the instructions\n"+
+			"  3. Copy the token BotFather gives you\n"+
+			"  4. After setup, go to:\n"+
+			"     /mybots → your bot → Bot Settings → Menu Button\n"+
+			"     Set the URL to: https://%s\n\n"+
+			"─────────────────────────────────────────────────────\n\n"+
+			"How to find your Telegram user ID:\n\n"+
+			"  1. Open Telegram and start a chat with @userinfobot\n"+
+			"  2. Send /start — it will reply with your numeric ID\n\n"+
+			"Your user ID is used for security: the bot will only\n"+
+			"respond to commands from your account and will silently\n"+
+			"ignore everyone else, keeping your health data private.",
+		w.state.Config.Domain,
+	)
+	fmt.Println(ui.BoxStyle.Render(infoBox))
+	fmt.Println()
+
+	return buildTelegramForm(&w.state.Config).Run()
 }
 
 func (w *Wizard) stepCore() error {

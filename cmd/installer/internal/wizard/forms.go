@@ -25,12 +25,34 @@ func buildDomainForm(cfg *config.Config) *huh.Form {
 	).WithTheme(ui.InstallerTheme())
 }
 
+// buildTelegramForm creates the form for the Telegram bot step.
+func buildTelegramForm(cfg *config.Config) *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Telegram bot token").
+				Description("The token from @BotFather (e.g. 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11)").
+				Placeholder("123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11").
+				Value(&cfg.BotToken).
+				Validate(func(s string) error { return config.ValidateBotToken(s) }),
+
+			huh.NewInput().
+				Title("Your Telegram user ID").
+				Description("Your numeric ID from @userinfobot — only this account can control the bot").
+				Placeholder("123456789").
+				Value(&cfg.UserID).
+				Validate(func(s string) error { return config.ValidateUserID(s) }),
+		).Title("Telegram Bot"),
+	).WithTheme(ui.InstallerTheme())
+}
+
 // buildCoreForm creates the form for Step 3: core configuration.
 func buildCoreForm(cfg *config.Config) *huh.Form {
 	// Auto-detect timezone
 	if cfg.Timezone == "" {
 		cfg.Timezone = detectTimezone()
 	}
+	// Use default install directory without prompting
 	if cfg.InstallDir == "" {
 		cfg.InstallDir = "/opt/medtracker"
 	}
@@ -38,30 +60,10 @@ func buildCoreForm(cfg *config.Config) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
-				Title("Install directory").
-				Description("Where to store configuration and data").
-				Value(&cfg.InstallDir).
-				Validate(func(s string) error { return config.ValidateInstallDir(s) }),
-
-			huh.NewInput().
 				Title("Timezone").
-				Description("Used for medication schedules and reminders").
+				Description("Used for medication schedules and reminders (e.g. Europe/Berlin)").
 				Value(&cfg.Timezone).
 				Validate(func(s string) error { return config.ValidateNonEmpty(s) }),
-
-			huh.NewInput().
-				Title("Telegram bot token").
-				Description("Get one from @BotFather on Telegram").
-				Placeholder("123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11").
-				Value(&cfg.BotToken).
-				Validate(func(s string) error { return config.ValidateBotToken(s) }),
-
-			huh.NewInput().
-				Title("Telegram user ID").
-				Description("Your numeric Telegram user ID (get from @userinfobot)").
-				Placeholder("123456789").
-				Value(&cfg.UserID).
-				Validate(func(s string) error { return config.ValidateUserID(s) }),
 		).Title("Core Configuration"),
 	).WithTheme(ui.InstallerTheme())
 }
