@@ -4,12 +4,10 @@ import "time"
 
 // Features represents optional features that can be enabled.
 type Features struct {
-	Traefik      bool `json:"traefik"`
-	PocketID     bool `json:"pocketId"`
-	WebPush      bool `json:"webPush"`
-	MCP          bool `json:"mcp"`
-	TelegramAPI  bool `json:"telegramApi"`
-	Litestream   bool `json:"litestream"`
+	Traefik  bool `json:"traefik"`
+	PocketID bool `json:"pocketId"`
+	WebPush  bool `json:"webPush"`
+	MCP      bool `json:"mcp"`
 }
 
 // TraefikConfig holds Traefik-specific settings.
@@ -34,20 +32,6 @@ type WebPushConfig struct {
 	ContactEmail string `json:"contactEmail"`
 }
 
-// TelegramAPIConfig holds local Telegram Bot API settings.
-type TelegramAPIConfig struct {
-	APIID   string `json:"apiId"`
-	APIHash string `json:"apiHash"`
-}
-
-// LitestreamConfig holds Litestream backup settings.
-type LitestreamConfig struct {
-	AccessKeyID     string `json:"accessKeyId"`
-	SecretAccessKey string `json:"secretAccessKey"`
-	Endpoint        string `json:"endpoint"`
-	Bucket          string `json:"bucket"`
-}
-
 // Config holds all wizard answers.
 type Config struct {
 	InstallDir    string `json:"installDir"`
@@ -59,12 +43,10 @@ type Config struct {
 
 	Features Features `json:"features"`
 
-	Traefik     TraefikConfig     `json:"traefik,omitempty"`
-	PocketID    PocketIDConfig    `json:"pocketId,omitempty"`
-	MCP         MCPConfig         `json:"mcp,omitempty"`
-	WebPush     WebPushConfig     `json:"webPush,omitempty"`
-	TelegramAPI TelegramAPIConfig `json:"telegramApi,omitempty"`
-	Litestream  LitestreamConfig  `json:"litestream,omitempty"`
+	Traefik  TraefikConfig  `json:"traefik,omitempty"`
+	PocketID PocketIDConfig `json:"pocketId,omitempty"`
+	MCP      MCPConfig      `json:"mcp,omitempty"`
+	WebPush  WebPushConfig  `json:"webPush,omitempty"`
 }
 
 // Secrets holds generated cryptographic keys.
@@ -88,13 +70,11 @@ type PocketIDState struct {
 
 // DeployState tracks which services have been started.
 type DeployState struct {
-	TraefikStarted    bool `json:"traefikStarted,omitempty"`
-	PocketIDStarted   bool `json:"pocketIdStarted,omitempty"`
+	TraefikStarted     bool `json:"traefikStarted,omitempty"`
+	PocketIDStarted    bool `json:"pocketIdStarted,omitempty"`
 	PocketIDConfigured bool `json:"pocketIdConfigured,omitempty"`
-	MedtrackerStarted bool `json:"medtrackerStarted,omitempty"`
-	MCPStarted        bool `json:"mcpStarted,omitempty"`
-	LitestreamStarted bool `json:"litestreamStarted,omitempty"`
-	TelegramAPIStarted bool `json:"telegramApiStarted,omitempty"`
+	MedtrackerStarted  bool `json:"medtrackerStarted,omitempty"`
+	MCPStarted         bool `json:"mcpStarted,omitempty"`
 }
 
 // InstallerState is the complete persistent state of the installer.

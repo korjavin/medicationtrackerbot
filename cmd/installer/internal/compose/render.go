@@ -15,8 +15,6 @@ type TemplateData struct {
 	Traefik            bool
 	PocketID           bool
 	MCP                bool
-	TelegramAPI        bool
-	Litestream         bool
 	NetworkName        string
 	SocketPath         string
 	PocketIDAPIKey     string
@@ -40,8 +38,6 @@ func NewTemplateData(cfg *config.Config, secrets *config.Secrets, includeAPIKey 
 		Traefik:            cfg.Features.Traefik,
 		PocketID:           cfg.Features.PocketID,
 		MCP:                cfg.Features.MCP,
-		TelegramAPI:        cfg.Features.TelegramAPI,
-		Litestream:         cfg.Features.Litestream,
 		NetworkName:        networkName,
 		SocketPath:         socketPath,
 		PocketIDEncryptKey: secrets.PocketIDEncryptKey,

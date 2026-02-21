@@ -65,25 +65,6 @@ func GenerateEnv(cfg *Config, secrets *Secrets, pid *PocketIDState) string {
 		writeln(&b, "")
 	}
 
-	// Telegram API
-	if cfg.Features.TelegramAPI {
-		writeln(&b, "# Local Telegram Bot API")
-		writeln(&b, "TELEGRAM_API_ID=%s", cfg.TelegramAPI.APIID)
-		writeln(&b, "TELEGRAM_API_HASH=%s", cfg.TelegramAPI.APIHash)
-		writeln(&b, "TELEGRAM_API_ENDPOINT=http://telegram-bot-api:8081")
-		writeln(&b, "")
-	}
-
-	// Litestream
-	if cfg.Features.Litestream {
-		writeln(&b, "# Litestream Backup")
-		writeln(&b, "LITESTREAM_ACCESS_KEY_ID=%s", cfg.Litestream.AccessKeyID)
-		writeln(&b, "LITESTREAM_SECRET_ACCESS_KEY=%s", cfg.Litestream.SecretAccessKey)
-		writeln(&b, "R2_ENDPOINT=%s", cfg.Litestream.Endpoint)
-		writeln(&b, "R2_BUCKET=%s", cfg.Litestream.Bucket)
-		writeln(&b, "")
-	}
-
 	// MCP
 	if cfg.Features.MCP {
 		writeln(&b, "# MCP Server")

@@ -372,8 +372,6 @@ func printSummary(cfg *config.Config, secrets *config.Secrets) {
 	printFeature("Browser login (Pocket-ID)", cfg.Features.PocketID)
 	printFeature("Web push notifications", cfg.Features.WebPush)
 	printFeature("Claude MCP connector", cfg.Features.MCP)
-	printFeature("Local Telegram API", cfg.Features.TelegramAPI)
-	printFeature("Litestream backup", cfg.Features.Litestream)
 	fmt.Println()
 
 	if cfg.Features.Traefik {

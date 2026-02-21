@@ -124,14 +124,6 @@ func buildDeployTasks(state *config.InstallerState) []deployTask {
 		tasks = append(tasks, deployTask{name: "Start MCP server"})
 	}
 
-	if state.Config.Features.TelegramAPI {
-		tasks = append(tasks, deployTask{name: "Start Telegram Bot API"})
-	}
-
-	if state.Config.Features.Litestream {
-		tasks = append(tasks, deployTask{name: "Start Litestream backup"})
-	}
-
 	tasks = append(tasks, deployTask{name: "Verify services are running"})
 
 	return tasks
@@ -366,20 +358,6 @@ func (m *deployModel) executeTask(name string) error {
 			return err
 		}
 		m.state.Deploy.MCPStarted = true
-		return nil
-
-	case "Start Telegram Bot API":
-		if err := rt.ComposeUp(ctx, dir, "telegram-bot-api"); err != nil {
-			return err
-		}
-		m.state.Deploy.TelegramAPIStarted = true
-		return nil
-
-	case "Start Litestream backup":
-		if err := rt.ComposeUp(ctx, dir, "litestream"); err != nil {
-			return err
-		}
-		m.state.Deploy.LitestreamStarted = true
 		return nil
 
 	case "Verify services are running":

@@ -71,8 +71,6 @@ var allFeatures = []featureOption{
 	{Key: "pocketid", Label: "Browser login via Pocket-ID", Desc: "Access web UI from any browser"},
 	{Key: "webpush", Label: "Web push notifications", Desc: "Browser push for medication reminders"},
 	{Key: "mcp", Label: "Claude MCP connector", Desc: "AI integration for health data queries"},
-	{Key: "telegramapi", Label: "Local Telegram Bot API server", Desc: "Remove 20MB file download limit"},
-	{Key: "litestream", Label: "Litestream backup to S3/R2", Desc: "Continuous SQLite replication"},
 }
 
 // buildFeatureForm creates the form for Step 3: feature selection.
@@ -96,12 +94,6 @@ func buildFeatureForm(cfg *config.Config) (*huh.Form, *[]string) {
 	}
 	if cfg.Features.MCP {
 		selected = append(selected, "mcp")
-	}
-	if cfg.Features.TelegramAPI {
-		selected = append(selected, "telegramapi")
-	}
-	if cfg.Features.Litestream {
-		selected = append(selected, "litestream")
 	}
 
 	// Default selection for fresh installs
@@ -132,8 +124,6 @@ func applyFeatureSelection(cfg *config.Config, selected []string) {
 	cfg.Features.PocketID = set["pocketid"]
 	cfg.Features.WebPush = set["webpush"]
 	cfg.Features.MCP = set["mcp"]
-	cfg.Features.TelegramAPI = set["telegramapi"]
-	cfg.Features.Litestream = set["litestream"]
 }
 
 // buildConditionalForms creates forms for Step 4 based on selected features.
@@ -156,14 +146,6 @@ func buildConditionalForms(cfg *config.Config) []*huh.Form {
 
 	if cfg.Features.WebPush {
 		forms = append(forms, buildWebPushForm(cfg))
-	}
-
-	if cfg.Features.TelegramAPI {
-		forms = append(forms, buildTelegramAPIForm(cfg))
-	}
-
-	if cfg.Features.Litestream {
-		forms = append(forms, buildLitestreamForm(cfg))
 	}
 
 	return forms
@@ -250,52 +232,6 @@ func buildWebPushForm(cfg *config.Config) *huh.Form {
 				Value(&cfg.WebPush.ContactEmail).
 				Validate(func(s string) error { return config.ValidateEmail(s) }),
 		).Title("Web Push Notifications"),
-	).WithTheme(ui.InstallerTheme())
-}
-
-func buildTelegramAPIForm(cfg *config.Config) *huh.Form {
-	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Telegram API ID").
-				Description("From https://my.telegram.org/apps").
-				Value(&cfg.TelegramAPI.APIID).
-				Validate(func(s string) error { return config.ValidateNonEmpty(s) }),
-
-			huh.NewInput().
-				Title("Telegram API Hash").
-				Description("From https://my.telegram.org/apps").
-				Value(&cfg.TelegramAPI.APIHash).
-				Validate(func(s string) error { return config.ValidateNonEmpty(s) }),
-		).Title("Local Telegram Bot API"),
-	).WithTheme(ui.InstallerTheme())
-}
-
-func buildLitestreamForm(cfg *config.Config) *huh.Form {
-	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("S3/R2 Access Key ID").
-				Value(&cfg.Litestream.AccessKeyID).
-				Validate(func(s string) error { return config.ValidateNonEmpty(s) }),
-
-			huh.NewInput().
-				Title("S3/R2 Secret Access Key").
-				EchoMode(huh.EchoModePassword).
-				Value(&cfg.Litestream.SecretAccessKey).
-				Validate(func(s string) error { return config.ValidateNonEmpty(s) }),
-
-			huh.NewInput().
-				Title("S3/R2 Endpoint").
-				Description("e.g., https://<account-id>.r2.cloudflarestorage.com").
-				Value(&cfg.Litestream.Endpoint).
-				Validate(func(s string) error { return config.ValidateNonEmpty(s) }),
-
-			huh.NewInput().
-				Title("Bucket name").
-				Value(&cfg.Litestream.Bucket).
-				Validate(func(s string) error { return config.ValidateNonEmpty(s) }),
-		).Title("Litestream Backup"),
 	).WithTheme(ui.InstallerTheme())
 }
 
