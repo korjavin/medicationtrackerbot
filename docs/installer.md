@@ -71,9 +71,11 @@ Currently, the Telegram Bot is the core of the system. While we plan to make the
 2.  Send `/newbot` and follow the prompts to get your token.
     <img src="img/bot_create.png" alt="Creating a new bot" width="600" />
 3.  **Important**: You must link your domain to the bot to allow logging in to the website via Telegram.
-    *   Send `/setdomain` to BotFather.
+    *   Send `/mybots` to BotFather.
     *   Select your bot.
-    *   Type your domain name (e.g., `meds.yourdomain.com`).
+    *   Tap **Bot Settings**.
+    *   Tap **Domain**.
+    *   Enter your domain (e.g., `meds.example.com`).
     <img src="img/bot_domain.png" alt="Setting the bot domain" width="600" />
 
 ### 4. Your Telegram User ID
@@ -167,9 +169,9 @@ If you haven't already, go to your Domain Registrar (Namecheap, GoDaddy, Cloudfl
 You need to tell Telegram which domain your bot uses for its Web App.
 
 1. Open **[@BotFather](https://t.me/BotFather)**.
-2. Send `/setdomain`.
-3. Select your bot.
-4. Send your domain: `meds.mysite.com` (or whatever you chose).
+2. Send `/mybots` and select your bot.
+3. Tap **Bot Settings** → **Domain**.
+4. Enter your domain: `meds.mysite.com` (or whatever you chose).
 
 ### 3. Log In!
 - Open `https://meds.mysite.com` in your browser.
@@ -178,12 +180,40 @@ You need to tell Telegram which domain your bot uses for its Web App.
 ### 4. Configure Pocket-ID (If Installed)
 If you chose to install **Pocket-ID**, you need to complete its setup to enable web login and the AI Connector.
 
-1.  Open your ID domain (e.g., `https://id.mysite.com/setup`) in your browser.
-2.  **Create your Admin User**: This will be your main identity.
-3.  **Create an OIDC Client**:
-    *   This "Client" is what connects your Medication Tracker (and Claude) to your identity.
-    *   It generates a **Client ID** and **Client Secret**.
-    *   This is essential for **Web Login** (if Telegram is unavailable) and for authorizing the **Claude MCP Connector**.
+#### Step 1: First-Time Admin Setup
+1.  Open `https://id.mysite.com/setup` in your browser.
+2.  Create your **Admin account** — this is your main identity.
+3.  You will be prompted to register a **Passkey** (fingerprint / Face ID / hardware key).
+
+#### Step 2: Get Your One-Time Login Code
+> **Why?** Pocket-ID uses Passkeys only — there is no password. Before you can log in from a new browser or device, you need to generate a **one-time code** on the server.
+
+Run this command on your server (replace `id.mysite.com` with your Pocket-ID domain):
+
+```bash
+cd /opt/medtracker
+docker compose exec pocket-id ./pocket-id one-time-access-token --email admin@example.com
+```
+
+This prints a **one-time URL** like:
+```
+https://id.mysite.com/one-time-access?token=XXXXXXXXXXXXXXXX
+```
+
+Open that URL in your browser. It will log you in and allow you to **register your Passkey** for future logins.
+
+#### Step 3: Create an OIDC Client
+1.  Log in to `https://id.mysite.com`.
+2.  Go to **OIDC Clients** → **Create Client**.
+3.  Set the **Redirect URI** to: `https://meds.mysite.com/auth/oidc/callback`
+4.  Copy the generated **Client ID** and **Client Secret**.
+5.  Update `/opt/medtracker/.env`:
+    ```
+    OIDC_CLIENT_ID=<paste client id>
+    OIDC_CLIENT_SECRET=<paste client secret>
+    OIDC_ADMIN_EMAIL=<your email>
+    ```
+6.  Restart the stack: `docker compose up -d`
 
 *(Screenshots coming soon)*
 
