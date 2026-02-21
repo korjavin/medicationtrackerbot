@@ -19,16 +19,16 @@ func runPasskeyEnrollment(state *config.InstallerState, _ *docker.Runtime) error
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := pocketid.NewClient(
-		"https://"+state.Config.PocketID.Domain,
-		state.Secrets.PocketIDInstallerAPIKey,
-	)
+	// Use local port for API call — external HTTPS domain may not resolve from inside the server.
+	// The user-facing link still uses the public HTTPS domain.
+	client := pocketid.NewClient("http://127.0.0.1:1411", state.Secrets.PocketIDInstallerAPIKey)
 
 	token, err := client.CreateOneTimeAccessToken(ctx, state.PocketID.UserID)
 	if err != nil {
 		return fmt.Errorf("generate passkey enrollment token: %w", err)
 	}
 
+	// Build the public-facing URL using the external domain
 	enrollURL := fmt.Sprintf("https://%s/login/one-time-access-token/%s",
 		state.Config.PocketID.Domain, token.Token)
 

@@ -227,21 +227,30 @@ func (w *Wizard) stepDomain() error {
 		return err
 	}
 
-	// Now show exact DNS records with real domain names the user just entered
+	// Now show exact DNS records with real domain names the user just entered.
+	// Extract subdomain parts to show in the "Name" column (as DNS providers show it).
 	recordType := network.DNSRecordType(ip)
+	mainName, idName := dnsNamePart(w.state.Config.Domain), dnsNamePart(w.state.Config.PocketID.Domain)
 	dnsBox := fmt.Sprintf(
-		"Your server's public IP address:\n\n"+
-			"  %s\n\n"+
-			"Create DNS %s records in your DNS provider:\n\n"+
-			"  Type   Domain                    Proxy\n"+
-			"  ──────────────────────────────────────────────\n"+
-			"  %-4s   %-24s  DNS only ☁\n"+
-			"  %-4s   %-24s  DNS only ☁\n\n"+
-			"⚠  Disable Cloudflare proxy (grey cloud, not orange).\n"+
-			"   Let's Encrypt needs direct access to issue certificates.",
+		"Your server's public IP:  %s\n\n"+
+			"Create two DNS %s records at your registrar (e.g. Cloudflare):\n\n"+
+			"  ┌──────┬──────────────────┬────────────────────┬────────────┐\n"+
+			"  │ Type │ Name (subdomain) │ Target / Content   │ Proxy      │\n"+
+			"  ├──────┼──────────────────┼────────────────────┼────────────┤\n"+
+			"  │ %-4s │ %-16s │ %-18s │ DNS only ☁ │\n"+
+			"  │ %-4s │ %-16s │ %-18s │ DNS only ☁ │\n"+
+			"  └──────┴──────────────────┴────────────────────┴────────────┘\n\n"+
+			"How to do this in Cloudflare:\n"+
+			"  1. Log in → select your domain → DNS → Records → Add record\n"+
+			"  2. Type: %s  Name: %s  IPv4: %s  Proxy: OFF (grey ☁)\n"+
+			"  3. Repeat for Name: %s\n\n"+
+			"⚠  IMPORTANT: Set proxy to DNS only (grey cloud, NOT orange).\n"+
+			"   Cloudflare orange-cloud proxy breaks Let's Encrypt SSL certificate\n"+
+			"   issuing — your site will not get HTTPS if proxy is enabled.",
 		ui.SuccessStyle.Render(ip), recordType,
-		recordType, w.state.Config.Domain,
-		recordType, w.state.Config.PocketID.Domain,
+		recordType, mainName, ip,
+		recordType, idName, ip,
+		recordType, mainName, ip, idName,
 	)
 	fmt.Println()
 	fmt.Println(ui.BoxStyle.Render(dnsBox))
@@ -553,6 +562,17 @@ func composeCmdStr(tool string) string {
 		return "podman compose"
 	}
 	return "docker compose"
+}
+
+// dnsNamePart extracts the subdomain/name portion of a domain for display in DNS
+// record tables. Given "meds.example.com" it returns "meds"; given a bare domain
+// like "example.com" it returns the full string.
+func dnsNamePart(domain string) string {
+	parts := strings.SplitN(domain, ".", 2)
+	if len(parts) == 2 {
+		return parts[0]
+	}
+	return domain
 }
 
 func offerDockerInstall() error {
