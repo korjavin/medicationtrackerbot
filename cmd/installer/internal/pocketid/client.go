@@ -12,9 +12,10 @@ import (
 
 // Client is an HTTP client for the Pocket-ID API.
 type Client struct {
-	baseURL string
-	apiKey  string
-	http    *http.Client
+	baseURL     string
+	apiKey      string
+	bearerToken string
+	http        *http.Client
 }
 
 // NewClient creates a new Pocket-ID API client.
@@ -24,6 +25,11 @@ func NewClient(baseURL, apiKey string) *Client {
 		apiKey:  apiKey,
 		http:    &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+// SetBearerToken sets a JWT bearer token for authentication (takes priority over API key).
+func (c *Client) SetBearerToken(token string) {
+	c.bearerToken = token
 }
 
 // WaitForReady polls the OIDC discovery endpoint until Pocket-ID is ready.
@@ -135,6 +141,70 @@ func (c *Client) CreateOneTimeAccessToken(ctx context.Context, userID string) (*
 	return &token, nil
 }
 
+// SignupInitialAdmin calls POST /api/signup/setup to create the first admin user.
+// It requires no authentication and only works when no users exist yet.
+// Returns the created user and a JWT access token for subsequent API calls.
+func (c *Client) SignupInitialAdmin(ctx context.Context, req SignupInitialAdminRequest) (*User, string, error) {
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/signup/setup", bytes.NewReader(data))
+	if err != nil {
+		return nil, "", fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(httpReq)
+	if err != nil {
+		return nil, "", fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, "", fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, "", &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
+	}
+
+	var user User
+	if err := json.Unmarshal(respBody, &user); err != nil {
+		return nil, "", fmt.Errorf("parse response: %w", err)
+	}
+
+	// Extract JWT from Set-Cookie header (name varies by protocol)
+	jwt := ""
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == "access_token" || cookie.Name == "__Host-access_token" {
+			jwt = cookie.Value
+			break
+		}
+	}
+	if jwt == "" {
+		return nil, "", fmt.Errorf("no access token cookie in setup response")
+	}
+
+	return &user, jwt, nil
+}
+
+// CreateAPIKey creates a persistent database API key using the current auth (bearer/API key).
+// The returned token is shown only once — store it immediately.
+func (c *Client) CreateAPIKey(ctx context.Context, name string, expiresAt time.Time) (string, error) {
+	var result CreateAPIKeyResponse
+	err := c.doJSON(ctx, http.MethodPost, "/api/api-keys", CreateAPIKeyRequest{
+		Name:      name,
+		ExpiresAt: expiresAt.UTC().Format(time.RFC3339),
+	}, &result)
+	if err != nil {
+		return "", fmt.Errorf("create API key: %w", err)
+	}
+	return result.Token, nil
+}
+
 func (c *Client) doJSON(ctx context.Context, method, path string, body any, result any) error {
 	var bodyReader io.Reader
 	if body != nil {
@@ -150,7 +220,11 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, resu
 		return fmt.Errorf("create request: %w", err)
 	}
 
-	req.Header.Set("X-API-KEY", c.apiKey)
+	if c.bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.bearerToken)
+	} else if c.apiKey != "" {
+		req.Header.Set("X-API-KEY", c.apiKey)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -195,6 +269,15 @@ func (e *APIError) Error() string {
 func IsConflict(err error) bool {
 	if apiErr, ok := err.(*APIError); ok {
 		return apiErr.StatusCode == http.StatusConflict
+	}
+	return false
+}
+
+// IsSetupAlreadyCompleted returns true when /api/signup/setup fails because
+// an admin user already exists (HTTP 400 "Setup already completed").
+func IsSetupAlreadyCompleted(err error) bool {
+	if apiErr, ok := err.(*APIError); ok {
+		return apiErr.StatusCode == http.StatusBadRequest
 	}
 	return false
 }

@@ -34,15 +34,9 @@ services:
     volumes:
       - pocketid_data:/app/backend/data
     environment:
-      - PUBLIC_APP_URL=https://${POCKET_ID_DOMAIN}
+      - APP_URL=https://${POCKET_ID_DOMAIN}
       - TRUST_PROXY=true
       - MAXMIND_LICENSE_KEY=
-{{- if .PocketIDAPIKey }}
-      - POCKET_ID_API_KEY={{ .PocketIDAPIKey }}
-      - BACKEND_ENCRYPTION_KEY={{ .PocketIDEncryptKey }}
-{{- else }}
-      - BACKEND_ENCRYPTION_KEY={{ .PocketIDEncryptKey }}
-{{- end }}
     networks:
       - default
       - {{ .NetworkName }}

@@ -331,7 +331,7 @@ func (m *deployModel) executeTask(name string) error {
 			m.log("Container is running locally.\n")
 		}
 
-		m.log(fmt.Sprintf("Polling https://%s/health...\n", m.state.Config.PocketID.Domain))
+		m.log(fmt.Sprintf("Polling https://%s/.well-known/openid-configuration...\n", m.state.Config.PocketID.Domain))
 		return client.WaitForReady(ctx, 120*time.Second)
 
 	case "Create Pocket-ID admin user":
@@ -369,41 +369,44 @@ func (m *deployModel) executeTask(name string) error {
 }
 
 func (m *deployModel) createPocketIDUser(ctx context.Context) error {
-	client := pocketid.NewClient(
-		"https://"+m.state.Config.PocketID.Domain,
-		m.state.Secrets.PocketIDAPIKey,
-	)
+	// POST /api/signup/setup is unauthenticated and only works on a fresh install.
+	client := pocketid.NewClient("https://"+m.state.Config.PocketID.Domain, "")
 
-	user, err := client.CreateUser(ctx, pocketid.CreateUserRequest{
+	user, jwt, err := client.SignupInitialAdmin(ctx, pocketid.SignupInitialAdminRequest{
 		Username:  "admin",
 		Email:     m.state.Config.PocketID.AdminEmail,
 		FirstName: "Admin",
 		LastName:  "User",
-		IsAdmin:   true,
 	})
 	if err != nil {
-		if pocketid.IsConflict(err) {
-			// User already exists, find by email
-			existing, findErr := client.FindUserByEmail(ctx, m.state.Config.PocketID.AdminEmail)
-			if findErr != nil {
-				return fmt.Errorf("user exists but could not find: %w", findErr)
+		if pocketid.IsSetupAlreadyCompleted(err) {
+			// Admin already exists (resume after partial failure).
+			if m.state.Secrets.PocketIDInstallerAPIKey != "" {
+				m.log("Admin user already exists, reusing saved API key.\n")
+				return nil
 			}
-			m.state.PocketID.UserID = existing.ID
-			m.state.PocketID.AllowedSubject = existing.ID
-			return nil
+			return fmt.Errorf("Pocket-ID setup already completed but no installer API key was saved; delete the Pocket-ID volume and re-run to start fresh")
 		}
 		return err
 	}
 
 	m.state.PocketID.UserID = user.ID
 	m.state.PocketID.AllowedSubject = user.ID
+
+	// Use the JWT to create a persistent DB API key for subsequent steps and re-runs.
+	client.SetBearerToken(jwt)
+	apiKeyToken, err := client.CreateAPIKey(ctx, "medtracker-installer", time.Now().Add(365*24*time.Hour))
+	if err != nil {
+		return fmt.Errorf("create installer API key: %w", err)
+	}
+	m.state.Secrets.PocketIDInstallerAPIKey = apiKeyToken
 	return nil
 }
 
 func (m *deployModel) createWebOIDCClient(ctx context.Context) error {
 	client := pocketid.NewClient(
 		"https://"+m.state.Config.PocketID.Domain,
-		m.state.Secrets.PocketIDAPIKey,
+		m.state.Secrets.PocketIDInstallerAPIKey,
 	)
 
 	oidcClient, err := client.CreateOIDCClient(ctx, pocketid.CreateOIDCClientRequest{
@@ -433,7 +436,7 @@ func (m *deployModel) createWebOIDCClient(ctx context.Context) error {
 func (m *deployModel) createMCPOIDCClient(ctx context.Context) error {
 	client := pocketid.NewClient(
 		"https://"+m.state.Config.PocketID.Domain,
-		m.state.Secrets.PocketIDAPIKey,
+		m.state.Secrets.PocketIDInstallerAPIKey,
 	)
 
 	oidcClient, err := client.CreateOIDCClient(ctx, pocketid.CreateOIDCClientRequest{

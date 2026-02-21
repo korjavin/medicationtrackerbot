@@ -21,7 +21,7 @@ func runPasskeyEnrollment(state *config.InstallerState, _ *docker.Runtime) error
 
 	client := pocketid.NewClient(
 		"https://"+state.Config.PocketID.Domain,
-		state.Secrets.PocketIDAPIKey,
+		state.Secrets.PocketIDInstallerAPIKey,
 	)
 
 	token, err := client.CreateOneTimeAccessToken(ctx, state.PocketID.UserID)

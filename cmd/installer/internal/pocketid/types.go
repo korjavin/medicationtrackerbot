@@ -43,3 +43,25 @@ type OneTimeAccessToken struct {
 	Token     string `json:"token"`
 	ExpiresAt string `json:"expiresAt"`
 }
+
+// SignupInitialAdminRequest is the request body for POST /api/signup/setup.
+type SignupInitialAdminRequest struct {
+	Username  string `json:"username"`
+	Email     string `json:"email,omitempty"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName,omitempty"`
+}
+
+// CreateAPIKeyRequest is the request body for POST /api/api-keys.
+type CreateAPIKeyRequest struct {
+	Name      string `json:"name"`
+	ExpiresAt string `json:"expiresAt"` // RFC 3339
+}
+
+// CreateAPIKeyResponse is the response from POST /api/api-keys.
+type CreateAPIKeyResponse struct {
+	ApiKey struct {
+		ID string `json:"id"`
+	} `json:"apiKey"`
+	Token string `json:"token"`
+}

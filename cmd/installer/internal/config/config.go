@@ -51,11 +51,12 @@ type Config struct {
 
 // Secrets holds generated cryptographic keys.
 type Secrets struct {
-	SessionSecret        string `json:"sessionSecret"`
-	PocketIDAPIKey       string `json:"pocketIdApiKey,omitempty"`
-	PocketIDEncryptKey   string `json:"pocketIdEncryptKey,omitempty"`
-	VAPIDPublicKey       string `json:"vapidPublicKey,omitempty"`
-	VAPIDPrivateKey      string `json:"vapidPrivateKey,omitempty"`
+	SessionSecret           string `json:"sessionSecret"`
+	PocketIDAPIKey          string `json:"pocketIdApiKey,omitempty"`       // legacy, unused
+	PocketIDEncryptKey      string `json:"pocketIdEncryptKey,omitempty"`   // legacy, unused
+	PocketIDInstallerAPIKey string `json:"pocketIdInstallerApiKey,omitempty"`
+	VAPIDPublicKey          string `json:"vapidPublicKey,omitempty"`
+	VAPIDPrivateKey         string `json:"vapidPrivateKey,omitempty"`
 }
 
 // PocketIDState holds Pocket-ID API setup results.
