@@ -65,6 +65,7 @@ services:
       - "traefik.http.routers.medtracker.entrypoints=websecure"
       - "traefik.http.routers.medtracker.tls.certresolver=myresolver"
       - "traefik.http.services.medtracker.loadbalancer.server.port=${PORT:-8080}"
+      - "traefik.docker.network={{ .NetworkName }}"
 {{- if .PocketID }}
     depends_on:
       - pocket-id
@@ -98,6 +99,7 @@ services:
       - "traefik.http.routers.medtracker-mcp.entrypoints=websecure"
       - "traefik.http.routers.medtracker-mcp.tls.certresolver=myresolver"
       - "traefik.http.services.medtracker-mcp.loadbalancer.server.port=${MCP_PORT:-8081}"
+      - "traefik.docker.network={{ .NetworkName }}"
 {{- end }}
 
 
