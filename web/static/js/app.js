@@ -1430,12 +1430,21 @@ function editFoodLog(id) {
     document.getElementById('food-barcode').value = log.barcode || '';
     document.getElementById('food-weight').value = log.weight || '';
 
-    // Server stores total raw values. Untick 'per 100g' so we can just set them.
-    document.getElementById('food-per-100g').checked = false;
-    document.getElementById('food-carbs').value = log.carbs || '';
-    document.getElementById('food-protein').value = log.protein || '';
-    document.getElementById('food-fat').value = log.fat || '';
-    document.getElementById('food-calories').value = log.calories || '';
+    if (log.weight > 0) {
+        // Convert stored totals back to per-100g for display
+        document.getElementById('food-per-100g').checked = true;
+        document.getElementById('food-carbs').value = +((log.carbs / log.weight) * 100).toFixed(1);
+        document.getElementById('food-protein').value = +((log.protein / log.weight) * 100).toFixed(1);
+        document.getElementById('food-fat').value = +((log.fat / log.weight) * 100).toFixed(1);
+        calculateFoodCalories();
+    } else {
+        // No weight stored, show raw totals as-is
+        document.getElementById('food-per-100g').checked = false;
+        document.getElementById('food-carbs').value = log.carbs || '';
+        document.getElementById('food-protein').value = log.protein || '';
+        document.getElementById('food-fat').value = log.fat || '';
+        document.getElementById('food-calories').value = log.calories || '';
+    }
 
     if (log.eaten_at) {
         const local = new Date(log.eaten_at);
@@ -1490,7 +1499,7 @@ async function saveFoodLog() {
         calories: totalCals,
         name: name,
         barcode: document.getElementById('food-barcode').value,
-        per_100g: per100g
+        per_100g: false  // values are always converted to totals before sending
     };
 
     const id = document.getElementById('food-id').value;
