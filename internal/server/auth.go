@@ -178,7 +178,9 @@ func AuthMiddleware(botToken string, allowedUserID int64) func(http.Handler) htt
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
 				}
-				log.Printf("[AUTH] Invalid session cookie from %s", r.RemoteAddr)
+				log.Printf("[AUTH] Invalid session cookie from %s (cookie len=%d, value prefix=%.20q)", r.RemoteAddr, len(cookie.Value), cookie.Value)
+			} else {
+				log.Printf("[AUTH] No auth_session cookie from %s (%v)", r.RemoteAddr, err)
 			}
 
 			// 2. Check for Telegram InitData (Authorization header or query param)

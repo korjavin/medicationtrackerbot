@@ -287,32 +287,45 @@ func firstNonEmpty(values ...string) string {
 }
 
 func createSessionToken(email, secret string) string {
-	// Simple signature: base64(email) + "." + hmac(email, secret)
-	// This is effectively a JWT-lite without the library overhead, adequate for this restricted scope
-	// But let's keep it simpler and just string concatenation verification in middleware
-	// Actually, let's just use the email. Since it's HttpOnly, JS can't read it.
-	// But user can modify it. So we need signature.
-
-	// Let's implement signature in auth.go or here
-	// Re-using ValidateWebAppData logic is not fit here.
-
-	// Simple HMAC
+	// Simple HMAC-signed token: base64url_nopad(email) + "." + hex(hmac(email, secret))
+	// Using RawURLEncoding (no "=" padding) to avoid cookie value issues with proxies/browsers.
 	h := hmac.New(sha256.New, []byte(secret))
 	h.Write([]byte(email))
 	sig := hex.EncodeToString(h.Sum(nil))
 
-	return base64.URLEncoding.EncodeToString([]byte(email)) + "." + sig
+	return base64.RawURLEncoding.EncodeToString([]byte(email)) + "." + sig
 }
 
 func verifySessionToken(token, secret string) (string, bool) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 2 {
+		// Fallback: try the old format with URLEncoding padding
+		// (handles cookies set by a previous version of the server)
+		if len(parts) > 2 {
+			// More than one dot: rejoin all but last as base64 part
+			paddedEmail := strings.Join(parts[:len(parts)-1], ".")
+			sig := parts[len(parts)-1]
+			emailBytes, err := base64.URLEncoding.DecodeString(paddedEmail)
+			if err == nil {
+				email := string(emailBytes)
+				h := hmac.New(sha256.New, []byte(secret))
+				h.Write([]byte(email))
+				if sig == hex.EncodeToString(h.Sum(nil)) {
+					return email, true
+				}
+			}
+		}
 		return "", false
 	}
 
-	emailBytes, err := base64.URLEncoding.DecodeString(parts[0])
+	// New format: RawURLEncoding (no padding)
+	emailBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return "", false
+		// Try old padded format as fallback
+		emailBytes, err = base64.URLEncoding.DecodeString(parts[0])
+		if err != nil {
+			return "", false
+		}
 	}
 	email := string(emailBytes)
 
