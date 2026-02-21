@@ -293,11 +293,11 @@ func (w *Wizard) stepCore() error {
 }
 
 func (w *Wizard) stepFeatures() error {
-	form, selected := buildFeatureForm(&w.state.Config)
-	if err := form.Run(); err != nil {
-		return err
-	}
-	applyFeatureSelection(&w.state.Config, *selected)
+	w.state.Config.Features.Traefik = true
+	w.state.Config.Features.PocketID = true
+	w.state.Config.Features.WebPush = true
+	w.state.Config.Features.MCP = true
+	w.state.Config.MCP.Domain = w.state.Config.Domain
 	return nil
 }
 

@@ -1,7 +1,6 @@
 package wizard
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/charmbracelet/huh"
@@ -79,79 +78,6 @@ func buildCoreForm(cfg *config.Config) *huh.Form {
 				Validate(func(s string) error { return config.ValidateNonEmpty(s) }),
 		).Title("Core Configuration"),
 	).WithTheme(ui.InstallerTheme())
-}
-
-// featureOption is used for tracking multi-select feature choices.
-type featureOption struct {
-	Key   string
-	Label string
-	Desc  string
-}
-
-var allFeatures = []featureOption{
-	{Key: "traefik", Label: "HTTPS via Traefik + Let's Encrypt", Desc: "Automatic TLS certificates"},
-	{Key: "pocketid", Label: "Browser login via Pocket-ID", Desc: "Access web UI from any browser"},
-	{Key: "webpush", Label: "Web push notifications", Desc: "Browser push for medication reminders"},
-	{Key: "mcp", Label: "Claude MCP connector", Desc: "AI integration for health data queries"},
-}
-
-// buildFeatureForm creates the form for Step 3: feature selection.
-func buildFeatureForm(cfg *config.Config) (*huh.Form, *[]string) {
-	// Build options
-	options := make([]huh.Option[string], len(allFeatures))
-	for i, f := range allFeatures {
-		options[i] = huh.NewOption(fmt.Sprintf("%s — %s", f.Label, f.Desc), f.Key)
-	}
-
-	// Pre-select recommended features
-	selected := []string{}
-	if cfg.Features.Traefik {
-		selected = append(selected, "traefik")
-	}
-	if cfg.Features.PocketID {
-		selected = append(selected, "pocketid")
-	}
-	if cfg.Features.WebPush {
-		selected = append(selected, "webpush")
-	}
-	if cfg.Features.MCP {
-		selected = append(selected, "mcp")
-	}
-
-	// Default selection for fresh installs
-	if len(selected) == 0 {
-		selected = []string{"traefik", "pocketid", "webpush"}
-	}
-
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewMultiSelect[string]().
-				Title("Optional features").
-				Description("Select features to enable (space to toggle, enter to confirm)").
-				Options(options...).
-				Value(&selected),
-		).Title("Feature Selection"),
-	).WithTheme(ui.InstallerTheme())
-
-	return form, &selected
-}
-
-// applyFeatureSelection maps selected feature keys back to the config.
-func applyFeatureSelection(cfg *config.Config, selected []string) {
-	set := make(map[string]bool)
-	for _, s := range selected {
-		set[s] = true
-	}
-	cfg.Features.Traefik = set["traefik"]
-	cfg.Features.PocketID = set["pocketid"]
-	cfg.Features.WebPush = set["webpush"]
-	cfg.Features.MCP = set["mcp"]
-
-	// MCP is always served as a subfolder of the main domain (/mcp).
-	// No separate subdomain or DNS record is required.
-	if cfg.Features.MCP {
-		cfg.MCP.Domain = cfg.Domain
-	}
 }
 
 // buildConditionalForms creates forms for Step 4 based on selected features.
