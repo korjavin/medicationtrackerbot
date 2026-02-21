@@ -90,10 +90,6 @@ func buildConditionalForms(cfg *config.Config) []*huh.Form {
 		forms = append(forms, buildExternalProxyForm(cfg))
 	}
 
-	if cfg.Features.PocketID {
-		forms = append(forms, buildPocketIDForm(cfg))
-	}
-
 	if cfg.Features.MCP {
 		// MCP is served under the main domain at /mcp (no separate subdomain needed).
 		cfg.MCP.Domain = cfg.Domain
@@ -131,19 +127,6 @@ func buildExternalProxyForm(cfg *config.Config) *huh.Form {
 				Value(&cfg.Traefik.ExternalNetwork).
 				Validate(func(s string) error { return config.ValidateNonEmpty(s) }),
 		).Title("External Proxy"),
-	).WithTheme(ui.InstallerTheme())
-}
-
-func buildPocketIDForm(cfg *config.Config) *huh.Form {
-	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Admin email").
-				Description("Your email for the Pocket-ID admin account").
-				Placeholder("you@example.com").
-				Value(&cfg.PocketID.AdminEmail).
-				Validate(func(s string) error { return config.ValidateEmail(s) }),
-		).Title("Pocket-ID Authentication"),
 	).WithTheme(ui.InstallerTheme())
 }
 
