@@ -46,6 +46,7 @@ func GenerateEnv(cfg *Config, secrets *Secrets, pid *PocketIDState) string {
 		writeln(&b, "OIDC_USERINFO_URL=https://%s/api/oidc/userinfo", pocketIDDomain)
 		writeln(&b, "OIDC_CLIENT_ID=%s", pid.WebClientID)
 		writeln(&b, "OIDC_CLIENT_SECRET=%s", pid.WebClientSecret)
+		writeln(&b, "OIDC_MCP_CLIENT_ID=%s", pid.MCPClientID)
 		writeln(&b, "OIDC_REDIRECT_URL=https://%s/auth/oidc/callback", cfg.Domain)
 		writeln(&b, "OIDC_ADMIN_EMAIL=%s", cfg.PocketID.AdminEmail)
 		writeln(&b, "OIDC_ALLOWED_SUBJECT=%s", pid.AllowedSubject)

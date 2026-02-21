@@ -566,10 +566,23 @@ func (s *Server) serveOIDCSetup(w http.ResponseWriter, r *http.Request) {
 		mcpDomain = "mcp.example.com"
 	}
 
+	// MCP server URL: if MCP runs on the same domain as the app (path-prefix routing),
+	// append /mcp; otherwise use the dedicated subdomain.
+	mcpServerURL := "https://" + mcpDomain
+	if mcpDomain == appDomain {
+		mcpServerURL = "https://" + appDomain + "/mcp"
+	}
+
+	// OIDC client IDs — used to build direct links to Pocket-ID admin pages.
+	webClientID := os.Getenv("OIDC_CLIENT_ID")
+	mcpClientID := os.Getenv("OIDC_MCP_CLIENT_ID")
+
 	html := string(content)
 	html = strings.ReplaceAll(html, "APP_DOMAIN_PLACEHOLDER", appDomain)
 	html = strings.ReplaceAll(html, "POCKET_ID_DOMAIN_PLACEHOLDER", pocketIDDomain)
-	html = strings.ReplaceAll(html, "MCP_DOMAIN_PLACEHOLDER", mcpDomain)
+	html = strings.ReplaceAll(html, "MCP_SERVER_URL_PLACEHOLDER", mcpServerURL)
+	html = strings.ReplaceAll(html, "WEB_CLIENT_ID_PLACEHOLDER", webClientID)
+	html = strings.ReplaceAll(html, "MCP_CLIENT_ID_PLACEHOLDER", mcpClientID)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(html))

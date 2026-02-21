@@ -13,6 +13,7 @@
             --border: #e2e8f0;
             --primary: #111827;
             --primary-text: #ffffff;
+            --link: #2563eb;
         }
         body {
             margin: 0;
@@ -22,7 +23,8 @@
             color: var(--text);
         }
         h1 { margin: 0 0 8px; font-size: 24px; }
-        p { color: var(--muted); }
+        h2 { margin: 0 0 4px; font-size: 16px; }
+        p { color: var(--muted); margin: 0 0 4px; }
         .grid {
             display: grid;
             grid-template-columns: 1fr;
@@ -35,6 +37,14 @@
             border-radius: 12px;
             padding: 16px;
         }
+        .card-title {
+            font-weight: 700;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
         .row {
             display: flex;
             gap: 12px;
@@ -44,8 +54,14 @@
             border-bottom: 1px solid var(--border);
         }
         .row:last-child { border-bottom: none; }
-        .label { font-weight: 600; }
-        .value { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 13px; }
+        .label { font-weight: 600; font-size: 14px; }
+        .value {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+            font-size: 13px;
+            word-break: break-all;
+        }
+        .value a { color: var(--link); text-decoration: none; }
+        .value a:hover { text-decoration: underline; }
         button {
             padding: 6px 10px;
             background: var(--primary);
@@ -53,6 +69,8 @@
             border: none;
             border-radius: 6px;
             cursor: pointer;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
         .note {
             margin-top: 12px;
@@ -63,13 +81,16 @@
 </head>
 <body>
     <h1>Pocket-ID / OIDC Setup</h1>
-    <p>Use these values when creating OIDC clients.</p>
+    <p>URLs and client IDs for connecting services to Pocket-ID.</p>
 
     <div class="grid">
+
+        <!-- Web Login -->
         <div class="card">
+            <div class="card-title">Web Login (Browser)</div>
             <div class="row">
                 <div>
-                    <div class="label">Web Login Redirect URL</div>
+                    <div class="label">Redirect URL</div>
                     <div class="value" id="web-redirect">https://APP_DOMAIN_PLACEHOLDER/auth/oidc/callback</div>
                 </div>
                 <button data-copy="web-redirect">Copy</button>
@@ -81,32 +102,56 @@
                 </div>
                 <button data-copy="issuer-url">Copy</button>
             </div>
-            <div class="note">Restrict access by email or by subject (`sub`).</div>
-        </div>
-
-        <div class="card">
             <div class="row">
                 <div>
-                    <div class="label">Claude MCP Redirect URI (claude.ai)</div>
+                    <div class="label">Client credentials</div>
+                    <div class="value">
+                        <a id="web-client-link" href="https://POCKET_ID_DOMAIN_PLACEHOLDER/settings/admin/oidc-clients/WEB_CLIENT_ID_PLACEHOLDER" target="_blank">
+                            View / copy in Pocket-ID →
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="note">Restrict access by subject (<code>sub</code>) or email.</div>
+        </div>
+
+        <!-- Claude MCP -->
+        <div class="card">
+            <div class="card-title">Claude MCP Connector</div>
+            <div class="row">
+                <div>
+                    <div class="label">MCP Server URL</div>
+                    <div class="value" id="mcp-url">MCP_SERVER_URL_PLACEHOLDER</div>
+                </div>
+                <button data-copy="mcp-url">Copy</button>
+            </div>
+            <div class="row">
+                <div>
+                    <div class="label">Redirect URI (claude.ai)</div>
                     <div class="value" id="mcp-redirect-ai">https://claude.ai/api/mcp/auth_callback</div>
                 </div>
                 <button data-copy="mcp-redirect-ai">Copy</button>
             </div>
             <div class="row">
                 <div>
-                    <div class="label">Claude MCP Redirect URI (claude.com)</div>
+                    <div class="label">Redirect URI (claude.com)</div>
                     <div class="value" id="mcp-redirect-com">https://claude.com/api/mcp/auth_callback</div>
                 </div>
                 <button data-copy="mcp-redirect-com">Copy</button>
             </div>
             <div class="row">
                 <div>
-                    <div class="label">MCP Server URL</div>
-                    <div class="value" id="mcp-url">https://MCP_DOMAIN_PLACEHOLDER</div>
+                    <div class="label">Client credentials</div>
+                    <div class="value">
+                        <a id="mcp-client-link" href="https://POCKET_ID_DOMAIN_PLACEHOLDER/settings/admin/oidc-clients/MCP_CLIENT_ID_PLACEHOLDER" target="_blank">
+                            View / copy in Pocket-ID →
+                        </a>
+                    </div>
                 </div>
-                <button data-copy="mcp-url">Copy</button>
             </div>
+            <div class="note">Add this MCP server in Claude → Settings → Integrations.</div>
         </div>
+
     </div>
 
     <script>
