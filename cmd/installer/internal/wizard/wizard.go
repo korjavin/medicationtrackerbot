@@ -207,26 +207,32 @@ func (w *Wizard) stepDomain() error {
 
 	fmt.Println()
 
+	// Determine the correct DNS record type based on IP version
+	recordType := network.DNSRecordType(ip)
+
 	// DNS instructions box
 	dnsBox := fmt.Sprintf(
 		"Your server's public IP address:\n\n"+
 			"  %s\n\n"+
-			"Before continuing, create DNS A records pointing your\n"+
+			"Before continuing, create DNS %s records pointing your\n"+
 			"subdomains to this IP address.\n\n"+
 			"Example setup in Cloudflare (or any DNS provider):\n\n"+
 			"  Type   Name    Content         Proxy\n"+
 			"  ─────────────────────────────────────\n"+
-			"  A      meds    %s   DNS only ☁\n"+
-			"  A      id      %s   DNS only ☁\n"+
-			"  A      mcp     %s   DNS only ☁\n\n"+
+			"  %-4s   meds    %s   DNS only ☁\n"+
+			"  %-4s   id      %s   DNS only ☁\n\n"+
 			"⚠  Disable Cloudflare proxy (grey cloud, not orange).\n"+
-			"   Let's Encrypt needs direct access to issue certificates.",
-		ui.SuccessStyle.Render(ip), ip, ip, ip,
+			"   Let's Encrypt needs direct access to issue certificates.\n\n"+
+			"ℹ  The 'id' subdomain runs Pocket-ID — a dedicated identity\n"+
+			"   server that controls which AI assistants (like Claude)\n"+
+			"   can access your health data via OAuth. A separate subdomain\n"+
+			"   is required so the auth server has its own trusted origin.\n"+
+			"   (Only needed if you enable Browser login in the next step.)",
+		ui.SuccessStyle.Render(ip), recordType,
+		recordType, ip,
+		recordType, ip,
 	)
 	fmt.Println(ui.BoxStyle.Render(dnsBox))
-	fmt.Println()
-	fmt.Println("You don't need all three subdomains — only the ones")
-	fmt.Println("matching the features you'll enable in the next steps.")
 	fmt.Println()
 
 	return buildDomainForm(&w.state.Config).Run()

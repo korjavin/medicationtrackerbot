@@ -133,6 +133,12 @@ func applyFeatureSelection(cfg *config.Config, selected []string) {
 	cfg.Features.PocketID = set["pocketid"]
 	cfg.Features.WebPush = set["webpush"]
 	cfg.Features.MCP = set["mcp"]
+
+	// MCP is always served as a subfolder of the main domain (/mcp).
+	// No separate subdomain or DNS record is required.
+	if cfg.Features.MCP {
+		cfg.MCP.Domain = cfg.Domain
+	}
 }
 
 // buildConditionalForms creates forms for Step 4 based on selected features.
@@ -150,7 +156,8 @@ func buildConditionalForms(cfg *config.Config) []*huh.Form {
 	}
 
 	if cfg.Features.MCP {
-		forms = append(forms, buildMCPForm(cfg))
+		// MCP is served under the main domain at /mcp (no separate subdomain needed).
+		cfg.MCP.Domain = cfg.Domain
 	}
 
 	if cfg.Features.WebPush {
@@ -212,22 +219,6 @@ func buildPocketIDForm(cfg *config.Config) *huh.Form {
 				Value(&cfg.PocketID.AdminEmail).
 				Validate(func(s string) error { return config.ValidateEmail(s) }),
 		).Title("Pocket-ID Authentication"),
-	).WithTheme(ui.InstallerTheme())
-}
-
-func buildMCPForm(cfg *config.Config) *huh.Form {
-	if cfg.MCP.Domain == "" && cfg.Domain != "" {
-		cfg.MCP.Domain = cfg.Domain
-	}
-
-	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("MCP server domain").
-				Description("Domain for the Claude AI integration endpoint").
-				Value(&cfg.MCP.Domain).
-				Validate(func(s string) error { return config.ValidateDomain(s) }),
-		).Title("MCP Server"),
 	).WithTheme(ui.InstallerTheme())
 }
 
