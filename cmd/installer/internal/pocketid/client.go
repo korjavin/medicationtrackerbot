@@ -97,14 +97,35 @@ func (c *Client) FindUserByEmail(ctx context.Context, email string) (*User, erro
 	return nil, fmt.Errorf("user with email %s not found", email)
 }
 
-// CreateOIDCClient creates a new OIDC client.
+// CreateOIDCClient creates a new OIDC client and immediately generates its secret.
+// Pocket-ID's create endpoint does not return a secret; a separate call to
+// POST /api/oidc/clients/:id/secret is required to obtain the plain-text secret.
 func (c *Client) CreateOIDCClient(ctx context.Context, req CreateOIDCClientRequest) (*OIDCClient, error) {
 	var client OIDCClient
-	err := c.doJSON(ctx, http.MethodPost, "/api/oidc/clients", req, &client)
-	if err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, "/api/oidc/clients", req, &client); err != nil {
 		return nil, fmt.Errorf("create OIDC client: %w", err)
 	}
+
+	// Generate the client secret (returned only once in plain text).
+	secret, err := c.CreateOIDCClientSecret(ctx, client.ID)
+	if err != nil {
+		return nil, fmt.Errorf("create OIDC client secret: %w", err)
+	}
+	client.Secret = secret
+
 	return &client, nil
+}
+
+// CreateOIDCClientSecret generates a new secret for an existing OIDC client.
+// Returns the plain-text secret (shown only once — store immediately).
+func (c *Client) CreateOIDCClientSecret(ctx context.Context, clientID string) (string, error) {
+	var result struct {
+		Secret string `json:"secret"`
+	}
+	if err := c.doJSON(ctx, http.MethodPost, "/api/oidc/clients/"+clientID+"/secret", nil, &result); err != nil {
+		return "", fmt.Errorf("generate client secret: %w", err)
+	}
+	return result.Secret, nil
 }
 
 // ListOIDCClients returns all OIDC clients.

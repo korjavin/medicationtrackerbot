@@ -406,12 +406,19 @@ func (m *deployModel) createWebOIDCClient(ctx context.Context) error {
 	})
 	if err != nil {
 		if pocketid.IsConflict(err) {
+			// Client already exists — find it and regenerate its secret.
+			// Pocket-ID never returns the secret in list/get responses, so we must
+			// generate a fresh one; this invalidates any previous secret.
 			existing, findErr := client.FindOIDCClientByName(ctx, "MedTracker")
 			if findErr != nil {
 				return fmt.Errorf("client exists but could not find: %w", findErr)
 			}
+			secret, secErr := client.CreateOIDCClientSecret(ctx, existing.ID)
+			if secErr != nil {
+				return fmt.Errorf("regenerate web client secret: %w", secErr)
+			}
 			m.state.PocketID.WebClientID = existing.ID
-			m.state.PocketID.WebClientSecret = existing.Secret
+			m.state.PocketID.WebClientSecret = secret
 			return nil
 		}
 		return err
@@ -440,8 +447,12 @@ func (m *deployModel) createMCPOIDCClient(ctx context.Context) error {
 			if findErr != nil {
 				return fmt.Errorf("client exists but could not find: %w", findErr)
 			}
+			secret, secErr := client.CreateOIDCClientSecret(ctx, existing.ID)
+			if secErr != nil {
+				return fmt.Errorf("regenerate MCP client secret: %w", secErr)
+			}
 			m.state.PocketID.MCPClientID = existing.ID
-			m.state.PocketID.MCPClientSecret = existing.Secret
+			m.state.PocketID.MCPClientSecret = secret
 			return nil
 		}
 		return err
