@@ -11,7 +11,21 @@ import (
 	"github.com/korjavin/medicationtrackerbot/installer/internal/ui"
 )
 
-// buildCoreForm creates the form for Step 2: core configuration.
+// buildDomainForm creates the form for Step 2: domain entry.
+func buildDomainForm(cfg *config.Config) *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Primary domain").
+				Description("The domain your MedTracker will be accessible at (e.g. meds.example.com)").
+				Placeholder("meds.example.com").
+				Value(&cfg.Domain).
+				Validate(func(s string) error { return config.ValidateDomain(s) }),
+		).Title("Domain Configuration"),
+	).WithTheme(ui.InstallerTheme())
+}
+
+// buildCoreForm creates the form for Step 3: core configuration.
 func buildCoreForm(cfg *config.Config) *huh.Form {
 	// Auto-detect timezone
 	if cfg.Timezone == "" {
@@ -28,13 +42,6 @@ func buildCoreForm(cfg *config.Config) *huh.Form {
 				Description("Where to store configuration and data").
 				Value(&cfg.InstallDir).
 				Validate(func(s string) error { return config.ValidateInstallDir(s) }),
-
-			huh.NewInput().
-				Title("Primary domain").
-				Description("The domain your MedTracker will be accessible at").
-				Placeholder("meds.example.com").
-				Value(&cfg.Domain).
-				Validate(func(s string) error { return config.ValidateDomain(s) }),
 
 			huh.NewInput().
 				Title("Timezone").

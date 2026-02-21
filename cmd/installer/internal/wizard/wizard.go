@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/charmbracelet/huh"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/installer/internal/config"
 	"github.com/korjavin/medicationtrackerbot/installer/internal/crypto"
 	"github.com/korjavin/medicationtrackerbot/installer/internal/docker"
+	"github.com/korjavin/medicationtrackerbot/installer/internal/network"
 	"github.com/korjavin/medicationtrackerbot/installer/internal/ui"
 )
 
@@ -154,6 +156,8 @@ func (w *Wizard) runStep(step Step) error {
 	switch step {
 	case StepWelcome:
 		return nil // already handled
+	case StepDomain:
+		return w.stepDomain()
 	case StepCore:
 		return w.stepCore()
 	case StepFeatures:
@@ -175,6 +179,55 @@ func (w *Wizard) runStep(step Step) error {
 	default:
 		return fmt.Errorf("unknown step: %s", step)
 	}
+}
+
+func (w *Wizard) stepDomain() error {
+	fmt.Println()
+	fmt.Println(ui.TitleStyle.Render("Step 1 — Domain & DNS Setup"))
+	fmt.Println()
+	fmt.Println("MedTracker requires a domain name to:")
+	fmt.Println("  • Obtain HTTPS certificates via Let's Encrypt")
+	fmt.Println("  • Expose the MCP server securely for AI access")
+	fmt.Println()
+
+	// Detect public IP
+	fmt.Printf("%s  Detecting server public IP address...", ui.Spinner)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ip, err := network.DetectPublicIP(ctx)
+	if err != nil {
+		fmt.Printf("\n%s  Could not auto-detect IP: %v\n", ui.CrossMark, err)
+		ip = "<your-server-ip>"
+	} else {
+		fmt.Printf("  %s\n", ui.SuccessStyle.Render(ip))
+	}
+
+	fmt.Println()
+
+	// DNS instructions box
+	dnsBox := fmt.Sprintf(
+		"Your server's public IP address:\n\n"+
+			"  %s\n\n"+
+			"Before continuing, create DNS A records pointing your\n"+
+			"subdomains to this IP address.\n\n"+
+			"Example setup in Cloudflare (or any DNS provider):\n\n"+
+			"  Type   Name    Content         Proxy\n"+
+			"  ─────────────────────────────────────\n"+
+			"  A      meds    %s   DNS only ☁\n"+
+			"  A      id      %s   DNS only ☁\n"+
+			"  A      mcp     %s   DNS only ☁\n\n"+
+			"⚠  Disable Cloudflare proxy (grey cloud, not orange).\n"+
+			"   Let's Encrypt needs direct access to issue certificates.",
+		ui.SuccessStyle.Render(ip), ip, ip, ip,
+	)
+	fmt.Println(ui.BoxStyle.Render(dnsBox))
+	fmt.Println()
+	fmt.Println("You don't need all three subdomains — only the ones")
+	fmt.Println("matching the features you'll enable in the next steps.")
+	fmt.Println()
+
+	return buildDomainForm(&w.state.Config).Run()
 }
 
 func (w *Wizard) stepCore() error {
@@ -407,9 +460,6 @@ func maskToken(token string) string {
 
 // printFinalSummary displays the final post-install information.
 func printFinalSummary(state *config.InstallerState) {
-	ctx := context.Background()
-	_ = ctx
-
 	fmt.Println()
 	fmt.Println(ui.TitleStyle.Render("Installation Complete!"))
 	fmt.Println()
