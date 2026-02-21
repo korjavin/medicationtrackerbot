@@ -2,7 +2,6 @@ package wizard
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/huh"
@@ -11,17 +10,31 @@ import (
 	"github.com/korjavin/medicationtrackerbot/installer/internal/ui"
 )
 
-// buildDomainForm creates the form for Step 2: domain entry.
-func buildDomainForm(cfg *config.Config) *huh.Form {
+// buildMainDomainForm asks for the primary app domain.
+func buildMainDomainForm(cfg *config.Config) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Primary domain").
-				Description("The domain your MedTracker will be accessible at (e.g. meds.example.com)").
+				Description("The domain your MedTracker web UI will be accessible at (e.g. meds.example.com)").
 				Placeholder("meds.example.com").
 				Value(&cfg.Domain).
 				Validate(func(s string) error { return config.ValidateDomain(s) }),
-		).Title("Domain Configuration"),
+		).Title("Domain Configuration — App"),
+	).WithTheme(ui.InstallerTheme())
+}
+
+// buildPocketIDDomainForm asks for the Pocket-ID auth server domain.
+// Call this after buildMainDomainForm so the default can be pre-derived.
+func buildPocketIDDomainForm(cfg *config.Config) *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Pocket-ID domain (auth server)").
+				Description("Separate subdomain for the identity server that secures AI access to your data.\nMUST differ from the primary domain (e.g. id.example.com).").
+				Value(&cfg.PocketID.Domain).
+				Validate(func(s string) error { return config.ValidateDomain(s) }),
+		).Title("Domain Configuration — Auth"),
 	).WithTheme(ui.InstallerTheme())
 }
 
@@ -196,25 +209,11 @@ func buildExternalProxyForm(cfg *config.Config) *huh.Form {
 }
 
 func buildPocketIDForm(cfg *config.Config) *huh.Form {
-	// Default subdomain
-	if cfg.PocketID.Domain == "" && cfg.Domain != "" {
-		parts := strings.SplitN(cfg.Domain, ".", 2)
-		if len(parts) == 2 {
-			cfg.PocketID.Domain = "id." + parts[1]
-		}
-	}
-
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
-				Title("Pocket-ID domain").
-				Description("Domain for the authentication service. MUST be a separate subdomain (e.g., id.example.com)").
-				Value(&cfg.PocketID.Domain).
-				Validate(func(s string) error { return config.ValidateDomain(s) }),
-
-			huh.NewInput().
 				Title("Admin email").
-				Description("Your email for the admin account").
+				Description("Your email for the Pocket-ID admin account").
 				Placeholder("you@example.com").
 				Value(&cfg.PocketID.AdminEmail).
 				Validate(func(s string) error { return config.ValidateEmail(s) }),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/huh"
@@ -187,9 +188,11 @@ func (w *Wizard) stepDomain() error {
 	fmt.Println()
 	fmt.Println(ui.TitleStyle.Render("Step 1 — Domain & DNS Setup"))
 	fmt.Println()
-	fmt.Println("MedTracker requires a domain name to:")
-	fmt.Println("  • Obtain HTTPS certificates via Let's Encrypt")
-	fmt.Println("  • Expose the MCP server securely for AI access")
+	fmt.Println("MedTracker needs two subdomains:")
+	fmt.Println("  • Main app domain  — where the web UI and Telegram Mini App live")
+	fmt.Println("  • Auth domain      — a dedicated Pocket-ID server that controls")
+	fmt.Println("                       which AI assistants can access your health data")
+	fmt.Println("                       (required for Browser login and Claude MCP)")
 	fmt.Println()
 
 	// Detect public IP
@@ -204,38 +207,47 @@ func (w *Wizard) stepDomain() error {
 	} else {
 		fmt.Printf("  %s\n", ui.SuccessStyle.Render(ip))
 	}
-
 	fmt.Println()
 
-	// Determine the correct DNS record type based on IP version
-	recordType := network.DNSRecordType(ip)
+	// Step 1a: ask for main domain
+	if err := buildMainDomainForm(&w.state.Config).Run(); err != nil {
+		return err
+	}
 
-	// DNS instructions box
+	// Derive PocketID domain default from main domain if not already set
+	if w.state.Config.PocketID.Domain == "" && w.state.Config.Domain != "" {
+		parts := strings.SplitN(w.state.Config.Domain, ".", 2)
+		if len(parts) == 2 {
+			w.state.Config.PocketID.Domain = "id." + parts[1]
+		}
+	}
+
+	// Step 1b: ask for Pocket-ID domain (pre-filled with derived default)
+	if err := buildPocketIDDomainForm(&w.state.Config).Run(); err != nil {
+		return err
+	}
+
+	// Now show exact DNS records with real domain names the user just entered
+	recordType := network.DNSRecordType(ip)
 	dnsBox := fmt.Sprintf(
 		"Your server's public IP address:\n\n"+
 			"  %s\n\n"+
-			"Before continuing, create DNS %s records pointing your\n"+
-			"subdomains to this IP address.\n\n"+
-			"Example setup in Cloudflare (or any DNS provider):\n\n"+
-			"  Type   Name    Content         Proxy\n"+
-			"  ─────────────────────────────────────\n"+
-			"  %-4s   meds    %s   DNS only ☁\n"+
-			"  %-4s   id      %s   DNS only ☁\n\n"+
+			"Create DNS %s records in your DNS provider:\n\n"+
+			"  Type   Domain                    Proxy\n"+
+			"  ──────────────────────────────────────────────\n"+
+			"  %-4s   %-24s  DNS only ☁\n"+
+			"  %-4s   %-24s  DNS only ☁\n\n"+
 			"⚠  Disable Cloudflare proxy (grey cloud, not orange).\n"+
-			"   Let's Encrypt needs direct access to issue certificates.\n\n"+
-			"ℹ  The 'id' subdomain runs Pocket-ID — a dedicated identity\n"+
-			"   server that controls which AI assistants (like Claude)\n"+
-			"   can access your health data via OAuth. A separate subdomain\n"+
-			"   is required so the auth server has its own trusted origin.\n"+
-			"   (Only needed if you enable Browser login in the next step.)",
+			"   Let's Encrypt needs direct access to issue certificates.",
 		ui.SuccessStyle.Render(ip), recordType,
-		recordType, ip,
-		recordType, ip,
+		recordType, w.state.Config.Domain,
+		recordType, w.state.Config.PocketID.Domain,
 	)
+	fmt.Println()
 	fmt.Println(ui.BoxStyle.Render(dnsBox))
 	fmt.Println()
 
-	return buildDomainForm(&w.state.Config).Run()
+	return nil
 }
 
 func (w *Wizard) stepTelegram() error {
