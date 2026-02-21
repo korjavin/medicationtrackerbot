@@ -28,8 +28,9 @@ func runPasskeyEnrollment(state *config.InstallerState, _ *docker.Runtime) error
 		return fmt.Errorf("generate passkey enrollment token: %w", err)
 	}
 
-	// Build the public-facing URL using the external domain
-	enrollURL := fmt.Sprintf("https://%s/login/one-time-access-token/%s",
+	// Build the public-facing URL using the external domain.
+	// Pocket-ID's short-link route /lc/<token> redirects to /login/alternative/code?code=<token>.
+	enrollURL := fmt.Sprintf("https://%s/lc/%s",
 		state.Config.PocketID.Domain, token.Token)
 
 	fmt.Println()

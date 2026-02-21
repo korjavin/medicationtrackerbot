@@ -132,9 +132,12 @@ func (c *Client) FindOIDCClientByName(ctx context.Context, name string) (*OIDCCl
 }
 
 // CreateOneTimeAccessToken generates a one-time passkey enrollment token for a user.
+// Pocket-ID requires userId in the request body (not just the path param) and
+// an optional ttl (Go duration string; empty = server default of 15 minutes).
 func (c *Client) CreateOneTimeAccessToken(ctx context.Context, userID string) (*OneTimeAccessToken, error) {
 	var token OneTimeAccessToken
-	err := c.doJSON(ctx, http.MethodPost, "/api/users/"+userID+"/one-time-access-token", nil, &token)
+	err := c.doJSON(ctx, http.MethodPost, "/api/users/"+userID+"/one-time-access-token",
+		OneTimeAccessTokenRequest{UserID: userID, TTL: "24h"}, &token)
 	if err != nil {
 		return nil, fmt.Errorf("create one-time access token: %w", err)
 	}

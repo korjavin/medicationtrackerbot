@@ -40,8 +40,14 @@ type CreateOIDCClientRequest struct {
 
 // OneTimeAccessToken represents a one-time access token response.
 type OneTimeAccessToken struct {
-	Token     string `json:"token"`
-	ExpiresAt string `json:"expiresAt"`
+	Token string `json:"token"`
+}
+
+// OneTimeAccessTokenRequest is the request body for POST /api/users/{id}/one-time-access-token.
+// Pocket-ID reads userId from the body (not the path param), and ttl is optional (0 = default 15m).
+type OneTimeAccessTokenRequest struct {
+	UserID string `json:"userId"`
+	TTL    string `json:"ttl,omitempty"` // Go duration string, e.g. "24h"; empty = server default
 }
 
 // SignupInitialAdminRequest is the request body for POST /api/signup/setup.
