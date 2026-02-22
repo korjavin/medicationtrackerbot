@@ -235,5 +235,5 @@ Open that URL in your browser. It will log you in and allow you to **register yo
 - Check the issues on [GitHub](https://github.com/korjavin/medicationtrackerbot/issues).
 
 ---
-*Last Updated: 2026-02-20*
+*Last Updated: 2026-02-22*
 
