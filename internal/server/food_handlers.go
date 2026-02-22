@@ -491,9 +491,9 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 	ctx, cancel := context.WithTimeout(r.Context(), fallbackTimeout)
 	defer cancel()
 
-	apiProducts, err := s.store.SearchOpenFoodFactsAPI(ctx, query)
+	apiProducts, err := s.store.SearchRemoteFoodAPI(ctx, query)
 	if err != nil {
-		log.Printf("Debug: OpenFoodFacts API fallback failed for query %q: %v", query, err)
+		log.Printf("Debug: Remote food API fallback failed for query %q: %v", query, err)
 		return // Just stop streaming if remote fetch fails
 	}
 

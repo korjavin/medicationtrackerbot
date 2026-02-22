@@ -7,41 +7,50 @@ import (
 	"html"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
 
-// offAPIProduct matches the minimum structure from OpenFoodFacts required for our macros.
-type offAPIProduct struct {
-	Code        string `json:"code"`
-	ProductName string `json:"product_name"`
-	Nutriments  struct {
-		Carbohydrates100G float64 `json:"carbohydrates_100g"`
-		Proteins100G      float64 `json:"proteins_100g"`
-		Fat100G           float64 `json:"fat_100g"`
-		EnergyKcal100G    float64 `json:"energy-kcal_100g"`
-	} `json:"nutriments"`
+// fastFoodProduct matches the OpenAPI schema for FastFoodDB.
+type fastFoodProduct struct {
+	Barcode  string   `json:"barcode"`
+	Name     string   `json:"name"`
+	Kcal100g *float64 `json:"kcal100g"`
+	Protein  *float64 `json:"protein"`
+	Fat      *float64 `json:"fat"`
+	Carbs    *float64 `json:"carbs"`
 }
 
-// SearchOpenFoodFactsAPI performs a live, resilient search against the OpenFoodFacts v0 (Barcode) or cgi (Text) endpoints.
+// SearchRemoteFoodAPI performs a live, resilient search against the FastFoodDB API.
 // It maps the response safely to our local FoodProduct struct.
-func (s *Store) SearchOpenFoodFactsAPI(ctx context.Context, query string) ([]FoodProduct, error) {
+func (s *Store) SearchRemoteFoodAPI(ctx context.Context, query string) ([]FoodProduct, error) {
+	domain := os.Getenv("FOOD_DOMAIN")
+	apiKey := os.Getenv("FOOD_API_KEY")
+
+	if domain == "" {
+		return nil, fmt.Errorf("FOOD_DOMAIN environment variable is required")
+	}
+
 	var targetURL string
 
 	// Determine if query is mostly a barcode (heuristic: all numbers or >= 8 chars numeric)
 	isBarcode := len(query) >= 8 && isNumeric(query)
 
 	if isBarcode {
-		targetURL = fmt.Sprintf("https://world.openfoodfacts.org/api/v0/product/%s.json", url.PathEscape(query))
+		targetURL = fmt.Sprintf("https://%s/api/v1/food/barcode/%s", domain, url.PathEscape(query))
 	} else {
-		targetURL = fmt.Sprintf("https://world.openfoodfacts.org/cgi/search.pl?search_terms=%s&search_simple=1&action=process&json=1&page_size=6", url.QueryEscape(query))
+		targetURL = fmt.Sprintf("https://%s/api/v1/food/search?q=%s&limit=20", domain, url.QueryEscape(query))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "MedTrackerBot - Go - Version 1.0 - (https://github.com/korjavin/medicationtrackerbot)") // API requires user agent
+
+	if apiKey != "" {
+		req.Header.Set("X-API-Key", apiKey)
+	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -51,35 +60,32 @@ func (s *Store) SearchOpenFoodFactsAPI(ctx context.Context, query string) ([]Foo
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("openfoodfacts API returned status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("remote food API returned status: %d", resp.StatusCode)
 	}
 
 	var results []FoodProduct
 
 	if isBarcode {
 		// Parse single product
-		var raw struct {
-			Status  int           `json:"status"`
-			Product offAPIProduct `json:"product"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		var p fastFoodProduct
+		if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
 			return nil, err
 		}
-		if raw.Status == 1 && raw.Product.ProductName != "" {
-			results = append(results, mapOFFProductToLocal(raw.Product))
+		if p.Name != "" {
+			results = append(results, mapFastFoodProductToLocal(p))
 		}
 	} else {
 		// Parse search response
 		var raw struct {
-			Count    interface{}     `json:"count"`
-			Products []offAPIProduct `json:"products"`
+			Results []fastFoodProduct `json:"results"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 			return nil, err
 		}
-		for _, p := range raw.Products {
-			if p.ProductName != "" {
-				results = append(results, mapOFFProductToLocal(p))
+		for _, p := range raw.Results {
+			// FastFoodDB returns accurate matches; map them.
+			if p.Name != "" {
+				results = append(results, mapFastFoodProductToLocal(p))
 			}
 		}
 	}
@@ -87,24 +93,38 @@ func (s *Store) SearchOpenFoodFactsAPI(ctx context.Context, query string) ([]Foo
 	return results, nil
 }
 
-func mapOFFProductToLocal(p offAPIProduct) FoodProduct {
+func mapFastFoodProductToLocal(p fastFoodProduct) FoodProduct {
 	var barcode *string
-	if p.Code != "" {
-		code := p.Code
-		barcode = &code
+	if p.Barcode != "" {
+		b := p.Barcode
+		barcode = &b
 	}
 
 	now := time.Now()
 
+	var carbs, protein, fat, kcal float64
+	if p.Carbs != nil {
+		carbs = *p.Carbs
+	}
+	if p.Protein != nil {
+		protein = *p.Protein
+	}
+	if p.Fat != nil {
+		fat = *p.Fat
+	}
+	if p.Kcal100g != nil {
+		kcal = *p.Kcal100g
+	}
+
 	return FoodProduct{
 		ID:             0, // Global/Transient implies 0 ID and 0 UserID in context of cache mapping
 		UserID:         0,
-		Name:           normalizeFoodProductName(p.ProductName),
+		Name:           normalizeFoodProductName(p.Name),
 		Barcode:        barcode,
-		Carbs100g:      p.Nutriments.Carbohydrates100G,
-		Protein100g:    p.Nutriments.Proteins100G,
-		Fat100g:        p.Nutriments.Fat100G,
-		EnergyKcal100g: p.Nutriments.EnergyKcal100G,
+		Carbs100g:      carbs,
+		Protein100g:    protein,
+		Fat100g:        fat,
+		EnergyKcal100g: kcal,
 		UsageCount:     0,
 		CreatedAt:      now,
 		LastUsedAt:     now,
