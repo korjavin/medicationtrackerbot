@@ -41,6 +41,7 @@ services:
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}
       - VAPID_SUBJECT=${VAPID_SUBJECT}
       - FOOD_DOMAIN=${FOOD_DOMAIN}
+      - FOOD_API_URL=${FOOD_API_URL}
       - FOOD_API_KEY=${FOOD_API_KEY}
     networks:
       - default

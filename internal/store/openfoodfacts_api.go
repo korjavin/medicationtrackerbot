@@ -25,12 +25,21 @@ type fastFoodProduct struct {
 // SearchRemoteFoodAPI performs a live, resilient search against the FastFoodDB API.
 // It maps the response safely to our local FoodProduct struct.
 func (s *Store) SearchRemoteFoodAPI(ctx context.Context, query string) ([]FoodProduct, error) {
-	domain := os.Getenv("FOOD_DOMAIN")
-	apiKey := os.Getenv("FOOD_API_KEY")
-
-	if domain == "" {
-		return nil, fmt.Errorf("FOOD_DOMAIN environment variable is required")
+	baseURL := os.Getenv("FOOD_API_URL")
+	if baseURL == "" {
+		domain := os.Getenv("FOOD_DOMAIN")
+		if domain == "" {
+			return nil, fmt.Errorf("FOOD_DOMAIN or FOOD_API_URL environment variable is required")
+		}
+		if strings.HasPrefix(domain, "http://") || strings.HasPrefix(domain, "https://") {
+			baseURL = domain
+		} else {
+			baseURL = "https://" + domain
+		}
 	}
+	baseURL = strings.TrimRight(baseURL, "/")
+
+	apiKey := os.Getenv("FOOD_API_KEY")
 
 	var targetURL string
 
@@ -38,9 +47,9 @@ func (s *Store) SearchRemoteFoodAPI(ctx context.Context, query string) ([]FoodPr
 	isBarcode := len(query) >= 8 && isNumeric(query)
 
 	if isBarcode {
-		targetURL = fmt.Sprintf("https://%s/api/v1/food/barcode/%s", domain, url.PathEscape(query))
+		targetURL = fmt.Sprintf("%s/api/v1/food/barcode/%s", baseURL, url.PathEscape(query))
 	} else {
-		targetURL = fmt.Sprintf("https://%s/api/v1/food/search?q=%s&limit=20", domain, url.QueryEscape(query))
+		targetURL = fmt.Sprintf("%s/api/v1/food/search?q=%s&limit=20", baseURL, url.QueryEscape(query))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
