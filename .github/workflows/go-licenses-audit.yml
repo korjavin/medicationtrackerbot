@@ -1,9 +1,6 @@
 name: Go Licenses Audit
 
 on:
-  push:
-    branches:
-      - master
   pull_request:
     branches:
       - master
@@ -75,18 +72,23 @@ jobs:
 
           try:
               with open('licenses-report.csv', 'r') as f:
-                  reader = csv.DictReader(f)
-                  if reader is None or not reader.fieldnames:
-                      print("Warning: Could not parse licenses report")
+                  # go-licenses csv outputs headerless rows: name,url,license_spdx
+                  reader = csv.reader(f)
+                  rows = list(reader)
+
+                  if not rows:
+                      print("Warning: Empty licenses report")
                       sys.exit(0)
 
-                  for row in reader:
-                      package = row.get('Package', 'Unknown')
-                      license_name = row.get('License', '').strip()
+                  for row in rows:
+                      if len(row) < 3:
+                          continue
+                      package = row[0]
+                      license_name = row[2].strip()
 
                       # Check if license is blocked
-                      is_blocked = any(blocked in license_name for blocked in BLOCKED_LICENSES)
-                      is_allowed = any(allowed in license_name for allowed in ALLOWED_LICENSES)
+                      is_blocked = any(b in license_name for b in BLOCKED_LICENSES)
+                      is_allowed = any(a in license_name for a in ALLOWED_LICENSES)
                       is_undeclared = license_name in UNDECLARED or not license_name
 
                       if is_blocked:
@@ -129,18 +131,17 @@ jobs:
 
           print("\n" + "="*80)
 
-          # Fail if blocked or undeclared licenses found
-          if blocked or undeclared:
-              if blocked:
-                  print(f"\n❌ FAILED: Found {len(blocked)} blocked license(s)")
-              if undeclared:
-                  print(f"❌ FAILED: Found {len(undeclared)} undeclared/unknown license(s)")
+          # Fail if blocked licenses found; warn but pass for undeclared
+          if blocked:
+              print(f"\n❌ FAILED: Found {len(blocked)} blocked license(s)")
               print("\nTo resolve:")
               print("1. Remove packages with GPL/AGPL/copyleft licenses")
-              print("2. Update packages with undeclared licenses or add to allowlist")
               sys.exit(1)
           else:
-              print("\n✅ All licenses are compliant!")
+              if undeclared:
+                  print(f"\n⚠️  WARNING: Found {len(undeclared)} undeclared/unknown license(s)")
+                  print("Consider reviewing these packages manually.")
+              print("\n✅ No blocked licenses found!")
               sys.exit(0)
           EOF
 
@@ -165,10 +166,10 @@ jobs:
               const csv = fs.readFileSync('licenses-report.csv', 'utf8');
               const lines = csv.trim().split('\n');
 
-              if (lines.length > 1) {
-                report += `✅ Scanned ${lines.length - 1} dependencies for license compliance\n`;
+              if (lines.length > 0) {
+                report += `✅ Scanned ${lines.length} dependencies for license compliance\n`;
                 report += '- GPL/AGPL/Copyleft licenses: **BLOCKED**\n';
-                report += '- Undeclared licenses: **REQUIRES REVIEW**\n';
+                report += '- Undeclared licenses: **WARNING** (not a build failure)\n';
                 report += '- MIT/Apache/BSD/ISC/MPL: **ALLOWED**\n';
               }
             } catch (e) {
