@@ -4578,3 +4578,103 @@ async function sendTestMedicationNotification() {
         switchTab(tabs[nextIndex].dataset.tab);
     }, { passive: true });
 })();
+
+// Back gesture / hardware-back closes the topmost open modal
+// iOS edge-swipe fires popstate; Android hardware back fires Telegram BackButton
+(function initModalHistory() {
+    let modalPushed = false;
+    let poppingFromHistory = false;
+
+    // Sub-modals: closing them leaves the overlay visible (parent modal stays open)
+    const subModalDefs = [
+        { id: 'workout-add-exercise-to-session-modal', fn: () => typeof closeAddExerciseToSessionModal === 'function' && closeAddExerciseToSessionModal() },
+        { id: 'food-scanner-modal',                   fn: () => closeFoodScannerModal() },
+    ];
+    // Top-level modals: closing them also hides the overlay
+    const topModalDefs = [
+        { id: 'med-modal',            fn: () => closeModal() },
+        { id: 'med-confirm-modal',    fn: () => closeMedicationConfirmModal() },
+        { id: 'bp-modal',             fn: () => closeBPRecordModal() },
+        { id: 'weight-modal',         fn: () => closeWeightModal() },
+        { id: 'food-modal',           fn: () => closeFoodModal() },
+        { id: 'workout-group-modal',  fn: () => typeof closeWorkoutGroupModal  === 'function' && closeWorkoutGroupModal() },
+        { id: 'workout-variant-modal',fn: () => typeof closeVariantModal       === 'function' && closeVariantModal() },
+        { id: 'workout-exercise-modal',fn:() => typeof closeExerciseModal      === 'function' && closeExerciseModal() },
+        { id: 'workout-session-modal',fn: () => typeof closeWorkoutSessionModal=== 'function' && closeWorkoutSessionModal() },
+        { id: 'workout-start-modal',  fn: () => closeWorkoutStartModal() },
+    ];
+
+    function findAndCloseTopModal() {
+        for (const m of [...subModalDefs, ...topModalDefs]) {
+            const el = document.getElementById(m.id);
+            if (el && !el.classList.contains('hidden')) { m.fn(); return; }
+        }
+    }
+
+    function onOverlayShown() {
+        if (modalPushed) return;
+        modalPushed = true;
+        history.pushState({ modal: true }, '');
+        window.Telegram?.WebApp?.BackButton?.show();
+    }
+
+    function onOverlayClosed() {
+        if (!modalPushed || poppingFromHistory) return;
+        modalPushed = false;
+        history.back();
+        window.Telegram?.WebApp?.BackButton?.hide();
+    }
+
+    // iOS edge-swipe (and desktop browser back)
+    window.addEventListener('popstate', () => {
+        if (!modalPushed) return;
+        const overlay = document.getElementById('modal-overlay');
+        if (!overlay || overlay.classList.contains('hidden')) {
+            modalPushed = false;
+            window.Telegram?.WebApp?.BackButton?.hide();
+            return;
+        }
+        poppingFromHistory = true;
+        findAndCloseTopModal();
+        poppingFromHistory = false;
+        modalPushed = false;
+        // Sub-modal closed but parent still open → re-push so next back also works
+        if (!overlay.classList.contains('hidden')) {
+            modalPushed = true;
+            history.pushState({ modal: true }, '');
+        } else {
+            window.Telegram?.WebApp?.BackButton?.hide();
+        }
+    });
+
+    // Android hardware back / Telegram header back button
+    if (window.Telegram?.WebApp?.BackButton) {
+        window.Telegram.WebApp.BackButton.onClick(() => {
+            const overlay = document.getElementById('modal-overlay');
+            if (!overlay || overlay.classList.contains('hidden')) return;
+            poppingFromHistory = true;
+            findAndCloseTopModal();
+            poppingFromHistory = false;
+            modalPushed = false;
+            if (!overlay.classList.contains('hidden')) {
+                modalPushed = true; // BackButton stays visible
+            } else {
+                window.Telegram.WebApp.BackButton.hide();
+                history.back(); // clean up the history entry we pushed
+            }
+        });
+    }
+
+    // Watch modal-overlay for class changes to drive history push/pop
+    function setupObserver() {
+        const overlay = document.getElementById('modal-overlay');
+        if (!overlay) return;
+        new MutationObserver(() => {
+            overlay.classList.contains('hidden') ? onOverlayClosed() : onOverlayShown();
+        }).observe(overlay, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    document.readyState === 'loading'
+        ? document.addEventListener('DOMContentLoaded', setupObserver)
+        : setupObserver();
+})();
