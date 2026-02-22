@@ -4536,3 +4536,45 @@ async function sendTestMedicationNotification() {
         safeAlert("Error sending test notification: " + e.message);
     }
 }
+
+// Swipe gesture navigation between tabs
+(function initSwipeNav() {
+    const MIN_SWIPE_X = 60;  // minimum horizontal distance to trigger tab switch
+    const MAX_SWIPE_Y = 80;  // maximum vertical drift allowed (to avoid hijacking scroll)
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    function getVisibleTabs() {
+        return Array.from(document.querySelectorAll('#tabs .tab'))
+            .filter(t => t.style.display !== 'none');
+    }
+
+    document.addEventListener('touchstart', (e) => {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+
+    document.addEventListener('touchend', (e) => {
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        const dy = e.changedTouches[0].clientY - touchStartY;
+
+        if (Math.abs(dx) < MIN_SWIPE_X || Math.abs(dy) > MAX_SWIPE_Y) return;
+
+        // Ignore swipes that start inside a modal or scrollable list
+        const target = e.target;
+        if (target.closest('.modal, .modal-overlay, select, input, textarea')) return;
+
+        const tabs = getVisibleTabs();
+        const activeTab = document.querySelector('#tabs .tab.active');
+        if (!activeTab) return;
+
+        const currentIndex = tabs.indexOf(activeTab);
+        if (currentIndex === -1) return;
+
+        // Swipe left → next tab; swipe right → previous tab
+        const nextIndex = dx < 0 ? currentIndex + 1 : currentIndex - 1;
+        if (nextIndex < 0 || nextIndex >= tabs.length) return;
+
+        switchTab(tabs[nextIndex].dataset.tab);
+    }, { passive: true });
+})();
