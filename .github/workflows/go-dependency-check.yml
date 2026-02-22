@@ -1,0 +1,114 @@
+name: Go Module Dependency Vulnerabilities
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  dependency-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install nancy
+        run: go install github.com/sonatype-nexus-community/nancy@latest
+
+      - name: Scan dependencies with nancy
+        id: nancy-scan
+        run: |
+          go list -json -m all | nancy sleuth --output=json > nancy-report.json 2>&1 || true
+          cat nancy-report.json
+
+      - name: Check for HIGH/CRITICAL vulnerabilities
+        run: |
+          python3 << 'EOF'
+          import json
+          import sys
+
+          with open('nancy-report.json', 'r') as f:
+              data = json.load(f)
+
+          high_critical = []
+          if 'vulnerabilities' in data:
+              for vuln in data['vulnerabilities']:
+                  severity = vuln.get('vulnerability', {}).get('severity', '').upper()
+                  if severity in ['HIGH', 'CRITICAL']:
+                      high_critical.append(vuln)
+
+          if high_critical:
+              print(f"Found {len(high_critical)} HIGH/CRITICAL vulnerabilities:")
+              for vuln in high_critical:
+                  print(f"  - {vuln.get('identifier', 'Unknown')} ({vuln.get('vulnerability', {}).get('severity', 'Unknown')})")
+                  print(f"    Description: {vuln.get('vulnerability', {}).get('description', 'N/A')}")
+              sys.exit(1)
+          else:
+              print("No HIGH/CRITICAL vulnerabilities found")
+              sys.exit(0)
+          EOF
+
+      - name: Upload nancy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nancy-dependency-report
+          path: nancy-report.json
+          retention-days: 30
+
+      - name: Comment on PR with results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('nancy-report.json', 'utf8'));
+
+            let vulnerabilities = [];
+            if (report.vulnerabilities) {
+              vulnerabilities = report.vulnerabilities;
+            }
+
+            let comment = '## 📦 Go Dependency Vulnerability Scan\n\n';
+            if (vulnerabilities.length === 0) {
+              comment += '✅ No vulnerabilities detected in Go dependencies';
+            } else {
+              const highCritical = vulnerabilities.filter(v =>
+                ['HIGH', 'CRITICAL'].includes(v.vulnerability?.severity?.toUpperCase())
+              );
+              const others = vulnerabilities.filter(v =>
+                !['HIGH', 'CRITICAL'].includes(v.vulnerability?.severity?.toUpperCase())
+              );
+
+              if (highCritical.length > 0) {
+                comment += `⚠️ **${highCritical.length} HIGH/CRITICAL vulnerabilities found**\n\n`;
+                for (const vuln of highCritical) {
+                  comment += `- **${vuln.identifier}** (${vuln.vulnerability?.severity})\n`;
+                  comment += `  ${vuln.vulnerability?.description}\n`;
+                }
+                comment += '\n';
+              }
+
+              if (others.length > 0) {
+                comment += `ℹ️ ${others.length} other vulnerabilities detected (lower severity)\n`;
+              }
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
