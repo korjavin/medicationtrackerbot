@@ -55,6 +55,21 @@ db.version(4).stores({
     food_products_cache: 'id, timestamp'
 });
 
+// Version 5: Add generic API cache for stale-while-revalidate pattern
+// Data is always returned regardless of age; background refresh always happens
+db.version(5).stores({
+    bp_readings: '++localId, serverId, measured_at, syncStatus',
+    weight_logs: '++localId, serverId, measured_at, syncStatus',
+    medication_cache: 'id, timestamp',
+    intake_history_cache: 'id, timestamp',
+    workout_cache: 'id, timestamp',
+    intake_queue: '++localId, medication_id, syncStatus',
+    food_products_cache: 'id, timestamp',
+
+    // Generic API response cache (no TTL enforcement on reads)
+    api_cache: 'id, timestamp'
+});
+
 // Simple logger for db operations (will be enhanced by sync.js SyncDebug)
 const dbLog = (msg, data) => {
     console.log(`[DB] ${msg}`, data || '');
@@ -506,6 +521,39 @@ const FoodProductsStore = {
     }
 };
 
+// Generic API cache for stale-while-revalidate pattern.
+// No TTL enforcement: always return whatever is stored, always refresh in background.
+const ApiCache = {
+    async get(key) {
+        try {
+            const entry = await db.api_cache.get(key);
+            return entry ? entry.data : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
+    async set(key, data) {
+        try {
+            await db.api_cache.put({ id: key, timestamp: Date.now(), data });
+        } catch (e) {
+            console.warn('[ApiCache] Failed to save', key, e);
+        }
+    },
+
+    async clear(key) {
+        try {
+            if (key) {
+                await db.api_cache.delete(key);
+            } else {
+                await db.api_cache.clear();
+            }
+        } catch (e) {
+            console.warn('[ApiCache] Failed to clear', e);
+        }
+    }
+};
+
 // Export for use in other modules
 window.MedTrackerDB = {
     db,
@@ -515,5 +563,6 @@ window.MedTrackerDB = {
     IntakeHistoryStore,
     WorkoutStore,
     IntakeQueueStore,
-    FoodProductsStore
+    FoodProductsStore,
+    ApiCache
 };

@@ -1534,8 +1534,6 @@ window.setFoodStatsPeriod = function (period) {
 
 async function loadFoodLogs() {
     const list = document.getElementById('food-list');
-    const summary = document.getElementById('food-summary');
-    list.innerHTML = 'Loading...';
 
     // Ensure targets are available even if Settings tab hasn't been opened yet.
     await loadFoodTargets();
@@ -1562,40 +1560,70 @@ async function loadFoodLogs() {
         if (weekDisplay) weekDisplay.classList.add('hidden');
     }
 
+    // Show cached data immediately (stale-while-revalidate)
+    const cacheKey = `food_${dateStr}_${period}`;
+    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get(cacheKey);
+    if (cached) {
+        _renderFoodData(cached.groups, cached.weekStats, period, dateStr);
+    } else {
+        list.innerHTML = 'Loading...';
+    }
+
+    // Always fetch fresh data
     try {
         const daysParam = period === 'week' ? '&days=7' : '';
         const groups = await apiCall(`/api/food/log?date=${dateStr}${daysParam}`, 'GET');
-        list.innerHTML = '';
 
-        let dayCals = 0;
-        let dayCarbs = 0;
-        let dayProt = 0;
-        let dayFat = 0;
-        currentFoodLogs = {};
+        let weekStats = null;
+        if (period === 'week' || period === '2weeks') {
+            const daysCount = period === 'week' ? 7 : 14;
+            weekStats = await apiCall(`/api/food/stats?date=${dateStr}&days=${daysCount}`, 'GET');
+        }
 
-        if (!groups || groups.length === 0) {
-            list.innerHTML = '<p class="hint" style="text-align:center;">No food logs for this day.</p>';
-        } else {
-            groups.forEach(group => {
-                dayCals += group.calories;
-                dayCarbs += group.carbs;
-                dayProt += group.protein;
-                dayFat += group.fat;
+        if (window.MedTrackerDB?.ApiCache) {
+            await window.MedTrackerDB.ApiCache.set(cacheKey, { groups: groups || [], weekStats });
+        }
 
-                const groupDiv = document.createElement('div');
-                groupDiv.className = 'history-group';
+        _renderFoodData(groups || [], weekStats, period, dateStr);
+    } catch (e) {
+        console.error(e);
+        if (!cached) {
+            list.innerHTML = '<p class="error">Failed to load food logs.</p>';
+        }
+    }
+}
 
-                let html = `<div class="history-header">
-                    <strong>${group.name}</strong> 
+function _renderFoodData(groups, weekStats, period, dateStr) {
+    const list = document.getElementById('food-list');
+    const summary = document.getElementById('food-summary');
+
+    list.innerHTML = '';
+    let dayCals = 0, dayCarbs = 0, dayProt = 0, dayFat = 0;
+    currentFoodLogs = {};
+
+    if (!groups || groups.length === 0) {
+        list.innerHTML = '<p class="hint" style="text-align:center;">No food logs for this day.</p>';
+    } else {
+        groups.forEach(group => {
+            dayCals += group.calories;
+            dayCarbs += group.carbs;
+            dayProt += group.protein;
+            dayFat += group.fat;
+
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'history-group';
+
+            let html = `<div class="history-header">
+                    <strong>${group.name}</strong>
                     <span style="font-weight:normal; color:var(--hint-color);">(${group.time})</span>
                     <span style="margin-left:auto; font-size:0.9em;">
                         ${group.calories} kcal (C:${group.carbs} P:${group.protein} F:${group.fat})
                     </span>
                 </div>`;
 
-                group.logs.forEach(log => {
-                    currentFoodLogs[log.id] = log;
-                    html += `<div class="history-item" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer;" onclick="editFoodLog(${log.id})">
+            group.logs.forEach(log => {
+                currentFoodLogs[log.id] = log;
+                html += `<div class="history-item" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer;" onclick="editFoodLog(${log.id})">
                         <div style="flex:1;">
                             <div style="font-weight:500;">${log.name || 'Food'}</div>
                             <div style="font-size:0.85em; color:var(--hint-color);">
@@ -1604,40 +1632,34 @@ async function loadFoodLogs() {
                         </div>
                         <button class="delete-btn" onclick="event.stopPropagation(); deleteFoodLog(${log.id})" style="font-size:16px;">×</button>
                     </div>`;
-                });
-
-                groupDiv.innerHTML = html;
-                list.appendChild(groupDiv);
             });
-        }
 
-        const hasTargets = foodTargets.calories > 0 || foodTargets.protein > 0 || foodTargets.carbs > 0 || foodTargets.fat > 0;
-        const periodContainer = document.getElementById('food-stats-period-container');
-        if (periodContainer) {
-            hasTargets ? periodContainer.classList.remove('hidden') : periodContainer.classList.add('hidden');
-        }
+            groupDiv.innerHTML = html;
+            list.appendChild(groupDiv);
+        });
+    }
 
-        if (period === 'week' || period === '2weeks') {
-            const daysCount = period === 'week' ? 7 : 14;
-            const stats = await apiCall(`/api/food/stats?date=${dateStr}&days=${daysCount}`, 'GET');
+    const hasTargets = foodTargets.calories > 0 || foodTargets.protein > 0 || foodTargets.carbs > 0 || foodTargets.fat > 0;
+    const periodContainer = document.getElementById('food-stats-period-container');
+    if (periodContainer) {
+        hasTargets ? periodContainer.classList.remove('hidden') : periodContainer.classList.add('hidden');
+    }
+
+    if (period === 'week' || period === '2weeks') {
+        const stats = weekStats;
+        summary.style.display = 'block';
+        const label = period === 'week' ? '7-Day Total' : '14-Day Total';
+        summary.innerHTML = `${label}: ${stats?.calories || 0} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${stats?.carbs || 0} P:${stats?.protein || 0} F:${stats?.fat || 0})</span>`;
+        renderFoodTargetProgress(stats?.calories || 0, stats?.carbs || 0, stats?.protein || 0, stats?.fat || 0, period);
+    } else {
+        if (groups && groups.length > 0) {
             summary.style.display = 'block';
-            const label = period === 'week' ? '7-Day Total' : '14-Day Total';
-            summary.innerHTML = `${label}: ${stats?.calories || 0} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${stats?.carbs || 0} P:${stats?.protein || 0} F:${stats?.fat || 0})</span>`;
-            renderFoodTargetProgress(stats?.calories || 0, stats?.carbs || 0, stats?.protein || 0, stats?.fat || 0, period);
+            summary.innerHTML = `Daily Total: ${dayCals} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${dayCarbs} P:${dayProt} F:${dayFat})</span>`;
+            renderFoodTargetProgress(dayCals, dayCarbs, dayProt, dayFat, period);
         } else {
-            if (groups && groups.length > 0) {
-                summary.style.display = 'block';
-                summary.innerHTML = `Daily Total: ${dayCals} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${dayCarbs} P:${dayProt} F:${dayFat})</span>`;
-                renderFoodTargetProgress(dayCals, dayCarbs, dayProt, dayFat, period);
-            } else {
-                summary.style.display = 'none';
-                renderFoodTargetProgress(0, 0, 0, 0, period);
-            }
+            summary.style.display = 'none';
+            renderFoodTargetProgress(0, 0, 0, 0, period);
         }
-
-    } catch (e) {
-        console.error(e);
-        list.innerHTML = '<p class="error">Failed to load food logs.</p>';
     }
 }
 
@@ -1688,6 +1710,12 @@ function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = '
 }
 
 async function loadFoodTargets() {
+    // Show cached targets immediately so food rendering isn't blocked on network
+    const cachedTargets = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('food_targets');
+    if (cachedTargets) {
+        foodTargets = cachedTargets;
+    }
+
     try {
         const targets = await apiCall('/api/food/settings/targets', 'GET');
         foodTargets = {
@@ -1696,6 +1724,10 @@ async function loadFoodTargets() {
             protein: targets?.protein || 0,
             fat: targets?.fat || 0
         };
+
+        if (window.MedTrackerDB?.ApiCache) {
+            await window.MedTrackerDB.ApiCache.set('food_targets', foodTargets);
+        }
 
         const calsInput = document.getElementById('food-target-calories');
         const carbsInput = document.getElementById('food-target-carbs');
@@ -2399,40 +2431,60 @@ function escapeHtml(text) {
 async function loadMeds() {
     if (initialAuthLoad) {
         initialAuthLoad = false;
-        // Cache medications from initial auth load
-        if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
+        // medications already set from auth; cache and render immediately
+        if (window.MedTrackerDB?.ApiCache) {
+            await window.MedTrackerDB.ApiCache.set('medications', medications);
+        }
+        if (window.MedTrackerDB?.MedicationStore) {
             await window.MedTrackerDB.MedicationStore.saveCache(medications);
         }
         renderMeds();
         populateMedFilter();
+        // Refresh in background to ensure up-to-date data
+        const res = await apiCall('/api/medications?archived=true');
+        if (res) {
+            medications = res;
+            if (window.MedTrackerDB?.ApiCache) {
+                await window.MedTrackerDB.ApiCache.set('medications', medications);
+            }
+            if (window.MedTrackerDB?.MedicationStore) {
+                await window.MedTrackerDB.MedicationStore.saveCache(medications);
+            }
+            renderMeds();
+            populateMedFilter();
+        }
         return;
     }
 
-    // Try to load from API
+    // Show cached data immediately (stale-while-revalidate)
+    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('medications');
+    if (cached) {
+        medications = cached;
+        renderMeds();
+        populateMedFilter();
+    }
+
+    // Always fetch fresh data
     const res = await apiCall('/api/medications?archived=true');
     if (res) {
         medications = res;
-
-        // Cache successful response for offline use
-        if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
+        if (window.MedTrackerDB?.ApiCache) {
+            await window.MedTrackerDB.ApiCache.set('medications', medications);
+        }
+        if (window.MedTrackerDB?.MedicationStore) {
             await window.MedTrackerDB.MedicationStore.saveCache(medications);
         }
-
         renderMeds();
         populateMedFilter();
-    } else {
-        // Failed to load from API (likely offline), try cache
-        console.log('[Meds] API failed, trying cache...');
-        if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
-            const cached = await window.MedTrackerDB.MedicationStore.getCache();
-            if (cached) {
-                console.log('[Meds] Loaded from cache:', cached.length, 'medications');
-                medications = cached;
+    } else if (!cached) {
+        // API failed and no ApiCache hit; fall back to offline cache
+        if (window.MedTrackerDB?.MedicationStore) {
+            const offlineCached = await window.MedTrackerDB.MedicationStore.getCache();
+            if (offlineCached) {
+                console.log('[Meds] Loaded from offline cache:', offlineCached.length);
+                medications = offlineCached;
                 renderMeds();
                 populateMedFilter();
-            } else {
-                console.log('[Meds] No cache available');
-                // Show empty state or offline message in UI
             }
         }
     }
@@ -2576,17 +2628,26 @@ async function loadHistory() {
     const medId = document.getElementById('history-filter-med').value;
 
     const cacheKey = `history_${days}_${medId}`;
-    const res = await apiCall(`/api/history?days=${days}&med_id=${medId}`);
 
-    // Cache successful response for offline use
-    if (res && window.MedTrackerDB && window.MedTrackerDB.IntakeHistoryStore) {
-        await window.MedTrackerDB.IntakeHistoryStore.saveCache(cacheKey, res);
+    // Show cached data immediately (stale-while-revalidate)
+    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get(cacheKey);
+    if (cached) {
+        renderHistory(cached);
     }
 
-    // If res is null (not found or error), pass empty array to clear list
-    renderHistory(res || []);
+    // Always fetch fresh data
+    const res = await apiCall(`/api/history?days=${days}&med_id=${medId}`);
 
-    // Also render the next intake trigger button
+    // Cache for offline fallback (existing behavior)
+    if (res && window.MedTrackerDB?.IntakeHistoryStore) {
+        await window.MedTrackerDB.IntakeHistoryStore.saveCache(cacheKey, res);
+    }
+    // Cache for stale-while-revalidate
+    if (res && window.MedTrackerDB?.ApiCache) {
+        await window.MedTrackerDB.ApiCache.set(cacheKey, res);
+    }
+
+    renderHistory(res || []);
     renderNextIntakeTrigger();
 }
 
@@ -2870,28 +2931,47 @@ async function handleBPSubmit(event) {
 // Load BP readings from API (with offline support)
 async function loadBPReadings() {
     const list = document.getElementById('bp-list');
-    list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
 
-    let readingsRes, goalRes, statsRes;
+    // Show cached data immediately (stale-while-revalidate)
+    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('bp');
+    if (cached) {
+        await _renderBPData(cached.readingsRes, cached.goalRes, cached.statsRes);
+    } else {
+        list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
+    }
 
+    // Always fetch fresh data in background
+    let readingsRes = null, goalRes = null, statsRes = null;
     try {
         [readingsRes, goalRes, statsRes] = await Promise.all([
-            apiCall('/api/bp?days=60'),  // Fetch 60 days for chart
+            apiCall('/api/bp?days=60'),
             apiCall('/api/bp/goal'),
-            apiCall('/api/bp/stats')     // Backend-calculated stats
+            apiCall('/api/bp/stats')
         ]);
     } catch (e) {
         console.error('Failed to load BP data:', e);
+        if (!cached) {
+            list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load readings</li>';
+        }
+        return;
     }
 
-    // If we got server data, merge with pending local data
-    let allReadings = readingsRes || [];
+    if (readingsRes !== null) {
+        if (window.MedTrackerDB?.ApiCache) {
+            await window.MedTrackerDB.ApiCache.set('bp', { readingsRes, goalRes, statsRes });
+        }
+        await _renderBPData(readingsRes, goalRes, statsRes);
+    }
+}
 
-    // Get pending local readings that haven't been synced yet
+async function _renderBPData(readingsRes, goalRes, statsRes) {
+    const list = document.getElementById('bp-list');
+
+    // Merge server data with pending local writes
+    let allReadings = readingsRes || [];
     if (window.MedTrackerDB) {
         try {
             const pendingReadings = await window.MedTrackerDB.BPStore.getPending();
-            // Add pending readings with isLocal flag
             const pendingFormatted = pendingReadings.map(r => ({
                 id: `local_${r.localId}`,
                 localId: r.localId,
@@ -2916,7 +2996,7 @@ async function loadBPReadings() {
     }
 
     renderBPChart(allReadings, goalRes || {});
-    renderBPAverages(statsRes || {});  // Use backend stats
+    renderBPAverages(statsRes || {});
 
     // Filter list to only show last 3 days (Today, Yesterday, and Day Before)
     const cutoff = new Date();
@@ -3986,27 +4066,46 @@ function renderWeightStats(stats) {
 
 async function loadWeightLogs() {
     const list = document.getElementById('weight-list');
-    list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
 
-    let logsRes, goalRes;
+    // Show cached data immediately (stale-while-revalidate)
+    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('weight');
+    if (cached) {
+        await _renderWeightData(cached.logsRes, cached.goalRes);
+    } else {
+        list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
+    }
 
+    // Always fetch fresh data in background
+    let logsRes = null, goalRes = null;
     try {
         [logsRes, goalRes] = await Promise.all([
-            apiCall('/api/weight?days=35'),  // Fetch 35 days to cover chart period (-30 to +2)
+            apiCall('/api/weight?days=35'),
             apiCall('/api/weight/goal')
         ]);
     } catch (e) {
         console.error('Failed to load weight data:', e);
+        if (!cached) {
+            list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load weight logs</li>';
+        }
+        return;
     }
 
-    // If we got server data, merge with pending local data
-    let allLogs = logsRes || [];
+    if (logsRes !== null) {
+        if (window.MedTrackerDB?.ApiCache) {
+            await window.MedTrackerDB.ApiCache.set('weight', { logsRes, goalRes });
+        }
+        await _renderWeightData(logsRes, goalRes);
+    }
+}
 
-    // Get pending local logs that haven't been synced yet
+async function _renderWeightData(logsRes, goalRes) {
+    const list = document.getElementById('weight-list');
+
+    // Merge server data with pending local writes
+    let allLogs = logsRes || [];
     if (window.MedTrackerDB) {
         try {
             const pendingLogs = await window.MedTrackerDB.WeightStore.getPending();
-            // Add pending logs with isLocal flag
             const pendingFormatted = pendingLogs.map(l => ({
                 id: `local_${l.localId}`,
                 localId: l.localId,
