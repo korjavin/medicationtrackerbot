@@ -1,9 +1,6 @@
 name: golangci-lint Security Preset
 
 on:
-  push:
-    branches:
-      - master
   pull_request:
     branches:
       - master
@@ -51,4 +48,4 @@ jobs:
         run: |
           echo "golangci-lint security preset check completed"
           echo "Configuration: .golangci.yml"
-          echo "Linters enabled: gosec, sqlc, errorlint, scopelint, and more"
+          echo "Linters enabled: gosec, errorlint, and more"

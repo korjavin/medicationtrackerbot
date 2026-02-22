@@ -3,9 +3,6 @@ run:
   timeout: 5m
   concurrency: 4
   allow-serial-runners: false
-  skip-dirs:
-    - vendor
-    - build
 
 output:
   formats:
@@ -18,9 +15,7 @@ linters:
   enable:
     # Security linters
     - gosec           # Go security issues (G-rules for SQL injection, crypto, etc.)
-    - sqlc            # SQL query checks
     - errorlint       # Error handling patterns
-    - scopelint       # Scope analysis
     - nolintlint      # Validate //nolint comments
 
     # Code quality and standards
@@ -29,10 +24,6 @@ linters:
     - govet           # Go vet issues
     - staticcheck     # Static analysis
     - ineffassign     # Ineffectual assignments
-    - varcheck        # Unused variables
-    - deadcode        # Unreachable code
-    - golint          # Go lint issues (deprecated but useful)
-    - megacheck       # Megacheck suite
 
   disable:
     - gomnd           # Magic number detection (can be noisy)
@@ -41,6 +32,9 @@ linters:
     - gocyclo         # Cyclomatic complexity (can be noisy)
 
 issues:
+  exclude-dirs:
+    - vendor
+    - build
   exclude-rules:
     # Test files
     - path: _test\.go$
@@ -118,7 +112,3 @@ linters-settings:
     checks:
       - all
       - "-SA1019"  # Deprecated but allow usage
-
-  sqlc:
-    # SQL checks
-    pattern: "SELECT|INSERT|UPDATE|DELETE"
