@@ -1,0 +1,84 @@
+name: API Endpoint Rate Limiting Audit
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  api-rate-limiting-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Audit API endpoints for rate limiting
+        id: audit
+        run: |
+          set -e
+
+          echo "=== API Endpoint Rate Limiting Audit ==="
+          echo ""
+
+          # Count all /api/* route definitions in apiMux
+          echo "Scanning: internal/server/server.go"
+          API_ROUTE_COUNT=$(grep -c 'apiMux.Handle' "internal/server/server.go" || true)
+          echo "Total /api/* routes found: $API_ROUTE_COUNT"
+
+          # Check for API rate limiter initialization pattern
+          if grep -q 'apiLimiter\s*:=\s*newRateLimiter' "internal/server/server.go"; then
+            echo "✓ API rate limiter initialization found"
+            API_LIMITER_INIT=1
+          else
+            echo "✗ API rate limiter initialization NOT found"
+            API_LIMITER_INIT=0
+          fi
+
+          # Check for API rate limiting middleware wrapper
+          if grep -q 'apiLimit\s*:=\s*rateLimitMiddleware.*apiLimiter' "internal/server/server.go"; then
+            echo "✓ API rate limiting middleware wrapper found"
+            API_LIMITER_WRAPPER=1
+          else
+            echo "✗ API rate limiting middleware wrapper NOT found"
+            API_LIMITER_WRAPPER=0
+          fi
+
+          # Check if rate limiting is applied to /api/ mount point
+          if grep -q 'mux.Handle\s*(\s*"/api/"\s*,\s*.*apiLimit' "internal/server/server.go"; then
+            echo "✓ Rate limiting applied to /api/ mount point"
+            API_LIMITER_APPLIED=1
+          else
+            echo "✗ Rate limiting NOT applied to /api/ mount point"
+            API_LIMITER_APPLIED=0
+          fi
+
+          echo ""
+          echo "=== Summary ==="
+          echo "Rate Limiter Init: $API_LIMITER_INIT"
+          echo "Rate Limiter Wrapper: $API_LIMITER_WRAPPER"
+          echo "Rate Limiter Applied: $API_LIMITER_APPLIED"
+          echo ""
+
+          # Fail if rate limiting is not properly configured
+          if [ $API_LIMITER_INIT -eq 0 ] || [ $API_LIMITER_WRAPPER -eq 0 ] || [ $API_LIMITER_APPLIED -eq 0 ]; then
+            echo "❌ AUDIT FAILED: API endpoints lack uniform rate limiting protection"
+            echo ""
+            echo "Details:"
+            echo "- All /api/* routes must have rate limiting middleware applied"
+            echo "- Pattern: apiLimiter := newRateLimiter(...)"
+            echo "- Pattern: apiLimit := rateLimitMiddleware(apiLimiter, ...)"
+            echo "- Pattern: mux.Handle(\"/api/\", apiLimit(...))"
+            echo ""
+            echo "Vulnerable endpoints without rate limiting:"
+            grep 'apiMux.Handle' "internal/server/server.go" | head -5
+            exit 1
+          fi
+
+          echo "✓ API endpoints are properly protected with rate limiting"
+          exit 0
