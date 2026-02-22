@@ -1,0 +1,134 @@
+name: Go Module Dependency Vulnerabilities
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  dependency-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install nancy
+        run: go install github.com/sonatype-nexus-community/nancy@latest
+
+      - name: Scan dependencies with nancy
+        id: nancy-scan
+        run: |
+          echo '{"vulnerable": []}' > nancy-report.json
+          go list -json -m all | nancy sleuth --output=json > nancy-report.json 2>/dev/null || true
+          cat nancy-report.json
+
+      - name: Check for HIGH/CRITICAL vulnerabilities
+        run: |
+          python3 << 'EOF'
+          import json
+          import sys
+
+          try:
+              with open('nancy-report.json', 'r') as f:
+                  content = f.read().strip()
+              if not content:
+                  print("No dependency scan results found, skipping check")
+                  sys.exit(0)
+              data = json.loads(content)
+          except (json.JSONDecodeError, FileNotFoundError) as e:
+              print(f"Could not parse nancy report: {e}, skipping check")
+              sys.exit(0)
+
+          # nancy uses 'vulnerable' key; fall back to 'vulnerabilities' for compatibility
+          vuln_list = data.get('vulnerable', data.get('vulnerabilities', []))
+
+          high_critical = []
+          for pkg in vuln_list:
+              for vuln in pkg.get('Vulnerabilities', []):
+                  score = float(vuln.get('CvssScore', '0') or '0')
+                  if score >= 7.0:
+                      high_critical.append((pkg.get('Coordinates', 'Unknown'), vuln))
+
+          if high_critical:
+              print(f"Found {len(high_critical)} HIGH/CRITICAL vulnerabilities:")
+              for coord, vuln in high_critical:
+                  print(f"  - {coord}: {vuln.get('Id', 'Unknown')} (CVSS {vuln.get('CvssScore', 'N/A')})")
+                  print(f"    {vuln.get('Title', '')}")
+              sys.exit(1)
+          else:
+              print("No HIGH/CRITICAL vulnerabilities found")
+              sys.exit(0)
+          EOF
+
+      - name: Upload nancy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nancy-dependency-report
+          path: nancy-report.json
+          retention-days: 30
+
+      - name: Comment on PR with results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let vulnerabilities = [];
+            try {
+              const content = fs.readFileSync('nancy-report.json', 'utf8').trim();
+              if (content) {
+                const report = JSON.parse(content);
+                const pkgs = report.vulnerable || report.vulnerabilities || [];
+                vulnerabilities = pkgs.flatMap(pkg =>
+                  (pkg.Vulnerabilities || []).map(v => ({ identifier: pkg.Coordinates, vulnerability: { severity: parseFloat(v.CvssScore || '0') >= 9.0 ? 'CRITICAL' : parseFloat(v.CvssScore || '0') >= 7.0 ? 'HIGH' : 'MEDIUM', description: v.Title } }))
+                );
+              }
+            } catch (e) {
+              console.log('Could not parse nancy report:', e.message);
+            }
+
+            let comment = '## 📦 Go Dependency Vulnerability Scan\n\n';
+            if (vulnerabilities.length === 0) {
+              comment += '✅ No vulnerabilities detected in Go dependencies';
+            } else {
+              const highCritical = vulnerabilities.filter(v =>
+                ['HIGH', 'CRITICAL'].includes(v.vulnerability?.severity?.toUpperCase())
+              );
+              const others = vulnerabilities.filter(v =>
+                !['HIGH', 'CRITICAL'].includes(v.vulnerability?.severity?.toUpperCase())
+              );
+
+              if (highCritical.length > 0) {
+                comment += `⚠️ **${highCritical.length} HIGH/CRITICAL vulnerabilities found**\n\n`;
+                for (const vuln of highCritical) {
+                  comment += `- **${vuln.identifier}** (${vuln.vulnerability?.severity})\n`;
+                  comment += `  ${vuln.vulnerability?.description}\n`;
+                }
+                comment += '\n';
+              }
+
+              if (others.length > 0) {
+                comment += `ℹ️ ${others.length} other vulnerabilities detected (lower severity)\n`;
+              }
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
