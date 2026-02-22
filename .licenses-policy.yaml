@@ -1,0 +1,55 @@
+# License Compliance Policy
+# Used by go-licenses-audit workflow for health data deployment
+
+# BLOCKED_LICENSES - GPL/AGPL/copyleft licenses create viral obligations
+# Incompatible with commercial/proprietary medical data applications
+blocked_licenses:
+  - GPL
+  - AGPL
+  - GNU General Public License
+  - GNU Affero General Public License
+  - Copyleft
+  - SSPL  # Server Side Public License
+
+# ALLOWED_LICENSES - Permissive/business-friendly licenses
+# Safe for proprietary medical applications
+allowed_licenses:
+  - MIT
+  - Apache
+  - Apache License
+  - Apache Software License
+  - Apache 2.0
+  - BSD
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - ISC
+  - MPL
+  - Mozilla Public License
+  - MPL-2.0
+  - Python Software Foundation
+  - Unicode
+  - Unlicense
+  - WTFPL
+
+# UNDECLARED_LICENSES - Unknown/unspecified licenses
+# Require manual review and approval
+undeclared_licenses:
+  - Unknown
+  - NOASSERTION
+  - ''
+
+# Health Data Compliance Notes
+# =============================
+# Medical/health data applications face stricter compliance requirements.
+#
+# Rationale for strict policy:
+# 1. GPL/AGPL impose source code disclosure obligations (viral clause)
+# 2. Medical data is sensitive and must remain proprietary
+# 3. Self-hosted deployment model requires license compatibility
+# 4. Regulatory compliance (HIPAA, GDPR, etc.) may prohibit copyleft
+#
+# When adding dependencies:
+# - Prefer MIT, Apache 2.0, or BSD licensed libraries
+# - Avoid GPL/AGPL dependencies entirely
+# - Document any exceptions in DEPENDENCIES.md
+# - Review with security team before allowlist changes
