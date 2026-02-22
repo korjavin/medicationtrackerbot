@@ -1,0 +1,88 @@
+name: Container Base Image Pinning Audit
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  base-image-pinning-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Audit Dockerfile base image pinning
+        id: audit
+        run: |
+          set -e
+
+          echo "=== Container Base Image Pinning Audit ==="
+          echo ""
+
+          DOCKERFILE="Dockerfile"
+          if [ ! -f "$DOCKERFILE" ]; then
+            echo "✓ No Dockerfile found in root directory"
+            exit 0
+          fi
+
+          echo "Scanning: $DOCKERFILE"
+          echo ""
+
+          # Check for :latest tags in FROM statements
+          LATEST_COUNT=$(grep -c 'FROM.*:latest' "$DOCKERFILE" || true)
+
+          # Check for untagged base images (FROM without any tag)
+          # This matches FROM statements that don't have a colon followed by version
+          UNTAGGED_COUNT=$(grep 'FROM' "$DOCKERFILE" | grep -v ':' | grep -v 'AS' | wc -l || true)
+
+          VIOLATIONS=0
+
+          if [ "$LATEST_COUNT" -gt 0 ]; then
+            echo "❌ Found $LATEST_COUNT base image(s) using ':latest' tag:"
+            grep 'FROM.*:latest' "$DOCKERFILE" | sed 's/^/   /'
+            VIOLATIONS=$((VIOLATIONS + 1))
+          else
+            echo "✓ No base images using ':latest' tag"
+          fi
+
+          echo ""
+
+          if [ "$UNTAGGED_COUNT" -gt 0 ]; then
+            echo "❌ Found $UNTAGGED_COUNT untagged base image(s):"
+            grep 'FROM' "$DOCKERFILE" | grep -v ':' | grep -v 'AS' | sed 's/^/   /'
+            VIOLATIONS=$((VIOLATIONS + 1))
+          else
+            echo "✓ All base images have explicit version tags"
+          fi
+
+          echo ""
+          echo "=== Summary ==="
+          echo "Total violations: $VIOLATIONS"
+          echo ""
+
+          if [ "$VIOLATIONS" -gt 0 ]; then
+            echo "❌ AUDIT FAILED: Dockerfile base images must use explicit version pins"
+            echo ""
+            echo "Details:"
+            echo "- Replace 'FROM alpine:latest' with 'FROM alpine:3.20' (or other pinned version)"
+            echo "- Replace untagged 'FROM alpine' with 'FROM alpine:3.20'"
+            echo "- All base images MUST include explicit version pins for reproducible builds"
+            echo ""
+            echo "Why:"
+            echo "- Explicit pinning ensures reproducible builds across different times and environments"
+            echo "- Prevents uncontrolled upstream updates that may introduce breaking changes"
+            echo "- Protects supply chain integrity by eliminating non-deterministic dependencies"
+            echo "- Allows intentional testing and validation before upgrading base images"
+            echo ""
+            exit 1
+          fi
+
+          echo "✓ All base images are properly pinned to explicit versions"
+          exit 0
