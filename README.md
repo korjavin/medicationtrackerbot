@@ -1,6 +1,6 @@
 # Medication Tracker Bot
 
-A private, self-hosted Telegram Mini App for medication tracking, designed to replace mobile health apps.
+A private, self-hosted Telegram Mini App for comprehensive health tracking, designed to replace mobile health apps.
 
 ## The Philosophy: From Fragmented Data to Personal Health Intelligence
 
