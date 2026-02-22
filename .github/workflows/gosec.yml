@@ -1,9 +1,6 @@
 name: Go Security Scanner (gosec)
 
 on:
-  push:
-    branches:
-      - master
   pull_request:
     branches:
       - master
