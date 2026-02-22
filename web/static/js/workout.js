@@ -39,80 +39,86 @@ function loadWorkouts() {
 async function loadNextWorkout() {
     const container = document.getElementById('next-workout-card');
 
+    // Show cached data immediately (stale-while-revalidate)
+    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('workout_next');
+    if (cached) {
+        _renderNextWorkout(container, cached);
+    }
+
+    // Always fetch fresh data
     try {
         const data = await apiCall('/api/workout/sessions/next');
 
-        if (!data || !data.session) {
-            container.innerHTML = '';
-            return;
+        if (window.MedTrackerDB?.ApiCache) {
+            await window.MedTrackerDB.ApiCache.set('workout_next', data);
         }
 
-        const session = data.session;
-        const sessionId = session.id;
-        const status = session.status;
-        const isSnoozed = session.is_snoozed || false;
-        const date = new Date(session.scheduled_date);
-        const today = new Date();
+        _renderNextWorkout(container, data);
+    } catch (error) {
+        console.error('Error loading next workout:', error);
+        if (!cached) container.innerHTML = '';
+    }
+}
 
-        // Properly compare dates (year, month, day only)
-        const isToday = date.getFullYear() === today.getFullYear() &&
-            date.getMonth() === today.getMonth() &&
-            date.getDate() === today.getDate();
+function _renderNextWorkout(container, data) {
+    if (!data || !data.session) {
+        container.innerHTML = '';
+        return;
+    }
 
-        // Debug logging
-        console.log('Next workout debug:', {
-            session_id: sessionId,
-            scheduled_date: session.scheduled_date,
-            status: session.status,
-            is_snoozed: isSnoozed,
-            snoozed_until: session.snoozed_until,
-            parsed_date: date.toISOString(),
-            today: today.toISOString(),
-            isToday: isToday
-        });
+    const session = data.session;
+    const status = session.status;
+    const isSnoozed = session.is_snoozed || false;
+    const date = new Date(session.scheduled_date);
+    const today = new Date();
 
-        // Determine card styling based on status
-        let cardClass = 'next-workout-card';
-        let statusEmoji = '📅';
-        let statusText = 'Upcoming';
+    // Properly compare dates (year, month, day only)
+    const isToday = date.getFullYear() === today.getFullYear() &&
+        date.getMonth() === today.getMonth() &&
+        date.getDate() === today.getDate();
 
-        if (isSnoozed) {
-            cardClass += ' notified';
-            statusEmoji = '⏰';
-            statusText = 'Snoozed';
-        } else if (status === 'in_progress') {
-            cardClass += ' in-progress';
-            statusEmoji = '🏋️';
-            statusText = 'In Progress';
-        } else if (status === 'notified') {
-            cardClass += ' notified';
-            statusEmoji = '🔔';
-            statusText = 'Ready to Start';
-        } else if (isToday) {
-            cardClass += ' today';
-            statusText = 'Today';
-        }
+    // Determine card styling based on status
+    let cardClass = 'next-workout-card';
+    let statusEmoji = '📅';
+    let statusText = 'Upcoming';
 
-        const dateStr = isToday ? 'Today' : date.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            weekday: 'short'
-        });
+    if (isSnoozed) {
+        cardClass += ' notified';
+        statusEmoji = '⏰';
+        statusText = 'Snoozed';
+    } else if (status === 'in_progress') {
+        cardClass += ' in-progress';
+        statusEmoji = '🏋️';
+        statusText = 'In Progress';
+    } else if (status === 'notified') {
+        cardClass += ' notified';
+        statusEmoji = '🔔';
+        statusText = 'Ready to Start';
+    } else if (isToday) {
+        cardClass += ' today';
+        statusText = 'Today';
+    }
 
-        // Show appropriate buttons based on status
-        let actionButtons = '';
-        if (status === 'in_progress') {
-            actionButtons = `
+    const dateStr = isToday ? 'Today' : date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        weekday: 'short'
+    });
+
+    // Show appropriate buttons based on status
+    let actionButtons = '';
+    if (status === 'in_progress') {
+        actionButtons = `
                 <div style="display: flex; gap: 10px; margin-top: 12px;">
                     <button onclick="showWorkoutSessionModal(${session.id})" class="primary" style="flex: 1;">🏋️ Continue</button>
                     <button onclick="cancelWorkoutSession(${session.id})" class="secondary" style="flex: 1; background-color: #ffebee; color: #c62828; border: 1px solid #ef9a9a;">🛑 Stop</button>
                 </div>
             `;
-        } else {
-            actionButtons = `<button onclick="startWorkoutSession(${session.id})" class="btn-pill" style="margin-top: 12px; width: 100%;">🏋️ Start Workout</button>`;
-        }
+    } else {
+        actionButtons = `<button onclick="startWorkoutSession(${session.id})" class="btn-pill" style="margin-top: 12px; width: 100%;">🏋️ Start Workout</button>`;
+    }
 
-        container.innerHTML = `
+    container.innerHTML = `
             <div class="${cardClass}">
                 <div class="next-workout-header">
                     <div class="next-workout-status">${statusEmoji} ${statusText}</div>
@@ -125,10 +131,6 @@ async function loadNextWorkout() {
                 ${actionButtons}
             </div>
         `;
-    } catch (error) {
-        console.error('Error loading next workout:', error);
-        container.innerHTML = '';
-    }
 }
 
 // ====================================
@@ -138,26 +140,47 @@ async function loadNextWorkout() {
 async function loadWorkoutGroups() {
     const container = document.getElementById('workout-groups-list');
 
+    // Show cached data immediately (stale-while-revalidate)
+    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('workout_groups');
+    if (cached) {
+        _renderWorkoutGroups(container, cached);
+    }
+
+    // Always fetch fresh data
     try {
-        workoutGroups = await apiCall('/api/workout/groups');
+        const groups = await apiCall('/api/workout/groups');
+        workoutGroups = groups || [];
 
-        // Cache for offline use
-        if (workoutGroups && window.MedTrackerDB && window.MedTrackerDB.WorkoutStore) {
-            await window.MedTrackerDB.WorkoutStore.saveCache('groups', workoutGroups);
+        // Cache for offline fallback (existing behavior)
+        if (groups && window.MedTrackerDB?.WorkoutStore) {
+            await window.MedTrackerDB.WorkoutStore.saveCache('groups', groups);
+        }
+        if (window.MedTrackerDB?.ApiCache) {
+            await window.MedTrackerDB.ApiCache.set('workout_groups', groups);
         }
 
-        if (!workoutGroups || workoutGroups.length === 0) {
-            container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout groups yet. Click "+ Add Workout Group" to get started!</p>';
-            return;
-        }
+        _renderWorkoutGroups(container, groups);
+    } catch (error) {
+        console.error('Error loading workout groups:', error);
+        if (!cached) container.innerHTML = '<p style="color: red;">Error loading workout groups</p>';
+    }
+}
 
-        let html = '';
-        workoutGroups.forEach(group => {
-            const daysArray = JSON.parse(group.days_of_week || '[]');
-            const daysMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-            const daysText = daysArray.map(d => daysMap[d]).join(', ');
+function _renderWorkoutGroups(container, groups) {
+    workoutGroups = groups || [];
 
-            html += `
+    if (!groups || groups.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout groups yet. Click "+ Add Workout Group" to get started!</p>';
+        return;
+    }
+
+    let html = '';
+    groups.forEach(group => {
+        const daysArray = JSON.parse(group.days_of_week || '[]');
+        const daysMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const daysText = daysArray.map(d => daysMap[d]).join(', ');
+
+        html += `
                 <div class="med-item" style="margin-bottom: 15px;">
                     <div class="med-info" onclick="showEditWorkoutGroupModal(${group.id})" style="cursor: pointer;">
                         <h4>${escapeHtml(group.name)} ${group.is_rotating ? '🔄' : ''} ${!group.active ? '(Inactive)' : ''}</h4>
@@ -170,13 +193,9 @@ async function loadWorkoutGroups() {
                     <button class="delete-btn" onclick="deleteWorkoutGroup(${group.id}, event)">&times;</button>
                 </div>
             `;
-        });
+    });
 
-        container.innerHTML = html;
-    } catch (error) {
-        console.error('Error loading workout groups:', error);
-        container.innerHTML = '<p style="color: red;">Error loading workout groups</p>';
-    }
+    container.innerHTML = html;
 }
 
 // ====================================
@@ -581,45 +600,62 @@ async function deleteExercise(exerciseId, event) {
 async function loadWorkoutHistoryTab() {
     const container = document.getElementById('workout-history-display');
 
+    // Show cached data immediately (stale-while-revalidate)
+    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('workout_history');
+    if (cached) {
+        _renderWorkoutHistory(container, cached);
+    }
+
+    // Always fetch fresh data
     try {
         const response = await apiCall('/api/workout/sessions?limit=30');
 
-        // Cache for offline use
-        if (response && window.MedTrackerDB && window.MedTrackerDB.WorkoutStore) {
+        // Cache for offline fallback (existing behavior)
+        if (response && window.MedTrackerDB?.WorkoutStore) {
             await window.MedTrackerDB.WorkoutStore.saveCache('sessions', response);
         }
-
-        if (!response || response.length === 0) {
-            container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout history yet</p>';
-            return;
+        if (window.MedTrackerDB?.ApiCache) {
+            await window.MedTrackerDB.ApiCache.set('workout_history', response);
         }
 
-        let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
-        const finalSessions = response.filter(s => s.session.status === 'completed' || s.session.status === 'skipped');
+        _renderWorkoutHistory(container, response);
+    } catch (error) {
+        console.error('Error loading history:', error);
+        if (!cached) container.innerHTML = '<p style="color: red;">Error loading history</p>';
+    }
+}
 
-        if (finalSessions.length === 0) {
-            container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout history yet</p>';
-            return;
-        }
+function _renderWorkoutHistory(container, response) {
+    if (!response || response.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout history yet</p>';
+        return;
+    }
 
-        finalSessions.forEach(s => {
-            const statusEmoji = {
-                'completed': '✅',
-                'skipped': '⏭'
-            }[s.session.status] || '⏰';
+    const finalSessions = response.filter(s => s.session.status === 'completed' || s.session.status === 'skipped');
 
-            const date = new Date(s.session.scheduled_date).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric'
-            });
+    if (finalSessions.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout history yet</p>';
+        return;
+    }
 
-            // Format total volume
-            const volumeText = s.total_volume > 0
-                ? `${Math.round(s.total_volume).toLocaleString()} kg total`
-                : '';
+    let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
+    finalSessions.forEach(s => {
+        const statusEmoji = {
+            'completed': '✅',
+            'skipped': '⏭'
+        }[s.session.status] || '⏰';
 
-            html += `
+        const date = new Date(s.session.scheduled_date).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+        });
+
+        const volumeText = s.total_volume > 0
+            ? `${Math.round(s.total_volume).toLocaleString()} kg total`
+            : '';
+
+        html += `
                 <div onclick="showWorkoutSessionModal(${s.session.id})" style="background: #f8f9fa; padding: 12px; border-radius: 8px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='#f8f9fa'">
                     <div style="display: flex; justify-content: space-between; align-items: start;">
                         <div>
@@ -636,14 +672,10 @@ async function loadWorkoutHistoryTab() {
                     </div>
                 </div>
             `;
-        });
-        html += '</div>';
+    });
+    html += '</div>';
 
-        container.innerHTML = html;
-    } catch (error) {
-        console.error('Error loading history:', error);
-        container.innerHTML = '<p style="color: red;">Error loading history</p>';
-    }
+    container.innerHTML = html;
 }
 
 let currentSessionLogs = [];
@@ -859,25 +891,45 @@ async function saveWorkoutSessionDetails() {
 async function loadWorkoutStatsTab() {
     const container = document.getElementById('workout-stats-display');
 
+    // Show cached data immediately (stale-while-revalidate)
+    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('workout_stats');
+    if (cached) {
+        _renderWorkoutStats(container, cached);
+    }
+
+    // Always fetch fresh data
     try {
         const stats = await apiCall('/api/workout/stats');
-        if (!stats) {
-            container.innerHTML = '<p style="text-align: center; color: var(--hint-color);">No statistics available yet</p>';
-            return;
+
+        if (window.MedTrackerDB?.ApiCache) {
+            await window.MedTrackerDB.ApiCache.set('workout_stats', stats);
         }
 
-        const formatVolume = (kg) => {
-            if (!kg || kg === 0) return '—';
-            if (kg >= 1000) return `${(kg / 1000).toFixed(1)}t`;
-            return `${Math.round(kg).toLocaleString()} kg`;
-        };
+        _renderWorkoutStats(container, stats);
+    } catch (error) {
+        console.error('Error loading stats:', error);
+        if (!cached) container.innerHTML = '<p style="color: red;">Error loading statistics</p>';
+    }
+}
 
-        // Top exercises section
-        let topExercisesHtml = '';
-        if (stats.top_exercises && stats.top_exercises.length > 0) {
-            const maxVol = stats.top_exercises[0].total_volume_kg || 1;
-            const medals = ['🥇', '🥈', '🥉'];
-            topExercisesHtml = `
+function _renderWorkoutStats(container, stats) {
+    if (!stats) {
+        container.innerHTML = '<p style="text-align: center; color: var(--hint-color);">No statistics available yet</p>';
+        return;
+    }
+
+    const formatVolume = (kg) => {
+        if (!kg || kg === 0) return '—';
+        if (kg >= 1000) return `${(kg / 1000).toFixed(1)}t`;
+        return `${Math.round(kg).toLocaleString()} kg`;
+    };
+
+    // Top exercises section
+    let topExercisesHtml = '';
+    if (stats.top_exercises && stats.top_exercises.length > 0) {
+        const maxVol = stats.top_exercises[0].total_volume_kg || 1;
+        const medals = ['🥇', '🥈', '🥉'];
+        topExercisesHtml = `
                 <div style="margin-top: 20px;">
                     <div style="font-size: 0.75em; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--hint-color); margin-bottom: 10px;">Top Exercises · Volume</div>
                     ${stats.top_exercises.map((ex, i) => {
@@ -960,10 +1012,6 @@ async function loadWorkoutStatsTab() {
             ${topExercisesHtml}
             ${heatmapHtml}
         `;
-    } catch (error) {
-        console.error('Error loading stats:', error);
-        container.innerHTML = '<p style="color: red;">Error loading statistics</p>';
-    }
 }
 
 // ====================================
