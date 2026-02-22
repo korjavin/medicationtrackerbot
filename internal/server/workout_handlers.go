@@ -15,7 +15,7 @@ import (
 // -- Workout Group Handlers --
 
 func (s *Server) handleListWorkoutGroups(w http.ResponseWriter, r *http.Request) {
-	groups, err := s.store.ListWorkoutGroups(s.allowedUserID, true)
+	groups, err := s.store.ListWorkoutGroups(s.allowedUserID, false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

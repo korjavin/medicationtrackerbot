@@ -287,10 +287,6 @@ async function saveWorkoutGroup() {
     const days = Array.from(document.querySelectorAll('#workout-group-modal .days-select span.selected'))
         .map(s => parseInt(s.dataset.day));
 
-    if (days.length === 0) {
-        safeAlert('Select at least one day!');
-        return;
-    }
 
     const payload = {
         name,
@@ -933,10 +929,10 @@ function _renderWorkoutStats(container, stats) {
                 <div style="margin-top: 20px;">
                     <div style="font-size: 0.75em; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--hint-color); margin-bottom: 10px;">Top Exercises · Volume</div>
                     ${stats.top_exercises.map((ex, i) => {
-                        const pct = maxVol > 0 ? (ex.total_volume_kg / maxVol * 100).toFixed(1) : 0;
-                        const medal = medals[i] || `${i + 1}.`;
-                        const maxW = ex.max_weight_kg > 0 ? `${ex.max_weight_kg} kg max` : '';
-                        return `
+            const pct = maxVol > 0 ? (ex.total_volume_kg / maxVol * 100).toFixed(1) : 0;
+            const medal = medals[i] || `${i + 1}.`;
+            const maxW = ex.max_weight_kg > 0 ? `${ex.max_weight_kg} kg max` : '';
+            return `
                             <div style="margin-bottom: 10px;">
                                 <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
                                     <span style="font-size: 0.9em; font-weight: 500;">${medal} ${ex.exercise_name}</span>
@@ -946,29 +942,29 @@ function _renderWorkoutStats(container, stats) {
                                     <div style="background: linear-gradient(90deg, #667eea, #764ba2); width: ${pct}%; height: 100%; border-radius: 4px; transition: width 0.4s;"></div>
                                 </div>
                             </div>`;
-                    }).join('')}
+        }).join('')}
                 </div>`;
-        }
+    }
 
-        // 12-week heatmap
-        let heatmapHtml = '';
-        if (stats.weekly_activity && stats.weekly_activity.length > 0) {
-            const squares = stats.weekly_activity.map(w => {
-                const total = w.completed + w.skipped;
-                let bg;
-                if (total === 0) bg = 'var(--secondary-bg-color, #e8e8e8)';
-                else if (w.completed === 0) bg = '#e05c5c';
-                else if (w.completed >= total) bg = '#28a745';
-                else if (w.completed / total >= 0.5) bg = '#85c17e';
-                else bg = '#ffc107';
+    // 12-week heatmap
+    let heatmapHtml = '';
+    if (stats.weekly_activity && stats.weekly_activity.length > 0) {
+        const squares = stats.weekly_activity.map(w => {
+            const total = w.completed + w.skipped;
+            let bg;
+            if (total === 0) bg = 'var(--secondary-bg-color, #e8e8e8)';
+            else if (w.completed === 0) bg = '#e05c5c';
+            else if (w.completed >= total) bg = '#28a745';
+            else if (w.completed / total >= 0.5) bg = '#85c17e';
+            else bg = '#ffc107';
 
-                const d = new Date(w.week + 'T00:00:00');
-                const label = d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
-                return `<div title="${label}: ${w.completed} done, ${w.skipped} skipped"
+            const d = new Date(w.week + 'T00:00:00');
+            const label = d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+            return `<div title="${label}: ${w.completed} done, ${w.skipped} skipped"
                              style="width: 26px; height: 26px; border-radius: 4px; background: ${bg}; flex-shrink: 0;"></div>`;
-            }).join('');
+        }).join('');
 
-            heatmapHtml = `
+        heatmapHtml = `
                 <div style="margin-top: 20px;">
                     <div style="font-size: 0.75em; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--hint-color); margin-bottom: 10px;">12-Week Activity</div>
                     <div style="display: flex; flex-wrap: wrap; gap: 4px;">${squares}</div>
@@ -978,9 +974,9 @@ function _renderWorkoutStats(container, stats) {
                         <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#e05c5c;vertical-align:middle;margin-right:3px;"></span>Skipped</span>
                     </div>
                 </div>`;
-        }
+    }
 
-        container.innerHTML = `
+    container.innerHTML = `
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px;">
                 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 18px 8px; border-radius: 12px; text-align: center;">
                     <div style="font-size: 2.4em; font-weight: bold; line-height: 1.1;">${stats.current_streak}</div>
