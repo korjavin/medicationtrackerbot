@@ -358,6 +358,15 @@
             <button onclick="showAddVariantModal()" class="primary" style="margin-bottom: 10px;">+ Add Variant</button>
             <div id="workout-variants-list"></div>
         </div>
+
+        <!-- Exercises Section (for Non-Rotating groups) -->
+        <div id="workout-group-flat-exercises-section"
+            style="display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
+            <h4>Exercises</h4>
+            <button onclick="showAddExerciseModalFromGroup()" class="primary" style="margin-bottom: 10px;">+ Add
+                Exercise</button>
+            <div id="workout-group-flat-exercises-list"></div>
+        </div>
     </div>
 
     <!-- Modal for Adding/Editing Variant -->
@@ -511,7 +520,8 @@
             <div class="food-barcode-group">
                 <label>Barcode:</label>
                 <div class="food-barcode-row">
-                    <input type="text" id="food-barcode" placeholder="e.g. 1234567890123" oninput="onFoodBarcodeChange()">
+                    <input type="text" id="food-barcode" placeholder="e.g. 1234567890123"
+                        oninput="onFoodBarcodeChange()">
                     <button type="button" class="secondary food-scan-btn" onclick="openFoodScannerModal()"
                         aria-label="Scan barcode or QR">Scan</button>
                 </div>

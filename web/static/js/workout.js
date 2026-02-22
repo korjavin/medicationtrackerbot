@@ -219,8 +219,10 @@ function showAddWorkoutGroupModal() {
     // Clear days
     document.querySelectorAll('#workout-group-modal .days-select span').forEach(s => s.classList.remove('selected'));
 
-    // Hide variants section
+    // Show/hide sections based on default "Rotating" state (unchecked)
     document.getElementById('workout-variants-section').style.display = 'none';
+    document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
+    document.getElementById('workout-group-flat-exercises-list').innerHTML = '<p style="color: var(--hint-color); font-size: 0.9em;">Save this group first to add exercises.</p>';
 }
 
 async function showEditWorkoutGroupModal(groupId) {
@@ -251,15 +253,72 @@ async function showEditWorkoutGroupModal(groupId) {
         }
     });
 
-    // Show variants section
-    document.getElementById('workout-variants-section').style.display = 'block';
-    await loadVariantsForGroup(groupId);
+    // Show variants or flat exercises based on rotation
+    if (group.is_rotating) {
+        document.getElementById('workout-variants-section').style.display = 'block';
+        document.getElementById('workout-group-flat-exercises-section').style.display = 'none';
+        await loadVariantsForGroup(groupId);
+    } else {
+        document.getElementById('workout-variants-section').style.display = 'none';
+        document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
+
+        // Fetch variants. If none exists, create a default one for non-rotating groups.
+        let variants = await apiCall(`/api/workout/variants?group_id=${groupId}`);
+        if (!variants || variants.length === 0) {
+            const newVariant = await apiCall('/api/workout/variants/create', 'POST', {
+                group_id: groupId,
+                name: 'Main',
+                rotation_order: null,
+                description: ''
+            });
+            variants = [newVariant];
+        }
+
+        const defaultVariantId = variants[0].id;
+        currentGroupForVariant = groupId;
+        currentVariantForExercise = defaultVariantId;
+        await loadExercisesForVariant(defaultVariantId, 'workout-group-flat-exercises-list');
+    }
 }
 
 function closeWorkoutGroupModal() {
     document.getElementById('modal-overlay').classList.add('hidden');
     document.getElementById('workout-group-modal').classList.add('hidden');
     currentEditingGroupId = null;
+}
+
+async function toggleRotatingFields() {
+    const isRotating = document.getElementById('workout-group-rotating').checked;
+    if (isRotating) {
+        document.getElementById('workout-variants-section').style.display = 'block';
+        document.getElementById('workout-group-flat-exercises-section').style.display = 'none';
+        if (currentEditingGroupId) {
+            await loadVariantsForGroup(currentEditingGroupId);
+        }
+    } else {
+        document.getElementById('workout-variants-section').style.display = 'none';
+        document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
+        if (currentEditingGroupId) {
+            // Re-run the logic to fetch/create default variant and load exercises
+            let variants = await apiCall(`/api/workout/variants?group_id=${currentEditingGroupId}`);
+            if (!variants || variants.length === 0) {
+                const newVariant = await apiCall('/api/workout/variants/create', 'POST', {
+                    group_id: currentEditingGroupId,
+                    name: 'Main',
+                    rotation_order: null,
+                    description: ''
+                });
+                variants = [newVariant];
+            }
+            const defaultVariantId = variants[0].id;
+            currentGroupForVariant = currentEditingGroupId;
+            currentVariantForExercise = defaultVariantId;
+            await loadExercisesForVariant(defaultVariantId, 'workout-group-flat-exercises-list');
+        } else {
+            // New group, just show message
+            document.getElementById('workout-group-flat-exercises-list').innerHTML = '<p style="color: var(--hint-color); font-size: 0.9em;">Save this group first to add exercises.</p>';
+        }
+    }
 }
 
 function toggleWorkoutDay(el) {
@@ -459,9 +518,12 @@ async function deleteVariant(variantId, event) {
 // EXERCISES
 // ====================================
 
-async function loadExercisesForVariant(variantId) {
+let currentExercisesContainerId = 'workout-exercises-list';
+
+async function loadExercisesForVariant(variantId, containerId = 'workout-exercises-list') {
     currentVariantForExercise = variantId;
-    const container = document.getElementById('workout-exercises-list');
+    currentExercisesContainerId = containerId;
+    const container = document.getElementById(containerId);
 
     try {
         const exercises = await apiCall(`/api/workout/exercises?variant_id=${variantId}`);
@@ -515,6 +577,11 @@ function showAddExerciseModal() {
     document.getElementById('workout-exercise-reps-max').value = '';
     document.getElementById('workout-exercise-weight').value = '';
     document.getElementById('workout-exercise-order').value = '0';
+}
+
+function showAddExerciseModalFromGroup() {
+    // It's the same modal, we just use the default variant already set in currentVariantForExercise
+    showAddExerciseModal();
 }
 
 async function showEditExerciseModal(exerciseId) {
@@ -575,7 +642,7 @@ async function saveExercise() {
 
     if (result || result === true) {
         closeExerciseModal();
-        loadExercisesForVariant(currentVariantForExercise);
+        loadExercisesForVariant(currentVariantForExercise, currentExercisesContainerId);
     }
 }
 
@@ -584,7 +651,7 @@ async function deleteExercise(exerciseId, event) {
     if (confirm('Delete this exercise?')) {
         const result = await apiCall(`/api/workout/exercises/delete?id=${exerciseId}`, 'DELETE');
         if (result || result === true) {
-            loadExercisesForVariant(currentVariantForExercise);
+            loadExercisesForVariant(currentVariantForExercise, currentExercisesContainerId);
         }
     }
 }
