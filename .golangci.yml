@@ -1,0 +1,114 @@
+---
+run:
+  timeout: 5m
+  concurrency: 4
+  allow-serial-runners: false
+
+output:
+  formats:
+    - format: sarif
+      path: golangci-lint-result.sarif
+    - format: colored-line-number
+      path: stdout
+
+linters:
+  enable:
+    # Security linters
+    - gosec           # Go security issues (G-rules for SQL injection, crypto, etc.)
+    - errorlint       # Error handling patterns
+    - nolintlint      # Validate //nolint comments
+
+    # Code quality and standards
+    - goimports       # Formatting and imports
+    - gofmt           # Code formatting
+    - govet           # Go vet issues
+    - staticcheck     # Static analysis
+    - ineffassign     # Ineffectual assignments
+
+  disable:
+    - gomnd           # Magic number detection (can be noisy)
+    - depguard        # Dependency guards (not needed)
+    - exhaustive      # Exhaustive enum checks (too strict)
+    - gocyclo         # Cyclomatic complexity (can be noisy)
+
+issues:
+  exclude-dirs:
+    - vendor
+    - build
+  exclude-rules:
+    # Test files
+    - path: _test\.go$
+      linters:
+        - gosec       # Security checks less critical in tests
+        - errorlint   # Error handling less critical in tests
+
+    # Generated files and vendor
+    - path: vendor/
+      text: ".*"
+    - path: "^internal/store/migrations/.*\\.go$"
+      linters:
+        - gosec
+
+  # Exclude specific security checks that may need context
+  exclude:
+    - "G204: Subprocess launched with function call as argument or cmd arguments from variable"
+    - "G602: Expect [sql.Row | sql.Rows].Close to be called on every sql.Rows"
+
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new-from-rev: ""
+
+linters-settings:
+  gosec:
+    # Enable all security checks
+    severity: "MEDIUM"
+    confidence: "LOW"
+    rules:
+      - G101  # Look for hardcoded credentials
+      - G102  # Bind to all network interfaces
+      - G103  # Audit the use of unsafe blocks
+      - G104  # Audit errors not checked
+      - G105  # Math big.Int.Exp function use
+      - G106  # Audit the use of ssh.InsecureIgnoreHostKey
+      - G107  # Url provided to urllib.Request()
+      - G108  # Profiling endpoint is exposed to network
+      - G109  # Potential Integer overflow made by strconv.Atoi result conversion
+      - G110  # Potential DoS vulnerability via decompression bomb
+      - G111  # Potential directory traversal
+      - G112  # Potential slowloris attack
+      - G113  # Usage of Rat.SetString in math/big with an overflow (CVE-2022-23772)
+      - G114  # Use of net.Listen with 0 port
+      - G201  # SQL query construction using format string
+      - G202  # SQL query construction using string concatenation
+      - G203  # Use of unescaped data in HTML templates
+      - G204  # Audit use of command execution
+      - G301  # Poor file permissions used with chmod
+      - G302  # Poor file permissions used when writing to new files
+      - G303  # Creating temp file in shared directory
+      - G304  # File included via variable
+      - G305  # File inclusion via archive/zip
+      - G306  # Poor file permissions used when writing to new files
+      - G307  # Defer statement without error
+      - G401  # TLS MinVersion not set
+      - G402  # TLS InsecureSkipVerify
+      - G403  # Use of weak random number generator (rand)
+      - G404  # Use of weak random number generator (math/rand)
+      - G501  # Import blacklist: crypto/md5
+      - G502  # Import blacklist: crypto/des
+      - G503  # Import blacklist: crypto/rc4
+      - G504  # Import blacklist: net/http/cgi
+      - G505  # Import blacklist: crypto/sha1
+      - G601  # Implicit memory aliasing of items from range
+      - G602  # Unchecked type assertion
+      - G603  # Unclosed Body
+
+  errorlint:
+    # Check error wrapping
+    check-error-type-assertions: true
+    check-unhandled-errors: true
+
+  staticcheck:
+    # ST-rules for better analysis
+    checks:
+      - all
+      - "-SA1019"  # Deprecated but allow usage
