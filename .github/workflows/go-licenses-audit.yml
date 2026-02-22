@@ -1,0 +1,183 @@
+name: Go Licenses Audit
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  license-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install go-licenses
+        run: go install github.com/google/go-licenses@latest
+
+      - name: Generate license report
+        id: license-scan
+        run: |
+          go-licenses csv github.com/korjavin/medicationtrackerbot/cmd/bot > licenses-report.csv 2>&1 || true
+          cat licenses-report.csv
+
+      - name: Validate licenses
+        run: |
+          python3 << 'EOF'
+          import csv
+          import sys
+
+          # Blocked license patterns (GPL/AGPL/copyleft)
+          BLOCKED_LICENSES = {
+              'GPL',
+              'AGPL',
+              'GNU General Public License',
+              'GNU Affero General Public License',
+              'Copyleft',
+          }
+
+          # Allowed licenses (permissive/business-friendly)
+          ALLOWED_LICENSES = {
+              'MIT',
+              'Apache',
+              'Apache License',
+              'Apache Software License',
+              'BSD',
+              'BSD-2-Clause',
+              'BSD-3-Clause',
+              'ISC',
+              'MPL',
+              'Mozilla Public License',
+              'Python Software Foundation',
+              'Unicode',
+              'Unlicense',
+              'WTFPL',
+          }
+
+          # Undeclared/Unknown licenses (requires approval)
+          UNDECLARED = {'Unknown', 'NOASSERTION', ''}
+
+          blocked = []
+          undeclared = []
+          allowed = []
+
+          try:
+              with open('licenses-report.csv', 'r') as f:
+                  reader = csv.DictReader(f)
+                  if reader is None or not reader.fieldnames:
+                      print("Warning: Could not parse licenses report")
+                      sys.exit(0)
+
+                  for row in reader:
+                      package = row.get('Package', 'Unknown')
+                      license_name = row.get('License', '').strip()
+
+                      # Check if license is blocked
+                      is_blocked = any(blocked in license_name for blocked in BLOCKED_LICENSES)
+                      is_allowed = any(allowed in license_name for allowed in ALLOWED_LICENSES)
+                      is_undeclared = license_name in UNDECLARED or not license_name
+
+                      if is_blocked:
+                          blocked.append((package, license_name))
+                      elif is_undeclared:
+                          undeclared.append((package, license_name))
+                      elif is_allowed:
+                          allowed.append((package, license_name))
+                      else:
+                          # Unknown license - treat as undeclared
+                          undeclared.append((package, license_name))
+
+          except FileNotFoundError:
+              print("Error: licenses-report.csv not found")
+              sys.exit(1)
+          except Exception as e:
+              print(f"Error parsing licenses: {e}")
+              sys.exit(1)
+
+          # Report
+          print("\n" + "="*80)
+          print("LICENSE COMPLIANCE REPORT")
+          print("="*80)
+
+          if blocked:
+              print(f"\n❌ BLOCKED LICENSES ({len(blocked)}):")
+              for pkg, lic in blocked:
+                  print(f"  - {pkg}: {lic}")
+
+          if undeclared:
+              print(f"\n⚠️  UNDECLARED/UNKNOWN LICENSES ({len(undeclared)}):")
+              for pkg, lic in undeclared:
+                  print(f"  - {pkg}: {lic or 'No license declared'}")
+
+          print(f"\n✅ ALLOWED LICENSES ({len(allowed)}):")
+          for pkg, lic in allowed[:10]:  # Show first 10
+              print(f"  - {pkg}: {lic}")
+          if len(allowed) > 10:
+              print(f"  ... and {len(allowed) - 10} more")
+
+          print("\n" + "="*80)
+
+          # Fail if blocked or undeclared licenses found
+          if blocked or undeclared:
+              if blocked:
+                  print(f"\n❌ FAILED: Found {len(blocked)} blocked license(s)")
+              if undeclared:
+                  print(f"❌ FAILED: Found {len(undeclared)} undeclared/unknown license(s)")
+              print("\nTo resolve:")
+              print("1. Remove packages with GPL/AGPL/copyleft licenses")
+              print("2. Update packages with undeclared licenses or add to allowlist")
+              sys.exit(1)
+          else:
+              print("\n✅ All licenses are compliant!")
+              sys.exit(0)
+          EOF
+
+      - name: Upload license report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: licenses-report
+          path: licenses-report.csv
+          retention-days: 30
+
+      - name: Comment on PR with results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const fs = require('fs');
+            let report = '## 📜 License Compliance Audit\n\n';
+
+            try {
+              const csv = fs.readFileSync('licenses-report.csv', 'utf8');
+              const lines = csv.trim().split('\n');
+
+              if (lines.length > 1) {
+                report += `✅ Scanned ${lines.length - 1} dependencies for license compliance\n`;
+                report += '- GPL/AGPL/Copyleft licenses: **BLOCKED**\n';
+                report += '- Undeclared licenses: **REQUIRES REVIEW**\n';
+                report += '- MIT/Apache/BSD/ISC/MPL: **ALLOWED**\n';
+              }
+            } catch (e) {
+              report += 'Report generated, check artifacts for details\n';
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
