@@ -1,0 +1,57 @@
+# TruffleHog ignore file
+# Patterns to exclude from secrets scanning
+
+# Example/template files
+.env.example
+.env.mcp.example
+*.example
+*.template
+
+# Test data and fixtures
+*_test.go
+test/
+tests/
+fixtures/
+testdata/
+
+# Documentation
+*.md
+*.txt
+*.rst
+
+# Configuration examples
+*.example.yml
+*.example.yaml
+*.example.json
+*.sample
+
+# Git and build artifacts
+.git/
+vendor/
+node_modules/
+build/
+dist/
+
+# Database files (contain no secrets)
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary and lock files
+go.sum
+package-lock.json
+yarn.lock
+Gemfile.lock
+
+# Docker and CI/CD
+Dockerfile
+docker-compose.yml
+.github/
+
+# Binary files
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.dll
