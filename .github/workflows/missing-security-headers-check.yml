@@ -1,0 +1,148 @@
+name: Security Headers Check
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  security-headers:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Start server in test mode
+        run: |
+          # Generate a test database and session secret
+          export DB_PATH="/tmp/test-meds.db"
+          export TELEGRAM_BOT_TOKEN="test-token"
+          export SESSION_SECRET="test-secret-32-chars-minimum-ok"
+          export ALLOWED_USER_ID="123456789"
+          export PORT="8080"
+
+          # Start the server in the background
+          go run ./cmd/bot &
+          SERVER_PID=$!
+
+          # Wait for server to start
+          for i in {1..30}; do
+            if curl -s http://localhost:8080/ > /dev/null 2>&1; then
+              echo "Server started successfully"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Server failed to start"
+              kill $SERVER_PID 2>/dev/null || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
+
+      - name: Check security headers on key endpoints
+        run: |
+          set -e
+
+          # Function to check for a header and its value
+          check_header() {
+            local endpoint=$1
+            local header=$2
+            local expected_value=$3
+
+            echo "Checking $header on $endpoint..."
+
+            response=$(curl -s -I -w "\n%{http_code}" "http://localhost:8080${endpoint}" 2>/dev/null)
+            status_code=$(echo "$response" | tail -n1)
+            headers=$(echo "$response" | head -n-1)
+
+            if [ "$status_code" != "200" ] && [ "$status_code" != "302" ] && [ "$status_code" != "401" ]; then
+              echo "ERROR: Unexpected status code $status_code for $endpoint"
+              return 1
+            fi
+
+            header_value=$(echo "$headers" | grep -i "^${header}:" | cut -d' ' -f2- || echo "")
+
+            if [ -z "$header_value" ]; then
+              echo "ERROR: Missing header '$header' on $endpoint"
+              return 1
+            fi
+
+            if [ -n "$expected_value" ]; then
+              if ! echo "$header_value" | grep -q "$expected_value"; then
+                echo "ERROR: Header '$header' on $endpoint has unexpected value: $header_value"
+                echo "Expected to contain: $expected_value"
+                return 1
+              fi
+            fi
+
+            echo "✓ $header: $header_value"
+            return 0
+          }
+
+          # Test endpoints
+          ENDPOINTS=("/" "/api/medications" "/auth/oidc/callback")
+          HEADERS=(
+            "Content-Security-Policy|default-src.*self"
+            "Strict-Transport-Security|max-age=31536000"
+            "X-Frame-Options|DENY"
+            "X-Content-Type-Options|nosniff"
+          )
+
+          failed=0
+
+          for endpoint in "${ENDPOINTS[@]}"; do
+            echo ""
+            echo "=========================================="
+            echo "Testing endpoint: $endpoint"
+            echo "=========================================="
+
+            for header_spec in "${HEADERS[@]}"; do
+              header=$(echo "$header_spec" | cut -d'|' -f1)
+              expected=$(echo "$header_spec" | cut -d'|' -f2)
+
+              if ! check_header "$endpoint" "$header" "$expected"; then
+                failed=$((failed + 1))
+              fi
+            done
+          done
+
+          # Cleanup
+          if [ ! -z "${{ env.SERVER_PID }}" ]; then
+            kill ${{ env.SERVER_PID }} 2>/dev/null || true
+          fi
+
+          if [ $failed -gt 0 ]; then
+            echo ""
+            echo "=========================================="
+            echo "FAILED: $failed security header check(s) failed"
+            echo "=========================================="
+            exit 1
+          else
+            echo ""
+            echo "=========================================="
+            echo "SUCCESS: All security headers are present and correct"
+            echo "=========================================="
+          fi
+
+      - name: Cleanup on failure
+        if: failure()
+        run: |
+          if [ ! -z "${{ env.SERVER_PID }}" ]; then
+            kill ${{ env.SERVER_PID }} 2>/dev/null || true
+          fi
