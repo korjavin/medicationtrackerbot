@@ -1480,6 +1480,25 @@ input:checked+.toggle-slider:before {
     display: none;
 }
 
+.food-quick-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+}
+
+.food-weight-group {
+    flex: 0 0 90px;
+}
+
+.food-weight-group input {
+    margin-bottom: 0;
+}
+
+.food-barcode-group {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .food-barcode-row {
     display: flex;
     gap: 8px;
@@ -1492,8 +1511,8 @@ input:checked+.toggle-slider:before {
 
 .food-scan-btn {
     flex: 0 0 auto;
-    min-width: 76px;
-    padding: 0 12px;
+    min-width: 60px;
+    padding: 0 10px;
     font-size: 14px;
 }
 

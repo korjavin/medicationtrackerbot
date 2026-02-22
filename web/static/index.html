@@ -502,6 +502,22 @@
         </div>
         <input type="hidden" id="food-id">
 
+        <!-- Weight + Barcode above name so autocomplete doesn't cover them -->
+        <div class="form-row food-quick-row">
+            <div class="food-weight-group">
+                <label>Weight (g):</label>
+                <input type="number" id="food-weight" placeholder="150" oninput="calculateFoodCalories()">
+            </div>
+            <div class="food-barcode-group">
+                <label>Barcode:</label>
+                <div class="food-barcode-row">
+                    <input type="text" id="food-barcode" placeholder="e.g. 1234567890123" oninput="onFoodBarcodeChange()">
+                    <button type="button" class="secondary food-scan-btn" onclick="openFoodScannerModal()"
+                        aria-label="Scan barcode or QR">Scan</button>
+                </div>
+            </div>
+        </div>
+
         <div class="form-row" style="position: relative;">
             <label>Food Name (optional):</label>
             <p id="food-search-status" class="food-search-status hidden" aria-live="polite"
@@ -509,20 +525,6 @@
             <input type="text" id="food-name" placeholder="e.g. Apple" autocomplete="off" oninput="onFoodNameChange()"
                 onfocus="onFoodNameFocus()">
             <div id="food-autocomplete-list" class="autocomplete-items hidden"></div>
-        </div>
-
-        <div class="form-row">
-            <label>Barcode (optional):</label>
-            <div class="food-barcode-row">
-                <input type="text" id="food-barcode" placeholder="e.g. 1234567890123" oninput="onFoodBarcodeChange()">
-                <button type="button" class="secondary food-scan-btn" onclick="openFoodScannerModal()"
-                    aria-label="Scan barcode or QR">Scan</button>
-            </div>
-        </div>
-
-        <div class="form-row">
-            <label>Weight (g):</label>
-            <input type="number" id="food-weight" placeholder="e.g. 150" oninput="calculateFoodCalories()">
         </div>
 
         <div class="form-row">
