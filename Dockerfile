@@ -7,7 +7,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o bot ./cmd/bot
 RUN CGO_ENABLED=0 GOOS=linux go build -o mcptool ./cmd/mcptool
 
-FROM alpine:latest
+FROM alpine:3.20
 WORKDIR /app
 
 # Install dependencies including su-exec for privilege dropping
