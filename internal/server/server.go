@@ -204,6 +204,25 @@ func noCacheMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// securityHeadersMiddleware adds critical security headers to all responses
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Content Security Policy - prevent XSS attacks
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none';")
+		// Strict Transport Security - enforce HTTPS
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		// X-Frame-Options - prevent clickjacking
+		w.Header().Set("X-Frame-Options", "DENY")
+		// X-Content-Type-Options - prevent MIME-sniffing
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		// X-XSS-Protection - enable XSS filter in older browsers
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		// Referrer-Policy - limit referrer information
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
@@ -347,7 +366,8 @@ func (s *Server) Routes() http.Handler {
 	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
 	mux.Handle("/api/", authMW(apiMux))
 
-	return mux
+	// Apply security headers middleware to all routes
+	return securityHeadersMiddleware(mux)
 }
 
 // -- Blood Pressure Handlers --
