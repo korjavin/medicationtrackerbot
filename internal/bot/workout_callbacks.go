@@ -170,13 +170,20 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 
 	switch action {
 	case "done":
-		// Log exercise with default values
-		_, err := b.store.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
-			&exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "completed", "")
-		if err != nil {
-			log.Printf("Failed to log exercise: %v", err)
-			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise."))
-			return
+		// Check if a log already exists for this session+exercise (idempotent)
+		existingLog, _ := b.store.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
+		if existingLog != nil {
+			// Already logged — update it with default values instead of creating duplicate
+			_ = b.store.UpdateExerciseLog(existingLog.ID, &exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "")
+		} else {
+			// Log exercise with default values
+			_, err := b.store.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
+				&exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "completed", "")
+			if err != nil {
+				log.Printf("Failed to log exercise: %v", err)
+				b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise."))
+				return
+			}
 		}
 
 		// Update message
@@ -195,12 +202,18 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
 
 	case "skip":
-		// Log exercise as skipped
-		_, err := b.store.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
-			nil, nil, nil, "skipped", "")
-		if err != nil {
-			log.Printf("Failed to log skipped exercise: %v", err)
-			return
+		// Check if a log already exists for this session+exercise (idempotent)
+		existingLog, _ := b.store.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
+		if existingLog != nil {
+			// Already logged — just leave it as-is (don't create duplicate)
+		} else {
+			// Log exercise as skipped
+			_, err := b.store.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
+				nil, nil, nil, "skipped", "")
+			if err != nil {
+				log.Printf("Failed to log skipped exercise: %v", err)
+				return
+			}
 		}
 
 		// Update message
@@ -227,11 +240,18 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			log.Printf("Failed to send edit message: %v", err)
 		}
 
-		// Log with default values for now
-		_, err = b.store.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
-			&exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "completed", "")
-		if err != nil {
-			log.Printf("Failed to log exercise: %v", err)
+		// Check if a log already exists for this session+exercise (idempotent)
+		existingLog, _ := b.store.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
+		if existingLog != nil {
+			// Already logged — update it
+			_ = b.store.UpdateExerciseLog(existingLog.ID, &exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "")
+		} else {
+			// Log with default values for now
+			_, err = b.store.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
+				&exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "completed", "")
+			if err != nil {
+				log.Printf("Failed to log exercise: %v", err)
+			}
 		}
 
 		// Update original message
