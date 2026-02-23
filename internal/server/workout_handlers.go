@@ -938,6 +938,24 @@ func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *Server) handleDeleteExerciseLog(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Query().Get("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid log ID", http.StatusBadRequest)
+		return
+	}
+
+	// Auth middleware already ensures only the allowed user can call this API.
+	err = s.store.DeleteExerciseLog(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *Server) handleGetUniqueExercises(w http.ResponseWriter, r *http.Request) {
 	exercises, err := s.store.GetAllUniqueExercises(s.allowedUserID)
 	if err != nil {

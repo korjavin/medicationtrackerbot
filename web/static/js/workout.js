@@ -780,7 +780,8 @@ async function showWorkoutSessionModal(sessionId) {
                             reps_completed: ex.target_reps_min || 0,
                             weight_kg: ex.target_weight_kg || 0,
                             notes: '',
-                            status: 'completed'
+                            status: 'completed',
+                            _dirty: false  // NOT saved unless user actually edits
                         }));
 
                     currentSessionLogs = [...currentSessionLogs, ...plannedMissingLogs];
@@ -818,9 +819,15 @@ async function showWorkoutSessionModal(sessionId) {
 
         let html = '';
         currentSessionLogs.forEach((log, index) => {
+            const isUnsaved = !log.id || log.id === 0;
+            const dimStyle = isUnsaved && !log._dirty ? 'opacity: 0.6;' : '';
             html += `
-                <div class="exercise-log-entry">
-                    <h4>${escapeHtml(log.exercise_name)}</h4>
+                <div class="exercise-log-entry" id="exercise-log-${index}" style="position: relative; ${dimStyle}">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 style="margin: 0;">${escapeHtml(log.exercise_name)}</h4>
+                        <button onclick="deleteExerciseLog(${index})" title="Remove exercise" style="background: none; border: none; cursor: pointer; font-size: 1.2em; padding: 4px 8px; color: #c62828;">🗑️</button>
+                    </div>
+                    ${isUnsaved && !log._dirty ? '<div style="font-size: 0.75em; color: #888; margin-bottom: 4px;">Not yet logged — edit to include</div>' : ''}
                     <div class="log-input-row">
                         <div class="log-input-group">
                             <label>Sets</label>
@@ -870,6 +877,71 @@ function updateLocalLog(index, field, value) {
         // Weight can be decimal
         currentSessionLogs[index][field] = Math.max(0, parseFloat(value) || 0);
     }
+    // Mark as dirty so it gets saved
+    currentSessionLogs[index]._dirty = true;
+    // Update visual state — remove dim styling
+    const el = document.getElementById(`exercise-log-${index}`);
+    if (el) {
+        el.style.opacity = '1';
+        const hint = el.querySelector('div[style*="Not yet logged"]');
+        if (hint) hint.remove();
+    }
+}
+
+async function deleteExerciseLog(index) {
+    const log = currentSessionLogs[index];
+    if (!log) return;
+
+    if (!confirm(`Remove ${log.exercise_name} from this workout?`)) return;
+
+    // If it has an ID (already saved in DB), delete from backend
+    if (log.id && log.id > 0) {
+        try {
+            await apiCall(`/api/workout/sessions/logs/delete?id=${log.id}`, 'DELETE');
+        } catch (error) {
+            console.error('Error deleting exercise log:', error);
+            safeAlert('Failed to delete exercise log');
+            return;
+        }
+    }
+
+    // Remove from local array and re-render
+    currentSessionLogs.splice(index, 1);
+    // Re-render the logs in the modal
+    const logsContainer = document.getElementById('workout-session-logs');
+    let html = '';
+    currentSessionLogs.forEach((log, i) => {
+        const isUnsaved = !log.id || log.id === 0;
+        const dimStyle = isUnsaved && !log._dirty ? 'opacity: 0.6;' : '';
+        html += `
+            <div class="exercise-log-entry" id="exercise-log-${i}" style="position: relative; ${dimStyle}">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h4 style="margin: 0;">${escapeHtml(log.exercise_name)}</h4>
+                    <button onclick="deleteExerciseLog(${i})" title="Remove exercise" style="background: none; border: none; cursor: pointer; font-size: 1.2em; padding: 4px 8px; color: #c62828;">🗑️</button>
+                </div>
+                ${isUnsaved && !log._dirty ? '<div style="font-size: 0.75em; color: #888; margin-bottom: 4px;">Not yet logged — edit to include</div>' : ''}
+                <div class="log-input-row">
+                    <div class="log-input-group">
+                        <label>Sets</label>
+                        <input type="number" min="0" max="20" step="1" value="${log.sets_completed || 0}" onchange="updateLocalLog(${i}, 'sets_completed', this.value)" inputmode="numeric">
+                    </div>
+                    <div class="log-input-group">
+                        <label>Reps</label>
+                        <input type="number" min="0" max="100" step="1" value="${log.reps_completed || 0}" onchange="updateLocalLog(${i}, 'reps_completed', this.value)" inputmode="numeric">
+                    </div>
+                    <div class="log-input-group">
+                        <label>Weight (kg)</label>
+                        <input type="number" min="0" max="500" step="0.5" value="${log.weight_kg || 0}" onchange="updateLocalLog(${i}, 'weight_kg', this.value)" inputmode="decimal">
+                    </div>
+                </div>
+                <div class="log-input-group">
+                    <label>Notes</label>
+                    <input type="text" value="${escapeHtml(log.notes || '')}" onchange="updateLocalLog(${i}, 'notes', this.value)" placeholder="Add notes..." maxlength="200">
+                </div>
+            </div>
+        `;
+    });
+    logsContainer.innerHTML = html || '<p style="text-align: center; color: #888;">No exercises logged</p>';
 }
 
 function closeWorkoutSessionModal() {
@@ -913,9 +985,10 @@ async function saveWorkoutSessionDetails() {
             });
         }
 
-        // Save each log
+        // Save each log — only save new entries that the user actually edited (_dirty)
         for (const log of currentSessionLogs) {
             if (log.id && log.id > 0) {
+                // Existing log — always update
                 await apiCall('/api/workout/sessions/logs/update', 'POST', {
                     id: log.id,
                     sets_completed: Math.round(log.sets_completed),
@@ -923,7 +996,8 @@ async function saveWorkoutSessionDetails() {
                     weight_kg: parseFloat(log.weight_kg),
                     notes: log.notes || ''
                 });
-            } else {
+            } else if (log._dirty) {
+                // New log that user actually edited — create it
                 await apiCall('/api/workout/sessions/logs/create', 'POST', {
                     session_id: currentSessionData.id,
                     exercise_id: log.exercise_id,
@@ -935,6 +1009,7 @@ async function saveWorkoutSessionDetails() {
                     notes: log.notes || ''
                 });
             }
+            // Skip: id===0 && !_dirty — pre-filled but untouched, don't save
         }
 
         closeWorkoutSessionModal();

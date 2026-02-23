@@ -736,6 +736,52 @@ func (s *Store) UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, w
 	return err
 }
 
+// DeleteExerciseLog removes an exercise log entry by its ID
+func (s *Store) DeleteExerciseLog(id int64) error {
+	_, err := s.db.Exec("DELETE FROM workout_exercise_logs WHERE id = ?", id)
+	return err
+}
+
+// GetExerciseLogBySessionAndExercise returns an existing log for a given session+exercise pair, if any
+func (s *Store) GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) (*WorkoutExerciseLog, error) {
+	var log WorkoutExerciseLog
+	var setsCompleted, repsCompleted sql.NullInt64
+	var weightKg sql.NullFloat64
+	var notes sql.NullString
+
+	err := s.db.QueryRow(`
+		SELECT id, session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, logged_at
+		FROM workout_exercise_logs 
+		WHERE session_id = ? AND exercise_id = ?
+		LIMIT 1`, sessionID, exerciseID).Scan(
+		&log.ID, &log.SessionID, &log.ExerciseID, &log.ExerciseName,
+		&setsCompleted, &repsCompleted, &weightKg, &log.Status, &notes, &log.LoggedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if setsCompleted.Valid {
+		s := int(setsCompleted.Int64)
+		log.SetsCompleted = &s
+	}
+	if repsCompleted.Valid {
+		r := int(repsCompleted.Int64)
+		log.RepsCompleted = &r
+	}
+	if weightKg.Valid {
+		log.WeightKg = &weightKg.Float64
+	}
+	if notes.Valid {
+		log.Notes = notes.String
+	}
+
+	return &log, nil
+}
+
 // -- Schedule Snapshot Methods --
 
 func (s *Store) CreateGroupSnapshot(groupID int64, snapshotData, changeReason string) error {
