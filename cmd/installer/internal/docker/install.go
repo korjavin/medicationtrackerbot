@@ -21,7 +21,7 @@ func GetDistroInfo() (*DistroInfo, error) {
 
 // GetDistroInfoPath attempts to detect the Linux distribution from the given path.
 func GetDistroInfoPath(path string) (*DistroInfo, error) {
-	file, err := os.Open(path)
+	file, err := os.Open(path) // #nosec G304 -- path is /etc/os-release, a known fixed system file
 	if err != nil {
 		return nil, err
 	}

@@ -355,8 +355,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 	addr := fmt.Sprintf(":%d", s.config.Port)
 	server := &http.Server{
-		Addr:    addr,
-		Handler: mux,
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	// Graceful shutdown

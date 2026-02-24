@@ -29,7 +29,7 @@ func NewInstallerState() *InstallerState {
 // LoadState loads installer state from disk. Returns nil if the file doesn't exist.
 func LoadState(installDir string) (*InstallerState, error) {
 	path := StatePath(installDir)
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path constructed via filepath.Join with a constant filename
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -46,7 +46,7 @@ func LoadState(installDir string) (*InstallerState, error) {
 
 // SaveState writes installer state to disk with restrictive permissions.
 func SaveState(installDir string, state *InstallerState) error {
-	if err := os.MkdirAll(installDir, 0o755); err != nil {
+	if err := os.MkdirAll(installDir, 0o750); err != nil {
 		return fmt.Errorf("create install dir: %w", err)
 	}
 

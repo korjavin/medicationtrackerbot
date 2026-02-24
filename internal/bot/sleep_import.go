@@ -78,7 +78,7 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 		fileURL := file.Link(b.api.Token)
 		log.Printf("Downloading file from: %s", fileURL)
 
-		resp, err := http.Get(fileURL)
+		resp, err := http.Get(fileURL) // #nosec G107 -- fileURL is from Telegram Bot API (file.Link), not user-controlled
 		if err != nil {
 			log.Printf("Error downloading file from URL %s: %v", fileURL, err)
 			b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error downloading file.")
@@ -160,7 +160,8 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 	}
 	defer rc.Close()
 
-	written, err := io.Copy(tempDB, rc)
+	const maxSleepDBSize = 256 * 1024 * 1024 // 256 MB
+	written, err := io.Copy(tempDB, io.LimitReader(rc, maxSleepDBSize))
 	if err != nil {
 		log.Printf("Failed to extract backup.db: %v", err)
 		return 0, 0, err
