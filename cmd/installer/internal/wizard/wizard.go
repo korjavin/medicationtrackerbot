@@ -439,7 +439,7 @@ func (w *Wizard) ensureSecrets() error {
 func (w *Wizard) generateFiles(includeAPIKey bool) error {
 	dir := w.state.Config.InstallDir
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("create install dir: %w", err)
 	}
 
@@ -507,7 +507,7 @@ echo "Update complete!"
 `, composeCmd, composeCmd, composeCmd)
 
 	path := dir + "/update.sh"
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(path, []byte(script), 0o750); err != nil {
 		return fmt.Errorf("write update.sh: %w", err)
 	}
 	return nil

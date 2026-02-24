@@ -74,7 +74,7 @@ func Render(data TemplateData) (string, error) {
 // WriteComposeFile writes the rendered docker-compose.yml to the install directory.
 func WriteComposeFile(installDir string, content string) error {
 	path := filepath.Join(installDir, "docker-compose.yml")
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write docker-compose.yml: %w", err)
 	}
 	return nil

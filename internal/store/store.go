@@ -1669,8 +1669,21 @@ func (s *Store) SetWorkoutEnabled(ctx context.Context, enabled bool) error {
 	return s.setSettingsBool(ctx, "workout_enabled", enabled)
 }
 
+// allowedSettingsBoolColumns is the allowlist of valid boolean column names in the settings table.
+var allowedSettingsBoolColumns = map[string]bool{
+	"food_intake_enabled":    true,
+	"blood_pressure_enabled": true,
+	"weight_enabled":         true,
+	"medication_enabled":     true,
+	"workout_enabled":        true,
+}
+
 func (s *Store) getSettingsBool(ctx context.Context, column string) (bool, error) {
+	if !allowedSettingsBoolColumns[column] {
+		return false, fmt.Errorf("unknown settings column: %s", column)
+	}
 	var val interface{}
+	//nolint:gosec // column validated against allowlist above
 	query := fmt.Sprintf("SELECT %s FROM settings WHERE id = 1", column)
 	if err := s.db.QueryRowContext(ctx, query).Scan(&val); err != nil {
 		return false, err
@@ -1689,6 +1702,10 @@ func (s *Store) getSettingsBool(ctx context.Context, column string) (bool, error
 }
 
 func (s *Store) setSettingsBool(ctx context.Context, column string, enabled bool) error {
+	if !allowedSettingsBoolColumns[column] {
+		return fmt.Errorf("unknown settings column: %s", column)
+	}
+	//nolint:gosec // column validated against allowlist above
 	query := fmt.Sprintf("UPDATE settings SET %s = ? WHERE id = 1", column)
 	_, err := s.db.ExecContext(ctx, query, enabled)
 	return err

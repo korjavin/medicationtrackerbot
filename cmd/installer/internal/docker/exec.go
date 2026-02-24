@@ -13,7 +13,7 @@ import (
 // Compose runs a docker compose command in the given directory.
 func (rt *Runtime) Compose(ctx context.Context, dir string, args ...string) (string, error) {
 	cmdArgs := append(rt.ComposeCmd[1:], args...)
-	cmd := exec.CommandContext(ctx, rt.ComposeCmd[0], cmdArgs...)
+	cmd := exec.CommandContext(ctx, rt.ComposeCmd[0], cmdArgs...) // #nosec G204 -- ComposeCmd set from exec.LookPath results
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "COMPOSE_PROJECT_NAME=medtracker")
 
@@ -70,12 +70,12 @@ func (rt *Runtime) ComposeRestart(ctx context.Context, dir string) error {
 // CreateNetwork creates a Docker network if it doesn't exist.
 func (rt *Runtime) CreateNetwork(ctx context.Context, name string) error {
 	// Check if network exists
-	cmd := exec.CommandContext(ctx, rt.Command, "network", "inspect", name)
+	cmd := exec.CommandContext(ctx, rt.Command, "network", "inspect", name) // #nosec G204 -- Command set from exec.LookPath results
 	if err := cmd.Run(); err == nil {
 		return nil // already exists
 	}
 
-	cmd = exec.CommandContext(ctx, rt.Command, "network", "create", name)
+	cmd = exec.CommandContext(ctx, rt.Command, "network", "create", name) // #nosec G204 -- Command set from exec.LookPath results
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

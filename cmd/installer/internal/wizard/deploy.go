@@ -299,11 +299,11 @@ func (m *deployModel) executeTask(name string) error {
 		}
 
 		// Check if connected
-		checkCmd := exec.CommandContext(ctx, rt.Command, "inspect", "medtracker-pocket-id", "--format", fmt.Sprintf("{{.NetworkSettings.Networks.%s}}", networkName))
+		checkCmd := exec.CommandContext(ctx, rt.Command, "inspect", "medtracker-pocket-id", "--format", fmt.Sprintf("{{.NetworkSettings.Networks.%s}}", networkName)) // #nosec G204 -- rt.Command set from exec.LookPath results
 		out, err := checkCmd.Output()
 		if err != nil || strings.TrimSpace(string(out)) == "<no value>" || string(out) == "null" {
 			m.log(fmt.Sprintf("Connecting medtracker-pocket-id to %s...\n", networkName))
-			connectCmd := exec.CommandContext(ctx, rt.Command, "network", "connect", networkName, "medtracker-pocket-id")
+			connectCmd := exec.CommandContext(ctx, rt.Command, "network", "connect", networkName, "medtracker-pocket-id") // #nosec G204 -- rt.Command set from exec.LookPath results
 			if out, err := connectCmd.CombinedOutput(); err != nil {
 				// Ignore if already connected (race condition or check failure)
 				if !strings.Contains(string(out), "already exists") {

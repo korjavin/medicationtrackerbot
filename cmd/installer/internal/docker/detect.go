@@ -25,12 +25,12 @@ func Detect() (*Runtime, error) {
 		rt := &Runtime{Command: "docker", SocketPath: "/var/run/docker.sock"}
 
 		// Get Docker version
-		if out, err := exec.Command(path, "version", "--format", "{{.Server.Version}}").Output(); err == nil {
+		if out, err := exec.Command(path, "version", "--format", "{{.Server.Version}}").Output(); err == nil { // #nosec G204 -- path from exec.LookPath
 			rt.Version = strings.TrimSpace(string(out))
 		}
 
 		// Check for compose v2 plugin
-		if out, err := exec.Command(path, "compose", "version", "--short").Output(); err == nil {
+		if out, err := exec.Command(path, "compose", "version", "--short").Output(); err == nil { // #nosec G204 -- path from exec.LookPath
 			rt.ComposeCmd = []string{"docker", "compose"}
 			rt.ComposeVersion = strings.TrimSpace(string(out))
 			return rt, nil
@@ -52,19 +52,19 @@ func Detect() (*Runtime, error) {
 	if path, err := exec.LookPath("podman"); err == nil {
 		rt := &Runtime{Command: "podman", SocketPath: "/run/podman/podman.sock"}
 
-		if out, err := exec.Command(path, "version", "--format", "{{.Version}}").Output(); err == nil {
+		if out, err := exec.Command(path, "version", "--format", "{{.Version}}").Output(); err == nil { // #nosec G204 -- path from exec.LookPath
 			rt.Version = strings.TrimSpace(string(out))
 		}
 
 		// Check for podman-compose
-		if out, err := exec.Command("podman-compose", "version").Output(); err == nil {
+		if out, err := exec.Command("podman-compose", "version").Output(); err == nil { // #nosec G204 -- known binary name
 			rt.ComposeCmd = []string{"podman-compose"}
 			rt.ComposeVersion = strings.TrimSpace(string(out))
 			return rt, nil
 		}
 
 		// Check for podman compose plugin
-		if out, err := exec.Command(path, "compose", "version").Output(); err == nil {
+		if out, err := exec.Command(path, "compose", "version").Output(); err == nil { // #nosec G204 -- path from exec.LookPath
 			rt.ComposeCmd = []string{"podman", "compose"}
 			rt.ComposeVersion = strings.TrimSpace(string(out))
 			return rt, nil
