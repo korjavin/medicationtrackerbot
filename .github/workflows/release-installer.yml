@@ -36,3 +36,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ env.GORELEASER_CURRENT_TAG }}
+          FOOD_API_URL: ${{ secrets.FOOD_API_URL }}
+          FOOD_API_KEY: ${{ secrets.FOOD_API_KEY }}

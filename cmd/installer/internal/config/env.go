@@ -7,6 +7,12 @@ import (
 	"strings"
 )
 
+// Injected at build time via -ldflags.
+var (
+	DefaultFoodAPIURL = ""
+	DefaultFoodAPIKey = ""
+)
+
 // GenerateEnv produces the main .env file content.
 func GenerateEnv(cfg *Config, secrets *Secrets, pid *PocketIDState) string {
 	var b strings.Builder
@@ -22,6 +28,16 @@ func GenerateEnv(cfg *Config, secrets *Secrets, pid *PocketIDState) string {
 	writeln(&b, "SESSION_SECRET=%s", secrets.SessionSecret)
 	writeln(&b, "AUTH_TRUST_PROXY=true")
 	writeln(&b, "")
+
+	// Food API (injected at build time)
+	if DefaultFoodAPIURL != "" {
+		writeln(&b, "# Food API")
+		writeln(&b, "FOOD_API_URL=%s", DefaultFoodAPIURL)
+		if DefaultFoodAPIKey != "" {
+			writeln(&b, "FOOD_API_KEY=%s", DefaultFoodAPIKey)
+		}
+		writeln(&b, "")
+	}
 
 	// Traefik network
 	if cfg.Features.Traefik {

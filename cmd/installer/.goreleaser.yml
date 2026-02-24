@@ -15,6 +15,8 @@ builds:
       - arm64
     ldflags:
       - -s -w
+      - -X github.com/korjavin/medicationtrackerbot/installer/internal/config.DefaultFoodAPIURL={{ .Env.FOOD_API_URL }}
+      - -X github.com/korjavin/medicationtrackerbot/installer/internal/config.DefaultFoodAPIKey={{ .Env.FOOD_API_KEY }}
 
 archives:
   - id: installer
