@@ -155,7 +155,9 @@ func TestGetWorkoutHistoryWithAdHoc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create ad-hoc session: %v", err)
 	}
-	s.CompleteSession(adhocSession.ID)
+	if err := s.CompleteSession(adhocSession.ID); err != nil {
+		t.Fatalf("Failed to complete ad-hoc session: %v", err)
+	}
 
 	// Create a regular session
 	group, _ := s.CreateWorkoutGroup("Test Group", "desc", false, userID, "[1,3,5]", "10:00", 30)
@@ -164,7 +166,9 @@ func TestGetWorkoutHistoryWithAdHoc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create scheduled session: %v", err)
 	}
-	s.CompleteSession(scheduledSession.ID)
+	if err := s.CompleteSession(scheduledSession.ID); err != nil {
+		t.Fatalf("Failed to complete scheduled session: %v", err)
+	}
 
 	// Get workout history
 	history, err := s.GetWorkoutHistory(userID, 10)
