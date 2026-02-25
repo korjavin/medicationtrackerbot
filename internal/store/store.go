@@ -328,7 +328,7 @@ func (s *Store) AddRestock(medID int64, qty int, note string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Update inventory count (initialize to qty if NULL)
 	_, err = tx.Exec(`
@@ -884,7 +884,7 @@ func (s *Store) ImportBloodPressureReadings(ctx context.Context, userID int64, r
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.PrepareContext(ctx,
 		"INSERT INTO blood_pressure_readings (user_id, measured_at, systolic, diastolic, pulse, site, position, category, ignore_calc, notes, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -1231,7 +1231,7 @@ func (s *Store) ImportSleepLogs(ctx context.Context, userID int64, logs []SleepL
 	if err != nil {
 		return 0, 0, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.PrepareContext(ctx,
 		`INSERT OR IGNORE INTO sleep_logs (user_id, start_time, end_time,
