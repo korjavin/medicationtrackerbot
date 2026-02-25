@@ -1102,6 +1102,12 @@ svg.chart-svg {
     border-left: 4px solid #fff;
 }
 
+.next-workout-card.pre-skipped {
+    background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+    border-left: 4px solid #e65100;
+    opacity: 0.85;
+}
+
 .next-workout-header {
     display: flex;
     justify-content: space-between;
@@ -1120,6 +1126,10 @@ svg.chart-svg {
 .next-workout-card.in-progress .next-workout-status,
 .next-workout-card.today .next-workout-status {
     color: rgba(255, 255, 255, 0.95);
+}
+
+.next-workout-card.pre-skipped .next-workout-status {
+    color: #e65100;
 }
 
 .next-workout-date {
