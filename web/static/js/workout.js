@@ -166,7 +166,7 @@ async function openNextWorkoutEditModal(variantId, groupId) {
 
 async function nextWorkoutVariant(sessionId) {
     try {
-        await apiCall(`/api/workout/sessions/${sessionId}/next-variant`, { method: 'POST' });
+        await apiCall(`/api/workout/sessions/${sessionId}/next-variant`, 'POST');
         await loadNextWorkout();
     } catch (error) {
         console.error('Error switching to next variant:', error);
