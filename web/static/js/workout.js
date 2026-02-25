@@ -129,19 +129,32 @@ function _renderNextWorkout(container, data) {
             `;
     }
 
+    const variantId = data.variant_id || 0;
+    const groupId = data.group_id || 0;
+
     container.innerHTML = `
             <div class="${cardClass}">
                 <div class="next-workout-header">
                     <div class="next-workout-status">${statusEmoji} ${statusText}</div>
                     <div class="next-workout-date">${dateStr} at ${session.scheduled_time}</div>
                 </div>
-                <div class="next-workout-info">
+                <div class="next-workout-info" onclick="openNextWorkoutEditModal(${variantId}, ${groupId})" style="cursor: pointer;" title="View/edit planned exercises">
                     <h3>${escapeHtml(data.group_name)}</h3>
-                    <p>${escapeHtml(data.variant_name)} • ${data.exercises_count} exercises</p>
+                    <p>${escapeHtml(data.variant_name)} • ${data.exercises_count} exercises ✏️</p>
                 </div>
                 ${actionButtons}
             </div>
         `;
+}
+
+// ====================================
+// NEXT WORKOUT EDIT MODAL
+// ====================================
+
+async function openNextWorkoutEditModal(variantId, groupId) {
+    if (!variantId || !groupId) return;
+    currentGroupForVariant = groupId;
+    await showEditVariantModal(variantId);
 }
 
 // ====================================
