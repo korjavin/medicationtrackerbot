@@ -1208,6 +1208,14 @@ func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request
 		_ = s.bot.DeleteMessage(*session.NotificationMessageID)
 	}
 
+	// Advance rotation for rotating groups
+	group, err := s.store.GetWorkoutGroup(session.GroupID)
+	if err == nil && group != nil && group.IsRotating {
+		if err := s.store.AdvanceRotation(group.ID); err != nil {
+			log.Printf("Failed to advance rotation for group %d: %v", group.ID, err)
+		}
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1318,6 +1326,16 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 		if s.bot != nil {
 			// We ignore error here as the message might already be deleted or too old
 			_ = s.bot.DeleteMessage(*session.NotificationMessageID)
+		}
+	}
+
+	// Advance rotation for rotating groups when session is completed or skipped
+	if req.Status == "skipped" || req.Status == "completed" {
+		group, err := s.store.GetWorkoutGroup(session.GroupID)
+		if err == nil && group != nil && group.IsRotating {
+			if err := s.store.AdvanceRotation(group.ID); err != nil {
+				log.Printf("Failed to advance rotation for group %d: %v", group.ID, err)
+			}
 		}
 	}
 
