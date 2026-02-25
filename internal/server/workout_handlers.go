@@ -466,6 +466,8 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 			GroupName      string      `json:"group_name"`
 			VariantName    string      `json:"variant_name"`
 			ExercisesCount int         `json:"exercises_count"`
+			VariantID      int64       `json:"variant_id"`
+			GroupID        int64       `json:"group_id"`
 		}{
 			Session: map[string]interface{}{
 				"id":             session.ID,
@@ -478,6 +480,8 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 			GroupName:      groupName,
 			VariantName:    variantName,
 			ExercisesCount: len(exercises),
+			VariantID:      session.VariantID,
+			GroupID:        session.GroupID,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -519,6 +523,8 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 				GroupName      string      `json:"group_name"`
 				VariantName    string      `json:"variant_name"`
 				ExercisesCount int         `json:"exercises_count"`
+				VariantID      int64       `json:"variant_id"`
+				GroupID        int64       `json:"group_id"`
 			}{
 				Session: map[string]interface{}{
 					"id":             earliestSnoozed.ID,
@@ -531,6 +537,8 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 				GroupName:      groupName,
 				VariantName:    variantName,
 				ExercisesCount: len(exercises),
+				VariantID:      earliestSnoozed.VariantID,
+				GroupID:        earliestSnoozed.GroupID,
 			}
 
 			w.Header().Set("Content-Type", "application/json")
@@ -703,6 +711,8 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		GroupName      string      `json:"group_name"`
 		VariantName    string      `json:"variant_name"`
 		ExercisesCount int         `json:"exercises_count"`
+		VariantID      int64       `json:"variant_id"`
+		GroupID        int64       `json:"group_id"`
 	}{
 		Session: map[string]interface{}{
 			"id":             nextWorkout.SessionID,
@@ -714,6 +724,8 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		GroupName:      nextWorkout.GroupName,
 		VariantName:    nextWorkout.VariantName,
 		ExercisesCount: nextWorkout.ExercisesCount,
+		VariantID:      nextWorkout.VariantID,
+		GroupID:        nextWorkout.GroupID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
