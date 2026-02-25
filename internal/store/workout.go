@@ -650,6 +650,16 @@ func (s *Store) SkipSession(id int64) error {
 	return err
 }
 
+func (s *Store) PreSkipSession(id int64) error {
+	_, err := s.db.Exec("UPDATE workout_sessions SET status = 'pre_skipped' WHERE id = ?", id)
+	return err
+}
+
+func (s *Store) CancelPreSkip(id int64) error {
+	_, err := s.db.Exec("UPDATE workout_sessions SET status = 'pending' WHERE id = ?", id)
+	return err
+}
+
 func (s *Store) SnoozeSession(id int64, snoozeDuration time.Duration) error {
 	snoozeUntil := time.Now().Add(snoozeDuration)
 	_, err := s.db.Exec(`
@@ -964,7 +974,7 @@ func (s *Store) GetActiveSessions(userID int64, date time.Time) ([]WorkoutSessio
 		FROM workout_sessions 
 		WHERE user_id = ? 
 		  AND scheduled_date LIKE ?
-		  AND status IN ('notified', 'in_progress')
+		  AND status IN ('notified', 'in_progress', 'pre_skipped')
 		ORDER BY scheduled_time ASC`
 
 	rows, err := s.db.Query(query, userID, dateStr+"%")

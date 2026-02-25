@@ -1112,6 +1112,58 @@ func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *Server) handlePreSkipWorkoutSession(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	session, err := s.store.GetWorkoutSession(id)
+	if err != nil || session == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+	if session.UserID != s.allowedUserID {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
+	if err := s.store.PreSkipSession(id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleCancelPreSkipWorkoutSession(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	session, err := s.store.GetWorkoutSession(id)
+	if err != nil || session == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+	if session.UserID != s.allowedUserID {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
+	if err := s.store.CancelPreSkip(id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)

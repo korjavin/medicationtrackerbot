@@ -310,6 +310,8 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("DELETE /api/workout/sessions/logs/delete", s.handleDeleteExerciseLog)
 	apiMux.HandleFunc("POST /api/workout/sessions/{id}/snooze", s.handleSnoozeWorkoutSession)
 	apiMux.HandleFunc("POST /api/workout/sessions/{id}/skip", s.handleSkipWorkoutSession)
+	apiMux.HandleFunc("POST /api/workout/sessions/{id}/preskip", s.handlePreSkipWorkoutSession)
+	apiMux.HandleFunc("POST /api/workout/sessions/{id}/cancel-preskip", s.handleCancelPreSkipWorkoutSession)
 	apiMux.HandleFunc("POST /api/workout/sessions/{id}/start", s.handleStartWorkoutSession)
 	apiMux.HandleFunc("PUT /api/workout/sessions/status", s.handleUpdateSessionStatus)
 	apiMux.HandleFunc("GET /api/workout/exercises/unique", s.handleGetUniqueExercises)
