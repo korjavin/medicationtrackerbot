@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -58,7 +59,9 @@ func (s *Server) handleCreateBloodPressure(w http.ResponseWriter, r *http.Reques
 
 	bp.ID = id
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(bp)
+	if err := json.NewEncoder(w).Encode(bp); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleListBloodPressure(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +98,9 @@ func (s *Server) handleListBloodPressure(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(readings)
+	if err := json.NewEncoder(w).Encode(readings); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleDeleteBloodPressure(w http.ResponseWriter, r *http.Request) {
@@ -159,10 +164,12 @@ func (s *Server) handleImportBloodPressure(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"imported": len(readings),
 		"status":   "success",
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleExportBloodPressure(w http.ResponseWriter, r *http.Request) {
@@ -231,7 +238,9 @@ func (s *Server) handleGetBPGoal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(goal)
+	if err := json.NewEncoder(w).Encode(goal); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleGetBPStats(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +253,9 @@ func (s *Server) handleGetBPStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	if err := json.NewEncoder(w).Encode(stats); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // BP Reminder handlers
@@ -259,7 +270,9 @@ func (s *Server) handleGetBPReminderStatus(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(state)
+	if err := json.NewEncoder(w).Encode(state); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleToggleBPReminder(w http.ResponseWriter, r *http.Request) {
@@ -279,10 +292,12 @@ func (s *Server) handleToggleBPReminder(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"enabled": req.Enabled,
 		"status":  "success",
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleSnoozeBPReminder(w http.ResponseWriter, r *http.Request) {
@@ -302,10 +317,12 @@ func (s *Server) handleSnoozeBPReminder(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "success",
 		"message": "BP reminder snoozed for 2 hours",
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleDontBugMeBPReminder(w http.ResponseWriter, r *http.Request) {
@@ -325,10 +342,12 @@ func (s *Server) handleDontBugMeBPReminder(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "success",
 		"message": "BP reminders disabled for 24 hours",
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleSendTestBPNotification(w http.ResponseWriter, r *http.Request) {
@@ -346,7 +365,9 @@ func (s *Server) handleSendTestBPNotification(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status": "sent",
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }

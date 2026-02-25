@@ -23,7 +23,7 @@ type CreateUserRequest struct {
 type OIDCClient struct {
 	ID                 string   `json:"id"`
 	Name               string   `json:"name"`
-	Secret             string   `json:"secret,omitempty"`
+	Secret             string   `json:"secret,omitempty"` // #nosec G117 -- Pocket-ID API response field, parsed from JSON only
 	CallbackURLs       []string `json:"callbackURLs"`
 	LogoutCallbackURLs []string `json:"logoutCallbackURLs"`
 	IsPublic           bool     `json:"isPublic"`

@@ -68,7 +68,9 @@ func (h *OAuthHandler) HandleProtectedResourceMetadata(w http.ResponseWriter, r 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metadata)
+	if err := json.NewEncoder(w).Encode(metadata); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // Middleware validates OAuth tokens and extracts user info

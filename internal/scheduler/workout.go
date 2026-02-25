@@ -41,13 +41,19 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 	if activeSession != nil && activeSession.StartedAt != nil {
 		duration := now.Sub(*activeSession.StartedAt)
 		if duration > 90*time.Minute && !strings.Contains(activeSession.Notes, "stale_reminded") {
-			s.bot.SendWorkoutStaleNotification("🏋️ Still training? It's been 1.5 hours. Don't forget to log your results!", activeSession.ID)
-			s.store.UpdateWorkoutSessionNotes(activeSession.ID, activeSession.Notes+" stale_reminded")
+			if _, err := s.bot.SendWorkoutStaleNotification("🏋️ Still training? It's been 1.5 hours. Don't forget to log your results!", activeSession.ID); err != nil {
+				log.Printf("[scheduler] send stale notification failed: %v", err)
+			}
+			if err := s.store.UpdateWorkoutSessionNotes(activeSession.ID, activeSession.Notes+" stale_reminded"); err != nil {
+				log.Printf("Failed to update session notes: %v", err)
+			}
 		}
 
 		// Clear blocked state after 4 hours of inactivity to prevent blocking next day's workouts
 		if duration > 4*time.Hour {
-			if err := s.store.SkipSession(activeSession.ID); err == nil {
+			if err := s.store.SkipSession(activeSession.ID); err != nil {
+				log.Printf("Failed to skip stale session: %v", err)
+			} else {
 				// Advance rotation for rotating groups when stale session is auto-skipped
 				group, err := s.store.GetWorkoutGroup(activeSession.GroupID)
 				if err == nil && group != nil && group.IsRotating {
@@ -55,11 +61,13 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 						log.Printf("Failed to advance rotation after stale auto-skip for group %d: %v", group.ID, err)
 					}
 				}
+				if activeSession.NotificationMessageID != nil {
+					if err := s.bot.DeleteMessage(*activeSession.NotificationMessageID); err != nil {
+						log.Printf("[scheduler] delete message failed: %v", err)
+					}
+				}
+				activeSession = nil
 			}
-			if activeSession.NotificationMessageID != nil {
-				s.bot.DeleteMessage(*activeSession.NotificationMessageID)
-			}
-			activeSession = nil
 		}
 	}
 
@@ -170,7 +178,9 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 				if err := s.sendWorkoutNotification(existing, &group, variantID); err != nil {
 					log.Printf("Failed to send workout notification: %v", err)
 				} else {
-					s.store.UpdateSessionStatus(existing.ID, "notified")
+					if err := s.store.UpdateSessionStatus(existing.ID, "notified"); err != nil {
+						log.Printf("Failed to update session status: %v", err)
+					}
 				}
 			}
 		}
@@ -179,13 +189,21 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 		if existing.Status == "notified" {
 			if now.After(scheduledTime.Add(3 * time.Hour)) {
 				if !strings.Contains(existing.Notes, "resent_3h") {
-					s.sendWorkoutNotification(existing, &group, variantID)
-					s.store.UpdateWorkoutSessionNotes(existing.ID, existing.Notes+" resent_3h")
+					if err := s.sendWorkoutNotification(existing, &group, variantID); err != nil {
+						log.Printf("Failed to re-send 3h notification: %v", err)
+					}
+					if err := s.store.UpdateWorkoutSessionNotes(existing.ID, existing.Notes+" resent_3h"); err != nil {
+						log.Printf("Failed to update session notes: %v", err)
+					}
 				} else if now.After(scheduledTime.Add(6 * time.Hour)) {
 					// Auto-skip after 6 hours of silence
-					s.store.SkipSession(existing.ID)
+					if err := s.store.SkipSession(existing.ID); err != nil {
+						log.Printf("Failed to skip session: %v", err)
+					}
 					if existing.NotificationMessageID != nil {
-						s.bot.DeleteMessage(*existing.NotificationMessageID)
+						if err := s.bot.DeleteMessage(*existing.NotificationMessageID); err != nil {
+							log.Printf("[scheduler] delete message failed: %v", err)
+						}
 					}
 				}
 			}
@@ -246,7 +264,9 @@ func (s *Scheduler) sendWorkoutNotification(session *store.WorkoutSession, group
 
 	// Delete previous notification if exists to avoid clutter
 	if session.NotificationMessageID != nil {
-		s.bot.DeleteMessage(*session.NotificationMessageID)
+		if err := s.bot.DeleteMessage(*session.NotificationMessageID); err != nil {
+			log.Printf("[scheduler] delete message failed: %v", err)
+		}
 	}
 
 	// Send notification with inline buttons via bot
@@ -286,7 +306,7 @@ func parseHour(timeStr string) int {
 		return 0
 	}
 	h := 0
-	fmt.Sscanf(timeStr[:2], "%d", &h)
+	_, _ = fmt.Sscanf(timeStr[:2], "%d", &h)
 	return h
 }
 
@@ -295,6 +315,6 @@ func parseMinute(timeStr string) int {
 		return 0
 	}
 	m := 0
-	fmt.Sscanf(timeStr[3:5], "%d", &m)
+	_, _ = fmt.Sscanf(timeStr[3:5], "%d", &m)
 	return m
 }

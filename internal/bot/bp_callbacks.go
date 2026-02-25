@@ -47,7 +47,9 @@ func (b *Bot) handleBPReminderCallback(cb *tgbotapi.CallbackQuery, data string) 
 		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})
-		b.api.Send(edit)
+		if _, err := b.api.Send(edit); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 		// Send instruction message
 		var webAppURL string
@@ -65,36 +67,50 @@ func (b *Bot) handleBPReminderCallback(cb *tgbotapi.CallbackQuery, data string) 
 			"📱 Please open the app to record your blood pressure reading:\n\n"+
 				"[Open App to Add BP Reading]("+webAppURL+")")
 		msg.ParseMode = "Markdown"
-		b.api.Send(msg)
+		if _, err := b.api.Send(msg); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 	case "bp_snooze":
 		// Snooze for 2 hours
 		if err := b.store.SnoozeBPReminder(cb.From.ID); err != nil {
 			log.Printf("Error snoozing BP reminder: %v", err)
-			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing reminder."))
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing reminder.")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 			return
 		}
 
 		// Delete the notification
 		deleteMsg := tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)
-		b.api.Send(deleteMsg)
+		if _, err := b.api.Send(deleteMsg); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 		// Send confirmation
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⏰ BP reminder snoozed for 2 hours."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⏰ BP reminder snoozed for 2 hours.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 	case "bp_dontbug":
 		// Block for 24 hours
 		if err := b.store.DontBugMeBPReminder(cb.From.ID); err != nil {
 			log.Printf("Error setting don't bug me for BP reminder: %v", err)
-			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error blocking reminders."))
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error blocking reminders.")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 			return
 		}
 
 		// Delete the notification
 		deleteMsg := tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)
-		b.api.Send(deleteMsg)
+		if _, err := b.api.Send(deleteMsg); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 		// Send confirmation
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "🔇 BP reminders disabled for 24 hours."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "🔇 BP reminders disabled for 24 hours.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 	}
 }

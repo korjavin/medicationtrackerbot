@@ -253,7 +253,7 @@ func (m *deployModel) runCurrentTask() tea.Cmd {
 
 func (m *deployModel) log(msg string) {
 	if m.runtime.Stdout != nil {
-		m.runtime.Stdout.Write([]byte(msg))
+		_, _ = m.runtime.Stdout.Write([]byte(msg))
 	}
 }
 
@@ -531,7 +531,7 @@ func waitForHTTP(ctx context.Context, url string, timeout time.Duration) error {
 			checkCancel()
 
 			if err == nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				if resp.StatusCode == http.StatusOK {
 					return nil
 				}

@@ -20,7 +20,9 @@ func (s *Server) handleListMedications(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(meds)
+	if err := json.NewEncoder(w).Encode(meds); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) {
@@ -72,11 +74,13 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"id":      id,
 		"status":  "created",
 		"warning": warning,
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) {
@@ -113,11 +117,17 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 				msgIDs, err := s.store.GetIntakeReminders(p.ID)
 				if err == nil {
 					for _, msgID := range msgIDs {
-						s.bot.DeleteMessage(msgID)
+						if s.bot != nil {
+						if err := s.bot.DeleteMessage(msgID); err != nil {
+							log.Printf("[server] delete message failed: %v", err)
+						}
+					}
 					}
 				}
 				// 2. Delete the pending intake
-				s.store.DeleteIntake(p.ID)
+				if err := s.store.DeleteIntake(p.ID); err != nil {
+					log.Printf("[server] delete intake failed: %v", err)
+				}
 			}
 		} else {
 			log.Printf("Error getting pending intakes for cleanup: %v", err)
@@ -161,10 +171,12 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "updated",
 		"warning": warning,
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleDeleteMedication(w http.ResponseWriter, r *http.Request) {
@@ -243,7 +255,9 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 				reminders, _ := s.store.GetIntakeReminders(intake.ID)
 				for _, msgID := range reminders {
 					if s.bot != nil {
-						s.bot.DeleteMessage(msgID)
+						if err := s.bot.DeleteMessage(msgID); err != nil {
+						log.Printf("[server] delete message failed: %v", err)
+					}
 					}
 				}
 			}
@@ -304,7 +318,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 					continue
 				}
 				var hour, minute int
-				fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
+				_, _ = fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
 
 				target := time.Date(checkDay.Year(), checkDay.Month(), checkDay.Day(), hour, minute, 0, 0, now.Location())
 
@@ -365,7 +379,9 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			reminders, _ := s.store.GetIntakeReminders(intake.ID)
 			for _, msgID := range reminders {
 				if s.bot != nil {
-					s.bot.DeleteMessage(msgID)
+					if err := s.bot.DeleteMessage(msgID); err != nil {
+						log.Printf("[server] delete message failed: %v", err)
+					}
 				}
 			}
 
@@ -419,13 +435,15 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":           "confirmed",
 		"scheduled_at":     nextTime.Format(time.RFC3339),
 		"taken_at":         now.Format(time.RFC3339),
 		"medication_count": confirmedCount,
 		"medication_names": medNames,
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // handleGetNextIntake returns the next scheduled intake for the UI
@@ -473,7 +491,7 @@ func (s *Server) handleGetNextIntake(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				var hour, minute int
-				fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
+				_, _ = fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
 
 				target := time.Date(checkDay.Year(), checkDay.Month(), checkDay.Day(), hour, minute, 0, 0, now.Location())
 
@@ -524,10 +542,12 @@ func (s *Server) handleGetNextIntake(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"scheduled_at":     nextTime.Format(time.RFC3339),
 		"medication_names": medNames,
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleLogPastIntake(w http.ResponseWriter, r *http.Request) {
@@ -568,8 +588,10 @@ func (s *Server) handleLogPastIntake(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"id":     id,
 		"status": "created",
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }

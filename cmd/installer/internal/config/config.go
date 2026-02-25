@@ -51,7 +51,7 @@ type Config struct {
 
 // Secrets holds generated cryptographic keys.
 type Secrets struct {
-	SessionSecret           string `json:"sessionSecret"`
+	SessionSecret           string `json:"sessionSecret"` // #nosec G117 -- intentional: secrets are persisted to installer state file
 	PocketIDAPIKey          string `json:"pocketIdApiKey,omitempty"`       // legacy, unused
 	PocketIDEncryptKey      string `json:"pocketIdEncryptKey,omitempty"`   // legacy, unused
 	PocketIDInstallerAPIKey string `json:"pocketIdInstallerApiKey,omitempty"`

@@ -23,7 +23,7 @@ type Config struct {
 	DatabasePath   string
 	PocketIDURL    string
 	ClientID       string
-	ClientSecret   string
+	ClientSecret   string // #nosec G117 -- OAuth client secret, loaded from env var
 	AllowedSubject string
 	MaxQueryDays   int
 	MCPServerURL   string // The public URL of this MCP server (for OAuth audience validation)
@@ -350,7 +350,9 @@ func (s *Server) Run(ctx context.Context) error {
 	// Health check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		if _, err := w.Write([]byte("ok")); err != nil {
+			log.Printf("health write: %v", err)
+		}
 	})
 
 	addr := fmt.Sprintf(":%d", s.config.Port)
@@ -368,7 +370,9 @@ func (s *Server) Run(ctx context.Context) error {
 		log.Println("[MCP] Shutting down...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		server.Shutdown(shutdownCtx)
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("[MCP] shutdown error: %v", err)
+		}
 	}()
 
 	log.Printf("[MCP] Server starting on %s", addr)

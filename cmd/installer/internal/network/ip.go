@@ -26,7 +26,7 @@ func DetectPublicIP(ctx context.Context) (string, error) {
 			return ""
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			return ""
 		}

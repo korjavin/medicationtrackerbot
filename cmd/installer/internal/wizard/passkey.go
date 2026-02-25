@@ -37,7 +37,7 @@ func runPasskeyEnrollment(state *config.InstallerState, _ *docker.Runtime) error
 	fmt.Print(ui.RenderPasskeyScreen(enrollURL))
 
 	// Wait for user to press Enter
-	fmt.Scanln()
+	_, _ = fmt.Scanln()
 
 	return nil
 }

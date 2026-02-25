@@ -37,7 +37,9 @@ func (b *Bot) handleAdHocWorkoutCommand(msgConfig *tgbotapi.MessageConfig) {
 			log.Printf("Failed to send exercise list for ad-hoc workout: %v", err)
 			// Send fallback message
 			msg := tgbotapi.NewMessage(b.allowedUserID, "⚠️ Exercise list unavailable. Use the web app to add exercises.")
-			b.api.Send(msg)
+			if _, err := b.api.Send(msg); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 		}
 	}()
 }

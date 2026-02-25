@@ -57,9 +57,11 @@ func (s *Server) handleCancelIntake(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":          "cancelled",
 		"cancelled_count": cancelledCount,
 		"requested_count": len(req.IntakeIDs),
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }

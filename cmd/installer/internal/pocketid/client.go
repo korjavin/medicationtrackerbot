@@ -45,7 +45,7 @@ func (c *Client) WaitForReady(ctx context.Context, timeout time.Duration) error 
 
 		resp, err := c.http.Do(req)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return nil
 			}
@@ -120,7 +120,7 @@ func (c *Client) CreateOIDCClient(ctx context.Context, req CreateOIDCClientReque
 // Returns the plain-text secret (shown only once — store immediately).
 func (c *Client) CreateOIDCClientSecret(ctx context.Context, clientID string) (string, error) {
 	var result struct {
-		Secret string `json:"secret"`
+		Secret string `json:"secret"` // #nosec G117 -- API response field for reading generated secret
 	}
 	if err := c.doJSON(ctx, http.MethodPost, "/api/oidc/clients/"+clientID+"/secret", nil, &result); err != nil {
 		return "", fmt.Errorf("generate client secret: %w", err)
