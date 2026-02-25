@@ -110,6 +110,7 @@ function _renderNextWorkout(container, data) {
     });
 
     // Show appropriate buttons based on status
+    const isRotating = data.is_rotating || false;
     let actionButtons = '';
     if (status === 'in_progress') {
         actionButtons = `
@@ -120,6 +121,9 @@ function _renderNextWorkout(container, data) {
             `;
     } else if (status === 'pre_skipped') {
         actionButtons = `<button onclick="cancelPreSkipWorkoutSession(${session.id})" class="btn-pill" style="margin-top: 12px; width: 100%; background-color: var(--button-color, #5288c1); color: white;">↩ Cancel Skip</button>`;
+        if (isRotating) {
+            actionButtons += `<button onclick="nextWorkoutVariant(${session.id})" class="secondary" style="margin-top: 8px; width: 100%;">↻ Next Variant</button>`;
+        }
     } else {
         actionButtons = `
                 <div style="display: flex; gap: 10px; margin-top: 12px;">
@@ -127,6 +131,9 @@ function _renderNextWorkout(container, data) {
                     <button onclick="preSkipWorkoutSession(${session.id})" class="secondary" style="flex: 1; background-color: #fff3e0; color: #e65100; border: 1px solid #ffcc80;">⏭ Skip</button>
                 </div>
             `;
+        if (isRotating) {
+            actionButtons += `<button onclick="nextWorkoutVariant(${session.id})" class="secondary" style="margin-top: 8px; width: 100%;">↻ Next Variant</button>`;
+        }
     }
 
     const variantId = data.variant_id || 0;
@@ -155,6 +162,16 @@ async function openNextWorkoutEditModal(variantId, groupId) {
     if (!variantId || !groupId) return;
     currentGroupForVariant = groupId;
     await showEditVariantModal(variantId);
+}
+
+async function nextWorkoutVariant(sessionId) {
+    try {
+        await apiCall(`/api/workout/sessions/${sessionId}/next-variant`, { method: 'POST' });
+        await loadNextWorkout();
+    } catch (error) {
+        console.error('Error switching to next variant:', error);
+        alert('Failed to switch variant. Please try again.');
+    }
 }
 
 // ====================================

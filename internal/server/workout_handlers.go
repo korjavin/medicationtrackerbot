@@ -461,6 +461,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 			variantName = variant.Name
 		}
 
+		isRotating := group != nil && group.IsRotating
 		response := struct {
 			Session        interface{} `json:"session"`
 			GroupName      string      `json:"group_name"`
@@ -468,6 +469,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 			ExercisesCount int         `json:"exercises_count"`
 			VariantID      int64       `json:"variant_id"`
 			GroupID        int64       `json:"group_id"`
+			IsRotating     bool        `json:"is_rotating"`
 		}{
 			Session: map[string]interface{}{
 				"id":             session.ID,
@@ -482,6 +484,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 			ExercisesCount: len(exercises),
 			VariantID:      session.VariantID,
 			GroupID:        session.GroupID,
+			IsRotating:     isRotating,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -518,6 +521,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 				variantName = variant.Name
 			}
 
+			isRotating := group != nil && group.IsRotating
 			response := struct {
 				Session        interface{} `json:"session"`
 				GroupName      string      `json:"group_name"`
@@ -525,6 +529,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 				ExercisesCount int         `json:"exercises_count"`
 				VariantID      int64       `json:"variant_id"`
 				GroupID        int64       `json:"group_id"`
+				IsRotating     bool        `json:"is_rotating"`
 			}{
 				Session: map[string]interface{}{
 					"id":             earliestSnoozed.ID,
@@ -539,6 +544,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 				ExercisesCount: len(exercises),
 				VariantID:      earliestSnoozed.VariantID,
 				GroupID:        earliestSnoozed.GroupID,
+				IsRotating:     isRotating,
 			}
 
 			w.Header().Set("Content-Type", "application/json")
@@ -565,6 +571,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		ScheduledTime  string
 		ExercisesCount int
 		Status         string
+		IsRotating     bool
 	}
 	var earliestTime time.Time
 
@@ -654,6 +661,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 					ScheduledTime  string
 					ExercisesCount int
 					Status         string
+					IsRotating     bool
 				}{
 					SessionID:      sessionID,
 					GroupID:        group.ID,
@@ -664,6 +672,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 					ScheduledTime:  group.ScheduledTime,
 					ExercisesCount: len(exercises),
 					Status:         status,
+					IsRotating:     group.IsRotating,
 				}
 				earliestTime = scheduledDateTime
 			}
@@ -713,6 +722,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		ExercisesCount int         `json:"exercises_count"`
 		VariantID      int64       `json:"variant_id"`
 		GroupID        int64       `json:"group_id"`
+		IsRotating     bool        `json:"is_rotating"`
 	}{
 		Session: map[string]interface{}{
 			"id":             nextWorkout.SessionID,
@@ -726,6 +736,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		ExercisesCount: nextWorkout.ExercisesCount,
 		VariantID:      nextWorkout.VariantID,
 		GroupID:        nextWorkout.GroupID,
+		IsRotating:     nextWorkout.IsRotating,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1169,6 +1180,51 @@ func (s *Server) handleCancelPreSkipWorkoutSession(w http.ResponseWriter, r *htt
 	}
 
 	if err := s.store.CancelPreSkip(id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleNextVariantWorkoutSession(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	session, err := s.store.GetWorkoutSession(id)
+	if err != nil || session == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+	if session.UserID != s.allowedUserID {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+	if session.Status == "in_progress" || session.Status == "completed" || session.Status == "skipped" {
+		http.Error(w, "Cannot change variant for an active or completed session", http.StatusBadRequest)
+		return
+	}
+
+	group, err := s.store.GetWorkoutGroup(session.GroupID)
+	if err != nil || group == nil {
+		http.Error(w, "Workout group not found", http.StatusNotFound)
+		return
+	}
+	if !group.IsRotating {
+		http.Error(w, "Workout group does not use rotation", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.AdvanceRotation(group.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.store.DeleteSession(id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
