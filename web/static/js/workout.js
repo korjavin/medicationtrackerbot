@@ -492,6 +492,7 @@ async function showEditVariantModal(variantId) {
 }
 
 function closeVariantModal() {
+    document.getElementById('modal-overlay').classList.add('hidden');
     document.getElementById('workout-variant-modal').classList.add('hidden');
     currentEditingVariantId = null;
 }
@@ -628,6 +629,7 @@ async function showEditExerciseModal(exerciseId) {
 }
 
 function closeExerciseModal() {
+    document.getElementById('modal-overlay').classList.add('hidden');
     document.getElementById('workout-exercise-modal').classList.add('hidden');
     currentEditingExerciseId = null;
 }
