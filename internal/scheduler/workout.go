@@ -47,7 +47,15 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 
 		// Clear blocked state after 4 hours of inactivity to prevent blocking next day's workouts
 		if duration > 4*time.Hour {
-			s.store.SkipSession(activeSession.ID)
+			if err := s.store.SkipSession(activeSession.ID); err == nil {
+				// Advance rotation for rotating groups when stale session is auto-skipped
+				group, err := s.store.GetWorkoutGroup(activeSession.GroupID)
+				if err == nil && group != nil && group.IsRotating {
+					if err := s.store.AdvanceRotation(group.ID); err != nil {
+						log.Printf("Failed to advance rotation after stale auto-skip for group %d: %v", group.ID, err)
+					}
+				}
+			}
 			if activeSession.NotificationMessageID != nil {
 				s.bot.DeleteMessage(*activeSession.NotificationMessageID)
 			}
