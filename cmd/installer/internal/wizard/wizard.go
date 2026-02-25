@@ -507,7 +507,7 @@ echo "Update complete!"
 `, composeCmd, composeCmd, composeCmd)
 
 	path := dir + "/update.sh"
-	if err := os.WriteFile(path, []byte(script), 0o750); err != nil {
+	if err := os.WriteFile(path, []byte(script), 0o750); err != nil { // #nosec G306 -- shell script requires execute permission
 		return fmt.Errorf("write update.sh: %w", err)
 	}
 	return nil

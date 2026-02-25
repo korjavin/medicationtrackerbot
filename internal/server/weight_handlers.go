@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -67,7 +68,9 @@ func (s *Server) handleCreateWeight(w http.ResponseWriter, r *http.Request) {
 
 	wLog.ID = id
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(wLog)
+	if err := json.NewEncoder(w).Encode(wLog); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleListWeight(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +107,9 @@ func (s *Server) handleListWeight(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(logs)
+	if err := json.NewEncoder(w).Encode(logs); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleDeleteWeight(w http.ResponseWriter, r *http.Request) {
@@ -152,10 +157,10 @@ func (s *Server) handleExportWeight(w http.ResponseWriter, r *http.Request) {
 	defer wr.Flush()
 
 	// Write CSV header in Libra format
-	wr.Write([]string{"#Version: 6"})
-	wr.Write([]string{"#Units: kg"})
-	wr.Write([]string{""})
-	wr.Write([]string{"#date;weight;weight trend;body fat;body fat trend;muscle mass;muscle mass trend;log"})
+	_ = wr.Write([]string{"#Version: 6"})
+	_ = wr.Write([]string{"#Units: kg"})
+	_ = wr.Write([]string{""})
+	_ = wr.Write([]string{"#date;weight;weight trend;body fat;body fat trend;muscle mass;muscle mass trend;log"})
 
 	// Write data rows
 	for _, wLog := range logs {
@@ -233,7 +238,9 @@ func (s *Server) handleGetWeightGoal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // Weight Reminder handlers
@@ -246,7 +253,9 @@ func (s *Server) handleGetWeightReminderStatus(w http.ResponseWriter, r *http.Re
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(state)
+	if err := json.NewEncoder(w).Encode(state); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleToggleWeightReminder(w http.ResponseWriter, r *http.Request) {
@@ -263,10 +272,12 @@ func (s *Server) handleToggleWeightReminder(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"enabled": req.Enabled,
 		"status":  "success",
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleSnoozeWeightReminder(w http.ResponseWriter, r *http.Request) {
@@ -284,10 +295,12 @@ func (s *Server) handleSnoozeWeightReminder(w http.ResponseWriter, r *http.Reque
 		_ = s.store.ClearWeightReminderNotificationMessage(userID)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "success",
 		"message": "Weight reminder snoozed for 2 hours",
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleDontBugMeWeightReminder(w http.ResponseWriter, r *http.Request) {
@@ -305,8 +318,10 @@ func (s *Server) handleDontBugMeWeightReminder(w http.ResponseWriter, r *http.Re
 		_ = s.store.ClearWeightReminderNotificationMessage(userID)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "success",
 		"message": "Weight reminders disabled for 24 hours",
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }

@@ -22,7 +22,9 @@ func (s *Server) handleListWorkoutGroups(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(groups)
+	if err := json.NewEncoder(w).Encode(groups); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleCreateWorkoutGroup(w http.ResponseWriter, r *http.Request) {
@@ -57,11 +59,15 @@ func (s *Server) handleCreateWorkoutGroup(w http.ResponseWriter, r *http.Request
 	// Create initial snapshot
 	snapshotData := fmt.Sprintf(`{"name":"%s","days_of_week":%s,"scheduled_time":"%s","notification_advance_minutes":%d}`,
 		req.Name, req.DaysOfWeek, req.ScheduledTime, req.NotificationAdvanceMinutes)
-	s.store.CreateGroupSnapshot(group.ID, snapshotData, "Initial setup")
+	if err := s.store.CreateGroupSnapshot(group.ID, snapshotData, "Initial setup"); err != nil {
+		log.Printf("create group snapshot: %v", err)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(group)
+	if err := json.NewEncoder(w).Encode(group); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleUpdateWorkoutGroup(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +111,9 @@ func (s *Server) handleUpdateWorkoutGroup(w http.ResponseWriter, r *http.Request
 	// Create snapshot on update
 	snapshotData := fmt.Sprintf(`{"name":"%s","days_of_week":%s,"scheduled_time":"%s","notification_advance_minutes":%d}`,
 		req.Name, req.DaysOfWeek, req.ScheduledTime, req.NotificationAdvanceMinutes)
-	s.store.CreateGroupSnapshot(id, snapshotData, "Settings updated")
+	if err := s.store.CreateGroupSnapshot(id, snapshotData, "Settings updated"); err != nil {
+		log.Printf("create group snapshot: %v", err)
+	}
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -146,7 +154,9 @@ func (s *Server) handleListVariantsByGroup(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(variants)
+	if err := json.NewEncoder(w).Encode(variants); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleCreateWorkoutVariant(w http.ResponseWriter, r *http.Request) {
@@ -175,7 +185,9 @@ func (s *Server) handleCreateWorkoutVariant(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(variant)
+	if err := json.NewEncoder(w).Encode(variant); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleUpdateWorkoutVariant(w http.ResponseWriter, r *http.Request) {
@@ -240,7 +252,9 @@ func (s *Server) handleListExercisesByVariant(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(exercises)
+	if err := json.NewEncoder(w).Encode(exercises); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleCreateExercise(w http.ResponseWriter, r *http.Request) {
@@ -275,7 +289,9 @@ func (s *Server) handleCreateExercise(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(exercise)
+	if err := json.NewEncoder(w).Encode(exercise); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleUpdateExercise(w http.ResponseWriter, r *http.Request) {
@@ -401,7 +417,9 @@ func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(enriched)
+	if err := json.NewEncoder(w).Encode(enriched); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleGetSessionDetails(w http.ResponseWriter, r *http.Request) {
@@ -433,7 +451,9 @@ func (s *Server) handleGetSessionDetails(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
@@ -488,7 +508,9 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 		return
 	}
 
@@ -548,7 +570,9 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 			}
 
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				log.Printf("encode response: %v", err)
+			}
 			return
 		}
 	}
@@ -683,7 +707,9 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 
 	if nextWorkout == nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(nil)
+		if err := json.NewEncoder(w).Encode(nil); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 		return
 	}
 
@@ -740,7 +766,9 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // Helper function
@@ -895,7 +923,9 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	if err := json.NewEncoder(w).Encode(stats); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // -- Rotation Handlers --
@@ -915,7 +945,9 @@ func (s *Server) handleGetRotationState(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(state)
+	if err := json.NewEncoder(w).Encode(state); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleInitializeRotation(w http.ResponseWriter, r *http.Request) {
@@ -987,7 +1019,9 @@ func (s *Server) handleGetUniqueExercises(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(exercises)
+	if err := json.NewEncoder(w).Encode(exercises); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Request) {
@@ -1084,7 +1118,9 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]int64{"id": id})
+	if err := json.NewEncoder(w).Encode(map[string]int64{"id": id}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Request) {

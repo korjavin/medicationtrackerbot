@@ -11,7 +11,7 @@ import (
 // VAPIDKeyPair holds a VAPID public/private key pair.
 type VAPIDKeyPair struct {
 	PublicKey  string
-	PrivateKey string
+	PrivateKey string // #nosec G117 -- VAPID key pair struct, intentionally holds private key
 }
 
 // GenerateVAPIDKeys generates a new VAPID key pair for web push notifications.

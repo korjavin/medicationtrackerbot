@@ -23,7 +23,7 @@ import (
 type OIDCConfig struct {
 	Provider       string
 	ClientID       string
-	ClientSecret   string
+	ClientSecret   string // #nosec G117 -- OAuth client secret, held in memory from env var
 	RedirectURL    string
 	AdminEmail     string
 	AllowedSubject string

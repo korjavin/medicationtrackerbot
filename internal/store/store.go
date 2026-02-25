@@ -1683,8 +1683,7 @@ func (s *Store) getSettingsBool(ctx context.Context, column string) (bool, error
 		return false, fmt.Errorf("unknown settings column: %s", column)
 	}
 	var val interface{}
-	//nolint:gosec // column validated against allowlist above
-	query := fmt.Sprintf("SELECT %s FROM settings WHERE id = 1", column)
+	query := fmt.Sprintf("SELECT %s FROM settings WHERE id = 1", column) // #nosec G201 -- column validated against allowlist above
 	if err := s.db.QueryRowContext(ctx, query).Scan(&val); err != nil {
 		return false, err
 	}
@@ -1705,8 +1704,7 @@ func (s *Store) setSettingsBool(ctx context.Context, column string, enabled bool
 	if !allowedSettingsBoolColumns[column] {
 		return fmt.Errorf("unknown settings column: %s", column)
 	}
-	//nolint:gosec // column validated against allowlist above
-	query := fmt.Sprintf("UPDATE settings SET %s = ? WHERE id = 1", column)
+	query := fmt.Sprintf("UPDATE settings SET %s = ? WHERE id = 1", column) // #nosec G201 -- column validated against allowlist above
 	_, err := s.db.ExecContext(ctx, query, enabled)
 	return err
 }

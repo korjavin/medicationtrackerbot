@@ -141,14 +141,18 @@ func (b *Bot) handleAddExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID in
 	// Validation: Get and verify session ownership
 	session, err := b.store.GetWorkoutSession(sessionID)
 	if err != nil || session == nil {
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Session not found."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Session not found.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
 	// Validation: Verify session belongs to the callback sender
 	if session.UserID != cb.From.ID {
 		log.Printf("Security: User %d attempted to view exercise list for session %d owned by %d", cb.From.ID, sessionID, session.UserID)
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Access denied."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Access denied.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
@@ -156,7 +160,9 @@ func (b *Bot) handleAddExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID in
 	_, err = b.SendExerciseList(sessionID, cb.Message.Chat.ID)
 	if err != nil {
 		log.Printf("Failed to send exercise list: %v", err)
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error loading exercises."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error loading exercises.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
@@ -164,7 +170,9 @@ func (b *Bot) handleAddExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID in
 	edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 		InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 	})
-	b.api.Send(edit)
+	if _, err := b.api.Send(edit); err != nil {
+		log.Printf("[bot] send failed: %v", err)
+	}
 }
 
 // handleExercisePageCallback handles pagination for the exercise list
@@ -172,14 +180,18 @@ func (b *Bot) handleExercisePageCallback(cb *tgbotapi.CallbackQuery, sessionID i
 	// Validation: Get and verify session ownership
 	session, err := b.store.GetWorkoutSession(sessionID)
 	if err != nil || session == nil {
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Session not found."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Session not found.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
 	// Validation: Verify session belongs to the callback sender
 	if session.UserID != cb.From.ID {
 		log.Printf("Security: User %d attempted to paginate exercise list for session %d owned by %d", cb.From.ID, sessionID, session.UserID)
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Access denied."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Access denied.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
@@ -191,7 +203,9 @@ func (b *Bot) handleExercisePageCallback(cb *tgbotapi.CallbackQuery, sessionID i
 	}
 
 	// Delete the old message
-	b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID))
+	if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+		log.Printf("[bot] send failed: %v", err)
+	}
 }
 
 // handleSelectExerciseCallback adds the selected exercise to the session
@@ -199,27 +213,35 @@ func (b *Bot) handleSelectExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID
 	// Validation: Get and verify session
 	session, err := b.store.GetWorkoutSession(sessionID)
 	if err != nil || session == nil {
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Session not found."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Session not found.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
 	// Validation: Verify session is still valid for adding exercises
 	if session.Status != "in_progress" && session.Status != "completed" {
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ This workout is no longer active."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ This workout is no longer active.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
 	// Validation: Verify session belongs to the callback sender
 	if session.UserID != cb.From.ID {
 		log.Printf("Security: User %d attempted to add exercise to session %d owned by %d", cb.From.ID, sessionID, session.UserID)
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Access denied."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Access denied.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
 	// Get exercise details
 	exercise, err := b.store.GetWorkoutExercise(exerciseID)
 	if err != nil || exercise == nil {
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Exercise not found."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Exercise not found.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
@@ -228,7 +250,9 @@ func (b *Bot) handleSelectExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID
 	allowedExercises, err := b.store.GetAllUniqueExercises(session.UserID)
 	if err != nil {
 		log.Printf("Failed to validate exercise ownership: %v", err)
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Validation error."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Validation error.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
@@ -243,18 +267,24 @@ func (b *Bot) handleSelectExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID
 
 	if !isAllowed {
 		log.Printf("Security: User %d attempted to add exercise %d which is not in their workout groups", session.UserID, exerciseID)
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ This exercise is not available."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ This exercise is not available.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
 	// All validations passed - delete the exercise list message
-	b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID))
+	if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+		log.Printf("[bot] send failed: %v", err)
+	}
 
 	// Send exercise prompt for the selected exercise
 	_, err = b.SendExercisePrompt(sessionID, exerciseID, exercise.ExerciseName,
 		exercise.TargetSets, exercise.TargetRepsMin, exercise.TargetRepsMax, exercise.TargetWeightKg)
 	if err != nil {
 		log.Printf("Failed to send exercise prompt: %v", err)
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error adding exercise."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error adding exercise.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 	}
 }

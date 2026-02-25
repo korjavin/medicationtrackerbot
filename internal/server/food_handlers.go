@@ -46,7 +46,7 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log := &store.FoodLog{
+	foodLog := &store.FoodLog{
 		UserID:   userID,
 		EatenAt:  eatenAt,
 		Weight:   req.Weight,
@@ -57,7 +57,7 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 		Name:     req.Name,
 	}
 
-	id, err := s.store.CreateFoodLog(context.Background(), log)
+	id, err := s.store.CreateFoodLog(context.Background(), foodLog)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -92,10 +92,12 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "created",
 		"id":     id,
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 type FoodGroup struct {
@@ -138,7 +140,9 @@ func (s *Server) handleGetFoodLogs(w http.ResponseWriter, r *http.Request) {
 	groups := groupFoodLogs(logs, days > 1)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(groups)
+	if err := json.NewEncoder(w).Encode(groups); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleDeleteFoodLog(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +198,7 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log := &store.FoodLog{
+	foodLog := &store.FoodLog{
 		ID:       id,
 		UserID:   userID,
 		EatenAt:  eatenAt,
@@ -206,7 +210,7 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 		Name:     req.Name,
 	}
 
-	if err := s.store.UpdateFoodLog(context.Background(), log); err != nil {
+	if err := s.store.UpdateFoodLog(context.Background(), foodLog); err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "Not found", http.StatusNotFound)
 			return
@@ -243,9 +247,11 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "updated",
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // groupFoodLogs groups logs into meals based on time proximity
@@ -364,7 +370,9 @@ func (s *Server) handleGetFoodStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	if err := json.NewEncoder(w).Encode(stats); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleGetFoodIntakeEnabled(w http.ResponseWriter, r *http.Request) {
@@ -373,7 +381,9 @@ func (s *Server) handleGetFoodIntakeEnabled(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]bool{"enabled": enabled})
+	if err := json.NewEncoder(w).Encode(map[string]bool{"enabled": enabled}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleSetFoodIntakeEnabled(w http.ResponseWriter, r *http.Request) {
@@ -399,7 +409,9 @@ func (s *Server) handleGetFoodTargets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(targets)
+	if err := json.NewEncoder(w).Encode(targets); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleSetFoodTargets(w http.ResponseWriter, r *http.Request) {
@@ -433,7 +445,9 @@ func (s *Server) handleGetFoodProducts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(products)
+	if err := json.NewEncoder(w).Encode(products); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request) {
@@ -451,7 +465,9 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 	}
 
 	if len(query) < 2 {
-		json.NewEncoder(w).Encode([]store.FoodProduct{})
+		if err := json.NewEncoder(w).Encode([]store.FoodProduct{}); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 		flusher.Flush()
 		return
 	}
@@ -459,7 +475,9 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 	remoteReq := r.URL.Query().Get("remote")
 	cacheKey := s.foodSearchCacheKey(userID, query, remoteReq == "true")
 	if cached, ok := s.getFoodSearchCache(cacheKey); ok {
-		json.NewEncoder(w).Encode(cached)
+		if err := json.NewEncoder(w).Encode(cached); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 		flusher.Flush()
 		return
 	}
@@ -474,7 +492,9 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 	}
 
 	// Send local results instantly
-	json.NewEncoder(w).Encode(products)
+	if err := json.NewEncoder(w).Encode(products); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 	flusher.Flush()
 
 	// Optionally try live OpenFoodFacts and merge with local/offline matches if requested.
@@ -499,7 +519,9 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 
 	if len(apiProducts) > 0 {
 		merged := mergeFoodProducts(products, apiProducts)
-		json.NewEncoder(w).Encode(merged)
+		if err := json.NewEncoder(w).Encode(merged); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 		flusher.Flush()
 		s.setFoodSearchCache(cacheKey, merged)
 		return

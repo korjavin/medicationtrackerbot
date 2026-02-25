@@ -41,7 +41,9 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 
 	session, err := b.store.GetWorkoutSession(sessionID)
 	if err != nil || session == nil {
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Workout session not found."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Workout session not found.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
@@ -57,7 +59,9 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		// Mark session as in_progress
 		if err := b.store.StartSession(sessionID); err != nil {
 			log.Printf("Failed to start session: %v", err)
-			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error starting workout."))
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error starting workout.")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 			return
 		}
 
@@ -65,7 +69,9 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})
-		b.api.Send(edit)
+		if _, err := b.api.Send(edit); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 		// Start exercise-by-exercise prompts
 		b.startExerciseLoop(sessionID, session.VariantID, cb.Message.Chat.ID)
@@ -73,25 +79,35 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 	case "snooze1":
 		if err := b.store.SnoozeSession(sessionID, 1*time.Hour); err != nil {
 			log.Printf("Failed to snooze session: %v", err)
-			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing workout."))
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing workout.")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 			return
 		}
 		// Delete notification
-		b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID))
+		if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 	case "snooze2":
 		if err := b.store.SnoozeSession(sessionID, 2*time.Hour); err != nil {
 			log.Printf("Failed to snooze session: %v", err)
-			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing workout."))
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing workout.")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 			return
 		}
 		// Delete notification
-		b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID))
+		if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 	case "skip":
 		if err := b.store.SkipSession(sessionID); err != nil {
 			log.Printf("Failed to skip session: %v", err)
-			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error skipping workout."))
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error skipping workout.")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 			return
 		}
 
@@ -102,14 +118,18 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 			}
 		}
 		// Delete notification
-		b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID))
+		if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 	case "finish":
 		// User explicitly finished the workout
 		if session.Status != "completed" {
 			if err := b.store.CompleteSession(sessionID); err != nil {
 				log.Printf("Failed to complete session: %v", err)
-				b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error saving workout."))
+				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error saving workout.")); err != nil {
+					log.Printf("[bot] send failed: %v", err)
+				}
 				return
 			}
 
@@ -125,9 +145,13 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})
-		b.api.Send(edit)
+		if _, err := b.api.Send(edit); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "👍 Workout saved."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "👍 Workout saved.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 	}
 }
 
@@ -135,11 +159,15 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 func (b *Bot) startExerciseLoop(sessionID, variantID int64, chatID int64) {
 	exercises, err := b.store.ListExercisesByVariant(variantID)
 	if err != nil || len(exercises) == 0 {
-		b.api.Send(tgbotapi.NewMessage(chatID, "❌ No exercises found for this workout."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(chatID, "❌ No exercises found for this workout.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
-	b.api.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("🏋️ **Workout Started**\n\n%d exercises to complete:", len(exercises))))
+	if _, err := b.api.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("🏋️ **Workout Started**\n\n%d exercises to complete:", len(exercises)))); err != nil {
+		log.Printf("[bot] send failed: %v", err)
+	}
 
 	for i, ex := range exercises {
 		_, err := b.SendExercisePrompt(sessionID, ex.ID, fmt.Sprintf("%d. %s", i+1, ex.ExerciseName),
@@ -164,7 +192,9 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 
 	exercise, err := b.store.GetWorkoutExercise(exerciseID)
 	if err != nil || exercise == nil {
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Exercise not found."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Exercise not found.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
@@ -181,7 +211,9 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 				&exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "completed", "")
 			if err != nil {
 				log.Printf("Failed to log exercise: %v", err)
-				b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise."))
+				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise.")); err != nil {
+					log.Printf("[bot] send failed: %v", err)
+				}
 				return
 			}
 		}
@@ -190,13 +222,17 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 		editText := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
 			cb.Message.Text+"\n\n✅ Completed")
 		editText.ParseMode = "Markdown"
-		b.api.Send(editText)
+		if _, err := b.api.Send(editText); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 		// Remove buttons
 		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})
-		b.api.Send(edit)
+		if _, err := b.api.Send(edit); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 		// Check if all exercises are done
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
@@ -220,13 +256,17 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 		editText := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
 			cb.Message.Text+"\n\n⏭ Skipped")
 		editText.ParseMode = "Markdown"
-		b.api.Send(editText)
+		if _, err := b.api.Send(editText); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 		// Remove buttons
 		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})
-		b.api.Send(edit)
+		if _, err := b.api.Send(edit); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 		// Check if all exercises are done
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
@@ -258,13 +298,17 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 		editText := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
 			cb.Message.Text+"\n\n✅ Logged (edit in web app)")
 		editText.ParseMode = "Markdown"
-		b.api.Send(editText)
+		if _, err := b.api.Send(editText); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 		// Remove buttons
 		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})
-		b.api.Send(edit)
+		if _, err := b.api.Send(edit); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 		// Check completion
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
@@ -326,6 +370,8 @@ func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
 		totalCount := len(allRelatedExerciseIDs)
 
 		// Planned exercises are done, but we keep session in_progress until user explicitly finishes.
-		b.SendWorkoutComplete(chatID, sessionID, completedCount, totalCount)
+		if err := b.SendWorkoutComplete(chatID, sessionID, completedCount, totalCount); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 	}
 }

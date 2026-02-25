@@ -62,7 +62,7 @@ func (d *DistroInfo) InstallCommand() (string, string) {
 // RunInstallCommand executes the installation command.
 func RunInstallCommand(command string) error {
 	// We split the command by && and run each part, or just run the whole thing in sh
-	cmd := exec.Command("sh", "-c", command)
+	cmd := exec.Command("sh", "-c", command) // #nosec G204 -- command comes from internal GetInstallCommand, not user input
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin

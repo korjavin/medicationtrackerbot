@@ -23,14 +23,18 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 	// Validate .nxk extension
 	if !strings.HasSuffix(strings.ToLower(msg.Document.FileName), ".nxk") {
 		log.Printf("Invalid file extension for sleep import: %s", msg.Document.FileName)
-		b.api.Send(tgbotapi.NewMessage(msg.Chat.ID, "⚠️ Only .nxk files are supported for sleep import."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(msg.Chat.ID, "⚠️ Only .nxk files are supported for sleep import.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
 	// Validate file size (50MB max to be safe)
 	if msg.Document.FileSize > 50*1024*1024 {
 		log.Printf("File too large for sleep import: %d bytes", msg.Document.FileSize)
-		b.api.Send(tgbotapi.NewMessage(msg.Chat.ID, "⚠️ File too large. Maximum size is 50MB."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(msg.Chat.ID, "⚠️ File too large. Maximum size is 50MB.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
@@ -100,7 +104,7 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 		}
 		log.Printf("File downloaded successfully: %d bytes written to %s", written, tempFile.Name())
 	}
-	tempFile.Close()
+	_ = tempFile.Close()
 
 	// Import
 	b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "📦 Extracting and importing...")
@@ -166,7 +170,7 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 		log.Printf("Failed to extract backup.db: %v", err)
 		return 0, 0, err
 	}
-	tempDB.Close()
+	_ = tempDB.Close()
 	log.Printf("Extracted backup.db: %d bytes written to %s", written, tempDB.Name())
 
 	// Parse SQLite database
@@ -296,5 +300,7 @@ func (b *Bot) parseSleepDatabase(dbPath string) ([]store.SleepLog, error) {
 
 func (b *Bot) updateStatusMessage(chatID int64, messageID int, text string) {
 	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
-	b.api.Send(edit)
+	if _, err := b.api.Send(edit); err != nil {
+		log.Printf("[bot] send failed: %v", err)
+	}
 }

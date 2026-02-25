@@ -40,7 +40,7 @@ type Server struct {
 
 type VAPIDConfig struct {
 	PublicKey  string
-	PrivateKey string
+	PrivateKey string // #nosec G117 -- VAPID private key, held in memory only
 	Subject    string
 	AdminEmail string
 	Domain     string
@@ -379,7 +379,9 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(logs)
+	if err := json.NewEncoder(w).Encode(logs); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // -- Inventory Handlers --
@@ -419,11 +421,13 @@ func (s *Server) handleRestock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":          "restocked",
 		"quantity_added":  req.Quantity,
 		"inventory_count": med.InventoryCount,
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleGetRestockHistory(w http.ResponseWriter, r *http.Request) {
@@ -441,7 +445,9 @@ func (s *Server) handleGetRestockHistory(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(restocks)
+	if err := json.NewEncoder(w).Encode(restocks); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleGetLowStock(w http.ResponseWriter, r *http.Request) {
@@ -475,7 +481,9 @@ func (s *Server) handleGetLowStock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // serveServiceWorker serves the service worker with correct headers for PWA
@@ -533,7 +541,9 @@ func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Reques
 	html = strings.ReplaceAll(html, "OIDC_CONFIG_PLACEHOLDER", string(oidcJSON))
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(html))
+	if _, err := w.Write([]byte(html)); err != nil {
+		log.Printf("write response: %v", err)
+	}
 }
 
 // serveOIDCSetup serves a helper page with copyable OIDC redirect URIs
@@ -592,7 +602,9 @@ func (s *Server) serveOIDCSetup(w http.ResponseWriter, r *http.Request) {
 	html = strings.ReplaceAll(html, "MCP_CLIENT_ID_PLACEHOLDER", mcpClientID)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(html))
+	if _, err := w.Write([]byte(html)); err != nil {
+		log.Printf("write response: %v", err)
+	}
 }
 
 // handleTelegramCallback handles Telegram Login Widget authentication
@@ -642,7 +654,9 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 	log.Printf("[TG-LOGIN] Success for user_id=%d username=%s from %s", user.ID, user.Username, r.RemoteAddr)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // -- Web Push Handlers --
@@ -654,9 +668,11 @@ func (s *Server) handleGetVAPIDPublicKey(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"public_key": s.vapidConfig.PublicKey,
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleSubscribePush(w http.ResponseWriter, r *http.Request) {
@@ -709,7 +725,9 @@ func (s *Server) handleListPushSubscriptions(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(subs)
+	if err := json.NewEncoder(w).Encode(subs); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
@@ -745,7 +763,9 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 				reminders, _ := s.store.GetIntakeReminders(id)
 				for _, msgID := range reminders {
 					if s.bot != nil {
-						s.bot.DeleteMessage(msgID)
+						if err := s.bot.DeleteMessage(msgID); err != nil {
+							log.Printf("[server] delete message failed: %v", err)
+						}
 					}
 				}
 
@@ -785,7 +805,9 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 			reminders, _ := s.store.GetIntakeReminders(intake.ID)
 			for _, msgID := range reminders {
 				if s.bot != nil {
-					s.bot.DeleteMessage(msgID)
+					if err := s.bot.DeleteMessage(msgID); err != nil {
+						log.Printf("[server] delete message failed: %v", err)
+					}
 				}
 			}
 
@@ -854,7 +876,7 @@ func (s *Server) handleSendTestMedicationNotification(w http.ResponseWriter, r *
 					continue
 				}
 				var hour, minute int
-				fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
+				_, _ = fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
 
 				target := time.Date(checkDay.Year(), checkDay.Month(), checkDay.Day(), hour, minute, 0, 0, now.Location())
 

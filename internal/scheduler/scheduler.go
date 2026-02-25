@@ -285,7 +285,9 @@ func (s *Scheduler) checkReminders() error {
 			if err != nil {
 				log.Printf("Failed to send reminder: %v", err)
 			} else {
-				s.store.AddIntakeReminder(p.ID, msgID)
+				if err := s.store.AddIntakeReminder(p.ID, msgID); err != nil {
+				log.Printf("Failed to store intake reminder: %v", err)
+			}
 			}
 		}
 	}

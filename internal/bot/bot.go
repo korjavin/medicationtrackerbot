@@ -325,12 +325,16 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		msgConfig.Text = "Unknown command. Try /help."
 	}
 
-	b.api.Send(msgConfig)
+	if _, err := b.api.Send(msgConfig); err != nil {
+		log.Printf("[bot] send failed: %v", err)
+	}
 }
 
 func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	callbackCfg := tgbotapi.NewCallback(cb.ID, "")
-	b.api.Request(callbackCfg)
+	if _, err := b.api.Request(callbackCfg); err != nil {
+		log.Printf("[bot] request failed: %v", err)
+	}
 
 	data := cb.Data
 	// data format: "confirm_intake:<intakeID>", "confirm:<medID>", "confirm_schedule:<unix>", or "log:<medID>"
@@ -347,7 +351,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 		if intake == nil || intake.Status != "PENDING" {
-			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken)."))
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 			return
 		}
 
@@ -355,7 +361,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		reminders, _ := b.store.GetIntakeReminders(intakeID)
 		for _, msgID := range reminders {
 			if msgID != cb.Message.MessageID {
-				b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID))
+				if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
+					log.Printf("[bot] send failed: %v", err)
+				}
 			}
 		}
 
@@ -372,7 +380,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		// Remove only the pressed button from the current message.
 		b.removeButtonFromCallbackMessage(cb, data)
 
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ Marked as taken."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ Marked as taken.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 	} else if len(data) > 8 && data[:8] == "confirm:" {
 		medIDStr := data[8:]
 		medID, _ := strconv.ParseInt(medIDStr, 10, 64)
@@ -397,7 +407,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			reminders, _ := b.store.GetIntakeReminders(logID)
 			for _, msgID := range reminders {
 				if msgID != cb.Message.MessageID {
-					b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID))
+					if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
+						log.Printf("[bot] send failed: %v", err)
+					}
 				}
 			}
 
@@ -414,10 +426,14 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			// Legacy callback path: only remove the pressed button.
 			b.removeButtonFromCallbackMessage(cb, data)
 
-			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ Marked as taken."))
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ Marked as taken.")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 		} else {
 			// Maybe it was already taken?
-			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken)."))
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 		}
 	} else if len(data) > 4 && data[:4] == "log:" {
 		medIDStr := data[4:]
@@ -428,7 +444,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		logID, err := b.store.CreateIntake(medID, b.allowedUserID, now)
 		if err != nil {
 			log.Printf("Error creating manual intake: %v", err)
-			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging medication."))
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging medication.")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 			return
 		}
 
@@ -453,7 +471,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			medName = med.Name
 		}
 
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, fmt.Sprintf("✅ Logged %s at %s", medName, now.Format("15:04"))))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, fmt.Sprintf("✅ Logged %s at %s", medName, now.Format("15:04")))); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
 	} else if len(data) > 17 && data[:17] == "confirm_schedule:" {
 		tsStr := data[17:]
@@ -471,7 +491,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 				reminders, _ := b.store.GetIntakeReminders(p.ID)
 				for _, msgID := range reminders {
 					if msgID != cb.Message.MessageID {
-						b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID))
+						if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
+							log.Printf("[bot] send failed: %v", err)
+						}
 					}
 				}
 			}
@@ -493,9 +515,13 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})
-		b.api.Send(edit)
+		if _, err := b.api.Send(edit); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ All medications for this time marked as taken."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ All medications for this time marked as taken.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 	} else if strings.HasPrefix(data, "workout_start_") || strings.HasPrefix(data, "workout_snooze1") || strings.HasPrefix(data, "workout_snooze2") || strings.HasPrefix(data, "workout_skip_") || strings.HasPrefix(data, "workout_finish_") {
 		// Workout callbacks
 		b.handleWorkoutCallback(cb, data)
@@ -536,7 +562,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		b.handleWeightReminderCallback(cb, data)
 	} else if data == "dismiss_notification" {
 		// Just delete the message
-		b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID))
+		if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 	}
 }
 
@@ -651,11 +679,15 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 		lastDownload, err := b.store.GetLastDownload()
 		if err != nil {
 			log.Printf("Error getting last download: %v", err)
-			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving last download date."))
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving last download date.")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 			return
 		}
 		if lastDownload.IsZero() {
-			b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "No previous download found. Please choose a time period."))
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "No previous download found. Please choose a time period.")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 			return
 		}
 		since = lastDownload
@@ -666,7 +698,9 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	case "30":
 		since = time.Now().AddDate(0, 0, -30)
 	default:
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "Unknown download option."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "Unknown download option.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
@@ -674,7 +708,9 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	intakes, err := b.store.GetIntakesSince(since)
 	if err != nil {
 		log.Printf("Error getting intakes: %v", err)
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving intake data."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving intake data.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
@@ -682,7 +718,9 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	bpReadings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		log.Printf("Error getting BP readings: %v", err)
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving blood pressure data."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving blood pressure data.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
@@ -693,7 +731,9 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	}
 
 	if len(intakes) == 0 && len(bpReadings) == 0 && len(weightLogs) == 0 {
-		b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "No records found for the selected period."))
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "No records found for the selected period.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
@@ -706,7 +746,9 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 		InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 	})
-	b.api.Send(edit)
+	if _, err := b.api.Send(edit); err != nil {
+		log.Printf("[bot] send failed: %v", err)
+	}
 
 	// Send medication CSV if available
 	if len(intakes) > 0 {
@@ -719,7 +761,9 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 				Bytes: csvData,
 			})
 			doc.Caption = fmt.Sprintf("Medication export (%d records)", len(intakes))
-			b.api.Send(doc)
+			if _, err := b.api.Send(doc); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 		}
 	}
 
@@ -734,7 +778,9 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 				Bytes: bpCSV,
 			})
 			doc.Caption = fmt.Sprintf("Blood pressure export (%d records)", len(bpReadings))
-			b.api.Send(doc)
+			if _, err := b.api.Send(doc); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 		}
 	}
 
@@ -749,7 +795,9 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 				Bytes: weightCSV,
 			})
 			doc.Caption = fmt.Sprintf("Weight export (%d records)", len(weightLogs))
-			b.api.Send(doc)
+			if _, err := b.api.Send(doc); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 		}
 	}
 }
@@ -999,10 +1047,10 @@ func (b *Bot) generateWeightCSV(logs []store.WeightLog) ([]byte, error) {
 	writer := csv.NewWriter(buf)
 
 	// Write header in Libra format
-	writer.Write([]string{"#Version: 6"})
-	writer.Write([]string{"#Units: kg"})
-	writer.Write([]string{""})
-	writer.Write([]string{"#date;weight;weight trend;body fat;body fat trend;muscle mass;muscle mass trend;log"})
+	_ = writer.Write([]string{"#Version: 6"})
+	_ = writer.Write([]string{"#Units: kg"})
+	_ = writer.Write([]string{""})
+	_ = writer.Write([]string{"#date;weight;weight trend;body fat;body fat trend;muscle mass;muscle mass trend;log"})
 
 	// Write data rows
 	for _, w := range logs {
@@ -1047,22 +1095,7 @@ func (b *Bot) generateWeightCSV(logs []store.WeightLog) ([]byte, error) {
 }
 
 func parseBPArgs(args string) []string {
-	var parts []string
-	var current []byte
-	for _, c := range args {
-		if c == ' ' || c == '\t' {
-			if len(current) > 0 {
-				parts = append(parts, string(current))
-				current = nil
-			}
-		} else {
-			current = append(current, byte(c))
-		}
-	}
-	if len(current) > 0 {
-		parts = append(parts, string(current))
-	}
-	return parts
+	return strings.Fields(args)
 }
 
 // -- Weight Tracking Commands --
@@ -1392,7 +1425,7 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 					continue
 				}
 				var hour, minute int
-				fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
+				_, _ = fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
 
 				target := time.Date(checkDay.Year(), checkDay.Month(), checkDay.Day(), hour, minute, 0, 0, now.Location())
 
@@ -1484,7 +1517,9 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 
-	b.api.Send(msg)
+	if _, err := b.api.Send(msg); err != nil {
+		log.Printf("[bot] send failed: %v", err)
+	}
 	msgConfig.Text = "" // Don't send the original message config
 }
 
@@ -1499,7 +1534,9 @@ func (b *Bot) removeButtonFromCallbackMessage(cb *tgbotapi.CallbackQuery, callba
 		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})
-		b.api.Send(edit)
+		if _, err := b.api.Send(edit); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
 		return
 	}
 
@@ -1520,7 +1557,9 @@ func (b *Bot) removeButtonFromCallbackMessage(cb *tgbotapi.CallbackQuery, callba
 	edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 		InlineKeyboard: rows,
 	})
-	b.api.Send(edit)
+	if _, err := b.api.Send(edit); err != nil {
+		log.Printf("[bot] send failed: %v", err)
+	}
 }
 
 // UpdateWorkoutMessage updates a workout notification message
