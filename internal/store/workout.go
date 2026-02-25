@@ -660,6 +660,11 @@ func (s *Store) CancelPreSkip(id int64) error {
 	return err
 }
 
+func (s *Store) DeleteSession(id int64) error {
+	_, err := s.db.Exec("DELETE FROM workout_sessions WHERE id = ?", id)
+	return err
+}
+
 func (s *Store) SnoozeSession(id int64, snoozeDuration time.Duration) error {
 	snoozeUntil := time.Now().Add(snoozeDuration)
 	_, err := s.db.Exec(`
