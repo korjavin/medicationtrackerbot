@@ -94,6 +94,10 @@ function _renderNextWorkout(container, data) {
         cardClass += ' notified';
         statusEmoji = '🔔';
         statusText = 'Ready to Start';
+    } else if (status === 'pre_skipped') {
+        cardClass += ' pre-skipped';
+        statusEmoji = '⏭';
+        statusText = 'To Be Skipped';
     } else if (isToday) {
         cardClass += ' today';
         statusText = 'Today';
@@ -114,8 +118,15 @@ function _renderNextWorkout(container, data) {
                     <button onclick="cancelWorkoutSession(${session.id})" class="secondary" style="flex: 1; background-color: #ffebee; color: #c62828; border: 1px solid #ef9a9a;">🛑 Stop</button>
                 </div>
             `;
+    } else if (status === 'pre_skipped') {
+        actionButtons = `<button onclick="cancelPreSkipWorkoutSession(${session.id})" class="btn-pill" style="margin-top: 12px; width: 100%; background-color: var(--button-color, #5288c1); color: white;">↩ Cancel Skip</button>`;
     } else {
-        actionButtons = `<button onclick="startWorkoutSession(${session.id})" class="btn-pill" style="margin-top: 12px; width: 100%;">🏋️ Start Workout</button>`;
+        actionButtons = `
+                <div style="display: flex; gap: 10px; margin-top: 12px;">
+                    <button onclick="startWorkoutSession(${session.id})" class="btn-pill" style="flex: 1;">🏋️ Start Workout</button>
+                    <button onclick="preSkipWorkoutSession(${session.id})" class="secondary" style="flex: 1; background-color: #fff3e0; color: #e65100; border: 1px solid #ffcc80;">⏭ Skip</button>
+                </div>
+            `;
     }
 
     container.innerHTML = `
@@ -1216,6 +1227,30 @@ async function cancelWorkoutSession(sessionId) {
             console.error(e);
             safeAlert('Failed to finish workout');
         }
+    }
+}
+
+async function preSkipWorkoutSession(sessionId) {
+    if (!confirm('Mark this workout as to-be-skipped? No notification will be sent and it will be automatically skipped at the scheduled time.')) {
+        return;
+    }
+
+    try {
+        await apiCall(`/api/workout/sessions/${sessionId}/preskip`, 'POST');
+        loadNextWorkout();
+    } catch (error) {
+        console.error('Error pre-skipping workout:', error);
+        safeAlert('❌ Failed to mark workout as skipped. Please try again.');
+    }
+}
+
+async function cancelPreSkipWorkoutSession(sessionId) {
+    try {
+        await apiCall(`/api/workout/sessions/${sessionId}/cancel-preskip`, 'POST');
+        loadNextWorkout();
+    } catch (error) {
+        console.error('Error cancelling pre-skip:', error);
+        safeAlert('❌ Failed to cancel skip. Please try again.');
     }
 }
 

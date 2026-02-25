@@ -134,7 +134,21 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 			existing = session
 		}
 
-		// 8. Handle Notifications
+		// 8. Handle pre_skipped sessions: auto-skip at scheduled time, never notify
+		if existing.Status == "pre_skipped" {
+			if now.After(scheduledTime) {
+				if err := s.store.SkipSession(existing.ID); err != nil {
+					log.Printf("Failed to auto-skip pre_skipped session %d: %v", existing.ID, err)
+				} else if group.IsRotating {
+					if err := s.store.AdvanceRotation(group.ID); err != nil {
+						log.Printf("Failed to advance rotation after auto-skip for group %d: %v", group.ID, err)
+					}
+				}
+			}
+			continue
+		}
+
+		// 9. Handle Notifications
 		advanceMinutes := group.NotificationAdvanceMinutes
 		notifyTime := scheduledTime.Add(-time.Duration(advanceMinutes) * time.Minute)
 
