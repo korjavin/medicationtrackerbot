@@ -252,6 +252,9 @@ func (s *Server) registerTools() {
 		},
 		s.handleGetFoodIntake,
 	)
+
+	// Register Vitals & Health Overview Tools
+	registerVitalsTools(s.mcpServer, s)
 }
 
 // parseDateRange parses and validates the date range, enforcing the max query days limit

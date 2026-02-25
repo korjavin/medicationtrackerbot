@@ -116,8 +116,8 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 	}
 
 	// Success
-	log.Printf("Sleep import successful: %d imported, %d skipped", imported, skipped)
-	successMsg := fmt.Sprintf("✅ Sleep import complete!\n\n📊 Imported: %d new records\n⏭ Skipped: %d existing records",
+	log.Printf("Sleep/Vitals import successful: %d imported, %d skipped", imported, skipped)
+	successMsg := fmt.Sprintf("✅ Import complete!\n\n📊 Imported: %d new records\n⏭ Skipped: %d existing records",
 		imported, skipped)
 	b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, successMsg)
 }
@@ -187,7 +187,7 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 
 	log.Printf("Parsed %d sleep records from database", len(sleepLogs))
 
-	// Import
+	// Import sleep
 	ctx := context.Background()
 	imported, skipped, err := b.store.ImportSleepLogs(ctx, b.allowedUserID, sleepLogs)
 	if err != nil {
@@ -195,7 +195,31 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 		return 0, 0, err
 	}
 
-	return imported, skipped, nil
+	// Parse and import vitals
+	heartLogs, err := b.parseHeartDatabase(tempDB.Name())
+	if err != nil {
+		log.Printf("Failed to parse heart database: %v", err)
+	}
+
+	spo2Logs, err := b.parseSpO2Database(tempDB.Name())
+	if err != nil {
+		log.Printf("Failed to parse spo2 database: %v", err)
+	}
+
+	stressLogs, err := b.parseStressDatabase(tempDB.Name())
+	if err != nil {
+		log.Printf("Failed to parse stress database: %v", err)
+	}
+
+	vitalsImported, vitalsSkipped, err := b.store.ImportVitals(ctx, b.allowedUserID, heartLogs, spo2Logs, stressLogs)
+	if err != nil {
+		log.Printf("Failed to import vitals logs to database: %v", err)
+		// We don't return here because we already imported sleep logs
+	} else {
+		log.Printf("Successfully imported %d vitals records, skipped %d", vitalsImported, vitalsSkipped)
+	}
+
+	return imported + vitalsImported, skipped + vitalsSkipped, nil
 }
 
 func (b *Bot) parseSleepDatabase(dbPath string) ([]store.SleepLog, error) {
@@ -295,6 +319,101 @@ func (b *Bot) parseSleepDatabase(dbPath string) ([]store.SleepLog, error) {
 	}
 
 	log.Printf("Successfully parsed %d sleep records", recordCount)
+	return logs, nil
+}
+
+func (b *Bot) parseHeartDatabase(dbPath string) ([]store.VitalsHeartLog, error) {
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`SELECT dateTime, tz, value, type FROM heart ORDER BY dateTime`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []store.VitalsHeartLog
+	for rows.Next() {
+		var dateMs int64
+		var tz, val, typ int
+		if err := rows.Scan(&dateMs, &tz, &val, &typ); err != nil {
+			return nil, err
+		}
+		logs = append(logs, store.VitalsHeartLog{
+			DateTime: time.UnixMilli(dateMs).UTC(),
+			TzOffset: tz,
+			Value:    val,
+			Type:     typ,
+		})
+	}
+	return logs, nil
+}
+
+func (b *Bot) parseSpO2Database(dbPath string) ([]store.VitalsSpO2Log, error) {
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`SELECT dateTime, tz, value, type FROM spo2 ORDER BY dateTime`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []store.VitalsSpO2Log
+	for rows.Next() {
+		var dateMs int64
+		var tz, val, typ int
+		if err := rows.Scan(&dateMs, &tz, &val, &typ); err != nil {
+			return nil, err
+		}
+		logs = append(logs, store.VitalsSpO2Log{
+			DateTime: time.UnixMilli(dateMs).UTC(),
+			TzOffset: tz,
+			Value:    val,
+			Type:     typ,
+		})
+	}
+	return logs, nil
+}
+
+func (b *Bot) parseStressDatabase(dbPath string) ([]store.VitalsStressLog, error) {
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`SELECT dateTime, tz, value, type, info FROM stress ORDER BY dateTime`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []store.VitalsStressLog
+	for rows.Next() {
+		var dateMs int64
+		var tz, val, typ int
+		var info sql.NullString
+		if err := rows.Scan(&dateMs, &tz, &val, &typ, &info); err != nil {
+			return nil, err
+		}
+		l := store.VitalsStressLog{
+			DateTime: time.UnixMilli(dateMs).UTC(),
+			TzOffset: tz,
+			Value:    val,
+			Type:     typ,
+		}
+		if info.Valid {
+			l.Info = info.String
+		}
+		logs = append(logs, l)
+	}
 	return logs, nil
 }
 
