@@ -4747,7 +4747,169 @@ async function loadHealthOverview() {
         setTimeout(() => renderSleepChart(data.sleep_stats_7d), 0);
     }
 
+    // Vitals Charts
+    const renderVitalGroup = (id, title, history, color, min, max) => {
+        if (history && history.length > 0) {
+            content.innerHTML += `
+                <div style="margin-top: 25px; padding: 10px 0;">
+                    <h3 style="margin-bottom: 15px;">${title}</h3>
+                    <div id="${id}ChartContainer" style="height: 200px; width: 100%;"></div>
+                </div>
+            `;
+            setTimeout(() => renderVitalsLineChart(id + 'ChartContainer', history, color, min, max), 0);
+        }
+    };
+
+    renderVitalGroup('heartRate', 'Heart Rate', data.heart_rate_history_7d, '#ff3b30', 40, 160);
+    renderVitalGroup('spo2', 'SpO2', data.spo2_history_7d, '#32ade6', 85, 100);
+    renderVitalGroup('stress', 'Stress Level', data.stress_history_7d, '#ff9500', 0, 100);
+
     content.classList.remove('hidden');
+}
+
+// Render generic line chart with min/max shaded area 
+function renderVitalsLineChart(containerId, data, color, yMin, yMax) {
+    const container = document.getElementById(containerId);
+    if (!container || !data || data.length === 0) return;
+
+    const totalWidth = container.clientWidth;
+    const leftPadding = 35;
+    const rightPadding = 10;
+    const topPadding = 20;
+    const bottomPadding = 30;
+
+    const chartWidth = totalWidth - leftPadding - rightPadding;
+    const chartHeight = container.clientHeight - topPadding - bottomPadding;
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("viewBox", `0 0 ${totalWidth} ${container.clientHeight}`);
+    svg.style.overflow = "visible";
+
+    const minTime = data[0].timestamp;
+    const maxTime = data[data.length - 1].timestamp;
+    const timeRange = Math.max(maxTime - minTime, 1);
+    const valRange = Math.max(yMax - yMin, 1);
+
+    // Y-Axis
+    const ySteps = 4;
+    for (let i = 0; i <= ySteps; i++) {
+        const val = Math.round(yMin + (i / ySteps) * valRange);
+        const y = topPadding + chartHeight - (i / ySteps) * chartHeight;
+
+        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.setAttribute("x", leftPadding - 8);
+        text.setAttribute("y", y + 4);
+        text.setAttribute("text-anchor", "end");
+        text.setAttribute("fill", "var(--hint-color)");
+        text.setAttribute("font-size", "10px");
+        text.textContent = val;
+        svg.appendChild(text);
+
+        const gridLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        gridLine.setAttribute("x1", leftPadding);
+        gridLine.setAttribute("y1", y);
+        gridLine.setAttribute("x2", leftPadding + chartWidth);
+        gridLine.setAttribute("y2", y);
+        gridLine.setAttribute("stroke", "var(--hint-color)");
+        gridLine.setAttribute("stroke-opacity", i === 0 ? "0.6" : "0.2");
+        svg.appendChild(gridLine);
+    }
+
+    const getX = (ts) => leftPadding + ((ts - minTime) / timeRange) * chartWidth;
+    const getY = (val) => {
+        const clamped = Math.max(yMin, Math.min(yMax, val));
+        return topPadding + chartHeight - ((clamped - yMin) / valRange) * chartHeight;
+    };
+
+    // Min/Max Area Shadow
+    const areaPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    let dArea = "";
+    // Forward path (Max)
+    data.forEach((pt, i) => {
+        const cx = getX(pt.timestamp);
+        const cy = getY(pt.max);
+        dArea += (i === 0 ? `M ${cx},${cy}` : ` L ${cx},${cy}`);
+    });
+    // Return path (Min)
+    for (let i = data.length - 1; i >= 0; i--) {
+        const cx = getX(data[i].timestamp);
+        const cy = getY(data[i].min);
+        dArea += ` L ${cx},${cy}`;
+    }
+    dArea += " Z";
+
+    areaPath.setAttribute("d", dArea);
+    areaPath.setAttribute("fill", color);
+    areaPath.setAttribute("fill-opacity", "0.2");
+    svg.appendChild(areaPath);
+
+    // Average Line
+    const avgLine = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    let dAvg = "";
+    data.forEach((pt, i) => {
+        const cx = getX(pt.timestamp);
+        const cy = getY(pt.avg);
+        dAvg += (i === 0 ? `M ${cx},${cy}` : ` L ${cx},${cy}`);
+    });
+    avgLine.setAttribute("d", dAvg);
+    avgLine.setAttribute("fill", "none");
+    avgLine.setAttribute("stroke", color);
+    avgLine.setAttribute("stroke-width", "2");
+
+    // Handle gaps if necessary: if consecutive points are > 3 hours apart, break line
+    let currentPath = "";
+    let paths = [];
+    let lastTs = null;
+    data.forEach((pt, i) => {
+        const cx = getX(pt.timestamp);
+        const cy = getY(pt.avg);
+
+        if (lastTs !== null && (pt.timestamp - lastTs) > 3 * 3600 * 1000) {
+            paths.push(currentPath);
+            currentPath = `M ${cx},${cy}`;
+        } else {
+            currentPath += (currentPath === "" ? `M ${cx},${cy}` : ` L ${cx},${cy}`);
+        }
+        lastTs = pt.timestamp;
+    });
+    if (currentPath !== "") paths.push(currentPath);
+
+    paths.forEach(p => {
+        const pathObj = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        pathObj.setAttribute("d", p);
+        pathObj.setAttribute("fill", "none");
+        pathObj.setAttribute("stroke", color);
+        pathObj.setAttribute("stroke-width", "2");
+        // Optional: add linecap rounded
+        pathObj.setAttribute("stroke-linecap", "round");
+        pathObj.setAttribute("stroke-linejoin", "round");
+        svg.appendChild(pathObj);
+    });
+
+    // X-Axis Date Labels 
+    // Show around 4-5 labels along the axis
+    const labelCount = 4;
+    for (let i = 0; i <= labelCount; i++) {
+        const ts = minTime + (timeRange * (i / labelCount));
+        const dt = new Date(ts);
+        const txt = `${dt.getMonth() + 1}/${dt.getDate()}`;
+
+        const x = getX(ts);
+        const y = topPadding + chartHeight + 15;
+
+        const xLbl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        xLbl.setAttribute("x", x);
+        xLbl.setAttribute("y", y);
+        xLbl.setAttribute("text-anchor", "middle");
+        xLbl.setAttribute("fill", "var(--hint-color)");
+        xLbl.setAttribute("font-size", "11px");
+        xLbl.textContent = txt;
+        svg.appendChild(xLbl);
+    }
+
+    container.appendChild(svg);
 }
 
 // Render stacked bar chart for sleep

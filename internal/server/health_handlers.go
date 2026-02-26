@@ -17,6 +17,13 @@ type DailySleepStat struct {
 	HeartRateAvg int    `json:"heart_rate_avg"`
 }
 
+type VitalStat struct {
+	Timestamp int64 `json:"timestamp"`
+	Min       int   `json:"min"`
+	Max       int   `json:"max"`
+	Avg       int   `json:"avg"`
+}
+
 type HealthOverviewResponse struct {
 	AverageHeartRate7d  int `json:"average_heart_rate_7d"`
 	AverageHeartRate30d int `json:"average_heart_rate_30d"`
@@ -30,7 +37,10 @@ type HealthOverviewResponse struct {
 	AverageSleepHours7d  float64 `json:"average_sleep_hours_7d"`
 	AverageSleepHours30d float64 `json:"average_sleep_hours_30d"`
 
-	SleepStats7d []DailySleepStat `json:"sleep_stats_7d"`
+	SleepStats7d       []DailySleepStat `json:"sleep_stats_7d"`
+	HeartRateHistory7d []VitalStat      `json:"heart_rate_history_7d"`
+	SpO2History7d      []VitalStat      `json:"spo2_history_7d"`
+	StressHistory7d    []VitalStat      `json:"stress_history_7d"`
 }
 
 func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request) {
@@ -55,41 +65,116 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 		return sum / len(values)
 	}
 
+	bucketVitals := func(logs []struct {
+		DateTime time.Time
+		Value    int
+	}) []VitalStat {
+		type acc struct {
+			sum, count, min, max int
+		}
+		buckets := make(map[int64]*acc)
+
+		for _, l := range logs {
+			if l.DateTime.Before(start7d) {
+				continue
+			}
+			// Truncate to hour block
+			ts := l.DateTime.Truncate(time.Hour).UnixMilli()
+
+			if b, exists := buckets[ts]; exists {
+				b.sum += l.Value
+				b.count++
+				if l.Value < b.min {
+					b.min = l.Value
+				}
+				if l.Value > b.max {
+					b.max = l.Value
+				}
+			} else {
+				buckets[ts] = &acc{sum: l.Value, count: 1, min: l.Value, max: l.Value}
+			}
+		}
+
+		var stats []VitalStat
+		for ts, b := range buckets {
+			stats = append(stats, VitalStat{
+				Timestamp: ts,
+				Min:       b.min,
+				Max:       b.max,
+				Avg:       b.sum / b.count,
+			})
+		}
+
+		sort.Slice(stats, func(i, j int) bool {
+			return stats[i].Timestamp < stats[j].Timestamp
+		})
+
+		return stats
+	}
+
 	// Fetch Heart Rate (30d fetch covers 7d)
 	hrLogs, _ := s.store.GetVitalsHeart(ctx, userId, start30d, now)
 	var hr7d, hr30d []int
+	var hrBucketInput []struct {
+		DateTime time.Time
+		Value    int
+	}
+
 	for _, l := range hrLogs {
 		hr30d = append(hr30d, l.Value)
 		if l.DateTime.After(start7d) {
 			hr7d = append(hr7d, l.Value)
+			hrBucketInput = append(hrBucketInput, struct {
+				DateTime time.Time
+				Value    int
+			}{l.DateTime, l.Value})
 		}
 	}
 	resp.AverageHeartRate7d = calcAvg(hr7d)
 	resp.AverageHeartRate30d = calcAvg(hr30d)
+	resp.HeartRateHistory7d = bucketVitals(hrBucketInput)
 
 	// Fetch SpO2
 	spo2Logs, _ := s.store.GetVitalsSpO2(ctx, userId, start30d, now)
 	var spo27d, spo230d []int
+	var spo2BucketInput []struct {
+		DateTime time.Time
+		Value    int
+	}
 	for _, l := range spo2Logs {
 		spo230d = append(spo230d, l.Value)
 		if l.DateTime.After(start7d) {
 			spo27d = append(spo27d, l.Value)
+			spo2BucketInput = append(spo2BucketInput, struct {
+				DateTime time.Time
+				Value    int
+			}{l.DateTime, l.Value})
 		}
 	}
 	resp.AverageSpO27d = calcAvg(spo27d)
 	resp.AverageSpO230d = calcAvg(spo230d)
+	resp.SpO2History7d = bucketVitals(spo2BucketInput)
 
 	// Fetch Stress
 	stressLogs, _ := s.store.GetVitalsStress(ctx, userId, start30d, now)
 	var stress7d, stress30d []int
+	var stressBucketInput []struct {
+		DateTime time.Time
+		Value    int
+	}
 	for _, l := range stressLogs {
 		stress30d = append(stress30d, l.Value)
 		if l.DateTime.After(start7d) {
 			stress7d = append(stress7d, l.Value)
+			stressBucketInput = append(stressBucketInput, struct {
+				DateTime time.Time
+				Value    int
+			}{l.DateTime, l.Value})
 		}
 	}
 	resp.AverageStress7d = calcAvg(stress7d)
 	resp.AverageStress30d = calcAvg(stress30d)
+	resp.StressHistory7d = bucketVitals(stressBucketInput)
 
 	// Fetch Sleep Logs
 	sleepLogs, _ := s.store.GetSleepLogs(ctx, userId, start30d)
