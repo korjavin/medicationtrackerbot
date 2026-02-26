@@ -5169,6 +5169,31 @@ function renderStepsChart(stats) {
         rect.setAttribute("rx", "3"); // Rounded corners
         svg.appendChild(rect);
 
+        // Step Count Label (Vertical)
+        if (dayStat.steps > 0) {
+            const stepLbl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            // Position above the bar if too short, or inside the bar if tall enough
+            let textY = yTop - 4;
+            let textFill = "var(--text-color)";
+            let textAnchor = "start";
+
+            if (h > 40) {
+                textY = yTop + 8;
+                textFill = "#ffffff";
+                textAnchor = "end";
+            }
+
+            stepLbl.setAttribute("x", xCenter + 3);
+            stepLbl.setAttribute("y", textY);
+            stepLbl.setAttribute("text-anchor", textAnchor);
+            stepLbl.setAttribute("fill", textFill);
+            stepLbl.setAttribute("font-size", "11px");
+            stepLbl.setAttribute("font-weight", "500");
+            stepLbl.setAttribute("transform", `rotate(-90 ${xCenter + 3} ${textY})`);
+            stepLbl.textContent = dayStat.steps.toLocaleString();
+            svg.appendChild(stepLbl);
+        }
+
         // Date Label
         const dateObj = new Date(dayStat.day + 'T12:00:00');
         let dayName = daysMap[dateObj.getDay()];
