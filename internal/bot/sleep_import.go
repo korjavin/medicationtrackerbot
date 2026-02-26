@@ -219,7 +219,20 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 		log.Printf("Successfully imported %d vitals records, skipped %d", vitalsImported, vitalsSkipped)
 	}
 
-	return imported + vitalsImported, skipped + vitalsSkipped, nil
+	// Parse and import day stats
+	dayStats, err := b.parseDayDatabase(tempDB.Name())
+	if err != nil {
+		log.Printf("Failed to parse day database: %v", err)
+	}
+
+	statsImported, statsSkipped, err := b.store.ImportDayStats(ctx, b.allowedUserID, dayStats)
+	if err != nil {
+		log.Printf("Failed to import day stats to database: %v", err)
+	} else {
+		log.Printf("Successfully imported %d day stats, skipped %d", statsImported, statsSkipped)
+	}
+
+	return imported + vitalsImported + statsImported, skipped + vitalsSkipped + statsSkipped, nil
 }
 
 func (b *Bot) parseSleepDatabase(dbPath string) ([]store.SleepLog, error) {
@@ -350,6 +363,36 @@ func (b *Bot) parseHeartDatabase(dbPath string) ([]store.VitalsHeartLog, error) 
 		})
 	}
 	return logs, nil
+}
+
+func (b *Bot) parseDayDatabase(dbPath string) ([]store.DayStat, error) {
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`SELECT day, steps, calories, distance FROM day ORDER BY day`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var stats []store.DayStat
+	for rows.Next() {
+		var dayStr string
+		var steps, cal, dist int
+		if err := rows.Scan(&dayStr, &steps, &cal, &dist); err != nil {
+			return nil, err
+		}
+		stats = append(stats, store.DayStat{
+			Day:      dayStr,
+			Steps:    steps,
+			Calories: cal,
+			Distance: dist,
+		})
+	}
+	return stats, nil
 }
 
 func (b *Bot) parseSpO2Database(dbPath string) ([]store.VitalsSpO2Log, error) {

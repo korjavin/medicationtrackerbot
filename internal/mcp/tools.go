@@ -749,3 +749,77 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 
 	return nil, response, nil
 }
+
+// StepHistoryResult represents a daily step count for the tool response
+type StepHistoryResult struct {
+	Date     string `json:"date"`
+	Steps    int    `json:"steps"`
+	Calories int    `json:"calories"`
+	Distance int    `json:"distance"`
+}
+
+// StepHistoryResponse is the response for the get_step_history tool
+type StepHistoryResponse struct {
+	Logs    []StepHistoryResult `json:"logs"`
+	Count   int                 `json:"count"`
+	Period  string              `json:"period"`
+	Warning string              `json:"warning,omitempty"`
+}
+
+// handleGetStepHistory handles the get_step_history tool
+func (s *Server) handleGetStepHistory(ctx context.Context, req *mcp.CallToolRequest, input DateRangeInput) (*mcp.CallToolResult, StepHistoryResponse, error) {
+	startStr, endStr, argsWarning, err := s.resolveDateRangeArgs(req, input.StartDate, input.EndDate)
+	if err != nil {
+		return nil, StepHistoryResponse{}, err
+	}
+	startDate, endDate, warning, err := s.parseDateRange(startStr, endStr)
+	if err != nil {
+		return nil, StepHistoryResponse{}, err
+	}
+	warning = appendWarnings(argsWarning, warning)
+
+	log.Printf("[MCP] Fetching Step History for date range: %s to %s", startDate, endDate)
+
+	userID := s.config.UserID
+	logs, err := s.store.GetDayStats(ctx, userID, startDate)
+	if err != nil {
+		log.Printf("[MCP] Failed to fetch step history: %v", err)
+		return nil, StepHistoryResponse{}, err
+	}
+	log.Printf("[MCP] Found %d step history logs", len(logs))
+
+	var results []StepHistoryResult
+	for _, l := range logs {
+		t, err := time.Parse("2006-01-02", l.Day)
+		if err == nil && t.After(endDate) {
+			continue
+		}
+
+		res := StepHistoryResult{
+			Date:     l.Day,
+			Steps:    l.Steps,
+			Calories: l.Calories,
+			Distance: l.Distance,
+		}
+
+		results = append(results, res)
+	}
+
+	log.Printf("[MCP] Step history query result: store_count=%d, returned_count=%d, period=%s",
+		len(logs), len(results), formatPeriod(startDate, endDate))
+	if len(results) == 0 {
+		emptyReason := noDataWarning("step history logs", startDate, endDate, len(logs), len(results))
+		warning = appendWarnings(warning, emptyReason)
+		log.Printf("[MCP][WARN] Step history query returned zero rows. user_id=%d, start=%s, end=%s, warning=%q",
+			userID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), warning)
+	}
+
+	response := StepHistoryResponse{
+		Logs:    results,
+		Count:   len(results),
+		Period:  formatPeriod(startDate, endDate),
+		Warning: warning,
+	}
+
+	return nil, response, nil
+}
