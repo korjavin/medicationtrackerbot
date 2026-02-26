@@ -3,8 +3,19 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"time"
 )
+
+type DailySleepStat struct {
+	Date         string `json:"date"`
+	LightMins    int    `json:"light_mins"`
+	DeepMins     int    `json:"deep_mins"`
+	RemMins      int    `json:"rem_mins"`
+	AwakeMins    int    `json:"awake_mins"`
+	TotalMins    int    `json:"total_mins"`
+	HeartRateAvg int    `json:"heart_rate_avg"`
+}
 
 type HealthOverviewResponse struct {
 	AverageHeartRate7d  int `json:"average_heart_rate_7d"`
@@ -18,6 +29,8 @@ type HealthOverviewResponse struct {
 
 	AverageSleepHours7d  float64 `json:"average_sleep_hours_7d"`
 	AverageSleepHours30d float64 `json:"average_sleep_hours_30d"`
+
+	SleepStats7d []DailySleepStat `json:"sleep_stats_7d"`
 }
 
 func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request) {
@@ -81,14 +94,54 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	// Fetch Sleep Logs
 	sleepLogs, _ := s.store.GetSleepLogs(ctx, userId, start30d)
 	var sleep7dMins, sleep30dMins []int
+	dailyStatsMap := make(map[string]DailySleepStat)
+
 	for _, l := range sleepLogs {
 		if l.TotalMinutes != nil {
 			sleep30dMins = append(sleep30dMins, *l.TotalMinutes)
 			if l.StartTime.After(start7d) {
 				sleep7dMins = append(sleep7dMins, *l.TotalMinutes)
+
+				dayStr := l.Day
+				if dayStr == "" {
+					dayStr = l.StartTime.Format("2006-01-02")
+				}
+
+				stat := dailyStatsMap[dayStr]
+				stat.Date = dayStr
+				stat.TotalMins += *l.TotalMinutes
+				if l.LightMinutes != nil {
+					stat.LightMins += *l.LightMinutes
+				}
+				if l.DeepMinutes != nil {
+					stat.DeepMins += *l.DeepMinutes
+				}
+				if l.REMMinutes != nil {
+					stat.RemMins += *l.REMMinutes
+				}
+				if l.AwakeMinutes != nil {
+					stat.AwakeMins += *l.AwakeMinutes
+				}
+				if l.HeartRateAvg != nil && *l.HeartRateAvg > 0 {
+					if stat.HeartRateAvg == 0 {
+						stat.HeartRateAvg = *l.HeartRateAvg
+					} else {
+						stat.HeartRateAvg = (stat.HeartRateAvg + *l.HeartRateAvg) / 2
+					}
+				}
+				dailyStatsMap[dayStr] = stat
 			}
 		}
 	}
+
+	var sleepStats7d []DailySleepStat
+	for _, stat := range dailyStatsMap {
+		sleepStats7d = append(sleepStats7d, stat)
+	}
+	sort.Slice(sleepStats7d, func(i, j int) bool {
+		return sleepStats7d[i].Date < sleepStats7d[j].Date
+	})
+	resp.SleepStats7d = sleepStats7d
 
 	avgMins7d := calcAvg(sleep7dMins)
 	avgMins30d := calcAvg(sleep30dMins)

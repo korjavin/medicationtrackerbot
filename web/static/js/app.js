@@ -4737,5 +4737,194 @@ async function loadHealthOverview() {
         </p>
     `;
 
+    if (data.sleep_stats_7d && data.sleep_stats_7d.length > 0) {
+        content.innerHTML += `
+            <div style="margin-top: 25px; padding: 10px 0;">
+                <h3 style="margin-bottom: 15px;">Sleep</h3>
+                <div id="sleepChartContainer" style="height: 250px; width: 100%;"></div>
+            </div>
+        `;
+        setTimeout(() => renderSleepChart(data.sleep_stats_7d), 0);
+    }
+
     content.classList.remove('hidden');
+}
+
+// Render stacked bar chart for sleep
+function renderSleepChart(stats) {
+    const container = document.getElementById('sleepChartContainer');
+    if (!container) return;
+
+    const totalWidth = container.clientWidth;
+    const leftPadding = 35;
+    const rightPadding = 20;
+    const topPadding = 20;
+    const bottomPadding = 30;
+
+    const chartWidth = totalWidth - leftPadding - rightPadding;
+    const chartHeight = container.clientHeight - topPadding - bottomPadding;
+
+    const maxMins = Math.max(...stats.map(d => d.total_mins || 0), 1);
+    const hrValues = stats.map(d => d.heart_rate_avg || 0).filter(v => v > 0);
+    const minHR = hrValues.length ? Math.min(...hrValues) - 5 : 40;
+    const maxHR = hrValues.length ? Math.max(...hrValues) + 5 : 100;
+    const hrRange = Math.max(maxHR - minHR, 1);
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("viewBox", `0 0 ${totalWidth} ${container.clientHeight}`);
+    svg.style.overflow = "visible";
+
+    const barWidth = Math.min((chartWidth / stats.length) * 0.8, 40);
+    const spacing = (chartWidth - (barWidth * stats.length)) / (stats.length || 1);
+
+    const colors = {
+        deep: '#5a2d9c',
+        light: '#2481cc',
+        rem: '#c161d9',
+        awake: '#e5b220'
+    };
+
+    const yAxisLabels = [1, 3, 5, 8, 10];
+    yAxisLabels.forEach(h => {
+        const mins = h * 60;
+        if (mins > maxMins + 60) return;
+        const y = topPadding + chartHeight - (mins / maxMins) * chartHeight;
+
+        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.setAttribute("x", leftPadding - 8);
+        text.setAttribute("y", y + 4);
+        text.setAttribute("text-anchor", "end");
+        text.setAttribute("fill", "var(--hint-color)");
+        text.setAttribute("font-size", "10px");
+        text.textContent = h + "h";
+        svg.appendChild(text);
+
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", leftPadding);
+        line.setAttribute("y1", y);
+        line.setAttribute("x2", leftPadding - 3);
+        line.setAttribute("y2", y);
+        line.setAttribute("stroke", "var(--hint-color)");
+        svg.appendChild(line);
+
+        const gridLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        gridLine.setAttribute("x1", leftPadding);
+        gridLine.setAttribute("y1", y);
+        gridLine.setAttribute("x2", leftPadding + chartWidth);
+        gridLine.setAttribute("y2", y);
+        gridLine.setAttribute("stroke", "var(--hint-color)");
+        gridLine.setAttribute("stroke-opacity", "0.2");
+        svg.appendChild(gridLine);
+    });
+
+    const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    let hrPoints = [];
+
+    stats.forEach((dayStat, i) => {
+        const xCenter = leftPadding + (spacing / 2) + (i * (barWidth + spacing)) + barWidth / 2;
+        const xLeft = xCenter - barWidth / 2;
+
+        let currentY = topPadding + chartHeight;
+
+        const drawSegment = (mins, color) => {
+            if (!mins) return;
+            const h = (mins / maxMins) * chartHeight;
+            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            rect.setAttribute("x", xLeft);
+            rect.setAttribute("y", currentY - h);
+            rect.setAttribute("width", barWidth);
+            rect.setAttribute("height", h);
+            rect.setAttribute("fill", color);
+            svg.appendChild(rect);
+            currentY -= h;
+        };
+
+        drawSegment(dayStat.deep_mins, colors.deep);
+        drawSegment(dayStat.awake_mins, colors.awake);
+        drawSegment(dayStat.light_mins, colors.light);
+        drawSegment(dayStat.rem_mins, colors.rem);
+
+        if (dayStat.total_mins > 0) {
+            const hrs = Math.floor(dayStat.total_mins / 60);
+            const ms = dayStat.total_mins % 60;
+            const lbl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            lbl.setAttribute("x", xCenter);
+            lbl.setAttribute("y", currentY - 5);
+            lbl.setAttribute("text-anchor", "middle");
+            lbl.setAttribute("fill", "var(--text-color)");
+            lbl.setAttribute("font-size", "11px");
+            lbl.textContent = `${hrs}:${ms.toString().padStart(2, '0')}`;
+            svg.appendChild(lbl);
+        }
+
+        const dateObj = new Date(dayStat.date + 'T12:00:00');
+        let dayName = daysMap[dateObj.getDay()];
+        if (i === stats.length - 1) dayName = "Today";
+
+        const xLbl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        xLbl.setAttribute("x", xCenter);
+        xLbl.setAttribute("y", topPadding + chartHeight + 15);
+        xLbl.setAttribute("text-anchor", "middle");
+        xLbl.setAttribute("fill", "var(--hint-color)");
+        xLbl.setAttribute("font-size", "11px");
+        xLbl.textContent = dayName;
+        svg.appendChild(xLbl);
+
+        if (dayStat.heart_rate_avg > 0) {
+            const yHR = topPadding + chartHeight - ((dayStat.heart_rate_avg - minHR) / hrRange) * chartHeight;
+            hrPoints.push({ x: xCenter, y: yHR, val: dayStat.heart_rate_avg });
+        }
+    });
+
+    if (hrPoints.length > 1) {
+        const pathLine = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const pathData = hrPoints.map((p, i) => (i === 0 ? `M ${p.x},${p.y}` : `L ${p.x},${p.y}`)).join(" ");
+        pathLine.setAttribute("d", pathData);
+        pathLine.setAttribute("fill", "none");
+        pathLine.setAttribute("stroke", "#ff3b30");
+        pathLine.setAttribute("stroke-width", "2");
+        svg.appendChild(pathLine);
+    }
+
+    hrPoints.forEach(p => {
+        const circleOut = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circleOut.setAttribute("cx", p.x);
+        circleOut.setAttribute("cy", p.y);
+        circleOut.setAttribute("r", "4");
+        circleOut.setAttribute("fill", "var(--bg-color)");
+        svg.appendChild(circleOut);
+
+        const circleIn = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circleIn.setAttribute("cx", p.x);
+        circleIn.setAttribute("cy", p.y);
+        circleIn.setAttribute("r", "2");
+        circleIn.setAttribute("fill", "#ff3b30");
+        svg.appendChild(circleIn);
+
+        const bg = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        bg.setAttribute("x", p.x);
+        bg.setAttribute("y", p.y - 8);
+        bg.setAttribute("text-anchor", "middle");
+        bg.setAttribute("stroke", "var(--bg-color)");
+        bg.setAttribute("stroke-width", "3");
+        bg.setAttribute("font-size", "10px");
+        bg.setAttribute("font-weight", "bold");
+        bg.textContent = p.val;
+
+        const lbl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        lbl.setAttribute("x", p.x);
+        lbl.setAttribute("y", p.y - 8);
+        lbl.setAttribute("text-anchor", "middle");
+        lbl.setAttribute("fill", "#ff3b30");
+        lbl.setAttribute("font-size", "10px");
+        lbl.setAttribute("font-weight", "bold");
+        lbl.textContent = p.val;
+
+        svg.appendChild(bg);
+        svg.appendChild(lbl);
+    });
+
+    container.appendChild(svg);
 }
