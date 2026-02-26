@@ -4705,64 +4705,51 @@ async function loadHealthOverview() {
         return;
     }
 
-    // Render cards
-    content.innerHTML = `
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
-            <div style="background: var(--secondary-bg-color); padding: 15px; border-radius: 8px;">
-                <h4 style="margin: 0 0 10px 0;">Heart Rate</h4>
-                <div style="font-size: 24px; font-weight: bold;">${data.average_heart_rate_7d} <span style="font-size: 14px; font-weight: normal;">bpm (7d)</span></div>
-                <div style="font-size: 14px; color: var(--hint-color); margin-top: 5px;">30d avg: ${data.average_heart_rate_30d} bpm</div>
-            </div>
-            
-            <div style="background: var(--secondary-bg-color); padding: 15px; border-radius: 8px;">
-                <h4 style="margin: 0 0 10px 0;">SpO2</h4>
-                <div style="font-size: 24px; font-weight: bold;">${data.average_spo2_7d}% <span style="font-size: 14px; font-weight: normal;">(7d)</span></div>
-                <div style="font-size: 14px; color: var(--hint-color); margin-top: 5px;">30d avg: ${data.average_spo2_30d}%</div>
-            </div>
-
-            <div style="background: var(--secondary-bg-color); padding: 15px; border-radius: 8px;">
-                <h4 style="margin: 0 0 10px 0;">Stress Level</h4>
-                <div style="font-size: 24px; font-weight: bold;">${data.average_stress_7d} <span style="font-size: 14px; font-weight: normal;">/ 100 (7d)</span></div>
-                <div style="font-size: 14px; color: var(--hint-color); margin-top: 5px;">30d avg: ${data.average_stress_30d}</div>
-            </div>
-
-            <div style="background: var(--secondary-bg-color); padding: 15px; border-radius: 8px;">
-                <h4 style="margin: 0 0 10px 0;">Sleep</h4>
-                <div style="font-size: 24px; font-weight: bold;">${data.average_sleep_hours_7d.toFixed(1)} <span style="font-size: 14px; font-weight: normal;">hrs (7d)</span></div>
-                <div style="font-size: 14px; color: var(--hint-color); margin-top: 5px;">30d avg: ${data.average_sleep_hours_30d.toFixed(1)} hrs</div>
-            </div>
-        </div>
-        <p style="font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 20px;">
-            This data is gathered from your synced .nxk backups.
-        </p>
-    `;
-
-    if (data.sleep_stats_7d && data.sleep_stats_7d.length > 0) {
-        content.innerHTML += `
-            <div style="margin-top: 25px; padding: 10px 0;">
-                <h3 style="margin-bottom: 15px;">Sleep</h3>
-                <div id="sleepChartContainer" style="height: 250px; width: 100%;"></div>
-            </div>
-        `;
-        setTimeout(() => renderSleepChart(data.sleep_stats_7d), 0);
-    }
-
-    // Vitals Charts
-    const renderVitalGroup = (id, title, history, color, min, max) => {
+    // Render charts sections
+    const renderVitalGroup = (id, title, history, color, min, max, stat7d, stat30d, unit) => {
         if (history && history.length > 0) {
             content.innerHTML += `
                 <div style="margin-top: 25px; padding: 10px 0;">
-                    <h3 style="margin-bottom: 15px;">${title}</h3>
+                    <h3 style="margin-bottom: 5px;">${title}</h3>
                     <div id="${id}ChartContainer" style="height: 200px; width: 100%;"></div>
+                    <div style="font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 5px;">
+                        ${stat7d} ${unit} (7d avg) | ${stat30d} ${unit} (30d avg)
+                    </div>
                 </div>
             `;
             setTimeout(() => renderVitalsLineChart(id + 'ChartContainer', history, color, min, max), 0);
         }
     };
 
-    renderVitalGroup('heartRate', 'Heart Rate', data.heart_rate_history_7d, '#ff3b30', 40, 160);
-    renderVitalGroup('spo2', 'SpO2', data.spo2_history_7d, '#32ade6', 85, 100);
-    renderVitalGroup('stress', 'Stress Level', data.stress_history_7d, '#ff9500', 0, 100);
+    if (data.sleep_stats_7d && data.sleep_stats_7d.length > 0) {
+        content.innerHTML += `
+            <div style="margin-top: 25px; padding: 10px 0;">
+                <h3 style="margin-bottom: 5px;">Sleep</h3>
+                <div id="sleepChartContainer" style="height: 250px; width: 100%;"></div>
+                <div style="font-size: 11px; display: flex; justify-content: center; gap: 10px; margin-top: 5px; color: var(--hint-color);">
+                    <div style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:10px; height:10px; background:#5a2d9c; border-radius:2px;"></span>Deep</div>
+                    <div style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:10px; height:10px; background:#2481cc; border-radius:2px;"></span>Light</div>
+                    <div style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:10px; height:10px; background:#c161d9; border-radius:2px;"></span>REM</div>
+                    <div style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:10px; height:10px; background:#e5b220; border-radius:2px;"></span>Awake</div>
+                    <div style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:10px; height:2px; background:#ff3b30;"></span>HR</div>
+                </div>
+                <div style="font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 10px;">
+                    ${data.average_sleep_hours_7d.toFixed(1)} hrs (7d avg) | ${data.average_sleep_hours_30d.toFixed(1)} hrs (30d avg)
+                </div>
+            </div>
+        `;
+        setTimeout(() => renderSleepChart(data.sleep_stats_7d), 0);
+    }
+
+    renderVitalGroup('heartRate', 'Heart Rate', data.heart_rate_history_7d, '#ff3b30', 40, 160, data.average_heart_rate_7d, data.average_heart_rate_30d, 'bpm');
+    renderVitalGroup('spo2', 'SpO2', data.spo2_history_7d, '#32ade6', 85, 100, data.average_spo2_7d, data.average_spo2_30d, '%');
+    renderVitalGroup('stress', 'Stress Level', data.stress_history_7d, '#ff9500', 0, 100, data.average_stress_7d, data.average_stress_30d, '/ 100');
+
+    content.innerHTML += `
+        <p style="font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 30px;">
+            This data is gathered from your synced .nxk backups.
+        </p>
+    `;
 
     content.classList.remove('hidden');
 }
