@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"
@@ -36,6 +37,8 @@ type Server struct {
 	webPush         *webpush.Service
 	foodSearchTTL   time.Duration
 	foodSearchCache *fastcache.Cache
+	changeStreamSem chan struct{}
+	changePruning   atomic.Bool
 }
 
 type VAPIDConfig struct {
@@ -168,6 +171,7 @@ func parseIntEnv(key string, defaultValue int) int {
 
 func New(s *store.Store, b *bot.Bot, botToken, sessionSecret string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidConfig VAPIDConfig) *Server {
 	foodSearchCacheSizeMB := parseIntEnv("FOOD_SEARCH_CACHE_MB", 40)
+	changeStreamMaxConn := parseIntEnv("CHANGES_STREAM_MAX_CONN", 40)
 
 	srv := &Server{
 		store:           s,
@@ -180,6 +184,7 @@ func New(s *store.Store, b *bot.Bot, botToken, sessionSecret string, allowedUser
 		vapidConfig:     vapidConfig,
 		foodSearchTTL:   30 * time.Minute,
 		foodSearchCache: fastcache.New(foodSearchCacheSizeMB * 1024 * 1024),
+		changeStreamSem: make(chan struct{}, changeStreamMaxConn),
 	}
 
 	if vapidConfig.PublicKey != "" && vapidConfig.PrivateKey != "" {
@@ -338,6 +343,9 @@ func (s *Server) Routes() http.Handler {
 
 	// Init endpoint (returns all data needed for first render)
 	apiMux.HandleFunc("GET /api/init", s.handleInit)
+	apiMux.HandleFunc("GET /api/bootstrap", s.handleBootstrap)
+	apiMux.HandleFunc("GET /api/changes", s.handleChanges)
+	apiMux.HandleFunc("GET /api/changes/stream", s.handleChangesStream)
 
 	// Settings endpoints
 	apiMux.HandleFunc("GET /api/food/settings/status", s.handleGetFoodIntakeEnabled)

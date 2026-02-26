@@ -12,6 +12,7 @@ const STATIC_ASSETS = [
     '/static/js/workout.js',
     '/static/js/db.js',
     '/static/js/sync.js',
+    '/static/js/data-store.js',
     '/static/js/push.js',
     '/static/icons/icon-192.png',
     '/static/icons/icon-512.png',
