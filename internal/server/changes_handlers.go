@@ -4,14 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
 )
 
 const (
-	changeEventsKeepLast = 20000
-	changeEventsMaxAge   = 14 // days
+	changeEventsKeepLast      = 20000
+	changeEventsMaxAge        = 14 // days
+	changeStreamPollInterval  = 5 * time.Second
+	changeStreamQueryTimeout  = 2 * time.Second
+	changeStreamMaxSessionAge = 10 * time.Minute
 )
 
 func (s *Server) currentChangeCursor() uint64 {
@@ -29,9 +33,31 @@ func (s *Server) maybePruneChangeEvents(cursor int64) {
 	if cursor <= 0 || cursor%500 != 0 {
 		return
 	}
+	if !s.changePruning.CompareAndSwap(false, true) {
+		return
+	}
 	go func() {
-		_ = s.store.PruneChangeEvents(context.Background(), changeEventsKeepLast, changeEventsMaxAge)
+		defer s.changePruning.Store(false)
+		if err := s.store.PruneChangeEvents(context.Background(), changeEventsKeepLast, changeEventsMaxAge); err != nil {
+			log.Printf("[changes] prune failed: %v", err)
+		}
 	}()
+}
+
+func (s *Server) tryAcquireChangeStreamSlot() bool {
+	select {
+	case s.changeStreamSem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) releaseChangeStreamSlot() {
+	select {
+	case <-s.changeStreamSem:
+	default:
+	}
 }
 
 // handleChanges returns changed resource tags since a client cursor.
@@ -70,6 +96,13 @@ func writeSSE(w http.ResponseWriter, payload map[string]any) error {
 
 // handleChangesStream provides server-sent events with cursor/tag updates.
 func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
+	if !s.tryAcquireChangeStreamSlot() {
+		w.Header().Set("Retry-After", "10")
+		http.Error(w, "Too many change-stream clients", http.StatusTooManyRequests)
+		return
+	}
+	defer s.releaseChangeStreamSlot()
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
@@ -87,8 +120,12 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+	_, _ = fmt.Fprint(w, "retry: 5000\n\n")
+	flusher.Flush()
 
-	cursor, tags, err := s.store.GetChangedTagsSince(r.Context(), since)
+	queryCtx, cancel := context.WithTimeout(r.Context(), changeStreamQueryTimeout)
+	cursor, tags, err := s.store.GetChangedTagsSince(queryCtx, since)
+	cancel()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -103,15 +140,21 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 	since = cursor
 
-	ticker := time.NewTicker(3 * time.Second)
+	ticker := time.NewTicker(changeStreamPollInterval)
 	defer ticker.Stop()
+	maxAgeTimer := time.NewTimer(changeStreamMaxSessionAge)
+	defer maxAgeTimer.Stop()
 
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-maxAgeTimer.C:
+			return
 		case <-ticker.C:
-			cursor, tags, err := s.store.GetChangedTagsSince(r.Context(), since)
+			queryCtx, cancel := context.WithTimeout(r.Context(), changeStreamQueryTimeout)
+			cursor, tags, err := s.store.GetChangedTagsSince(queryCtx, since)
+			cancel()
 			if err != nil {
 				return
 			}

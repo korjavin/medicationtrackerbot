@@ -166,6 +166,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	now := time.Now()
 	userID := tgUser.ID
+	bootstrapCursor := s.currentChangeCursor()
 
 	features, err := s.getFeatureMap(ctx)
 	if err != nil {
@@ -256,7 +257,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := map[string]any{
-		"cursor":          s.currentChangeCursor(),
+		"cursor":          bootstrapCursor,
 		"features":        features,
 		"medications":     medications,
 		"history_default": historyDefault,

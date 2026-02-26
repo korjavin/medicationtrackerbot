@@ -1282,6 +1282,38 @@ svg.chart-svg {
     color: white;
 }
 
+.data-refresh-banner {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: 90px;
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid #fcd34d;
+    background: #fef3c7;
+    color: #92400e;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.data-refresh-banner.hidden {
+    display: none;
+}
+
+.data-refresh-banner button {
+    border: none;
+    border-radius: 999px;
+    background: #b45309;
+    color: #fff;
+    font-weight: 600;
+    padding: 6px 14px;
+    cursor: pointer;
+}
+
 /* Dark mode adjustments */
 @media (prefers-color-scheme: dark) {
     .sync-status-bar.offline {
@@ -1305,6 +1337,16 @@ svg.chart-svg {
     .sync-pending-badge {
         background: #78350f;
         color: #fde68a;
+    }
+
+    .data-refresh-banner {
+        background: #451a03;
+        color: #fde68a;
+        border-color: #92400e;
+    }
+
+    .data-refresh-banner button {
+        background: #d97706;
     }
 }
 

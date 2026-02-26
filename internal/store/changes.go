@@ -53,14 +53,15 @@ func (s *Store) PruneChangeEvents(ctx context.Context, keepLast, maxAgeDays int)
 	if keepLast > 0 {
 		if _, err := s.db.ExecContext(ctx, `
 			DELETE FROM change_events
-			WHERE id <= (
-				SELECT CASE
-					WHEN MAX(id) - ? > 0 THEN MAX(id) - ?
-					ELSE 0
-				END
-				FROM change_events
-			)
-		`, keepLast, keepLast); err != nil {
+			WHERE id < COALESCE((
+				SELECT MIN(id) FROM (
+					SELECT id
+					FROM change_events
+					ORDER BY id DESC
+					LIMIT ?
+				)
+			), 0)
+		`, keepLast); err != nil {
 			return err
 		}
 	}

@@ -11,6 +11,8 @@
     const CACHE_PRUNE_AT_KEY = 'medtracker_cache_pruned_at';
     const CHANGE_POLL_INTERVAL_MS = 30000;
     const CHANGE_STREAM_RETRY_MS = 5000;
+    const CHANGE_STREAM_MAX_RETRY_MS = 30000;
+    const CHANGE_STREAM_AUTH_PROBE_ERRORS = 3;
     const CACHE_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
     const CACHE_MAX_AGE_DEFAULT_MS = 14 * 24 * 60 * 60 * 1000;
     const CACHE_MAX_AGE_HISTORY_MS = 7 * 24 * 60 * 60 * 1000;
@@ -19,6 +21,10 @@
     let changePollInFlight = false;
     let changeStream = null;
     let changeStreamRetryTimer = null;
+    let changeStreamErrorCount = 0;
+    let changeStreamRetryDelayMs = CHANGE_STREAM_RETRY_MS;
+    let changeAuthProbeInFlight = false;
+    let changeUnauthorized = false;
 
     const hasValue = (value) => value !== null && value !== undefined;
 
@@ -145,21 +151,44 @@
             const changedTags = Array.isArray(res.changed_tags) ? res.changed_tags : [];
             if (changedTags.length > 0) {
                 await this.invalidateTags(changedTags);
-                if (window.reloadCurrentTab) {
-                    const activeTab = document.querySelector('.tab.active')?.dataset?.tab;
-                    if (activeTab === 'settings' && typeof window.loadSettings === 'function') {
-                        window.loadSettings();
-                    } else if (activeTab === 'food' && typeof window.loadFoodLogs === 'function') {
-                        window.loadFoodLogs();
-                    } else if (activeTab === 'health' && typeof window.loadHealthOverview === 'function') {
-                        window.loadHealthOverview();
-                    } else {
-                        window.reloadCurrentTab();
-                    }
-                }
+                this.requestTabRefresh(changedTags);
             }
 
             this.setChangeCursor(res.cursor);
+        },
+
+        requestTabRefresh(changedTags = []) {
+            if (typeof window.requestTabRefresh === 'function') {
+                window.requestTabRefresh({ changedTags, source: 'changes' });
+                return;
+            }
+            if (window.reloadCurrentTab) {
+                window.reloadCurrentTab();
+            }
+        },
+
+        handleUnauthorized() {
+            if (changeUnauthorized) return;
+            changeUnauthorized = true;
+            this.stopChangePolling();
+            if (typeof window.onDataStoreUnauthorized === 'function') {
+                window.onDataStoreUnauthorized();
+            }
+        },
+
+        async verifyAuthSession() {
+            if (changeAuthProbeInFlight || !window.apiCallDirect) return;
+            changeAuthProbeInFlight = true;
+            try {
+                const since = this.getChangeCursor();
+                await window.apiCallDirect(`/api/changes?since=${since}`, 'GET');
+            } catch (e) {
+                if (e?.message === 'Unauthorized') {
+                    this.handleUnauthorized();
+                }
+            } finally {
+                changeAuthProbeInFlight = false;
+            }
         },
 
         getCacheMaxAgeMsByKey(key) {
@@ -204,7 +233,11 @@
                 const res = await window.apiCallDirect(`/api/changes?since=${since}`, 'GET');
                 await this.applyChangesPayload(res);
             } catch (e) {
-                // Ignore transient polling errors (offline / auth race).
+                if (e?.message === 'Unauthorized') {
+                    this.handleUnauthorized();
+                    return;
+                }
+                // Ignore transient polling errors (offline / network race).
             } finally {
                 changePollInFlight = false;
             }
@@ -244,6 +277,8 @@
                 changeStream = source;
 
                 source.onopen = () => {
+                    changeStreamErrorCount = 0;
+                    changeStreamRetryDelayMs = CHANGE_STREAM_RETRY_MS;
                     this.stopChangePollInterval();
                 };
 
@@ -262,14 +297,19 @@
                         changeStream.close();
                         changeStream = null;
                     }
+                    changeStreamErrorCount += 1;
                     this.startChangePollInterval();
+                    if (changeStreamErrorCount >= CHANGE_STREAM_AUTH_PROBE_ERRORS) {
+                        this.verifyAuthSession();
+                    }
                     if (!changeStreamRetryTimer) {
                         changeStreamRetryTimer = setTimeout(() => {
                             changeStreamRetryTimer = null;
                             if (this.startChangeStream()) {
                                 this.stopChangePollInterval();
                             }
-                        }, CHANGE_STREAM_RETRY_MS);
+                        }, changeStreamRetryDelayMs);
+                        changeStreamRetryDelayMs = Math.min(changeStreamRetryDelayMs * 2, CHANGE_STREAM_MAX_RETRY_MS);
                     }
                 };
 
@@ -284,6 +324,7 @@
         },
 
         startChangePolling() {
+            if (changeUnauthorized) return;
             if (changeStream || changePollTimer) return;
             this.pruneStaleClientCache();
 
@@ -302,6 +343,8 @@
                 clearTimeout(changeStreamRetryTimer);
                 changeStreamRetryTimer = null;
             }
+            changeStreamErrorCount = 0;
+            changeStreamRetryDelayMs = CHANGE_STREAM_RETRY_MS;
         }
     };
 
