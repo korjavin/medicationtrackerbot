@@ -20,6 +20,7 @@ function safeAlert(msg) {
 // Config
 // Config
 const userInitData = tg.initData;
+window.userInitData = userInitData;
 let initialAuthLoad = false;
 
 // Auth state cache configuration (matches server cookie TTL: 30 days)
@@ -67,6 +68,253 @@ function clearAuthState() {
     console.log('[Auth] Cleared auth state cache');
 }
 
+function ensureDataStoreAvailable() {
+    if (window.DataStore) return;
+
+    const inFlight = new Map();
+    const keyToTags = new Map();
+    const tagToKeys = new Map();
+    const CHANGE_CURSOR_KEY = 'medtracker_changes_cursor';
+
+    const registerKeyTags = (key, tags = []) => {
+        if (!key) return;
+
+        const previousTags = keyToTags.get(key) || [];
+        previousTags.forEach((tag) => {
+            const keys = tagToKeys.get(tag);
+            if (!keys) return;
+            keys.delete(key);
+            if (keys.size === 0) tagToKeys.delete(tag);
+        });
+
+        const normalized = [...new Set(tags.filter(Boolean))];
+        keyToTags.set(key, normalized);
+        normalized.forEach((tag) => {
+            if (!tagToKeys.has(tag)) tagToKeys.set(tag, new Set());
+            tagToKeys.get(tag).add(key);
+        });
+    };
+
+    window.DataStore = {
+        async getCached(key) {
+            if (!window.MedTrackerDB?.ApiCache) return null;
+            return await window.MedTrackerDB.ApiCache.get(key);
+        },
+
+        async setCached(key, data) {
+            if (!window.MedTrackerDB?.ApiCache) return;
+            await window.MedTrackerDB.ApiCache.set(key, data);
+        },
+
+        async clearCached(key) {
+            if (!window.MedTrackerDB?.ApiCache) return;
+            await window.MedTrackerDB.ApiCache.clear(key);
+        },
+
+        async fetchFresh(key, fetcher, tags = []) {
+            registerKeyTags(key, tags);
+            if (inFlight.has(key)) return await inFlight.get(key);
+
+            const request = (async () => {
+                const fresh = await fetcher();
+                if (fresh !== null && fresh !== undefined) {
+                    await this.setCached(key, fresh);
+                }
+                return fresh;
+            })().finally(() => {
+                inFlight.delete(key);
+            });
+            inFlight.set(key, request);
+            return await request;
+        },
+
+        async loadSWR(options) {
+            const {
+                key,
+                tags = [],
+                fetcher,
+                onCached,
+                onFresh,
+                onError,
+                allowNullFresh = false
+            } = options;
+
+            registerKeyTags(key, tags);
+            const cached = await this.getCached(key);
+            if (cached !== null && cached !== undefined && onCached) {
+                await onCached(cached);
+            }
+
+            try {
+                const fresh = await this.fetchFresh(key, fetcher, tags);
+                if ((allowNullFresh || (fresh !== null && fresh !== undefined)) && onFresh) {
+                    await onFresh(fresh, cached);
+                }
+                return { cached, fresh };
+            } catch (error) {
+                if (onError) {
+                    await onError(error, cached);
+                } else {
+                    throw error;
+                }
+                return { cached, fresh: null, error };
+            }
+        },
+
+        async invalidateByTag(tag) {
+            const keys = tagToKeys.get(tag);
+            if (!keys || keys.size === 0) return;
+            await Promise.all([...keys].map((key) => this.clearCached(key)));
+        },
+
+        async invalidateTags(tags = []) {
+            for (const tag of tags) {
+                await this.invalidateByTag(tag);
+            }
+        },
+
+        async invalidateKey(key) {
+            await this.clearCached(key);
+        },
+
+        getChangeCursor() {
+            const raw = localStorage.getItem(CHANGE_CURSOR_KEY);
+            const parsed = raw ? parseInt(raw, 10) : 0;
+            return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+        },
+
+        setChangeCursor(cursor) {
+            const parsed = Number(cursor);
+            if (!Number.isFinite(parsed) || parsed < 0) return;
+            localStorage.setItem(CHANGE_CURSOR_KEY, String(Math.floor(parsed)));
+        },
+
+        requestTabRefresh(changedTags = []) {
+            if (typeof window.requestTabRefresh === 'function') {
+                window.requestTabRefresh({ changedTags, source: 'changes' });
+            } else if (window.reloadCurrentTab) {
+                window.reloadCurrentTab();
+            }
+        },
+
+        async applyChangesPayload(res) {
+            if (!res || typeof res.cursor !== 'number') return;
+            const changedTags = Array.isArray(res.changed_tags) ? res.changed_tags : [];
+            if (changedTags.length > 0) {
+                await this.invalidateTags(changedTags);
+                this.requestTabRefresh(changedTags);
+            }
+            this.setChangeCursor(res.cursor);
+        },
+
+        startChangePolling() {},
+        stopChangePolling() {}
+    };
+}
+
+ensureDataStoreAvailable();
+
+window.onDataStoreUnauthorized = function () {
+    if (sessionStorage.getItem('medtracker_auth_reload_in_progress') === '1') {
+        return;
+    }
+    sessionStorage.setItem('medtracker_auth_reload_in_progress', '1');
+    clearAuthState();
+    if (window.SyncDebug) {
+        window.SyncDebug.warn('Auth expired during changes sync');
+    }
+    window.location.reload();
+};
+
+async function cacheApiSnapshot(key, value) {
+    await window.DataStore.setCached(key, value);
+}
+
+function normalizeSettingsBundle(raw) {
+    const foodTargetsRaw = raw?.foodTargets || raw?.food_targets || raw?.settings?.food_targets || {};
+    const bpReminderRaw = raw?.bpReminderStatus || raw?.bp_reminder_status || raw?.settings?.bp_reminder_status || {};
+    const weightReminderRaw = raw?.weightReminderStatus || raw?.weight_reminder_status || raw?.settings?.weight_reminder_status || {};
+
+    return {
+        featureSettings: raw?.featureSettings || raw?.features || {},
+        foodTargets: {
+            calories: Number(foodTargetsRaw.calories) || 0,
+            carbs: Number(foodTargetsRaw.carbs) || 0,
+            protein: Number(foodTargetsRaw.protein) || 0,
+            fat: Number(foodTargetsRaw.fat) || 0
+        },
+        bpReminderStatus: {
+            ...bpReminderRaw,
+            enabled: !!bpReminderRaw.enabled
+        },
+        weightReminderStatus: {
+            ...weightReminderRaw,
+            enabled: !!weightReminderRaw.enabled
+        }
+    };
+}
+
+// Apply bootstrap payload and warm caches so first tab render can use local data.
+async function applyBootstrapPayload(res) {
+    if (!res) return false;
+
+    if (typeof res.cursor === 'number') {
+        window.DataStore.setChangeCursor(res.cursor);
+    }
+
+    if (res.features) {
+        featureSettings = { ...featureSettings, ...res.features };
+        featureSettingsLoaded = true;
+        updateFeatureTabVisibility();
+    }
+
+    if (Array.isArray(res.medications)) {
+        medications = res.medications;
+        initialAuthLoad = true;
+        if (window.MedTrackerDB?.MedicationStore) {
+            await window.MedTrackerDB.MedicationStore.saveCache(medications);
+        }
+        await cacheApiSnapshot('medications', medications);
+    }
+
+    if (Array.isArray(res.history_default)) {
+        await cacheApiSnapshot('history_3_0', res.history_default);
+        if (window.MedTrackerDB?.IntakeHistoryStore) {
+            await window.MedTrackerDB.IntakeHistoryStore.saveCache('history_3_0', res.history_default);
+        }
+    }
+
+    if (res.next_intake) {
+        await cacheApiSnapshot('next_intake', res.next_intake);
+    }
+
+    if (res.bp) {
+        await cacheApiSnapshot('bp', {
+            readingsRes: res.bp.readings || [],
+            goalRes: res.bp.goal || {},
+            statsRes: res.bp.stats || {}
+        });
+    }
+
+    if (res.weight) {
+        await cacheApiSnapshot('weight', {
+            logsRes: res.weight.logs || [],
+            goalRes: res.weight.goal || {}
+        });
+    }
+
+    const settingsBundle = normalizeSettingsBundle({
+        features: res.features || {},
+        settings: res.settings || {},
+        food_targets: res.settings?.food_targets,
+        bp_reminder_status: res.settings?.bp_reminder_status,
+        weight_reminder_status: res.settings?.weight_reminder_status
+    });
+    await cacheApiSnapshot('settings_bundle', settingsBundle);
+
+    return true;
+}
+
 // Load init data (feature settings) needed before first render.
 // Falls back gracefully so auth flow is not blocked on failure.
 async function loadInitData() {
@@ -86,8 +334,14 @@ async function loadInitData() {
 async function checkAuth() {
     if (userInitData) {
         // We are in Telegram, proceed as normal
+        sessionStorage.removeItem('medtracker_auth_reload_in_progress');
         saveAuthState('telegram');
-        await loadInitData();
+        const bootstrap = await apiCall('/api/bootstrap', 'GET');
+        if (bootstrap) {
+            await applyBootstrapPayload(bootstrap);
+        } else {
+            await loadInitData();
+        }
         return true;
     }
 
@@ -97,23 +351,13 @@ async function checkAuth() {
     // Try to access API to see if we have valid Session Cookie
     let serverUnavailable = false;
     try {
-        // Optimization: Fetch full data here to avoid second request
-        const res = await fetch('/api/medications?archived=true', { method: 'GET' });
+        const res = await fetch('/api/bootstrap', { method: 'GET' });
         if (res.status === 200) {
             // Authorized via Cookie!
             const data = await res.json();
-            medications = data;
-            initialAuthLoad = true;
+            await applyBootstrapPayload(data);
+            sessionStorage.removeItem('medtracker_auth_reload_in_progress');
             saveAuthState('cookie');
-
-            // Cache medications for offline use
-            if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
-                await window.MedTrackerDB.MedicationStore.saveCache(medications);
-            }
-
-            // Load feature flags/settings before returning so tabs are
-            // correctly shown/hidden when switchTab() is called.
-            await loadInitData();
 
             return true;
         } else if (res.status === 401 || res.status === 403) {
@@ -132,6 +376,7 @@ async function checkAuth() {
     // Server unavailable or network error — use cached auth if available
     if (serverUnavailable && cachedAuth && cachedAuth.authenticated) {
         console.log('[Auth] Server unavailable, using cached auth state');
+        sessionStorage.removeItem('medtracker_auth_reload_in_progress');
 
         // Load medications from cache for offline use
         if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
@@ -292,6 +537,9 @@ function initOIDCSetupBanner() {
 // Initial Load
 checkAuth().then(authorized => {
     if (authorized) {
+        window.DataStore.startChangePolling();
+        window.addEventListener('beforeunload', () => window.DataStore.stopChangePolling(), { once: true });
+
         // Initialize SyncManager for offline support
         if (window.SyncManager) {
             window.SyncManager.init();
@@ -408,6 +656,7 @@ document.getElementById('bp-reminders-toggle').addEventListener('change', async 
     const enabled = this.checked;
     try {
         const response = await apiCall('/api/bp/reminder/toggle', 'POST', { enabled });
+        await window.DataStore.invalidateTags(['settings']);
         console.log('BP reminders toggled:', enabled);
     } catch (error) {
         console.error('Failed to toggle BP reminders:', error);
@@ -450,6 +699,7 @@ document.getElementById('weight-reminders-toggle').addEventListener('change', as
     const enabled = this.checked;
     try {
         const response = await apiCall('/api/weight/reminder/toggle', 'POST', { enabled });
+        await window.DataStore.invalidateTags(['settings']);
         console.log('Weight reminders toggled:', enabled);
     } catch (error) {
         console.error('Failed to toggle weight reminders:', error);
@@ -1568,7 +1818,7 @@ async function loadFoodLogs() {
 
     // Show cached data immediately (stale-while-revalidate)
     const cacheKey = `food_${dateStr}_${period}`;
-    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get(cacheKey);
+    const cached = await window.DataStore.getCached(cacheKey);
     if (cached) {
         _renderFoodData(cached.groups, cached.weekStats, period, dateStr);
     } else {
@@ -1586,9 +1836,7 @@ async function loadFoodLogs() {
             weekStats = await apiCall(`/api/food/stats?date=${dateStr}&days=${daysCount}`, 'GET');
         }
 
-        if (window.MedTrackerDB?.ApiCache) {
-            await window.MedTrackerDB.ApiCache.set(cacheKey, { groups: groups || [], weekStats });
-        }
+        await window.DataStore.setCached(cacheKey, { groups: groups || [], weekStats });
 
         _renderFoodData(groups || [], weekStats, period, dateStr);
     } catch (e) {
@@ -1717,7 +1965,7 @@ function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = '
 
 async function loadFoodTargets() {
     // Show cached targets immediately so food rendering isn't blocked on network
-    const cachedTargets = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('food_targets');
+    const cachedTargets = await window.DataStore.getCached('food_targets');
     if (cachedTargets) {
         foodTargets = cachedTargets;
     }
@@ -1731,9 +1979,7 @@ async function loadFoodTargets() {
             fat: targets?.fat || 0
         };
 
-        if (window.MedTrackerDB?.ApiCache) {
-            await window.MedTrackerDB.ApiCache.set('food_targets', foodTargets);
-        }
+        await window.DataStore.setCached('food_targets', foodTargets);
 
         const calsInput = document.getElementById('food-target-calories');
         const carbsInput = document.getElementById('food-target-carbs');
@@ -1759,6 +2005,7 @@ async function saveFoodTargets() {
     try {
         await apiCall('/api/food/settings/targets', 'POST', payload);
         foodTargets = payload;
+        await window.DataStore.invalidateTags(['settings', 'food_targets']);
         safeAlert('Food targets saved');
         if (document.querySelector('.tab.active')?.dataset.tab === 'food') {
             loadFoodLogs();
@@ -1794,18 +2041,58 @@ function switchMedTab(tab) {
 
 // Load settings (BP reminders status, etc.)
 async function loadSettings() {
+    const applyBundle = async (rawBundle) => {
+        const bundle = normalizeSettingsBundle(rawBundle);
+        featureSettings = { ...featureSettings, ...bundle.featureSettings };
+        featureSettingsLoaded = true;
+        updateFeatureToggles();
+        updateFeatureTabVisibility();
+
+        foodTargets = { ...bundle.foodTargets };
+        const calsInput = document.getElementById('food-target-calories');
+        const carbsInput = document.getElementById('food-target-carbs');
+        const protInput = document.getElementById('food-target-protein');
+        const fatInput = document.getElementById('food-target-fat');
+        if (calsInput) calsInput.value = foodTargets.calories || '';
+        if (carbsInput) carbsInput.value = foodTargets.carbs || '';
+        if (protInput) protInput.value = foodTargets.protein || '';
+        if (fatInput) fatInput.value = foodTargets.fat || '';
+
+        document.getElementById('bp-reminders-toggle').checked = !!bundle.bpReminderStatus.enabled;
+        document.getElementById('weight-reminders-toggle').checked = !!bundle.weightReminderStatus.enabled;
+    };
+
+    const fetchBundle = async () => {
+        const [featureSettingsRes, foodTargetsRes, bpReminderStatus, weightReminderStatus] = await Promise.all([
+            apiCall('/api/settings/features', 'GET'),
+            apiCall('/api/food/settings/targets', 'GET'),
+            apiCall('/api/bp/reminder/status', 'GET'),
+            apiCall('/api/weight/reminder/status', 'GET')
+        ]);
+        return {
+            featureSettings: featureSettingsRes || {},
+            foodTargets: {
+                calories: foodTargetsRes?.calories || 0,
+                carbs: foodTargetsRes?.carbs || 0,
+                protein: foodTargetsRes?.protein || 0,
+                fat: foodTargetsRes?.fat || 0
+            },
+            bpReminderStatus: bpReminderStatus || { enabled: false },
+            weightReminderStatus: weightReminderStatus || { enabled: false }
+        };
+    };
+
     try {
-        await loadFeatureSettings();
-        await loadFoodTargets();
-
-        // Load BP reminder status
-        const bpReminderStatus = await apiCall('/api/bp/reminder/status', 'GET');
-        document.getElementById('bp-reminders-toggle').checked = bpReminderStatus.enabled;
-
-        // Load weight reminder status
-        const weightReminderStatus = await apiCall('/api/weight/reminder/status', 'GET');
-        document.getElementById('weight-reminders-toggle').checked = weightReminderStatus.enabled;
-
+        await window.DataStore.loadSWR({
+            key: 'settings_bundle',
+            tags: ['settings', 'food_targets', 'feature_settings'],
+            fetcher: fetchBundle,
+            onCached: applyBundle,
+            onFresh: applyBundle,
+            onError: async (error) => {
+                console.error('Failed to load settings:', error);
+            }
+        });
     } catch (error) {
         console.error('Failed to load settings:', error);
     }
@@ -1842,6 +2129,7 @@ async function toggleFeatureSetting(feature, enabled) {
     try {
         await apiCall(`/api/settings/features/${feature}`, 'POST', { enabled });
         featureSettings[feature] = enabled;
+        await window.DataStore.invalidateTags(['settings', 'feature_settings']);
         updateFeatureTabVisibility();
     } catch (e) {
         console.error(`Failed to toggle ${feature} feature:`, e);
@@ -1880,7 +2168,90 @@ function updateFeatureTabVisibility() {
     updateFoodTargetsVisibility();
 }
 
-// Reload current active tab data (called when coming back online)
+let pendingRefreshReason = null;
+let refreshDebounceTimer = null;
+
+function getRefreshBanner() {
+    let banner = document.getElementById('data-refresh-banner');
+    if (banner) return banner;
+
+    banner = document.createElement('div');
+    banner.id = 'data-refresh-banner';
+    banner.className = 'data-refresh-banner hidden';
+    banner.innerHTML = `
+        <span>New data is available.</span>
+        <button type="button" onclick="applyPendingTabRefresh()">Refresh</button>
+    `;
+    document.body.appendChild(banner);
+    return banner;
+}
+
+function showRefreshBanner() {
+    getRefreshBanner().classList.remove('hidden');
+}
+
+function hideRefreshBanner() {
+    const banner = document.getElementById('data-refresh-banner');
+    if (banner) banner.classList.add('hidden');
+}
+
+function isEditingNow() {
+    const activeElement = document.activeElement;
+    if (!activeElement) return false;
+
+    if (activeElement.isContentEditable) return true;
+    const tagName = activeElement.tagName;
+    return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
+}
+
+function hasOpenModal() {
+    const modalCandidates = document.querySelectorAll('[id$="-modal"]');
+    return Array.from(modalCandidates).some((el) => {
+        if (!el || el.classList.contains('hidden')) {
+            return false;
+        }
+        const style = window.getComputedStyle(el);
+        return style.display !== 'none' && style.visibility !== 'hidden';
+    });
+}
+
+function isSafeToAutoRefresh() {
+    return !document.hidden && !isEditingNow() && !hasOpenModal();
+}
+
+function applyPendingTabRefresh() {
+    pendingRefreshReason = null;
+    hideRefreshBanner();
+    reloadCurrentTab();
+}
+
+function requestTabRefresh(meta = {}) {
+    const source = meta?.source || 'changes';
+    if (!isSafeToAutoRefresh()) {
+        pendingRefreshReason = source;
+        showRefreshBanner();
+        return;
+    }
+
+    if (refreshDebounceTimer) {
+        clearTimeout(refreshDebounceTimer);
+    }
+    refreshDebounceTimer = setTimeout(() => {
+        refreshDebounceTimer = null;
+        reloadCurrentTab();
+    }, 500);
+}
+
+window.requestTabRefresh = requestTabRefresh;
+window.applyPendingTabRefresh = applyPendingTabRefresh;
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !pendingRefreshReason) return;
+    if (!isSafeToAutoRefresh()) return;
+    applyPendingTabRefresh();
+});
+
+// Reload current active tab data.
 function reloadCurrentTab() {
     const activeTab = document.querySelector('.tab.active');
     if (!activeTab) return;
@@ -2440,21 +2811,21 @@ async function loadMeds() {
     if (initialAuthLoad) {
         initialAuthLoad = false;
         // medications already set from auth; cache and render immediately
-        if (window.MedTrackerDB?.ApiCache) {
-            await window.MedTrackerDB.ApiCache.set('medications', medications);
-        }
+        await window.DataStore.setCached('medications', medications);
         if (window.MedTrackerDB?.MedicationStore) {
             await window.MedTrackerDB.MedicationStore.saveCache(medications);
         }
         renderMeds();
         populateMedFilter();
         // Refresh in background to ensure up-to-date data
-        const res = await apiCall('/api/medications?archived=true');
+        const res = await window.DataStore.fetchFresh(
+            'medications',
+            async () => await apiCall('/api/medications?archived=true'),
+            ['medications']
+        );
         if (res) {
             medications = res;
-            if (window.MedTrackerDB?.ApiCache) {
-                await window.MedTrackerDB.ApiCache.set('medications', medications);
-            }
+            await window.DataStore.setCached('medications', medications);
             if (window.MedTrackerDB?.MedicationStore) {
                 await window.MedTrackerDB.MedicationStore.saveCache(medications);
             }
@@ -2464,38 +2835,37 @@ async function loadMeds() {
         return;
     }
 
-    // Show cached data immediately (stale-while-revalidate)
-    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('medications');
-    if (cached) {
-        medications = cached;
-        renderMeds();
-        populateMedFilter();
-    }
-
-    // Always fetch fresh data
-    const res = await apiCall('/api/medications?archived=true');
-    if (res) {
-        medications = res;
-        if (window.MedTrackerDB?.ApiCache) {
-            await window.MedTrackerDB.ApiCache.set('medications', medications);
-        }
-        if (window.MedTrackerDB?.MedicationStore) {
-            await window.MedTrackerDB.MedicationStore.saveCache(medications);
-        }
-        renderMeds();
-        populateMedFilter();
-    } else if (!cached) {
-        // API failed and no ApiCache hit; fall back to offline cache
-        if (window.MedTrackerDB?.MedicationStore) {
-            const offlineCached = await window.MedTrackerDB.MedicationStore.getCache();
-            if (offlineCached) {
-                console.log('[Meds] Loaded from offline cache:', offlineCached.length);
-                medications = offlineCached;
-                renderMeds();
-                populateMedFilter();
+    await window.DataStore.loadSWR({
+        key: 'medications',
+        tags: ['medications'],
+        fetcher: async () => await apiCall('/api/medications?archived=true'),
+        onCached: async (cached) => {
+            medications = cached;
+            renderMeds();
+            populateMedFilter();
+        },
+        onFresh: async (fresh) => {
+            medications = fresh;
+            if (window.MedTrackerDB?.MedicationStore) {
+                await window.MedTrackerDB.MedicationStore.saveCache(medications);
+            }
+            renderMeds();
+            populateMedFilter();
+        },
+        onError: async (_err, cached) => {
+            if (cached) return;
+            // API failed and no ApiCache hit; fall back to offline cache
+            if (window.MedTrackerDB?.MedicationStore) {
+                const offlineCached = await window.MedTrackerDB.MedicationStore.getCache();
+                if (offlineCached) {
+                    console.log('[Meds] Loaded from offline cache:', offlineCached.length);
+                    medications = offlineCached;
+                    renderMeds();
+                    populateMedFilter();
+                }
             }
         }
-    }
+    });
 }
 
 function populateMedFilter() {
@@ -2584,6 +2954,9 @@ async function saveMedication() {
         tg.showAlert("⚠️ " + res.warning);
     }
 
+    await window.DataStore.invalidateTags(['medications', 'history']);
+    await window.DataStore.invalidateKey('next_intake');
+
     closeModal();
     loadMeds();
 }
@@ -2625,6 +2998,8 @@ async function _archiveMedApi(id) {
     if (res && res.warning) {
         tg.showAlert("⚠️ " + res.warning);
     }
+    await window.DataStore.invalidateTags(['medications', 'history']);
+    await window.DataStore.invalidateKey('next_intake');
     loadMeds();
 }
 
@@ -2637,25 +3012,23 @@ async function loadHistory() {
 
     const cacheKey = `history_${days}_${medId}`;
 
-    // Show cached data immediately (stale-while-revalidate)
-    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get(cacheKey);
-    if (cached) {
-        renderHistory(cached);
-    }
-
-    // Always fetch fresh data
-    const res = await apiCall(`/api/history?days=${days}&med_id=${medId}`);
-
-    // Cache for offline fallback (existing behavior)
-    if (res && window.MedTrackerDB?.IntakeHistoryStore) {
-        await window.MedTrackerDB.IntakeHistoryStore.saveCache(cacheKey, res);
-    }
-    // Cache for stale-while-revalidate
-    if (res && window.MedTrackerDB?.ApiCache) {
-        await window.MedTrackerDB.ApiCache.set(cacheKey, res);
-    }
-
-    renderHistory(res || []);
+    await window.DataStore.loadSWR({
+        key: cacheKey,
+        tags: ['history'],
+        fetcher: async () => await apiCall(`/api/history?days=${days}&med_id=${medId}`),
+        onCached: async (cached) => {
+            renderHistory(cached);
+        },
+        onFresh: async (fresh) => {
+            if (fresh && window.MedTrackerDB?.IntakeHistoryStore) {
+                await window.MedTrackerDB.IntakeHistoryStore.saveCache(cacheKey, fresh);
+            }
+            renderHistory(fresh || []);
+        },
+        onError: async (_err, cached) => {
+            if (!cached) renderHistory([]);
+        }
+    });
     renderNextIntakeTrigger();
 }
 
@@ -2664,8 +3037,11 @@ async function renderNextIntakeTrigger() {
     if (!container) return;
 
     try {
-        // Use backend to calculate next intake
-        const res = await apiCall('/api/medications/next-intake', 'GET');
+        const res = await window.DataStore.fetchFresh(
+            'next_intake',
+            async () => await apiCall('/api/medications/next-intake', 'GET'),
+            ['history', 'medications']
+        );
 
         if (!res || !res.scheduled_at) {
             container.innerHTML = '';
@@ -2705,6 +3081,8 @@ async function triggerNextIntake() {
         const res = await apiCall('/api/medications/trigger-next-intake', 'POST');
 
         if (res && res.status === 'confirmed') {
+            await window.DataStore.invalidateTags(['history', 'medications']);
+            await window.DataStore.invalidateKey('next_intake');
             const medNamesStr = res.medication_names ? res.medication_names.join(', ') : `${res.medication_count} medication(s)`;
             safeAlert(`✅ Confirmed: ${medNamesStr}\n\nScheduled for: ${formatDate(res.scheduled_at)}\nTaken at: ${formatDate(res.taken_at)}`);
 
@@ -2931,6 +3309,7 @@ async function handleBPSubmit(event) {
     const res = await apiCall('/api/bp', 'POST', payload);
 
     if (res) {
+        await window.DataStore.invalidateTags(['bp']);
         closeBPRecordModal();
         loadBPReadings();
     }
@@ -2939,37 +3318,31 @@ async function handleBPSubmit(event) {
 // Load BP readings from API (with offline support)
 async function loadBPReadings() {
     const list = document.getElementById('bp-list');
-
-    // Show cached data immediately (stale-while-revalidate)
-    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('bp');
-    if (cached) {
-        await _renderBPData(cached.readingsRes, cached.goalRes, cached.statsRes);
-    } else {
-        list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
-    }
-
-    // Always fetch fresh data in background
-    let readingsRes = null, goalRes = null, statsRes = null;
-    try {
-        [readingsRes, goalRes, statsRes] = await Promise.all([
-            apiCall('/api/bp?days=60'),
-            apiCall('/api/bp/goal'),
-            apiCall('/api/bp/stats')
-        ]);
-    } catch (e) {
-        console.error('Failed to load BP data:', e);
-        if (!cached) {
-            list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load readings</li>';
+    await window.DataStore.loadSWR({
+        key: 'bp',
+        tags: ['bp'],
+        fetcher: async () => {
+            const [readingsRes, goalRes, statsRes] = await Promise.all([
+                apiCall('/api/bp?days=60'),
+                apiCall('/api/bp/goal'),
+                apiCall('/api/bp/stats')
+            ]);
+            if (readingsRes === null) return null;
+            return { readingsRes, goalRes, statsRes };
+        },
+        onCached: async (cached) => {
+            await _renderBPData(cached.readingsRes, cached.goalRes, cached.statsRes);
+        },
+        onFresh: async (fresh) => {
+            await _renderBPData(fresh.readingsRes, fresh.goalRes, fresh.statsRes);
+        },
+        onError: async (e, cached) => {
+            console.error('Failed to load BP data:', e);
+            if (!cached) {
+                list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load readings</li>';
+            }
         }
-        return;
-    }
-
-    if (readingsRes !== null) {
-        if (window.MedTrackerDB?.ApiCache) {
-            await window.MedTrackerDB.ApiCache.set('bp', { readingsRes, goalRes, statsRes });
-        }
-        await _renderBPData(readingsRes, goalRes, statsRes);
-    }
+    });
 }
 
 async function _renderBPData(readingsRes, goalRes, statsRes) {
@@ -3383,6 +3756,7 @@ async function _deleteBPApi(id) {
 
     const res = await apiCall(`/api/bp/${id}`, 'DELETE');
     if (res) {
+        await window.DataStore.invalidateTags(['bp']);
         // Also remove from local IndexedDB if it exists there
         if (window.MedTrackerDB) {
             try {
@@ -3487,6 +3861,7 @@ async function handleWeightSubmit(event) {
     const res = await apiCall('/api/weight', 'POST', payload);
 
     if (res) {
+        await window.DataStore.invalidateTags(['weight']);
         closeWeightModal();
         loadWeightLogs();
     }
@@ -4074,36 +4449,30 @@ function renderWeightStats(stats) {
 
 async function loadWeightLogs() {
     const list = document.getElementById('weight-list');
-
-    // Show cached data immediately (stale-while-revalidate)
-    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('weight');
-    if (cached) {
-        await _renderWeightData(cached.logsRes, cached.goalRes);
-    } else {
-        list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Loading...</li>';
-    }
-
-    // Always fetch fresh data in background
-    let logsRes = null, goalRes = null;
-    try {
-        [logsRes, goalRes] = await Promise.all([
-            apiCall('/api/weight?days=35'),
-            apiCall('/api/weight/goal')
-        ]);
-    } catch (e) {
-        console.error('Failed to load weight data:', e);
-        if (!cached) {
-            list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load weight logs</li>';
+    await window.DataStore.loadSWR({
+        key: 'weight',
+        tags: ['weight'],
+        fetcher: async () => {
+            const [logsRes, goalRes] = await Promise.all([
+                apiCall('/api/weight?days=35'),
+                apiCall('/api/weight/goal')
+            ]);
+            if (logsRes === null) return null;
+            return { logsRes, goalRes };
+        },
+        onCached: async (cached) => {
+            await _renderWeightData(cached.logsRes, cached.goalRes);
+        },
+        onFresh: async (fresh) => {
+            await _renderWeightData(fresh.logsRes, fresh.goalRes);
+        },
+        onError: async (e, cached) => {
+            console.error('Failed to load weight data:', e);
+            if (!cached) {
+                list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load weight logs</li>';
+            }
         }
-        return;
-    }
-
-    if (logsRes !== null) {
-        if (window.MedTrackerDB?.ApiCache) {
-            await window.MedTrackerDB.ApiCache.set('weight', { logsRes, goalRes });
-        }
-        await _renderWeightData(logsRes, goalRes);
-    }
+    });
 }
 
 async function _renderWeightData(logsRes, goalRes) {
@@ -4207,6 +4576,7 @@ async function _deleteWeightApi(id) {
 
     const res = await apiCall(`/api/weight/${id}`, 'DELETE');
     if (res) {
+        await window.DataStore.invalidateTags(['weight']);
         // Also remove from local IndexedDB if it exists there
         if (window.MedTrackerDB) {
             try {
@@ -4696,7 +5066,11 @@ async function loadHealthOverview() {
     content.classList.add('hidden');
     content.innerHTML = '';
 
-    const data = await apiCall('/api/health/overview', 'GET');
+    const data = await window.DataStore.fetchFresh(
+        'health_overview',
+        async () => await apiCall('/api/health/overview', 'GET'),
+        ['health']
+    );
     loading.style.display = 'none';
 
     if (!data) {

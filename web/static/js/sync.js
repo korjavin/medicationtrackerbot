@@ -139,7 +139,10 @@ const SyncManager = {
         this.syncAll();
 
         // Reload current tab data to fetch from server
-        if (window.reloadCurrentTab) {
+        if (window.requestTabRefresh) {
+            SyncDebug.info('Scheduling soft tab refresh');
+            window.requestTabRefresh({ source: 'online' });
+        } else if (window.reloadCurrentTab) {
             SyncDebug.info('Reloading current tab data');
             window.reloadCurrentTab();
         }

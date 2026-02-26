@@ -38,26 +38,22 @@ function loadWorkouts() {
 
 async function loadNextWorkout() {
     const container = document.getElementById('next-workout-card');
-
-    // Show cached data immediately (stale-while-revalidate)
-    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('workout_next');
-    if (cached) {
-        _renderNextWorkout(container, cached);
-    }
-
-    // Always fetch fresh data
-    try {
-        const data = await apiCall('/api/workout/sessions/next');
-
-        if (window.MedTrackerDB?.ApiCache) {
-            await window.MedTrackerDB.ApiCache.set('workout_next', data);
-        }
-
-        _renderNextWorkout(container, data);
-    } catch (error) {
-        console.error('Error loading next workout:', error);
-        if (!cached) container.innerHTML = '';
-    }
+    await window.DataStore.loadSWR({
+        key: 'workout_next',
+        tags: ['workout'],
+        fetcher: async () => await apiCall('/api/workout/sessions/next'),
+        onCached: async (cached) => {
+            _renderNextWorkout(container, cached);
+        },
+        onFresh: async (fresh) => {
+            _renderNextWorkout(container, fresh);
+        },
+        onError: async (error, cached) => {
+            console.error('Error loading next workout:', error);
+            if (!cached) container.innerHTML = '';
+        },
+        allowNullFresh: true
+    });
 }
 
 function _renderNextWorkout(container, data) {
@@ -180,31 +176,25 @@ async function nextWorkoutVariant(sessionId) {
 
 async function loadWorkoutGroups() {
     const container = document.getElementById('workout-groups-list');
-
-    // Show cached data immediately (stale-while-revalidate)
-    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('workout_groups');
-    if (cached) {
-        _renderWorkoutGroups(container, cached);
-    }
-
-    // Always fetch fresh data
-    try {
-        const groups = await apiCall('/api/workout/groups');
-        workoutGroups = groups || [];
-
-        // Cache for offline fallback (existing behavior)
-        if (groups && window.MedTrackerDB?.WorkoutStore) {
-            await window.MedTrackerDB.WorkoutStore.saveCache('groups', groups);
+    await window.DataStore.loadSWR({
+        key: 'workout_groups',
+        tags: ['workout'],
+        fetcher: async () => await apiCall('/api/workout/groups'),
+        onCached: async (cached) => {
+            _renderWorkoutGroups(container, cached);
+        },
+        onFresh: async (groups) => {
+            workoutGroups = groups || [];
+            if (groups && window.MedTrackerDB?.WorkoutStore) {
+                await window.MedTrackerDB.WorkoutStore.saveCache('groups', groups);
+            }
+            _renderWorkoutGroups(container, groups);
+        },
+        onError: async (error, cached) => {
+            console.error('Error loading workout groups:', error);
+            if (!cached) container.innerHTML = '<p style="color: red;">Error loading workout groups</p>';
         }
-        if (window.MedTrackerDB?.ApiCache) {
-            await window.MedTrackerDB.ApiCache.set('workout_groups', groups);
-        }
-
-        _renderWorkoutGroups(container, groups);
-    } catch (error) {
-        console.error('Error loading workout groups:', error);
-        if (!cached) container.innerHTML = '<p style="color: red;">Error loading workout groups</p>';
-    }
+    });
 }
 
 function _renderWorkoutGroups(container, groups) {
@@ -705,30 +695,24 @@ async function deleteExercise(exerciseId, event) {
 
 async function loadWorkoutHistoryTab() {
     const container = document.getElementById('workout-history-display');
-
-    // Show cached data immediately (stale-while-revalidate)
-    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('workout_history');
-    if (cached) {
-        _renderWorkoutHistory(container, cached);
-    }
-
-    // Always fetch fresh data
-    try {
-        const response = await apiCall('/api/workout/sessions?limit=30');
-
-        // Cache for offline fallback (existing behavior)
-        if (response && window.MedTrackerDB?.WorkoutStore) {
-            await window.MedTrackerDB.WorkoutStore.saveCache('sessions', response);
+    await window.DataStore.loadSWR({
+        key: 'workout_history',
+        tags: ['workout'],
+        fetcher: async () => await apiCall('/api/workout/sessions?limit=30'),
+        onCached: async (cached) => {
+            _renderWorkoutHistory(container, cached);
+        },
+        onFresh: async (response) => {
+            if (response && window.MedTrackerDB?.WorkoutStore) {
+                await window.MedTrackerDB.WorkoutStore.saveCache('sessions', response);
+            }
+            _renderWorkoutHistory(container, response);
+        },
+        onError: async (error, cached) => {
+            console.error('Error loading history:', error);
+            if (!cached) container.innerHTML = '<p style="color: red;">Error loading history</p>';
         }
-        if (window.MedTrackerDB?.ApiCache) {
-            await window.MedTrackerDB.ApiCache.set('workout_history', response);
-        }
-
-        _renderWorkoutHistory(container, response);
-    } catch (error) {
-        console.error('Error loading history:', error);
-        if (!cached) container.innerHTML = '<p style="color: red;">Error loading history</p>';
-    }
+    });
 }
 
 function _renderWorkoutHistory(container, response) {
@@ -1071,26 +1055,21 @@ async function saveWorkoutSessionDetails() {
 
 async function loadWorkoutStatsTab() {
     const container = document.getElementById('workout-stats-display');
-
-    // Show cached data immediately (stale-while-revalidate)
-    const cached = window.MedTrackerDB?.ApiCache && await window.MedTrackerDB.ApiCache.get('workout_stats');
-    if (cached) {
-        _renderWorkoutStats(container, cached);
-    }
-
-    // Always fetch fresh data
-    try {
-        const stats = await apiCall('/api/workout/stats');
-
-        if (window.MedTrackerDB?.ApiCache) {
-            await window.MedTrackerDB.ApiCache.set('workout_stats', stats);
+    await window.DataStore.loadSWR({
+        key: 'workout_stats',
+        tags: ['workout'],
+        fetcher: async () => await apiCall('/api/workout/stats'),
+        onCached: async (cached) => {
+            _renderWorkoutStats(container, cached);
+        },
+        onFresh: async (stats) => {
+            _renderWorkoutStats(container, stats);
+        },
+        onError: async (error, cached) => {
+            console.error('Error loading stats:', error);
+            if (!cached) container.innerHTML = '<p style="color: red;">Error loading statistics</p>';
         }
-
-        _renderWorkoutStats(container, stats);
-    } catch (error) {
-        console.error('Error loading stats:', error);
-        if (!cached) container.innerHTML = '<p style="color: red;">Error loading statistics</p>';
-    }
+    });
 }
 
 function _renderWorkoutStats(container, stats) {
