@@ -253,6 +253,28 @@ func (s *Server) registerTools() {
 		s.handleGetFoodIntake,
 	)
 
+	// Step history Tool
+	mcp.AddTool(s.mcpServer,
+		&mcp.Tool{
+			Name:        "get_step_history",
+			Description: "Retrieve daily step counts, calories, and distance for a date range. Maximum 90 days per query.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"start_date": {
+						"type": "string",
+						"description": "Start date in YYYY-MM-DD format. Defaults to 90 days before end_date if omitted."
+					},
+					"end_date": {
+						"type": "string",
+						"description": "End date in YYYY-MM-DD format. Defaults to today if omitted."
+					}
+				}
+			}`),
+		},
+		s.handleGetStepHistory,
+	)
+
 	// Register Vitals & Health Overview Tools
 	registerVitalsTools(s.mcpServer, s)
 }

@@ -4741,6 +4741,19 @@ async function loadHealthOverview() {
         setTimeout(() => renderSleepChart(data.sleep_stats_7d), 0);
     }
 
+    if (data.step_stats_7d && data.step_stats_7d.length > 0) {
+        content.innerHTML += `
+            <div style="margin-top: 25px; padding: 10px 0;">
+                <h3 style="margin-bottom: 5px;">Steps</h3>
+                <div id="stepsChartContainer" style="height: 250px; width: 100%;"></div>
+                <div style="font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 10px;">
+                    ${data.average_steps_7d.toLocaleString()} steps (7d avg) | ${data.average_steps_30d.toLocaleString()} steps (30d avg)
+                </div>
+            </div>
+        `;
+        setTimeout(() => renderStepsChart(data.step_stats_7d), 0);
+    }
+
     renderVitalGroup('heartRate', 'Heart Rate', data.heart_rate_history_7d, '#ff3b30', 40, 160, data.average_heart_rate_7d, data.average_heart_rate_30d, 'bpm');
     renderVitalGroup('spo2', 'SpO2', data.spo2_history_7d, '#32ade6', 85, 100, data.average_spo2_7d, data.average_spo2_30d, '%');
     renderVitalGroup('stress', 'Stress Level', data.stress_history_7d, '#ff9500', 0, 100, data.average_stress_7d, data.average_stress_30d, '/ 100');
@@ -5073,6 +5086,102 @@ function renderSleepChart(stats) {
 
         svg.appendChild(bg);
         svg.appendChild(lbl);
+    });
+
+    container.appendChild(svg);
+}
+
+// Render bar chart for steps
+function renderStepsChart(stats) {
+    const container = document.getElementById('stepsChartContainer');
+    if (!container) return;
+
+    const totalWidth = container.clientWidth;
+    const leftPadding = 35;
+    const rightPadding = 20;
+    const topPadding = 20;
+    const bottomPadding = 30;
+
+    const chartWidth = totalWidth - leftPadding - rightPadding;
+    const chartHeight = container.clientHeight - topPadding - bottomPadding;
+
+    const maxSteps = Math.max(...stats.map(d => d.steps || 0), 1000);
+    // Add 10% headroom
+    const yMax = maxSteps * 1.1;
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("viewBox", `0 0 ${totalWidth} ${container.clientHeight}`);
+    svg.style.overflow = "visible";
+
+    const barWidth = Math.min((chartWidth / stats.length) * 0.8, 40);
+    const spacing = (chartWidth - (barWidth * stats.length)) / (stats.length || 1);
+
+    const stepColor = '#34c759'; // Apple-like green for activity
+
+    // Y Axis Labels
+    const ySteps = 4;
+    for (let i = 0; i <= ySteps; i++) {
+        const val = Math.round((i / ySteps) * yMax);
+        const y = topPadding + chartHeight - (i / ySteps) * chartHeight;
+
+        // format to string (e.g. 10k instead of 10000)
+        let valStr = val.toString();
+        if (val >= 1000) {
+            valStr = Math.round(val / 1000) + 'k';
+        }
+
+        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.setAttribute("x", leftPadding - 8);
+        text.setAttribute("y", y + 4);
+        text.setAttribute("text-anchor", "end");
+        text.setAttribute("fill", "var(--hint-color)");
+        text.setAttribute("font-size", "10px");
+        text.textContent = valStr;
+        svg.appendChild(text);
+
+        const gridLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        gridLine.setAttribute("x1", leftPadding);
+        gridLine.setAttribute("y1", y);
+        gridLine.setAttribute("x2", leftPadding + chartWidth);
+        gridLine.setAttribute("y2", y);
+        gridLine.setAttribute("stroke", "var(--hint-color)");
+        gridLine.setAttribute("stroke-opacity", "0.2");
+        if (i === 0) gridLine.setAttribute("stroke-opacity", "0.6");
+        svg.appendChild(gridLine);
+    }
+
+    const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    stats.forEach((dayStat, i) => {
+        const xCenter = leftPadding + (spacing / 2) + (i * (barWidth + spacing)) + barWidth / 2;
+        const xLeft = xCenter - barWidth / 2;
+        const h = Math.max((dayStat.steps / yMax) * chartHeight, 2); // At least 2px height if > 0
+        const yTop = topPadding + chartHeight - h;
+
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("x", xLeft);
+        rect.setAttribute("y", yTop);
+        rect.setAttribute("width", barWidth);
+        rect.setAttribute("height", h);
+        rect.setAttribute("fill", stepColor);
+        rect.setAttribute("rx", "3"); // Rounded corners
+        svg.appendChild(rect);
+
+        // Date Label
+        const dateObj = new Date(dayStat.day + 'T12:00:00');
+        let dayName = daysMap[dateObj.getDay()];
+        if (i === stats.length - 1) dayName = "Today";
+
+        const xLbl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        xLbl.setAttribute("x", xCenter);
+        xLbl.setAttribute("y", topPadding + chartHeight + 15);
+        xLbl.setAttribute("text-anchor", "middle");
+        xLbl.setAttribute("fill", "var(--hint-color)");
+        xLbl.setAttribute("font-size", "11px");
+        xLbl.textContent = dayName;
+        svg.appendChild(xLbl);
     });
 
     container.appendChild(svg);

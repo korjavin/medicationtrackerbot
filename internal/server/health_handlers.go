@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"sort"
 	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 type DailySleepStat struct {
@@ -37,10 +39,14 @@ type HealthOverviewResponse struct {
 	AverageSleepHours7d  float64 `json:"average_sleep_hours_7d"`
 	AverageSleepHours30d float64 `json:"average_sleep_hours_30d"`
 
+	AverageSteps7d  int `json:"average_steps_7d"`
+	AverageSteps30d int `json:"average_steps_30d"`
+
 	SleepStats7d       []DailySleepStat `json:"sleep_stats_7d"`
 	HeartRateHistory7d []VitalStat      `json:"heart_rate_history_7d"`
 	SpO2History7d      []VitalStat      `json:"spo2_history_7d"`
 	StressHistory7d    []VitalStat      `json:"stress_history_7d"`
+	StepStats7d        []store.DayStat  `json:"step_stats_7d"`
 }
 
 func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request) {
@@ -233,6 +239,30 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 
 	resp.AverageSleepHours7d = float64(avgMins7d) / 60.0
 	resp.AverageSleepHours30d = float64(avgMins30d) / 60.0
+
+	// Fetch Day Stats for Steps
+	dayStats, _ := s.store.GetDayStats(ctx, userId, start30d)
+	var steps7d, steps30d []int
+	var stepStats7d []store.DayStat
+
+	for _, stat := range dayStats {
+		steps30d = append(steps30d, stat.Steps)
+
+		t, err := time.Parse("2006-01-02", stat.Day)
+		if err == nil && t.After(start7d) {
+			steps7d = append(steps7d, stat.Steps)
+			stepStats7d = append(stepStats7d, stat)
+		}
+	}
+
+	// Reverse to make it chronological because `GetDayStats` returns `ORDER BY day DESC`
+	for i, j := 0, len(stepStats7d)-1; i < j; i, j = i+1, j-1 {
+		stepStats7d[i], stepStats7d[j] = stepStats7d[j], stepStats7d[i]
+	}
+
+	resp.StepStats7d = stepStats7d
+	resp.AverageSteps7d = calcAvg(steps7d)
+	resp.AverageSteps30d = calcAvg(steps30d)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)

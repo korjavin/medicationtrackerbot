@@ -129,6 +129,16 @@ type SleepLog struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+type DayStat struct {
+	ID        int64     `json:"id"`
+	UserID    int64     `json:"user_id"`
+	Day       string    `json:"day"`
+	Steps     int       `json:"steps"`
+	Calories  int       `json:"calories"`
+	Distance  int       `json:"distance"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type FoodTargets struct {
 	Calories int `json:"calories"`
 	Carbs    int `json:"carbs"`
@@ -1264,6 +1274,72 @@ func (s *Store) ImportSleepLogs(ctx context.Context, userID int64, logs []SleepL
 
 	skipped := len(logs) - imported
 	return imported, skipped, nil
+}
+
+// ImportDayStats imports day statistics from backups
+func (s *Store) ImportDayStats(ctx context.Context, userID int64, stats []DayStat) (int, int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT OR IGNORE INTO day_stats (user_id, day, steps, calories, distance)
+		 VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer stmt.Close()
+
+	imported := 0
+	for _, st := range stats {
+		res, err := stmt.ExecContext(ctx, userID, st.Day, st.Steps, st.Calories, st.Distance)
+		if err != nil {
+			return 0, 0, err
+		}
+		rowsAffected, _ := res.RowsAffected()
+		imported += int(rowsAffected)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, 0, err
+	}
+
+	skipped := len(stats) - imported
+	return imported, skipped, nil
+}
+
+// GetDayStats retrieves daily stats for a user since a given date
+func (s *Store) GetDayStats(ctx context.Context, userID int64, since time.Time) ([]DayStat, error) {
+	query := `SELECT id, user_id, day, steps, calories, distance, created_at
+		 FROM day_stats WHERE user_id = ?`
+	args := []interface{}{userID}
+
+	if !since.IsZero() {
+		// Day format is "2006-01-02", so we can do string comparison
+		sinceDay := since.Format("2006-01-02")
+		query += " AND day >= ?"
+		args = append(args, sinceDay)
+	}
+
+	query += " ORDER BY day DESC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var stats []DayStat
+	for rows.Next() {
+		var st DayStat
+		if err := rows.Scan(&st.ID, &st.UserID, &st.Day, &st.Steps, &st.Calories, &st.Distance, &st.CreatedAt); err != nil {
+			return nil, err
+		}
+		stats = append(stats, st)
+	}
+	return stats, nil
 }
 
 // GetSleepLogs retrieves sleep logs for a user since a given date
