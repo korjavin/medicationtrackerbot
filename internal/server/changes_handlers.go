@@ -118,8 +118,9 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+	// Note: Do NOT set "Connection: keep-alive" — it's a hop-by-hop header
+	// forbidden in HTTP/2 and causes ERR_HTTP2_PROTOCOL_ERROR behind reverse proxies.
 	_, _ = fmt.Fprint(w, "retry: 5000\n\n")
 	flusher.Flush()
 
