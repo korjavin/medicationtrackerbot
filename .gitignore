@@ -10,3 +10,4 @@ docs/screenshots
 .agent/rules/
 .agent/workflows/
 import.sql
+frontendplan.markdown
