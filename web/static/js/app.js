@@ -429,6 +429,10 @@ document.getElementById('weight-feature-toggle').addEventListener('change', asyn
     await toggleFeatureSetting('weight', this.checked);
 });
 
+document.getElementById('health-feature-toggle').addEventListener('change', async function () {
+    await toggleFeatureSetting('health', this.checked);
+});
+
 document.getElementById('medication-feature-toggle').addEventListener('change', async function () {
     await toggleFeatureSetting('medication', this.checked);
 });
@@ -563,7 +567,8 @@ let featureSettings = {
     bp: true,
     weight: true,
     medication: true,
-    workout: true
+    workout: true,
+    health: true
 };
 let featureSettingsLoaded = false;
 const formatDate = (dateStr) => {
@@ -608,6 +613,7 @@ function switchTab(tab) {
         }
     } else if (tab === 'bp') { loadBPReadings(); }
     else if (tab === 'weight') { loadWeightLogs(); }
+    else if (tab === 'health') { loadHealthOverview(); }
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
     else if (tab === 'settings') { loadSettings(); }
@@ -1821,6 +1827,7 @@ function updateFeatureToggles() {
     document.getElementById('food-intake-toggle').checked = !!featureSettings.food;
     document.getElementById('bp-feature-toggle').checked = !!featureSettings.bp;
     document.getElementById('weight-feature-toggle').checked = !!featureSettings.weight;
+    document.getElementById('health-feature-toggle').checked = !!featureSettings.health;
     document.getElementById('medication-feature-toggle').checked = !!featureSettings.medication;
     document.getElementById('workout-feature-toggle').checked = !!featureSettings.workout;
 }
@@ -1846,6 +1853,7 @@ async function toggleFeatureSetting(feature, enabled) {
 function updateFeatureTabVisibility() {
     const tabToFeature = {
         food: 'food',
+        health: 'health',
         bp: 'bp',
         weight: 'weight',
         meds: 'medication',
@@ -4588,20 +4596,20 @@ async function sendTestMedicationNotification() {
     // Sub-modals: closing them leaves the overlay visible (parent modal stays open)
     const subModalDefs = [
         { id: 'workout-add-exercise-to-session-modal', fn: () => typeof closeAddExerciseToSessionModal === 'function' && closeAddExerciseToSessionModal() },
-        { id: 'food-scanner-modal',                   fn: () => closeFoodScannerModal() },
+        { id: 'food-scanner-modal', fn: () => closeFoodScannerModal() },
     ];
     // Top-level modals: closing them also hides the overlay
     const topModalDefs = [
-        { id: 'med-modal',            fn: () => closeModal() },
-        { id: 'med-confirm-modal',    fn: () => closeMedicationConfirmModal() },
-        { id: 'bp-modal',             fn: () => closeBPRecordModal() },
-        { id: 'weight-modal',         fn: () => closeWeightModal() },
-        { id: 'food-modal',           fn: () => closeFoodModal() },
-        { id: 'workout-group-modal',  fn: () => typeof closeWorkoutGroupModal  === 'function' && closeWorkoutGroupModal() },
-        { id: 'workout-variant-modal',fn: () => typeof closeVariantModal       === 'function' && closeVariantModal() },
-        { id: 'workout-exercise-modal',fn:() => typeof closeExerciseModal      === 'function' && closeExerciseModal() },
-        { id: 'workout-session-modal',fn: () => typeof closeWorkoutSessionModal=== 'function' && closeWorkoutSessionModal() },
-        { id: 'workout-start-modal',  fn: () => closeWorkoutStartModal() },
+        { id: 'med-modal', fn: () => closeModal() },
+        { id: 'med-confirm-modal', fn: () => closeMedicationConfirmModal() },
+        { id: 'bp-modal', fn: () => closeBPRecordModal() },
+        { id: 'weight-modal', fn: () => closeWeightModal() },
+        { id: 'food-modal', fn: () => closeFoodModal() },
+        { id: 'workout-group-modal', fn: () => typeof closeWorkoutGroupModal === 'function' && closeWorkoutGroupModal() },
+        { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' && closeVariantModal() },
+        { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' && closeExerciseModal() },
+        { id: 'workout-session-modal', fn: () => typeof closeWorkoutSessionModal === 'function' && closeWorkoutSessionModal() },
+        { id: 'workout-start-modal', fn: () => closeWorkoutStartModal() },
     ];
 
     function findAndCloseTopModal() {
@@ -4678,3 +4686,56 @@ async function sendTestMedicationNotification() {
         ? document.addEventListener('DOMContentLoaded', setupObserver)
         : setupObserver();
 })();
+
+// --- Health Overview ---
+async function loadHealthOverview() {
+    const content = document.getElementById('health-overview-content');
+    const loading = document.getElementById('health-overview-loading');
+
+    loading.style.display = 'block';
+    content.classList.add('hidden');
+    content.innerHTML = '';
+
+    const data = await apiCall('/api/health/overview', 'GET');
+    loading.style.display = 'none';
+
+    if (!data) {
+        content.innerHTML = '<p style="color:red">Failed to load health metrics</p>';
+        content.classList.remove('hidden');
+        return;
+    }
+
+    // Render cards
+    content.innerHTML = `
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
+            <div style="background: var(--secondary-bg-color); padding: 15px; border-radius: 8px;">
+                <h4 style="margin: 0 0 10px 0;">Heart Rate</h4>
+                <div style="font-size: 24px; font-weight: bold;">${data.average_heart_rate_7d} <span style="font-size: 14px; font-weight: normal;">bpm (7d)</span></div>
+                <div style="font-size: 14px; color: var(--hint-color); margin-top: 5px;">30d avg: ${data.average_heart_rate_30d} bpm</div>
+            </div>
+            
+            <div style="background: var(--secondary-bg-color); padding: 15px; border-radius: 8px;">
+                <h4 style="margin: 0 0 10px 0;">SpO2</h4>
+                <div style="font-size: 24px; font-weight: bold;">${data.average_spo2_7d}% <span style="font-size: 14px; font-weight: normal;">(7d)</span></div>
+                <div style="font-size: 14px; color: var(--hint-color); margin-top: 5px;">30d avg: ${data.average_spo2_30d}%</div>
+            </div>
+
+            <div style="background: var(--secondary-bg-color); padding: 15px; border-radius: 8px;">
+                <h4 style="margin: 0 0 10px 0;">Stress Level</h4>
+                <div style="font-size: 24px; font-weight: bold;">${data.average_stress_7d} <span style="font-size: 14px; font-weight: normal;">/ 100 (7d)</span></div>
+                <div style="font-size: 14px; color: var(--hint-color); margin-top: 5px;">30d avg: ${data.average_stress_30d}</div>
+            </div>
+
+            <div style="background: var(--secondary-bg-color); padding: 15px; border-radius: 8px;">
+                <h4 style="margin: 0 0 10px 0;">Sleep</h4>
+                <div style="font-size: 24px; font-weight: bold;">${data.average_sleep_hours_7d.toFixed(1)} <span style="font-size: 14px; font-weight: normal;">hrs (7d)</span></div>
+                <div style="font-size: 14px; color: var(--hint-color); margin-top: 5px;">30d avg: ${data.average_sleep_hours_30d.toFixed(1)} hrs</div>
+            </div>
+        </div>
+        <p style="font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 20px;">
+            This data is gathered from your synced .nxk backups.
+        </p>
+    `;
+
+    content.classList.remove('hidden');
+}

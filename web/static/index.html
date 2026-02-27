@@ -32,6 +32,7 @@
             <button class="tab" data-tab="weight" onclick="switchTab('weight')">Weight</button>
             <button class="tab" data-tab="workouts" onclick="switchTab('workouts')">Workouts</button>
             <button class="tab" data-tab="food" onclick="switchTab('food')">Food</button>
+            <button class="tab" data-tab="health" onclick="switchTab('health')">Health</button>
             <button class="tab" data-tab="meds" onclick="switchTab('meds')">Meds</button>
             <button class="tab" data-tab="settings" onclick="switchTab('settings')">⚙️</button>
         </div>
@@ -156,6 +157,14 @@
             <div id="food-list"></div>
         </div>
 
+        <div id="health-view" class="view">
+            <h3>Health Overview</h3>
+            <div id="health-overview-loading">Loading metrics...</div>
+            <div id="health-overview-content" class="hidden">
+                 <!-- Injected dynamically via app.js -->
+            </div>
+        </div>
+
         <div id="settings-view" class="view">
             <h3>Settings</h3>
 
@@ -254,6 +263,17 @@
                 </div>
                 <label class="toggle">
                     <input type="checkbox" id="food-intake-toggle">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
+                <div>
+                    <h3>Health Data</h3>
+                    <p class="setting-desc">Enable health section to view sleep and vitals averages</p>
+                </div>
+                <label class="toggle">
+                    <input type="checkbox" id="health-feature-toggle">
                     <span class="toggle-slider"></span>
                 </label>
             </div>

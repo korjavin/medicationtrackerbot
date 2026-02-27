@@ -27,12 +27,17 @@ func (s *Server) getFeatureMap(ctx context.Context) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
+	healthEnabled, err := s.store.GetHealthEnabled(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]bool{
 		"food":       foodEnabled,
 		"bp":         bpEnabled,
 		"weight":     weightEnabled,
 		"medication": medicationEnabled,
 		"workout":    workoutEnabled,
+		"health":     healthEnabled,
 	}, nil
 }
 
@@ -80,6 +85,8 @@ func (s *Server) handleSetFeatureEnabled(w http.ResponseWriter, r *http.Request)
 		err = s.store.SetMedicationEnabled(ctx, req.Enabled)
 	case "workout":
 		err = s.store.SetWorkoutEnabled(ctx, req.Enabled)
+	case "health":
+		err = s.store.SetHealthEnabled(ctx, req.Enabled)
 	default:
 		http.Error(w, "Unknown feature", http.StatusBadRequest)
 		return

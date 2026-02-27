@@ -1669,6 +1669,14 @@ func (s *Store) SetWorkoutEnabled(ctx context.Context, enabled bool) error {
 	return s.setSettingsBool(ctx, "workout_enabled", enabled)
 }
 
+func (s *Store) GetHealthEnabled(ctx context.Context) (bool, error) {
+	return s.getSettingsBool(ctx, "health_enabled")
+}
+
+func (s *Store) SetHealthEnabled(ctx context.Context, enabled bool) error {
+	return s.setSettingsBool(ctx, "health_enabled", enabled)
+}
+
 // allowedSettingsBoolColumns is the allowlist of valid boolean column names in the settings table.
 var allowedSettingsBoolColumns = map[string]bool{
 	"food_intake_enabled":    true,
@@ -1676,6 +1684,7 @@ var allowedSettingsBoolColumns = map[string]bool{
 	"weight_enabled":         true,
 	"medication_enabled":     true,
 	"workout_enabled":        true,
+	"health_enabled":         true,
 }
 
 func (s *Store) getSettingsBool(ctx context.Context, column string) (bool, error) {
