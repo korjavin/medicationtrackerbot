@@ -1,7 +1,17 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
 describe('app.js form submissions and push modal behavior', () => {
+  let consoleLogSpy;
+
+  beforeEach(() => {
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleLogSpy.mockRestore();
+  });
+
   it('showMedicationConfirmModal renders confirm mode and close hides it', () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
