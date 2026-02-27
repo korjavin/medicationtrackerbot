@@ -12,7 +12,11 @@ function createStore(overrides = {}) {
   return {
     async getPendingCount() { return 0; },
     async getPending() { return []; },
+    async getAll() { return []; },
+    async getCache() { return null; },
+    async save() { return { localId: 1 }; },
     async confirmDelete() {},
+    async markSynced() {},
     async markError() {},
     ...overrides
   };
