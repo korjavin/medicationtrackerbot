@@ -47,7 +47,7 @@ func (s *Store) ImportVitals(ctx context.Context, userID int64, heartLogs []Vita
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // intentional: no-op if Commit succeeded
 
 	totalImported := 0
 	totalSkipped := 0

@@ -295,7 +295,7 @@ func TestClearSnooze(t *testing.T) {
 		mustParseTime("2026-02-09T00:00:00Z"), "09:00")
 
 	// Snooze the session
-	store.SnoozeSession(session.ID, 2*60*60*1000000000)
+	store.SnoozeSession(session.ID, 2*60*60*1000000000) //nolint:errcheck // test setup
 
 	// Verify it's snoozed
 	snoozed, _ := store.GetWorkoutSession(session.ID)
@@ -405,25 +405,25 @@ func TestWorkoutStatistics(t *testing.T) {
 	// Session 1: completed (should count in streak and completion rate)
 	session1, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID,
 		mustParseTime("2026-02-01T00:00:00Z"), "09:00")
-	store.StartSession(session1.ID)
-	store.CompleteSession(session1.ID)
+	store.StartSession(session1.ID)    //nolint:errcheck // test setup
+	store.CompleteSession(session1.ID) //nolint:errcheck // test setup
 
 	// Session 2: completed (should count in streak)
 	session2, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID,
 		mustParseTime("2026-02-02T00:00:00Z"), "09:00")
-	store.StartSession(session2.ID)
-	store.CompleteSession(session2.ID)
+	store.StartSession(session2.ID)    //nolint:errcheck // test setup
+	store.CompleteSession(session2.ID) //nolint:errcheck // test setup
 
 	// Session 3: skipped (should break streak, count in total)
 	session3, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID,
 		mustParseTime("2026-02-03T00:00:00Z"), "09:00")
-	store.SkipSession(session3.ID)
+	store.SkipSession(session3.ID) //nolint:errcheck // test setup
 
 	// Session 4: completed (should NOT count in streak due to skip before it)
 	session4, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID,
 		mustParseTime("2026-02-04T00:00:00Z"), "09:00")
-	store.StartSession(session4.ID)
-	store.CompleteSession(session4.ID)
+	store.StartSession(session4.ID)    //nolint:errcheck // test setup
+	store.CompleteSession(session4.ID) //nolint:errcheck // test setup
 
 	// Session 5: pending (should not count in totals)
 	_, _ = store.CreateWorkoutSession(group.ID, variant.ID, userID,
@@ -675,19 +675,19 @@ func TestGetActiveSessions(t *testing.T) {
 
 	// Create sessions with different statuses
 	sessionNotified, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID, today, "09:00")
-	store.UpdateSessionStatus(sessionNotified.ID, "notified")
+	store.UpdateSessionStatus(sessionNotified.ID, "notified") //nolint:errcheck // test setup
 
 	sessionInProgress, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID, today, "10:00")
-	store.StartSession(sessionInProgress.ID)
+	store.StartSession(sessionInProgress.ID) //nolint:errcheck // test setup
 
 	// Create a pending session (not included in active sessions)
 	_, _ = store.CreateWorkoutSession(group.ID, variant.ID, userID, today, "11:00")
 
 	sessionCompleted, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID, today, "14:00")
-	store.CompleteSession(sessionCompleted.ID)
+	store.CompleteSession(sessionCompleted.ID) //nolint:errcheck // test setup
 
 	sessionYesterday, _ := store.CreateWorkoutSession(group.ID, variant.ID, userID, yesterday, "09:00")
-	store.UpdateSessionStatus(sessionYesterday.ID, "notified")
+	store.UpdateSessionStatus(sessionYesterday.ID, "notified") //nolint:errcheck // test setup
 
 	// Get active sessions for today
 	activeSessions, err := store.GetActiveSessions(userID, today)
