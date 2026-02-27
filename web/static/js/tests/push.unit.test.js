@@ -122,4 +122,18 @@ describe('push.js PushManager', () => {
       cleanup();
     }
   });
+
+  it('urlBase64ToUint8Array and arrayBufferToBase64 convert payloads consistently', () => {
+    const { window, cleanup } = loadPushEnv();
+
+    try {
+      const bytes = window.MedTrackerPush.urlBase64ToUint8Array('AQID');
+      expect(Array.from(bytes)).toEqual([1, 2, 3]);
+
+      const encoded = window.MedTrackerPush.arrayBufferToBase64(new Uint8Array([4, 5, 6]).buffer);
+      expect(encoded).toBe('BAUG');
+    } finally {
+      cleanup();
+    }
+  });
 });
