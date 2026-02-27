@@ -102,13 +102,16 @@ User
 - `webpush/` - Web push notification support
 
 **Frontend** (`web/static/`):
-- Vanilla JavaScript (no framework)
+- Vanilla JavaScript (no framework), Dexie.js for IndexedDB
+- Local First architecture with four layers: Service Worker → IndexedDB → SyncManager → SWR DataStore
+- Offline writes supported for BP, weight, and medication confirmations
+- Stale-While-Revalidate caching with tag-based invalidation via polling (`/api/changes`)
 - Telegram WebApp JS SDK for theme integration
-- Service worker for PWA functionality
+- See `ARCHITECTURE.md` for detailed frontend architecture
 
 ### Database Schema
 
-SQLite with 16 migrations tracking schema evolution:
+SQLite with 27 goose migrations tracking schema evolution:
 - `medications`, `intake_log` - Medication management and history
 - `blood_pressure_readings` - BP tracking
 - `weight_logs` - Weight tracking with trend calculation
@@ -116,8 +119,10 @@ SQLite with 16 migrations tracking schema evolution:
 - `workout_sessions`, `workout_exercise_logs` - Workout history
 - `workout_rotation_state` - Rotating workout schedules
 - `sleep_logs` - Sleep tracking
+- `food_log`, `food_products`, `food_targets` - Food intake and nutrition tracking
 - `push_subscriptions` - Web push notification subscriptions
 - `bp_reminders`, `weight_reminders` - Reminder configuration
+- `change_events` - Server-side change tracking for frontend cache invalidation
 
 ### Authentication & Security
 
@@ -202,7 +207,7 @@ MCP_MAX_QUERY_DAYS=90
 ## Important Implementation Notes
 
 ### Database Migrations
-- Migrations are in `internal/store/migrations/` numbered sequentially (001-016)
+- Migrations are in `internal/store/migrations/` numbered sequentially (001-027)
 - Use goose for migration management
 - Migrations auto-run on store initialization
 - Never modify existing migrations; create new ones
@@ -225,6 +230,11 @@ MCP_MAX_QUERY_DAYS=90
 - Theme adapts to Telegram theme params via CSS variables
 - Service worker (`sw.js`) for PWA and offline support
 - Cache busting via timestamp replacement in Dockerfile
+- Local First: `offlineAwareApiCall()` in `sync.js` is the main entry point for all API calls
+- SWR caching: `loadSWR()` in `data-store.js` returns cached data immediately, refreshes in background
+- Change detection: polls `/api/changes?since=` every 30s (SSE disabled due to HTTP/2 proxy issues)
+- IndexedDB (`db.js`): write-ahead queue for offline writes + generic `api_cache` for SWR
+- Treat HTTP 502/503/504 as "offline" — `navigator.onLine` stays true behind reverse proxies
 
 ### Testing Patterns
 - Store tests use in-memory SQLite (`:memory:`)
@@ -257,7 +267,9 @@ MCP_MAX_QUERY_DAYS=90
 ## Documentation References
 
 - `README.md` - User-facing features and setup
-- `ARCHITECTURE.md` - Detailed system architecture and API endpoints
-- `WORKOUT_TRACKING.md` - Complete workout feature specification
-- `DEPLOY.md` - Deployment instructions
+- `ARCHITECTURE.md` - System architecture, Local First design, API endpoints, technical decisions
+- `docs/WORKOUT_TRACKING.md` - Complete workout feature specification
+- `install.md` - Quick installation guide
+- `docs/installer.md` - Detailed installer walkthrough
+- `docs/mcp_setup.md` - MCP server (Claude integration) setup
 - `.env.mcp.example` - MCP server configuration example

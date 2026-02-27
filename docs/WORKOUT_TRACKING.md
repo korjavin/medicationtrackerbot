@@ -341,7 +341,7 @@ View interactive API demo at: `http://localhost:8080/static/workout-api-demo.htm
 ## 📝 Future Enhancements
 
 **Not yet implemented (optional):**
-- [ ] Web UI for workout planner
+- [x] Web UI for workout planner (`web/static/js/workout.js`)
 - [ ] Progressive overload tracking
 - [ ] Rest timer between sets
 - [ ] Custom exercise database
