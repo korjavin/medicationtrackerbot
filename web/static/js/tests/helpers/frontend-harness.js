@@ -56,10 +56,22 @@ export function loadFrontendEnv({ withWorkout = false } = {}) {
 
   const { window } = dom;
 
+  const backButtonState = {
+    showCalls: 0,
+    hideCalls: 0,
+    clickHandler: null
+  };
+
   const backButton = {
-    show() {},
-    hide() {},
-    onClick() {}
+    show() {
+      backButtonState.showCalls += 1;
+    },
+    hide() {
+      backButtonState.hideCalls += 1;
+    },
+    onClick(cb) {
+      backButtonState.clickHandler = cb;
+    }
   };
 
   window.Telegram = {
@@ -84,6 +96,7 @@ export function loadFrontendEnv({ withWorkout = false } = {}) {
 
   const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
   window.eval(appSource);
+  window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 
   if (withWorkout) {
     const workoutSource = fs.readFileSync(WORKOUT_JS, 'utf8');
@@ -93,6 +106,7 @@ export function loadFrontendEnv({ withWorkout = false } = {}) {
   return {
     window,
     document: window.document,
+    backButtonState,
     cleanup: () => dom.window.close()
   };
 }
