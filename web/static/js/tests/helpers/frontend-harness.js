@@ -9,6 +9,11 @@ const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 
 const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
+const COMPONENTS = [
+  path.join(REPO_ROOT, 'web/static/js/components/mt-modal.js'),
+  path.join(REPO_ROOT, 'web/static/js/components/mt-setting-toggle.js'),
+  path.join(REPO_ROOT, 'web/static/js/components/register-components.js')
+];
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
 
@@ -96,12 +101,12 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
     WebApp: {
       initData: telegramInitData,
       initDataUnsafe: {},
-      ready() {},
-      expand() {},
+      ready() { },
+      expand() { },
       isVersionAtLeast(version) {
         return isVersionAtLeast(telegramVersion, version);
       },
-      showAlert() {},
+      showAlert() { },
       showConfirm(_msg, cb) {
         cb(true);
       },
@@ -111,13 +116,18 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   window.OIDC_CONFIG = { enabled: false };
   window.BOT_USERNAME = 'test_bot';
-  window.alert = () => {};
+  window.alert = () => { };
   window.confirm = () => true;
   window.fetch = async () => createMockResponse({ status: 200, json: {} });
   window.eval('var history = window.history;');
 
   const dataStoreSource = fs.readFileSync(DATA_STORE_JS, 'utf8');
   evalWithSourceURL(window, dataStoreSource, DATA_STORE_JS);
+
+  for (const compPath of COMPONENTS) {
+    const compSource = fs.readFileSync(compPath, 'utf8');
+    evalWithSourceURL(window, compSource, compPath);
+  }
 
   const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
   evalWithSourceURL(window, appSource, APP_JS);
