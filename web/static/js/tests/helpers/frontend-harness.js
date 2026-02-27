@@ -1,0 +1,98 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { JSDOM } from 'jsdom';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const REPO_ROOT = path.resolve(__dirname, '../../../../..');
+
+const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
+const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
+const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
+
+function disableAutoBootstrap(source) {
+  const bootStart = source.indexOf('// Initial Load');
+  const bootEnd = source.indexOf('// Check for Telegram start_param');
+  if (bootStart !== -1 && bootEnd !== -1 && bootEnd > bootStart) {
+    source = `${source.slice(0, bootStart)}// Initial Load (disabled in tests)\n${source.slice(bootEnd)}`;
+  }
+
+  const startParamStart = source.indexOf('// Check for Telegram start_param');
+  const startParamEnd = source.indexOf('async function sendTestBPNotification()', startParamStart);
+  if (startParamStart !== -1 && startParamEnd !== -1 && startParamEnd > startParamStart) {
+    source = `${source.slice(0, startParamStart)}// Check for Telegram start_param (disabled in tests)\n\n${source.slice(startParamEnd)}`;
+  }
+
+  return source;
+}
+
+export function createMockResponse({ status = 200, json, text } = {}) {
+  const payloadText = text ?? (json !== undefined ? JSON.stringify(json) : '');
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    async json() {
+      if (json !== undefined) return json;
+      if (!payloadText) return {};
+      return JSON.parse(payloadText);
+    },
+    async text() {
+      return payloadText;
+    },
+    async blob() {
+      return new Blob([payloadText]);
+    }
+  };
+}
+
+export function loadFrontendEnv({ withWorkout = false } = {}) {
+  const html = fs.readFileSync(INDEX_HTML, 'utf8');
+  const dom = new JSDOM(html, {
+    url: 'https://example.test/',
+    pretendToBeVisual: true,
+    runScripts: 'outside-only'
+  });
+
+  const { window } = dom;
+
+  const backButton = {
+    show() {},
+    hide() {},
+    onClick() {}
+  };
+
+  window.Telegram = {
+    WebApp: {
+      initData: '',
+      initDataUnsafe: {},
+      ready() {},
+      expand() {},
+      showAlert() {},
+      showConfirm(_msg, cb) {
+        cb(true);
+      },
+      BackButton: backButton
+    }
+  };
+
+  window.OIDC_CONFIG = { enabled: false };
+  window.BOT_USERNAME = 'test_bot';
+  window.alert = () => {};
+  window.confirm = () => true;
+  window.fetch = async () => createMockResponse({ status: 200, json: {} });
+
+  const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
+  window.eval(appSource);
+
+  if (withWorkout) {
+    const workoutSource = fs.readFileSync(WORKOUT_JS, 'utf8');
+    window.eval(workoutSource);
+  }
+
+  return {
+    window,
+    document: window.document,
+    cleanup: () => dom.window.close()
+  };
+}
