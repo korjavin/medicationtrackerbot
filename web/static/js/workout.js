@@ -767,7 +767,7 @@ function _renderWorkoutHistory(container, response) {
                         <div>
                             <strong>${statusEmoji} ${escapeHtml(s.group_name)}</strong> - ${escapeHtml(s.variant_name)}
                             <div style="font-size: 0.85em; color: #666; margin-top: 4px;">
-                                ${date} at ${s.session.scheduled_time}
+                                ${date} at ${s.session.started_at ? new Date(s.session.started_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : s.session.scheduled_time}
                                 ${s.session.status === 'completed' ? ` • ${s.exercises_completed}/${s.exercises_count} exercises` : ''}
                                 ${volumeText ? `<br><strong style="color: #667eea;">${volumeText}</strong>` : ''}
                             </div>
@@ -848,7 +848,7 @@ async function showWorkoutSessionModal(sessionId) {
         infoContainer.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <div>
-                    <strong>${escapeHtml(data.session.scheduled_time)}</strong> • 
+                    <strong>${data.session.started_at ? new Date(data.session.started_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : escapeHtml(data.session.scheduled_time)}</strong> •
                     ${new Date(data.session.scheduled_date).toLocaleDateString()}
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
