@@ -11,3 +11,4 @@ docs/screenshots
 .agent/workflows/
 import.sql
 frontendplan.markdown
+node_modules/
