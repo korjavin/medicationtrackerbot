@@ -364,23 +364,24 @@ func (s *Store) DeleteWorkoutExercise(id int64) error {
 	return err
 }
 
-// GetAllUniqueExercises returns a deduplicated list of all exercises across all active workout groups for a user
+// GetAllUniqueExercises returns a deduplicated list of all exercises across all workout groups for a user,
+// including inactive groups, sorted alphabetically.
 func (s *Store) GetAllUniqueExercises(userID int64) ([]WorkoutExercise, error) {
-	// Get all exercises from active workout groups, deduplicated by exercise name
-	// For duplicates, select any version (we'll use MAX(id) to be deterministic)
+	// Get all exercises from all workout groups (active and inactive), deduplicated by exercise name.
+	// For duplicates, select any version (we'll use MAX(id) to be deterministic).
 	query := `
-		SELECT we.id, we.variant_id, we.exercise_name, we.target_sets, 
+		SELECT we.id, we.variant_id, we.exercise_name, we.target_sets,
 			we.target_reps_min, we.target_reps_max, we.target_weight_kg, we.order_index
 		FROM workout_exercises we
 		JOIN workout_variants wv ON we.variant_id = wv.id
 		JOIN workout_groups wg ON wv.group_id = wg.id
-		WHERE wg.user_id = ? AND wg.active = 1
+		WHERE wg.user_id = ?
 			AND we.id IN (
 				SELECT MAX(we2.id)
 				FROM workout_exercises we2
 				JOIN workout_variants wv2 ON we2.variant_id = wv2.id
 				JOIN workout_groups wg2 ON wv2.group_id = wg2.id
-				WHERE wg2.user_id = ? AND wg2.active = 1
+				WHERE wg2.user_id = ?
 				GROUP BY we2.exercise_name
 			)
 		ORDER BY we.exercise_name ASC`
