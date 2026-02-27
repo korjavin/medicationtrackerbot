@@ -2265,6 +2265,9 @@ function reloadCurrentTab() {
     } else if (tab === 'bp') { loadBPReadings(); }
     else if (tab === 'weight') { loadWeightLogs(); }
     else if (tab === 'workouts') { loadWorkouts(); }
+    else if (tab === 'food') { loadFoodLogs(); }
+    else if (tab === 'health') { loadHealthOverview(); }
+    else if (tab === 'settings') { loadSettings(); }
 }
 
 // Expose for sync manager
