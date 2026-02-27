@@ -255,7 +255,7 @@ func (s *Scheduler) sendWorkoutNotification(session *store.WorkoutSession, group
 	if len(exercises) > 0 {
 		message += "Exercises:\n"
 		for i, ex := range exercises {
-			repsStr := fmt.Sprintf("%d", ex.TargetSets)
+			var repsStr string
 			if ex.TargetRepsMax != nil && *ex.TargetRepsMax != ex.TargetRepsMin {
 				repsStr = fmt.Sprintf("%d-%d", ex.TargetRepsMin, *ex.TargetRepsMax)
 			} else {

@@ -88,7 +88,7 @@ func TestChangeEventsWithData(t *testing.T) {
 	}
 
 	// Get tags since cursor 1 (should still include both)
-	cursor, tags, err = db.GetChangedTagsSince(ctx, 1)
+	_, tags, err = db.GetChangedTagsSince(ctx, 1)
 	if err != nil {
 		t.Fatalf("GetChangedTagsSince(1): %v", err)
 	}
@@ -97,7 +97,7 @@ func TestChangeEventsWithData(t *testing.T) {
 	}
 
 	// Get tags since cursor 2 (only bp at id=3)
-	cursor, tags, err = db.GetChangedTagsSince(ctx, 2)
+	_, tags, err = db.GetChangedTagsSince(ctx, 2)
 	if err != nil {
 		t.Fatalf("GetChangedTagsSince(2): %v", err)
 	}

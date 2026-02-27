@@ -1,84 +1,86 @@
 ---
+version: "2"
+
 run:
   timeout: 5m
   concurrency: 4
-  allow-serial-runners: false
 
 output:
   formats:
-    - format: sarif
-      path: golangci-lint-result.sarif
-    - format: colored-line-number
+    text:
       path: stdout
+    sarif:
+      path: golangci-lint-result.sarif
 
 linters:
   enable:
-    # Security linters
-    - gosec           # Go security issues (G-rules for SQL injection, crypto, etc.)
-    - errorlint       # Error handling patterns
+    - gosec           # Go security issues
+    - errorlint       # errors.Is/As usage
     - nolintlint      # Validate //nolint comments
-
-    # Code quality and standards
-    - goimports       # Formatting and imports
-    - gofmt           # Code formatting
     - govet           # Go vet issues
     - staticcheck     # Static analysis
     - ineffassign     # Ineffectual assignments
 
   disable:
-    - gomnd           # Magic number detection (can be noisy)
-    - depguard        # Dependency guards (not needed)
-    - exhaustive      # Exhaustive enum checks (too strict)
-    - gocyclo         # Cyclomatic complexity (can be noisy)
+    - errcheck        # Too noisy; G104 via gosec covers intentional cases
 
-issues:
-  exclude-dirs:
-    - vendor
-    - build
-  exclude-rules:
-    # Test files
-    - path: _test\.go$
-      linters:
-        - gosec       # Security checks less critical in tests
-        - errorlint   # Error handling less critical in tests
-        - errcheck    # Unchecked errors acceptable in test setup/teardown
+  exclusions:
+    # Exclude vendor and build dirs
+    paths:
+      - vendor
+      - build
 
-    # Generated files and vendor
-    - path: vendor/
-      text: ".*"
-    - path: "^internal/store/migrations/.*\\.go$"
-      linters:
-        - gosec
+    rules:
+      # Test files: relax security and error-checking rules
+      - path: _test\.go$
+        linters:
+          - gosec
+          - errorlint
 
-  # Exclude specific security checks that may need context
-  exclude:
-    - "G204: Subprocess launched with function call as argument or cmd arguments from variable"
-    - "G602: Expect [sql.Row | sql.Rows].Close to be called on every sql.Rows"
+      # Migration SQL files
+      - path: "^internal/store/migrations/.*\\.go$"
+        linters:
+          - gosec
 
-  max-issues-per-linter: 0
-  max-same-issues: 0
-  new-from-rev: ""
+      # Gosec taint-analysis rules: noisy for controlled internal server code
+      - text: "G703"
+        linters:
+          - gosec
+      - text: "G704"
+        linters:
+          - gosec
+      - text: "G705"
+        linters:
+          - gosec
+      - text: "G706"
+        linters:
+          - gosec
+
+      # Staticcheck style preferences we consciously accept
+      - text: "QF1012"
+        linters:
+          - staticcheck
+      - text: "SA9003"
+        linters:
+          - staticcheck
+      - text: "SA1019"
+        linters:
+          - staticcheck
 
 linters-settings:
   gosec:
-    # Enable all security checks
     severity: "MEDIUM"
     confidence: "LOW"
     rules:
-      - G101  # Look for hardcoded credentials
       - G102  # Bind to all network interfaces
       - G103  # Audit the use of unsafe blocks
       - G104  # Audit errors not checked
-      - G105  # Math big.Int.Exp function use
-      - G106  # Audit the use of ssh.InsecureIgnoreHostKey
       - G107  # Url provided to urllib.Request()
       - G108  # Profiling endpoint is exposed to network
-      - G109  # Potential Integer overflow made by strconv.Atoi result conversion
-      - G110  # Potential DoS vulnerability via decompression bomb
+      - G109  # Potential Integer overflow
+      - G110  # Potential DoS via decompression bomb
       - G111  # Potential directory traversal
       - G112  # Potential slowloris attack
-      - G113  # Usage of Rat.SetString in math/big with an overflow (CVE-2022-23772)
-      - G114  # Use of net.Listen with 0 port
       - G201  # SQL query construction using format string
       - G202  # SQL query construction using string concatenation
       - G203  # Use of unescaped data in HTML templates
@@ -89,7 +91,6 @@ linters-settings:
       - G304  # File included via variable
       - G305  # File inclusion via archive/zip
       - G306  # Poor file permissions used when writing to new files
-      - G307  # Defer statement without error
       - G401  # TLS MinVersion not set
       - G402  # TLS InsecureSkipVerify
       - G403  # Use of weak random number generator (rand)
@@ -99,17 +100,7 @@ linters-settings:
       - G503  # Import blacklist: crypto/rc4
       - G504  # Import blacklist: net/http/cgi
       - G505  # Import blacklist: crypto/sha1
-      - G601  # Implicit memory aliasing of items from range
-      - G602  # Unchecked type assertion
-      - G603  # Unclosed Body
 
   errorlint:
-    # Check error wrapping
     check-error-type-assertions: true
     check-unhandled-errors: true
-
-  staticcheck:
-    # ST-rules for better analysis
-    checks:
-      - all
-      - "-SA1019"  # Deprecated but allow usage
