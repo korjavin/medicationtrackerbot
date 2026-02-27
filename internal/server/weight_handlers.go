@@ -122,13 +122,8 @@ func (s *Server) handleDeleteWeight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-<<<<<<< HEAD
 	if err := s.weight.DeleteWeightLog(r.Context(), id, userID); err != nil {
-		if err == sql.ErrNoRows {
-=======
-	if err := s.store.DeleteWeightLog(r.Context(), id, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
->>>>>>> 8741205 (fix: migrate golangci-lint config to v2 and fix all linter issues)
 			http.Error(w, "Weight log not found", http.StatusNotFound)
 			return
 		}
