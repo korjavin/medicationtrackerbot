@@ -211,13 +211,8 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 		Name:     req.Name,
 	}
 
-<<<<<<< HEAD
 	if err := s.food.UpdateFoodLog(context.Background(), foodLog); err != nil {
-		if err == sql.ErrNoRows {
-=======
-	if err := s.store.UpdateFoodLog(context.Background(), foodLog); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
->>>>>>> 8741205 (fix: migrate golangci-lint config to v2 and fix all linter issues)
 			http.Error(w, "Not found", http.StatusNotFound)
 			return
 		}

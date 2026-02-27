@@ -114,13 +114,8 @@ func (s *Server) handleDeleteBloodPressure(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-<<<<<<< HEAD
 	if err := s.bp.DeleteBloodPressureReading(r.Context(), id, userID); err != nil {
-		if err == sql.ErrNoRows {
-=======
-	if err := s.store.DeleteBloodPressureReading(r.Context(), id, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
->>>>>>> 8741205 (fix: migrate golangci-lint config to v2 and fix all linter issues)
 			http.Error(w, "Reading not found", http.StatusNotFound)
 			return
 		}
