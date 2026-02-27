@@ -1503,7 +1503,7 @@ async function openPhotoPickerAndDecode() {
     input.click();
 }
 
-function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback = null) {
+function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback = null, showList = true) {
     foodAutoCompleteSuggestions = products || [];
     const list = document.getElementById('food-autocomplete-list');
     if (!list) return;
@@ -1558,7 +1558,11 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
         list.appendChild(loadMoreBtn);
     }
 
-    list.classList.remove('hidden');
+    if (showList) {
+        list.classList.remove('hidden');
+    } else {
+        list.classList.add('hidden');
+    }
 }
 
 function onFoodNameFocus() {
@@ -1751,9 +1755,9 @@ function showAddFoodModal() {
     document.getElementById('food-weight').focus();
 
     if (foodProductsCache.length === 0) {
-        initFoodProductsCache().then(() => renderFoodAutocomplete(foodProductsCache));
+        initFoodProductsCache().then(() => renderFoodAutocomplete(foodProductsCache, false, null, false));
     } else {
-        renderFoodAutocomplete(foodProductsCache);
+        renderFoodAutocomplete(foodProductsCache, false, null, false);
     }
 }
 
