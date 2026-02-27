@@ -1,7 +1,20 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
 describe('app.js extended behavior coverage', () => {
+  let consoleErrorSpy;
+  let consoleLogSpy;
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    consoleLogSpy.mockRestore();
+  });
+
   it('apiCall returns wrapper value when offlineAwareApiCall succeeds', async () => {
     const { window, cleanup } = loadFrontendEnv();
     try {
