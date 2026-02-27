@@ -80,6 +80,11 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
+    // Skip SSE streams — they are long-lived and cannot be cached
+    if (url.pathname.startsWith('/api/changes/stream')) {
+        return;
+    }
+
     // API calls - network first with cache fallback for GET requests
     if (url.pathname.startsWith('/api/')) {
         event.respondWith(
