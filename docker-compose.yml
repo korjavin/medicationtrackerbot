@@ -86,7 +86,8 @@ services:
 
   # Local Telegram Bot API Server - removes 20MB file download limit
   telegram-bot-api:
-    image: aiogram/telegram-bot-api:latest
+    image: ghcr.io/korjavin/telegram-bot-api:2026-02-28
+    pull_policy: if_not_exists
     container_name: medtracker-telegram-api-${INSTANCE}
     restart: unless-stopped
     user: "0:0"
@@ -129,7 +130,8 @@ services:
 
   # Litestream - SQLite replication to Cloudflare R2
   litestream:
-    image: litestream/litestream:latest
+    image: ghcr.io/korjavin/litestream:0.3.13
+    pull_policy: if_not_exists
     container_name: medtracker-litestream-${INSTANCE}
     restart: unless-stopped
     entrypoint: /bin/sh
