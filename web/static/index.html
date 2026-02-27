@@ -576,7 +576,7 @@
             <div style="margin-top: 8px; font-size: 0.85em; text-align: right;">
                 <label class="checkbox-label"
                     style="display:inline-flex; align-items:center; gap:4px; font-weight:normal;">
-                    <input type="checkbox" id="food-per-100g" checked onchange="calculateFoodCalories()" tabindex="-1"
+                    <input type="checkbox" id="food-per-100g" checked onchange="onFoodPer100gChange()" tabindex="-1"
                         style="transform: scale(0.9);"> Values are per 100g
                 </label>
             </div>
@@ -584,8 +584,8 @@
 
         <div class="form-row">
             <label>Total Calories:</label>
-            <input type="number" id="food-calories" placeholder="Kcal" readonly
-                style="font-weight: bold; background: #f9f9f9;">
+            <input type="number" id="food-calories" placeholder="Kcal" onfocus="onFoodCaloriesFocus()"
+                style="font-weight: bold;">
         </div>
 
         <div class="form-row">

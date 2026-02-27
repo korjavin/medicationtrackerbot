@@ -1609,20 +1609,103 @@ function calculateFoodCalories() {
     const protein = parseFloat(document.getElementById('food-protein').value) || 0;
     const fat = parseFloat(document.getElementById('food-fat').value) || 0;
     const per100g = document.getElementById('food-per-100g').checked;
+    const caloriesInput = document.getElementById('food-calories');
 
-    let totalCals = 0;
     let totalCarbs = carbs;
     let totalProt = protein;
     let totalFat = fat;
-
     if (per100g) {
         totalCarbs = (carbs * weight) / 100;
         totalProt = (protein * weight) / 100;
         totalFat = (fat * weight) / 100;
     }
 
-    totalCals = (4 * totalCarbs) + (4 * totalProt) + (9 * totalFat);
-    document.getElementById('food-calories').value = Math.round(totalCals);
+    const totalCals = Math.round((4 * totalCarbs) + (4 * totalProt) + (9 * totalFat));
+    if (per100g || caloriesInput.value === '') {
+        caloriesInput.value = totalCals;
+    }
+}
+
+function onFoodPer100gChange() {
+    const per100gCheckbox = document.getElementById('food-per-100g');
+    if (!per100gCheckbox.checked) {
+        const weight = parseFloat(document.getElementById('food-weight').value) || 0;
+        if (weight > 0) {
+            const carbsInput = document.getElementById('food-carbs');
+            const proteinInput = document.getElementById('food-protein');
+            const fatInput = document.getElementById('food-fat');
+            const carbsPer100 = parseFloat(carbsInput.value);
+            const proteinPer100 = parseFloat(proteinInput.value);
+            const fatPer100 = parseFloat(fatInput.value);
+            if (!Number.isNaN(carbsPer100)) carbsInput.value = +((carbsPer100 * weight) / 100).toFixed(1);
+            if (!Number.isNaN(proteinPer100)) proteinInput.value = +((proteinPer100 * weight) / 100).toFixed(1);
+            if (!Number.isNaN(fatPer100)) fatInput.value = +((fatPer100 * weight) / 100).toFixed(1);
+        }
+    }
+    calculateFoodCalories();
+}
+
+function onFoodCaloriesFocus() {
+    const per100gCheckbox = document.getElementById('food-per-100g');
+    if (per100gCheckbox.checked) {
+        per100gCheckbox.checked = false;
+        onFoodPer100gChange();
+    }
+}
+
+function parseOptionalNumber(rawValue) {
+    const v = String(rawValue || '').trim();
+    if (v === '') return null;
+    const n = parseFloat(v);
+    if (Number.isNaN(n)) return null;
+    return n;
+}
+
+function computeFoodTotals() {
+    const carbsInput = parseOptionalNumber(document.getElementById('food-carbs').value);
+    const proteinInput = parseOptionalNumber(document.getElementById('food-protein').value);
+    const fatInput = parseOptionalNumber(document.getElementById('food-fat').value);
+    const caloriesInput = parseOptionalNumber(document.getElementById('food-calories').value);
+    const weightInput = parseOptionalNumber(document.getElementById('food-weight').value);
+    const per100g = document.getElementById('food-per-100g').checked;
+    const weight = weightInput && weightInput > 0 ? weightInput : 0;
+    const multiplier = per100g && weight > 0 ? weight / 100 : 1;
+
+    let totalCarbs = carbsInput === null ? null : carbsInput * multiplier;
+    let totalProtein = proteinInput === null ? null : proteinInput * multiplier;
+    let totalFat = fatInput === null ? null : fatInput * multiplier;
+    let totalCalories = caloriesInput;
+    if (per100g && caloriesInput !== null && weight > 0) {
+        totalCalories = caloriesInput * multiplier;
+    }
+
+    const missing = [];
+    if (totalCarbs === null) missing.push('carbs');
+    if (totalProtein === null) missing.push('protein');
+    if (totalFat === null) missing.push('fat');
+    if (totalCalories === null) missing.push('calories');
+
+    if (missing.length === 1) {
+        const missingField = missing[0];
+        if (missingField === 'calories' && totalCarbs !== null && totalProtein !== null && totalFat !== null) {
+            totalCalories = (4 * totalCarbs) + (4 * totalProtein) + (9 * totalFat);
+        } else if (missingField === 'carbs' && totalCalories !== null && totalProtein !== null && totalFat !== null) {
+            totalCarbs = (totalCalories - (4 * totalProtein) - (9 * totalFat)) / 4;
+        } else if (missingField === 'protein' && totalCalories !== null && totalCarbs !== null && totalFat !== null) {
+            totalProtein = (totalCalories - (4 * totalCarbs) - (9 * totalFat)) / 4;
+        } else if (missingField === 'fat' && totalCalories !== null && totalCarbs !== null && totalProtein !== null) {
+            totalFat = (totalCalories - (4 * totalCarbs) - (4 * totalProtein)) / 9;
+        }
+    }
+
+    return {
+        weight: Math.round(weight),
+        carbs: Math.round(Math.max(0, totalCarbs || 0)),
+        protein: Math.round(Math.max(0, totalProtein || 0)),
+        fat: Math.round(Math.max(0, totalFat || 0)),
+        calories: Math.round(Math.max(0, totalCalories || 0)),
+        per100g
+    };
 }
 
 function toISODateLocal(date) {
@@ -1665,6 +1748,7 @@ function showAddFoodModal() {
     document.getElementById('food-fat').value = '';
     document.getElementById('food-calories').value = '';
     document.getElementById('food-per-100g').checked = true;
+    document.getElementById('food-weight').focus();
 
     if (foodProductsCache.length === 0) {
         initFoodProductsCache().then(() => renderFoodAutocomplete(foodProductsCache));
@@ -1707,6 +1791,7 @@ function editFoodLog(id) {
         local.setMinutes(local.getMinutes() - local.getTimezoneOffset());
         document.getElementById('food-datetime').value = local.toISOString().slice(0, 16);
     }
+    document.getElementById('food-weight').focus();
 }
 
 function closeFoodModal() {
@@ -1717,45 +1802,28 @@ function closeFoodModal() {
 
 async function saveFoodLog() {
     const name = document.getElementById('food-name').value;
-    const weight = parseInt(document.getElementById('food-weight').value);
     const dateStr = document.getElementById('food-datetime').value;
 
-    if (!weight || !dateStr) {
-        safeAlert("Please enter weight and date.");
+    if (!dateStr) {
+        safeAlert("Please enter date.");
+        return;
+    }
+    const totals = computeFoodTotals();
+    if (totals.per100g && totals.weight <= 0) {
+        safeAlert("Please enter weight for per 100g mode, or uncheck it.");
         return;
     }
 
-    const carbsInput = parseFloat(document.getElementById('food-carbs').value) || 0;
-    const proteinInput = parseFloat(document.getElementById('food-protein').value) || 0;
-    const fatInput = parseFloat(document.getElementById('food-fat').value) || 0;
-    const per100g = document.getElementById('food-per-100g').checked;
-
-    // Calculate totals passed to server
-    // Server expects TOTAL grams if we calculate here, OR we can pass unit?
-    // The API expects TOTAL grams/cals.
-
-    let totalCarbs = carbsInput;
-    let totalProt = proteinInput;
-    let totalFat = fatInput;
-
-    if (per100g) {
-        totalCarbs = Math.round((carbsInput * weight) / 100);
-        totalProt = Math.round((proteinInput * weight) / 100);
-        totalFat = Math.round((fatInput * weight) / 100);
-    }
-
-    const totalCals = (4 * totalCarbs) + (4 * totalProt) + (9 * totalFat);
-
     const payload = {
         eaten_at: new Date(dateStr).toISOString(),
-        weight: weight,
-        carbs: totalCarbs,
-        protein: totalProt,
-        fat: totalFat,
-        calories: totalCals,
+        weight: totals.weight,
+        carbs: totals.carbs,
+        protein: totals.protein,
+        fat: totals.fat,
+        calories: totals.calories,
         name: name,
         barcode: document.getElementById('food-barcode').value,
-        per_100g: false  // values are always converted to totals before sending
+        per_100g: false  // values are converted to totals before sending
     };
 
     const id = document.getElementById('food-id').value;
