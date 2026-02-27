@@ -328,9 +328,11 @@
             if (changeStream || changePollTimer) return;
             this.pruneStaleClientCache();
 
-            if (!this.startChangeStream()) {
-                this.startChangePollInterval();
-            }
+            // SSE (EventSource) over HTTP/2 behind reverse proxies (Traefik, nginx)
+            // is fundamentally broken: every server-side stream close sends RST_STREAM
+            // which surfaces as ERR_HTTP2_PROTOCOL_ERROR in the browser console.
+            // Polling at 30s is lightweight and reliable — use it exclusively.
+            this.startChangePollInterval();
         },
 
         stopChangePolling() {
