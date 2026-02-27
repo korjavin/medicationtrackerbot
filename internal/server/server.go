@@ -338,6 +338,9 @@ func (s *Server) Routes() http.Handler {
 
 	// Init endpoint (returns all data needed for first render)
 	apiMux.HandleFunc("GET /api/init", s.handleInit)
+	apiMux.HandleFunc("GET /api/bootstrap", s.handleBootstrap)
+	apiMux.HandleFunc("GET /api/changes", s.handleChanges)
+	apiMux.HandleFunc("GET /api/changes/stream", s.handleChangesStream)
 
 	// Settings endpoints
 	apiMux.HandleFunc("GET /api/food/settings/status", s.handleGetFoodIntakeEnabled)
