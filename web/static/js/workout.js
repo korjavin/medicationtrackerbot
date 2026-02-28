@@ -267,7 +267,8 @@ async function loadWorkoutGroups() {
 
 function _renderWorkoutGroups(container, groups) {
     if (!container) return;
-    const doc = container.ownerDocument || document;
+    const doc = container.ownerDocument;
+    if (!doc || typeof doc.createElement !== 'function') return;
     workoutGroups = groups || [];
 
     if (!groups || groups.length === 0) {
