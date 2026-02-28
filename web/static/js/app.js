@@ -758,15 +758,30 @@ async function apiCallDirect(endpoint, method = "GET", body = null) {
     }
 
     if (!res.ok) { const txt = await res.text(); throw new Error(txt); }
-    if (res.status === 204 || method === "DELETE") return true;
-    const txt = await res.text();
-    if (!txt) return true;
-    try {
-        return JSON.parse(txt);
-    } catch (e) {
-        console.log("Response is not JSON:", txt);
-        return true;
+    let result;
+    if (res.status === 204 || method === "DELETE") {
+        result = true;
+    } else {
+        const txt = await res.text();
+        if (!txt) {
+            result = true;
+        } else {
+            try {
+                result = JSON.parse(txt);
+            } catch (e) {
+                console.log("Response is not JSON:", txt);
+                result = true;
+            }
+        }
     }
+
+    // After a successful write, advance the change cursor so that the
+    // next poll does not show a refresh banner for our own mutations.
+    if (method !== 'GET' && window.DataStore?.advanceCursorSilently) {
+        window.DataStore.advanceCursorSilently(); // fire-and-forget
+    }
+
+    return result;
 }
 
 // Expose for sync.js

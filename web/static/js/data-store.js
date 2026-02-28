@@ -247,6 +247,25 @@
             }
         },
 
+        // Advance the change cursor without triggering a tab refresh.
+        // Called after the client itself performs a write, so that the next
+        // scheduled poll does not re-notify about the client's own changes.
+        async advanceCursorSilently() {
+            if (!window.apiCallDirect) return;
+            try {
+                const since = this.getChangeCursor();
+                const res = await window.apiCallDirect(`/api/changes?since=${since}`, 'GET');
+                if (!res || typeof res.cursor !== 'number') return;
+                const changedTags = Array.isArray(res.changed_tags) ? res.changed_tags : [];
+                if (changedTags.length > 0) {
+                    await this.invalidateTags(changedTags);
+                }
+                this.setChangeCursor(res.cursor);
+            } catch (_e) {
+                // Best-effort; the regular poll will catch up.
+            }
+        },
+
         startChangePollInterval() {
             if (changePollTimer) return;
             changePollTimer = setInterval(() => {
