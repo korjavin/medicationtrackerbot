@@ -1566,13 +1566,6 @@ async function showWorkoutSessionModal(sessionId) {
         renderWorkoutSessionLogs(logsContainer);
 
         window.ModalManager.workoutSession.open();
-
-        // Add click handler to overlay to close modal
-        overlay.onclick = function (e) {
-            if (e.target === overlay) {
-                closeWorkoutSessionModal();
-            }
-        };
     } catch (error) {
         console.error('Error loading session details:', error);
         safeAlert('Error loading session details');
@@ -1626,8 +1619,6 @@ async function deleteExerciseLog(index) {
 }
 
 function closeWorkoutSessionModal() {
-    const overlay = document.getElementById('modal-overlay');
-    overlay.onclick = null; // Remove click handler
     window.ModalManager.workoutSession.close();
     currentSessionData = null;
     originalSessionStatus = null;
@@ -2087,26 +2078,10 @@ async function showAddExerciseToSessionModal() {
     }
 
     window.ModalManager.workoutAddExerciseToSession.open();
-
-    // Ensure overlay closes this modal too
-    const overlay = document.getElementById('modal-overlay');
-    overlay.onclick = function (e) {
-        if (e.target === overlay) {
-            closeAddExerciseToSessionModal();
-        }
-    };
 }
 
 function closeAddExerciseToSessionModal() {
     window.ModalManager.workoutAddExerciseToSession.close();
-
-    // Revert overlay onclick to close session modal
-    const overlay = document.getElementById('modal-overlay');
-    overlay.onclick = function (e) {
-        if (e.target === overlay) {
-            closeWorkoutSessionModal();
-        }
-    };
 }
 
 function onSessionExerciseSelect() {
