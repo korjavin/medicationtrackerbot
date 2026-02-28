@@ -157,6 +157,15 @@ const ModalManager = {
         }
     },
 
+    workoutGroup: {
+        open() {
+            ModalManager.open('workout-group-modal');
+        },
+        close() {
+            ModalManager.close('workout-group-modal');
+        }
+    },
+
     foodProduct: {
         open() {
             const modal = document.getElementById('food-product-modal');
@@ -175,7 +184,7 @@ const ModalManager = {
             { id: 'bp-modal', fn: () => ModalManager.bp.close() },
             { id: 'weight-modal', fn: () => ModalManager.weight.close() },
             { id: 'food-modal', fn: () => ModalManager.food.close() },
-            { id: 'workout-group-modal', fn: () => typeof closeWorkoutGroupModal === 'function' && closeWorkoutGroupModal() },
+            { id: 'workout-group-modal', fn: () => typeof closeWorkoutGroupModal === 'function' ? closeWorkoutGroupModal() : ModalManager.workoutGroup.close() },
             { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' && closeVariantModal() },
             { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' && closeExerciseModal() },
             { id: 'workout-session-modal', fn: () => typeof closeWorkoutSessionModal === 'function' && closeWorkoutSessionModal() },
