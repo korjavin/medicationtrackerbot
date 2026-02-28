@@ -4139,24 +4139,32 @@ function renderBPAverages(stats) {
 
     // Check if stats object has any data
     if (!stats || (!stats.stats_14 && !stats.stats_30 && !stats.stats_60)) {
-        container.innerHTML = '';
+        container.replaceChildren();
         return;
     }
 
-    let html = '<div class="bp-avg-row">';
+    const row = document.createElement('div');
+    row.className = 'bp-avg-row';
 
-    if (stats.stats_14) {
-        html += `<div class="bp-avg-item"><span class="bp-avg-label">14d (${stats.stats_14.days}d)</span><span class="bp-avg-value">${stats.stats_14.systolic}/${stats.stats_14.diastolic}</span></div>`;
-    }
-    if (stats.stats_30) {
-        html += `<div class="bp-avg-item"><span class="bp-avg-label">30d (${stats.stats_30.days}d)</span><span class="bp-avg-value">${stats.stats_30.systolic}/${stats.stats_30.diastolic}</span></div>`;
-    }
-    if (stats.stats_60) {
-        html += `<div class="bp-avg-item"><span class="bp-avg-label">60d (${stats.stats_60.days}d)</span><span class="bp-avg-value">${stats.stats_60.systolic}/${stats.stats_60.diastolic}</span></div>`;
-    }
+    const appendAverageItem = (label, stat) => {
+        const item = document.createElement('div');
+        item.className = 'bp-avg-item';
+        const labelEl = document.createElement('span');
+        labelEl.className = 'bp-avg-label';
+        labelEl.textContent = `${label} (${stat.days}d)`;
+        const valueEl = document.createElement('span');
+        valueEl.className = 'bp-avg-value';
+        valueEl.textContent = `${stat.systolic}/${stat.diastolic}`;
+        item.appendChild(labelEl);
+        item.appendChild(valueEl);
+        row.appendChild(item);
+    };
 
-    html += '</div>';
-    container.innerHTML = html;
+    if (stats.stats_14) appendAverageItem('14d', stats.stats_14);
+    if (stats.stats_30) appendAverageItem('30d', stats.stats_30);
+    if (stats.stats_60) appendAverageItem('60d', stats.stats_60);
+
+    container.replaceChildren(row);
 }
 
 // Render BP readings grouped by date
