@@ -93,6 +93,7 @@ export function loadFrontendEnv({ withWorkout = false } = {}) {
   window.alert = () => {};
   window.confirm = () => true;
   window.fetch = async () => createMockResponse({ status: 200, json: {} });
+  window.eval('var history = window.history;');
 
   const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
   window.eval(appSource);
