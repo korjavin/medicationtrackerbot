@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createMockResponse, loadFrontendEnv } from './helpers/frontend-harness.js';
 
 describe('app.js unit tests', () => {
@@ -63,6 +63,32 @@ describe('app.js unit tests', () => {
       const value = window.formatDateTimeLocalForInput('2026-02-28T10:15:00Z');
       expect(value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
       expect(() => window.formatDateTimeLocalForInput('not-a-date')).toThrow('Invalid time value');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('downloads blob payload as a file via object URL', () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      const clickSpy = vi.spyOn(window.HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      const originalCreateObjectURL = window.URL.createObjectURL;
+      const originalRevokeObjectURL = window.URL.revokeObjectURL;
+      const createObjectURLSpy = vi.fn().mockReturnValue('blob:test');
+      const revokeObjectURLSpy = vi.fn();
+      window.URL.createObjectURL = createObjectURLSpy;
+      window.URL.revokeObjectURL = revokeObjectURLSpy;
+
+      window.downloadBlobAsFile(new window.Blob(['x']), 'sample.csv');
+
+      expect(createObjectURLSpy).toHaveBeenCalled();
+      expect(clickSpy).toHaveBeenCalled();
+      expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:test');
+      expect(window.document.querySelector('a[download=\"sample.csv\"]')).toBeNull();
+
+      window.URL.createObjectURL = originalCreateObjectURL;
+      window.URL.revokeObjectURL = originalRevokeObjectURL;
+      clickSpy.mockRestore();
     } finally {
       cleanup();
     }
