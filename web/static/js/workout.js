@@ -40,6 +40,69 @@ function loadWorkouts() {
     switchWorkoutTab('history');
 }
 
+let workoutControlsBound = false;
+
+function bindWorkoutControls() {
+    if (workoutControlsBound) return;
+    workoutControlsBound = true;
+
+    const bindClick = (id, handler) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('click', handler);
+    };
+
+    bindClick('start-adhoc-workout-btn', () => startAdHocWorkout());
+    bindClick('add-workout-group-btn', () => showAddWorkoutGroupModal());
+    bindClick('add-exercise-library-btn', () => showExerciseLibraryModal());
+
+    bindClick('workout-group-cancel-btn', () => closeWorkoutGroupModal());
+    bindClick('workout-group-save-btn', () => saveWorkoutGroup());
+    bindClick('add-variant-btn', () => showAddVariantModal());
+    bindClick('add-flat-exercise-btn', () => showAddExerciseModalFromGroup());
+
+    bindClick('variant-cancel-btn', () => closeVariantModal());
+    bindClick('variant-save-btn', () => saveVariant());
+    bindClick('variant-add-exercise-btn', () => showAddExerciseModal());
+
+    bindClick('exercise-cancel-btn', () => closeExerciseModal());
+    bindClick('exercise-save-btn', () => saveExercise());
+
+    bindClick('exercise-library-cancel-btn', () => closeExerciseLibraryModal());
+    bindClick('exercise-library-save-btn', () => saveExerciseLibraryItem());
+
+    bindClick('workout-session-cancel-btn', () => closeWorkoutSessionModal());
+    bindClick('workout-session-save-btn', () => saveWorkoutSessionDetails());
+    bindClick('workout-session-add-exercise-btn', () => showAddExerciseToSessionModal());
+
+    bindClick('session-add-exercise-cancel-btn', () => closeAddExerciseToSessionModal());
+    bindClick('session-add-exercise-save-btn', () => saveNewSessionExercise());
+
+    const rotatingCheckbox = document.getElementById('workout-group-rotating');
+    if (rotatingCheckbox) {
+        rotatingCheckbox.addEventListener('change', () => {
+            toggleRotatingFields();
+        });
+    }
+
+    document.querySelectorAll('#workout-group-modal .days-select span').forEach((day) => {
+        day.addEventListener('click', () => {
+            toggleWorkoutDay(day);
+        });
+    });
+
+    const sessionExerciseName = document.getElementById('session-add-exercise-name');
+    if (sessionExerciseName) {
+        sessionExerciseName.addEventListener('change', () => {
+            onSessionExerciseSelect();
+        });
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindWorkoutControls, { once: true });
+}
+bindWorkoutControls();
+
 // ====================================
 // NEXT WORKOUT CARD
 // ====================================
@@ -58,7 +121,7 @@ async function loadNextWorkout() {
         },
         onError: async (error, cached) => {
             console.error('Error loading next workout:', error);
-            if (!cached) container.innerHTML = '';
+            if (!cached) container.replaceChildren();
         },
         allowNullFresh: true
     });
@@ -335,6 +398,16 @@ function _renderWorkoutGroups(container, groups) {
     });
 }
 
+function setFlatExercisesPendingSaveMessage() {
+    const container = document.getElementById('workout-group-flat-exercises-list');
+    if (!container) return;
+    const message = document.createElement('p');
+    message.style.color = 'var(--hint-color)';
+    message.style.fontSize = '0.9em';
+    message.textContent = 'Save this group first to add exercises.';
+    container.replaceChildren(message);
+}
+
 // ====================================
 // WORKOUT GROUP MODAL
 // ====================================
@@ -360,7 +433,7 @@ function showAddWorkoutGroupModal() {
     // Show/hide sections based on default "Rotating" state (unchecked)
     document.getElementById('workout-variants-section').style.display = 'none';
     document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
-    document.getElementById('workout-group-flat-exercises-list').innerHTML = '<p style="color: var(--hint-color); font-size: 0.9em;">Save this group first to add exercises.</p>';
+    setFlatExercisesPendingSaveMessage();
 }
 
 async function showEditWorkoutGroupModal(groupId) {
@@ -456,7 +529,7 @@ async function toggleRotatingFields() {
             await loadExercisesForVariant(defaultVariantId, 'workout-group-flat-exercises-list');
         } else {
             // New group, just show message
-            document.getElementById('workout-group-flat-exercises-list').innerHTML = '<p style="color: var(--hint-color); font-size: 0.9em;">Save this group first to add exercises.</p>';
+            setFlatExercisesPendingSaveMessage();
         }
     }
 }
@@ -849,7 +922,7 @@ async function showAddExerciseModal() {
         document.body.appendChild(datalist);
         document.getElementById('workout-exercise-name').setAttribute('list', 'exercise-library-datalist');
     }
-    datalist.innerHTML = '';
+    datalist.replaceChildren();
 
     try {
         const items = await apiCall('/api/workout/exercise-library');
@@ -981,47 +1054,84 @@ async function loadExerciseLibrary() {
         },
         onError: async (error, cached) => {
             console.error('Error loading exercise library:', error);
-            if (!cached) container.innerHTML = '<p style="color: red;">Error loading exercise library</p>';
+            if (!cached) {
+                const message = document.createElement('p');
+                message.style.color = 'red';
+                message.textContent = 'Error loading exercise library';
+                container.replaceChildren(message);
+            }
         }
     });
 }
 
 function _renderExerciseLibrary(container, items) {
     if (!items || items.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: var(--hint-color);">No exercises in library yet. Add your first exercise!</p>';
+        const empty = document.createElement('p');
+        empty.style.textAlign = 'center';
+        empty.style.color = 'var(--hint-color)';
+        empty.textContent = 'No exercises in library yet. Add your first exercise!';
+        container.replaceChildren(empty);
         return;
     }
 
-    let html = '<div class="exercise-library-items">';
+    const root = document.createElement('div');
+    root.className = 'exercise-library-items';
+
     for (const item of items) {
         const repsStr = item.default_reps_max
             ? `${item.default_reps_min}-${item.default_reps_max}`
             : `${item.default_reps_min}`;
         const weightStr = item.default_weight_kg ? ` @ ${item.default_weight_kg}kg` : '';
-        const notesStr = item.notes ? `<div style="font-size: 0.85em; color: var(--hint-color); margin-top: 2px;">${_escapeHtml(item.notes)}</div>` : '';
 
-        html += `
-            <div class="exercise-library-item" onclick="showEditExerciseLibraryModal(${item.id})" style="cursor: pointer;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <strong>${_escapeHtml(item.name)}</strong>
-                        <div style="font-size: 0.9em; color: var(--hint-color);">
-                            ${item.default_sets} sets x ${repsStr} reps${weightStr}
-                        </div>
-                        ${notesStr}
-                    </div>
-                    <button onclick="deleteExerciseLibraryItem(${item.id}, event)" class="secondary" style="padding: 4px 8px; font-size: 0.85em;">Delete</button>
-                </div>
-            </div>`;
+        const card = document.createElement('div');
+        card.className = 'exercise-library-item';
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', () => {
+            showEditExerciseLibraryModal(item.id);
+        });
+
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.alignItems = 'center';
+
+        const details = document.createElement('div');
+        const title = document.createElement('strong');
+        title.textContent = item.name || '';
+
+        const defaults = document.createElement('div');
+        defaults.style.fontSize = '0.9em';
+        defaults.style.color = 'var(--hint-color)';
+        defaults.textContent = `${item.default_sets} sets x ${repsStr} reps${weightStr}`;
+
+        details.appendChild(title);
+        details.appendChild(defaults);
+
+        if (item.notes) {
+            const notes = document.createElement('div');
+            notes.style.fontSize = '0.85em';
+            notes.style.color = 'var(--hint-color)';
+            notes.style.marginTop = '2px';
+            notes.textContent = item.notes;
+            details.appendChild(notes);
+        }
+
+        const deleteButton = document.createElement('button');
+        deleteButton.className = 'secondary';
+        deleteButton.style.padding = '4px 8px';
+        deleteButton.style.fontSize = '0.85em';
+        deleteButton.textContent = 'Delete';
+        deleteButton.addEventListener('click', (event) => {
+            deleteExerciseLibraryItem(item.id, event);
+        });
+
+        row.appendChild(details);
+        row.appendChild(deleteButton);
+        card.appendChild(row);
+        root.appendChild(card);
     }
-    html += '</div>';
-    container.innerHTML = html;
-}
 
-function _escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    container.replaceChildren(root);
 }
 
 function showExerciseLibraryModal(id) {
@@ -1097,7 +1207,7 @@ async function saveExerciseLibraryItem() {
 }
 
 async function deleteExerciseLibraryItem(id, event) {
-    event.stopPropagation();
+    event?.stopPropagation?.();
     if (confirm('Delete this exercise from library?')) {
         const result = await apiCall(`/api/workout/exercise-library/delete?id=${id}`, 'DELETE');
         if (result || result === true) {
@@ -1256,6 +1366,175 @@ let currentSessionLogs = [];
 let currentSessionData = null;
 let originalSessionStatus = null;
 
+function renderWorkoutSessionInfo(infoContainer, session) {
+    const root = document.createElement('div');
+    root.style.display = 'flex';
+    root.style.justifyContent = 'space-between';
+    root.style.alignItems = 'center';
+    root.style.marginBottom = '10px';
+
+    const left = document.createElement('div');
+    const time = document.createElement('strong');
+    time.textContent = session.started_at
+        ? new Date(session.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : (session.scheduled_time || '');
+    left.appendChild(time);
+    left.appendChild(document.createTextNode(' • '));
+    left.appendChild(document.createTextNode(new Date(session.scheduled_date).toLocaleDateString()));
+
+    const right = document.createElement('div');
+    right.style.display = 'flex';
+    right.style.alignItems = 'center';
+    right.style.gap = '8px';
+
+    const label = document.createElement('label');
+    label.style.fontSize = '0.9em';
+    label.style.color = '#666';
+    label.style.margin = '0';
+    label.textContent = 'Status:';
+
+    const select = document.createElement('select');
+    select.id = 'session-status-select';
+    select.style.padding = '4px 8px';
+    select.style.borderRadius = '4px';
+    select.style.border = '1px solid #ddd';
+
+    const statusOptions = [
+        { value: 'in_progress', label: '🏋️ In Progress' },
+        { value: 'completed', label: '✅ Completed' },
+        { value: 'skipped', label: '⏭ Skipped' }
+    ];
+
+    statusOptions.forEach((opt) => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.label;
+        option.selected = session.status === opt.value;
+        select.appendChild(option);
+    });
+
+    right.appendChild(label);
+    right.appendChild(select);
+
+    root.appendChild(left);
+    root.appendChild(right);
+    infoContainer.replaceChildren(root);
+}
+
+function renderWorkoutSessionLogs(logsContainer) {
+    if (!Array.isArray(currentSessionLogs) || currentSessionLogs.length === 0) {
+        const empty = document.createElement('p');
+        empty.style.textAlign = 'center';
+        empty.style.color = '#888';
+        empty.textContent = 'No exercises logged';
+        logsContainer.replaceChildren(empty);
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    currentSessionLogs.forEach((log, index) => {
+        const isUnsaved = !log.id || log.id === 0;
+
+        const entry = document.createElement('div');
+        entry.className = 'exercise-log-entry';
+        entry.id = `exercise-log-${index}`;
+        entry.style.position = 'relative';
+        if (isUnsaved && !log._dirty) {
+            entry.style.opacity = '0.6';
+        }
+
+        const headerRow = document.createElement('div');
+        headerRow.style.display = 'flex';
+        headerRow.style.justifyContent = 'space-between';
+        headerRow.style.alignItems = 'center';
+
+        const title = document.createElement('h4');
+        title.style.margin = '0';
+        title.textContent = log.exercise_name || '';
+
+        const deleteButton = document.createElement('button');
+        deleteButton.title = 'Remove exercise';
+        deleteButton.style.background = 'none';
+        deleteButton.style.border = 'none';
+        deleteButton.style.cursor = 'pointer';
+        deleteButton.style.fontSize = '1.2em';
+        deleteButton.style.padding = '4px 8px';
+        deleteButton.style.color = '#c62828';
+        deleteButton.textContent = '🗑️';
+        deleteButton.addEventListener('click', () => {
+            deleteExerciseLog(index);
+        });
+
+        headerRow.appendChild(title);
+        headerRow.appendChild(deleteButton);
+        entry.appendChild(headerRow);
+
+        if (isUnsaved && !log._dirty) {
+            const hint = document.createElement('div');
+            hint.className = 'exercise-log-unsaved-hint';
+            hint.style.fontSize = '0.75em';
+            hint.style.color = '#888';
+            hint.style.marginBottom = '4px';
+            hint.textContent = 'Not yet logged — edit to include';
+            entry.appendChild(hint);
+        }
+
+        const inputRow = document.createElement('div');
+        inputRow.className = 'log-input-row';
+
+        const createNumberInputGroup = (labelText, value, field, min, max, step, inputmode) => {
+            const group = document.createElement('div');
+            group.className = 'log-input-group';
+
+            const label = document.createElement('label');
+            label.textContent = labelText;
+
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.min = String(min);
+            input.max = String(max);
+            input.step = String(step);
+            input.value = String(value);
+            input.setAttribute('inputmode', inputmode);
+            input.addEventListener('change', () => {
+                updateLocalLog(index, field, input.value);
+            });
+
+            group.appendChild(label);
+            group.appendChild(input);
+            return group;
+        };
+
+        inputRow.appendChild(createNumberInputGroup('Sets', log.sets_completed || 0, 'sets_completed', 0, 20, 1, 'numeric'));
+        inputRow.appendChild(createNumberInputGroup('Reps', log.reps_completed || 0, 'reps_completed', 0, 100, 1, 'numeric'));
+        inputRow.appendChild(createNumberInputGroup('Weight (kg)', log.weight_kg || 0, 'weight_kg', 0, 500, 0.5, 'decimal'));
+        entry.appendChild(inputRow);
+
+        const notesGroup = document.createElement('div');
+        notesGroup.className = 'log-input-group';
+
+        const notesLabel = document.createElement('label');
+        notesLabel.textContent = 'Notes';
+
+        const notesInput = document.createElement('input');
+        notesInput.type = 'text';
+        notesInput.value = log.notes || '';
+        notesInput.placeholder = 'Add notes...';
+        notesInput.maxLength = 200;
+        notesInput.addEventListener('change', () => {
+            updateLocalLog(index, 'notes', notesInput.value);
+        });
+
+        notesGroup.appendChild(notesLabel);
+        notesGroup.appendChild(notesInput);
+        entry.appendChild(notesGroup);
+
+        fragment.appendChild(entry);
+    });
+
+    logsContainer.replaceChildren(fragment);
+}
+
 async function showWorkoutSessionModal(sessionId) {
     const logsContainer = document.getElementById('workout-session-logs');
     const infoContainer = document.getElementById('workout-session-info');
@@ -1301,66 +1580,8 @@ async function showWorkoutSessionModal(sessionId) {
             }
         }
 
-        // Build info section with status dropdown
-        const statusOptions = [
-            { value: 'in_progress', label: '🏋️ In Progress' },
-            { value: 'completed', label: '✅ Completed' },
-            { value: 'skipped', label: '⏭ Skipped' }
-        ];
-
-        const statusDropdown = statusOptions.map(opt =>
-            `<option value="${opt.value}" ${data.session.status === opt.value ? 'selected' : ''}>${opt.label}</option>`
-        ).join('');
-
-        infoContainer.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <div>
-                    <strong>${data.session.started_at ? new Date(data.session.started_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : escapeHtml(data.session.scheduled_time)}</strong> •
-                    ${new Date(data.session.scheduled_date).toLocaleDateString()}
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <label style="font-size: 0.9em; color: #666; margin: 0;">Status:</label>
-                    <select id="session-status-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #ddd;">
-                        ${statusDropdown}
-                    </select>
-                </div>
-            </div>
-        `;
-
-        let html = '';
-        currentSessionLogs.forEach((log, index) => {
-            const isUnsaved = !log.id || log.id === 0;
-            const dimStyle = isUnsaved && !log._dirty ? 'opacity: 0.6;' : '';
-            html += `
-                <div class="exercise-log-entry" id="exercise-log-${index}" style="position: relative; ${dimStyle}">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h4 style="margin: 0;">${escapeHtml(log.exercise_name)}</h4>
-                        <button onclick="deleteExerciseLog(${index})" title="Remove exercise" style="background: none; border: none; cursor: pointer; font-size: 1.2em; padding: 4px 8px; color: #c62828;">🗑️</button>
-                    </div>
-                    ${isUnsaved && !log._dirty ? '<div style="font-size: 0.75em; color: #888; margin-bottom: 4px;">Not yet logged — edit to include</div>' : ''}
-                    <div class="log-input-row">
-                        <div class="log-input-group">
-                            <label>Sets</label>
-                            <input type="number" min="0" max="20" step="1" value="${log.sets_completed || 0}" onchange="updateLocalLog(${index}, 'sets_completed', this.value)" inputmode="numeric">
-                        </div>
-                        <div class="log-input-group">
-                            <label>Reps</label>
-                            <input type="number" min="0" max="100" step="1" value="${log.reps_completed || 0}" onchange="updateLocalLog(${index}, 'reps_completed', this.value)" inputmode="numeric">
-                        </div>
-                        <div class="log-input-group">
-                            <label>Weight (kg)</label>
-                            <input type="number" min="0" max="500" step="0.5" value="${log.weight_kg || 0}" onchange="updateLocalLog(${index}, 'weight_kg', this.value)" inputmode="decimal">
-                        </div>
-                    </div>
-                    <div class="log-input-group">
-                        <label>Notes</label>
-                        <input type="text" value="${escapeHtml(log.notes || '')}" onchange="updateLocalLog(${index}, 'notes', this.value)" placeholder="Add notes..." maxlength="200">
-                    </div>
-                </div>
-            `;
-        });
-
-        logsContainer.innerHTML = html || '<p style="text-align: center; color: #888;">No exercises logged</p>';
+        renderWorkoutSessionInfo(infoContainer, data.session);
+        renderWorkoutSessionLogs(logsContainer);
 
         window.ModalManager.workoutSession.open();
 
@@ -1377,6 +1598,8 @@ async function showWorkoutSessionModal(sessionId) {
 }
 
 function updateLocalLog(index, field, value) {
+    if (!currentSessionLogs[index]) return;
+
     if (field === 'notes') {
         currentSessionLogs[index][field] = value;
     } else if (field === 'sets_completed' || field === 'reps_completed') {
@@ -1392,7 +1615,7 @@ function updateLocalLog(index, field, value) {
     const el = document.getElementById(`exercise-log-${index}`);
     if (el) {
         el.style.opacity = '1';
-        const hint = el.querySelector('div[style*="Not yet logged"]');
+        const hint = el.querySelector('.exercise-log-unsaved-hint');
         if (hint) hint.remove();
     }
 }
@@ -1416,41 +1639,8 @@ async function deleteExerciseLog(index) {
 
     // Remove from local array and re-render
     currentSessionLogs.splice(index, 1);
-    // Re-render the logs in the modal
     const logsContainer = document.getElementById('workout-session-logs');
-    let html = '';
-    currentSessionLogs.forEach((log, i) => {
-        const isUnsaved = !log.id || log.id === 0;
-        const dimStyle = isUnsaved && !log._dirty ? 'opacity: 0.6;' : '';
-        html += `
-            <div class="exercise-log-entry" id="exercise-log-${i}" style="position: relative; ${dimStyle}">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h4 style="margin: 0;">${escapeHtml(log.exercise_name)}</h4>
-                    <button onclick="deleteExerciseLog(${i})" title="Remove exercise" style="background: none; border: none; cursor: pointer; font-size: 1.2em; padding: 4px 8px; color: #c62828;">🗑️</button>
-                </div>
-                ${isUnsaved && !log._dirty ? '<div style="font-size: 0.75em; color: #888; margin-bottom: 4px;">Not yet logged — edit to include</div>' : ''}
-                <div class="log-input-row">
-                    <div class="log-input-group">
-                        <label>Sets</label>
-                        <input type="number" min="0" max="20" step="1" value="${log.sets_completed || 0}" onchange="updateLocalLog(${i}, 'sets_completed', this.value)" inputmode="numeric">
-                    </div>
-                    <div class="log-input-group">
-                        <label>Reps</label>
-                        <input type="number" min="0" max="100" step="1" value="${log.reps_completed || 0}" onchange="updateLocalLog(${i}, 'reps_completed', this.value)" inputmode="numeric">
-                    </div>
-                    <div class="log-input-group">
-                        <label>Weight (kg)</label>
-                        <input type="number" min="0" max="500" step="0.5" value="${log.weight_kg || 0}" onchange="updateLocalLog(${i}, 'weight_kg', this.value)" inputmode="decimal">
-                    </div>
-                </div>
-                <div class="log-input-group">
-                    <label>Notes</label>
-                    <input type="text" value="${escapeHtml(log.notes || '')}" onchange="updateLocalLog(${i}, 'notes', this.value)" placeholder="Add notes..." maxlength="200">
-                </div>
-            </div>
-        `;
-    });
-    logsContainer.innerHTML = html || '<p style="text-align: center; color: #888;">No exercises logged</p>';
+    renderWorkoutSessionLogs(logsContainer);
 }
 
 function closeWorkoutSessionModal() {
@@ -1548,14 +1738,23 @@ async function loadWorkoutStatsTab() {
         },
         onError: async (error, cached) => {
             console.error('Error loading stats:', error);
-            if (!cached) container.innerHTML = '<p style="color: red;">Error loading statistics</p>';
+            if (!cached) {
+                const message = document.createElement('p');
+                message.style.color = 'red';
+                message.textContent = 'Error loading statistics';
+                container.replaceChildren(message);
+            }
         }
     });
 }
 
 function _renderWorkoutStats(container, stats) {
     if (!stats) {
-        container.innerHTML = '<p style="text-align: center; color: var(--hint-color);">No statistics available yet</p>';
+        const empty = document.createElement('p');
+        empty.style.textAlign = 'center';
+        empty.style.color = 'var(--hint-color)';
+        empty.textContent = 'No statistics available yet';
+        container.replaceChildren(empty);
         return;
     }
 
@@ -1565,36 +1764,164 @@ function _renderWorkoutStats(container, stats) {
         return `${Math.round(kg).toLocaleString()} kg`;
     };
 
-    // Top exercises section
-    let topExercisesHtml = '';
+    const root = document.createElement('div');
+
+    const topGrid = document.createElement('div');
+    topGrid.style.display = 'grid';
+    topGrid.style.gridTemplateColumns = 'repeat(3, 1fr)';
+    topGrid.style.gap = '10px';
+    topGrid.style.marginBottom = '12px';
+
+    const buildHeroCard = (background, valueText, labelText) => {
+        const card = document.createElement('div');
+        card.style.background = background;
+        card.style.color = 'white';
+        card.style.padding = '18px 8px';
+        card.style.borderRadius = '12px';
+        card.style.textAlign = 'center';
+
+        const value = document.createElement('div');
+        value.style.fontSize = '2.4em';
+        value.style.fontWeight = 'bold';
+        value.style.lineHeight = '1.1';
+        value.textContent = valueText;
+
+        const label = document.createElement('div');
+        label.style.fontSize = '0.78em';
+        label.style.opacity = '0.92';
+        label.style.marginTop = '5px';
+        label.textContent = labelText;
+
+        card.appendChild(value);
+        card.appendChild(label);
+        return card;
+    };
+
+    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #667eea 0%, #764ba2 100%)', String(stats.current_streak), '🔥 Streak'));
+    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', String(stats.longest_streak), '🏆 Best'));
+    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', `${Math.round(stats.completion_rate)}%`, '💪 30-Day'));
+    root.appendChild(topGrid);
+
+    const totalsGrid = document.createElement('div');
+    totalsGrid.style.display = 'grid';
+    totalsGrid.style.gridTemplateColumns = 'repeat(3, 1fr)';
+    totalsGrid.style.gap = '10px';
+
+    const buildTotalsCard = (background, borderColor, valueColor, valueText, labelText) => {
+        const card = document.createElement('div');
+        card.style.background = background;
+        card.style.padding = '14px 8px';
+        card.style.borderRadius = '8px';
+        card.style.textAlign = 'center';
+        card.style.border = `1.5px solid ${borderColor}`;
+
+        const value = document.createElement('div');
+        value.style.fontSize = '1.7em';
+        value.style.fontWeight = 'bold';
+        value.style.color = valueColor;
+        value.textContent = valueText;
+
+        const label = document.createElement('div');
+        label.style.fontSize = '0.78em';
+        label.style.color = 'var(--hint-color)';
+        label.style.marginTop = '2px';
+        label.textContent = labelText;
+
+        card.appendChild(value);
+        card.appendChild(label);
+        return card;
+    };
+
+    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #f0fff4)', '#28a745', '#28a745', String(stats.completed_sessions), 'Done'));
+    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #fffbf0)', '#ffc107', '#ffc107', String(stats.skipped_sessions), 'Skipped'));
+    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #f5f0ff)', '#764ba2', '#764ba2', formatVolume(stats.total_volume_kg), 'Lifted'));
+    root.appendChild(totalsGrid);
+
     if (stats.top_exercises && stats.top_exercises.length > 0) {
         const maxVol = stats.top_exercises[0].total_volume_kg || 1;
         const medals = ['🥇', '🥈', '🥉'];
-        topExercisesHtml = `
-                <div style="margin-top: 20px;">
-                    <div style="font-size: 0.75em; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--hint-color); margin-bottom: 10px;">Top Exercises · Volume</div>
-                    ${stats.top_exercises.map((ex, i) => {
+        const section = document.createElement('div');
+        section.style.marginTop = '20px';
+
+        const heading = document.createElement('div');
+        heading.style.fontSize = '0.75em';
+        heading.style.fontWeight = '600';
+        heading.style.textTransform = 'uppercase';
+        heading.style.letterSpacing = '1px';
+        heading.style.color = 'var(--hint-color)';
+        heading.style.marginBottom = '10px';
+        heading.textContent = 'Top Exercises · Volume';
+        section.appendChild(heading);
+
+        stats.top_exercises.forEach((ex, i) => {
             const pct = maxVol > 0 ? (ex.total_volume_kg / maxVol * 100).toFixed(1) : 0;
             const medal = medals[i] || `${i + 1}.`;
             const maxW = ex.max_weight_kg > 0 ? `${ex.max_weight_kg} kg max` : '';
-            return `
-                            <div style="margin-bottom: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
-                                    <span style="font-size: 0.9em; font-weight: 500;">${medal} ${ex.exercise_name}</span>
-                                    <span style="font-size: 0.8em; color: var(--hint-color);">${formatVolume(ex.total_volume_kg)}${maxW ? ' · ' + maxW : ''}</span>
-                                </div>
-                                <div style="background: var(--secondary-bg-color, rgba(0,0,0,0.07)); border-radius: 4px; height: 5px; overflow: hidden;">
-                                    <div style="background: linear-gradient(90deg, #667eea, #764ba2); width: ${pct}%; height: 100%; border-radius: 4px; transition: width 0.4s;"></div>
-                                </div>
-                            </div>`;
-        }).join('')}
-                </div>`;
+
+            const row = document.createElement('div');
+            row.style.marginBottom = '10px';
+
+            const labels = document.createElement('div');
+            labels.style.display = 'flex';
+            labels.style.justifyContent = 'space-between';
+            labels.style.alignItems = 'baseline';
+            labels.style.marginBottom = '4px';
+
+            const name = document.createElement('span');
+            name.style.fontSize = '0.9em';
+            name.style.fontWeight = '500';
+            name.textContent = `${medal} ${ex.exercise_name}`;
+
+            const meta = document.createElement('span');
+            meta.style.fontSize = '0.8em';
+            meta.style.color = 'var(--hint-color)';
+            meta.textContent = `${formatVolume(ex.total_volume_kg)}${maxW ? ` · ${maxW}` : ''}`;
+
+            labels.appendChild(name);
+            labels.appendChild(meta);
+
+            const barTrack = document.createElement('div');
+            barTrack.style.background = 'var(--secondary-bg-color, rgba(0,0,0,0.07))';
+            barTrack.style.borderRadius = '4px';
+            barTrack.style.height = '5px';
+            barTrack.style.overflow = 'hidden';
+
+            const barFill = document.createElement('div');
+            barFill.style.background = 'linear-gradient(90deg, #667eea, #764ba2)';
+            barFill.style.width = `${pct}%`;
+            barFill.style.height = '100%';
+            barFill.style.borderRadius = '4px';
+            barFill.style.transition = 'width 0.4s';
+
+            barTrack.appendChild(barFill);
+            row.appendChild(labels);
+            row.appendChild(barTrack);
+            section.appendChild(row);
+        });
+
+        root.appendChild(section);
     }
 
-    // 12-week heatmap
-    let heatmapHtml = '';
     if (stats.weekly_activity && stats.weekly_activity.length > 0) {
-        const squares = stats.weekly_activity.map(w => {
+        const section = document.createElement('div');
+        section.style.marginTop = '20px';
+
+        const heading = document.createElement('div');
+        heading.style.fontSize = '0.75em';
+        heading.style.fontWeight = '600';
+        heading.style.textTransform = 'uppercase';
+        heading.style.letterSpacing = '1px';
+        heading.style.color = 'var(--hint-color)';
+        heading.style.marginBottom = '10px';
+        heading.textContent = '12-Week Activity';
+        section.appendChild(heading);
+
+        const squares = document.createElement('div');
+        squares.style.display = 'flex';
+        squares.style.flexWrap = 'wrap';
+        squares.style.gap = '4px';
+
+        stats.weekly_activity.forEach((w) => {
             const total = w.completed + w.skipped;
             let bg;
             if (total === 0) bg = 'var(--secondary-bg-color, #e8e8e8)';
@@ -1605,54 +1932,49 @@ function _renderWorkoutStats(container, stats) {
 
             const d = new Date(w.week + 'T00:00:00');
             const label = d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
-            return `<div title="${label}: ${w.completed} done, ${w.skipped} skipped"
-                             style="width: 26px; height: 26px; border-radius: 4px; background: ${bg}; flex-shrink: 0;"></div>`;
-        }).join('');
 
-        heatmapHtml = `
-                <div style="margin-top: 20px;">
-                    <div style="font-size: 0.75em; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--hint-color); margin-bottom: 10px;">12-Week Activity</div>
-                    <div style="display: flex; flex-wrap: wrap; gap: 4px;">${squares}</div>
-                    <div style="display: flex; gap: 12px; margin-top: 8px; font-size: 0.72em; color: var(--hint-color);">
-                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#28a745;vertical-align:middle;margin-right:3px;"></span>All done</span>
-                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#85c17e;vertical-align:middle;margin-right:3px;"></span>Partial</span>
-                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#e05c5c;vertical-align:middle;margin-right:3px;"></span>Skipped</span>
-                    </div>
-                </div>`;
+            const square = document.createElement('div');
+            square.title = `${label}: ${w.completed} done, ${w.skipped} skipped`;
+            square.style.width = '26px';
+            square.style.height = '26px';
+            square.style.borderRadius = '4px';
+            square.style.background = bg;
+            square.style.flexShrink = '0';
+            squares.appendChild(square);
+        });
+
+        const legend = document.createElement('div');
+        legend.style.display = 'flex';
+        legend.style.gap = '12px';
+        legend.style.marginTop = '8px';
+        legend.style.fontSize = '0.72em';
+        legend.style.color = 'var(--hint-color)';
+
+        const createLegendItem = (color, text) => {
+            const item = document.createElement('span');
+            const swatch = document.createElement('span');
+            swatch.style.display = 'inline-block';
+            swatch.style.width = '10px';
+            swatch.style.height = '10px';
+            swatch.style.borderRadius = '2px';
+            swatch.style.background = color;
+            swatch.style.verticalAlign = 'middle';
+            swatch.style.marginRight = '3px';
+            item.appendChild(swatch);
+            item.appendChild(document.createTextNode(text));
+            return item;
+        };
+
+        legend.appendChild(createLegendItem('#28a745', 'All done'));
+        legend.appendChild(createLegendItem('#85c17e', 'Partial'));
+        legend.appendChild(createLegendItem('#e05c5c', 'Skipped'));
+
+        section.appendChild(squares);
+        section.appendChild(legend);
+        root.appendChild(section);
     }
 
-    container.innerHTML = `
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px;">
-                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 18px 8px; border-radius: 12px; text-align: center;">
-                    <div style="font-size: 2.4em; font-weight: bold; line-height: 1.1;">${stats.current_streak}</div>
-                    <div style="font-size: 0.78em; opacity: 0.92; margin-top: 5px;">🔥 Streak</div>
-                </div>
-                <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 18px 8px; border-radius: 12px; text-align: center;">
-                    <div style="font-size: 2.4em; font-weight: bold; line-height: 1.1;">${stats.longest_streak}</div>
-                    <div style="font-size: 0.78em; opacity: 0.92; margin-top: 5px;">🏆 Best</div>
-                </div>
-                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 18px 8px; border-radius: 12px; text-align: center;">
-                    <div style="font-size: 2.4em; font-weight: bold; line-height: 1.1;">${Math.round(stats.completion_rate)}%</div>
-                    <div style="font-size: 0.78em; opacity: 0.92; margin-top: 5px;">💪 30-Day</div>
-                </div>
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
-                <div style="background: var(--secondary-bg-color, #f0fff4); padding: 14px 8px; border-radius: 8px; text-align: center; border: 1.5px solid #28a745;">
-                    <div style="font-size: 1.7em; font-weight: bold; color: #28a745;">${stats.completed_sessions}</div>
-                    <div style="font-size: 0.78em; color: var(--hint-color); margin-top: 2px;">Done</div>
-                </div>
-                <div style="background: var(--secondary-bg-color, #fffbf0); padding: 14px 8px; border-radius: 8px; text-align: center; border: 1.5px solid #ffc107;">
-                    <div style="font-size: 1.7em; font-weight: bold; color: #ffc107;">${stats.skipped_sessions}</div>
-                    <div style="font-size: 0.78em; color: var(--hint-color); margin-top: 2px;">Skipped</div>
-                </div>
-                <div style="background: var(--secondary-bg-color, #f5f0ff); padding: 14px 8px; border-radius: 8px; text-align: center; border: 1.5px solid #764ba2;">
-                    <div style="font-size: 1.7em; font-weight: bold; color: #764ba2;">${formatVolume(stats.total_volume_kg)}</div>
-                    <div style="font-size: 0.78em; color: var(--hint-color); margin-top: 2px;">Lifted</div>
-                </div>
-            </div>
-            ${topExercisesHtml}
-            ${heatmapHtml}
-        `;
+    container.replaceChildren(root);
 }
 
 // ====================================
@@ -1763,7 +2085,7 @@ async function showAddExerciseToSessionModal() {
 
     // Load unique exercises
     const datalist = document.getElementById('unique-exercises-list');
-    datalist.innerHTML = '';
+    datalist.replaceChildren();
 
     try {
         const exercises = await apiCall('/api/workout/exercise-library');
