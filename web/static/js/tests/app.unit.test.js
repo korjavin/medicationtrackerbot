@@ -74,8 +74,10 @@ describe('app.js unit tests', () => {
       expect(window.customElements.get('mt-modal')).toBeDefined();
 
       const foodProductModal = document.getElementById('food-product-modal');
+      const medModal = document.getElementById('med-modal');
       const medConfirmModal = document.getElementById('med-confirm-modal');
       expect(foodProductModal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(medModal.tagName.toLowerCase()).toBe('mt-modal');
       expect(medConfirmModal.tagName.toLowerCase()).toBe('mt-modal');
 
       foodProductModal.open();
