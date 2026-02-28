@@ -66,7 +66,7 @@ async function loadNextWorkout() {
 
 function _renderNextWorkout(container, data) {
     if (!data || !data.session) {
-        container.innerHTML = '';
+        container.replaceChildren();
         return;
     }
 
@@ -113,49 +113,104 @@ function _renderNextWorkout(container, data) {
         weekday: 'short'
     });
 
-    // Show appropriate buttons based on status
+    const variantId = data.variant_id || 0;
+    const groupId = data.group_id || 0;
     const isRotating = data.is_rotating || false;
-    let actionButtons = '';
+
+    const card = document.createElement('div');
+    card.className = cardClass;
+
+    const header = document.createElement('div');
+    header.className = 'next-workout-header';
+
+    const statusEl = document.createElement('div');
+    statusEl.className = 'next-workout-status';
+    statusEl.textContent = `${statusEmoji} ${statusText}`;
+
+    const dateEl = document.createElement('div');
+    dateEl.className = 'next-workout-date';
+    dateEl.textContent = `${dateStr} at ${session.scheduled_time}`;
+
+    header.appendChild(statusEl);
+    header.appendChild(dateEl);
+    card.appendChild(header);
+
+    const info = document.createElement('div');
+    info.className = 'next-workout-info';
+    info.style.cursor = 'pointer';
+    info.title = 'View/edit planned exercises';
+    info.addEventListener('click', () => {
+        openNextWorkoutEditModal(variantId, groupId);
+    });
+
+    const title = document.createElement('h3');
+    title.textContent = data.group_name;
+    const subtitle = document.createElement('p');
+    subtitle.textContent = `${data.variant_name} • ${data.exercises_count} exercises ✏️`;
+    info.appendChild(title);
+    info.appendChild(subtitle);
+    card.appendChild(info);
+
+    const createButton = (label, className, onClick, styles = {}) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = className;
+        button.textContent = label;
+        Object.assign(button.style, styles);
+        button.addEventListener('click', () => {
+            onClick(session.id);
+        });
+        return button;
+    };
+
     if (status === 'in_progress') {
-        actionButtons = `
-                <div style="display: flex; gap: 10px; margin-top: 12px;">
-                    <button onclick="showWorkoutSessionModal(${session.id})" class="primary" style="flex: 1;">🏋️ Continue</button>
-                    <button onclick="cancelWorkoutSession(${session.id})" class="secondary" style="flex: 1; background-color: #ffebee; color: #c62828; border: 1px solid #ef9a9a;">🛑 Stop</button>
-                </div>
-            `;
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.gap = '10px';
+        row.style.marginTop = '12px';
+        row.appendChild(createButton('🏋️ Continue', 'primary', showWorkoutSessionModal, { flex: '1' }));
+        row.appendChild(createButton('🛑 Stop', 'secondary', cancelWorkoutSession, {
+            flex: '1',
+            backgroundColor: '#ffebee',
+            color: '#c62828',
+            border: '1px solid #ef9a9a'
+        }));
+        card.appendChild(row);
     } else if (status === 'pre_skipped') {
-        actionButtons = `<button onclick="cancelPreSkipWorkoutSession(${session.id})" class="btn-pill" style="margin-top: 12px; width: 100%; background-color: var(--button-color, #5288c1); color: white;">↩ Cancel Skip</button>`;
+        card.appendChild(createButton('↩ Cancel Skip', 'btn-pill', cancelPreSkipWorkoutSession, {
+            marginTop: '12px',
+            width: '100%',
+            backgroundColor: 'var(--button-color, #5288c1)',
+            color: 'white'
+        }));
         if (isRotating) {
-            actionButtons += `<button onclick="nextWorkoutVariant(${session.id})" class="secondary" style="margin-top: 8px; width: 100%;">↻ Next Variant</button>`;
+            card.appendChild(createButton('↻ Next Variant', 'secondary', nextWorkoutVariant, {
+                marginTop: '8px',
+                width: '100%'
+            }));
         }
     } else {
-        actionButtons = `
-                <div style="display: flex; gap: 10px; margin-top: 12px;">
-                    <button onclick="startWorkoutSession(${session.id})" class="btn-pill" style="flex: 1;">🏋️ Start Workout</button>
-                    <button onclick="preSkipWorkoutSession(${session.id})" class="secondary" style="flex: 1; background-color: #fff3e0; color: #e65100; border: 1px solid #ffcc80;">⏭ Skip</button>
-                </div>
-            `;
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.gap = '10px';
+        row.style.marginTop = '12px';
+        row.appendChild(createButton('🏋️ Start Workout', 'btn-pill', startWorkoutSession, { flex: '1' }));
+        row.appendChild(createButton('⏭ Skip', 'secondary', preSkipWorkoutSession, {
+            flex: '1',
+            backgroundColor: '#fff3e0',
+            color: '#e65100',
+            border: '1px solid #ffcc80'
+        }));
+        card.appendChild(row);
         if (isRotating) {
-            actionButtons += `<button onclick="nextWorkoutVariant(${session.id})" class="secondary" style="margin-top: 8px; width: 100%;">↻ Next Variant</button>`;
+            card.appendChild(createButton('↻ Next Variant', 'secondary', nextWorkoutVariant, {
+                marginTop: '8px',
+                width: '100%'
+            }));
         }
     }
 
-    const variantId = data.variant_id || 0;
-    const groupId = data.group_id || 0;
-
-    container.innerHTML = `
-            <div class="${cardClass}">
-                <div class="next-workout-header">
-                    <div class="next-workout-status">${statusEmoji} ${statusText}</div>
-                    <div class="next-workout-date">${dateStr} at ${session.scheduled_time}</div>
-                </div>
-                <div class="next-workout-info" onclick="openNextWorkoutEditModal(${variantId}, ${groupId})" style="cursor: pointer;" title="View/edit planned exercises">
-                    <h3>${escapeHtml(data.group_name)}</h3>
-                    <p>${escapeHtml(data.variant_name)} • ${data.exercises_count} exercises ✏️</p>
-                </div>
-                ${actionButtons}
-            </div>
-        `;
+    container.replaceChildren(card);
 }
 
 // ====================================
