@@ -469,11 +469,11 @@ func TestHandleSendTestBPNotification_NoWebPush(t *testing.T) {
 
 	srv.handleSendTestBPNotification(w, req)
 
-	// Expect 400 because WebPush is not configured in test server
+	// Expect 400 because no notifiers are configured in test server
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status 400, got %d. Body: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "Web Push not configured") {
-		t.Errorf("Expected error message 'Web Push not configured', got %s", w.Body.String())
+	if !strings.Contains(w.Body.String(), "No notification channels configured") {
+		t.Errorf("Expected error message 'No notification channels configured', got %s", w.Body.String())
 	}
 }
