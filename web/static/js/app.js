@@ -3095,10 +3095,13 @@ function logMedicationPast(id, name) {
 
 function renderHistory(logs) {
     const list = document.getElementById('history-list');
-    list.innerHTML = '';
+    list.replaceChildren();
 
     if (!logs || logs.length === 0) {
-        list.innerHTML = '<p style="text-align:center;color:var(--hint-color)">No history yet.</p>';
+        const empty = document.createElement('p');
+        empty.style.cssText = 'text-align:center;color:var(--hint-color)';
+        empty.textContent = 'No history yet.';
+        list.appendChild(empty);
         return;
     }
 
@@ -3181,17 +3184,25 @@ function renderHistory(logs) {
             // But timeLabel is already formatted.
         }
 
-        let headerHTML = `<div class="history-header"><strong>${statusIcon} ${escapeHtml(headerTime)}</strong></div>`;
+        const header = document.createElement('div');
+        header.className = 'history-header';
+        const strong = document.createElement('strong');
+        strong.textContent = `${statusIcon} ${headerTime}`;
+        header.appendChild(strong);
 
-        let itemsHTML = '<div class="history-items">';
-        g.items.forEach(l => {
+        const items = document.createElement('div');
+        items.className = 'history-items';
+        g.items.forEach((l) => {
             const med = medications.find(m => m.id === l.medication_id);
             const medName = med ? med.name : 'Unknown Med';
-            itemsHTML += `<div class="history-subitem">${escapeHtml(medName)}</div>`;
+            const subitem = document.createElement('div');
+            subitem.className = 'history-subitem';
+            subitem.textContent = medName;
+            items.appendChild(subitem);
         });
-        itemsHTML += '</div>';
 
-        div.innerHTML = headerHTML + itemsHTML;
+        div.appendChild(header);
+        div.appendChild(items);
         list.appendChild(div);
     });
 }
