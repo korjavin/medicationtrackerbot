@@ -209,14 +209,6 @@ const ModalManager = {
 
 window.ModalManager = ModalManager;
 
-function showOverlayModal(modalId) {
-    window.ModalManager.open(modalId);
-}
-
-function hideOverlayModal(modalId) {
-    window.ModalManager.close(modalId);
-}
-
 window.onDataStoreUnauthorized = function () {
     if (sessionStorage.getItem('medtracker_auth_reload_in_progress') === '1') {
         return;
