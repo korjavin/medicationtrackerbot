@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -1337,7 +1338,7 @@ func (s *Server) handleStartWorkoutSession(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Update Telegram notification
-	if s.bot != nil {
+	if s.workout != nil {
 		go func() {
 			session, err := s.store.GetWorkoutSession(id)
 			if err != nil || session == nil {
@@ -1354,16 +1355,14 @@ func (s *Server) handleStartWorkoutSession(w http.ResponseWriter, r *http.Reques
 			text += "\n\nLet's go! 💪"
 
 			if session.NotificationMessageID != nil {
-				if err := s.bot.UpdateWorkoutMessage(*session.NotificationMessageID, text); err != nil {
+				if err := s.workout.UpdateWorkoutMessage(*session.NotificationMessageID, text); err != nil {
 					log.Printf("Failed to update workout message: %v", err)
 				}
 				// Keep UX consistent with Telegram-start flow: remove original notification card.
-				if err := s.bot.DeleteMessage(*session.NotificationMessageID); err != nil {
-					log.Printf("Failed to delete workout notification message: %v", err)
-				}
+				s.deleteNotification(context.Background(), *session.NotificationMessageID)
 			}
 
-			if err := s.bot.StartWorkoutFlowFromWeb(id); err != nil {
+			if err := s.workout.StartWorkoutFlowFromWeb(id); err != nil {
 				log.Printf("Failed to start workout Telegram flow from web: %v", err)
 			}
 		}()

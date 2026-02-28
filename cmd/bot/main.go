@@ -13,6 +13,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/scheduler"
 	"github.com/korjavin/medicationtrackerbot/internal/server"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"github.com/korjavin/medicationtrackerbot/internal/webpush"
 )
 
 func main() {
@@ -65,18 +66,22 @@ func main() {
 	}
 
 	// 4. VAPID config for Web Push
-	vapidConfig := server.VAPIDConfig{
-		PublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
-		PrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
-		Subject:    os.Getenv("VAPID_SUBJECT"),
-		AdminEmail: os.Getenv("ADMIN_EMAIL"),
-		Domain:     os.Getenv("DOMAIN"),
-	}
-	if vapidConfig.Domain == "" {
-		vapidConfig.Domain = os.Getenv("APP_DOMAIN")
+	vapidPublicKey := os.Getenv("VAPID_PUBLIC_KEY")
+	vapidPrivateKey := os.Getenv("VAPID_PRIVATE_KEY")
+	vapidSubject := os.Getenv("VAPID_SUBJECT")
+	vapidAdminEmail := os.Getenv("ADMIN_EMAIL")
+	vapidDomain := os.Getenv("DOMAIN")
+	if vapidDomain == "" {
+		vapidDomain = os.Getenv("APP_DOMAIN")
 	}
 
-	// 5. Server (Initialize first to get WebPush service)
+	// Create WebPush service (before server, so we can build notifiers independently)
+	var wpService *webpush.Service
+	if vapidPublicKey != "" && vapidPrivateKey != "" {
+		wpService = webpush.New(s, vapidPublicKey, vapidPrivateKey, vapidSubject, vapidAdminEmail, vapidDomain)
+	}
+
+	// 5. Server
 	oidcConfig := server.OIDCConfig{}
 	if os.Getenv("OIDC_ISSUER_URL") != "" || os.Getenv("OIDC_CLIENT_ID") != "" {
 		// Use POCKET_ID credentials as fallback if OIDC credentials not set
@@ -130,15 +135,20 @@ func main() {
 		log.Println("Bot username:", botUsername)
 	}
 
-	srv := server.New(s, tgBot, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidConfig)
+	srv := server.New(s, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidPublicKey)
+
+	// Set workout interactor (only if bot is available)
+	if tgBot != nil {
+		srv.SetWorkoutInteractor(tgBot)
+	}
 
 	// Build notifiers slice (shared between server and scheduler)
 	var notifiers []notifier.Notifier
 	if tgBot != nil {
 		notifiers = append(notifiers, notifier.NewTelegram(tgBot))
 	}
-	if wp := srv.GetWebPushService(); wp != nil {
-		notifiers = append(notifiers, notifier.NewWebPush(wp))
+	if wpService != nil {
+		notifiers = append(notifiers, notifier.NewWebPush(wpService))
 	}
 	srv.SetNotifiers(notifiers)
 

@@ -16,17 +16,24 @@ import (
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"
-	"github.com/korjavin/medicationtrackerbot/internal/bot"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
-	"github.com/korjavin/medicationtrackerbot/internal/webpush"
 	"golang.org/x/oauth2"
 )
 
+// WorkoutInteractor defines the operations needed to interact with the chat
+// interface when a workout is started from the web UI.
+type WorkoutInteractor interface {
+	// UpdateWorkoutMessage edits a notification message text and removes buttons.
+	UpdateWorkoutMessage(msgID int, text string) error
+	// StartWorkoutFlowFromWeb initiates the exercise-by-exercise flow in the chat.
+	StartWorkoutFlowFromWeb(sessionID int64) error
+}
+
 type Server struct {
 	store           *store.Store
-	bot             *bot.Bot
+	workout         WorkoutInteractor
 	notifiers       []notifier.Notifier
 	rxnorm          *rxnorm.Client
 	botToken        string
@@ -36,20 +43,11 @@ type Server struct {
 	oauthConfig     *oauth2.Config
 	oidcUserInfo    string
 	botUsername     string
-	vapidConfig     VAPIDConfig
-	webPush         *webpush.Service
+	vapidPublicKey  string
 	foodSearchTTL   time.Duration
 	foodSearchCache *fastcache.Cache
 	changeStreamSem chan struct{}
 	changePruning   atomic.Bool
-}
-
-type VAPIDConfig struct {
-	PublicKey  string
-	PrivateKey string // #nosec G117 -- VAPID private key, held in memory only
-	Subject    string
-	AdminEmail string
-	Domain     string
 }
 
 type rateLimiter struct {
@@ -172,39 +170,34 @@ func parseIntEnv(key string, defaultValue int) int {
 	return parsed
 }
 
-func New(s *store.Store, b *bot.Bot, botToken, sessionSecret string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidConfig VAPIDConfig) *Server {
+func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oidc OIDCConfig, botUsername string, vapidPublicKey string) *Server {
 	foodSearchCacheSizeMB := parseIntEnv("FOOD_SEARCH_CACHE_MB", 40)
 	changeStreamMaxConn := parseIntEnv("CHANGES_STREAM_MAX_CONN", 40)
 
 	srv := &Server{
 		store:           s,
-		bot:             b,
 		rxnorm:          rxnorm.New(),
 		botToken:        botToken,
 		sessionSecret:   sessionSecret,
 		allowedUserID:   allowedUserID,
 		oidcConfig:      oidc,
 		botUsername:     botUsername,
-		vapidConfig:     vapidConfig,
+		vapidPublicKey:  vapidPublicKey,
 		foodSearchTTL:   30 * time.Minute,
 		foodSearchCache: fastcache.New(foodSearchCacheSizeMB * 1024 * 1024),
 		changeStreamSem: make(chan struct{}, changeStreamMaxConn),
-	}
-
-	if vapidConfig.PublicKey != "" && vapidConfig.PrivateKey != "" {
-		srv.webPush = webpush.New(s, vapidConfig.PublicKey, vapidConfig.PrivateKey, vapidConfig.Subject, vapidConfig.AdminEmail, vapidConfig.Domain)
 	}
 
 	srv.initOAUTH()
 	return srv
 }
 
-func (s *Server) GetWebPushService() *webpush.Service {
-	return s.webPush
+// SetWorkoutInteractor configures the chat interaction for web-started workouts.
+func (s *Server) SetWorkoutInteractor(w WorkoutInteractor) {
+	s.workout = w
 }
 
 // SetNotifiers configures the notification channels after construction.
-// This is needed because the WebPush notifier depends on the server's webpush.Service.
 func (s *Server) SetNotifiers(notifiers []notifier.Notifier) {
 	s.notifiers = notifiers
 }
@@ -712,14 +705,14 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 // -- Web Push Handlers --
 
 func (s *Server) handleGetVAPIDPublicKey(w http.ResponseWriter, r *http.Request) {
-	if s.vapidConfig.PublicKey == "" {
+	if s.vapidPublicKey == "" {
 		http.Error(w, "Web Push not configured", http.StatusServiceUnavailable)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{
-		"public_key": s.vapidConfig.PublicKey,
+		"public_key": s.vapidPublicKey,
 	}); err != nil {
 		log.Printf("encode response: %v", err)
 	}
