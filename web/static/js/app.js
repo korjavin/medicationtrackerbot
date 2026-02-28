@@ -2234,15 +2234,22 @@ async function deleteFoodLog(id) {
 
 
 function switchMedTab(tab) {
-    document.querySelectorAll('.med-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.med-tab-content').forEach(c => c.classList.remove('active'));
-
-    document.querySelector(`.med-tab[data-tab="${tab}"]`).classList.add('active');
-    document.getElementById(`med-${tab}-tab`).classList.add('active');
+    const activated = activateTabGroup(tab, {
+        buttonSelector: '.med-tab',
+        contentSelector: '.med-tab-content',
+        contentIdFromTab: (tabName) => `med-${tabName}-tab`
+    });
+    if (!activated) return;
 
     if (tab === 'schedule') { loadMeds(); }
     else if (tab === 'history') { loadHistory(); }
 }
+
+bindTabGroup({
+    container: document.querySelector('.med-tabs'),
+    buttonSelector: '.med-tab',
+    onTabSelect: switchMedTab
+});
 
 // Load settings (BP reminders status, etc.)
 async function loadSettings() {

@@ -57,6 +57,23 @@ describe('app.js UI characterization', () => {
     }
   });
 
+  it('med tab click binding switches subtab and triggers loader', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const loadMedsSpy = vi.fn();
+      window.loadMeds = loadMedsSpy;
+
+      const scheduleTab = document.querySelector('.med-tab[data-tab="schedule"]');
+      scheduleTab.click();
+
+      expect(scheduleTab.classList.contains('active')).toBe(true);
+      expect(document.getElementById('med-schedule-tab').classList.contains('active')).toBe(true);
+      expect(loadMedsSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('opens and closes BP modal with shared overlay', () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
