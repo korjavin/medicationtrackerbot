@@ -51,7 +51,20 @@ export function createMockResponse({ status = 200, json, text } = {}) {
   };
 }
 
-export function loadFrontendEnv({ withWorkout = false, telegramInitData = '' } = {}) {
+function isVersionAtLeast(currentVersion, targetVersion) {
+  const currentParts = String(currentVersion).split('.').map((v) => parseInt(v, 10) || 0);
+  const targetParts = String(targetVersion).split('.').map((v) => parseInt(v, 10) || 0);
+  const maxLength = Math.max(currentParts.length, targetParts.length);
+  for (let i = 0; i < maxLength; i += 1) {
+    const current = currentParts[i] || 0;
+    const target = targetParts[i] || 0;
+    if (current > target) return true;
+    if (current < target) return false;
+  }
+  return true;
+}
+
+export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', telegramVersion = '6.9' } = {}) {
   const html = fs.readFileSync(INDEX_HTML, 'utf8');
   const dom = new JSDOM(html, {
     url: 'https://example.test/',
@@ -85,6 +98,9 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '' } =
       initDataUnsafe: {},
       ready() {},
       expand() {},
+      isVersionAtLeast(version) {
+        return isVersionAtLeast(telegramVersion, version);
+      },
       showAlert() {},
       showConfirm(_msg, cb) {
         cb(true);
