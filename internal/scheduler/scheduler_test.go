@@ -16,8 +16,8 @@ func setupTestScheduler(t *testing.T) (*Scheduler, *store.Store) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	// Create scheduler with nil bot and nil webPush
-	sched := New(db, nil, 123456, nil)
+	// Create scheduler with no notifiers
+	sched := New(db, 123456, nil)
 	return sched, db
 }
 

@@ -617,6 +617,29 @@ func (b *Bot) SendWorkoutStaleNotification(text string, sessionID int64) (int, e
 	return sentMsg.MessageID, err
 }
 
+// SendMarkdownNotification sends a Markdown-formatted message with action buttons.
+// Actions are rendered as inline keyboard buttons, one per row.
+// Returns the Telegram message ID.
+func (b *Bot) SendMarkdownNotification(text string, actions []struct{ ID, Label string }) (int, error) {
+	msg := tgbotapi.NewMessage(b.allowedUserID, text)
+	msg.ParseMode = "Markdown"
+
+	if len(actions) > 0 {
+		var rows [][]tgbotapi.InlineKeyboardButton
+		for _, a := range actions {
+			btn := tgbotapi.NewInlineKeyboardButtonData(a.Label, a.ID)
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(btn))
+		}
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	}
+
+	sentMsg, err := b.api.Send(msg)
+	if err != nil {
+		return 0, err
+	}
+	return sentMsg.MessageID, nil
+}
+
 // DeleteMessage deletes a message from the conversation
 func (b *Bot) DeleteMessage(messageID int) error {
 	deleteMsg := tgbotapi.NewDeleteMessage(b.allowedUserID, messageID)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -41,11 +42,19 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 	if activeSession != nil && activeSession.StartedAt != nil {
 		duration := now.Sub(*activeSession.StartedAt)
 		if duration > 90*time.Minute && !strings.Contains(activeSession.Notes, "stale_reminded") {
-			if s.bot != nil {
-				if _, err := s.bot.SendWorkoutStaleNotification("🏋️ Still training? It's been 1.5 hours. Don't forget to log your results!", activeSession.ID); err != nil {
-					log.Printf("[scheduler] send stale notification failed: %v", err)
-				}
+			n := notifier.Notification{
+				Text: "🏋️ Still training? It's been 1.5 hours. Don't forget to log your results!",
+				Actions: []notifier.Action{
+					{ID: fmt.Sprintf("workout_finish_%d", activeSession.ID), Label: "Finish Workout"},
+					{ID: "dismiss_notification", Label: "Dismiss"},
+				},
+				Tag: fmt.Sprintf("workout-stale-%d", activeSession.ID),
+				Metadata: map[string]interface{}{
+					"type":       "workout_stale",
+					"session_id": activeSession.ID,
+				},
 			}
+			s.notify(context.Background(), n, nil)
 			if err := s.store.UpdateWorkoutSessionNotes(activeSession.ID, activeSession.Notes+" stale_reminded"); err != nil {
 				log.Printf("Failed to update session notes: %v", err)
 			}
@@ -63,10 +72,8 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 						log.Printf("Failed to advance rotation after stale auto-skip for group %d: %v", group.ID, err)
 					}
 				}
-				if s.bot != nil && activeSession.NotificationMessageID != nil {
-					if err := s.bot.DeleteMessage(*activeSession.NotificationMessageID); err != nil {
-						log.Printf("[scheduler] delete message failed: %v", err)
-					}
+				if activeSession.NotificationMessageID != nil {
+					s.deleteNotification(context.Background(), *activeSession.NotificationMessageID)
 				}
 				activeSession = nil
 			}
@@ -202,10 +209,8 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 					if err := s.store.SkipSession(existing.ID); err != nil {
 						log.Printf("Failed to skip session: %v", err)
 					}
-					if s.bot != nil && existing.NotificationMessageID != nil {
-						if err := s.bot.DeleteMessage(*existing.NotificationMessageID); err != nil {
-							log.Printf("[scheduler] delete message failed: %v", err)
-						}
+					if existing.NotificationMessageID != nil {
+						s.deleteNotification(context.Background(), *existing.NotificationMessageID)
 					}
 				}
 			}
@@ -229,7 +234,7 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 	return nil
 }
 
-// sendWorkoutNotification sends a workout notification via the bot
+// sendWorkoutNotification sends a workout notification via all notifiers
 func (s *Scheduler) sendWorkoutNotification(session *store.WorkoutSession, group *store.WorkoutGroup, variantID int64) error {
 	// Get variant details
 	variant, err := s.store.GetWorkoutVariant(variantID)
@@ -265,32 +270,33 @@ func (s *Scheduler) sendWorkoutNotification(session *store.WorkoutSession, group
 	}
 
 	// Delete previous notification if exists to avoid clutter
-	if s.bot != nil && session.NotificationMessageID != nil {
-		if err := s.bot.DeleteMessage(*session.NotificationMessageID); err != nil {
-			log.Printf("[scheduler] delete message failed: %v", err)
-		}
+	if session.NotificationMessageID != nil {
+		s.deleteNotification(context.Background(), *session.NotificationMessageID)
 	}
 
-	// Send notification with inline buttons via bot
-	if s.bot != nil {
-		messageID, err := s.bot.SendWorkoutNotification(message, session.ID)
-		if err != nil {
-			log.Printf("Failed to send workout notification via Telegram: %v", err)
-		} else {
-			// Store message ID for later editing
-			if err := s.store.SetSessionNotificationMessageID(session.ID, messageID); err != nil {
-				log.Printf("Failed to store notification message ID: %v", err)
-			}
-		}
+	n := notifier.Notification{
+		Text: message,
+		Actions: []notifier.Action{
+			{ID: fmt.Sprintf("workout_start_%d", session.ID), Label: "▶️ Start Now"},
+			{ID: fmt.Sprintf("workout_snooze1_%d", session.ID), Label: "⏰ Snooze 1h"},
+			{ID: fmt.Sprintf("workout_snooze2_%d", session.ID), Label: "⏰ Snooze 2h"},
+			{ID: fmt.Sprintf("workout_skip_%d", session.ID), Label: "⏭ Skip"},
+		},
+		Tag: fmt.Sprintf("workout-%d", session.ID),
+		Metadata: map[string]interface{}{
+			"type":       "workout",
+			"session_id": session.ID,
+			"group_name": group.Name,
+			"variant":    variant.Name,
+		},
 	}
 
-	// Send Web Push
-	if s.webPush != nil {
-		ctx := context.Background()
-		if err := s.webPush.SendWorkoutNotification(ctx, s.allowedUserID, session, group, variant); err != nil {
-			log.Printf("Failed to send Web Push workout: %v", err)
+	sessionID := session.ID
+	s.notify(context.Background(), n, func(msgID int) {
+		if err := s.store.SetSessionNotificationMessageID(sessionID, msgID); err != nil {
+			log.Printf("Failed to store notification message ID: %v", err)
 		}
-	}
+	})
 
 	return nil
 }

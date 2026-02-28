@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 )
 
 // checkWeightReminders checks if any users need weight reminder notifications
@@ -105,38 +107,49 @@ func (s *Scheduler) checkWeightReminders() error {
 	return nil
 }
 
-// sendWeightReminder sends a weight reminder notification via Telegram and Web Push
-// P2 FIX: Only update state if delivery succeeds
+// sendWeightReminder sends a weight reminder notification via all notifiers
 func (s *Scheduler) sendWeightReminder(ctx context.Context, userID int64) error {
-	var messageID *int
-	telegramSuccess := false
-	webPushSuccess := false
+	text := "⚖️ **Time to track your weight**\n\n"
+	text += "It's been about a week since your last measurement. "
+	text += "Regular tracking helps you stay on top of your goals!"
 
-	// Send Telegram notification
-	if s.bot != nil {
-		msgID, err := s.bot.SendWeightReminderNotification(userID)
-		if err != nil {
-			log.Printf("Failed to send Telegram weight reminder: %v", err)
-		} else {
-			messageID = &msgID
-			telegramSuccess = true
-		}
+	n := notifier.Notification{
+		Text: text,
+		Actions: []notifier.Action{
+			{ID: "weight_confirm", Label: "✅ Confirm"},
+			{ID: "weight_snooze", Label: "⏰ Snooze (2h)"},
+			{ID: "weight_dontbug", Label: "🔇 Don't Bug Me (24h)"},
+		},
+		Tag: "weight-reminder",
+		Metadata: map[string]interface{}{
+			"type": "weight_reminder",
+		},
 	}
 
-	// Send Web Push notification
-	if s.webPush != nil {
-		if err := s.webPush.SendWeightReminderNotification(ctx, userID); err != nil {
-			log.Printf("Failed to send Web Push weight reminder: %v", err)
-		} else {
-			webPushSuccess = true
+	anySuccess := false
+	var firstMsgID int
+
+	for _, nr := range s.notifiers {
+		msgID, err := nr.Send(ctx, userID, n)
+		if err != nil {
+			log.Printf("Failed to send weight reminder via %T: %v", nr, err)
+			continue
+		}
+		anySuccess = true
+		if msgID != 0 && firstMsgID == 0 {
+			firstMsgID = msgID
 		}
 	}
 
 	// CRITICAL: Only update if at least one channel succeeded
-	if !telegramSuccess && !webPushSuccess {
+	if !anySuccess {
 		return fmt.Errorf("failed to send weight reminder via any channel")
 	}
 
 	// Update state with successful delivery
+	var messageID *int
+	if firstMsgID != 0 {
+		messageID = &firstMsgID
+	}
 	return s.store.UpdateWeightReminderNotificationSent(userID, messageID)
 }
