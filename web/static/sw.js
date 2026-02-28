@@ -6,7 +6,6 @@ const DYNAMIC_CACHE = `medtracker-dynamic-${CACHE_VERSION}`;
 // Static assets to cache on install
 const STATIC_ASSETS = [
     '/',
-    '/static/index.html',
     '/static/css/styles.css',
     '/static/js/app.js',
     '/static/js/workout.js',
@@ -71,7 +70,7 @@ self.addEventListener('activate', (event) => {
     );
 });
 
-// Fetch event - network-first for API, cache-first for static
+// Fetch event - network-first for API and navigations, cache-first for static assets
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
 
@@ -124,6 +123,32 @@ self.addEventListener('fetch', (event) => {
                                 }
                             );
                         });
+                })
+        );
+        return;
+    }
+
+    // HTML navigations - network first so new deployments become visible immediately.
+    if (event.request.mode === 'navigate') {
+        event.respondWith(
+            fetch(event.request)
+                .then((networkResponse) => {
+                    if (networkResponse.ok) {
+                        const responseClone = networkResponse.clone();
+                        caches.open(STATIC_CACHE)
+                            .then((cache) => cache.put('/', responseClone));
+                    }
+                    return networkResponse;
+                })
+                .catch(() => {
+                    return caches.match(event.request)
+                        .then((cachedResponse) => {
+                            if (cachedResponse) {
+                                return cachedResponse;
+                            }
+                            return caches.match('/');
+                        })
+                        .then((fallbackResponse) => fallbackResponse || new Response('Offline', { status: 503 }));
                 })
         );
         return;
