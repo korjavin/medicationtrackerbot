@@ -180,6 +180,49 @@ func (s *Store) UpdateWorkoutGroup(id int64, name, description string, isRotatin
 	return err
 }
 
+func (s *Store) DeleteWorkoutGroup(id int64) error {
+	// Check if any variant still has exercises
+	var exerciseCount int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM workout_exercises we
+		JOIN workout_variants wv ON we.variant_id = wv.id
+		WHERE wv.group_id = ?`, id).Scan(&exerciseCount)
+	if err != nil {
+		return err
+	}
+	if exerciseCount > 0 {
+		return fmt.Errorf("cannot delete group: remove all exercises from its variants first (%d remaining)", exerciseCount)
+	}
+
+	// Check for active (non-completed, non-skipped) sessions
+	var activeSessionCount int
+	err = s.db.QueryRow(`
+		SELECT COUNT(*) FROM workout_sessions
+		WHERE group_id = ? AND status NOT IN ('completed', 'skipped')`, id).Scan(&activeSessionCount)
+	if err != nil {
+		return err
+	}
+	if activeSessionCount > 0 {
+		return fmt.Errorf("cannot delete group: it has %d pending/active sessions", activeSessionCount)
+	}
+
+	// Delete rotation state
+	if _, err := s.db.Exec("DELETE FROM workout_rotation_state WHERE group_id = ?", id); err != nil {
+		return err
+	}
+	// Delete schedule snapshots
+	if _, err := s.db.Exec("DELETE FROM workout_schedule_snapshots WHERE group_id = ?", id); err != nil {
+		return err
+	}
+	// Delete variants (exercises already verified empty)
+	if _, err := s.db.Exec("DELETE FROM workout_variants WHERE group_id = ?", id); err != nil {
+		return err
+	}
+	// Delete the group
+	_, err = s.db.Exec("DELETE FROM workout_groups WHERE id = ?", id)
+	return err
+}
+
 // -- Workout Variant Methods --
 
 func (s *Store) CreateWorkoutVariant(groupID int64, name string, rotationOrder *int, description string) (*WorkoutVariant, error) {

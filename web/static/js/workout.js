@@ -417,9 +417,11 @@ async function saveWorkoutGroup() {
 async function deleteWorkoutGroup(groupId, event) {
     event.stopPropagation();
 
-    if (confirm('Delete this workout group and all its variants/exercises?')) {
-        // Note: Backend doesn't have delete endpoint yet, would need to add it
-        safeAlert('Delete functionality not yet implemented in API');
+    if (confirm('Delete this workout group?')) {
+        const result = await apiCall(`/api/workout/groups/delete?id=${groupId}`, 'DELETE');
+        if (result || result === true) {
+            loadWorkoutGroups();
+        }
     }
 }
 
