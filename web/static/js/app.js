@@ -130,6 +130,33 @@ const ModalManager = {
         }
     },
 
+    med: {
+        open() {
+            ModalManager.open('med-modal');
+        },
+        close() {
+            ModalManager.close('med-modal');
+        }
+    },
+
+    medConfirm: {
+        open() {
+            ModalManager.open('med-confirm-modal');
+        },
+        close() {
+            ModalManager.close('med-confirm-modal');
+        }
+    },
+
+    workoutStart: {
+        open() {
+            ModalManager.open('workout-start-modal');
+        },
+        close() {
+            ModalManager.close('workout-start-modal');
+        }
+    },
+
     foodProduct: {
         open() {
             const modal = document.getElementById('food-product-modal');
@@ -143,8 +170,8 @@ const ModalManager = {
 
     getTopModalDefs() {
         return [
-            { id: 'med-modal', fn: () => closeModal() },
-            { id: 'med-confirm-modal', fn: () => closeMedicationConfirmModal() },
+            { id: 'med-modal', fn: () => ModalManager.med.close() },
+            { id: 'med-confirm-modal', fn: () => ModalManager.medConfirm.close() },
             { id: 'bp-modal', fn: () => ModalManager.bp.close() },
             { id: 'weight-modal', fn: () => ModalManager.weight.close() },
             { id: 'food-modal', fn: () => ModalManager.food.close() },
@@ -152,7 +179,7 @@ const ModalManager = {
             { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' && closeVariantModal() },
             { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' && closeExerciseModal() },
             { id: 'workout-session-modal', fn: () => typeof closeWorkoutSessionModal === 'function' && closeWorkoutSessionModal() },
-            { id: 'workout-start-modal', fn: () => closeWorkoutStartModal() },
+            { id: 'workout-start-modal', fn: () => ModalManager.workoutStart.close() },
         ];
     },
 
@@ -2407,7 +2434,7 @@ window.reloadCurrentTab = reloadCurrentTab;
 
 function showAddModal() {
     editingMedId = null;
-    showOverlayModal('med-modal');
+    window.ModalManager.med.open();
 
     // Reset inputs
     document.getElementById('med-name').value = '';
@@ -2442,7 +2469,7 @@ function showEditModal(id) {
     const med = medications.find(m => m.id === id);
     if (!med) return;
 
-    showOverlayModal('med-modal');
+    window.ModalManager.med.open();
 
     // Fill inputs
     document.getElementById('med-name').value = med.name;
@@ -2508,7 +2535,7 @@ function showEditModal(id) {
 }
 
 function closeModal() {
-    hideOverlayModal('med-modal');
+    window.ModalManager.med.close();
 }
 
 function toggleScheduleFields() {
@@ -4761,7 +4788,7 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
     pendingMedConfirmMode = mode;
     pendingMedConfirmIntakeIds = intakeIds;
 
-    showOverlayModal('med-confirm-modal');
+    window.ModalManager.medConfirm.open();
 
     const titleEl = document.getElementById('med-confirm-title');
     const subtitleEl = document.getElementById('med-confirm-subtitle');
@@ -4826,7 +4853,7 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
 }
 
 function closeMedicationConfirmModal() {
-    hideOverlayModal('med-confirm-modal');
+    window.ModalManager.medConfirm.close();
 }
 
 async function confirmSelectedMedications() {
@@ -4958,11 +4985,11 @@ function snoozeMedicationConfirm() {
 
 function showWorkoutStartModal(sessionId) {
     pendingWorkoutSessionId = sessionId;
-    showOverlayModal('workout-start-modal');
+    window.ModalManager.workoutStart.open();
 }
 
 function closeWorkoutStartModal() {
-    hideOverlayModal('workout-start-modal');
+    window.ModalManager.workoutStart.close();
 }
 
 function startWorkoutFromModal() {
