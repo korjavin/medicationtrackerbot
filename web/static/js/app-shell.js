@@ -1,0 +1,77 @@
+// PWA Registration and App Shell Management
+window.initServiceWorker = function () {
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', async () => {
+            try {
+                const registration = await navigator.serviceWorker.register('/static/sw.js', {
+                    scope: '/',
+                    updateViaCache: 'none'
+                });
+                console.log('SW registered:', registration.scope);
+                registration.update().catch(() => { /* Ignore transient update-check failures */ });
+
+                // Check for updates
+                registration.onupdatefound = () => {
+                    const newWorker = registration.installing;
+                    newWorker.onstatechange = () => {
+                        if (newWorker.state === 'installed') {
+                            if (navigator.serviceWorker.controller) {
+                                // New version found! Show gentle update toast
+                                window.showUpdateToast(newWorker, registration);
+                            }
+                        }
+                    };
+                };
+
+            } catch (err) {
+                console.log('SW registration failed:', err);
+            }
+        });
+
+        // Reload when the controller changes (e.g. after skipWaiting)
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            console.log('Controller changed, reloading...');
+            window.location.reload();
+        });
+    }
+
+    // Request persistent storage for Telegram WebApp context
+    if (navigator.storage && navigator.storage.persist) {
+        navigator.storage.persist().then(granted => {
+            console.log('Persistent storage:', granted ? 'granted' : 'not granted');
+        });
+    }
+};
+
+window.showUpdateToast = function (worker, registration) {
+    const toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(102,126,234,0.95);color:white;padding:12px 20px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:99999;font-size:14px;font-weight:500;display:flex;gap:12px;align-items:center;';
+    toast.id = 'pwa-update-toast';
+
+    const text = document.createElement('span');
+    text.textContent = 'New version available';
+
+    const btn = document.createElement('button');
+    btn.textContent = 'Update';
+    btn.id = 'pwa-update-btn';
+    btn.style.cssText = 'background:rgba(255,255,255,0.25);color:inherit;border:none;padding:6px 14px;border-radius:8px;font-weight:600;cursor:pointer;white-space:nowrap;';
+    btn.onclick = () => {
+        btn.textContent = 'Updating…';
+        btn.disabled = true;
+        // Use registration.waiting which is the correct reference
+        // once the worker has moved from 'installing' to 'installed'
+        const waiting = registration.waiting || worker;
+        waiting.postMessage({ type: 'SKIP_WAITING' });
+        // Fallback: if controllerchange doesn't fire within 2s, force reload
+        setTimeout(() => window.location.reload(), 2000);
+    };
+
+    toast.appendChild(text);
+    toast.appendChild(btn);
+    document.body.appendChild(toast);
+};
+
+// Auto-init by default if not in test env
+if (typeof process === 'undefined' || process.env.NODE_ENV !== 'test') {
+    window.initServiceWorker();
+}
