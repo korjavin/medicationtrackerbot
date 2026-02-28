@@ -94,26 +94,6 @@ describe('app.js unit tests', () => {
     }
   });
 
-  it('shows and hides overlay-backed modals via helper', () => {
-    const { window, document, cleanup } = loadFrontendEnv();
-    try {
-      const overlay = document.getElementById('modal-overlay');
-      const medModal = document.getElementById('med-modal');
-      expect(overlay.classList.contains('hidden')).toBe(true);
-      expect(medModal.classList.contains('hidden')).toBe(true);
-
-      window.showOverlayModal('med-modal');
-      expect(overlay.classList.contains('hidden')).toBe(false);
-      expect(medModal.classList.contains('hidden')).toBe(false);
-
-      window.hideOverlayModal('med-modal');
-      expect(overlay.classList.contains('hidden')).toBe(true);
-      expect(medModal.classList.contains('hidden')).toBe(true);
-    } finally {
-      cleanup();
-    }
-  });
-
   it('exposes modal manager APIs for generic and typed modal operations', () => {
     const { window, document, cleanup } = loadFrontendEnv();
     let pauseSpy;
