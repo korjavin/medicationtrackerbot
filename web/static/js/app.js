@@ -3866,10 +3866,17 @@ async function renderWeeklyHub() {
     const historyLogs = res || [];
 
     // 3. Build HTML
-    let html = `
-        <h3 class="weekly-header">Last 7 Days</h3>
-        <div class="weekly-days">
-    `;
+    const doc = container.ownerDocument || document;
+    const fragment = doc.createDocumentFragment();
+
+    const header = doc.createElement('h3');
+    header.className = 'weekly-header';
+    header.textContent = 'Last 7 Days';
+    fragment.appendChild(header);
+
+    const daysContainer = doc.createElement('div');
+    daysContainer.className = 'weekly-days';
+    fragment.appendChild(daysContainer);
 
     days.forEach(dateObj => {
         const dateStr = dateObj.toISOString().split('T')[0]; // YYYY-MM-DD
@@ -3945,22 +3952,30 @@ async function renderWeeklyHub() {
             });
         }
 
-        let backgroundStyle = '';
-        if (segments.length > 0) {
-            backgroundStyle = `background: conic-gradient(${segments.join(', ')});`;
-        }
+        const dayColumn = doc.createElement('div');
+        dayColumn.className = 'day-column';
 
-        html += `
-            <div class="day-column">
-                <div class="day-label">${dayName}</div>
-                <div class="day-circle" style="${backgroundStyle}"></div>
-                <div class="day-date">${dayNum}</div>
-            </div>
-        `;
+        const dayLabel = doc.createElement('div');
+        dayLabel.className = 'day-label';
+        dayLabel.textContent = dayName;
+        dayColumn.appendChild(dayLabel);
+
+        const dayCircle = doc.createElement('div');
+        dayCircle.className = 'day-circle';
+        if (segments.length > 0) {
+            dayCircle.style.background = `conic-gradient(${segments.join(', ')})`;
+        }
+        dayColumn.appendChild(dayCircle);
+
+        const dayDate = doc.createElement('div');
+        dayDate.className = 'day-date';
+        dayDate.textContent = dayNum;
+        dayColumn.appendChild(dayDate);
+
+        daysContainer.appendChild(dayColumn);
     });
 
-    html += `</div>`;
-    container.innerHTML = html;
+    container.replaceChildren(fragment);
 }
 
 // Hook into loadMeds to trigger this update
