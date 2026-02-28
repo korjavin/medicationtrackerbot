@@ -162,19 +162,19 @@ describe('food product edit/delete in autocomplete', () => {
     }
   });
 
-  it('deleteFoodProduct asks for confirmation and sends DELETE request', async () => {
+  it('deleteFoodProduct asks confirmation, sends DELETE and refreshes cache without success alert', async () => {
     const { window, cleanup } = loadFrontendEnv();
 
     try {
       window.safeAlert = vi.fn();
 
-      // User cancels
+      // User cancels - no API call
       window.confirm = vi.fn().mockReturnValue(false);
       window.apiCall = vi.fn();
       await window.deleteFoodProduct(5, 'Oats');
       expect(window.apiCall).not.toHaveBeenCalled();
 
-      // User confirms
+      // User confirms - sends DELETE, no success alert
       window.confirm = vi.fn().mockReturnValue(true);
       window.apiCall = vi.fn().mockResolvedValue({});
       window.initFoodProductsCache = vi.fn().mockResolvedValue(undefined);
@@ -186,7 +186,7 @@ describe('food product edit/delete in autocomplete', () => {
       expect(window.apiCall).toHaveBeenCalledWith('/api/food/products/5', 'DELETE');
       expect(window.MedTrackerDB.FoodProductsStore.clearCache).toHaveBeenCalled();
       expect(window.initFoodProductsCache).toHaveBeenCalled();
-      expect(window.safeAlert).toHaveBeenCalledWith('Product deleted.');
+      expect(window.safeAlert).not.toHaveBeenCalled();
     } finally {
       cleanup();
     }

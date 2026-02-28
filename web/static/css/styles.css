@@ -1511,7 +1511,8 @@ input:checked+.toggle-slider:before {
     transform: translateX(22px);
 }
 
-#food-modal {
+#food-modal,
+#food-product-modal {
     position: fixed;
     top: 50%;
     left: 50%;
@@ -1528,7 +1529,12 @@ input:checked+.toggle-slider:before {
     box-shadow: 0 6px 28px rgba(0, 0, 0, 0.25);
 }
 
-#food-modal.hidden {
+#food-product-modal {
+    z-index: 1002;
+}
+
+#food-modal.hidden,
+#food-product-modal.hidden {
     display: none;
 }
 
