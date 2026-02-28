@@ -1167,9 +1167,8 @@ func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if session.NotificationMessageID != nil && s.bot != nil {
-		// Best effort: message might already be deleted or unavailable.
-		_ = s.bot.DeleteMessage(*session.NotificationMessageID)
+	if session.NotificationMessageID != nil {
+		s.deleteNotification(r.Context(), *session.NotificationMessageID)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -1300,8 +1299,8 @@ func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if session.NotificationMessageID != nil && s.bot != nil {
-		_ = s.bot.DeleteMessage(*session.NotificationMessageID)
+	if session.NotificationMessageID != nil {
+		s.deleteNotification(r.Context(), *session.NotificationMessageID)
 	}
 
 	// Advance rotation for rotating groups
@@ -1419,10 +1418,7 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 
 	// If skipped or completed, try to delete the notification message
 	if (req.Status == "skipped" || req.Status == "completed") && session.NotificationMessageID != nil {
-		if s.bot != nil {
-			// We ignore error here as the message might already be deleted or too old
-			_ = s.bot.DeleteMessage(*session.NotificationMessageID)
-		}
+		s.deleteNotification(r.Context(), *session.NotificationMessageID)
 	}
 
 	// Advance rotation for rotating groups when session is completed or skipped
