@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 )
 
 // handleWorkoutCallback handles workout session actions (start, snooze, skip)
@@ -334,43 +335,20 @@ func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
 		return
 	}
 
-	// If all exercises have logs, complete the session
-	// Fix: Ensure we have at least one completed/skipped log for EVERY exercise in the planned variant
-	allPlannedCompleted := true
-	handledExerciseIDs := make(map[int64]bool)
-	uniqueCompletedIDs := make(map[int64]bool)
-	allRelatedExerciseIDs := make(map[int64]bool) // Union of planned and logged
-
-	// Track planned exercises
-	for _, ex := range exercises {
-		allRelatedExerciseIDs[ex.ID] = true
+	// Check if all planned exercises are handled
+	plannedIDs := make([]int64, len(exercises))
+	for i, ex := range exercises {
+		plannedIDs[i] = ex.ID
 	}
-
-	for _, log := range logs {
-		allRelatedExerciseIDs[log.ExerciseID] = true
-		if log.Status == "completed" || log.Status == "skipped" {
-			handledExerciseIDs[log.ExerciseID] = true
-		}
-		if log.Status == "completed" {
-			uniqueCompletedIDs[log.ExerciseID] = true
-		}
+	logStatuses := make([]domain.ExerciseLogStatus, len(logs))
+	for i, l := range logs {
+		logStatuses[i] = domain.ExerciseLogStatus{ExerciseID: l.ExerciseID, Status: l.Status}
 	}
+	result := domain.CheckCompletion(plannedIDs, logStatuses)
 
-	// Check if every planned exercise is handled
-	for _, ex := range exercises {
-		if !handledExerciseIDs[ex.ID] {
-			allPlannedCompleted = false
-			break
-		}
-	}
-
-	if allPlannedCompleted {
-		// Count completed exercises (unique, only "completed" status)
-		completedCount := len(uniqueCompletedIDs)
-		totalCount := len(allRelatedExerciseIDs)
-
+	if result.AllDone {
 		// Planned exercises are done, but we keep session in_progress until user explicitly finishes.
-		if err := b.SendWorkoutComplete(chatID, sessionID, completedCount, totalCount); err != nil {
+		if err := b.SendWorkoutComplete(chatID, sessionID, result.CompletedCount, result.TotalCount); err != nil {
 			log.Printf("[bot] send failed: %v", err)
 		}
 	}

@@ -1,9 +1,8 @@
 package bot
 
 import (
-	"bytes"
 	"context"
-	"encoding/csv"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -785,7 +785,16 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 
 	// Send medication CSV if available
 	if len(intakes) > 0 {
-		csvData, err := b.generateCSV(intakes)
+		medExports := make([]domain.MedicationIntake, len(intakes))
+		for i, intake := range intakes {
+			medExports[i] = domain.MedicationIntake{
+				ScheduledAt:      intake.ScheduledAt,
+				TakenAt:          intake.TakenAt,
+				MedicationName:   intake.MedicationName,
+				MedicationDosage: intake.MedicationDosage,
+			}
+		}
+		csvData, err := domain.GenerateMedicationCSV(medExports)
 		if err != nil {
 			log.Printf("Error generating medication CSV: %v", err)
 		} else {
@@ -802,7 +811,17 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 
 	// Send BP CSV if available
 	if len(bpReadings) > 0 {
-		bpCSV, err := b.generateBPCSV(bpReadings)
+		bpExports := make([]domain.BPExportReading, len(bpReadings))
+		for i, bp := range bpReadings {
+			bpExports[i] = domain.BPExportReading{
+				MeasuredAt: bp.MeasuredAt,
+				Systolic:   bp.Systolic,
+				Diastolic:  bp.Diastolic,
+				Pulse:      bp.Pulse,
+				Category:   bp.Category,
+			}
+		}
+		bpCSV, err := domain.GenerateBPCSV(bpExports)
 		if err != nil {
 			log.Printf("Error generating BP CSV: %v", err)
 		} else {
@@ -819,7 +838,20 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 
 	// Send weight CSV if available
 	if len(weightLogs) > 0 {
-		weightCSV, err := b.generateWeightCSV(weightLogs)
+		wExports := make([]domain.WeightExportLog, len(weightLogs))
+		for i, w := range weightLogs {
+			wExports[i] = domain.WeightExportLog{
+				MeasuredAt:      w.MeasuredAt,
+				Weight:          w.Weight,
+				WeightTrend:     w.WeightTrend,
+				BodyFat:         w.BodyFat,
+				BodyFatTrend:    w.BodyFatTrend,
+				MuscleMass:      w.MuscleMass,
+				MuscleMassTrend: w.MuscleMassTrend,
+				Notes:           w.Notes,
+			}
+		}
+		weightCSV, err := domain.GenerateWeightCSV(wExports)
 		if err != nil {
 			log.Printf("Error generating weight CSV: %v", err)
 		} else {
@@ -835,31 +867,6 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	}
 }
 
-func (b *Bot) generateCSV(intakes []store.IntakeWithMedication) ([]byte, error) {
-	buf := &bytes.Buffer{}
-	writer := csv.NewWriter(buf)
-
-	// Write header
-	if err := writer.Write([]string{"date time", "medicine name", "dosage"}); err != nil {
-		return nil, err
-	}
-
-	// Write data rows
-	for _, intake := range intakes {
-		// Use actual intake timestamp when available, otherwise fall back to scheduled time
-		dateTime := intake.ScheduledAt.Format("2006-01-02 15:04")
-		if intake.TakenAt != nil {
-			dateTime = intake.TakenAt.Format("2006-01-02 15:04")
-		}
-		row := []string{dateTime, intake.MedicationName, intake.MedicationDosage}
-		if err := writer.Write(row); err != nil {
-			return nil, err
-		}
-	}
-
-	writer.Flush()
-	return buf.Bytes(), writer.Error()
-}
 
 // -- Blood Pressure Commands --
 
@@ -881,20 +888,20 @@ Pulse: heart rate (optional)`
 		return
 	}
 
-	parts := parseBPArgs(args)
+	parts := strings.Fields(args)
 	if len(parts) < 2 {
 		msgConfig.Text = "❌ Invalid format. Use: /bp <systolic> <diastolic> [pulse]"
 		return
 	}
 
 	systolic, err := strconv.Atoi(parts[0])
-	if err != nil || systolic < 60 || systolic > 250 {
+	if err != nil {
 		msgConfig.Text = "❌ Invalid systolic value (60-250)"
 		return
 	}
 
 	diastolic, err := strconv.Atoi(parts[1])
-	if err != nil || diastolic < 40 || diastolic > 150 {
+	if err != nil {
 		msgConfig.Text = "❌ Invalid diastolic value (40-150)"
 		return
 	}
@@ -903,14 +910,27 @@ Pulse: heart rate (optional)`
 	pulsePresent := false
 	if len(parts) >= 3 {
 		pulse, err = strconv.Atoi(parts[2])
-		if err != nil || pulse < 40 || pulse > 200 {
+		if err != nil {
 			msgConfig.Text = "❌ Invalid pulse value (40-200)"
 			return
 		}
 		pulsePresent = true
 	}
 
-	category := store.CalculateBPCategory(systolic, diastolic)
+	if err := domain.ValidateBP(systolic, diastolic, pulse, pulsePresent); err != nil {
+		if errors.Is(err, domain.ErrInvalidSystolic) {
+			msgConfig.Text = "❌ Invalid systolic value (60-250)"
+		} else if errors.Is(err, domain.ErrInvalidDiastolic) {
+			msgConfig.Text = "❌ Invalid diastolic value (40-150)"
+		} else if errors.Is(err, domain.ErrInvalidPulse) {
+			msgConfig.Text = "❌ Invalid pulse value (40-200)"
+		} else {
+			msgConfig.Text = "❌ " + err.Error()
+		}
+		return
+	}
+
+	category := domain.CalculateBPCategory(systolic, diastolic)
 
 	bp := &store.BloodPressure{
 		UserID:     b.allowedUserID,
@@ -967,7 +987,7 @@ func (b *Bot) handleBPHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 		}
 		category := bp.Category
 		if category == "" {
-			category = store.CalculateBPCategory(bp.Systolic, bp.Diastolic)
+			category = domain.CalculateBPCategory(bp.Systolic, bp.Diastolic)
 		}
 		sb.WriteString(fmt.Sprintf("%s — %d/%d%s 📊 %s\n", dateStr, bp.Systolic, bp.Diastolic, pulseStr, category))
 	}
@@ -989,146 +1009,16 @@ func (b *Bot) handleBPStatsCommand(msgConfig *tgbotapi.MessageConfig) {
 		return
 	}
 
-	var sumSys, sumDia, sumPulse int
-	var countPulse int
-	minSys, maxSys := readings[0].Systolic, readings[0].Systolic
-	minDia, maxDia := readings[0].Diastolic, readings[0].Diastolic
-	minPulse, maxPulse := 999, -999
-
-	for _, bp := range readings {
-		sumSys += bp.Systolic
-		sumDia += bp.Diastolic
-
-		if bp.Systolic < minSys {
-			minSys = bp.Systolic
-		}
-		if bp.Systolic > maxSys {
-			maxSys = bp.Systolic
-		}
-		if bp.Diastolic < minDia {
-			minDia = bp.Diastolic
-		}
-		if bp.Diastolic > maxDia {
-			maxDia = bp.Diastolic
-		}
-
-		if bp.Pulse != nil {
-			sumPulse += *bp.Pulse
-			countPulse++
-			if *bp.Pulse < minPulse {
-				minPulse = *bp.Pulse
-			}
-			if *bp.Pulse > maxPulse {
-				maxPulse = *bp.Pulse
-			}
+	bpReadings := make([]domain.BPReading, len(readings))
+	for i, bp := range readings {
+		bpReadings[i] = domain.BPReading{
+			Systolic:  bp.Systolic,
+			Diastolic: bp.Diastolic,
+			Pulse:     bp.Pulse,
 		}
 	}
-
-	avgSys := sumSys / len(readings)
-	avgDia := sumDia / len(readings)
-	avgPulse := 0
-	if countPulse > 0 {
-		avgPulse = sumPulse / countPulse
-	}
-
-	pulsePart := ""
-	if countPulse > 0 {
-		pulsePart = fmt.Sprintf(", pulse %d", avgPulse)
-	}
-	msgConfig.Text = fmt.Sprintf("📊 Statistics (30 days):\n\nAverage: %d/%d%s", avgSys, avgDia, pulsePart)
-	if countPulse > 0 {
-		msgConfig.Text += fmt.Sprintf("\nMax: %d/%d, pulse %d", maxSys, maxDia, maxPulse)
-		msgConfig.Text += fmt.Sprintf("\nMin: %d/%d, pulse %d", minSys, minDia, minPulse)
-	} else {
-		msgConfig.Text += fmt.Sprintf("\nMax: %d/%d, pulse —", maxSys, maxDia)
-		msgConfig.Text += fmt.Sprintf("\nMin: %d/%d, pulse —", minSys, minDia)
-	}
-}
-
-func (b *Bot) generateBPCSV(readings []store.BloodPressure) ([]byte, error) {
-	buf := &bytes.Buffer{}
-	writer := csv.NewWriter(buf)
-
-	// Write header
-	if err := writer.Write([]string{"date time", "systolic", "diastolic", "pulse", "category"}); err != nil {
-		return nil, err
-	}
-
-	// Write data rows
-	for _, bp := range readings {
-		dateTime := bp.MeasuredAt.Format("2006-01-02 15:04")
-		pulse := ""
-		if bp.Pulse != nil {
-			pulse = strconv.Itoa(*bp.Pulse)
-		}
-		category := bp.Category
-		if category == "" {
-			category = store.CalculateBPCategory(bp.Systolic, bp.Diastolic)
-		}
-		row := []string{dateTime, strconv.Itoa(bp.Systolic), strconv.Itoa(bp.Diastolic), pulse, category}
-		if err := writer.Write(row); err != nil {
-			return nil, err
-		}
-	}
-
-	writer.Flush()
-	return buf.Bytes(), writer.Error()
-}
-
-func (b *Bot) generateWeightCSV(logs []store.WeightLog) ([]byte, error) {
-	buf := &bytes.Buffer{}
-	writer := csv.NewWriter(buf)
-
-	// Write header in Libra format
-	_ = writer.Write([]string{"#Version: 6"})
-	_ = writer.Write([]string{"#Units: kg"})
-	_ = writer.Write([]string{""})
-	_ = writer.Write([]string{"#date;weight;weight trend;body fat;body fat trend;muscle mass;muscle mass trend;log"})
-
-	// Write data rows
-	for _, w := range logs {
-		dateTime := w.MeasuredAt.Format("2006-01-02T15:04:05.000Z")
-
-		weight := fmt.Sprintf("%.1f", w.Weight)
-		weightTrend := ""
-		if w.WeightTrend != nil {
-			weightTrend = fmt.Sprintf("%.1f", *w.WeightTrend)
-		}
-
-		bodyFat := ""
-		if w.BodyFat != nil {
-			bodyFat = fmt.Sprintf("%.1f", *w.BodyFat)
-		}
-
-		bodyFatTrend := ""
-		if w.BodyFatTrend != nil {
-			bodyFatTrend = fmt.Sprintf("%.1f", *w.BodyFatTrend)
-		}
-
-		muscleMass := ""
-		if w.MuscleMass != nil {
-			muscleMass = fmt.Sprintf("%.1f", *w.MuscleMass)
-		}
-
-		muscleMassTrend := ""
-		if w.MuscleMassTrend != nil {
-			muscleMassTrend = fmt.Sprintf("%.1f", *w.MuscleMassTrend)
-		}
-
-		row := []string{
-			dateTime + ";" + weight + ";" + weightTrend + ";" + bodyFat + ";" + bodyFatTrend + ";" + muscleMass + ";" + muscleMassTrend + ";" + w.Notes,
-		}
-		if err := writer.Write(row); err != nil {
-			return nil, err
-		}
-	}
-
-	writer.Flush()
-	return buf.Bytes(), writer.Error()
-}
-
-func parseBPArgs(args string) []string {
-	return strings.Fields(args)
+	stats := domain.CalculateBPStats(bpReadings)
+	msgConfig.Text = fmt.Sprintf("📊 Statistics (30 days):\n\n%s", stats.FormatBPStats())
 }
 
 // -- Weight Tracking Commands --
@@ -1156,7 +1046,11 @@ The system will automatically calculate your weight trend over time.`
 	}
 
 	weight, err := strconv.ParseFloat(parts[0], 64)
-	if err != nil || weight < 30 || weight > 300 {
+	if err != nil {
+		msgConfig.Text = "❌ Invalid weight value (30-300 kg)"
+		return
+	}
+	if err := domain.ValidateWeight(weight); err != nil {
 		msgConfig.Text = "❌ Invalid weight value (30-300 kg)"
 		return
 	}
@@ -1172,7 +1066,7 @@ The system will automatically calculate your weight trend over time.`
 		previousTrend = lastLog.WeightTrend
 	}
 
-	weightTrend := store.CalculateWeightTrend(weight, previousTrend)
+	weightTrend := domain.CalculateWeightTrend(weight, previousTrend)
 
 	wLog := &store.WeightLog{
 		UserID:      b.allowedUserID,

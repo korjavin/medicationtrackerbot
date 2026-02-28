@@ -146,24 +146,21 @@ type FoodTargets struct {
 	Fat      int `json:"fat"`
 }
 
+// CalculateBPCategory returns the ISH 2020 classification.
+// Deprecated: prefer domain.CalculateBPCategory for new code.
 func CalculateBPCategory(systolic, diastolic int) string {
-	// Hypertensive Crisis: >180 or >120
 	if systolic > 180 || diastolic > 120 {
 		return "Hypertensive Crisis"
 	}
-	// High BP Stage 2: ≥140 or ≥90
 	if systolic >= 140 || diastolic >= 90 {
 		return "High BP Stage 2"
 	}
-	// High BP Stage 1: 130-139 or 80-89
 	if systolic >= 130 || diastolic >= 80 {
 		return "High BP Stage 1"
 	}
-	// Elevated: 120-129 and <80
 	if systolic >= 120 && systolic < 130 && diastolic < 80 {
 		return "Elevated"
 	}
-	// Normal: <120 and <80
 	if systolic < 120 && diastolic < 80 {
 		return "Normal"
 	}
@@ -1226,8 +1223,9 @@ func (s *Store) GetHighestWeightRecord(ctx context.Context, userID int64) (*Weig
 	return &w, nil
 }
 
-// CalculateWeightTrend calculates a simple exponential moving average
-// alpha = 0.1 gives roughly a 20-day smoothing
+// CalculateWeightTrend calculates a simple exponential moving average.
+// alpha = 0.1 gives roughly a 20-day smoothing.
+// Deprecated: prefer domain.CalculateWeightTrend for new code.
 func CalculateWeightTrend(currentWeight float64, previousTrend *float64) float64 {
 	if previousTrend == nil {
 		return currentWeight

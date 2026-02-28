@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 )
 
 // handleStartNextCommand manually starts the next scheduled workout
@@ -238,14 +239,11 @@ func (b *Bot) handleWorkoutHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 	}
 
 	// Calculate streak
-	streak := 0
-	for _, session := range sessions {
-		if session.Status == "completed" {
-			streak++
-		} else if session.Status == "skipped" || session.Status == "pending" {
-			break
-		}
+	sessionStatuses := make([]domain.SessionStatus, len(sessions))
+	for i, s := range sessions {
+		sessionStatuses[i] = domain.SessionStatus{Status: s.Status}
 	}
+	streak := domain.CalculateStreak(sessionStatuses)
 
 	if streak > 0 {
 		sb.WriteString(fmt.Sprintf("\n🔥 **Current streak:** %d workout%s", streak, map[bool]string{true: "s", false: ""}[streak != 1]))

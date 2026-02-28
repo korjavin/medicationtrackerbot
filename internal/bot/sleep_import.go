@@ -1,38 +1,25 @@
 package bot
 
 import (
-	"archive/zip"
 	"context"
-	"database/sql"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
-	_ "modernc.org/sqlite"
 )
 
 func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 	log.Printf("Document upload received: %s (size: %d bytes)", msg.Document.FileName, msg.Document.FileSize)
 
-	// Validate .nxk extension
-	if !strings.HasSuffix(strings.ToLower(msg.Document.FileName), ".nxk") {
-		log.Printf("Invalid file extension for sleep import: %s", msg.Document.FileName)
-		if _, err := b.api.Send(tgbotapi.NewMessage(msg.Chat.ID, "⚠️ Only .nxk files are supported for sleep import.")); err != nil {
-			log.Printf("[bot] send failed: %v", err)
-		}
-		return
-	}
-
-	// Validate file size (50MB max to be safe)
-	if msg.Document.FileSize > 50*1024*1024 {
-		log.Printf("File too large for sleep import: %d bytes", msg.Document.FileSize)
-		if _, err := b.api.Send(tgbotapi.NewMessage(msg.Chat.ID, "⚠️ File too large. Maximum size is 50MB.")); err != nil {
+	if err := domain.ValidateImportFile(msg.Document.FileName, int64(msg.Document.FileSize)); err != nil {
+		log.Printf("Import file validation failed: %v", err)
+		if _, err := b.api.Send(tgbotapi.NewMessage(msg.Chat.ID, "⚠️ "+err.Error())); err != nil {
 			log.Printf("[bot] send failed: %v", err)
 		}
 		return
@@ -125,67 +112,40 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 	log.Printf("Starting sleep import from NXK file: %s", nxkPath)
 
-	// Extract backup.db from ZIP
-	zipReader, err := zip.OpenReader(nxkPath)
-	if err != nil {
-		log.Printf("Failed to open ZIP archive: %v", err)
-		return 0, 0, fmt.Errorf("invalid ZIP archive: %w", err)
-	}
-	defer zipReader.Close()
-
-	log.Printf("ZIP archive opened, searching for backup.db among %d files", len(zipReader.File))
-	var dbFile *zip.File
-	for _, f := range zipReader.File {
-		log.Printf("Found file in archive: %s", f.Name)
-		if f.Name == "backup.db" {
-			dbFile = f
-			break
-		}
-	}
-	if dbFile == nil {
-		log.Printf("backup.db not found in archive")
-		return 0, 0, fmt.Errorf("backup.db not found in archive")
-	}
-
-	log.Printf("Found backup.db in archive (size: %d bytes)", dbFile.UncompressedSize64)
-
-	tempDB, err := os.CreateTemp("", "sleep-db-*.db")
-	if err != nil {
-		log.Printf("Failed to create temp DB file: %v", err)
-		return 0, 0, err
-	}
-	defer os.Remove(tempDB.Name())
-	defer tempDB.Close()
-
-	rc, err := dbFile.Open()
-	if err != nil {
-		log.Printf("Failed to open backup.db from archive: %v", err)
-		return 0, 0, err
-	}
-	defer rc.Close()
-
-	const maxSleepDBSize = 256 * 1024 * 1024 // 256 MB
-	written, err := io.Copy(tempDB, io.LimitReader(rc, maxSleepDBSize))
+	dbPath, cleanup, err := domain.ExtractBackupDB(nxkPath)
 	if err != nil {
 		log.Printf("Failed to extract backup.db: %v", err)
 		return 0, 0, err
 	}
-	_ = tempDB.Close()
-	log.Printf("Extracted backup.db: %d bytes written to %s", written, tempDB.Name())
+	defer cleanup()
 
 	// Parse SQLite database
-	sleepLogs, err := b.parseSleepDatabase(tempDB.Name())
+	domainSleepLogs, err := domain.ParseSleepDatabase(dbPath)
 	if err != nil {
 		log.Printf("Failed to parse sleep database: %v", err)
 		return 0, 0, err
 	}
 
-	if len(sleepLogs) == 0 {
+	if len(domainSleepLogs) == 0 {
 		log.Printf("No sleep records found in database")
 		return 0, 0, fmt.Errorf("no sleep records found")
 	}
 
-	log.Printf("Parsed %d sleep records from database", len(sleepLogs))
+	log.Printf("Parsed %d sleep records from database", len(domainSleepLogs))
+
+	// Convert domain types to store types
+	sleepLogs := make([]store.SleepLog, len(domainSleepLogs))
+	for i, sl := range domainSleepLogs {
+		sleepLogs[i] = store.SleepLog{
+			StartTime: sl.StartTime, EndTime: sl.EndTime,
+			TimezoneOffset: sl.TimezoneOffset, Day: sl.Day,
+			LightMinutes: sl.LightMinutes, DeepMinutes: sl.DeepMinutes,
+			REMMinutes: sl.REMMinutes, AwakeMinutes: sl.AwakeMinutes,
+			TotalMinutes: sl.TotalMinutes, TurnOverCount: sl.TurnOverCount,
+			HeartRateAvg: sl.HeartRateAvg, SpO2Avg: sl.SpO2Avg,
+			UserModified: sl.UserModified, Notes: sl.Notes,
+		}
+	}
 
 	// Import sleep
 	ctx := context.Background()
@@ -196,33 +156,48 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 	}
 
 	// Parse and import vitals
-	heartLogs, err := b.parseHeartDatabase(tempDB.Name())
+	domainHeartLogs, err := domain.ParseHeartDatabase(dbPath)
 	if err != nil {
 		log.Printf("Failed to parse heart database: %v", err)
 	}
+	heartLogs := make([]store.VitalsHeartLog, len(domainHeartLogs))
+	for i, h := range domainHeartLogs {
+		heartLogs[i] = store.VitalsHeartLog{DateTime: h.DateTime, TzOffset: h.TzOffset, Value: h.Value, Type: h.Type}
+	}
 
-	spo2Logs, err := b.parseSpO2Database(tempDB.Name())
+	domainSpo2Logs, err := domain.ParseSpO2Database(dbPath)
 	if err != nil {
 		log.Printf("Failed to parse spo2 database: %v", err)
 	}
+	spo2Logs := make([]store.VitalsSpO2Log, len(domainSpo2Logs))
+	for i, s := range domainSpo2Logs {
+		spo2Logs[i] = store.VitalsSpO2Log{DateTime: s.DateTime, TzOffset: s.TzOffset, Value: s.Value, Type: s.Type}
+	}
 
-	stressLogs, err := b.parseStressDatabase(tempDB.Name())
+	domainStressLogs, err := domain.ParseStressDatabase(dbPath)
 	if err != nil {
 		log.Printf("Failed to parse stress database: %v", err)
+	}
+	stressLogs := make([]store.VitalsStressLog, len(domainStressLogs))
+	for i, s := range domainStressLogs {
+		stressLogs[i] = store.VitalsStressLog{DateTime: s.DateTime, TzOffset: s.TzOffset, Value: s.Value, Type: s.Type, Info: s.Info}
 	}
 
 	vitalsImported, vitalsSkipped, err := b.imports.ImportVitals(ctx, b.allowedUserID, heartLogs, spo2Logs, stressLogs)
 	if err != nil {
 		log.Printf("Failed to import vitals logs to database: %v", err)
-		// We don't return here because we already imported sleep logs
 	} else {
 		log.Printf("Successfully imported %d vitals records, skipped %d", vitalsImported, vitalsSkipped)
 	}
 
 	// Parse and import day stats
-	dayStats, err := b.parseDayDatabase(tempDB.Name())
+	domainDayStats, err := domain.ParseDayDatabase(dbPath)
 	if err != nil {
 		log.Printf("Failed to parse day database: %v", err)
+	}
+	dayStats := make([]store.DayStat, len(domainDayStats))
+	for i, d := range domainDayStats {
+		dayStats[i] = store.DayStat{Day: d.Day, Steps: d.Steps, Calories: d.Calories, Distance: d.Distance}
 	}
 
 	statsImported, statsSkipped, err := b.imports.ImportDayStats(ctx, b.allowedUserID, dayStats)
@@ -233,231 +208,6 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 	}
 
 	return imported + vitalsImported + statsImported, skipped + vitalsSkipped + statsSkipped, nil
-}
-
-func (b *Bot) parseSleepDatabase(dbPath string) ([]store.SleepLog, error) {
-	log.Printf("Parsing sleep database: %s", dbPath)
-
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		log.Printf("Failed to open SQLite database: %v", err)
-		return nil, err
-	}
-	defer db.Close()
-
-	// Test connection
-	if err := db.Ping(); err != nil {
-		log.Printf("Failed to ping SQLite database: %v", err)
-		return nil, fmt.Errorf("invalid database file: %w", err)
-	}
-
-	rows, err := db.Query(`SELECT start, end, tz, day, light, deep, rem, awake,
-		total, turnOver, hrAvg, spo2Avg, userModified, info FROM sleep ORDER BY start`)
-	if err != nil {
-		log.Printf("Failed to query sleep table: %v", err)
-		return nil, fmt.Errorf("failed to query sleep table: %w", err)
-	}
-	defer rows.Close()
-
-	var logs []store.SleepLog
-	recordCount := 0
-	for rows.Next() {
-		var startMs, endMs int64
-		var tz int
-		var day string
-		var light, deep, rem, awake, total sql.NullInt64
-		var turnOver, hrAvg, spo2Avg sql.NullInt64
-		var userModified int
-		var info sql.NullString
-
-		err := rows.Scan(&startMs, &endMs, &tz, &day, &light, &deep, &rem,
-			&awake, &total, &turnOver, &hrAvg, &spo2Avg, &userModified, &info)
-		if err != nil {
-			log.Printf("Failed to scan row %d: %v", recordCount+1, err)
-			return nil, fmt.Errorf("failed to scan sleep record: %w", err)
-		}
-
-		sl := store.SleepLog{
-			StartTime:      time.UnixMilli(startMs).UTC(),
-			EndTime:        time.UnixMilli(endMs).UTC(),
-			TimezoneOffset: tz,
-			Day:            day,
-			UserModified:   userModified != 0,
-		}
-
-		// Convert nullable integers
-		if light.Valid {
-			v := int(light.Int64)
-			sl.LightMinutes = &v
-		}
-		if deep.Valid {
-			v := int(deep.Int64)
-			sl.DeepMinutes = &v
-		}
-		if rem.Valid {
-			v := int(rem.Int64)
-			sl.REMMinutes = &v
-		}
-		if awake.Valid {
-			v := int(awake.Int64)
-			sl.AwakeMinutes = &v
-		}
-		if total.Valid {
-			v := int(total.Int64)
-			sl.TotalMinutes = &v
-		}
-		if turnOver.Valid {
-			v := int(turnOver.Int64)
-			sl.TurnOverCount = &v
-		}
-		if hrAvg.Valid {
-			v := int(hrAvg.Int64)
-			sl.HeartRateAvg = &v
-		}
-		if spo2Avg.Valid {
-			v := int(spo2Avg.Int64)
-			sl.SpO2Avg = &v
-		}
-		if info.Valid {
-			sl.Notes = info.String
-		}
-
-		logs = append(logs, sl)
-		recordCount++
-	}
-
-	if err := rows.Err(); err != nil {
-		log.Printf("Error iterating over rows: %v", err)
-		return nil, fmt.Errorf("error reading sleep records: %w", err)
-	}
-
-	log.Printf("Successfully parsed %d sleep records", recordCount)
-	return logs, nil
-}
-
-func (b *Bot) parseHeartDatabase(dbPath string) ([]store.VitalsHeartLog, error) {
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	rows, err := db.Query(`SELECT dateTime, tz, value, type FROM heart ORDER BY dateTime`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var logs []store.VitalsHeartLog
-	for rows.Next() {
-		var dateMs int64
-		var tz, val, typ int
-		if err := rows.Scan(&dateMs, &tz, &val, &typ); err != nil {
-			return nil, err
-		}
-		logs = append(logs, store.VitalsHeartLog{
-			DateTime: time.UnixMilli(dateMs).UTC(),
-			TzOffset: tz,
-			Value:    val,
-			Type:     typ,
-		})
-	}
-	return logs, nil
-}
-
-func (b *Bot) parseDayDatabase(dbPath string) ([]store.DayStat, error) {
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	rows, err := db.Query(`SELECT day, steps, calories, distance FROM day ORDER BY day`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var stats []store.DayStat
-	for rows.Next() {
-		var dayStr string
-		var steps, cal, dist int
-		if err := rows.Scan(&dayStr, &steps, &cal, &dist); err != nil {
-			return nil, err
-		}
-		stats = append(stats, store.DayStat{
-			Day:      dayStr,
-			Steps:    steps,
-			Calories: cal,
-			Distance: dist,
-		})
-	}
-	return stats, nil
-}
-
-func (b *Bot) parseSpO2Database(dbPath string) ([]store.VitalsSpO2Log, error) {
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	rows, err := db.Query(`SELECT dateTime, tz, value, type FROM spo2 ORDER BY dateTime`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var logs []store.VitalsSpO2Log
-	for rows.Next() {
-		var dateMs int64
-		var tz, val, typ int
-		if err := rows.Scan(&dateMs, &tz, &val, &typ); err != nil {
-			return nil, err
-		}
-		logs = append(logs, store.VitalsSpO2Log{
-			DateTime: time.UnixMilli(dateMs).UTC(),
-			TzOffset: tz,
-			Value:    val,
-			Type:     typ,
-		})
-	}
-	return logs, nil
-}
-
-func (b *Bot) parseStressDatabase(dbPath string) ([]store.VitalsStressLog, error) {
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	rows, err := db.Query(`SELECT dateTime, tz, value, type, info FROM stress ORDER BY dateTime`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var logs []store.VitalsStressLog
-	for rows.Next() {
-		var dateMs int64
-		var tz, val, typ int
-		var info sql.NullString
-		if err := rows.Scan(&dateMs, &tz, &val, &typ, &info); err != nil {
-			return nil, err
-		}
-		l := store.VitalsStressLog{
-			DateTime: time.UnixMilli(dateMs).UTC(),
-			TzOffset: tz,
-			Value:    val,
-			Type:     typ,
-		}
-		if info.Valid {
-			l.Info = info.String
-		}
-		logs = append(logs, l)
-	}
-	return logs, nil
 }
 
 func (b *Bot) updateStatusMessage(chatID int64, messageID int, text string) {
