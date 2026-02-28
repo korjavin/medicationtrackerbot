@@ -157,6 +157,10 @@ describe('app.js charts, scanner and visualization helpers', () => {
         stats_30: { days: 28, systolic: 126, diastolic: 81 }
       });
       expect(document.getElementById('bp-averages').innerHTML).toContain('14d');
+      expect(document.querySelectorAll('#bp-averages .bp-avg-item')).toHaveLength(2);
+
+      window.renderBPAverages(null);
+      expect(document.getElementById('bp-averages').children).toHaveLength(0);
 
       window.renderBPReadings(readings);
       const bpListHtml = document.getElementById('bp-list').innerHTML;
