@@ -2059,7 +2059,7 @@ async function cancelWorkoutSession(sessionId) {
 
         const confirmMsg = hasLogs
             ? 'Finish this workout now? It will be marked as completed.'
-            : 'Внимание! У вас тут нет ни одного упражнения, точно хотите закончить?';
+            : 'Warning! You have no exercises logged. Are you sure you want to finish this workout?';
 
         if (confirm(confirmMsg)) {
             await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
