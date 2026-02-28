@@ -149,9 +149,13 @@
             if (!res || typeof res.cursor !== 'number') return;
 
             const changedTags = Array.isArray(res.changed_tags) ? res.changed_tags : [];
+            const prevCursor = this.getChangeCursor();
             if (changedTags.length > 0) {
+                console.log('[changes] tags=%o cursor=%d→%d', changedTags, prevCursor, res.cursor);
                 await this.invalidateTags(changedTags);
                 this.requestTabRefresh(changedTags);
+            } else {
+                console.debug('[changes] no changes, cursor=%d→%d', prevCursor, res.cursor);
             }
 
             this.setChangeCursor(res.cursor);
