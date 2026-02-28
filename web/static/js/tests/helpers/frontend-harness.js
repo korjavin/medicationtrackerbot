@@ -12,6 +12,8 @@ const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const COMPONENTS = [
   path.join(REPO_ROOT, 'web/static/js/components/mt-modal.js'),
   path.join(REPO_ROOT, 'web/static/js/components/mt-setting-toggle.js'),
+  path.join(REPO_ROOT, 'web/static/js/components/mt-tab-group.js'),
+  path.join(REPO_ROOT, 'web/static/js/components/mt-day-picker.js'),
   path.join(REPO_ROOT, 'web/static/js/components/register-components.js')
 ];
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');

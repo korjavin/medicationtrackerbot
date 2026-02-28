@@ -5,7 +5,7 @@ describe('workout.js loaders and next-card behavior', () => {
   let consoleErrorSpy;
 
   beforeEach(() => {
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
   });
 
   afterEach(() => {
@@ -155,7 +155,8 @@ describe('workout.js loaders and next-card behavior', () => {
       document.getElementById('add-workout-group-btn').click();
       expect(groupModal.classList.contains('hidden')).toBe(false);
 
-      const monday = document.querySelector('#workout-group-modal .days-select span[data-day="1"]');
+      const picker = document.getElementById('workout-group-days');
+      const monday = picker.querySelector('span[data-day="1"]');
       monday.click();
       expect(monday.classList.contains('selected')).toBe(true);
       monday.click();
@@ -164,7 +165,7 @@ describe('workout.js loaders and next-card behavior', () => {
       document.getElementById('workout-group-cancel-btn').click();
       expect(groupModal.classList.contains('hidden')).toBe(true);
 
-      const onSelectSpy = vi.spyOn(window, 'onSessionExerciseSelect').mockImplementation(() => {});
+      const onSelectSpy = vi.spyOn(window, 'onSessionExerciseSelect').mockImplementation(() => { });
       const input = document.getElementById('session-add-exercise-name');
       input.dispatchEvent(new window.Event('change', { bubbles: true }));
       expect(onSelectSpy).toHaveBeenCalled();

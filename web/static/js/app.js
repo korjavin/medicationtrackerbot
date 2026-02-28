@@ -972,34 +972,7 @@ const formatDate = (dateStr) => {
     });
 };
 
-// UI Functions
-function activateTabGroup(tab, options) {
-    const { buttonSelector, contentSelector, contentIdFromTab } = options;
-    document.querySelectorAll(buttonSelector).forEach((el) => el.classList.remove('active'));
-    document.querySelectorAll(contentSelector).forEach((el) => el.classList.remove('active'));
 
-    const tabButton = document.querySelector(`${buttonSelector}[data-tab="${tab}"]`);
-    const tabContent = document.getElementById(contentIdFromTab(tab));
-    if (!tabButton || !tabContent) return false;
-
-    tabButton.classList.add('active');
-    tabContent.classList.add('active');
-    return true;
-}
-
-function bindTabGroup(options) {
-    const { container, buttonSelector, onTabSelect } = options;
-    if (!container || container.dataset.tabBound === '1') return;
-    container.dataset.tabBound = '1';
-
-    container.addEventListener('click', (event) => {
-        const button = event.target.closest(buttonSelector);
-        if (!button || !container.contains(button)) return;
-        const tab = button.dataset.tab;
-        if (!tab) return;
-        onTabSelect(tab);
-    });
-}
 
 function switchTab(tab) {
     const tabToFeature = {
@@ -1015,12 +988,12 @@ function switchTab(tab) {
         return;
     }
 
-    const activated = activateTabGroup(tab, {
-        buttonSelector: '.tab',
-        contentSelector: '.view',
-        contentIdFromTab: (tabName) => `${tabName}-view`
-    });
-    if (!activated) return;
+    document.getElementById('tabs')?.setActiveTab?.(tab);
+    const tabContent = document.getElementById(`${tab}-view`);
+    if (!tabContent) return;
+
+    document.querySelectorAll('.view').forEach((el) => el.classList.remove('active'));
+    tabContent.classList.add('active');
 
     if (tab === 'meds') {
         if (!document.querySelector('.med-tab.active')) {
@@ -1036,10 +1009,8 @@ function switchTab(tab) {
     else if (tab === 'settings') { loadSettings(); }
 }
 
-bindTabGroup({
-    container: document.getElementById('tabs'),
-    buttonSelector: '.tab',
-    onTabSelect: switchTab
+document.getElementById('tabs')?.addEventListener('tabchange', (e) => {
+    switchTab(e.detail.tabId);
 });
 
 let medicationControlsBound = false;
@@ -1066,9 +1037,7 @@ function bindMedicationControls() {
     bindClick('med-modal-save-btn', () => saveMedication());
 
     bindChange('schedule-type', () => toggleScheduleFields());
-    document.querySelectorAll('#days-container .days-select span').forEach((day) => {
-        day.addEventListener('click', () => toggleDay(day));
-    });
+
 
     bindClick('initial-remove-time-btn', () => {
         const button = document.getElementById('initial-remove-time-btn');
@@ -2595,21 +2564,19 @@ async function deleteFoodLog(id) {
 
 
 function switchMedTab(tab) {
-    const activated = activateTabGroup(tab, {
-        buttonSelector: '.med-tab',
-        contentSelector: '.med-tab-content',
-        contentIdFromTab: (tabName) => `med-${tabName}-tab`
-    });
-    if (!activated) return;
+    document.querySelector('.med-tabs')?.setActiveTab?.(tab);
+    const tabContent = document.getElementById(`med-${tab}-tab`);
+    if (!tabContent) return;
+
+    document.querySelectorAll('.med-tab-content').forEach((el) => el.classList.remove('active'));
+    tabContent.classList.add('active');
 
     if (tab === 'schedule') { loadMeds(); }
     else if (tab === 'history') { loadHistory(); }
 }
 
-bindTabGroup({
-    container: document.querySelector('.med-tabs'),
-    buttonSelector: '.med-tab',
-    onTabSelect: switchMedTab
+document.querySelector('.med-tabs')?.addEventListener('tabchange', (e) => {
+    switchMedTab(e.detail.tabId);
 });
 
 // Load settings (BP reminders status, etc.)
@@ -2886,7 +2853,7 @@ function showAddModal() {
     addTimeInput(); // One empty input
 
     // Clear days
-    document.querySelectorAll('.days-select span').forEach(s => s.classList.remove('selected'));
+    document.getElementById('med-days').value = [];
 }
 
 function showEditModal(id) {
@@ -2950,13 +2917,7 @@ function showEditModal(id) {
     }
 
     // Set days
-    document.querySelectorAll('.days-select span').forEach(s => s.classList.remove('selected'));
-    if (sched.days) {
-        sched.days.forEach(d => {
-            const span = document.querySelector(`span[data-day="${d}"]`);
-            if (span) span.classList.add('selected');
-        });
-    }
+    document.getElementById('med-days').value = sched.days || [];
 }
 
 function closeModal() {
@@ -2981,9 +2942,7 @@ function toggleScheduleFields() {
     }
 }
 
-function toggleDay(el) {
-    el.classList.toggle('selected');
-}
+
 
 function toggleInventoryFields() {
     const trackInventory = document.getElementById('med-track-inventory').checked;
@@ -3590,8 +3549,7 @@ async function saveMedication() {
     }
 
     if (type === 'weekly') {
-        const days = Array.from(document.querySelectorAll('.days-select span.selected'))
-            .map(s => parseInt(s.dataset.day));
+        const days = document.getElementById('med-days').value;
 
         if (days.length === 0) {
             tg.showAlert("Select at least one day!");
