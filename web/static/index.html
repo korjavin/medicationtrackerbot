@@ -607,6 +607,49 @@
         <video id="food-scanner-video" class="food-scanner-video" autoplay muted playsinline></video>
     </div>
 
+    <div id="food-product-modal" class="hidden">
+        <div class="modal-header">
+            <h3>Edit Product</h3>
+            <div class="actions">
+                <button onclick="closeFoodProductModal()" class="secondary">Cancel</button>
+                <button onclick="saveFoodProduct()" class="primary">Save</button>
+            </div>
+        </div>
+        <input type="hidden" id="food-product-id">
+
+        <div class="form-row">
+            <label>Name:</label>
+            <input type="text" id="food-product-name" placeholder="Product name">
+        </div>
+
+        <div class="form-row">
+            <label>Barcode:</label>
+            <input type="text" id="food-product-barcode" placeholder="e.g. 1234567890123">
+        </div>
+
+        <div class="form-row">
+            <label>Macros per 100g:</label>
+            <div class="bp-inputs-row">
+                <div class="bp-input-group">
+                    <label>Carbs</label>
+                    <input type="number" id="food-product-carbs" placeholder="C" step="0.1">
+                </div>
+                <div class="bp-input-group">
+                    <label>Protein</label>
+                    <input type="number" id="food-product-protein" placeholder="P" step="0.1">
+                </div>
+                <div class="bp-input-group">
+                    <label>Fat</label>
+                    <input type="number" id="food-product-fat" placeholder="F" step="0.1">
+                </div>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <label>Calories per 100g:</label>
+            <input type="number" id="food-product-calories" placeholder="Kcal" step="0.1">
+        </div>
+    </div>
 
     <!-- Modal for Adding Med -->
     <div id="modal-overlay" class="hidden"></div>

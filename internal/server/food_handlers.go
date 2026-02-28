@@ -432,6 +432,82 @@ func (s *Server) handleSetFoodTargets(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *Server) handleUpdateFoodProduct(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid product ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Name           string  `json:"name"`
+		Barcode        string  `json:"barcode"`
+		Carbs100g      float64 `json:"carbs_100g"`
+		Protein100g    float64 `json:"protein_100g"`
+		Fat100g        float64 `json:"fat_100g"`
+		EnergyKcal100g float64 `json:"energy_kcal_100g"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	var barcodePtr *string
+	if req.Barcode != "" {
+		barcodePtr = &req.Barcode
+	}
+
+	p := &store.FoodProduct{
+		ID:             id,
+		UserID:         userID,
+		Name:           req.Name,
+		Barcode:        barcodePtr,
+		Carbs100g:      req.Carbs100g,
+		Protein100g:    req.Protein100g,
+		Fat100g:        req.Fat100g,
+		EnergyKcal100g: req.EnergyKcal100g,
+	}
+
+	if err := s.store.UpdateFoodProduct(context.Background(), p); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.clearFoodSearchCache()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "updated"}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
+}
+
+func (s *Server) handleDeleteFoodProduct(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid product ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.DeleteFoodProduct(context.Background(), id, userID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.clearFoodSearchCache()
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *Server) handleGetFoodProducts(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
@@ -582,6 +658,13 @@ func (s *Server) setFoodSearchCache(key string, products []store.FoodProduct) {
 		return
 	}
 	s.foodSearchCache.Set([]byte(key), raw)
+}
+
+func (s *Server) clearFoodSearchCache() {
+	if s.foodSearchCache == nil {
+		return
+	}
+	s.foodSearchCache.Reset()
 }
 
 func mergeFoodProducts(base []store.FoodProduct, extra []store.FoodProduct) []store.FoodProduct {
