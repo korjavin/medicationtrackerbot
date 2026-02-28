@@ -151,4 +151,19 @@ describe('app.js unit tests', () => {
       cleanup();
     }
   });
+
+  it('provides top-level modal registry from modal manager', () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      const defs = window.ModalManager.getTopModalDefs();
+      const ids = defs.map((item) => item.id);
+      expect(ids).toContain('bp-modal');
+      expect(ids).toContain('weight-modal');
+      expect(ids).toContain('food-modal');
+      expect(ids).toContain('med-modal');
+      defs.forEach((item) => expect(typeof item.fn).toBe('function'));
+    } finally {
+      cleanup();
+    }
+  });
 });
