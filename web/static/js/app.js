@@ -5853,49 +5853,99 @@ function renderHealthOverviewContent(content, data) {
 
     const renderVitalGroup = (id, title, history, color, min, max, stat7d, stat30d, unit) => {
         if (history && history.length > 0) {
-            content.innerHTML += `
-                <div style="margin-top: 25px; padding: 10px 0;">
-                    <h3 style="margin-bottom: 5px;">${title}</h3>
-                    <div id="${id}ChartContainer" style="height: 200px; width: 100%;"></div>
-                    <div style="font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 5px;">
-                        ${stat7d} ${unit} (7d avg) | ${stat30d} ${unit} (30d avg)
-                    </div>
-                </div>
-            `;
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'margin-top: 25px; padding: 10px 0;';
+
+            const h3 = document.createElement('h3');
+            h3.style.marginBottom = '5px';
+            h3.textContent = title;
+
+            const chartContainer = document.createElement('div');
+            chartContainer.id = id + 'ChartContainer';
+            chartContainer.style.cssText = 'height: 200px; width: 100%;';
+
+            const statDiv = document.createElement('div');
+            statDiv.style.cssText = 'font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 5px;';
+            statDiv.textContent = `${stat7d} ${unit} (7d avg) | ${stat30d} ${unit} (30d avg)`;
+
+            wrapper.appendChild(h3);
+            wrapper.appendChild(chartContainer);
+            wrapper.appendChild(statDiv);
+            content.appendChild(wrapper);
+
             setTimeout(() => renderVitalsLineChart(id + 'ChartContainer', history, color, min, max), 0);
         }
     };
 
     if (data.sleep_stats_7d && data.sleep_stats_7d.length > 0) {
-        content.innerHTML += `
-            <div style="margin-top: 25px; padding: 10px 0;">
-                <h3 style="margin-bottom: 5px;">Sleep</h3>
-                <div id="sleepChartContainer" style="height: 250px; width: 100%;"></div>
-                <div style="font-size: 11px; display: flex; justify-content: center; gap: 10px; margin-top: 5px; color: var(--hint-color);">
-                    <div style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:10px; height:10px; background:#5a2d9c; border-radius:2px;"></span>Deep</div>
-                    <div style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:10px; height:10px; background:#2481cc; border-radius:2px;"></span>Light</div>
-                    <div style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:10px; height:10px; background:#c161d9; border-radius:2px;"></span>REM</div>
-                    <div style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:10px; height:10px; background:#e5b220; border-radius:2px;"></span>Awake</div>
-                    <div style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:10px; height:2px; background:#ff3b30;"></span>HR</div>
-                </div>
-                <div style="font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 10px;">
-                    ${data.average_sleep_hours_7d.toFixed(1)} hrs (7d avg) | ${data.average_sleep_hours_30d.toFixed(1)} hrs (30d avg)
-                </div>
-            </div>
-        `;
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'margin-top: 25px; padding: 10px 0;';
+
+        const h3 = document.createElement('h3');
+        h3.style.marginBottom = '5px';
+        h3.textContent = 'Sleep';
+
+        const chartContainer = document.createElement('div');
+        chartContainer.id = 'sleepChartContainer';
+        chartContainer.style.cssText = 'height: 250px; width: 100%;';
+
+        const legend = document.createElement('div');
+        legend.style.cssText = 'font-size: 11px; display: flex; justify-content: center; gap: 10px; margin-top: 5px; color: var(--hint-color);';
+
+        const createLegendItem = (color, text, isLine = false) => {
+            const item = document.createElement('div');
+            item.style.cssText = 'display:flex; align-items:center; gap:4px;';
+            const badge = document.createElement('span');
+            if (isLine) {
+                badge.style.cssText = `display:inline-block; width:10px; height:2px; background:${color};`;
+            } else {
+                badge.style.cssText = `display:inline-block; width:10px; height:10px; background:${color}; border-radius:2px;`;
+            }
+            item.appendChild(badge);
+            item.appendChild(document.createTextNode(text));
+            return item;
+        };
+
+        legend.appendChild(createLegendItem('#5a2d9c', 'Deep'));
+        legend.appendChild(createLegendItem('#2481cc', 'Light'));
+        legend.appendChild(createLegendItem('#c161d9', 'REM'));
+        legend.appendChild(createLegendItem('#e5b220', 'Awake'));
+        legend.appendChild(createLegendItem('#ff3b30', 'HR', true));
+
+        const statDiv = document.createElement('div');
+        statDiv.style.cssText = 'font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 10px;';
+        statDiv.textContent = `${data.average_sleep_hours_7d.toFixed(1)} hrs (7d avg) | ${data.average_sleep_hours_30d.toFixed(1)} hrs (30d avg)`;
+
+        wrapper.appendChild(h3);
+        wrapper.appendChild(chartContainer);
+        wrapper.appendChild(legend);
+        wrapper.appendChild(statDiv);
+        content.appendChild(wrapper);
+
         setTimeout(() => renderSleepChart(data.sleep_stats_7d), 0);
     }
 
     if (data.step_stats_7d && data.step_stats_7d.length > 0) {
-        content.innerHTML += `
-            <div style="margin-top: 25px; padding: 10px 0;">
-                <h3 style="margin-bottom: 5px;">Steps</h3>
-                <div id="stepsChartContainer" style="height: 250px; width: 100%;"></div>
-                <div style="font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 10px;">
-                    ${data.average_steps_7d.toLocaleString()} steps (7d avg) | ${data.average_steps_30d.toLocaleString()} steps (30d avg)
-                </div>
-            </div>
-        `;
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'margin-top: 25px; padding: 10px 0;';
+
+        const h3 = document.createElement('h3');
+        h3.style.marginBottom = '5px';
+        h3.textContent = 'Steps';
+
+        const chartContainer = document.createElement('div');
+        chartContainer.id = 'stepsChartContainer';
+        chartContainer.style.cssText = 'height: 250px; width: 100%;';
+
+        const statDiv = document.createElement('div');
+        statDiv.style.cssText = 'font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 10px;';
+        statDiv.textContent = `${data.average_steps_7d.toLocaleString()} steps (7d avg) | ${data.average_steps_30d.toLocaleString()} steps (30d avg)`;
+
+        wrapper.appendChild(h3);
+        wrapper.appendChild(chartContainer);
+        wrapper.appendChild(statDiv);
+        content.appendChild(wrapper);
+
         setTimeout(() => renderStepsChart(data.step_stats_7d), 0);
     }
 
@@ -5903,11 +5953,10 @@ function renderHealthOverviewContent(content, data) {
     renderVitalGroup('spo2', 'SpO2', data.spo2_history_7d, '#32ade6', 85, 100, data.average_spo2_7d, data.average_spo2_30d, '%');
     renderVitalGroup('stress', 'Stress Level', data.stress_history_7d, '#ff9500', 0, 100, data.average_stress_7d, data.average_stress_30d, '/ 100');
 
-    content.innerHTML += `
-        <p style="font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 30px;">
-            This data is gathered from your synced .nxk backups.
-        </p>
-    `;
+    const disclaimer = document.createElement('p');
+    disclaimer.style.cssText = 'font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 30px;';
+    disclaimer.textContent = 'This data is gathered from your synced .nxk backups.';
+    content.appendChild(disclaimer);
 }
 
 function renderHealthOverviewError(content) {
