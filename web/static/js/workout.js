@@ -475,28 +475,69 @@ async function loadVariantsForGroup(groupId) {
         const variants = await apiCall(`/api/workout/variants?group_id=${groupId}`);
 
         if (!variants || variants.length === 0) {
-            container.innerHTML = '<p style="color: var(--hint-color); font-size: 0.9em;">No variants yet. Add one to get started!</p>';
+            const empty = document.createElement('p');
+            empty.style.color = 'var(--hint-color)';
+            empty.style.fontSize = '0.9em';
+            empty.textContent = 'No variants yet. Add one to get started!';
+            container.replaceChildren(empty);
             return;
         }
 
-        let html = '';
-        variants.forEach(variant => {
+        container.replaceChildren();
+        variants.forEach((variant) => {
             const rotationText = variant.rotation_order !== null ? ` (Order: ${variant.rotation_order})` : '';
-            html += `
-                <div style="background: #f8f9fa; padding: 10px; border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
-                    <div onclick="showEditVariantModal(${variant.id})" style="cursor: pointer; flex: 1;">
-                        <strong>${escapeHtml(variant.name)}</strong>${rotationText}
-                        ${variant.description ? `<div style="font-size: 0.85em; color: #666;">${escapeHtml(variant.description)}</div>` : ''}
-                    </div>
-                    <button class="delete-btn" onclick="deleteVariant(${variant.id}, event)" style="position: static; margin-left: 10px;">&times;</button>
-                </div>
-            `;
-        });
 
-        container.innerHTML = html;
+            const card = document.createElement('div');
+            card.style.background = '#f8f9fa';
+            card.style.padding = '10px';
+            card.style.borderRadius = '6px';
+            card.style.marginBottom = '8px';
+            card.style.display = 'flex';
+            card.style.justifyContent = 'space-between';
+            card.style.alignItems = 'center';
+
+            const info = document.createElement('div');
+            info.style.cursor = 'pointer';
+            info.style.flex = '1';
+            info.addEventListener('click', () => {
+                showEditVariantModal(variant.id);
+            });
+
+            const nameStrong = document.createElement('strong');
+            nameStrong.textContent = variant.name;
+            info.appendChild(nameStrong);
+            if (rotationText) {
+                info.appendChild(document.createTextNode(rotationText));
+            }
+
+            if (variant.description) {
+                const description = document.createElement('div');
+                description.style.fontSize = '0.85em';
+                description.style.color = '#666';
+                description.textContent = variant.description;
+                info.appendChild(description);
+            }
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'delete-btn';
+            deleteBtn.style.position = 'static';
+            deleteBtn.style.marginLeft = '10px';
+            deleteBtn.textContent = '×';
+            deleteBtn.addEventListener('click', (event) => {
+                deleteVariant(variant.id, event);
+            });
+
+            card.appendChild(info);
+            card.appendChild(deleteBtn);
+            container.appendChild(card);
+        });
     } catch (error) {
         console.error('Error loading variants:', error);
-        container.innerHTML = '<p style="color: red;">Error loading variants</p>';
+        const message = document.createElement('p');
+        message.style.color = 'red';
+        message.textContent = 'Error loading variants';
+        container.replaceChildren(message);
     }
 }
 
