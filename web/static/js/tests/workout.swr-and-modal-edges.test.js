@@ -107,10 +107,12 @@ describe('workout.js SWR and modal edge branches', () => {
       expect(document.getElementById('workout-groups-list').innerHTML).toContain('Error loading workout groups');
 
       window.confirm = vi.fn().mockReturnValue(true);
-      const alertSpy = vi.fn();
-      window.Telegram.WebApp.showAlert = alertSpy;
+      window.apiCall = vi.fn().mockResolvedValue(true);
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onFresh([]);
+      });
       await window.deleteWorkoutGroup(1, { stopPropagation() {} });
-      expect(alertSpy).toHaveBeenCalledWith('Delete functionality not yet implemented in API');
+      expect(window.apiCall).toHaveBeenCalledWith('/api/workout/groups/delete?id=1', 'DELETE');
     } finally {
       cleanup();
     }
