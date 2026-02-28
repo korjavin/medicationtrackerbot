@@ -1288,6 +1288,175 @@ let currentSessionLogs = [];
 let currentSessionData = null;
 let originalSessionStatus = null;
 
+function renderWorkoutSessionInfo(infoContainer, session) {
+    const root = document.createElement('div');
+    root.style.display = 'flex';
+    root.style.justifyContent = 'space-between';
+    root.style.alignItems = 'center';
+    root.style.marginBottom = '10px';
+
+    const left = document.createElement('div');
+    const time = document.createElement('strong');
+    time.textContent = session.started_at
+        ? new Date(session.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : (session.scheduled_time || '');
+    left.appendChild(time);
+    left.appendChild(document.createTextNode(' • '));
+    left.appendChild(document.createTextNode(new Date(session.scheduled_date).toLocaleDateString()));
+
+    const right = document.createElement('div');
+    right.style.display = 'flex';
+    right.style.alignItems = 'center';
+    right.style.gap = '8px';
+
+    const label = document.createElement('label');
+    label.style.fontSize = '0.9em';
+    label.style.color = '#666';
+    label.style.margin = '0';
+    label.textContent = 'Status:';
+
+    const select = document.createElement('select');
+    select.id = 'session-status-select';
+    select.style.padding = '4px 8px';
+    select.style.borderRadius = '4px';
+    select.style.border = '1px solid #ddd';
+
+    const statusOptions = [
+        { value: 'in_progress', label: '🏋️ In Progress' },
+        { value: 'completed', label: '✅ Completed' },
+        { value: 'skipped', label: '⏭ Skipped' }
+    ];
+
+    statusOptions.forEach((opt) => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.label;
+        option.selected = session.status === opt.value;
+        select.appendChild(option);
+    });
+
+    right.appendChild(label);
+    right.appendChild(select);
+
+    root.appendChild(left);
+    root.appendChild(right);
+    infoContainer.replaceChildren(root);
+}
+
+function renderWorkoutSessionLogs(logsContainer) {
+    if (!Array.isArray(currentSessionLogs) || currentSessionLogs.length === 0) {
+        const empty = document.createElement('p');
+        empty.style.textAlign = 'center';
+        empty.style.color = '#888';
+        empty.textContent = 'No exercises logged';
+        logsContainer.replaceChildren(empty);
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    currentSessionLogs.forEach((log, index) => {
+        const isUnsaved = !log.id || log.id === 0;
+
+        const entry = document.createElement('div');
+        entry.className = 'exercise-log-entry';
+        entry.id = `exercise-log-${index}`;
+        entry.style.position = 'relative';
+        if (isUnsaved && !log._dirty) {
+            entry.style.opacity = '0.6';
+        }
+
+        const headerRow = document.createElement('div');
+        headerRow.style.display = 'flex';
+        headerRow.style.justifyContent = 'space-between';
+        headerRow.style.alignItems = 'center';
+
+        const title = document.createElement('h4');
+        title.style.margin = '0';
+        title.textContent = log.exercise_name || '';
+
+        const deleteButton = document.createElement('button');
+        deleteButton.title = 'Remove exercise';
+        deleteButton.style.background = 'none';
+        deleteButton.style.border = 'none';
+        deleteButton.style.cursor = 'pointer';
+        deleteButton.style.fontSize = '1.2em';
+        deleteButton.style.padding = '4px 8px';
+        deleteButton.style.color = '#c62828';
+        deleteButton.textContent = '🗑️';
+        deleteButton.addEventListener('click', () => {
+            deleteExerciseLog(index);
+        });
+
+        headerRow.appendChild(title);
+        headerRow.appendChild(deleteButton);
+        entry.appendChild(headerRow);
+
+        if (isUnsaved && !log._dirty) {
+            const hint = document.createElement('div');
+            hint.className = 'exercise-log-unsaved-hint';
+            hint.style.fontSize = '0.75em';
+            hint.style.color = '#888';
+            hint.style.marginBottom = '4px';
+            hint.textContent = 'Not yet logged — edit to include';
+            entry.appendChild(hint);
+        }
+
+        const inputRow = document.createElement('div');
+        inputRow.className = 'log-input-row';
+
+        const createNumberInputGroup = (labelText, value, field, min, max, step, inputmode) => {
+            const group = document.createElement('div');
+            group.className = 'log-input-group';
+
+            const label = document.createElement('label');
+            label.textContent = labelText;
+
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.min = String(min);
+            input.max = String(max);
+            input.step = String(step);
+            input.value = String(value);
+            input.setAttribute('inputmode', inputmode);
+            input.addEventListener('change', () => {
+                updateLocalLog(index, field, input.value);
+            });
+
+            group.appendChild(label);
+            group.appendChild(input);
+            return group;
+        };
+
+        inputRow.appendChild(createNumberInputGroup('Sets', log.sets_completed || 0, 'sets_completed', 0, 20, 1, 'numeric'));
+        inputRow.appendChild(createNumberInputGroup('Reps', log.reps_completed || 0, 'reps_completed', 0, 100, 1, 'numeric'));
+        inputRow.appendChild(createNumberInputGroup('Weight (kg)', log.weight_kg || 0, 'weight_kg', 0, 500, 0.5, 'decimal'));
+        entry.appendChild(inputRow);
+
+        const notesGroup = document.createElement('div');
+        notesGroup.className = 'log-input-group';
+
+        const notesLabel = document.createElement('label');
+        notesLabel.textContent = 'Notes';
+
+        const notesInput = document.createElement('input');
+        notesInput.type = 'text';
+        notesInput.value = log.notes || '';
+        notesInput.placeholder = 'Add notes...';
+        notesInput.maxLength = 200;
+        notesInput.addEventListener('change', () => {
+            updateLocalLog(index, 'notes', notesInput.value);
+        });
+
+        notesGroup.appendChild(notesLabel);
+        notesGroup.appendChild(notesInput);
+        entry.appendChild(notesGroup);
+
+        fragment.appendChild(entry);
+    });
+
+    logsContainer.replaceChildren(fragment);
+}
+
 async function showWorkoutSessionModal(sessionId) {
     const logsContainer = document.getElementById('workout-session-logs');
     const infoContainer = document.getElementById('workout-session-info');
@@ -1333,66 +1502,8 @@ async function showWorkoutSessionModal(sessionId) {
             }
         }
 
-        // Build info section with status dropdown
-        const statusOptions = [
-            { value: 'in_progress', label: '🏋️ In Progress' },
-            { value: 'completed', label: '✅ Completed' },
-            { value: 'skipped', label: '⏭ Skipped' }
-        ];
-
-        const statusDropdown = statusOptions.map(opt =>
-            `<option value="${opt.value}" ${data.session.status === opt.value ? 'selected' : ''}>${opt.label}</option>`
-        ).join('');
-
-        infoContainer.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <div>
-                    <strong>${data.session.started_at ? new Date(data.session.started_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : escapeHtml(data.session.scheduled_time)}</strong> •
-                    ${new Date(data.session.scheduled_date).toLocaleDateString()}
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <label style="font-size: 0.9em; color: #666; margin: 0;">Status:</label>
-                    <select id="session-status-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #ddd;">
-                        ${statusDropdown}
-                    </select>
-                </div>
-            </div>
-        `;
-
-        let html = '';
-        currentSessionLogs.forEach((log, index) => {
-            const isUnsaved = !log.id || log.id === 0;
-            const dimStyle = isUnsaved && !log._dirty ? 'opacity: 0.6;' : '';
-            html += `
-                <div class="exercise-log-entry" id="exercise-log-${index}" style="position: relative; ${dimStyle}">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h4 style="margin: 0;">${escapeHtml(log.exercise_name)}</h4>
-                        <button onclick="deleteExerciseLog(${index})" title="Remove exercise" style="background: none; border: none; cursor: pointer; font-size: 1.2em; padding: 4px 8px; color: #c62828;">🗑️</button>
-                    </div>
-                    ${isUnsaved && !log._dirty ? '<div style="font-size: 0.75em; color: #888; margin-bottom: 4px;">Not yet logged — edit to include</div>' : ''}
-                    <div class="log-input-row">
-                        <div class="log-input-group">
-                            <label>Sets</label>
-                            <input type="number" min="0" max="20" step="1" value="${log.sets_completed || 0}" onchange="updateLocalLog(${index}, 'sets_completed', this.value)" inputmode="numeric">
-                        </div>
-                        <div class="log-input-group">
-                            <label>Reps</label>
-                            <input type="number" min="0" max="100" step="1" value="${log.reps_completed || 0}" onchange="updateLocalLog(${index}, 'reps_completed', this.value)" inputmode="numeric">
-                        </div>
-                        <div class="log-input-group">
-                            <label>Weight (kg)</label>
-                            <input type="number" min="0" max="500" step="0.5" value="${log.weight_kg || 0}" onchange="updateLocalLog(${index}, 'weight_kg', this.value)" inputmode="decimal">
-                        </div>
-                    </div>
-                    <div class="log-input-group">
-                        <label>Notes</label>
-                        <input type="text" value="${escapeHtml(log.notes || '')}" onchange="updateLocalLog(${index}, 'notes', this.value)" placeholder="Add notes..." maxlength="200">
-                    </div>
-                </div>
-            `;
-        });
-
-        logsContainer.innerHTML = html || '<p style="text-align: center; color: #888;">No exercises logged</p>';
+        renderWorkoutSessionInfo(infoContainer, data.session);
+        renderWorkoutSessionLogs(logsContainer);
 
         window.ModalManager.workoutSession.open();
 
@@ -1409,6 +1520,8 @@ async function showWorkoutSessionModal(sessionId) {
 }
 
 function updateLocalLog(index, field, value) {
+    if (!currentSessionLogs[index]) return;
+
     if (field === 'notes') {
         currentSessionLogs[index][field] = value;
     } else if (field === 'sets_completed' || field === 'reps_completed') {
@@ -1424,7 +1537,7 @@ function updateLocalLog(index, field, value) {
     const el = document.getElementById(`exercise-log-${index}`);
     if (el) {
         el.style.opacity = '1';
-        const hint = el.querySelector('div[style*="Not yet logged"]');
+        const hint = el.querySelector('.exercise-log-unsaved-hint');
         if (hint) hint.remove();
     }
 }
@@ -1448,41 +1561,8 @@ async function deleteExerciseLog(index) {
 
     // Remove from local array and re-render
     currentSessionLogs.splice(index, 1);
-    // Re-render the logs in the modal
     const logsContainer = document.getElementById('workout-session-logs');
-    let html = '';
-    currentSessionLogs.forEach((log, i) => {
-        const isUnsaved = !log.id || log.id === 0;
-        const dimStyle = isUnsaved && !log._dirty ? 'opacity: 0.6;' : '';
-        html += `
-            <div class="exercise-log-entry" id="exercise-log-${i}" style="position: relative; ${dimStyle}">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h4 style="margin: 0;">${escapeHtml(log.exercise_name)}</h4>
-                    <button onclick="deleteExerciseLog(${i})" title="Remove exercise" style="background: none; border: none; cursor: pointer; font-size: 1.2em; padding: 4px 8px; color: #c62828;">🗑️</button>
-                </div>
-                ${isUnsaved && !log._dirty ? '<div style="font-size: 0.75em; color: #888; margin-bottom: 4px;">Not yet logged — edit to include</div>' : ''}
-                <div class="log-input-row">
-                    <div class="log-input-group">
-                        <label>Sets</label>
-                        <input type="number" min="0" max="20" step="1" value="${log.sets_completed || 0}" onchange="updateLocalLog(${i}, 'sets_completed', this.value)" inputmode="numeric">
-                    </div>
-                    <div class="log-input-group">
-                        <label>Reps</label>
-                        <input type="number" min="0" max="100" step="1" value="${log.reps_completed || 0}" onchange="updateLocalLog(${i}, 'reps_completed', this.value)" inputmode="numeric">
-                    </div>
-                    <div class="log-input-group">
-                        <label>Weight (kg)</label>
-                        <input type="number" min="0" max="500" step="0.5" value="${log.weight_kg || 0}" onchange="updateLocalLog(${i}, 'weight_kg', this.value)" inputmode="decimal">
-                    </div>
-                </div>
-                <div class="log-input-group">
-                    <label>Notes</label>
-                    <input type="text" value="${escapeHtml(log.notes || '')}" onchange="updateLocalLog(${i}, 'notes', this.value)" placeholder="Add notes..." maxlength="200">
-                </div>
-            </div>
-        `;
-    });
-    logsContainer.innerHTML = html || '<p style="text-align: center; color: #888;">No exercises logged</p>';
+    renderWorkoutSessionLogs(logsContainer);
 }
 
 function closeWorkoutSessionModal() {
