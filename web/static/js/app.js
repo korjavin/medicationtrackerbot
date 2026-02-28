@@ -2996,10 +2996,22 @@ function addTimeInput(value = '') {
     const container = document.getElementById('time-inputs');
     const div = document.createElement('div');
     div.className = 'time-row';
-    div.innerHTML = `
-        <input type="time" class="med-time-input" value="${escapeHtml(value)}">
-        <button class="remove-time" onclick="removeTime(this)">×</button>
-    `;
+
+    const input = document.createElement('input');
+    input.type = 'time';
+    input.className = 'med-time-input';
+    input.value = value;
+
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.className = 'remove-time';
+    removeButton.textContent = '×';
+    removeButton.addEventListener('click', () => {
+        removeTime(removeButton);
+    });
+
+    div.appendChild(input);
+    div.appendChild(removeButton);
     container.appendChild(div);
 }
 
