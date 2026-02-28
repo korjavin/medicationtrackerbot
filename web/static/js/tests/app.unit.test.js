@@ -202,4 +202,29 @@ describe('app.js unit tests', () => {
       cleanup();
     }
   });
+
+  it('closes topmost visible modal by configured priority and returns whether anything was closed', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    let pauseSpy;
+
+    try {
+      pauseSpy = vi
+        .spyOn(window.HTMLMediaElement.prototype, 'pause')
+        .mockImplementation(() => {});
+
+      expect(window.ModalManager.closeTopMostVisibleModal()).toBe(false);
+
+      window.ModalManager.food.open();
+      window.ModalManager.foodProduct.open();
+      expect(window.ModalManager.closeTopMostVisibleModal()).toBe(true);
+      expect(document.getElementById('food-product-modal').classList.contains('hidden')).toBe(true);
+      expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
+
+      expect(window.ModalManager.closeTopMostVisibleModal()).toBe(true);
+      expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(true);
+    } finally {
+      if (pauseSpy) pauseSpy.mockRestore();
+      cleanup();
+    }
+  });
 });
