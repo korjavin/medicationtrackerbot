@@ -188,6 +188,28 @@ describe('app.js unit tests', () => {
     }
   });
 
+  it('registers mt-setting-toggle and materializes settings toggles with expected ids', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      expect(window.customElements.get('mt-setting-toggle')).toBeDefined();
+
+      const webpushToggle = document.getElementById('webpush-toggle');
+      const bpFeatureToggle = document.getElementById('bp-feature-toggle');
+      const foodIntakeToggle = document.getElementById('food-intake-toggle');
+      expect(webpushToggle).toBeTruthy();
+      expect(bpFeatureToggle).toBeTruthy();
+      expect(foodIntakeToggle).toBeTruthy();
+
+      const webpushSetting = webpushToggle.closest('mt-setting-toggle');
+      const bpFeatureSetting = bpFeatureToggle.closest('mt-setting-toggle');
+      expect(webpushSetting).toBeTruthy();
+      expect(bpFeatureSetting.classList.contains('setting-item-divider')).toBe(true);
+      expect(webpushSetting.querySelector('h3').textContent).toBe('Web Push Notifications');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('downloads blob payload as a file via object URL', () => {
     const { window, cleanup } = loadFrontendEnv();
     try {
