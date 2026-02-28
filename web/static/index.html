@@ -147,14 +147,12 @@
                 <button id="food-date-prev-btn" class="secondary food-date-shift-btn"
                     aria-label="Previous day">←</button>
                 <div style="position: relative; flex: 1;">
-                    <input type="date" id="food-date-filter"
-                        style="width: 100%; box-sizing: border-box;">
+                    <input type="date" id="food-date-filter" style="width: 100%; box-sizing: border-box;">
                     <div id="food-week-display" class="hidden"
                         style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--secondary-bg-color); color: var(--text-color); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 14px; pointer-events: none; border: 1px solid var(--border-color); border-radius: 8px;">
                     </div>
                 </div>
-                <button id="food-date-next-btn" class="secondary food-date-shift-btn"
-                    aria-label="Next day">→</button>
+                <button id="food-date-next-btn" class="secondary food-date-shift-btn" aria-label="Next day">→</button>
             </div>
 
             <div id="food-target-progress" class="food-target-progress hidden"></div>
@@ -169,7 +167,7 @@
             <h3>Health Overview</h3>
             <div id="health-overview-loading">Loading metrics...</div>
             <div id="health-overview-content" class="hidden">
-                 <!-- Injected dynamically via app.js -->
+                <!-- Injected dynamically via app.js -->
             </div>
         </div>
 
@@ -470,7 +468,8 @@
 
         <div class="form-row">
             <label>Exercise Name:</label>
-            <input type="text" id="session-add-exercise-name" list="unique-exercises-list" placeholder="Start typing...">
+            <input type="text" id="session-add-exercise-name" list="unique-exercises-list"
+                placeholder="Start typing...">
             <datalist id="unique-exercises-list"></datalist>
             <input type="hidden" id="session-add-exercise-id">
         </div>
@@ -551,16 +550,15 @@
             <div style="margin-top: 8px; font-size: 0.85em; text-align: right;">
                 <label class="checkbox-label"
                     style="display:inline-flex; align-items:center; gap:4px; font-weight:normal;">
-                    <input type="checkbox" id="food-per-100g" checked tabindex="-1"
-                        style="transform: scale(0.9);"> Values are per 100g
+                    <input type="checkbox" id="food-per-100g" checked tabindex="-1" style="transform: scale(0.9);">
+                    Values are per 100g
                 </label>
             </div>
         </div>
 
         <div class="form-row">
             <label>Total Calories:</label>
-            <input type="number" id="food-calories" placeholder="Kcal"
-                style="font-weight: bold;">
+            <input type="number" id="food-calories" placeholder="Kcal" style="font-weight: bold;">
         </div>
 
         <div class="form-row">
@@ -570,7 +568,8 @@
 
     </mt-modal>
 
-    <mt-modal id="food-scanner-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="food-scanner-title">
+    <mt-modal id="food-scanner-modal" class="hidden" role="dialog" aria-modal="true"
+        aria-labelledby="food-scanner-title">
         <div class="modal-header">
             <h3 id="food-scanner-title">Scan Barcode / QR</h3>
             <div class="actions">
@@ -846,76 +845,7 @@
     <script src="static/js/app.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/workout.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/push.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script>
-        // Register Service Worker
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', async () => {
-                try {
-                    const registration = await navigator.serviceWorker.register('/static/sw.js', {
-                        scope: '/',
-                        updateViaCache: 'none'
-                    });
-                    console.log('SW registered:', registration.scope);
-                    registration.update().catch(() => { /* Ignore transient update-check failures */ });
-
-                    // Check for updates
-                    registration.onupdatefound = () => {
-                        const newWorker = registration.installing;
-                        newWorker.onstatechange = () => {
-                            if (newWorker.state === 'installed') {
-                                if (navigator.serviceWorker.controller) {
-                                    // New version found! Show gentle update toast
-                                    showUpdateToast(newWorker);
-                                }
-                            }
-                        };
-                    };
-
-                    function showUpdateToast(worker) {
-                        const toast = document.createElement('div');
-                        toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(102,126,234,0.95);color:white;padding:12px 20px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:99999;font-size:14px;font-weight:500;display:flex;gap:12px;align-items:center;';
-
-                        const text = document.createElement('span');
-                        text.textContent = 'New version available';
-
-                        const btn = document.createElement('button');
-                        btn.textContent = 'Update';
-                        btn.style.cssText = 'background:rgba(255,255,255,0.25);color:inherit;border:none;padding:6px 14px;border-radius:8px;font-weight:600;cursor:pointer;white-space:nowrap;';
-                        btn.onclick = () => {
-                            btn.textContent = 'Updating…';
-                            btn.disabled = true;
-                            // Use registration.waiting which is the correct reference
-                            // once the worker has moved from 'installing' to 'installed'
-                            const waiting = registration.waiting || worker;
-                            waiting.postMessage({ type: 'SKIP_WAITING' });
-                            // Fallback: if controllerchange doesn't fire within 2s, force reload
-                            setTimeout(() => window.location.reload(), 2000);
-                        };
-
-                        toast.appendChild(text);
-                        toast.appendChild(btn);
-                        document.body.appendChild(toast);
-                    }
-
-                } catch (err) {
-                    console.log('SW registration failed:', err);
-                }
-            });
-
-            // Reload when the controller changes (e.g. after skipWaiting)
-            navigator.serviceWorker.addEventListener('controllerchange', () => {
-                console.log('Controller changed, reloading...');
-                window.location.reload();
-            });
-        }
-
-        // Request persistent storage for Telegram WebApp context
-        if (navigator.storage && navigator.storage.persist) {
-            navigator.storage.persist().then(granted => {
-                console.log('Persistent storage:', granted ? 'granted' : 'not granted');
-            });
-        }
-    </script>
+    <script src="static/js/app-shell.js?v=TIMESTAMP_PLACEHOLDER"></script>
 </body>
 
 </html>
