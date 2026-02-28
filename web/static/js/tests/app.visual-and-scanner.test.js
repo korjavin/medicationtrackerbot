@@ -12,6 +12,36 @@ function isoDaysAgo(days) {
   return date.toISOString();
 }
 
+function buildHealthOverviewPayload() {
+  return {
+    sleep_stats_7d: [
+      {
+        date: '2026-02-20',
+        deep_mins: 80,
+        awake_mins: 20,
+        light_mins: 220,
+        rem_mins: 70,
+        total_mins: 390,
+        heart_rate_avg: 58
+      }
+    ],
+    average_sleep_hours_7d: 6.5,
+    average_sleep_hours_30d: 6.9,
+    step_stats_7d: [{ day: '2026-02-20', steps: 9200 }],
+    average_steps_7d: 9200,
+    average_steps_30d: 8800,
+    heart_rate_history_7d: [{ timestamp: Date.now(), min: 58, max: 84, avg: 70 }],
+    average_heart_rate_7d: 70,
+    average_heart_rate_30d: 72,
+    spo2_history_7d: [{ timestamp: Date.now(), min: 95, max: 99, avg: 97 }],
+    average_spo2_7d: 97,
+    average_spo2_30d: 96,
+    stress_history_7d: [{ timestamp: Date.now(), min: 20, max: 65, avg: 40 }],
+    average_stress_7d: 40,
+    average_stress_30d: 44
+  };
+}
+
 describe('app.js charts, scanner and visualization helpers', () => {
   let consoleErrorSpy;
 
@@ -283,40 +313,20 @@ describe('app.js charts, scanner and visualization helpers', () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
-      const payload = {
-        sleep_stats_7d: [
-          {
-            date: '2026-02-20',
-            deep_mins: 80,
-            awake_mins: 20,
-            light_mins: 220,
-            rem_mins: 70,
-            total_mins: 390,
-            heart_rate_avg: 58
-          }
-        ],
-        average_sleep_hours_7d: 6.5,
-        average_sleep_hours_30d: 6.9,
-        step_stats_7d: [{ day: '2026-02-20', steps: 9200 }],
-        average_steps_7d: 9200,
-        average_steps_30d: 8800,
-        heart_rate_history_7d: [{ timestamp: Date.now(), min: 58, max: 84, avg: 70 }],
-        average_heart_rate_7d: 70,
-        average_heart_rate_30d: 72,
-        spo2_history_7d: [{ timestamp: Date.now(), min: 95, max: 99, avg: 97 }],
-        average_spo2_7d: 97,
-        average_spo2_30d: 96,
-        stress_history_7d: [{ timestamp: Date.now(), min: 20, max: 65, avg: 40 }],
-        average_stress_7d: 40,
-        average_stress_30d: 44
-      };
+      const payload = buildHealthOverviewPayload();
 
-      const fetchFreshSpy = vi
+      const loadSWRSpy = vi
         .fn()
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(payload);
+        .mockImplementationOnce(async ({ onFresh }) => {
+          await onFresh(null, null);
+          return { cached: null, fresh: null };
+        })
+        .mockImplementationOnce(async ({ onFresh }) => {
+          await onFresh(payload, null);
+          return { cached: null, fresh: payload };
+        });
 
-      window.DataStore.fetchFresh = fetchFreshSpy;
+      window.DataStore.loadSWR = loadSWRSpy;
       const vitalsSpy = vi.spyOn(window, 'renderVitalsLineChart').mockImplementation(() => {});
       const sleepSpy = vi.spyOn(window, 'renderSleepChart').mockImplementation(() => {});
       const stepsSpy = vi.spyOn(window, 'renderStepsChart').mockImplementation(() => {});
@@ -336,7 +346,54 @@ describe('app.js charts, scanner and visualization helpers', () => {
       expect(vitalsSpy).toHaveBeenCalledTimes(3);
       expect(sleepSpy).toHaveBeenCalledTimes(1);
       expect(stepsSpy).toHaveBeenCalledTimes(1);
-      expect(fetchFreshSpy).toHaveBeenCalledWith(
+      expect(loadSWRSpy).toHaveBeenCalledWith(expect.objectContaining({
+        key: 'health_overview',
+        tags: ['health'],
+        allowNullFresh: true,
+        fetcher: expect.any(Function)
+      }));
+    } finally {
+      vi.useRealTimers();
+      cleanup();
+    }
+  });
+
+  it('loadHealthOverview renders cached data before fresh request resolves', async () => {
+    vi.useFakeTimers();
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const cachedPayload = buildHealthOverviewPayload();
+      const freshPayload = {
+        ...buildHealthOverviewPayload(),
+        average_steps_7d: 10000,
+        step_stats_7d: [{ day: '2026-02-20', steps: 10000 }]
+      };
+
+      let resolveFresh;
+      const freshPromise = new Promise((resolve) => {
+        resolveFresh = () => resolve(freshPayload);
+      });
+
+      window.DataStore.getCached = vi.fn().mockResolvedValue(cachedPayload);
+      window.DataStore.fetchFresh = vi.fn().mockImplementation(() => freshPromise);
+
+      const loadPromise = window.loadHealthOverview();
+      await Promise.resolve();
+      await vi.runAllTimersAsync();
+
+      const htmlBeforeFresh = document.getElementById('health-overview-content').innerHTML;
+      expect(htmlBeforeFresh).toContain('Sleep');
+      expect(htmlBeforeFresh).toContain('9,200 steps (7d avg)');
+      expect(document.getElementById('health-overview-loading').style.display).toBe('none');
+
+      resolveFresh();
+      await loadPromise;
+      await vi.runAllTimersAsync();
+
+      const htmlAfterFresh = document.getElementById('health-overview-content').innerHTML;
+      expect(htmlAfterFresh).toContain('10,000 steps (7d avg)');
+      expect(window.DataStore.fetchFresh).toHaveBeenCalledWith(
         'health_overview',
         expect.any(Function),
         ['health']
