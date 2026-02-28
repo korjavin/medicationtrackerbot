@@ -3444,7 +3444,7 @@ async function renderNextIntakeTrigger() {
         );
 
         if (!res || !res.scheduled_at) {
-            container.innerHTML = '';
+            container.replaceChildren();
             return;
         }
 
@@ -3459,20 +3459,34 @@ async function renderNextIntakeTrigger() {
             minute: '2-digit'
         });
 
-        container.innerHTML = `
-            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">Next scheduled intake</div>
-                    <div style="font-size: 12px; opacity: 0.9;">${escapeHtml(medNamesStr)} at ${timeStr}</div>
-                </div>
-                <button onclick="triggerNextIntake()" class="btn-pill" style="background: rgba(255,255,255,0.25); color: white; white-space: nowrap;">
-                    Take Now
-                </button>
-            </div>
-        `;
+        const card = document.createElement('div');
+        card.style.cssText = 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;';
+
+        const body = document.createElement('div');
+        const title = document.createElement('div');
+        title.style.cssText = 'font-size: 14px; font-weight: 600; margin-bottom: 4px;';
+        title.textContent = 'Next scheduled intake';
+        const details = document.createElement('div');
+        details.style.cssText = 'font-size: 12px; opacity: 0.9;';
+        details.textContent = `${medNamesStr} at ${timeStr}`;
+        body.appendChild(title);
+        body.appendChild(details);
+
+        const action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'btn-pill';
+        action.style.cssText = 'background: rgba(255,255,255,0.25); color: white; white-space: nowrap;';
+        action.textContent = 'Take Now';
+        action.addEventListener('click', () => {
+            triggerNextIntake();
+        });
+
+        card.appendChild(body);
+        card.appendChild(action);
+        container.replaceChildren(card);
     } catch (e) {
         console.error("Error fetching next intake:", e);
-        container.innerHTML = '';
+        container.replaceChildren();
     }
 }
 

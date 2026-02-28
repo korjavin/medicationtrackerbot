@@ -216,7 +216,7 @@ describe('app.js medication, history and intake flows', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({
           scheduled_at: new Date().toISOString(),
-          medication_names: ['Aspirin', 'Vitamin D']
+          medication_names: ['<b>Aspirin</b>', 'Vitamin D']
         });
 
       await window.renderNextIntakeTrigger();
@@ -225,6 +225,13 @@ describe('app.js medication, history and intake flows', () => {
       await window.renderNextIntakeTrigger();
       expect(container.innerHTML).toContain('Next scheduled intake');
       expect(container.innerHTML).toContain('Take Now');
+      expect(container.textContent).toContain('<b>Aspirin</b>, Vitamin D');
+      expect(container.innerHTML).not.toContain('<b>');
+
+      const triggerSpy = vi.spyOn(window, 'triggerNextIntake').mockResolvedValue(undefined);
+      container.querySelector('button').click();
+      expect(triggerSpy).toHaveBeenCalledTimes(1);
+      triggerSpy.mockRestore();
 
       window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
       window.DataStore.invalidateKey = vi.fn().mockResolvedValue(undefined);
