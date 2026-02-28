@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -211,7 +212,7 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.food.UpdateFoodLog(context.Background(), foodLog); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "Not found", http.StatusNotFound)
 			return
 		}

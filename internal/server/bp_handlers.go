@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -114,7 +115,7 @@ func (s *Server) handleDeleteBloodPressure(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := s.bp.DeleteBloodPressureReading(r.Context(), id, userID); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "Reading not found", http.StatusNotFound)
 			return
 		}

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -122,7 +123,7 @@ func (s *Server) handleDeleteWeight(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.weight.DeleteWeightLog(r.Context(), id, userID); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "Weight log not found", http.StatusNotFound)
 			return
 		}
