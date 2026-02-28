@@ -8,6 +8,10 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const PUSH_JS = path.join(REPO_ROOT, 'web/static/js/push.js');
 
+function evalWithSourceURL(window, source, scriptPath) {
+  window.eval(`${source}\n//# sourceURL=file://${scriptPath}`);
+}
+
 function makeSubscription() {
   return {
     endpoint: 'https://push.example/sub-1',
@@ -64,7 +68,7 @@ export function loadPushEnv({ support = true } = {}) {
   });
 
   const source = fs.readFileSync(PUSH_JS, 'utf8');
-  window.eval(source);
+  evalWithSourceURL(window, source, PUSH_JS);
 
   return {
     window,

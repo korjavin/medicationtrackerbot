@@ -8,6 +8,10 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const SYNC_JS = path.join(REPO_ROOT, 'web/static/js/sync.js');
 
+function evalWithSourceURL(window, source, scriptPath) {
+  window.eval(`${source}\n//# sourceURL=file://${scriptPath}`);
+}
+
 function createStore(overrides = {}) {
   return {
     async getPendingCount() { return 0; },
@@ -46,7 +50,7 @@ export function loadSyncEnv({ bpPending = 0, weightPending = 0, intakePending = 
   window.apiCallDirect = async () => ({ id: 1 });
 
   const source = fs.readFileSync(SYNC_JS, 'utf8');
-  window.eval(source);
+  evalWithSourceURL(window, source, SYNC_JS);
 
   return {
     window,
