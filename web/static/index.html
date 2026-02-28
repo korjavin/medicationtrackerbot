@@ -177,105 +177,37 @@
 
             <div id="oidc-setup-container"></div>
 
-            <div class="setting-item">
-                <div>
-                    <h3>Web Push Notifications</h3>
-                    <p class="setting-desc">Browser notifications for medications</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="webpush-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle title="Web Push Notifications" description="Browser notifications for medications"
+                input-id="webpush-toggle"></mt-setting-toggle>
             <div id="webpush-status" style="display:none; padding: 8px; margin-top: 8px; border-radius: 4px;"></div>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Feature: Blood Pressure</h3>
-                    <p class="setting-desc">Enable blood pressure section and commands</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="bp-feature-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Feature: Blood Pressure"
+                description="Enable blood pressure section and commands" input-id="bp-feature-toggle">
+            </mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Feature: Weight</h3>
-                    <p class="setting-desc">Enable weight section and commands</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="weight-feature-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Feature: Weight" description="Enable weight section and commands"
+                input-id="weight-feature-toggle"></mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Feature: Workouts</h3>
-                    <p class="setting-desc">Enable workouts section and commands</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="workout-feature-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Feature: Workouts" description="Enable workouts section and commands"
+                input-id="workout-feature-toggle"></mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Feature: Medications</h3>
-                    <p class="setting-desc">Enable medications section and commands</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="medication-feature-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Feature: Medications"
+                description="Enable medications section and commands" input-id="medication-feature-toggle">
+            </mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Blood Pressure Reminders</h3>
-                    <p class="setting-desc">Smart reminders to measure blood pressure regularly</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="bp-reminders-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Blood Pressure Reminders"
+                description="Smart reminders to measure blood pressure regularly" input-id="bp-reminders-toggle">
+            </mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Weight Reminders</h3>
-                    <p class="setting-desc">Remind me to track my weight weekly</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="weight-reminders-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Weight Reminders" description="Remind me to track my weight weekly"
+                input-id="weight-reminders-toggle"></mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Food Intake Tracking</h3>
-                    <p class="setting-desc">Enable food logging feature</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="food-intake-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Food Intake Tracking" description="Enable food logging feature"
+                input-id="food-intake-toggle"></mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Health Data</h3>
-                    <p class="setting-desc">Enable health section to view sleep and vitals averages</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="health-feature-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Health Data"
+                description="Enable health section to view sleep and vitals averages"
+                input-id="health-feature-toggle"></mt-setting-toggle>
 
             <div id="food-target-settings" class="setting-item"
                 style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
