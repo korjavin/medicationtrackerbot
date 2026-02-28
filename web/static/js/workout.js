@@ -40,6 +40,69 @@ function loadWorkouts() {
     switchWorkoutTab('history');
 }
 
+let workoutControlsBound = false;
+
+function bindWorkoutControls() {
+    if (workoutControlsBound) return;
+    workoutControlsBound = true;
+
+    const bindClick = (id, handler) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('click', handler);
+    };
+
+    bindClick('start-adhoc-workout-btn', () => startAdHocWorkout());
+    bindClick('add-workout-group-btn', () => showAddWorkoutGroupModal());
+    bindClick('add-exercise-library-btn', () => showExerciseLibraryModal());
+
+    bindClick('workout-group-cancel-btn', () => closeWorkoutGroupModal());
+    bindClick('workout-group-save-btn', () => saveWorkoutGroup());
+    bindClick('add-variant-btn', () => showAddVariantModal());
+    bindClick('add-flat-exercise-btn', () => showAddExerciseModalFromGroup());
+
+    bindClick('variant-cancel-btn', () => closeVariantModal());
+    bindClick('variant-save-btn', () => saveVariant());
+    bindClick('variant-add-exercise-btn', () => showAddExerciseModal());
+
+    bindClick('exercise-cancel-btn', () => closeExerciseModal());
+    bindClick('exercise-save-btn', () => saveExercise());
+
+    bindClick('exercise-library-cancel-btn', () => closeExerciseLibraryModal());
+    bindClick('exercise-library-save-btn', () => saveExerciseLibraryItem());
+
+    bindClick('workout-session-cancel-btn', () => closeWorkoutSessionModal());
+    bindClick('workout-session-save-btn', () => saveWorkoutSessionDetails());
+    bindClick('workout-session-add-exercise-btn', () => showAddExerciseToSessionModal());
+
+    bindClick('session-add-exercise-cancel-btn', () => closeAddExerciseToSessionModal());
+    bindClick('session-add-exercise-save-btn', () => saveNewSessionExercise());
+
+    const rotatingCheckbox = document.getElementById('workout-group-rotating');
+    if (rotatingCheckbox) {
+        rotatingCheckbox.addEventListener('change', () => {
+            toggleRotatingFields();
+        });
+    }
+
+    document.querySelectorAll('#workout-group-modal .days-select span').forEach((day) => {
+        day.addEventListener('click', () => {
+            toggleWorkoutDay(day);
+        });
+    });
+
+    const sessionExerciseName = document.getElementById('session-add-exercise-name');
+    if (sessionExerciseName) {
+        sessionExerciseName.addEventListener('change', () => {
+            onSessionExerciseSelect();
+        });
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindWorkoutControls, { once: true });
+}
+bindWorkoutControls();
+
 // ====================================
 // NEXT WORKOUT CARD
 // ====================================

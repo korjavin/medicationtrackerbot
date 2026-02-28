@@ -144,4 +144,32 @@ describe('workout.js loaders and next-card behavior', () => {
       cleanup();
     }
   });
+
+  it('bindWorkoutControls wires workout buttons and day/session selectors', () => {
+    const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
+
+    try {
+      const groupModal = document.getElementById('workout-group-modal');
+      expect(groupModal.classList.contains('hidden')).toBe(true);
+
+      document.getElementById('add-workout-group-btn').click();
+      expect(groupModal.classList.contains('hidden')).toBe(false);
+
+      const monday = document.querySelector('#workout-group-modal .days-select span[data-day="1"]');
+      monday.click();
+      expect(monday.classList.contains('selected')).toBe(true);
+      monday.click();
+      expect(monday.classList.contains('selected')).toBe(false);
+
+      document.getElementById('workout-group-cancel-btn').click();
+      expect(groupModal.classList.contains('hidden')).toBe(true);
+
+      const onSelectSpy = vi.spyOn(window, 'onSessionExerciseSelect').mockImplementation(() => {});
+      const input = document.getElementById('session-add-exercise-name');
+      input.dispatchEvent(new window.Event('change', { bubbles: true }));
+      expect(onSelectSpy).toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
 });

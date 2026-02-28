@@ -101,7 +101,7 @@
                 <!-- Next Workout Card -->
                 <div id="next-workout-card"></div>
 
-                <button onclick="startAdHocWorkout()" class="btn-add">💪 Start Ad-hoc Workout</button>
+                <button id="start-adhoc-workout-btn" class="btn-add">💪 Start Ad-hoc Workout</button>
                 <div id="workout-history-display">
                     Loading...
                 </div>
@@ -109,7 +109,7 @@
 
             <!-- Groups Management View -->
             <div id="workout-groups-tab" class="workout-tab-content">
-                <button onclick="showAddWorkoutGroupModal()" class="btn-add">+ Add Workout Group</button>
+                <button id="add-workout-group-btn" class="btn-add">+ Add Workout Group</button>
                 <div id="workout-groups-list">
                     Loading workout groups...
                 </div>
@@ -117,7 +117,7 @@
 
             <!-- Exercises Library View -->
             <div id="workout-exercises-tab" class="workout-tab-content">
-                <button onclick="showExerciseLibraryModal()" class="btn-add">+ Add Exercise</button>
+                <button id="add-exercise-library-btn" class="btn-add">+ Add Exercise</button>
                 <div id="exercise-library-list">
                     Loading exercise library...
                 </div>
@@ -269,8 +269,8 @@
         <div class="modal-header">
             <h3 id="workout-group-modal-title">Add Workout Group</h3>
             <div class="actions">
-                <button onclick="closeWorkoutGroupModal()" class="secondary">Cancel</button>
-                <button onclick="saveWorkoutGroup()" class="primary">Save</button>
+                <button id="workout-group-cancel-btn" class="secondary">Cancel</button>
+                <button id="workout-group-save-btn" class="primary">Save</button>
             </div>
         </div>
 
@@ -278,20 +278,20 @@
         <textarea id="workout-group-description" placeholder="Description (optional)" rows="2"></textarea>
 
         <label class="checkbox-label">
-            <input type="checkbox" id="workout-group-rotating" onchange="toggleRotatingFields()"> Rotating Workout
+            <input type="checkbox" id="workout-group-rotating"> Rotating Workout
             (A/B/C/D)
         </label>
 
         <div class="form-row">
             <label>Days of Week:</label>
             <div class="days-select">
-                <span data-day="1" onclick="toggleWorkoutDay(this)">Mon</span>
-                <span data-day="2" onclick="toggleWorkoutDay(this)">Tue</span>
-                <span data-day="3" onclick="toggleWorkoutDay(this)">Wed</span>
-                <span data-day="4" onclick="toggleWorkoutDay(this)">Thu</span>
-                <span data-day="5" onclick="toggleWorkoutDay(this)">Fri</span>
-                <span data-day="6" onclick="toggleWorkoutDay(this)">Sat</span>
-                <span data-day="0" onclick="toggleWorkoutDay(this)">Sun</span>
+                <span data-day="1">Mon</span>
+                <span data-day="2">Tue</span>
+                <span data-day="3">Wed</span>
+                <span data-day="4">Thu</span>
+                <span data-day="5">Fri</span>
+                <span data-day="6">Sat</span>
+                <span data-day="0">Sun</span>
             </div>
         </div>
 
@@ -315,7 +315,7 @@
         <div id="workout-variants-section"
             style="display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
             <h4>Workout Variants</h4>
-            <button onclick="showAddVariantModal()" class="primary" style="margin-bottom: 10px;">+ Add Variant</button>
+            <button id="add-variant-btn" class="primary" style="margin-bottom: 10px;">+ Add Variant</button>
             <div id="workout-variants-list"></div>
         </div>
 
@@ -323,7 +323,7 @@
         <div id="workout-group-flat-exercises-section"
             style="display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
             <h4>Exercises</h4>
-            <button onclick="showAddExerciseModalFromGroup()" class="primary" style="margin-bottom: 10px;">+ Add
+            <button id="add-flat-exercise-btn" class="primary" style="margin-bottom: 10px;">+ Add
                 Exercise</button>
             <div id="workout-group-flat-exercises-list"></div>
         </div>
@@ -334,8 +334,8 @@
         <div class="modal-header">
             <h3 id="workout-variant-modal-title">Add Variant</h3>
             <div class="actions">
-                <button onclick="closeVariantModal()" class="secondary">Cancel</button>
-                <button onclick="saveVariant()" class="primary">Save</button>
+                <button id="variant-cancel-btn" class="secondary">Cancel</button>
+                <button id="variant-save-btn" class="primary">Save</button>
             </div>
         </div>
 
@@ -353,7 +353,7 @@
         <div id="workout-exercises-section"
             style="display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
             <h4>Exercises</h4>
-            <button onclick="showAddExerciseModal()" class="primary" style="margin-bottom: 10px;">+ Add
+            <button id="variant-add-exercise-btn" class="primary" style="margin-bottom: 10px;">+ Add
                 Exercise</button>
             <div id="workout-exercises-list"></div>
         </div>
@@ -364,8 +364,8 @@
         <div class="modal-header">
             <h3 id="workout-exercise-modal-title">Add Exercise</h3>
             <div class="actions">
-                <button onclick="closeExerciseModal()" class="secondary">Cancel</button>
-                <button onclick="saveExercise()" class="primary">Save</button>
+                <button id="exercise-cancel-btn" class="secondary">Cancel</button>
+                <button id="exercise-save-btn" class="primary">Save</button>
             </div>
         </div>
 
@@ -402,8 +402,8 @@
         <div class="modal-header">
             <h3 id="exercise-library-modal-title">Add Exercise</h3>
             <div class="actions">
-                <button onclick="closeExerciseLibraryModal()" class="secondary">Cancel</button>
-                <button onclick="saveExerciseLibraryItem()" class="primary">Save</button>
+                <button id="exercise-library-cancel-btn" class="secondary">Cancel</button>
+                <button id="exercise-library-save-btn" class="primary">Save</button>
             </div>
         </div>
 
@@ -440,8 +440,8 @@
         <div class="modal-header">
             <h3 id="workout-session-modal-title">Workout Details</h3>
             <div class="actions">
-                <button onclick="closeWorkoutSessionModal()" class="secondary">Cancel</button>
-                <button onclick="saveWorkoutSessionDetails()" class="primary">Save Changes</button>
+                <button id="workout-session-cancel-btn" class="secondary">Cancel</button>
+                <button id="workout-session-save-btn" class="primary">Save Changes</button>
             </div>
         </div>
         <div id="workout-session-info"
@@ -452,7 +452,7 @@
         </div>
 
         <div style="margin-top: 15px; text-align: center;">
-            <button onclick="showAddExerciseToSessionModal()" class="secondary"
+            <button id="workout-session-add-exercise-btn" class="secondary"
                 style="width: 100%; border: 1px dashed #667eea; color: #667eea;">+ Add Exercise</button>
         </div>
 
@@ -463,15 +463,14 @@
         <div class="modal-header">
             <h3>Add Exercise to Session</h3>
             <div class="actions">
-                <button onclick="closeAddExerciseToSessionModal()" class="secondary">Cancel</button>
-                <button onclick="saveNewSessionExercise()" class="primary">Add</button>
+                <button id="session-add-exercise-cancel-btn" class="secondary">Cancel</button>
+                <button id="session-add-exercise-save-btn" class="primary">Add</button>
             </div>
         </div>
 
         <div class="form-row">
             <label>Exercise Name:</label>
-            <input type="text" id="session-add-exercise-name" list="unique-exercises-list" placeholder="Start typing..."
-                onchange="onSessionExerciseSelect()">
+            <input type="text" id="session-add-exercise-name" list="unique-exercises-list" placeholder="Start typing...">
             <datalist id="unique-exercises-list"></datalist>
             <input type="hidden" id="session-add-exercise-id">
         </div>
