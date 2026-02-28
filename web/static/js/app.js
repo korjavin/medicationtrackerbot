@@ -1109,6 +1109,49 @@ bindTabGroup({
     onTabSelect: switchTab
 });
 
+let medicationControlsBound = false;
+
+function bindMedicationControls() {
+    if (medicationControlsBound) return;
+    medicationControlsBound = true;
+
+    const bindClick = (id, handler) => {
+        const element = document.getElementById(id);
+        if (element) element.addEventListener('click', handler);
+    };
+
+    const bindChange = (id, handler) => {
+        const element = document.getElementById(id);
+        if (element) element.addEventListener('change', handler);
+    };
+
+    bindChange('history-filter-med', () => loadHistory());
+    bindChange('history-filter-days', () => loadHistory());
+
+    bindClick('add-btn', () => showAddModal());
+    bindClick('med-modal-cancel-btn', () => closeModal());
+    bindClick('med-modal-save-btn', () => saveMedication());
+
+    bindChange('schedule-type', () => toggleScheduleFields());
+    document.querySelectorAll('#days-container .days-select span').forEach((day) => {
+        day.addEventListener('click', () => toggleDay(day));
+    });
+
+    bindClick('initial-remove-time-btn', () => {
+        const button = document.getElementById('initial-remove-time-btn');
+        if (button) removeTime(button);
+    });
+    bindClick('add-time-btn', () => addTimeInput());
+
+    bindChange('med-track-inventory', () => toggleInventoryFields());
+    bindClick('restock-add-btn', () => handleRestock());
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindMedicationControls, { once: true });
+}
+bindMedicationControls();
+
 // -- Food Intake Autocomplete & Logic --
 
 let foodAutoCompleteSuggestions = [];
