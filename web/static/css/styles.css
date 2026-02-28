@@ -1361,6 +1361,12 @@ svg.chart-svg {
     margin-bottom: 20px;
 }
 
+.setting-item.setting-item-divider {
+    margin-top: 20px;
+    border-top: 1px solid #ddd;
+    padding-top: 20px;
+}
+
 .setting-item h3 {
     margin: 0;
     font-size: 16px;

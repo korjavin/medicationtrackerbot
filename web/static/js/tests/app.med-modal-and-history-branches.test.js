@@ -213,6 +213,33 @@ describe('app.js medication modal CRUD and history edge branches', () => {
     }
   });
 
+  it('loadRestockHistory renders empty state and treats notes as plain text', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      window.apiCall = vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          { quantity: 3, restocked_at: '2026-03-02T10:00:00Z', note: '<img src=x onerror=1>' },
+          { quantity: 1, restocked_at: '2026-03-03T10:00:00Z', note: '' }
+        ]);
+
+      const container = document.getElementById('restock-history');
+
+      await window.loadRestockHistory(11);
+      expect(container.textContent).toContain('No restock history');
+
+      await window.loadRestockHistory(11);
+      expect(container.textContent).toContain('Recent restocks:');
+      expect(container.querySelectorAll('li')).toHaveLength(2);
+      expect(container.textContent).toContain('<img src=x onerror=1>');
+      expect(container.innerHTML).not.toContain('<img');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('loadHistory triggers loadMeds when meds are empty and handles SWR callbacks', async () => {
     const { window, cleanup } = loadFrontendEnv();
 

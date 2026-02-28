@@ -78,7 +78,7 @@ describe('app.js medication, history and intake flows', () => {
         },
         {
           id: 3,
-          name: 'As Needed',
+          name: '<b>As Needed</b>',
           dosage: '1 tab',
           schedule: JSON.stringify({ type: 'as_needed' }),
           archived: false,
@@ -100,6 +100,22 @@ describe('app.js medication, history and intake flows', () => {
       expect(medsHtml).toContain('archived');
       expect(medsHtml).toContain('⚠️');
       expect(medsHtml).toContain('Soon Med Rx');
+      expect(document.getElementById('med-list').textContent).toContain('<b>As Needed</b>');
+      expect(medsHtml).not.toContain('<b>As Needed</b>');
+
+      const editSpy = vi.spyOn(window, 'showEditModal').mockImplementation(() => {});
+      const logSpy = vi.spyOn(window, 'logMedicationPast').mockImplementation(() => {});
+      const deleteSpy = vi.spyOn(window, 'deleteMed').mockImplementation(() => {});
+
+      const soonCard = Array.from(document.querySelectorAll('#med-list .med-item'))
+        .find((el) => el.textContent.includes('Soon Med'));
+      soonCard.querySelector('.med-info').click();
+      soonCard.querySelector('.small-btn').click();
+      soonCard.querySelector('.delete-btn').click();
+
+      expect(editSpy).toHaveBeenCalledWith(1);
+      expect(logSpy).toHaveBeenCalledWith(1, 'Soon Med');
+      expect(deleteSpy).toHaveBeenCalledWith(1);
 
       const filter = document.getElementById('history-filter-med');
       expect(filter.querySelectorAll('option').length).toBeGreaterThan(2);
@@ -114,7 +130,7 @@ describe('app.js medication, history and intake flows', () => {
     try {
       await seedMedications(window, [
         { id: 1, name: 'Aspirin' },
-        { id: 2, name: 'Magnesium' }
+        { id: 2, name: '<b>Magnesium</b>' }
       ]);
 
       const now = new Date();
@@ -135,6 +151,8 @@ describe('app.js medication, history and intake flows', () => {
       expect(list.innerHTML).toContain('Aspirin');
       expect(list.innerHTML).toContain('Magnesium');
       expect(list.innerHTML).toContain('✅');
+      expect(list.textContent).toContain('<b>Magnesium</b>');
+      expect(list.innerHTML).not.toContain('<b>');
 
       const groups = list.querySelectorAll('.history-group');
       expect(groups.length).toBeGreaterThan(0);
@@ -216,7 +234,7 @@ describe('app.js medication, history and intake flows', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({
           scheduled_at: new Date().toISOString(),
-          medication_names: ['Aspirin', 'Vitamin D']
+          medication_names: ['<b>Aspirin</b>', 'Vitamin D']
         });
 
       await window.renderNextIntakeTrigger();
@@ -225,6 +243,13 @@ describe('app.js medication, history and intake flows', () => {
       await window.renderNextIntakeTrigger();
       expect(container.innerHTML).toContain('Next scheduled intake');
       expect(container.innerHTML).toContain('Take Now');
+      expect(container.textContent).toContain('<b>Aspirin</b>, Vitamin D');
+      expect(container.innerHTML).not.toContain('<b>');
+
+      const triggerSpy = vi.spyOn(window, 'triggerNextIntake').mockResolvedValue(undefined);
+      container.querySelector('button').click();
+      expect(triggerSpy).toHaveBeenCalledTimes(1);
+      triggerSpy.mockRestore();
 
       window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
       window.DataStore.invalidateKey = vi.fn().mockResolvedValue(undefined);

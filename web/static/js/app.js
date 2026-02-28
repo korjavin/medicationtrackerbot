@@ -113,6 +113,50 @@ if (window.customElements && !window.customElements.get('mt-modal')) {
     window.customElements.define('mt-modal', MTModal);
 }
 
+class MTSettingToggle extends HTMLElement {
+    connectedCallback() {
+        if (this.dataset.initialized === 'true') return;
+        this.dataset.initialized = 'true';
+
+        this.classList.add('setting-item');
+        if (this.hasAttribute('divider')) {
+            this.classList.add('setting-item-divider');
+        }
+
+        const titleText = this.getAttribute('title') || '';
+        const descriptionText = this.getAttribute('description') || '';
+        const inputId = this.getAttribute('input-id') || '';
+
+        const content = document.createElement('div');
+        const title = document.createElement('h3');
+        title.textContent = titleText;
+        content.appendChild(title);
+
+        if (descriptionText) {
+            const description = document.createElement('p');
+            description.className = 'setting-desc';
+            description.textContent = descriptionText;
+            content.appendChild(description);
+        }
+
+        const toggle = document.createElement('label');
+        toggle.className = 'toggle';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        if (inputId) input.id = inputId;
+        const slider = document.createElement('span');
+        slider.className = 'toggle-slider';
+        toggle.appendChild(input);
+        toggle.appendChild(slider);
+
+        this.replaceChildren(content, toggle);
+    }
+}
+
+if (window.customElements && !window.customElements.get('mt-setting-toggle')) {
+    window.customElements.define('mt-setting-toggle', MTSettingToggle);
+}
+
 const ModalManager = {
     open(modalId) {
         const overlay = document.getElementById('modal-overlay');
@@ -236,10 +280,22 @@ const ModalManager = {
     workoutAddExerciseToSession: {
         open() {
             document.getElementById('modal-overlay').classList.remove('hidden');
-            document.getElementById('workout-add-exercise-to-session-modal').classList.remove('hidden');
+            const modal = document.getElementById('workout-add-exercise-to-session-modal');
+            if (!modal) return;
+            if (typeof modal.open === 'function') {
+                modal.open();
+            } else {
+                modal.classList.remove('hidden');
+            }
         },
         close() {
-            document.getElementById('workout-add-exercise-to-session-modal').classList.add('hidden');
+            const modal = document.getElementById('workout-add-exercise-to-session-modal');
+            if (!modal) return;
+            if (typeof modal.close === 'function') {
+                modal.close();
+            } else {
+                modal.classList.add('hidden');
+            }
         }
     },
 
@@ -266,14 +322,23 @@ const ModalManager = {
         open() {
             const scannerModal = document.getElementById('food-scanner-modal');
             if (!scannerModal) return;
-            scannerModal.classList.remove('hidden');
+            if (typeof scannerModal.open === 'function') {
+                scannerModal.open();
+            } else {
+                scannerModal.classList.remove('hidden');
+            }
             setFoodScannerStatus('Point camera at barcode or QR.');
             startFoodScanner();
         },
         close() {
             stopFoodScanner();
             const scannerModal = document.getElementById('food-scanner-modal');
-            if (scannerModal) scannerModal.classList.add('hidden');
+            if (!scannerModal) return;
+            if (typeof scannerModal.close === 'function') {
+                scannerModal.close();
+            } else {
+                scannerModal.classList.add('hidden');
+            }
         }
     },
 
@@ -2164,12 +2229,16 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
     const list = document.getElementById('food-list');
     const summary = document.getElementById('food-summary');
 
-    list.innerHTML = '';
+    list.replaceChildren();
     let dayCals = 0, dayCarbs = 0, dayProt = 0, dayFat = 0;
     currentFoodLogs = {};
 
     if (!groups || groups.length === 0) {
-        list.innerHTML = '<p class="hint" style="text-align:center;">No food logs for this day.</p>';
+        const empty = document.createElement('p');
+        empty.className = 'hint';
+        empty.style.textAlign = 'center';
+        empty.textContent = 'No food logs for this day.';
+        list.appendChild(empty);
     } else {
         groups.forEach(group => {
             dayCals += group.calories;
@@ -2180,28 +2249,57 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
             const groupDiv = document.createElement('div');
             groupDiv.className = 'history-group';
 
-            let html = `<div class="history-header">
-                    <strong>${group.name}</strong>
-                    <span style="font-weight:normal; color:var(--hint-color);">(${group.time})</span>
-                    <span style="margin-left:auto; font-size:0.9em;">
-                        ${group.calories} kcal (C:${group.carbs} P:${group.protein} F:${group.fat})
-                    </span>
-                </div>`;
+            const header = document.createElement('div');
+            header.className = 'history-header';
+            const title = document.createElement('strong');
+            title.textContent = group.name;
+            const time = document.createElement('span');
+            time.style.cssText = 'font-weight:normal; color:var(--hint-color);';
+            time.textContent = `(${group.time})`;
+            const totals = document.createElement('span');
+            totals.style.cssText = 'margin-left:auto; font-size:0.9em;';
+            totals.textContent = `${group.calories} kcal (C:${group.carbs} P:${group.protein} F:${group.fat})`;
+            header.appendChild(title);
+            header.appendChild(time);
+            header.appendChild(totals);
+            groupDiv.appendChild(header);
 
             group.logs.forEach(log => {
                 currentFoodLogs[log.id] = log;
-                html += `<div class="history-item" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer;" onclick="editFoodLog(${log.id})">
-                        <div style="flex:1;">
-                            <div style="font-weight:500;">${log.name || 'Food'}</div>
-                            <div style="font-size:0.85em; color:var(--hint-color);">
-                                ${log.weight}g • ${log.calories} kcal
-                            </div>
-                        </div>
-                        <button class="delete-btn" onclick="event.stopPropagation(); deleteFoodLog(${log.id})" style="font-size:16px;">×</button>
-                    </div>`;
+
+                const item = document.createElement('div');
+                item.className = 'history-item';
+                item.style.cssText = 'padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer;';
+                item.addEventListener('click', () => {
+                    editFoodLog(log.id);
+                });
+
+                const itemBody = document.createElement('div');
+                itemBody.style.flex = '1';
+                const name = document.createElement('div');
+                name.style.fontWeight = '500';
+                name.textContent = log.name || 'Food';
+                const meta = document.createElement('div');
+                meta.style.cssText = 'font-size:0.85em; color:var(--hint-color);';
+                meta.textContent = `${log.weight}g • ${log.calories} kcal`;
+                itemBody.appendChild(name);
+                itemBody.appendChild(meta);
+
+                const deleteButton = document.createElement('button');
+                deleteButton.type = 'button';
+                deleteButton.className = 'delete-btn';
+                deleteButton.style.fontSize = '16px';
+                deleteButton.textContent = '×';
+                deleteButton.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    deleteFoodLog(log.id);
+                });
+
+                item.appendChild(itemBody);
+                item.appendChild(deleteButton);
+                groupDiv.appendChild(item);
             });
 
-            groupDiv.innerHTML = html;
             list.appendChild(groupDiv);
         });
     }
@@ -2216,18 +2314,30 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
         const stats = weekStats;
         summary.style.display = 'block';
         const label = period === 'week' ? '7-Day Total' : '14-Day Total';
-        summary.innerHTML = `${label}: ${stats?.calories || 0} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${stats?.carbs || 0} P:${stats?.protein || 0} F:${stats?.fat || 0})</span>`;
+        renderFoodSummary(summary, label, stats?.calories || 0, stats?.carbs || 0, stats?.protein || 0, stats?.fat || 0);
         renderFoodTargetProgress(stats?.calories || 0, stats?.carbs || 0, stats?.protein || 0, stats?.fat || 0, period);
     } else {
         if (groups && groups.length > 0) {
             summary.style.display = 'block';
-            summary.innerHTML = `Daily Total: ${dayCals} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${dayCarbs} P:${dayProt} F:${dayFat})</span>`;
+            renderFoodSummary(summary, 'Daily Total', dayCals, dayCarbs, dayProt, dayFat);
             renderFoodTargetProgress(dayCals, dayCarbs, dayProt, dayFat, period);
         } else {
             summary.style.display = 'none';
             renderFoodTargetProgress(0, 0, 0, 0, period);
         }
     }
+}
+
+function renderFoodSummary(summaryEl, label, calories, carbs, protein, fat) {
+    summaryEl.replaceChildren();
+
+    const text = document.createTextNode(`${label}: ${calories} kcal `);
+    const details = document.createElement('span');
+    details.style.cssText = 'font-weight:normal; font-size:0.9em; margin-left:10px;';
+    details.textContent = `(C:${carbs} P:${protein} F:${fat})`;
+
+    summaryEl.appendChild(text);
+    summaryEl.appendChild(details);
 }
 
 function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = 'day') {
@@ -2244,12 +2354,13 @@ function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = '
     const activeTargets = targets.filter(t => (foodTargets[t.key] || 0) > 0);
     if (activeTargets.length === 0) {
         container.classList.add('hidden');
-        container.innerHTML = '';
+        container.replaceChildren();
         return;
     }
 
     container.classList.remove('hidden');
-    container.innerHTML = activeTargets.map(t => {
+    container.replaceChildren();
+    activeTargets.forEach((t) => {
         let targetValue = foodTargets[t.key];
         if (period === 'week') {
             targetValue = targetValue * 7;
@@ -2264,16 +2375,35 @@ function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = '
         const excessClass = isExcess ? ' excess' : '';
         const bgColor = isExcess ? 'var(--danger-color, #ef4444)' : t.color; // Red if excess
 
-        return `<div class="food-target-row${excessClass}">
-            <div class="food-target-topline">
-                <span class="food-target-name">${t.label}</span>
-                <span class="food-target-values${isExcess ? ' excess-text' : ''}">${t.value} / ${targetValue} ${t.unit}</span>
-            </div>
-            <div class="food-target-bar${excessClass}">
-                <div class="food-target-fill${excessClass}" style="width:${displayProgress}%; background:${bgColor};"></div>
-            </div>
-        </div>`;
-    }).join('');
+        const row = document.createElement('div');
+        row.className = `food-target-row${excessClass}`;
+
+        const topline = document.createElement('div');
+        topline.className = 'food-target-topline';
+
+        const name = document.createElement('span');
+        name.className = 'food-target-name';
+        name.textContent = t.label;
+
+        const values = document.createElement('span');
+        values.className = `food-target-values${isExcess ? ' excess-text' : ''}`;
+        values.textContent = `${t.value} / ${targetValue} ${t.unit}`;
+
+        topline.appendChild(name);
+        topline.appendChild(values);
+
+        const bar = document.createElement('div');
+        bar.className = `food-target-bar${excessClass}`;
+        const fill = document.createElement('div');
+        fill.className = `food-target-fill${excessClass}`;
+        fill.style.width = `${displayProgress}%`;
+        fill.style.background = bgColor;
+        bar.appendChild(fill);
+
+        row.appendChild(topline);
+        row.appendChild(bar);
+        container.appendChild(row);
+    });
 }
 
 async function loadFoodTargets() {
@@ -2747,18 +2877,30 @@ async function loadRestockHistory(medId) {
     const restocks = await apiCall(`/api/medications/${medId}/restocks`);
     const container = document.getElementById('restock-history');
 
+    container.replaceChildren();
+
     if (!restocks || restocks.length === 0) {
-        container.innerHTML = '<p class="hint">No restock history</p>';
+        const empty = document.createElement('p');
+        empty.className = 'hint';
+        empty.textContent = 'No restock history';
+        container.appendChild(empty);
         return;
     }
 
-    let html = '<p class="hint">Recent restocks:</p><ul>';
-    restocks.slice(0, 5).forEach(r => {
+    const title = document.createElement('p');
+    title.className = 'hint';
+    title.textContent = 'Recent restocks:';
+    container.appendChild(title);
+
+    const list = document.createElement('ul');
+    restocks.slice(0, 5).forEach((r) => {
         const date = formatDate(r.restocked_at);
-        html += `<li>+${r.quantity} on ${date}${r.note ? ' - ' + escapeHtml(r.note) : ''}</li>`;
+        const item = document.createElement('li');
+        item.textContent = `+${r.quantity} on ${date}${r.note ? ` - ${r.note}` : ''}`;
+        list.appendChild(item);
     });
-    html += '</ul>';
-    container.innerHTML = html;
+
+    container.appendChild(list);
 }
 
 async function handleRestock() {
@@ -2982,31 +3124,69 @@ function renderMeds() {
             scheduleText = escapeHtml(m.schedule);
         }
 
-        let dateRangeText = '';
+        const info = document.createElement('div');
+        info.className = 'med-info';
+        info.style.cursor = 'pointer';
+        info.addEventListener('click', () => {
+            showEditModal(m.id);
+        });
+
+        const title = document.createElement('h4');
+        title.textContent = `${m.name} `;
+        const dosage = document.createElement('small');
+        dosage.textContent = `(${m.dosage})`;
+        title.appendChild(dosage);
+        info.appendChild(title);
+
+        if (m.normalized_name) {
+            const normalized = document.createElement('p');
+            normalized.style.cssText = 'font-size:0.85em;color:var(--hint-color);margin-top:-5px;margin-bottom:4px;';
+            normalized.textContent = `Rx: ${m.normalized_name}`;
+            info.appendChild(normalized);
+        }
+
+        const schedule = document.createElement('p');
+        schedule.textContent = `Schedule: ${scheduleText}`;
+        info.appendChild(schedule);
+
         if (m.start_date || m.end_date) {
             const start = m.start_date ? formatDate(m.start_date).split(' ')[0] : 'N/A';
             const end = m.end_date ? formatDate(m.end_date).split(' ')[0] : 'N/A';
-            dateRangeText = `<p>Dates: ${start} - ${end}</p>`;
-        }
-        let inventoryText = '';
-        if (m.inventory_count !== null && m.inventory_count !== undefined) {
-            const isLow = isLowOnStock(m);
-            inventoryText = `<p class="inventory-badge ${isLow ? 'low' : ''}">📦 ${m.inventory_count} doses${isLow ? ' ⚠️' : ''}</p>`;
+            const dates = document.createElement('p');
+            dates.textContent = `Dates: ${start} - ${end}`;
+            info.appendChild(dates);
         }
 
-        div.innerHTML = `
-            <div class="med-info" onclick="showEditModal(${m.id})" style="cursor: pointer;">
-                <h4>${escapeHtml(m.name)} <small>(${escapeHtml(m.dosage)})</small></h4>
-                ${m.normalized_name ? `<p style="font-size:0.85em;color:var(--hint-color);margin-top:-5px;margin-bottom:4px;">Rx: ${escapeHtml(m.normalized_name)}</p>` : ''}
-                <p>Schedule: ${scheduleText}</p>
-                ${dateRangeText}
-                ${inventoryText}
-            </div>
-            <div class="med-actions">
-                <button class="small-btn secondary" onclick="logMedicationPast(${m.id}, '${escapeHtml(m.name)}')">Log</button>
-                <button class="delete-btn" onclick="deleteMed(${m.id})">&times;</button>
-            </div>
-        `;
+        if (m.inventory_count !== null && m.inventory_count !== undefined) {
+            const isLow = isLowOnStock(m);
+            const inventory = document.createElement('p');
+            inventory.className = `inventory-badge ${isLow ? 'low' : ''}`.trim();
+            inventory.textContent = `📦 ${m.inventory_count} doses${isLow ? ' ⚠️' : ''}`;
+            info.appendChild(inventory);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'med-actions';
+        const logBtn = document.createElement('button');
+        logBtn.type = 'button';
+        logBtn.className = 'small-btn secondary';
+        logBtn.textContent = 'Log';
+        logBtn.addEventListener('click', () => {
+            logMedicationPast(m.id, m.name);
+        });
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = '×';
+        deleteBtn.addEventListener('click', () => {
+            deleteMed(m.id);
+        });
+
+        actions.appendChild(logBtn);
+        actions.appendChild(deleteBtn);
+        div.appendChild(info);
+        div.appendChild(actions);
         list.appendChild(div);
     });
 }
@@ -3018,10 +3198,13 @@ function logMedicationPast(id, name) {
 
 function renderHistory(logs) {
     const list = document.getElementById('history-list');
-    list.innerHTML = '';
+    list.replaceChildren();
 
     if (!logs || logs.length === 0) {
-        list.innerHTML = '<p style="text-align:center;color:var(--hint-color)">No history yet.</p>';
+        const empty = document.createElement('p');
+        empty.style.cssText = 'text-align:center;color:var(--hint-color)';
+        empty.textContent = 'No history yet.';
+        list.appendChild(empty);
         return;
     }
 
@@ -3104,17 +3287,25 @@ function renderHistory(logs) {
             // But timeLabel is already formatted.
         }
 
-        let headerHTML = `<div class="history-header"><strong>${statusIcon} ${escapeHtml(headerTime)}</strong></div>`;
+        const header = document.createElement('div');
+        header.className = 'history-header';
+        const strong = document.createElement('strong');
+        strong.textContent = `${statusIcon} ${headerTime}`;
+        header.appendChild(strong);
 
-        let itemsHTML = '<div class="history-items">';
-        g.items.forEach(l => {
+        const items = document.createElement('div');
+        items.className = 'history-items';
+        g.items.forEach((l) => {
             const med = medications.find(m => m.id === l.medication_id);
             const medName = med ? med.name : 'Unknown Med';
-            itemsHTML += `<div class="history-subitem">${escapeHtml(medName)}</div>`;
+            const subitem = document.createElement('div');
+            subitem.className = 'history-subitem';
+            subitem.textContent = medName;
+            items.appendChild(subitem);
         });
-        itemsHTML += '</div>';
 
-        div.innerHTML = headerHTML + itemsHTML;
+        div.appendChild(header);
+        div.appendChild(items);
         list.appendChild(div);
     });
 }
@@ -3367,7 +3558,7 @@ async function renderNextIntakeTrigger() {
         );
 
         if (!res || !res.scheduled_at) {
-            container.innerHTML = '';
+            container.replaceChildren();
             return;
         }
 
@@ -3382,20 +3573,34 @@ async function renderNextIntakeTrigger() {
             minute: '2-digit'
         });
 
-        container.innerHTML = `
-            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">Next scheduled intake</div>
-                    <div style="font-size: 12px; opacity: 0.9;">${escapeHtml(medNamesStr)} at ${timeStr}</div>
-                </div>
-                <button onclick="triggerNextIntake()" class="btn-pill" style="background: rgba(255,255,255,0.25); color: white; white-space: nowrap;">
-                    Take Now
-                </button>
-            </div>
-        `;
+        const card = document.createElement('div');
+        card.style.cssText = 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;';
+
+        const body = document.createElement('div');
+        const title = document.createElement('div');
+        title.style.cssText = 'font-size: 14px; font-weight: 600; margin-bottom: 4px;';
+        title.textContent = 'Next scheduled intake';
+        const details = document.createElement('div');
+        details.style.cssText = 'font-size: 12px; opacity: 0.9;';
+        details.textContent = `${medNamesStr} at ${timeStr}`;
+        body.appendChild(title);
+        body.appendChild(details);
+
+        const action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'btn-pill';
+        action.style.cssText = 'background: rgba(255,255,255,0.25); color: white; white-space: nowrap;';
+        action.textContent = 'Take Now';
+        action.addEventListener('click', () => {
+            triggerNextIntake();
+        });
+
+        card.appendChild(body);
+        card.appendChild(action);
+        container.replaceChildren(card);
     } catch (e) {
         console.error("Error fetching next intake:", e);
-        container.innerHTML = '';
+        container.replaceChildren();
     }
 }
 
