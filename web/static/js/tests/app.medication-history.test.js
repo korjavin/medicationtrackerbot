@@ -78,7 +78,7 @@ describe('app.js medication, history and intake flows', () => {
         },
         {
           id: 3,
-          name: 'As Needed',
+          name: '<b>As Needed</b>',
           dosage: '1 tab',
           schedule: JSON.stringify({ type: 'as_needed' }),
           archived: false,
@@ -100,6 +100,22 @@ describe('app.js medication, history and intake flows', () => {
       expect(medsHtml).toContain('archived');
       expect(medsHtml).toContain('⚠️');
       expect(medsHtml).toContain('Soon Med Rx');
+      expect(document.getElementById('med-list').textContent).toContain('<b>As Needed</b>');
+      expect(medsHtml).not.toContain('<b>As Needed</b>');
+
+      const editSpy = vi.spyOn(window, 'showEditModal').mockImplementation(() => {});
+      const logSpy = vi.spyOn(window, 'logMedicationPast').mockImplementation(() => {});
+      const deleteSpy = vi.spyOn(window, 'deleteMed').mockImplementation(() => {});
+
+      const soonCard = Array.from(document.querySelectorAll('#med-list .med-item'))
+        .find((el) => el.textContent.includes('Soon Med'));
+      soonCard.querySelector('.med-info').click();
+      soonCard.querySelector('.small-btn').click();
+      soonCard.querySelector('.delete-btn').click();
+
+      expect(editSpy).toHaveBeenCalledWith(1);
+      expect(logSpy).toHaveBeenCalledWith(1, 'Soon Med');
+      expect(deleteSpy).toHaveBeenCalledWith(1);
 
       const filter = document.getElementById('history-filter-med');
       expect(filter.querySelectorAll('option').length).toBeGreaterThan(2);

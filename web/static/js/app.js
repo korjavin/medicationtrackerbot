@@ -3124,31 +3124,69 @@ function renderMeds() {
             scheduleText = escapeHtml(m.schedule);
         }
 
-        let dateRangeText = '';
+        const info = document.createElement('div');
+        info.className = 'med-info';
+        info.style.cursor = 'pointer';
+        info.addEventListener('click', () => {
+            showEditModal(m.id);
+        });
+
+        const title = document.createElement('h4');
+        title.textContent = `${m.name} `;
+        const dosage = document.createElement('small');
+        dosage.textContent = `(${m.dosage})`;
+        title.appendChild(dosage);
+        info.appendChild(title);
+
+        if (m.normalized_name) {
+            const normalized = document.createElement('p');
+            normalized.style.cssText = 'font-size:0.85em;color:var(--hint-color);margin-top:-5px;margin-bottom:4px;';
+            normalized.textContent = `Rx: ${m.normalized_name}`;
+            info.appendChild(normalized);
+        }
+
+        const schedule = document.createElement('p');
+        schedule.textContent = `Schedule: ${scheduleText}`;
+        info.appendChild(schedule);
+
         if (m.start_date || m.end_date) {
             const start = m.start_date ? formatDate(m.start_date).split(' ')[0] : 'N/A';
             const end = m.end_date ? formatDate(m.end_date).split(' ')[0] : 'N/A';
-            dateRangeText = `<p>Dates: ${start} - ${end}</p>`;
-        }
-        let inventoryText = '';
-        if (m.inventory_count !== null && m.inventory_count !== undefined) {
-            const isLow = isLowOnStock(m);
-            inventoryText = `<p class="inventory-badge ${isLow ? 'low' : ''}">📦 ${m.inventory_count} doses${isLow ? ' ⚠️' : ''}</p>`;
+            const dates = document.createElement('p');
+            dates.textContent = `Dates: ${start} - ${end}`;
+            info.appendChild(dates);
         }
 
-        div.innerHTML = `
-            <div class="med-info" onclick="showEditModal(${m.id})" style="cursor: pointer;">
-                <h4>${escapeHtml(m.name)} <small>(${escapeHtml(m.dosage)})</small></h4>
-                ${m.normalized_name ? `<p style="font-size:0.85em;color:var(--hint-color);margin-top:-5px;margin-bottom:4px;">Rx: ${escapeHtml(m.normalized_name)}</p>` : ''}
-                <p>Schedule: ${scheduleText}</p>
-                ${dateRangeText}
-                ${inventoryText}
-            </div>
-            <div class="med-actions">
-                <button class="small-btn secondary" onclick="logMedicationPast(${m.id}, '${escapeHtml(m.name)}')">Log</button>
-                <button class="delete-btn" onclick="deleteMed(${m.id})">&times;</button>
-            </div>
-        `;
+        if (m.inventory_count !== null && m.inventory_count !== undefined) {
+            const isLow = isLowOnStock(m);
+            const inventory = document.createElement('p');
+            inventory.className = `inventory-badge ${isLow ? 'low' : ''}`.trim();
+            inventory.textContent = `📦 ${m.inventory_count} doses${isLow ? ' ⚠️' : ''}`;
+            info.appendChild(inventory);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'med-actions';
+        const logBtn = document.createElement('button');
+        logBtn.type = 'button';
+        logBtn.className = 'small-btn secondary';
+        logBtn.textContent = 'Log';
+        logBtn.addEventListener('click', () => {
+            logMedicationPast(m.id, m.name);
+        });
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = '×';
+        deleteBtn.addEventListener('click', () => {
+            deleteMed(m.id);
+        });
+
+        actions.appendChild(logBtn);
+        actions.appendChild(deleteBtn);
+        div.appendChild(info);
+        div.appendChild(actions);
         list.appendChild(div);
     });
 }
