@@ -177,105 +177,37 @@
 
             <div id="oidc-setup-container"></div>
 
-            <div class="setting-item">
-                <div>
-                    <h3>Web Push Notifications</h3>
-                    <p class="setting-desc">Browser notifications for medications</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="webpush-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle title="Web Push Notifications" description="Browser notifications for medications"
+                input-id="webpush-toggle"></mt-setting-toggle>
             <div id="webpush-status" style="display:none; padding: 8px; margin-top: 8px; border-radius: 4px;"></div>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Feature: Blood Pressure</h3>
-                    <p class="setting-desc">Enable blood pressure section and commands</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="bp-feature-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Feature: Blood Pressure"
+                description="Enable blood pressure section and commands" input-id="bp-feature-toggle">
+            </mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Feature: Weight</h3>
-                    <p class="setting-desc">Enable weight section and commands</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="weight-feature-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Feature: Weight" description="Enable weight section and commands"
+                input-id="weight-feature-toggle"></mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Feature: Workouts</h3>
-                    <p class="setting-desc">Enable workouts section and commands</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="workout-feature-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Feature: Workouts" description="Enable workouts section and commands"
+                input-id="workout-feature-toggle"></mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Feature: Medications</h3>
-                    <p class="setting-desc">Enable medications section and commands</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="medication-feature-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Feature: Medications"
+                description="Enable medications section and commands" input-id="medication-feature-toggle">
+            </mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Blood Pressure Reminders</h3>
-                    <p class="setting-desc">Smart reminders to measure blood pressure regularly</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="bp-reminders-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Blood Pressure Reminders"
+                description="Smart reminders to measure blood pressure regularly" input-id="bp-reminders-toggle">
+            </mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Weight Reminders</h3>
-                    <p class="setting-desc">Remind me to track my weight weekly</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="weight-reminders-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Weight Reminders" description="Remind me to track my weight weekly"
+                input-id="weight-reminders-toggle"></mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Food Intake Tracking</h3>
-                    <p class="setting-desc">Enable food logging feature</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="food-intake-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Food Intake Tracking" description="Enable food logging feature"
+                input-id="food-intake-toggle"></mt-setting-toggle>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Health Data</h3>
-                    <p class="setting-desc">Enable health section to view sleep and vitals averages</p>
-                </div>
-                <label class="toggle">
-                    <input type="checkbox" id="health-feature-toggle">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <mt-setting-toggle divider title="Health Data"
+                description="Enable health section to view sleep and vitals averages"
+                input-id="health-feature-toggle"></mt-setting-toggle>
 
             <div id="food-target-settings" class="setting-item"
                 style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
@@ -324,7 +256,7 @@
     </div>
 
     <!-- Modal for Adding/Editing Workout Group -->
-    <div id="workout-group-modal" class="hidden">
+    <mt-modal id="workout-group-modal" class="hidden">
         <div class="modal-header">
             <h3 id="workout-group-modal-title">Add Workout Group</h3>
             <div class="actions">
@@ -386,10 +318,10 @@
                 Exercise</button>
             <div id="workout-group-flat-exercises-list"></div>
         </div>
-    </div>
+    </mt-modal>
 
     <!-- Modal for Adding/Editing Variant -->
-    <div id="workout-variant-modal" class="hidden">
+    <mt-modal id="workout-variant-modal" class="hidden">
         <div class="modal-header">
             <h3 id="workout-variant-modal-title">Add Variant</h3>
             <div class="actions">
@@ -416,10 +348,10 @@
                 Exercise</button>
             <div id="workout-exercises-list"></div>
         </div>
-    </div>
+    </mt-modal>
 
     <!-- Modal for Adding/Editing Exercise -->
-    <div id="workout-exercise-modal" class="hidden">
+    <mt-modal id="workout-exercise-modal" class="hidden">
         <div class="modal-header">
             <h3 id="workout-exercise-modal-title">Add Exercise</h3>
             <div class="actions">
@@ -454,10 +386,10 @@
             <label>Order in workout:</label>
             <input type="number" id="workout-exercise-order" min="0" placeholder="0 = first, 1 = second, etc.">
         </div>
-    </div>
+    </mt-modal>
 
     <!-- Modal for Workout Session Details -->
-    <div id="workout-session-modal" class="hidden">
+    <mt-modal id="workout-session-modal" class="hidden">
         <div class="modal-header">
             <h3 id="workout-session-modal-title">Workout Details</h3>
             <div class="actions">
@@ -477,10 +409,10 @@
                 style="width: 100%; border: 1px dashed #667eea; color: #667eea;">+ Add Exercise</button>
         </div>
 
-    </div>
+    </mt-modal>
 
     <!-- Modal for Adding Exercise to Session -->
-    <div id="workout-add-exercise-to-session-modal" class="hidden">
+    <mt-modal id="workout-add-exercise-to-session-modal" class="hidden">
         <div class="modal-header">
             <h3>Add Exercise to Session</h3>
             <div class="actions">
@@ -517,10 +449,10 @@
             <input type="text" id="session-add-exercise-notes" placeholder="Optional notes">
         </div>
 
-    </div>
+    </mt-modal>
 
     <!-- Modal for Adding/Editing Food -->
-    <div id="food-modal" class="hidden">
+    <mt-modal id="food-modal" class="hidden">
         <div class="modal-header">
             <h3 id="food-modal-title">Log Food</h3>
             <div class="actions">
@@ -592,9 +524,9 @@
             <input type="datetime-local" id="food-datetime">
         </div>
 
-    </div>
+    </mt-modal>
 
-    <div id="food-scanner-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="food-scanner-title">
+    <mt-modal id="food-scanner-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="food-scanner-title">
         <div class="modal-header">
             <h3 id="food-scanner-title">Scan Barcode / QR</h3>
             <div class="actions">
@@ -604,7 +536,7 @@
         </div>
         <p id="food-scanner-status" class="food-scanner-status">Point camera at barcode or QR.</p>
         <video id="food-scanner-video" class="food-scanner-video" autoplay muted playsinline></video>
-    </div>
+    </mt-modal>
 
     <mt-modal id="food-product-modal" class="hidden">
         <div class="modal-header">
@@ -652,7 +584,7 @@
 
     <!-- Modal for Adding Med -->
     <div id="modal-overlay" class="hidden"></div>
-    <div id="med-modal" class="hidden">
+    <mt-modal id="med-modal" class="hidden">
         <div class="modal-header">
             <h3>Add Medication</h3>
             <div class="actions">
@@ -732,10 +664,10 @@
             </label>
         </div>
 
-    </div>
+    </mt-modal>
 
     <!-- Modal for BP Recording -->
-    <div id="bp-modal" class="hidden">
+    <mt-modal id="bp-modal" class="hidden">
         <div class="modal-header">
             <h3 id="bp-modal-title">Record Blood Pressure</h3>
             <div class="actions">
@@ -782,10 +714,10 @@
                 <textarea id="bp-notes" placeholder="Any notes..." rows="3"></textarea>
             </div>
         </form>
-    </div>
+    </mt-modal>
 
     <!-- Modal for Weight Logging -->
-    <div id="weight-modal" class="hidden">
+    <mt-modal id="weight-modal" class="hidden">
         <div class="modal-header">
             <h3>Log Weight</h3>
             <div class="actions">
@@ -818,7 +750,7 @@
                 <textarea id="weight-notes" placeholder="Any notes..." rows="2"></textarea>
             </div>
         </form>
-    </div>
+    </mt-modal>
 
     <!-- Modal for Medication Confirmation (from Push) -->
     <mt-modal id="med-confirm-modal" class="hidden">
@@ -848,7 +780,7 @@
     </mt-modal>
 
     <!-- Modal for Workout Start (from Push) -->
-    <div id="workout-start-modal" class="hidden">
+    <mt-modal id="workout-start-modal" class="hidden">
         <h3 id="workout-start-title">Workout Time!</h3>
         <p id="workout-start-subtitle" style="color: #666; margin-bottom: 20px;"></p>
 
@@ -862,7 +794,7 @@
         <div style="margin-top: 15px; text-align: center;">
             <button onclick="closeWorkoutStartModal()" class="text-btn" style="color: #999;">Dismiss</button>
         </div>
-    </div>
+    </mt-modal>
 
     <script src="static/js/db.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/sync.js?v=TIMESTAMP_PLACEHOLDER"></script>

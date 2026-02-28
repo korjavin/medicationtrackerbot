@@ -74,9 +74,45 @@ describe('app.js unit tests', () => {
       expect(window.customElements.get('mt-modal')).toBeDefined();
 
       const foodProductModal = document.getElementById('food-product-modal');
+      const foodModal = document.getElementById('food-modal');
+      const foodScannerModal = document.getElementById('food-scanner-modal');
+      const bpModal = document.getElementById('bp-modal');
+      const weightModal = document.getElementById('weight-modal');
+      const medModal = document.getElementById('med-modal');
       const medConfirmModal = document.getElementById('med-confirm-modal');
+      const workoutStartModal = document.getElementById('workout-start-modal');
+      const workoutGroupModal = document.getElementById('workout-group-modal');
+      const workoutVariantModal = document.getElementById('workout-variant-modal');
+      const workoutExerciseModal = document.getElementById('workout-exercise-modal');
+      const workoutSessionModal = document.getElementById('workout-session-modal');
+      const addExerciseToSessionModal = document.getElementById('workout-add-exercise-to-session-modal');
+      expect(foodModal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(foodScannerModal.tagName.toLowerCase()).toBe('mt-modal');
       expect(foodProductModal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(bpModal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(weightModal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(medModal.tagName.toLowerCase()).toBe('mt-modal');
       expect(medConfirmModal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(workoutStartModal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(workoutGroupModal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(workoutVariantModal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(workoutExerciseModal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(workoutSessionModal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(addExerciseToSessionModal.tagName.toLowerCase()).toBe('mt-modal');
+
+      foodModal.open();
+      expect(foodModal.classList.contains('hidden')).toBe(false);
+      expect(foodModal.getAttribute('aria-hidden')).toBe('false');
+      foodModal.close();
+      expect(foodModal.classList.contains('hidden')).toBe(true);
+      expect(foodModal.getAttribute('aria-hidden')).toBe('true');
+
+      foodScannerModal.open();
+      expect(foodScannerModal.classList.contains('hidden')).toBe(false);
+      expect(foodScannerModal.getAttribute('aria-hidden')).toBe('false');
+      foodScannerModal.close();
+      expect(foodScannerModal.classList.contains('hidden')).toBe(true);
+      expect(foodScannerModal.getAttribute('aria-hidden')).toBe('true');
 
       foodProductModal.open();
       expect(foodProductModal.classList.contains('hidden')).toBe(false);
@@ -85,12 +121,90 @@ describe('app.js unit tests', () => {
       expect(foodProductModal.classList.contains('hidden')).toBe(true);
       expect(foodProductModal.getAttribute('aria-hidden')).toBe('true');
 
+      window.ModalManager.bp.open();
+      expect(bpModal.classList.contains('hidden')).toBe(false);
+      expect(bpModal.getAttribute('aria-hidden')).toBe('false');
+      window.ModalManager.bp.close();
+      expect(bpModal.classList.contains('hidden')).toBe(true);
+      expect(bpModal.getAttribute('aria-hidden')).toBe('true');
+
+      window.ModalManager.weight.open();
+      expect(weightModal.classList.contains('hidden')).toBe(false);
+      expect(weightModal.getAttribute('aria-hidden')).toBe('false');
+      window.ModalManager.weight.close();
+      expect(weightModal.classList.contains('hidden')).toBe(true);
+      expect(weightModal.getAttribute('aria-hidden')).toBe('true');
+
       window.ModalManager.medConfirm.open();
       expect(medConfirmModal.classList.contains('hidden')).toBe(false);
       expect(medConfirmModal.getAttribute('aria-hidden')).toBe('false');
       window.ModalManager.medConfirm.close();
       expect(medConfirmModal.classList.contains('hidden')).toBe(true);
       expect(medConfirmModal.getAttribute('aria-hidden')).toBe('true');
+
+      window.ModalManager.workoutStart.open();
+      expect(workoutStartModal.classList.contains('hidden')).toBe(false);
+      expect(workoutStartModal.getAttribute('aria-hidden')).toBe('false');
+      window.ModalManager.workoutStart.close();
+      expect(workoutStartModal.classList.contains('hidden')).toBe(true);
+      expect(workoutStartModal.getAttribute('aria-hidden')).toBe('true');
+
+      window.ModalManager.workoutGroup.open();
+      expect(workoutGroupModal.classList.contains('hidden')).toBe(false);
+      expect(workoutGroupModal.getAttribute('aria-hidden')).toBe('false');
+      window.ModalManager.workoutGroup.close();
+      expect(workoutGroupModal.classList.contains('hidden')).toBe(true);
+      expect(workoutGroupModal.getAttribute('aria-hidden')).toBe('true');
+
+      window.ModalManager.workoutVariant.open();
+      expect(workoutVariantModal.classList.contains('hidden')).toBe(false);
+      expect(workoutVariantModal.getAttribute('aria-hidden')).toBe('false');
+      window.ModalManager.workoutVariant.close();
+      expect(workoutVariantModal.classList.contains('hidden')).toBe(true);
+      expect(workoutVariantModal.getAttribute('aria-hidden')).toBe('true');
+
+      window.ModalManager.workoutExercise.open();
+      expect(workoutExerciseModal.classList.contains('hidden')).toBe(false);
+      expect(workoutExerciseModal.getAttribute('aria-hidden')).toBe('false');
+      window.ModalManager.workoutExercise.close();
+      expect(workoutExerciseModal.classList.contains('hidden')).toBe(true);
+      expect(workoutExerciseModal.getAttribute('aria-hidden')).toBe('true');
+
+      window.ModalManager.workoutSession.open();
+      expect(workoutSessionModal.classList.contains('hidden')).toBe(false);
+      expect(workoutSessionModal.getAttribute('aria-hidden')).toBe('false');
+      window.ModalManager.workoutSession.close();
+      expect(workoutSessionModal.classList.contains('hidden')).toBe(true);
+      expect(workoutSessionModal.getAttribute('aria-hidden')).toBe('true');
+
+      addExerciseToSessionModal.open();
+      expect(addExerciseToSessionModal.classList.contains('hidden')).toBe(false);
+      expect(addExerciseToSessionModal.getAttribute('aria-hidden')).toBe('false');
+      addExerciseToSessionModal.close();
+      expect(addExerciseToSessionModal.classList.contains('hidden')).toBe(true);
+      expect(addExerciseToSessionModal.getAttribute('aria-hidden')).toBe('true');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('registers mt-setting-toggle and materializes settings toggles with expected ids', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      expect(window.customElements.get('mt-setting-toggle')).toBeDefined();
+
+      const webpushToggle = document.getElementById('webpush-toggle');
+      const bpFeatureToggle = document.getElementById('bp-feature-toggle');
+      const foodIntakeToggle = document.getElementById('food-intake-toggle');
+      expect(webpushToggle).toBeTruthy();
+      expect(bpFeatureToggle).toBeTruthy();
+      expect(foodIntakeToggle).toBeTruthy();
+
+      const webpushSetting = webpushToggle.closest('mt-setting-toggle');
+      const bpFeatureSetting = bpFeatureToggle.closest('mt-setting-toggle');
+      expect(webpushSetting).toBeTruthy();
+      expect(bpFeatureSetting.classList.contains('setting-item-divider')).toBe(true);
+      expect(webpushSetting.querySelector('h3').textContent).toBe('Web Push Notifications');
     } finally {
       cleanup();
     }
