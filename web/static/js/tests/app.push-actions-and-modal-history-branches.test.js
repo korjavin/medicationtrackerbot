@@ -61,7 +61,7 @@ describe('app.js push actions and modal history branch coverage', () => {
       window.apiCall = vi.fn(async (endpoint) => {
         if (endpoint.startsWith('/api/workout/sessions/details')) return sessionDetailsFixture();
         if (endpoint.startsWith('/api/workout/exercises?variant_id=')) return [];
-        if (endpoint === '/api/workout/exercises/unique') return [];
+        if (endpoint === '/api/workout/exercise-library') return [];
         return [];
       });
 
