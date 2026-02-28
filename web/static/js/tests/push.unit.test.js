@@ -91,6 +91,24 @@ describe('push.js PushManager', () => {
     }
   });
 
+  it('subscribe returns false when browser subscribe throws', async () => {
+    const { window, registration, cleanup } = loadPushEnv();
+
+    try {
+      window.MedTrackerPush.vapidPublicKey = 'BEl6nA';
+      window.MedTrackerPush.subscription = { endpoint: 'https://push.example/existing' };
+      window.Notification.requestPermission = vi.fn().mockResolvedValue('granted');
+      registration.pushManager.subscribe = vi.fn().mockRejectedValue(new Error('subscribe failed'));
+
+      const ok = await window.MedTrackerPush.subscribe();
+
+      expect(ok).toBe(false);
+      expect(consoleErrorSpy).toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
   it('unsubscribe returns true when there is no active subscription', async () => {
     const { window, cleanup } = loadPushEnv();
 
@@ -118,6 +136,23 @@ describe('push.js PushManager', () => {
       expect(unsubSpy).toHaveBeenCalledTimes(1);
       expect(window.fetch).toHaveBeenCalledWith('/api/webpush/unsubscribe', expect.objectContaining({ method: 'POST' }));
       expect(window.MedTrackerPush.subscription).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('unsubscribe returns false when browser unsubscribe throws', async () => {
+    const { window, makeSubscription, cleanup } = loadPushEnv();
+
+    try {
+      const sub = makeSubscription();
+      vi.spyOn(sub, 'unsubscribe').mockRejectedValue(new Error('cannot unsubscribe'));
+      window.MedTrackerPush.subscription = sub;
+
+      const ok = await window.MedTrackerPush.unsubscribe();
+
+      expect(ok).toBe(false);
+      expect(consoleErrorSpy).toHaveBeenCalled();
     } finally {
       cleanup();
     }
