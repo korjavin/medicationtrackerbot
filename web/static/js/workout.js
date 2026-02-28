@@ -267,6 +267,7 @@ function showAddWorkoutGroupModal() {
 async function showEditWorkoutGroupModal(groupId) {
     currentEditingGroupId = groupId;
     currentGroupForVariant = groupId;
+    currentVariantForExercise = null;
     const group = workoutGroups.find(g => g.id === groupId);
     if (!group) return;
 
@@ -324,6 +325,7 @@ function closeWorkoutGroupModal() {
     window.ModalManager.workoutGroup.close();
     currentEditingGroupId = null;
     currentGroupForVariant = null;
+    currentVariantForExercise = null;
 }
 
 async function toggleRotatingFields() {
@@ -606,8 +608,52 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
     }
 }
 
-function showAddExerciseModal() {
-    if (!currentVariantForExercise) return;
+async function resolveVariantForExercise() {
+    if (currentVariantForExercise) return true;
+
+    const groupId = currentGroupForVariant || currentEditingGroupId;
+    if (!groupId) {
+        safeAlert('Save this workout group first to add exercises.');
+        return false;
+    }
+
+    const group = workoutGroups.find(g => g.id === groupId);
+    if (group && group.is_rotating) {
+        safeAlert('Open a variant first to add exercises.');
+        return false;
+    }
+
+    try {
+        let variants = await apiCall(`/api/workout/variants?group_id=${groupId}`);
+        if (!variants || variants.length === 0) {
+            const createdVariant = await apiCall('/api/workout/variants/create', 'POST', {
+                group_id: groupId,
+                name: 'Main',
+                rotation_order: null,
+                description: ''
+            });
+            variants = createdVariant ? [createdVariant] : [];
+        }
+
+        const variantId = variants[0]?.id;
+        if (!variantId) {
+            safeAlert('Save this workout group first to add exercises.');
+            return false;
+        }
+
+        currentGroupForVariant = groupId;
+        currentVariantForExercise = variantId;
+        return true;
+    } catch (error) {
+        console.error('Failed to resolve variant for exercise modal:', error);
+        safeAlert('Failed to prepare exercise editor. Please try again.');
+        return false;
+    }
+}
+
+async function showAddExerciseModal() {
+    const canOpen = await resolveVariantForExercise();
+    if (!canOpen) return;
 
     currentEditingExerciseId = null;
     document.getElementById('workout-exercise-modal-title').textContent = 'Add Exercise';
@@ -621,9 +667,9 @@ function showAddExerciseModal() {
     document.getElementById('workout-exercise-order').value = '0';
 }
 
-function showAddExerciseModalFromGroup() {
+async function showAddExerciseModalFromGroup() {
     // It's the same modal, we just use the default variant already set in currentVariantForExercise
-    showAddExerciseModal();
+    await showAddExerciseModal();
 }
 
 async function showEditExerciseModal(exerciseId) {
