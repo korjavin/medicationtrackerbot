@@ -68,6 +68,27 @@ describe('app.js unit tests', () => {
     }
   });
 
+  it('registers mt-modal custom element and updates hidden/aria state via open and close', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      expect(window.customElements.get('mt-modal')).toBeDefined();
+
+      const modal = document.getElementById('food-product-modal');
+      expect(modal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(modal.classList.contains('hidden')).toBe(true);
+
+      modal.open();
+      expect(modal.classList.contains('hidden')).toBe(false);
+      expect(modal.getAttribute('aria-hidden')).toBe('false');
+
+      modal.close();
+      expect(modal.classList.contains('hidden')).toBe(true);
+      expect(modal.getAttribute('aria-hidden')).toBe('true');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('downloads blob payload as a file via object URL', () => {
     const { window, cleanup } = loadFrontendEnv();
     try {
