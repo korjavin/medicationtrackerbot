@@ -62,7 +62,6 @@ func (m *mockNotifier) getDeleteCalls() []mockDeleteCall {
 	return cp
 }
 
-// waitForSendCalls waits until the mock has at least n Send calls, or times out.
 func (m *mockNotifier) waitForSendCalls(n int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -104,24 +103,20 @@ func setupTestSchedulerWithMock(t *testing.T) (*Scheduler, *store.Store, *mockNo
 	return sched, db, mock
 }
 
-// --- notify() / deleteNotification() helper tests ---
+// --- NotifyHelper tests ---
 
 func TestNotify_CallsAllNotifiers(t *testing.T) {
-	db, err := store.New(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
 	m1 := &mockNotifier{sendMsgID: 10}
-	m2 := &mockNotifier{sendMsgID: 0} // simulates WebPush (no msg tracking)
-	sched := New(db, 42, []notifier.Notifier{m1, m2})
+	m2 := &mockNotifier{sendMsgID: 0}
+	helper := NotifyHelper{
+		notifiers:     []notifier.Notifier{m1, m2},
+		allowedUserID: 42,
+	}
 
 	n := notifier.Notification{Text: "test", Tag: "t"}
 	var storedID int
-	sched.notify(context.Background(), n, func(id int) { storedID = id })
+	helper.Notify(context.Background(), n, func(id int) { storedID = id })
 
-	// Wait for goroutines
 	m1.waitForSendCalls(1, time.Second)
 	m2.waitForSendCalls(1, time.Second)
 
@@ -136,38 +131,27 @@ func TestNotify_CallsAllNotifiers(t *testing.T) {
 	if calls1[0].UserID != 42 {
 		t.Errorf("m1: userID = %d, want 42", calls1[0].UserID)
 	}
-	// storeMsgID should have been called with m1's msgID (10)
-	// Note: goroutine race means we can't guarantee order, but at least one should store
-	time.Sleep(50 * time.Millisecond) // allow storeMsgID goroutine to complete
+	time.Sleep(50 * time.Millisecond)
 	if storedID != 10 {
 		t.Errorf("storedID = %d, want 10", storedID)
 	}
 }
 
 func TestNotify_NoNotifiers(t *testing.T) {
-	db, err := store.New(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	sched := New(db, 42, nil)
+	helper := NotifyHelper{notifiers: nil, allowedUserID: 42}
 	// Should not panic with nil notifiers
-	sched.notify(context.Background(), notifier.Notification{Text: "test"}, nil)
+	helper.Notify(context.Background(), notifier.Notification{Text: "test"}, nil)
 }
 
 func TestDeleteNotification_CallsAllNotifiers(t *testing.T) {
-	db, err := store.New(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
 	m1 := &mockNotifier{}
 	m2 := &mockNotifier{}
-	sched := New(db, 42, []notifier.Notifier{m1, m2})
+	helper := NotifyHelper{
+		notifiers:     []notifier.Notifier{m1, m2},
+		allowedUserID: 42,
+	}
 
-	sched.deleteNotification(context.Background(), 99)
+	helper.DeleteNotification(context.Background(), 99)
 
 	m1.waitForDeleteCalls(1, time.Second)
 	m2.waitForDeleteCalls(1, time.Second)
@@ -183,16 +167,13 @@ func TestDeleteNotification_CallsAllNotifiers(t *testing.T) {
 }
 
 func TestDeleteNotification_ZeroMsgID_Noop(t *testing.T) {
-	db, err := store.New(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
 	m := &mockNotifier{}
-	sched := New(db, 42, []notifier.Notifier{m})
+	helper := NotifyHelper{
+		notifiers:     []notifier.Notifier{m},
+		allowedUserID: 42,
+	}
 
-	sched.deleteNotification(context.Background(), 0)
+	helper.DeleteNotification(context.Background(), 0)
 	time.Sleep(50 * time.Millisecond)
 
 	if len(m.getDeleteCalls()) != 0 {
@@ -201,17 +182,14 @@ func TestDeleteNotification_ZeroMsgID_Noop(t *testing.T) {
 }
 
 func TestNotify_SendError_DoesNotCallStoreMsgID(t *testing.T) {
-	db, err := store.New(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
 	m := &mockNotifier{sendErr: fmt.Errorf("network error")}
-	sched := New(db, 42, []notifier.Notifier{m})
+	helper := NotifyHelper{
+		notifiers:     []notifier.Notifier{m},
+		allowedUserID: 42,
+	}
 
 	called := false
-	sched.notify(context.Background(), notifier.Notification{Text: "test"}, func(_ int) {
+	helper.Notify(context.Background(), notifier.Notification{Text: "test"}, func(_ int) {
 		called = true
 	})
 
@@ -223,12 +201,11 @@ func TestNotify_SendError_DoesNotCallStoreMsgID(t *testing.T) {
 	}
 }
 
-// --- checkSchedule with mock notifier ---
+// --- MedicationChecker with mock notifier ---
 
 func TestCheckSchedule_SendsNotificationViaMock(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 
-	// Create a daily medication scheduled 1 hour ago
 	pastTime := time.Now().Add(-1 * time.Hour).Format("15:04")
 	schedule := `{"type":"daily","times":["` + pastTime + `"]}`
 	_, err := db.CreateMedication("TestMed", "10mg", schedule, nil, nil, "", "")
@@ -236,12 +213,11 @@ func TestCheckSchedule_SendsNotificationViaMock(t *testing.T) {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 
-	err = sched.checkSchedule()
+	err = sched.MedicationChecker.Check(context.Background())
 	if err != nil {
-		t.Fatalf("checkSchedule: %v", err)
+		t.Fatalf("Check: %v", err)
 	}
 
-	// notify() uses goroutines, wait
 	if !mock.waitForSendCalls(1, 2*time.Second) {
 		t.Fatal("timed out waiting for send call")
 	}
@@ -253,7 +229,6 @@ func TestCheckSchedule_SendsNotificationViaMock(t *testing.T) {
 
 	n := calls[0].Notification
 
-	// Check text contains medication name
 	if !strings.Contains(n.Text, "TestMed") {
 		t.Errorf("notification text should contain med name, got: %s", n.Text)
 	}
@@ -261,34 +236,28 @@ func TestCheckSchedule_SendsNotificationViaMock(t *testing.T) {
 		t.Errorf("notification text should contain dosage, got: %s", n.Text)
 	}
 
-	// Check actions: should have individual confirm + confirm all
 	if len(n.Actions) < 2 {
 		t.Fatalf("expected at least 2 actions, got %d", len(n.Actions))
 	}
-	// First action: individual confirm
 	if !strings.Contains(n.Actions[0].ID, "confirm_intake:") {
 		t.Errorf("first action should be confirm_intake, got %s", n.Actions[0].ID)
 	}
 	if n.Actions[0].Label != "Take TestMed" {
 		t.Errorf("first action label = %q, want %q", n.Actions[0].Label, "Take TestMed")
 	}
-	// Last action: confirm all
 	lastAction := n.Actions[len(n.Actions)-1]
 	if !strings.Contains(lastAction.ID, "confirm_schedule:") {
 		t.Errorf("last action should be confirm_schedule, got %s", lastAction.ID)
 	}
 
-	// Check tag
 	if !strings.HasPrefix(n.Tag, "medication-") {
 		t.Errorf("tag should start with medication-, got %s", n.Tag)
 	}
 
-	// Check metadata
 	if n.Metadata["type"] != "medication" {
 		t.Errorf("metadata type = %v, want medication", n.Metadata["type"])
 	}
 
-	// Verify intake was created
 	pending, err := db.GetPendingIntakes()
 	if err != nil {
 		t.Fatalf("GetPendingIntakes: %v", err)
@@ -301,7 +270,6 @@ func TestCheckSchedule_SendsNotificationViaMock(t *testing.T) {
 func TestCheckSchedule_MultipleMeds_GroupedNotification(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 
-	// Create two meds at the same time
 	pastTime := time.Now().Add(-1 * time.Hour).Format("15:04")
 	schedule := `{"type":"daily","times":["` + pastTime + `"]}`
 	_, err := db.CreateMedication("MedA", "5mg", schedule, nil, nil, "", "")
@@ -313,9 +281,9 @@ func TestCheckSchedule_MultipleMeds_GroupedNotification(t *testing.T) {
 		t.Fatalf("CreateMedication B: %v", err)
 	}
 
-	err = sched.checkSchedule()
+	err = sched.MedicationChecker.Check(context.Background())
 	if err != nil {
-		t.Fatalf("checkSchedule: %v", err)
+		t.Fatalf("Check: %v", err)
 	}
 
 	if !mock.waitForSendCalls(1, 2*time.Second) {
@@ -328,23 +296,20 @@ func TestCheckSchedule_MultipleMeds_GroupedNotification(t *testing.T) {
 	}
 
 	n := calls[0].Notification
-	// Both meds should be in the text
 	if !strings.Contains(n.Text, "MedA") || !strings.Contains(n.Text, "MedB") {
 		t.Errorf("notification should contain both med names, got: %s", n.Text)
 	}
 
-	// Should have 3 actions: Take MedA, Take MedB, Confirm ALL
 	if len(n.Actions) != 3 {
 		t.Errorf("expected 3 actions, got %d: %v", len(n.Actions), n.Actions)
 	}
 }
 
-// --- checkReminders with mock notifier ---
+// --- MedicationReminderChecker with mock notifier ---
 
 func TestCheckReminders_SendsReminderForOldPending(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 
-	// Create a medication and an old pending intake (>1 hour ago)
 	pastTime := time.Now().Add(-2 * time.Hour)
 	timeStr := pastTime.Format("15:04")
 	schedule := `{"type":"daily","times":["` + timeStr + `"]}`
@@ -361,9 +326,9 @@ func TestCheckReminders_SendsReminderForOldPending(t *testing.T) {
 		t.Fatalf("CreateIntake: %v", err)
 	}
 
-	err = sched.checkReminders()
+	err = sched.MedicationReminderChecker.Check(context.Background())
 	if err != nil {
-		t.Fatalf("checkReminders: %v", err)
+		t.Fatalf("Check: %v", err)
 	}
 
 	if !mock.waitForSendCalls(1, 2*time.Second) {
@@ -390,12 +355,12 @@ func TestCheckReminders_SendsReminderForOldPending(t *testing.T) {
 	}
 }
 
-// --- sendBPReminder with mock notifier ---
+// --- BPReminderChecker.sendBPReminder with mock notifier ---
 
 func TestSendBPReminder_Standard(t *testing.T) {
 	sched, _, mock := setupTestSchedulerWithMock(t)
 
-	err := sched.sendBPReminder(context.Background(), 123456, false)
+	err := sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, false)
 	if err != nil {
 		t.Fatalf("sendBPReminder: %v", err)
 	}
@@ -409,7 +374,6 @@ func TestSendBPReminder_Standard(t *testing.T) {
 	if !strings.Contains(n.Text, "blood pressure") {
 		t.Errorf("BP text should mention blood pressure, got: %s", n.Text)
 	}
-	// Standard (not enhanced) should NOT contain warning
 	if strings.Contains(n.Text, "higher than usual") {
 		t.Error("standard BP reminder should not contain enhanced warning")
 	}
@@ -439,7 +403,7 @@ func TestSendBPReminder_Standard(t *testing.T) {
 func TestSendBPReminder_Enhanced(t *testing.T) {
 	sched, _, mock := setupTestSchedulerWithMock(t)
 
-	err := sched.sendBPReminder(context.Background(), 123456, true)
+	err := sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, true)
 	if err != nil {
 		t.Fatalf("sendBPReminder: %v", err)
 	}
@@ -464,7 +428,7 @@ func TestSendBPReminder_AllFail_ReturnsError(t *testing.T) {
 	m := &mockNotifier{sendErr: fmt.Errorf("fail")}
 	sched := New(db, 123456, []notifier.Notifier{m})
 
-	err = sched.sendBPReminder(context.Background(), 123456, false)
+	err = sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, false)
 	if err == nil {
 		t.Error("expected error when all notifiers fail")
 	}
@@ -477,17 +441,15 @@ func TestSendBPReminder_StoresMsgID(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 	mock.sendMsgID = 777
 
-	// Enable BP reminders so DB state exists
 	if err := db.SetBPReminderEnabled(123456, true); err != nil {
 		t.Fatalf("SetBPReminderEnabled: %v", err)
 	}
 
-	err := sched.sendBPReminder(context.Background(), 123456, false)
+	err := sched.BPReminderChecker.sendBPReminder(context.Background(), 123456, false)
 	if err != nil {
 		t.Fatalf("sendBPReminder: %v", err)
 	}
 
-	// Verify the notification state was updated
 	state, err := db.GetBPReminderState(123456)
 	if err != nil {
 		t.Fatalf("GetBPReminderState: %v", err)
@@ -497,12 +459,12 @@ func TestSendBPReminder_StoresMsgID(t *testing.T) {
 	}
 }
 
-// --- sendWeightReminder with mock notifier ---
+// --- WeightReminderChecker.sendWeightReminder with mock notifier ---
 
 func TestSendWeightReminder_Standard(t *testing.T) {
 	sched, _, mock := setupTestSchedulerWithMock(t)
 
-	err := sched.sendWeightReminder(context.Background(), 123456)
+	err := sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456)
 	if err != nil {
 		t.Fatalf("sendWeightReminder: %v", err)
 	}
@@ -546,7 +508,7 @@ func TestSendWeightReminder_AllFail_ReturnsError(t *testing.T) {
 	m := &mockNotifier{sendErr: fmt.Errorf("fail")}
 	sched := New(db, 123456, []notifier.Notifier{m})
 
-	err = sched.sendWeightReminder(context.Background(), 123456)
+	err = sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456)
 	if err == nil {
 		t.Error("expected error when all notifiers fail")
 	}
@@ -560,7 +522,7 @@ func TestSendWeightReminder_StoresMsgID(t *testing.T) {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
-	err := sched.sendWeightReminder(context.Background(), 123456)
+	err := sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456)
 	if err != nil {
 		t.Fatalf("sendWeightReminder: %v", err)
 	}
@@ -574,7 +536,7 @@ func TestSendWeightReminder_StoresMsgID(t *testing.T) {
 	}
 }
 
-// --- sendWorkoutNotification with mock notifier ---
+// --- WorkoutChecker.sendWorkoutNotification with mock notifier ---
 
 func TestSendWorkoutNotification_BuildsCorrectNotification(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
@@ -595,7 +557,6 @@ func TestSendWorkoutNotification_BuildsCorrectNotification(t *testing.T) {
 		t.Fatalf("CreateWorkoutVariant: %v", err)
 	}
 
-	// Add an exercise
 	_, err = db.AddExerciseToVariant(variant.ID, "Bench Press", 4, 8, intPtr(10), floatPtr(80.0), 0)
 	if err != nil {
 		t.Fatalf("CreateWorkoutExercise: %v", err)
@@ -607,7 +568,7 @@ func TestSendWorkoutNotification_BuildsCorrectNotification(t *testing.T) {
 		t.Fatalf("CreateWorkoutSession: %v", err)
 	}
 
-	err = sched.sendWorkoutNotification(session, group, variant.ID)
+	err = sched.WorkoutChecker.sendWorkoutNotification(session, group, variant.ID)
 	if err != nil {
 		t.Fatalf("sendWorkoutNotification: %v", err)
 	}
@@ -619,7 +580,6 @@ func TestSendWorkoutNotification_BuildsCorrectNotification(t *testing.T) {
 	calls := mock.getSendCalls()
 	n := calls[0].Notification
 
-	// Check text
 	if !strings.Contains(n.Text, "Push Day") {
 		t.Errorf("should contain group name, got: %s", n.Text)
 	}
@@ -633,7 +593,6 @@ func TestSendWorkoutNotification_BuildsCorrectNotification(t *testing.T) {
 		t.Errorf("should contain weight, got: %s", n.Text)
 	}
 
-	// Check actions
 	if len(n.Actions) != 4 {
 		t.Fatalf("expected 4 actions (start, snooze1, snooze2, skip), got %d", len(n.Actions))
 	}
@@ -647,12 +606,10 @@ func TestSendWorkoutNotification_BuildsCorrectNotification(t *testing.T) {
 		t.Errorf("fourth action should be skip, got %s", n.Actions[3].ID)
 	}
 
-	// Check tag
 	if !strings.HasPrefix(n.Tag, "workout-") {
 		t.Errorf("tag should start with workout-, got %s", n.Tag)
 	}
 
-	// Check metadata
 	if n.Metadata["type"] != "workout" {
 		t.Errorf("metadata type = %v, want workout", n.Metadata["type"])
 	}
@@ -686,22 +643,19 @@ func TestSendWorkoutNotification_DeletesPreviousNotification(t *testing.T) {
 		t.Fatalf("CreateWorkoutSession: %v", err)
 	}
 
-	// Set a previous notification message ID
 	if err := db.SetSessionNotificationMessageID(session.ID, 555); err != nil {
 		t.Fatalf("SetSessionNotificationMessageID: %v", err)
 	}
-	// Reload session
 	session, err = db.GetWorkoutSession(session.ID)
 	if err != nil {
 		t.Fatalf("GetWorkoutSession: %v", err)
 	}
 
-	err = sched.sendWorkoutNotification(session, group, variant.ID)
+	err = sched.WorkoutChecker.sendWorkoutNotification(session, group, variant.ID)
 	if err != nil {
 		t.Fatalf("sendWorkoutNotification: %v", err)
 	}
 
-	// Wait for delete of previous + send of new
 	if !mock.waitForDeleteCalls(1, 2*time.Second) {
 		t.Fatal("timed out waiting for delete call")
 	}
@@ -741,7 +695,7 @@ func TestSendWorkoutNotification_StoresMessageID(t *testing.T) {
 		t.Fatalf("CreateWorkoutSession: %v", err)
 	}
 
-	err = sched.sendWorkoutNotification(session, group, variant.ID)
+	err = sched.WorkoutChecker.sendWorkoutNotification(session, group, variant.ID)
 	if err != nil {
 		t.Fatalf("sendWorkoutNotification: %v", err)
 	}
@@ -749,9 +703,8 @@ func TestSendWorkoutNotification_StoresMessageID(t *testing.T) {
 	if !mock.waitForSendCalls(1, 2*time.Second) {
 		t.Fatal("timed out waiting for send call")
 	}
-	time.Sleep(50 * time.Millisecond) // allow storeMsgID callback
+	time.Sleep(50 * time.Millisecond)
 
-	// Reload session and check stored message ID
 	updated, err := db.GetWorkoutSession(session.ID)
 	if err != nil {
 		t.Fatalf("GetWorkoutSession: %v", err)
@@ -776,17 +729,15 @@ func TestMultipleNotifiers_BothCalled(t *testing.T) {
 	m2 := &mockNotifier{sendMsgID: 0}
 	sched := New(db, 123456, []notifier.Notifier{m1, m2})
 
-	// Enable weight reminders
 	if err := db.SetWeightReminderEnabled(123456, true); err != nil {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
-	err = sched.sendWeightReminder(context.Background(), 123456)
+	err = sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456)
 	if err != nil {
 		t.Fatalf("sendWeightReminder: %v", err)
 	}
 
-	// Both should be called (synchronous for weight)
 	calls1 := m1.getSendCalls()
 	calls2 := m2.getSendCalls()
 	if len(calls1) != 1 {
@@ -812,8 +763,7 @@ func TestMultipleNotifiers_PartialFailure_StillSucceeds(t *testing.T) {
 		t.Fatalf("SetWeightReminderEnabled: %v", err)
 	}
 
-	// Should succeed because at least one notifier works
-	err = sched.sendWeightReminder(context.Background(), 123456)
+	err = sched.WeightReminderChecker.sendWeightReminder(context.Background(), 123456)
 	if err != nil {
 		t.Errorf("expected success with partial failure, got: %v", err)
 	}
@@ -832,18 +782,16 @@ func TestCheckSchedule_StoresIntakeReminderMsgID(t *testing.T) {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 
-	err = sched.checkSchedule()
+	err = sched.MedicationChecker.Check(context.Background())
 	if err != nil {
-		t.Fatalf("checkSchedule: %v", err)
+		t.Fatalf("Check: %v", err)
 	}
 
 	if !mock.waitForSendCalls(1, 2*time.Second) {
 		t.Fatal("timed out waiting for send call")
 	}
-	// Allow storeMsgID callback to run
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify intakes were created and have reminder msg IDs
 	pending, err := db.GetPendingIntakes()
 	if err != nil {
 		t.Fatalf("GetPendingIntakes: %v", err)
@@ -851,8 +799,6 @@ func TestCheckSchedule_StoresIntakeReminderMsgID(t *testing.T) {
 	if len(pending) != 1 {
 		t.Fatalf("expected 1 pending intake, got %d", len(pending))
 	}
-	// The store.AddIntakeReminder stores the msg ID — verify by checking
-	// the intake's reminder_message_ids field
 	reminders, err := db.GetIntakeReminders(pending[0].ID)
 	if err != nil {
 		t.Fatalf("GetIntakeReminders: %v", err)
@@ -864,5 +810,5 @@ func TestCheckSchedule_StoresIntakeReminderMsgID(t *testing.T) {
 
 // --- Helpers ---
 
-func intPtr(i int) *int         { return &i }
+func intPtr(i int) *int           { return &i }
 func floatPtr(f float64) *float64 { return &f }

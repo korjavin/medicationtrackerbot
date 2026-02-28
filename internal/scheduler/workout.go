@@ -12,9 +12,35 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
-// checkWorkoutNotifications checks for scheduled workouts and sends notifications
-func (s *Scheduler) checkWorkoutNotifications() error {
-	enabled, err := s.workouts.GetWorkoutEnabled(context.Background())
+// WorkoutStore is the subset needed for workout scheduling and notifications.
+type WorkoutStore interface {
+	GetWorkoutEnabled(ctx context.Context) (bool, error)
+	GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error)
+	ListWorkoutGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
+	GetRotationState(groupID int64) (*store.WorkoutRotationState, error)
+	ListVariantsByGroup(groupID int64) ([]store.WorkoutVariant, error)
+	InitializeRotation(groupID, variantID int64) error
+	GetSessionByGroupAndDate(groupID int64, date time.Time) (*store.WorkoutSession, error)
+	CreateWorkoutSession(groupID, variantID, userID int64, date time.Time, scheduledTime string) (*store.WorkoutSession, error)
+	SkipSession(sessionID int64) error
+	GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error)
+	AdvanceRotation(groupID int64) error
+	UpdateSessionStatus(sessionID int64, status string) error
+	UpdateWorkoutSessionNotes(sessionID int64, notes string) error
+	ClearSnooze(sessionID int64) error
+	GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error)
+	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
+	SetSessionNotificationMessageID(sessionID int64, msgID int) error
+}
+
+// WorkoutChecker checks for scheduled workouts and sends notifications.
+type WorkoutChecker struct {
+	NotifyHelper
+	store WorkoutStore
+}
+
+func (c *WorkoutChecker) Check(ctx context.Context) error {
+	enabled, err := c.store.GetWorkoutEnabled(ctx)
 	if err != nil {
 		return err
 	}
@@ -25,7 +51,7 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 	now := time.Now()
 
 	// 1. Get history to check for InProgress and Stale sessions
-	history, err := s.workouts.GetWorkoutHistory(s.allowedUserID, 20)
+	history, err := c.store.GetWorkoutHistory(c.allowedUserID, 20)
 	if err != nil {
 		return fmt.Errorf("failed to get workout history: %w", err)
 	}
@@ -54,26 +80,25 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 					"session_id": activeSession.ID,
 				},
 			}
-			s.notify(context.Background(), n, nil)
-			if err := s.workouts.UpdateWorkoutSessionNotes(activeSession.ID, activeSession.Notes+" stale_reminded"); err != nil {
+			c.Notify(ctx, n, nil)
+			if err := c.store.UpdateWorkoutSessionNotes(activeSession.ID, activeSession.Notes+" stale_reminded"); err != nil {
 				log.Printf("Failed to update session notes: %v", err)
 			}
 		}
 
-		// Clear blocked state after 4 hours of inactivity to prevent blocking next day's workouts
+		// Clear blocked state after 4 hours of inactivity
 		if duration > 4*time.Hour {
-			if err := s.workouts.SkipSession(activeSession.ID); err != nil {
+			if err := c.store.SkipSession(activeSession.ID); err != nil {
 				log.Printf("Failed to skip stale session: %v", err)
 			} else {
-				// Advance rotation for rotating groups when stale session is auto-skipped
-				group, err := s.workouts.GetWorkoutGroup(activeSession.GroupID)
+				group, err := c.store.GetWorkoutGroup(activeSession.GroupID)
 				if err == nil && group != nil && group.IsRotating {
-					if err := s.workouts.AdvanceRotation(group.ID); err != nil {
+					if err := c.store.AdvanceRotation(group.ID); err != nil {
 						log.Printf("Failed to advance rotation after stale auto-skip for group %d: %v", group.ID, err)
 					}
 				}
 				if activeSession.NotificationMessageID != nil {
-					s.deleteNotification(context.Background(), *activeSession.NotificationMessageID)
+					c.DeleteNotification(ctx, *activeSession.NotificationMessageID)
 				}
 				activeSession = nil
 			}
@@ -81,7 +106,7 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 	}
 
 	// 3. Get all active workout groups for the user
-	groups, err := s.workouts.ListWorkoutGroups(s.allowedUserID, true)
+	groups, err := c.store.ListWorkoutGroups(c.allowedUserID, true)
 	if err != nil {
 		return fmt.Errorf("failed to list workout groups: %w", err)
 	}
@@ -113,19 +138,18 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 		// 6. Determine which variant to use
 		var variantID int64
 		if group.IsRotating {
-			rotationState, err := s.workouts.GetRotationState(group.ID)
+			rotationState, err := c.store.GetRotationState(group.ID)
 			if err != nil {
 				log.Printf("Error getting rotation state for group %d: %v", group.ID, err)
 				continue
 			}
 			if rotationState == nil {
-				// Auto-initialize with first variant
-				variants, err := s.workouts.ListVariantsByGroup(group.ID)
+				variants, err := c.store.ListVariantsByGroup(group.ID)
 				if err != nil || len(variants) == 0 {
 					log.Printf("No variants found for rotating group %d", group.ID)
 					continue
 				}
-				if err := s.workouts.InitializeRotation(group.ID, variants[0].ID); err != nil {
+				if err := c.store.InitializeRotation(group.ID, variants[0].ID); err != nil {
 					log.Printf("Failed to auto-initialize rotation for group %d: %v", group.ID, err)
 					continue
 				}
@@ -134,7 +158,7 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 				variantID = rotationState.CurrentVariantID
 			}
 		} else {
-			variants, err := s.workouts.ListVariantsByGroup(group.ID)
+			variants, err := c.store.ListVariantsByGroup(group.ID)
 			if err != nil || len(variants) == 0 {
 				log.Printf("No variants found for group %d", group.ID)
 				continue
@@ -144,14 +168,14 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 
 		// 7. Check if session already exists for today
 		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		existing, err := s.workouts.GetSessionByGroupAndDate(group.ID, today)
+		existing, err := c.store.GetSessionByGroupAndDate(group.ID, today)
 		if err != nil {
 			log.Printf("Error checking for existing session: %v", err)
 			continue
 		}
 
 		if existing == nil {
-			session, err := s.workouts.CreateWorkoutSession(group.ID, variantID, s.allowedUserID, today, group.ScheduledTime)
+			session, err := c.store.CreateWorkoutSession(group.ID, variantID, c.allowedUserID, today, group.ScheduledTime)
 			if err != nil {
 				log.Printf("Failed to create workout session: %v", err)
 				continue
@@ -159,13 +183,13 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 			existing = session
 		}
 
-		// 8. Handle pre_skipped sessions: auto-skip at scheduled time, never notify
+		// 8. Handle pre_skipped sessions
 		if existing.Status == "pre_skipped" {
 			if now.After(scheduledTime) {
-				if err := s.workouts.SkipSession(existing.ID); err != nil {
+				if err := c.store.SkipSession(existing.ID); err != nil {
 					log.Printf("Failed to auto-skip pre_skipped session %d: %v", existing.ID, err)
 				} else if group.IsRotating {
-					if err := s.workouts.AdvanceRotation(group.ID); err != nil {
+					if err := c.store.AdvanceRotation(group.ID); err != nil {
 						log.Printf("Failed to advance rotation after auto-skip for group %d: %v", group.ID, err)
 					}
 				}
@@ -178,39 +202,37 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 		notifyTime := scheduledTime.Add(-time.Duration(advanceMinutes) * time.Minute)
 
 		if existing.Status == "pending" {
-			// Don't send new notifications if ANY workout is already in progress
 			if activeSession != nil {
 				continue
 			}
 
 			if now.After(notifyTime) {
-				if err := s.sendWorkoutNotification(existing, &group, variantID); err != nil {
+				if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
 					log.Printf("Failed to send workout notification: %v", err)
 				} else {
-					if err := s.workouts.UpdateSessionStatus(existing.ID, "notified"); err != nil {
+					if err := c.store.UpdateSessionStatus(existing.ID, "notified"); err != nil {
 						log.Printf("Failed to update session status: %v", err)
 					}
 				}
 			}
 		}
 
-		// 9. Handle re-notification for ignored sessions (3h logic)
+		// Handle re-notification for ignored sessions (3h logic)
 		if existing.Status == "notified" {
 			if now.After(scheduledTime.Add(3 * time.Hour)) {
 				if !strings.Contains(existing.Notes, "resent_3h") {
-					if err := s.sendWorkoutNotification(existing, &group, variantID); err != nil {
+					if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
 						log.Printf("Failed to re-send 3h notification: %v", err)
 					}
-					if err := s.workouts.UpdateWorkoutSessionNotes(existing.ID, existing.Notes+" resent_3h"); err != nil {
+					if err := c.store.UpdateWorkoutSessionNotes(existing.ID, existing.Notes+" resent_3h"); err != nil {
 						log.Printf("Failed to update session notes: %v", err)
 					}
 				} else if now.After(scheduledTime.Add(6 * time.Hour)) {
-					// Auto-skip after 6 hours of silence
-					if err := s.workouts.SkipSession(existing.ID); err != nil {
+					if err := c.store.SkipSession(existing.ID); err != nil {
 						log.Printf("Failed to skip session: %v", err)
 					}
 					if existing.NotificationMessageID != nil {
-						s.deleteNotification(context.Background(), *existing.NotificationMessageID)
+						c.DeleteNotification(ctx, *existing.NotificationMessageID)
 					}
 				}
 			}
@@ -219,12 +241,10 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 		// 10. Check snoozed sessions for this group
 		if existing.SnoozedUntil != nil && now.After(*existing.SnoozedUntil) {
 			if activeSession == nil {
-				if err := s.sendWorkoutNotification(existing, &group, variantID); err != nil {
+				if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
 					log.Printf("Failed to re-send snoozed notification: %v", err)
 				} else {
-					// Clear snoozed_until to prevent sending notifications every minute
-					// The notification has been sent, so we reset the snooze state
-					if err := s.workouts.ClearSnooze(existing.ID); err != nil {
+					if err := c.store.ClearSnooze(existing.ID); err != nil {
 						log.Printf("Failed to clear snooze state: %v", err)
 					}
 				}
@@ -234,21 +254,18 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 	return nil
 }
 
-// sendWorkoutNotification sends a workout notification via all notifiers
-func (s *Scheduler) sendWorkoutNotification(session *store.WorkoutSession, group *store.WorkoutGroup, variantID int64) error {
-	// Get variant details
-	variant, err := s.workouts.GetWorkoutVariant(variantID)
+// sendWorkoutNotification sends a workout notification via all notifiers.
+func (c *WorkoutChecker) sendWorkoutNotification(session *store.WorkoutSession, group *store.WorkoutGroup, variantID int64) error {
+	variant, err := c.store.GetWorkoutVariant(variantID)
 	if err != nil || variant == nil {
 		return fmt.Errorf("variant not found: %w", err)
 	}
 
-	// Get exercises for this variant
-	exercises, err := s.workouts.ListExercisesByVariant(variantID)
+	exercises, err := c.store.ListExercisesByVariant(variantID)
 	if err != nil {
 		return fmt.Errorf("failed to list exercises: %w", err)
 	}
 
-	// Build notification message
 	message := fmt.Sprintf("🏋️ **Workout starting in %d minutes**\n\n", group.NotificationAdvanceMinutes)
 	message += fmt.Sprintf("**%s - %s**\n\n", group.Name, variant.Name)
 
@@ -269,9 +286,9 @@ func (s *Scheduler) sendWorkoutNotification(session *store.WorkoutSession, group
 		}
 	}
 
-	// Delete previous notification if exists to avoid clutter
+	// Delete previous notification if exists
 	if session.NotificationMessageID != nil {
-		s.deleteNotification(context.Background(), *session.NotificationMessageID)
+		c.DeleteNotification(context.Background(), *session.NotificationMessageID)
 	}
 
 	n := notifier.Notification{
@@ -292,8 +309,8 @@ func (s *Scheduler) sendWorkoutNotification(session *store.WorkoutSession, group
 	}
 
 	sessionID := session.ID
-	s.notify(context.Background(), n, func(msgID int) {
-		if err := s.workouts.SetSessionNotificationMessageID(sessionID, msgID); err != nil {
+	c.Notify(context.Background(), n, func(msgID int) {
+		if err := c.store.SetSessionNotificationMessageID(sessionID, msgID); err != nil {
 			log.Printf("Failed to store notification message ID: %v", err)
 		}
 	})

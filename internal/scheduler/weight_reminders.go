@@ -7,11 +7,28 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
+	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
-// checkWeightReminders checks if any users need weight reminder notifications
-func (s *Scheduler) checkWeightReminders() error {
-	enabled, err := s.weightReminders.GetWeightEnabled(context.Background())
+// WeightReminderStore is the subset needed for weight reminders.
+type WeightReminderStore interface {
+	GetWeightEnabled(ctx context.Context) (bool, error)
+	GetUsersForWeightReminders() ([]int64, error)
+	GetWeightReminderState(userID int64) (*store.WeightReminderState, error)
+	GetLastWeightLog(ctx context.Context, userID int64) (*store.WeightLog, error)
+	CalculatePreferredWeightReminderHour(ctx context.Context, userID int64) (int, error)
+	UpdatePreferredWeightReminderHour(userID int64, hour int) error
+	UpdateWeightReminderNotificationSent(userID int64, messageID *int) error
+}
+
+// WeightReminderChecker checks if any users need weight reminder notifications.
+type WeightReminderChecker struct {
+	store     WeightReminderStore
+	notifiers []notifier.Notifier
+}
+
+func (c *WeightReminderChecker) Check(ctx context.Context) error {
+	enabled, err := c.store.GetWeightEnabled(ctx)
 	if err != nil {
 		return err
 	}
@@ -19,84 +36,70 @@ func (s *Scheduler) checkWeightReminders() error {
 		return nil
 	}
 
-	// Get all users with weight reminders enabled
-	userIDs, err := s.weightReminders.GetUsersForWeightReminders()
+	userIDs, err := c.store.GetUsersForWeightReminders()
 	if err != nil {
 		return err
 	}
 
-	ctx := context.Background()
 	now := time.Now()
 
 	for _, userID := range userIDs {
-		// Get reminder state
-		state, err := s.weightReminders.GetWeightReminderState(userID)
+		state, err := c.store.GetWeightReminderState(userID)
 		if err != nil {
 			log.Printf("Error getting weight reminder state for user %d: %v", userID, err)
 			continue
 		}
 
-		// Filter 1: Check if reminders are enabled
 		if !state.Enabled {
 			continue
 		}
 
-		// Filter 2: Check if snoozed
 		if state.SnoozedUntil != nil && now.Before(*state.SnoozedUntil) {
 			continue
 		}
 
-		// Filter 3: Check if "don't bug me" is active
 		if state.DontRemindUntil != nil && now.Before(*state.DontRemindUntil) {
 			continue
 		}
 
-		// Get last weight log
-		lastLog, err := s.weightReminders.GetLastWeightLog(ctx, userID)
+		lastLog, err := c.store.GetLastWeightLog(ctx, userID)
 		if err != nil {
 			log.Printf("Error getting last weight log for user %d: %v", userID, err)
 			continue
 		}
 
-		// Filter 4: Check if already measured in last 7 days
 		if lastLog != nil && time.Since(lastLog.MeasuredAt) < 7*24*time.Hour {
 			continue
 		}
 
-		// Filter 5: Check minimum 5-day gap (prevents spam if user deletes entry)
 		if lastLog != nil && time.Since(lastLog.MeasuredAt) < 5*24*time.Hour {
 			continue
 		}
 
-		// Filter 6: Calculate preferred reminder hour dynamically
-		preferredHour, err := s.weightReminders.CalculatePreferredWeightReminderHour(ctx, userID)
+		preferredHour, err := c.store.CalculatePreferredWeightReminderHour(ctx, userID)
 		if err != nil {
 			log.Printf("Error calculating preferred hour for user %d: %v", userID, err)
-			preferredHour = 9 // Fallback to default
+			preferredHour = 9
 		}
 
-		// Update if different from stored value
 		if preferredHour != state.PreferredReminderHour {
-			if err := s.weightReminders.UpdatePreferredWeightReminderHour(userID, preferredHour); err != nil {
+			if err := c.store.UpdatePreferredWeightReminderHour(userID, preferredHour); err != nil {
 				log.Printf("Error updating preferred hour for user %d: %v", userID, err)
 			}
 		}
 
-		// Filter 7: Check if current time is within ±2 hours of preferred time (wider window than BP)
 		currentHour := now.Hour()
 		if currentHour < preferredHour-2 || currentHour > preferredHour+2 {
 			continue
 		}
 
-		// Filter 8: Check if we already sent a notification in last 7 days (rate limiting)
 		if state.LastNotificationSentAt != nil {
 			if time.Since(*state.LastNotificationSentAt) < 7*24*time.Hour {
 				continue
 			}
 		}
 
-		// Send reminder notification
-		if err := s.sendWeightReminder(ctx, userID); err != nil {
+		if err := c.sendWeightReminder(ctx, userID); err != nil {
 			log.Printf("Error sending weight reminder to user %d: %v", userID, err)
 			continue
 		}
@@ -107,8 +110,8 @@ func (s *Scheduler) checkWeightReminders() error {
 	return nil
 }
 
-// sendWeightReminder sends a weight reminder notification via all notifiers
-func (s *Scheduler) sendWeightReminder(ctx context.Context, userID int64) error {
+// sendWeightReminder sends a weight reminder notification via all notifiers synchronously.
+func (c *WeightReminderChecker) sendWeightReminder(ctx context.Context, userID int64) error {
 	text := "⚖️ **Time to track your weight**\n\n"
 	text += "It's been about a week since your last measurement. "
 	text += "Regular tracking helps you stay on top of your goals!"
@@ -129,7 +132,7 @@ func (s *Scheduler) sendWeightReminder(ctx context.Context, userID int64) error 
 	anySuccess := false
 	var firstMsgID int
 
-	for _, nr := range s.notifiers {
+	for _, nr := range c.notifiers {
 		msgID, err := nr.Send(ctx, userID, n)
 		if err != nil {
 			log.Printf("Failed to send weight reminder via %T: %v", nr, err)
@@ -141,15 +144,13 @@ func (s *Scheduler) sendWeightReminder(ctx context.Context, userID int64) error 
 		}
 	}
 
-	// CRITICAL: Only update if at least one channel succeeded
 	if !anySuccess {
 		return fmt.Errorf("failed to send weight reminder via any channel")
 	}
 
-	// Update state with successful delivery
 	var messageID *int
 	if firstMsgID != 0 {
 		messageID = &firstMsgID
 	}
-	return s.weightReminders.UpdateWeightReminderNotificationSent(userID, messageID)
+	return c.store.UpdateWeightReminderNotificationSent(userID, messageID)
 }
