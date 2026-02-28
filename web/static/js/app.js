@@ -89,14 +89,26 @@ function downloadBlobAsFile(blob, filename) {
     document.body.removeChild(link);
 }
 
+const ModalManager = {
+    open(modalId) {
+        document.getElementById('modal-overlay').classList.remove('hidden');
+        document.getElementById(modalId).classList.remove('hidden');
+    },
+
+    close(modalId) {
+        document.getElementById('modal-overlay').classList.add('hidden');
+        document.getElementById(modalId).classList.add('hidden');
+    }
+};
+
+window.ModalManager = ModalManager;
+
 function showOverlayModal(modalId) {
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById(modalId).classList.remove('hidden');
+    window.ModalManager.open(modalId);
 }
 
 function hideOverlayModal(modalId) {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById(modalId).classList.add('hidden');
+    window.ModalManager.close(modalId);
 }
 
 window.onDataStoreUnauthorized = function () {

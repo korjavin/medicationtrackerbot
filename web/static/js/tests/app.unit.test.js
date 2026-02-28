@@ -113,4 +113,22 @@ describe('app.js unit tests', () => {
       cleanup();
     }
   });
+
+  it('exposes modal manager open/close API', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const overlay = document.getElementById('modal-overlay');
+      const bpModal = document.getElementById('bp-modal');
+
+      window.ModalManager.open('bp-modal');
+      expect(overlay.classList.contains('hidden')).toBe(false);
+      expect(bpModal.classList.contains('hidden')).toBe(false);
+
+      window.ModalManager.close('bp-modal');
+      expect(overlay.classList.contains('hidden')).toBe(true);
+      expect(bpModal.classList.contains('hidden')).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
 });
