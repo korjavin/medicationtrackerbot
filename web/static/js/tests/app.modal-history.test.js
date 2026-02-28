@@ -74,6 +74,28 @@ describe('app.js modal history and back behavior', () => {
     }
   });
 
+  it('popstate closes food product sub-modal before parent food modal', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      window.ModalManager.food.open();
+      window.ModalManager.foodProduct.open();
+      await flushMutations();
+
+      expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
+      expect(document.getElementById('food-product-modal').classList.contains('hidden')).toBe(false);
+
+      window.dispatchEvent(new window.PopStateEvent('popstate'));
+      await flushMutations();
+
+      expect(document.getElementById('food-product-modal').classList.contains('hidden')).toBe(true);
+      expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
+      expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('Telegram BackButton callback closes open modal', async () => {
     const { window, document, backButtonState, cleanup } = loadFrontendEnv();
 
