@@ -96,16 +96,27 @@ class MTModal extends HTMLElement {
         if (!this.hasAttribute('aria-hidden')) {
             this.setAttribute('aria-hidden', this.classList.contains('hidden') ? 'true' : 'false');
         }
+        if (this.classList.contains('hidden')) {
+            this.setAttribute('inert', '');
+        } else {
+            this.removeAttribute('inert');
+        }
     }
 
     open() {
         this.classList.remove('hidden');
         this.setAttribute('aria-hidden', 'false');
+        this.removeAttribute('inert');
     }
 
     close() {
+        const activeElement = document.activeElement;
+        if (activeElement && this.contains(activeElement) && typeof activeElement.blur === 'function') {
+            activeElement.blur();
+        }
         this.classList.add('hidden');
         this.setAttribute('aria-hidden', 'true');
+        this.setAttribute('inert', '');
     }
 }
 
@@ -5460,19 +5471,24 @@ async function sendTestMedicationNotification() {
 (function initModalHistory() {
     let modalPushed = false;
     let poppingFromHistory = false;
+    const webApp = window.Telegram?.WebApp;
+    const backButton = webApp?.BackButton;
+    const isBackButtonSupported = !!backButton && (
+        typeof webApp?.isVersionAtLeast !== 'function' || webApp.isVersionAtLeast('6.1')
+    );
 
     function onOverlayShown() {
         if (modalPushed) return;
         modalPushed = true;
         history.pushState({ modal: true }, '');
-        window.Telegram?.WebApp?.BackButton?.show();
+        if (isBackButtonSupported) backButton.show();
     }
 
     function onOverlayClosed() {
         if (!modalPushed || poppingFromHistory) return;
         modalPushed = false;
         history.back();
-        window.Telegram?.WebApp?.BackButton?.hide();
+        if (isBackButtonSupported) backButton.hide();
     }
 
     // iOS edge-swipe (and desktop browser back)
@@ -5481,7 +5497,7 @@ async function sendTestMedicationNotification() {
         const overlay = document.getElementById('modal-overlay');
         if (!overlay || overlay.classList.contains('hidden')) {
             modalPushed = false;
-            window.Telegram?.WebApp?.BackButton?.hide();
+            if (isBackButtonSupported) backButton.hide();
             return;
         }
         poppingFromHistory = true;
@@ -5493,13 +5509,13 @@ async function sendTestMedicationNotification() {
             modalPushed = true;
             history.pushState({ modal: true }, '');
         } else {
-            window.Telegram?.WebApp?.BackButton?.hide();
+            if (isBackButtonSupported) backButton.hide();
         }
     });
 
     // Android hardware back / Telegram header back button
-    if (window.Telegram?.WebApp?.BackButton) {
-        window.Telegram.WebApp.BackButton.onClick(() => {
+    if (isBackButtonSupported) {
+        backButton.onClick(() => {
             const overlay = document.getElementById('modal-overlay');
             if (!overlay || overlay.classList.contains('hidden')) return;
             poppingFromHistory = true;
@@ -5509,7 +5525,7 @@ async function sendTestMedicationNotification() {
             if (!overlay.classList.contains('hidden')) {
                 modalPushed = true; // BackButton stays visible
             } else {
-                window.Telegram.WebApp.BackButton.hide();
+                backButton.hide();
                 history.back(); // clean up the history entry we pushed
             }
         });

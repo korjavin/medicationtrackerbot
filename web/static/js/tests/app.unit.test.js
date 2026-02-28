@@ -103,9 +103,11 @@ describe('app.js unit tests', () => {
       foodModal.open();
       expect(foodModal.classList.contains('hidden')).toBe(false);
       expect(foodModal.getAttribute('aria-hidden')).toBe('false');
+      expect(foodModal.hasAttribute('inert')).toBe(false);
       foodModal.close();
       expect(foodModal.classList.contains('hidden')).toBe(true);
       expect(foodModal.getAttribute('aria-hidden')).toBe('true');
+      expect(foodModal.hasAttribute('inert')).toBe(true);
 
       foodScannerModal.open();
       expect(foodScannerModal.classList.contains('hidden')).toBe(false);
@@ -117,9 +119,13 @@ describe('app.js unit tests', () => {
       foodProductModal.open();
       expect(foodProductModal.classList.contains('hidden')).toBe(false);
       expect(foodProductModal.getAttribute('aria-hidden')).toBe('false');
+      const foodProductCancelBtn = foodProductModal.querySelector('button.secondary');
+      if (foodProductCancelBtn) foodProductCancelBtn.focus();
       foodProductModal.close();
       expect(foodProductModal.classList.contains('hidden')).toBe(true);
       expect(foodProductModal.getAttribute('aria-hidden')).toBe('true');
+      expect(foodProductModal.hasAttribute('inert')).toBe(true);
+      expect(foodProductModal.contains(document.activeElement)).toBe(false);
 
       window.ModalManager.bp.open();
       expect(bpModal.classList.contains('hidden')).toBe(false);
