@@ -78,6 +78,17 @@ function formatDateTimeLocalForInput(dateValue = new Date()) {
     return localDate.toISOString().slice(0, 16);
 }
 
+function downloadBlobAsFile(blob, filename) {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(link);
+}
+
 window.onDataStoreUnauthorized = function () {
     if (sessionStorage.getItem('medtracker_auth_reload_in_progress') === '1') {
         return;
@@ -3723,14 +3734,7 @@ async function exportBPCSV() {
         }
 
         const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'blood_pressure_export.csv';
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
+        downloadBlobAsFile(blob, 'blood_pressure_export.csv');
     } catch (err) {
         console.error('Export error:', err);
         tg.showAlert('Failed to export data');
@@ -4539,14 +4543,7 @@ async function exportWeightCSV() {
         }
 
         const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'weight_export.csv';
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
+        downloadBlobAsFile(blob, 'weight_export.csv');
     } catch (err) {
         console.error('Export error:', err);
         tg.showAlert('Failed to export data');
