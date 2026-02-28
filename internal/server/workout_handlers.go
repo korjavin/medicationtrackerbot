@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -126,10 +127,13 @@ func (s *Server) handleDeleteWorkoutGroup(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Simple implementation: just mark as inactive
-	// A full delete would cascade to variants, exercises, sessions, etc.
-	err = s.store.UpdateWorkoutGroup(id, "", "", false, "[]", "", 0, false)
+	err = s.store.DeleteWorkoutGroup(id)
 	if err != nil {
+		// Return precondition errors as 409 Conflict so the frontend can show them
+		if strings.Contains(err.Error(), "cannot delete group") {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
