@@ -242,6 +242,8 @@ function _renderWorkoutGroups(container, groups) {
 
 function showAddWorkoutGroupModal() {
     currentEditingGroupId = null;
+    currentGroupForVariant = null;
+    currentVariantForExercise = null;
     document.getElementById('workout-group-modal-title').textContent = 'Add Workout Group';
     window.ModalManager.workoutGroup.open();
 
@@ -264,6 +266,7 @@ function showAddWorkoutGroupModal() {
 
 async function showEditWorkoutGroupModal(groupId) {
     currentEditingGroupId = groupId;
+    currentGroupForVariant = groupId;
     const group = workoutGroups.find(g => g.id === groupId);
     if (!group) return;
 
@@ -320,6 +323,7 @@ async function showEditWorkoutGroupModal(groupId) {
 function closeWorkoutGroupModal() {
     window.ModalManager.workoutGroup.close();
     currentEditingGroupId = null;
+    currentGroupForVariant = null;
 }
 
 async function toggleRotatingFields() {
@@ -454,7 +458,13 @@ async function loadVariantsForGroup(groupId) {
 }
 
 function showAddVariantModal() {
-    if (!currentGroupForVariant) return;
+    const groupId = currentGroupForVariant || currentEditingGroupId;
+    if (!groupId) {
+        safeAlert('Save this workout group first to add variants.');
+        return;
+    }
+
+    currentGroupForVariant = groupId;
 
     currentEditingVariantId = null;
     document.getElementById('workout-variant-modal-title').textContent = 'Add Variant';
