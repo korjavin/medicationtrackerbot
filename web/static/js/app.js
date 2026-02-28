@@ -5690,28 +5690,9 @@ async function sendTestMedicationNotification() {
 })();
 
 // --- Health Overview ---
-async function loadHealthOverview() {
-    const content = document.getElementById('health-overview-content');
-    const loading = document.getElementById('health-overview-loading');
-
-    loading.style.display = 'block';
-    content.classList.add('hidden');
-
-    const data = await window.DataStore.fetchFresh(
-        'health_overview',
-        async () => await apiCall('/api/health/overview', 'GET'),
-        ['health']
-    );
-    loading.style.display = 'none';
+function renderHealthOverviewContent(content, data) {
     content.innerHTML = '';
 
-    if (!data) {
-        content.innerHTML = '<p style="color:red">Failed to load health metrics</p>';
-        content.classList.remove('hidden');
-        return;
-    }
-
-    // Render charts sections
     const renderVitalGroup = (id, title, history, color, min, max, stat7d, stat30d, unit) => {
         if (history && history.length > 0) {
             content.innerHTML += `
@@ -5769,8 +5750,51 @@ async function loadHealthOverview() {
             This data is gathered from your synced .nxk backups.
         </p>
     `;
+}
 
+function renderHealthOverviewError(content) {
+    content.innerHTML = '<p style="color:red">Failed to load health metrics</p>';
     content.classList.remove('hidden');
+}
+
+async function loadHealthOverview() {
+    const content = document.getElementById('health-overview-content');
+    const loading = document.getElementById('health-overview-loading');
+    if (!content || !loading) return;
+
+    loading.style.display = 'block';
+
+    await window.DataStore.loadSWR({
+        key: 'health_overview',
+        tags: ['health'],
+        fetcher: async () => await apiCall('/api/health/overview', 'GET'),
+        allowNullFresh: true,
+        onCached: async (cached) => {
+            if (!cached) return;
+            renderHealthOverviewContent(content, cached);
+            loading.style.display = 'none';
+            content.classList.remove('hidden');
+        },
+        onFresh: async (fresh, cached) => {
+            loading.style.display = 'none';
+            if (!fresh) {
+                if (!cached) {
+                    renderHealthOverviewError(content);
+                }
+                return;
+            }
+
+            renderHealthOverviewContent(content, fresh);
+            content.classList.remove('hidden');
+        },
+        onError: async (e, cached) => {
+            console.error('Failed to load health overview:', e);
+            loading.style.display = 'none';
+            if (!cached) {
+                renderHealthOverviewError(content);
+            }
+        }
+    });
 }
 
 // Render generic line chart with min/max shaded area 
