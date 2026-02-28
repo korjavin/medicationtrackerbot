@@ -2314,18 +2314,30 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
         const stats = weekStats;
         summary.style.display = 'block';
         const label = period === 'week' ? '7-Day Total' : '14-Day Total';
-        summary.innerHTML = `${label}: ${stats?.calories || 0} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${stats?.carbs || 0} P:${stats?.protein || 0} F:${stats?.fat || 0})</span>`;
+        renderFoodSummary(summary, label, stats?.calories || 0, stats?.carbs || 0, stats?.protein || 0, stats?.fat || 0);
         renderFoodTargetProgress(stats?.calories || 0, stats?.carbs || 0, stats?.protein || 0, stats?.fat || 0, period);
     } else {
         if (groups && groups.length > 0) {
             summary.style.display = 'block';
-            summary.innerHTML = `Daily Total: ${dayCals} kcal <span style="font-weight:normal; font-size:0.9em; margin-left:10px;">(C:${dayCarbs} P:${dayProt} F:${dayFat})</span>`;
+            renderFoodSummary(summary, 'Daily Total', dayCals, dayCarbs, dayProt, dayFat);
             renderFoodTargetProgress(dayCals, dayCarbs, dayProt, dayFat, period);
         } else {
             summary.style.display = 'none';
             renderFoodTargetProgress(0, 0, 0, 0, period);
         }
     }
+}
+
+function renderFoodSummary(summaryEl, label, calories, carbs, protein, fat) {
+    summaryEl.replaceChildren();
+
+    const text = document.createTextNode(`${label}: ${calories} kcal `);
+    const details = document.createElement('span');
+    details.style.cssText = 'font-weight:normal; font-size:0.9em; margin-left:10px;';
+    details.textContent = `(C:${carbs} P:${protein} F:${fat})`;
+
+    summaryEl.appendChild(text);
+    summaryEl.appendChild(details);
 }
 
 function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = 'day') {
