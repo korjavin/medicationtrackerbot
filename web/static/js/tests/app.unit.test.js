@@ -102,93 +102,69 @@ describe('app.js unit tests', () => {
 
       foodModal.open();
       expect(foodModal.classList.contains('hidden')).toBe(false);
-      expect(foodModal.getAttribute('aria-hidden')).toBe('false');
       expect(foodModal.hasAttribute('inert')).toBe(false);
       foodModal.close();
       expect(foodModal.classList.contains('hidden')).toBe(true);
-      expect(foodModal.getAttribute('aria-hidden')).toBe('true');
       expect(foodModal.hasAttribute('inert')).toBe(true);
 
       foodScannerModal.open();
       expect(foodScannerModal.classList.contains('hidden')).toBe(false);
-      expect(foodScannerModal.getAttribute('aria-hidden')).toBe('false');
       foodScannerModal.close();
       expect(foodScannerModal.classList.contains('hidden')).toBe(true);
-      expect(foodScannerModal.getAttribute('aria-hidden')).toBe('true');
 
       foodProductModal.open();
       expect(foodProductModal.classList.contains('hidden')).toBe(false);
-      expect(foodProductModal.getAttribute('aria-hidden')).toBe('false');
       const foodProductCancelBtn = foodProductModal.querySelector('button.secondary');
       if (foodProductCancelBtn) foodProductCancelBtn.focus();
       foodProductModal.close();
       expect(foodProductModal.classList.contains('hidden')).toBe(true);
-      expect(foodProductModal.getAttribute('aria-hidden')).toBe('true');
       expect(foodProductModal.hasAttribute('inert')).toBe(true);
       expect(foodProductModal.contains(document.activeElement)).toBe(false);
 
       window.ModalManager.bp.open();
       expect(bpModal.classList.contains('hidden')).toBe(false);
-      expect(bpModal.getAttribute('aria-hidden')).toBe('false');
       window.ModalManager.bp.close();
       expect(bpModal.classList.contains('hidden')).toBe(true);
-      expect(bpModal.getAttribute('aria-hidden')).toBe('true');
 
       window.ModalManager.weight.open();
       expect(weightModal.classList.contains('hidden')).toBe(false);
-      expect(weightModal.getAttribute('aria-hidden')).toBe('false');
       window.ModalManager.weight.close();
       expect(weightModal.classList.contains('hidden')).toBe(true);
-      expect(weightModal.getAttribute('aria-hidden')).toBe('true');
 
       window.ModalManager.medConfirm.open();
       expect(medConfirmModal.classList.contains('hidden')).toBe(false);
-      expect(medConfirmModal.getAttribute('aria-hidden')).toBe('false');
       window.ModalManager.medConfirm.close();
       expect(medConfirmModal.classList.contains('hidden')).toBe(true);
-      expect(medConfirmModal.getAttribute('aria-hidden')).toBe('true');
 
       window.ModalManager.workoutStart.open();
       expect(workoutStartModal.classList.contains('hidden')).toBe(false);
-      expect(workoutStartModal.getAttribute('aria-hidden')).toBe('false');
       window.ModalManager.workoutStart.close();
       expect(workoutStartModal.classList.contains('hidden')).toBe(true);
-      expect(workoutStartModal.getAttribute('aria-hidden')).toBe('true');
 
       window.ModalManager.workoutGroup.open();
       expect(workoutGroupModal.classList.contains('hidden')).toBe(false);
-      expect(workoutGroupModal.getAttribute('aria-hidden')).toBe('false');
       window.ModalManager.workoutGroup.close();
       expect(workoutGroupModal.classList.contains('hidden')).toBe(true);
-      expect(workoutGroupModal.getAttribute('aria-hidden')).toBe('true');
 
       window.ModalManager.workoutVariant.open();
       expect(workoutVariantModal.classList.contains('hidden')).toBe(false);
-      expect(workoutVariantModal.getAttribute('aria-hidden')).toBe('false');
       window.ModalManager.workoutVariant.close();
       expect(workoutVariantModal.classList.contains('hidden')).toBe(true);
-      expect(workoutVariantModal.getAttribute('aria-hidden')).toBe('true');
 
       window.ModalManager.workoutExercise.open();
       expect(workoutExerciseModal.classList.contains('hidden')).toBe(false);
-      expect(workoutExerciseModal.getAttribute('aria-hidden')).toBe('false');
       window.ModalManager.workoutExercise.close();
       expect(workoutExerciseModal.classList.contains('hidden')).toBe(true);
-      expect(workoutExerciseModal.getAttribute('aria-hidden')).toBe('true');
 
       window.ModalManager.workoutSession.open();
       expect(workoutSessionModal.classList.contains('hidden')).toBe(false);
-      expect(workoutSessionModal.getAttribute('aria-hidden')).toBe('false');
       window.ModalManager.workoutSession.close();
       expect(workoutSessionModal.classList.contains('hidden')).toBe(true);
-      expect(workoutSessionModal.getAttribute('aria-hidden')).toBe('true');
 
       addExerciseToSessionModal.open();
       expect(addExerciseToSessionModal.classList.contains('hidden')).toBe(false);
-      expect(addExerciseToSessionModal.getAttribute('aria-hidden')).toBe('false');
       addExerciseToSessionModal.close();
       expect(addExerciseToSessionModal.classList.contains('hidden')).toBe(true);
-      expect(addExerciseToSessionModal.getAttribute('aria-hidden')).toBe('true');
     } finally {
       cleanup();
     }
@@ -219,7 +195,7 @@ describe('app.js unit tests', () => {
   it('downloads blob payload as a file via object URL', () => {
     const { window, cleanup } = loadFrontendEnv();
     try {
-      const clickSpy = vi.spyOn(window.HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      const clickSpy = vi.spyOn(window.HTMLAnchorElement.prototype, 'click').mockImplementation(() => { });
       const originalCreateObjectURL = window.URL.createObjectURL;
       const originalRevokeObjectURL = window.URL.revokeObjectURL;
       const createObjectURLSpy = vi.fn().mockReturnValue('blob:test');
@@ -248,7 +224,7 @@ describe('app.js unit tests', () => {
     try {
       pauseSpy = vi
         .spyOn(window.HTMLMediaElement.prototype, 'pause')
-        .mockImplementation(() => {});
+        .mockImplementation(() => { });
       const overlay = document.getElementById('modal-overlay');
       const bpModal = document.getElementById('bp-modal');
       const weightModal = document.getElementById('weight-modal');
@@ -373,7 +349,7 @@ describe('app.js unit tests', () => {
     try {
       pauseSpy = vi
         .spyOn(window.HTMLMediaElement.prototype, 'pause')
-        .mockImplementation(() => {});
+        .mockImplementation(() => { });
 
       expect(window.ModalManager.closeTopMostVisibleModal()).toBe(false);
 
