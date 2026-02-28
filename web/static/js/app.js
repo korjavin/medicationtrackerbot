@@ -1474,16 +1474,50 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
         const displayName = decodeFoodDisplayText(p.name);
         const item = document.createElement('div');
         item.className = 'autocomplete-item';
-        item.textContent = displayName;
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'autocomplete-item-name';
+        nameSpan.textContent = displayName;
         if (p.barcode) {
-            item.textContent += ` (${p.barcode})`;
+            nameSpan.textContent += ` (${p.barcode})`;
         }
-        item.onclick = function () {
+        nameSpan.onclick = function () {
             document.getElementById('food-name').value = displayName;
             autofillFoodProduct(p);
             setFoodSearchStatus('success', 'Product selected.');
             list.classList.add('hidden');
         };
+        item.appendChild(nameSpan);
+
+        // Show edit/delete buttons only for user's own food products (id > 0)
+        if (p.id && p.id > 0) {
+            const actions = document.createElement('span');
+            actions.className = 'autocomplete-item-actions';
+
+            const editBtn = document.createElement('button');
+            editBtn.className = 'autocomplete-action-btn';
+            editBtn.innerHTML = '&#9998;'; // pencil
+            editBtn.title = 'Edit product';
+            editBtn.onclick = function (e) {
+                e.stopPropagation();
+                list.classList.add('hidden');
+                showEditFoodProductModal(p);
+            };
+            actions.appendChild(editBtn);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'autocomplete-action-btn autocomplete-action-delete';
+            deleteBtn.innerHTML = '&#10005;'; // x mark
+            deleteBtn.title = 'Delete product';
+            deleteBtn.onclick = function (e) {
+                e.stopPropagation();
+                deleteFoodProduct(p.id, displayName);
+            };
+            actions.appendChild(deleteBtn);
+
+            item.appendChild(actions);
+        }
+
         list.appendChild(item);
     });
 
@@ -1545,6 +1579,75 @@ function autofillFoodProduct(product) {
     // Focus weight input
     document.getElementById('food-weight').focus();
     calculateFoodCalories();
+}
+
+// -- Food Product Management --
+
+function showEditFoodProductModal(product) {
+    document.getElementById('food-product-id').value = product.id;
+    document.getElementById('food-product-name').value = decodeFoodDisplayText(product.name);
+    document.getElementById('food-product-barcode').value = product.barcode || '';
+    document.getElementById('food-product-carbs').value = product.carbs_100g || '';
+    document.getElementById('food-product-protein').value = product.protein_100g || '';
+    document.getElementById('food-product-fat').value = product.fat_100g || '';
+    document.getElementById('food-product-calories').value = product.energy_kcal_100g || '';
+    document.getElementById('food-product-modal').classList.remove('hidden');
+}
+
+function closeFoodProductModal() {
+    document.getElementById('food-product-modal').classList.add('hidden');
+}
+
+async function saveFoodProduct() {
+    const id = document.getElementById('food-product-id').value;
+    const name = document.getElementById('food-product-name').value.trim();
+    if (!name) {
+        safeAlert('Please enter a product name.');
+        return;
+    }
+
+    const payload = {
+        name: name,
+        barcode: document.getElementById('food-product-barcode').value.trim(),
+        carbs_100g: parseFloat(document.getElementById('food-product-carbs').value) || 0,
+        protein_100g: parseFloat(document.getElementById('food-product-protein').value) || 0,
+        fat_100g: parseFloat(document.getElementById('food-product-fat').value) || 0,
+        energy_kcal_100g: parseFloat(document.getElementById('food-product-calories').value) || 0,
+    };
+
+    try {
+        await apiCall(`/api/food/products/${id}`, 'PUT', payload);
+        closeFoodProductModal();
+        // Refresh the cache
+        foodProductsCache = null;
+        if (window.MedTrackerDB) {
+            await window.MedTrackerDB.FoodProductsStore.clearCache();
+        }
+        await initFoodProductsCache();
+        renderFoodAutocomplete(foodProductsCache, false, null, false);
+        safeAlert('Product updated.');
+    } catch (e) {
+        console.error('Failed to update food product', e);
+        safeAlert('Failed to update product.');
+    }
+}
+
+async function deleteFoodProduct(id, displayName) {
+    if (!confirm(`Delete "${displayName}" from your food database?`)) return;
+
+    try {
+        await apiCall(`/api/food/products/${id}`, 'DELETE');
+        // Refresh the cache
+        foodProductsCache = null;
+        if (window.MedTrackerDB) {
+            await window.MedTrackerDB.FoodProductsStore.clearCache();
+        }
+        await initFoodProductsCache();
+        renderFoodAutocomplete(foodProductsCache);
+    } catch (e) {
+        console.error('Failed to delete food product', e);
+        safeAlert('Failed to delete product.');
+    }
 }
 
 // -- Food Intake Functions --
@@ -2234,6 +2337,9 @@ function applyPendingTabRefresh() {
 function requestTabRefresh(meta = {}) {
     const source = meta?.source || 'changes';
     if (!isSafeToAutoRefresh()) {
+        console.log('[refresh] deferred: source=%s modal=%s editing=%s hidden=%s tags=%o',
+            source, hasOpenModal(), isEditingNow(), document.hidden,
+            meta?.changedTags || []);
         pendingRefreshReason = source;
         showRefreshBanner();
         return;
