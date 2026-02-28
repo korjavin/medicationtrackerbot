@@ -28,20 +28,20 @@
 <body>
     <div id="app">
         <div id="tabs">
-            <button class="tab active" data-tab="bp" onclick="switchTab('bp')">BP</button>
-            <button class="tab" data-tab="weight" onclick="switchTab('weight')">Weight</button>
-            <button class="tab" data-tab="workouts" onclick="switchTab('workouts')">Workouts</button>
-            <button class="tab" data-tab="food" onclick="switchTab('food')">Food</button>
-            <button class="tab" data-tab="health" onclick="switchTab('health')">Health</button>
-            <button class="tab" data-tab="meds" onclick="switchTab('meds')">Meds</button>
-            <button class="tab" data-tab="settings" onclick="switchTab('settings')">⚙️</button>
+            <button class="tab active" data-tab="bp">BP</button>
+            <button class="tab" data-tab="weight">Weight</button>
+            <button class="tab" data-tab="workouts">Workouts</button>
+            <button class="tab" data-tab="food">Food</button>
+            <button class="tab" data-tab="health">Health</button>
+            <button class="tab" data-tab="meds">Meds</button>
+            <button class="tab" data-tab="settings">⚙️</button>
         </div>
 
         <div id="meds-view" class="view active">
             <!-- Med Tabs -->
             <div class="med-tabs">
-                <button class="med-tab active" data-tab="history" onclick="switchMedTab('history')">History</button>
-                <button class="med-tab" data-tab="schedule" onclick="switchMedTab('schedule')">Schedule</button>
+                <button class="med-tab active" data-tab="history">History</button>
+                <button class="med-tab" data-tab="schedule">Schedule</button>
             </div>
 
             <div id="med-history-tab" class="med-tab-content active">
@@ -90,10 +90,9 @@
 
             <!-- Tab Navigation for Workouts -->
             <div class="workout-tabs">
-                <button class="workout-tab active" data-tab="history"
-                    onclick="switchWorkoutTab('history')">History</button>
-                <button class="workout-tab" data-tab="groups" onclick="switchWorkoutTab('groups')">Groups</button>
-                <button class="workout-tab" data-tab="stats" onclick="switchWorkoutTab('stats')">Statistics</button>
+                <button class="workout-tab active" data-tab="history">History</button>
+                <button class="workout-tab" data-tab="groups">Groups</button>
+                <button class="workout-tab" data-tab="stats">Statistics</button>
             </div>
 
             <!-- History View -->
@@ -607,7 +606,7 @@
         <video id="food-scanner-video" class="food-scanner-video" autoplay muted playsinline></video>
     </div>
 
-    <div id="food-product-modal" class="hidden">
+    <mt-modal id="food-product-modal" class="hidden">
         <div class="modal-header">
             <h3>Edit Product</h3>
             <div class="actions">
@@ -649,7 +648,7 @@
             <label>Calories per 100g:</label>
             <input type="number" id="food-product-calories" placeholder="Kcal" step="0.1">
         </div>
-    </div>
+    </mt-modal>
 
     <!-- Modal for Adding Med -->
     <div id="modal-overlay" class="hidden"></div>
@@ -822,7 +821,7 @@
     </div>
 
     <!-- Modal for Medication Confirmation (from Push) -->
-    <div id="med-confirm-modal" class="hidden">
+    <mt-modal id="med-confirm-modal" class="hidden">
         <div class="modal-header">
             <h3 id="med-confirm-title">Time for Meds!</h3>
             <div class="actions">
@@ -846,7 +845,7 @@
             <button id="med-confirm-snooze-btn" onclick="snoozeMedicationConfirm()" class="secondary">Snooze
                 10m</button>
         </div>
-    </div>
+    </mt-modal>
 
     <!-- Modal for Workout Start (from Push) -->
     <div id="workout-start-modal" class="hidden">

@@ -18,6 +18,23 @@ describe('app.js UI characterization', () => {
     }
   });
 
+  it('main tab click binding switches view without inline onclick handlers', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const loadSettingsSpy = vi.fn();
+      window.loadSettings = loadSettingsSpy;
+
+      const settingsTab = document.querySelector('.tab[data-tab="settings"]');
+      settingsTab.click();
+
+      expect(settingsTab.classList.contains('active')).toBe(true);
+      expect(document.getElementById('settings-view').classList.contains('active')).toBe(true);
+      expect(loadSettingsSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('switchMedTab toggles med subtab classes and calls the right loader', () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
@@ -35,6 +52,23 @@ describe('app.js UI characterization', () => {
       window.switchMedTab('history');
       expect(document.querySelector('.med-tab[data-tab="history"]').classList.contains('active')).toBe(true);
       expect(loadHistorySpy).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('med tab click binding switches subtab and triggers loader', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const loadMedsSpy = vi.fn();
+      window.loadMeds = loadMedsSpy;
+
+      const scheduleTab = document.querySelector('.med-tab[data-tab="schedule"]');
+      scheduleTab.click();
+
+      expect(scheduleTab.classList.contains('active')).toBe(true);
+      expect(document.getElementById('med-schedule-tab').classList.contains('active')).toBe(true);
+      expect(loadMedsSpy).toHaveBeenCalledTimes(1);
     } finally {
       cleanup();
     }

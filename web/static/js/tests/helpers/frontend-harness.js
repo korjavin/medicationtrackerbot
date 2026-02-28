@@ -8,6 +8,7 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 
 const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
+const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
 
@@ -98,6 +99,9 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '' } =
   window.confirm = () => true;
   window.fetch = async () => createMockResponse({ status: 200, json: {} });
   window.eval('var history = window.history;');
+
+  const dataStoreSource = fs.readFileSync(DATA_STORE_JS, 'utf8');
+  evalWithSourceURL(window, dataStoreSource, DATA_STORE_JS);
 
   const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
   evalWithSourceURL(window, appSource, APP_JS);
