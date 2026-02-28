@@ -656,37 +656,70 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
         const exercises = await apiCall(`/api/workout/exercises?variant_id=${variantId}`);
 
         if (!exercises || exercises.length === 0) {
-            container.innerHTML = '<p style="color: var(--hint-color); font-size: 0.9em;">No exercises yet. Add one!</p>';
+            const empty = document.createElement('p');
+            empty.style.color = 'var(--hint-color)';
+            empty.style.fontSize = '0.9em';
+            empty.textContent = 'No exercises yet. Add one!';
+            container.replaceChildren(empty);
             return;
         }
 
         // Sort by order
-        exercises.sort((a, b) => a.order_index - b.order_index);
-
-        let html = '';
-        exercises.forEach(ex => {
+        const sortedExercises = [...exercises].sort((a, b) => a.order_index - b.order_index);
+        container.replaceChildren();
+        sortedExercises.forEach((ex) => {
             const repsText = ex.target_reps_max
                 ? `${ex.target_reps_min}-${ex.target_reps_max}`
                 : `${ex.target_reps_min}`;
             const weightText = ex.target_weight_kg ? ` @ ${ex.target_weight_kg}kg` : '';
 
-            html += `
-                <div style="background: #f0f4ff; padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-                    <div onclick="showEditExerciseModal(${ex.id})" style="cursor: pointer; flex: 1;">
-                        <strong>${ex.order_index + 1}. ${escapeHtml(ex.exercise_name)}</strong>
-                        <div style="font-size: 0.85em; color: #666;">
-                            ${ex.target_sets} sets × ${repsText} reps${weightText}
-                        </div>
-                    </div>
-                    <button class="delete-btn" onclick="deleteExercise(${ex.id}, event)" style="position: static; margin-left: 10px;">&times;</button>
-                </div>
-            `;
-        });
+            const card = document.createElement('div');
+            card.style.background = '#f0f4ff';
+            card.style.padding = '8px 10px';
+            card.style.borderRadius = '6px';
+            card.style.marginBottom = '6px';
+            card.style.display = 'flex';
+            card.style.justifyContent = 'space-between';
+            card.style.alignItems = 'center';
 
-        container.innerHTML = html;
+            const info = document.createElement('div');
+            info.style.cursor = 'pointer';
+            info.style.flex = '1';
+            info.addEventListener('click', () => {
+                showEditExerciseModal(ex.id);
+            });
+
+            const title = document.createElement('strong');
+            title.textContent = `${ex.order_index + 1}. ${ex.exercise_name}`;
+
+            const meta = document.createElement('div');
+            meta.style.fontSize = '0.85em';
+            meta.style.color = '#666';
+            meta.textContent = `${ex.target_sets} sets × ${repsText} reps${weightText}`;
+
+            info.appendChild(title);
+            info.appendChild(meta);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'delete-btn';
+            deleteBtn.style.position = 'static';
+            deleteBtn.style.marginLeft = '10px';
+            deleteBtn.textContent = '×';
+            deleteBtn.addEventListener('click', (event) => {
+                deleteExercise(ex.id, event);
+            });
+
+            card.appendChild(info);
+            card.appendChild(deleteBtn);
+            container.appendChild(card);
+        });
     } catch (error) {
         console.error('Error loading exercises:', error);
-        container.innerHTML = '<p style="color: red;">Error loading exercises</p>';
+        const message = document.createElement('p');
+        message.style.color = 'red';
+        message.textContent = 'Error loading exercises';
+        container.replaceChildren(message);
     }
 }
 
