@@ -93,9 +93,6 @@ class MTModal extends HTMLElement {
     connectedCallback() {
         if (!this.hasAttribute('role')) this.setAttribute('role', 'dialog');
         if (!this.hasAttribute('aria-modal')) this.setAttribute('aria-modal', 'true');
-        if (!this.hasAttribute('aria-hidden')) {
-            this.setAttribute('aria-hidden', this.classList.contains('hidden') ? 'true' : 'false');
-        }
         if (this.classList.contains('hidden')) {
             this.setAttribute('inert', '');
         } else {
@@ -105,7 +102,6 @@ class MTModal extends HTMLElement {
 
     open() {
         this.classList.remove('hidden');
-        this.setAttribute('aria-hidden', 'false');
         this.removeAttribute('inert');
     }
 
@@ -115,7 +111,6 @@ class MTModal extends HTMLElement {
             activeElement.blur();
         }
         this.classList.add('hidden');
-        this.setAttribute('aria-hidden', 'true');
         this.setAttribute('inert', '');
     }
 }
