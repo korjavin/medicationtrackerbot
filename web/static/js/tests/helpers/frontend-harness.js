@@ -50,7 +50,7 @@ export function createMockResponse({ status = 200, json, text } = {}) {
   };
 }
 
-export function loadFrontendEnv({ withWorkout = false } = {}) {
+export function loadFrontendEnv({ withWorkout = false, telegramInitData = '' } = {}) {
   const html = fs.readFileSync(INDEX_HTML, 'utf8');
   const dom = new JSDOM(html, {
     url: 'https://example.test/',
@@ -80,7 +80,7 @@ export function loadFrontendEnv({ withWorkout = false } = {}) {
 
   window.Telegram = {
     WebApp: {
-      initData: '',
+      initData: telegramInitData,
       initDataUnsafe: {},
       ready() {},
       expand() {},
