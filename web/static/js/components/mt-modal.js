@@ -12,6 +12,7 @@ class MTModal extends HTMLElement {
     open() {
         this.classList.remove('hidden');
         this.removeAttribute('inert');
+        this._syncOverlay();
     }
 
     close() {
@@ -21,6 +22,21 @@ class MTModal extends HTMLElement {
         }
         this.classList.add('hidden');
         this.setAttribute('inert', '');
+        this._syncOverlay();
+    }
+
+    _syncOverlay() {
+        const overlay = document.getElementById('modal-overlay');
+        if (!overlay) return;
+        // Show overlay if any mt-modal is visible; hide if none are.
+        const anyVisible = Array.from(document.querySelectorAll('mt-modal')).some(
+            m => !m.classList.contains('hidden')
+        );
+        if (anyVisible) {
+            overlay.classList.remove('hidden');
+        } else {
+            overlay.classList.add('hidden');
+        }
     }
 }
 window.MTModal = MTModal;

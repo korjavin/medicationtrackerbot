@@ -88,13 +88,13 @@ Done when:
 
 ## Stage D: Modal simplification around `mt-modal`
 Tasks:
-- Move overlay/escape/backdrop behavior into `mt-modal` (or a tiny `ModalStack` helper next to it).
-- Reduce `ModalManager` to generic open/close + close-top-most policy.
-- Remove one-off wrappers that only proxy by id.
+- [x] Push backdrop/close logic into `mt-modal` (auto-toggle `#modal-overlay`).
+- [x] Consolidate `ModalManager` to generic `open`/`close` + close-topmost policy.
+- [x] Remove `overlay.onclick` duplication from `workout.js`.
 
 Done when:
-- modal lifecycle comes mostly from component contract, not ad-hoc code;
-- modal tests cover close order, overlay click, back/popstate interaction.
+- [x] modal-overlay visibility is managed by components;
+- [x] clicking backdrop calls `closeTopMostVisibleModal` globally. tests cover close order, overlay click, back/popstate interaction.
 
 ## Stage E: Visual shell reuse via `mt-card`
 Tasks:
