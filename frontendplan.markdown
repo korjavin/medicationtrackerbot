@@ -222,16 +222,67 @@
 9. Offline-путь GET/POST через `apiCall` (ошибка сети/мок).
 10. Data refresh trigger при `requestTabRefresh`.
 
-## 8. Что делаем сразу после этого документа
-Следующая сессия: **Этап 6 (оставшиеся hotspot-рендеры)**.
-План на ближайший шаг:
-1. Продолжить перевод `workout.js` hotspot-функций со string-template на DOM APIs малыми атомарными коммитами.
-2. Для каждого hotspot-коммита: прогон целевых тестов + полный `pnpm test`.
-3. Начать поэтапное удаление inline handlers из `index.html` в затронутых секциях.
+## 8. Что делаем дальше (актуальный фокус)
+Следующая цель: **закрыть Этап 6 в `app.js` и подготовить Этап 7**.
 
----
+Приоритетный бэклог:
+1. Закрыть remaining renderer hotspots в `app.js`:
+   - `renderHealthOverviewContent` (строковый рендер через `innerHTML +=`);
+   - `renderWeeklyHub` (крупный string renderer);
+   - empty/error placeholders в BP/Weight/Food/Health.
+2. Довести модальные a11y-семантики:
+   - убрать предупреждения про `aria-hidden` на сфокусированном элементе;
+   - сохранить корректное поведение `BackButton`/`popstate`.
+3. Зафиксировать PWA update semantics тестами:
+   - быстрый локальный старт (cached app shell);
+   - фоновое обновление shell;
+   - отображение нового релиза (hash в Settings).
+4. После закрытия пунктов выше перейти к Этапу 7:
+   - обновление `docs/frontend-architecture.md`;
+   - cleanup временных адаптеров и устаревших helper-веток.
 
-## Примечание для следующего агента
-- Тестовый baseline уже есть; не ломать его и не пропускать полный regression run перед push.
-- Все изменения делать малыми PR-кусочками, проверяя regression-набор после каждого шага.
-- Приоритет на сохранение поведения, а не на «идеальную» архитектуру за один проход.
+Критерий готовности Этапа 6:
+- `workout.js` остается без `innerHTML`;
+- `app.js` существенно снижен по рискованным string-render участкам (целевой ориентир: `innerHTML` <= 15);
+- regression suite стабильно зеленый (`pnpm test`);
+- ручной smoke в Telegram WebApp без новых предупреждений по модалкам.
+
+## 9. План параллельной работы (несколько агентов/веток)
+Ниже разбивка на независимые треки с минимальным пересечением.
+
+| Трек | Ветка | Разрешенные файлы | Зона кода | Результат |
+|---|---|---|---|---|
+| A: Health renderer | `codex/frontend-track-a-health-dom` | `web/static/js/app.js`, `web/static/js/tests/app.visual-and-scanner.test.js` | `app.js` ~5855-5920 | DOM-рендер для health overview без `innerHTML +=` |
+| B: Weekly hub renderer | `codex/frontend-track-b-weekly-hub-dom` | `web/static/js/app.js`, `web/static/js/tests/app.medication-history.test.js` (или новый тест-файл) | `app.js` ~3853-3969 | DOM/fragment-рендер weekly hub без string-template |
+| C: Error/empty states | `codex/frontend-track-c-empty-error-ui` | `web/static/js/app.js`, профильные тесты `app.bp-weight-*`, `app.food-*`, `app.visual-*` | `app.js` ~2381-2409, ~4053-4134, ~5244-5296, ~5918-5920 | единообразные DOM-сообщения для loading/error/empty |
+| D: Form reset/select cleanup | `codex/frontend-track-d-form-reset-dom` | `web/static/js/app.js`, `web/static/js/tests/app.med-modal-*`, `web/static/js/tests/app.food-products.test.js` | `app.js` ~1901-1970, ~2921-3010, ~3596-3615, ~4690-4692, ~5517 | убрать остаточные `innerHTML` в reset/build-ветках |
+| E: Modal a11y focus | `codex/frontend-track-e-modal-a11y` | `web/static/js/app.js`, `web/static/js/tests/app.unit.test.js`, `web/static/js/tests/app.modal-history.test.js` | `app.js` ~92-125 + modal close path | убрать warning `aria-hidden` + сохранить modal history contract |
+| F: PWA update tests | `codex/frontend-track-f-pwa-regression` | `web/static/index.html`, `web/static/sw.js`, тесты (новый/существующий) | SW install/fetch + registration update-check | тестово закрепить cached-first shell + background refresh |
+
+### 9.1 Правила, чтобы не мешать друг другу
+1. Один трек = одна ветка = один фокус изменений.
+2. Не делать массовый рефакторинг/переформатирование `app.js`.
+3. Не трогать чужие диапазоны строк, даже если «рядом можно улучшить».
+4. Каждый PR должен быть атомарным и revert-friendly (1-3 коммита, каждый со своей проверяемой целью).
+5. Перед push обязателен полный `pnpm test`.
+
+### 9.2 Минимальный DoD для каждого трека
+1. Целевой сценарий покрыт тестом (новым или расширенным существующим).
+2. Полный regression run зеленый.
+3. Нет изменений вне оговоренного scope (кроме точечных технически необходимых связок).
+4. В описании PR есть:
+   - что изменено;
+   - как проверялось;
+   - какие риски остаются.
+
+### 9.3 Рекомендуемый порядок интеграции в `master`
+1. Трек E (modal a11y) — снимает пользовательские предупреждения и риск регрессий UX.
+2. Трек F (PWA regression) — фиксирует поведение деплоя и кэша.
+3. Треки A и B (крупные renderer hotspots).
+4. Трек C (унификация empty/error states).
+5. Трек D (остаточная очистка form/reset/select).
+
+## 10. Примечание для следующего агента
+- Базовый контур уже стабилен: ломать SWR/offline/Telegram-contract нельзя.
+- Главная цель сейчас не «меньше строк», а **меньше рискованных точек и лучше изоляция ответственности**.
+- Если затрагивается `app.js`, изменения должны быть локальными, без «переезда всего файла».
