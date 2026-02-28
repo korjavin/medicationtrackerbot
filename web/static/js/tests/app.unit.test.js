@@ -146,6 +146,11 @@ describe('app.js unit tests', () => {
       window.ModalManager.food.close();
       expect(foodModal.classList.contains('hidden')).toBe(true);
       expect(scannerModal.classList.contains('hidden')).toBe(true);
+
+      window.ModalManager.foodProduct.open();
+      expect(document.getElementById('food-product-modal').classList.contains('hidden')).toBe(false);
+      window.ModalManager.foodProduct.close();
+      expect(document.getElementById('food-product-modal').classList.contains('hidden')).toBe(true);
     } finally {
       if (pauseSpy) pauseSpy.mockRestore();
       cleanup();
@@ -161,6 +166,19 @@ describe('app.js unit tests', () => {
       expect(ids).toContain('weight-modal');
       expect(ids).toContain('food-modal');
       expect(ids).toContain('med-modal');
+      defs.forEach((item) => expect(typeof item.fn).toBe('function'));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('provides sub-modal registry from modal manager', () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      const defs = window.ModalManager.getSubModalDefs();
+      const ids = defs.map((item) => item.id);
+      expect(ids).toContain('food-product-modal');
+      expect(ids).toContain('food-scanner-modal');
       defs.forEach((item) => expect(typeof item.fn).toBe('function'));
     } finally {
       cleanup();

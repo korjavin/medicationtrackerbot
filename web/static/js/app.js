@@ -130,6 +130,17 @@ const ModalManager = {
         }
     },
 
+    foodProduct: {
+        open() {
+            const modal = document.getElementById('food-product-modal');
+            if (modal) modal.classList.remove('hidden');
+        },
+        close() {
+            const modal = document.getElementById('food-product-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+    },
+
     getTopModalDefs() {
         return [
             { id: 'med-modal', fn: () => closeModal() },
@@ -142,6 +153,14 @@ const ModalManager = {
             { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' && closeExerciseModal() },
             { id: 'workout-session-modal', fn: () => typeof closeWorkoutSessionModal === 'function' && closeWorkoutSessionModal() },
             { id: 'workout-start-modal', fn: () => closeWorkoutStartModal() },
+        ];
+    },
+
+    getSubModalDefs() {
+        return [
+            { id: 'workout-add-exercise-to-session-modal', fn: () => typeof closeAddExerciseToSessionModal === 'function' && closeAddExerciseToSessionModal() },
+            { id: 'food-scanner-modal', fn: () => closeFoodScannerModal() },
+            { id: 'food-product-modal', fn: () => ModalManager.foodProduct.close() },
         ];
     }
 };
@@ -1591,11 +1610,11 @@ function showEditFoodProductModal(product) {
     document.getElementById('food-product-protein').value = product.protein_100g || '';
     document.getElementById('food-product-fat').value = product.fat_100g || '';
     document.getElementById('food-product-calories').value = product.energy_kcal_100g || '';
-    document.getElementById('food-product-modal').classList.remove('hidden');
+    window.ModalManager.foodProduct.open();
 }
 
 function closeFoodProductModal() {
-    document.getElementById('food-product-modal').classList.add('hidden');
+    window.ModalManager.foodProduct.close();
 }
 
 async function saveFoodProduct() {
@@ -5046,10 +5065,7 @@ async function sendTestMedicationNotification() {
     let poppingFromHistory = false;
 
     // Sub-modals: closing them leaves the overlay visible (parent modal stays open)
-    const subModalDefs = [
-        { id: 'workout-add-exercise-to-session-modal', fn: () => typeof closeAddExerciseToSessionModal === 'function' && closeAddExerciseToSessionModal() },
-        { id: 'food-scanner-modal', fn: () => closeFoodScannerModal() },
-    ];
+    const subModalDefs = window.ModalManager.getSubModalDefs();
     // Top-level modals: closing them also hides the overlay
     const topModalDefs = window.ModalManager.getTopModalDefs();
 
