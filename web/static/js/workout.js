@@ -58,7 +58,7 @@ async function loadNextWorkout() {
         },
         onError: async (error, cached) => {
             console.error('Error loading next workout:', error);
-            if (!cached) container.innerHTML = '';
+            if (!cached) container.replaceChildren();
         },
         allowNullFresh: true
     });
@@ -335,6 +335,16 @@ function _renderWorkoutGroups(container, groups) {
     });
 }
 
+function setFlatExercisesPendingSaveMessage() {
+    const container = document.getElementById('workout-group-flat-exercises-list');
+    if (!container) return;
+    const message = document.createElement('p');
+    message.style.color = 'var(--hint-color)';
+    message.style.fontSize = '0.9em';
+    message.textContent = 'Save this group first to add exercises.';
+    container.replaceChildren(message);
+}
+
 // ====================================
 // WORKOUT GROUP MODAL
 // ====================================
@@ -360,7 +370,7 @@ function showAddWorkoutGroupModal() {
     // Show/hide sections based on default "Rotating" state (unchecked)
     document.getElementById('workout-variants-section').style.display = 'none';
     document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
-    document.getElementById('workout-group-flat-exercises-list').innerHTML = '<p style="color: var(--hint-color); font-size: 0.9em;">Save this group first to add exercises.</p>';
+    setFlatExercisesPendingSaveMessage();
 }
 
 async function showEditWorkoutGroupModal(groupId) {
@@ -456,7 +466,7 @@ async function toggleRotatingFields() {
             await loadExercisesForVariant(defaultVariantId, 'workout-group-flat-exercises-list');
         } else {
             // New group, just show message
-            document.getElementById('workout-group-flat-exercises-list').innerHTML = '<p style="color: var(--hint-color); font-size: 0.9em;">Save this group first to add exercises.</p>';
+            setFlatExercisesPendingSaveMessage();
         }
     }
 }
@@ -849,7 +859,7 @@ async function showAddExerciseModal() {
         document.body.appendChild(datalist);
         document.getElementById('workout-exercise-name').setAttribute('list', 'exercise-library-datalist');
     }
-    datalist.innerHTML = '';
+    datalist.replaceChildren();
 
     try {
         const items = await apiCall('/api/workout/exercise-library');
@@ -981,7 +991,12 @@ async function loadExerciseLibrary() {
         },
         onError: async (error, cached) => {
             console.error('Error loading exercise library:', error);
-            if (!cached) container.innerHTML = '<p style="color: red;">Error loading exercise library</p>';
+            if (!cached) {
+                const message = document.createElement('p');
+                message.style.color = 'red';
+                message.textContent = 'Error loading exercise library';
+                container.replaceChildren(message);
+            }
         }
     });
 }
@@ -1660,7 +1675,12 @@ async function loadWorkoutStatsTab() {
         },
         onError: async (error, cached) => {
             console.error('Error loading stats:', error);
-            if (!cached) container.innerHTML = '<p style="color: red;">Error loading statistics</p>';
+            if (!cached) {
+                const message = document.createElement('p');
+                message.style.color = 'red';
+                message.textContent = 'Error loading statistics';
+                container.replaceChildren(message);
+            }
         }
     });
 }
@@ -2002,7 +2022,7 @@ async function showAddExerciseToSessionModal() {
 
     // Load unique exercises
     const datalist = document.getElementById('unique-exercises-list');
-    datalist.innerHTML = '';
+    datalist.replaceChildren();
 
     try {
         const exercises = await apiCall('/api/workout/exercise-library');
