@@ -100,9 +100,11 @@ describe('workout.js guard and error branches', () => {
     try {
       const variantModal = document.getElementById('workout-variant-modal');
       const exerciseModal = document.getElementById('workout-exercise-modal');
+      window.safeAlert = vi.fn();
 
       window.showAddVariantModal();
       expect(variantModal.classList.contains('hidden')).toBe(true);
+      expect(window.safeAlert).toHaveBeenCalledWith('Save this workout group first to add variants.');
 
       window._renderWorkoutGroups(document.getElementById('workout-groups-list'), [{
         id: 2,
