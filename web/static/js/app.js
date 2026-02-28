@@ -4936,44 +4936,57 @@ function renderWeightStats(stats) {
     const statsContainer = document.getElementById('weight-stats');
     if (!statsContainer) return;
 
-    let html = '<div class="weight-stats-container">';
+    const root = document.createElement('div');
+    root.className = 'weight-stats-container';
 
-    // Left column
-    html += '<div class="weight-stats-column">';
-    html += `<div class="weight-stat-item"><span class="weight-stat-label">Trend:</span> <span class="weight-stat-value">${escapeHtml(stats.trendWeight.toFixed(1))} kg</span></div>`;
+    const leftColumn = document.createElement('div');
+    leftColumn.className = 'weight-stats-column';
+    const rightColumn = document.createElement('div');
+    rightColumn.className = 'weight-stats-column';
+
+    const appendStatItem = (column, label, value) => {
+        const item = document.createElement('div');
+        item.className = 'weight-stat-item';
+        const labelEl = document.createElement('span');
+        labelEl.className = 'weight-stat-label';
+        labelEl.textContent = `${label}:`;
+        const valueEl = document.createElement('span');
+        valueEl.className = 'weight-stat-value';
+        valueEl.textContent = value;
+        item.appendChild(labelEl);
+        item.appendChild(document.createTextNode(' '));
+        item.appendChild(valueEl);
+        column.appendChild(item);
+    };
+
+    appendStatItem(leftColumn, 'Trend', `${stats.trendWeight.toFixed(1)} kg`);
 
     if (stats.weeklyRate !== undefined) {
         const rateStr = stats.weeklyRate >= 0
             ? `+${stats.weeklyRate.toFixed(1)} kg/week`
             : `${stats.weeklyRate.toFixed(1)} kg/week`;
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Rate:</span> <span class="weight-stat-value">${escapeHtml(rateStr)}</span></div>`;
+        appendStatItem(leftColumn, 'Rate', rateStr);
     }
 
     if (stats.forecastDate) {
         const dateStr = stats.forecastDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Forecast:</span> <span class="weight-stat-value">${escapeHtml(dateStr)}</span></div>`;
+        appendStatItem(leftColumn, 'Forecast', dateStr);
     } else {
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Forecast:</span> <span class="weight-stat-value">Unknown</span></div>`;
+        appendStatItem(leftColumn, 'Forecast', 'Unknown');
     }
 
-    html += '</div>';
-
-    // Right column
-    html += '<div class="weight-stats-column">';
-
     if (stats.goalWeight !== undefined) {
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Goal:</span> <span class="weight-stat-value">${escapeHtml(stats.goalWeight.toFixed(1))} kg</span></div>`;
+        appendStatItem(rightColumn, 'Goal', `${stats.goalWeight.toFixed(1)} kg`);
 
         const deltaStr = stats.deltaFromGoal >= 0
             ? `+${stats.deltaFromGoal.toFixed(1)} kg`
             : `${stats.deltaFromGoal.toFixed(1)} kg`;
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Δ from goal:</span> <span class="weight-stat-value">${escapeHtml(deltaStr)}</span></div>`;
+        appendStatItem(rightColumn, 'Δ from goal', deltaStr);
     }
 
-    html += '</div>';
-    html += '</div>';
-
-    statsContainer.innerHTML = html;
+    root.appendChild(leftColumn);
+    root.appendChild(rightColumn);
+    statsContainer.replaceChildren(root);
 }
 
 
