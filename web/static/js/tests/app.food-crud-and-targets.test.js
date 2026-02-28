@@ -123,6 +123,38 @@ describe('app.js food CRUD, targets and period helpers', () => {
     }
   });
 
+  it('renderFoodTargetProgress renders rows, excess styling and empty-target state', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      window.DataStore.getCached = vi.fn().mockResolvedValue(null);
+      window.DataStore.setCached = vi.fn().mockResolvedValue(undefined);
+      window.apiCall = vi.fn().mockResolvedValue({ calories: 100, carbs: 20, protein: 10, fat: 5 });
+
+      await window.loadFoodTargets();
+
+      const container = document.getElementById('food-target-progress');
+      window.renderFoodTargetProgress(150, 15, 10, 5, 'day');
+      expect(container.classList.contains('hidden')).toBe(false);
+      expect(container.querySelectorAll('.food-target-row')).toHaveLength(4);
+      expect(container.textContent).toContain('Energy');
+      expect(container.textContent).toContain('150 / 100 kcal');
+      expect(container.querySelector('.food-target-values.excess-text')).toBeTruthy();
+      expect(container.querySelector('.food-target-fill.excess')).toBeTruthy();
+
+      window.renderFoodTargetProgress(700, 140, 70, 35, 'week');
+      expect(container.textContent).toContain('700 / 700 kcal');
+
+      window.apiCall = vi.fn().mockResolvedValue({ calories: 0, carbs: 0, protein: 0, fat: 0 });
+      await window.loadFoodTargets();
+      window.renderFoodTargetProgress(10, 1, 1, 1, 'day');
+      expect(container.classList.contains('hidden')).toBe(true);
+      expect(container.children).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('deleteFoodLog, setFoodStatsPeriod and shiftFoodDate handle confirm, errors and period stepping', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 

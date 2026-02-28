@@ -2342,12 +2342,13 @@ function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = '
     const activeTargets = targets.filter(t => (foodTargets[t.key] || 0) > 0);
     if (activeTargets.length === 0) {
         container.classList.add('hidden');
-        container.innerHTML = '';
+        container.replaceChildren();
         return;
     }
 
     container.classList.remove('hidden');
-    container.innerHTML = activeTargets.map(t => {
+    container.replaceChildren();
+    activeTargets.forEach((t) => {
         let targetValue = foodTargets[t.key];
         if (period === 'week') {
             targetValue = targetValue * 7;
@@ -2362,16 +2363,35 @@ function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = '
         const excessClass = isExcess ? ' excess' : '';
         const bgColor = isExcess ? 'var(--danger-color, #ef4444)' : t.color; // Red if excess
 
-        return `<div class="food-target-row${excessClass}">
-            <div class="food-target-topline">
-                <span class="food-target-name">${t.label}</span>
-                <span class="food-target-values${isExcess ? ' excess-text' : ''}">${t.value} / ${targetValue} ${t.unit}</span>
-            </div>
-            <div class="food-target-bar${excessClass}">
-                <div class="food-target-fill${excessClass}" style="width:${displayProgress}%; background:${bgColor};"></div>
-            </div>
-        </div>`;
-    }).join('');
+        const row = document.createElement('div');
+        row.className = `food-target-row${excessClass}`;
+
+        const topline = document.createElement('div');
+        topline.className = 'food-target-topline';
+
+        const name = document.createElement('span');
+        name.className = 'food-target-name';
+        name.textContent = t.label;
+
+        const values = document.createElement('span');
+        values.className = `food-target-values${isExcess ? ' excess-text' : ''}`;
+        values.textContent = `${t.value} / ${targetValue} ${t.unit}`;
+
+        topline.appendChild(name);
+        topline.appendChild(values);
+
+        const bar = document.createElement('div');
+        bar.className = `food-target-bar${excessClass}`;
+        const fill = document.createElement('div');
+        fill.className = `food-target-fill${excessClass}`;
+        fill.style.width = `${displayProgress}%`;
+        fill.style.background = bgColor;
+        bar.appendChild(fill);
+
+        row.appendChild(topline);
+        row.appendChild(bar);
+        container.appendChild(row);
+    });
 }
 
 async function loadFoodTargets() {
