@@ -75,6 +75,7 @@ describe('app.js unit tests', () => {
 
       const foodProductModal = document.getElementById('food-product-modal');
       const foodModal = document.getElementById('food-modal');
+      const foodScannerModal = document.getElementById('food-scanner-modal');
       const bpModal = document.getElementById('bp-modal');
       const weightModal = document.getElementById('weight-modal');
       const medModal = document.getElementById('med-modal');
@@ -86,6 +87,7 @@ describe('app.js unit tests', () => {
       const workoutSessionModal = document.getElementById('workout-session-modal');
       const addExerciseToSessionModal = document.getElementById('workout-add-exercise-to-session-modal');
       expect(foodModal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(foodScannerModal.tagName.toLowerCase()).toBe('mt-modal');
       expect(foodProductModal.tagName.toLowerCase()).toBe('mt-modal');
       expect(bpModal.tagName.toLowerCase()).toBe('mt-modal');
       expect(weightModal.tagName.toLowerCase()).toBe('mt-modal');
@@ -104,6 +106,13 @@ describe('app.js unit tests', () => {
       foodModal.close();
       expect(foodModal.classList.contains('hidden')).toBe(true);
       expect(foodModal.getAttribute('aria-hidden')).toBe('true');
+
+      foodScannerModal.open();
+      expect(foodScannerModal.classList.contains('hidden')).toBe(false);
+      expect(foodScannerModal.getAttribute('aria-hidden')).toBe('false');
+      foodScannerModal.close();
+      expect(foodScannerModal.classList.contains('hidden')).toBe(true);
+      expect(foodScannerModal.getAttribute('aria-hidden')).toBe('true');
 
       foodProductModal.open();
       expect(foodProductModal.classList.contains('hidden')).toBe(false);
