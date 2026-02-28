@@ -112,8 +112,14 @@ Done when:
 
 ## Stage F: Optional cleanup pass (if needed)
 Tasks:
-- Split `app.js` into feature files without changing behavior (`features/meds.js`, `features/bp.js`, etc.).
-- Keep one bootstrap entry that wires feature loaders to component events.
+- [x] Split `app.js` into feature files without changing behavior (`features/meds.js`, `features/bp.js`, etc.).
+- [x] Keep one bootstrap entry that wires feature loaders to component events.
+- [x] Create `web/static/js/features/` directory for feature modules.
+- [x] Extract `ModalManager` and tab switching logic to `ui-manager.js`.
+- [x] Extract core utility functions to `core-utils.js`.
+- [x] Extract `apiCall` and related logic to `api.js`.
+- [x] Extract feature-specific logic (meds, workouts, BP, weight, food) into separate files.
+- [x] Truncate `app.js` to only include initialization and global state.
 
 Done when:
 - clearer file boundaries;
@@ -128,6 +134,9 @@ Target after Stage E:
 - tab/day selector duplication removed entirely.
 - modal wrappers reduced to a small generic API.
 - all current frontend tests green.
+
+Target after Stage F:
+- `app.js` should be < 1000 lines (actual: ~135 lines).
 
 ## 6) Risks and Guardrails
 
