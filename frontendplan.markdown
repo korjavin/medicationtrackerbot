@@ -10,35 +10,36 @@
 ## 2. Текущее состояние (актуализировано: 2026-02-28)
 
 ### 2.1 Ключевые файлы
-- `web/static/index.html` (922 строки) — основной UI-скелет; много inline-обработчиков еще в разметке.
-- `web/static/js/app.js` (6219 строк) — основной модуль приложения (auth/API/state/рендер/charts/gestures).
-- `web/static/js/workout.js` (1636 строк) — workout UI/CRUD/history/stats; главный текущий hotspot по string-template рендеру.
+- `web/static/index.html` (919 строк) — основной UI-скелет; inline-обработчики удалены, управление событиями вынесено в JS.
+- `web/static/js/app.js` (6406 строк) — основной модуль приложения (auth/API/state/рендер/charts/gestures); текущий главный hotspot по объему и смешанной ответственности.
+- `web/static/js/workout.js` (2199 строк) — workout UI/CRUD/history/stats; string-template hotspot закрыт, рендер и биндинги переведены на DOM/event listeners.
 - `web/static/js/data-store.js` — основной SWR/кэш/changes-поллинг+stream.
 - `web/static/js/db.js`, `sync.js`, `push.js` — offline/storage/sync/push.
 - `web/static/css/styles.css` (1792 строки) — общий стиль.
 
 ### 2.2 Быстрые метрики техдолга
-- Inline DOM handlers в `index.html` (`onclick`, `onchange`, `onsubmit`, `oninput`, `onfocus`, `onmouseover`, `onmouseout`): `83`.
+- Inline DOM handlers в `index.html` (`onclick`, `onchange`, `onsubmit`, `oninput`, `onfocus`, `onmouseover`, `onmouseout`): `0`.
 - Присваивания `innerHTML`:
   - `app.js`: `31`
-  - `workout.js`: `29`
+  - `workout.js`: `0`
 - Inline `onclick` в JS template-строках:
   - `app.js`: `0`
-  - `workout.js`: `19`
-- Тестовый контур: `40` test files, `188` test cases (Vitest/JSDOM).
+  - `workout.js`: `0`
+- Тестовый контур: `35` test files, `193` test cases (Vitest/JSDOM).
 
 ### 2.3 Основные проблемы
-1. `workout.js` остается крупным string-template hotspot:
-   - много `innerHTML` и inline `onclick` в строковых шаблонах;
-   - сложнее тестировать и безопасно менять.
-2. `index.html` все еще сильно завязан на глобальные inline handlers:
-   - сильная связанность HTML ↔ глобальный namespace.
-3. Монолитность `app.js` и `workout.js`:
+1. Монолитность `app.js`:
+   - в одном файле смешаны transport/state/render/event wiring;
+   - feature-границы остаются размытыми.
+2. `app.js` сохраняет значимый остаточный renderer-hotspot:
+   - `innerHTML` остается в критичных ветках food/health/meds;
+   - есть потенциал для дальнейшей декомпозиции на DOM helpers.
+3. Монолитность `workout.js`:
    - смешаны transport/state/render/event wiring;
-   - декомпозиция на feature-модули еще не завершена.
-4. Stage 6 частично завершен:
-   - большая часть критичных рендеров в `app.js` уже переведена на DOM APIs;
-   - перенос в `workout.js` еще в процессе.
+   - основные hotspot-рендеры закрыты, но файл остается крупным.
+4. Stage 6 близок к завершению:
+   - workout hotspot и inline handlers в `index.html` закрыты;
+   - остается точечная зачистка renderer-участков в `app.js`.
 
 ### 2.4 Что уже работает хорошо и важно не сломать
 - Telegram WebApp интеграция (initData, BackButton, alerts/confirms).
@@ -53,7 +54,7 @@
 - Этап 3: `completed` (единый ModalManager + общий modal-history контракт).
 - Этап 4: `completed` (shared tab-controller + bind для main/med/workout tabs).
 - Этап 5: `completed` (`mt-modal` и `mt-setting-toggle` интегрированы в production-разметку).
-- Этап 6: `in_progress` (значимый прогресс в `app.js`; фокус смещен на `workout.js` и inline handlers в `index.html`).
+- Этап 6: `in_progress` (workout hotspot и inline handlers в `index.html` закрыты; фокус смещен на остаточные `app.js` renderer-hotspots).
 - Этап 7: `pending`.
 
 ## 3. Ограничения и принципы миграции
