@@ -1667,7 +1667,11 @@ async function loadWorkoutStatsTab() {
 
 function _renderWorkoutStats(container, stats) {
     if (!stats) {
-        container.innerHTML = '<p style="text-align: center; color: var(--hint-color);">No statistics available yet</p>';
+        const empty = document.createElement('p');
+        empty.style.textAlign = 'center';
+        empty.style.color = 'var(--hint-color)';
+        empty.textContent = 'No statistics available yet';
+        container.replaceChildren(empty);
         return;
     }
 
@@ -1677,36 +1681,164 @@ function _renderWorkoutStats(container, stats) {
         return `${Math.round(kg).toLocaleString()} kg`;
     };
 
-    // Top exercises section
-    let topExercisesHtml = '';
+    const root = document.createElement('div');
+
+    const topGrid = document.createElement('div');
+    topGrid.style.display = 'grid';
+    topGrid.style.gridTemplateColumns = 'repeat(3, 1fr)';
+    topGrid.style.gap = '10px';
+    topGrid.style.marginBottom = '12px';
+
+    const buildHeroCard = (background, valueText, labelText) => {
+        const card = document.createElement('div');
+        card.style.background = background;
+        card.style.color = 'white';
+        card.style.padding = '18px 8px';
+        card.style.borderRadius = '12px';
+        card.style.textAlign = 'center';
+
+        const value = document.createElement('div');
+        value.style.fontSize = '2.4em';
+        value.style.fontWeight = 'bold';
+        value.style.lineHeight = '1.1';
+        value.textContent = valueText;
+
+        const label = document.createElement('div');
+        label.style.fontSize = '0.78em';
+        label.style.opacity = '0.92';
+        label.style.marginTop = '5px';
+        label.textContent = labelText;
+
+        card.appendChild(value);
+        card.appendChild(label);
+        return card;
+    };
+
+    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #667eea 0%, #764ba2 100%)', String(stats.current_streak), '🔥 Streak'));
+    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', String(stats.longest_streak), '🏆 Best'));
+    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', `${Math.round(stats.completion_rate)}%`, '💪 30-Day'));
+    root.appendChild(topGrid);
+
+    const totalsGrid = document.createElement('div');
+    totalsGrid.style.display = 'grid';
+    totalsGrid.style.gridTemplateColumns = 'repeat(3, 1fr)';
+    totalsGrid.style.gap = '10px';
+
+    const buildTotalsCard = (background, borderColor, valueColor, valueText, labelText) => {
+        const card = document.createElement('div');
+        card.style.background = background;
+        card.style.padding = '14px 8px';
+        card.style.borderRadius = '8px';
+        card.style.textAlign = 'center';
+        card.style.border = `1.5px solid ${borderColor}`;
+
+        const value = document.createElement('div');
+        value.style.fontSize = '1.7em';
+        value.style.fontWeight = 'bold';
+        value.style.color = valueColor;
+        value.textContent = valueText;
+
+        const label = document.createElement('div');
+        label.style.fontSize = '0.78em';
+        label.style.color = 'var(--hint-color)';
+        label.style.marginTop = '2px';
+        label.textContent = labelText;
+
+        card.appendChild(value);
+        card.appendChild(label);
+        return card;
+    };
+
+    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #f0fff4)', '#28a745', '#28a745', String(stats.completed_sessions), 'Done'));
+    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #fffbf0)', '#ffc107', '#ffc107', String(stats.skipped_sessions), 'Skipped'));
+    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #f5f0ff)', '#764ba2', '#764ba2', formatVolume(stats.total_volume_kg), 'Lifted'));
+    root.appendChild(totalsGrid);
+
     if (stats.top_exercises && stats.top_exercises.length > 0) {
         const maxVol = stats.top_exercises[0].total_volume_kg || 1;
         const medals = ['🥇', '🥈', '🥉'];
-        topExercisesHtml = `
-                <div style="margin-top: 20px;">
-                    <div style="font-size: 0.75em; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--hint-color); margin-bottom: 10px;">Top Exercises · Volume</div>
-                    ${stats.top_exercises.map((ex, i) => {
+        const section = document.createElement('div');
+        section.style.marginTop = '20px';
+
+        const heading = document.createElement('div');
+        heading.style.fontSize = '0.75em';
+        heading.style.fontWeight = '600';
+        heading.style.textTransform = 'uppercase';
+        heading.style.letterSpacing = '1px';
+        heading.style.color = 'var(--hint-color)';
+        heading.style.marginBottom = '10px';
+        heading.textContent = 'Top Exercises · Volume';
+        section.appendChild(heading);
+
+        stats.top_exercises.forEach((ex, i) => {
             const pct = maxVol > 0 ? (ex.total_volume_kg / maxVol * 100).toFixed(1) : 0;
             const medal = medals[i] || `${i + 1}.`;
             const maxW = ex.max_weight_kg > 0 ? `${ex.max_weight_kg} kg max` : '';
-            return `
-                            <div style="margin-bottom: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
-                                    <span style="font-size: 0.9em; font-weight: 500;">${medal} ${ex.exercise_name}</span>
-                                    <span style="font-size: 0.8em; color: var(--hint-color);">${formatVolume(ex.total_volume_kg)}${maxW ? ' · ' + maxW : ''}</span>
-                                </div>
-                                <div style="background: var(--secondary-bg-color, rgba(0,0,0,0.07)); border-radius: 4px; height: 5px; overflow: hidden;">
-                                    <div style="background: linear-gradient(90deg, #667eea, #764ba2); width: ${pct}%; height: 100%; border-radius: 4px; transition: width 0.4s;"></div>
-                                </div>
-                            </div>`;
-        }).join('')}
-                </div>`;
+
+            const row = document.createElement('div');
+            row.style.marginBottom = '10px';
+
+            const labels = document.createElement('div');
+            labels.style.display = 'flex';
+            labels.style.justifyContent = 'space-between';
+            labels.style.alignItems = 'baseline';
+            labels.style.marginBottom = '4px';
+
+            const name = document.createElement('span');
+            name.style.fontSize = '0.9em';
+            name.style.fontWeight = '500';
+            name.textContent = `${medal} ${ex.exercise_name}`;
+
+            const meta = document.createElement('span');
+            meta.style.fontSize = '0.8em';
+            meta.style.color = 'var(--hint-color)';
+            meta.textContent = `${formatVolume(ex.total_volume_kg)}${maxW ? ` · ${maxW}` : ''}`;
+
+            labels.appendChild(name);
+            labels.appendChild(meta);
+
+            const barTrack = document.createElement('div');
+            barTrack.style.background = 'var(--secondary-bg-color, rgba(0,0,0,0.07))';
+            barTrack.style.borderRadius = '4px';
+            barTrack.style.height = '5px';
+            barTrack.style.overflow = 'hidden';
+
+            const barFill = document.createElement('div');
+            barFill.style.background = 'linear-gradient(90deg, #667eea, #764ba2)';
+            barFill.style.width = `${pct}%`;
+            barFill.style.height = '100%';
+            barFill.style.borderRadius = '4px';
+            barFill.style.transition = 'width 0.4s';
+
+            barTrack.appendChild(barFill);
+            row.appendChild(labels);
+            row.appendChild(barTrack);
+            section.appendChild(row);
+        });
+
+        root.appendChild(section);
     }
 
-    // 12-week heatmap
-    let heatmapHtml = '';
     if (stats.weekly_activity && stats.weekly_activity.length > 0) {
-        const squares = stats.weekly_activity.map(w => {
+        const section = document.createElement('div');
+        section.style.marginTop = '20px';
+
+        const heading = document.createElement('div');
+        heading.style.fontSize = '0.75em';
+        heading.style.fontWeight = '600';
+        heading.style.textTransform = 'uppercase';
+        heading.style.letterSpacing = '1px';
+        heading.style.color = 'var(--hint-color)';
+        heading.style.marginBottom = '10px';
+        heading.textContent = '12-Week Activity';
+        section.appendChild(heading);
+
+        const squares = document.createElement('div');
+        squares.style.display = 'flex';
+        squares.style.flexWrap = 'wrap';
+        squares.style.gap = '4px';
+
+        stats.weekly_activity.forEach((w) => {
             const total = w.completed + w.skipped;
             let bg;
             if (total === 0) bg = 'var(--secondary-bg-color, #e8e8e8)';
@@ -1717,54 +1849,49 @@ function _renderWorkoutStats(container, stats) {
 
             const d = new Date(w.week + 'T00:00:00');
             const label = d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
-            return `<div title="${label}: ${w.completed} done, ${w.skipped} skipped"
-                             style="width: 26px; height: 26px; border-radius: 4px; background: ${bg}; flex-shrink: 0;"></div>`;
-        }).join('');
 
-        heatmapHtml = `
-                <div style="margin-top: 20px;">
-                    <div style="font-size: 0.75em; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--hint-color); margin-bottom: 10px;">12-Week Activity</div>
-                    <div style="display: flex; flex-wrap: wrap; gap: 4px;">${squares}</div>
-                    <div style="display: flex; gap: 12px; margin-top: 8px; font-size: 0.72em; color: var(--hint-color);">
-                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#28a745;vertical-align:middle;margin-right:3px;"></span>All done</span>
-                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#85c17e;vertical-align:middle;margin-right:3px;"></span>Partial</span>
-                        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#e05c5c;vertical-align:middle;margin-right:3px;"></span>Skipped</span>
-                    </div>
-                </div>`;
+            const square = document.createElement('div');
+            square.title = `${label}: ${w.completed} done, ${w.skipped} skipped`;
+            square.style.width = '26px';
+            square.style.height = '26px';
+            square.style.borderRadius = '4px';
+            square.style.background = bg;
+            square.style.flexShrink = '0';
+            squares.appendChild(square);
+        });
+
+        const legend = document.createElement('div');
+        legend.style.display = 'flex';
+        legend.style.gap = '12px';
+        legend.style.marginTop = '8px';
+        legend.style.fontSize = '0.72em';
+        legend.style.color = 'var(--hint-color)';
+
+        const createLegendItem = (color, text) => {
+            const item = document.createElement('span');
+            const swatch = document.createElement('span');
+            swatch.style.display = 'inline-block';
+            swatch.style.width = '10px';
+            swatch.style.height = '10px';
+            swatch.style.borderRadius = '2px';
+            swatch.style.background = color;
+            swatch.style.verticalAlign = 'middle';
+            swatch.style.marginRight = '3px';
+            item.appendChild(swatch);
+            item.appendChild(document.createTextNode(text));
+            return item;
+        };
+
+        legend.appendChild(createLegendItem('#28a745', 'All done'));
+        legend.appendChild(createLegendItem('#85c17e', 'Partial'));
+        legend.appendChild(createLegendItem('#e05c5c', 'Skipped'));
+
+        section.appendChild(squares);
+        section.appendChild(legend);
+        root.appendChild(section);
     }
 
-    container.innerHTML = `
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px;">
-                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 18px 8px; border-radius: 12px; text-align: center;">
-                    <div style="font-size: 2.4em; font-weight: bold; line-height: 1.1;">${stats.current_streak}</div>
-                    <div style="font-size: 0.78em; opacity: 0.92; margin-top: 5px;">🔥 Streak</div>
-                </div>
-                <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 18px 8px; border-radius: 12px; text-align: center;">
-                    <div style="font-size: 2.4em; font-weight: bold; line-height: 1.1;">${stats.longest_streak}</div>
-                    <div style="font-size: 0.78em; opacity: 0.92; margin-top: 5px;">🏆 Best</div>
-                </div>
-                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 18px 8px; border-radius: 12px; text-align: center;">
-                    <div style="font-size: 2.4em; font-weight: bold; line-height: 1.1;">${Math.round(stats.completion_rate)}%</div>
-                    <div style="font-size: 0.78em; opacity: 0.92; margin-top: 5px;">💪 30-Day</div>
-                </div>
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
-                <div style="background: var(--secondary-bg-color, #f0fff4); padding: 14px 8px; border-radius: 8px; text-align: center; border: 1.5px solid #28a745;">
-                    <div style="font-size: 1.7em; font-weight: bold; color: #28a745;">${stats.completed_sessions}</div>
-                    <div style="font-size: 0.78em; color: var(--hint-color); margin-top: 2px;">Done</div>
-                </div>
-                <div style="background: var(--secondary-bg-color, #fffbf0); padding: 14px 8px; border-radius: 8px; text-align: center; border: 1.5px solid #ffc107;">
-                    <div style="font-size: 1.7em; font-weight: bold; color: #ffc107;">${stats.skipped_sessions}</div>
-                    <div style="font-size: 0.78em; color: var(--hint-color); margin-top: 2px;">Skipped</div>
-                </div>
-                <div style="background: var(--secondary-bg-color, #f5f0ff); padding: 14px 8px; border-radius: 8px; text-align: center; border: 1.5px solid #764ba2;">
-                    <div style="font-size: 1.7em; font-weight: bold; color: #764ba2;">${formatVolume(stats.total_volume_kg)}</div>
-                    <div style="font-size: 0.78em; color: var(--hint-color); margin-top: 2px;">Lifted</div>
-                </div>
-            </div>
-            ${topExercisesHtml}
-            ${heatmapHtml}
-        `;
+    container.replaceChildren(root);
 }
 
 // ====================================
