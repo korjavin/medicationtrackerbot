@@ -60,8 +60,12 @@ describe('app.js weight ruler and workout start modal flows', () => {
       window.showWorkoutStartModal(55);
       expect(document.getElementById('workout-start-modal').classList.contains('hidden')).toBe(false);
 
-      window.startWorkoutFromModal();
+      document.getElementById('workout-start-now-btn').click();
       expect(window.switchTab).toHaveBeenCalledWith('workouts');
+      expect(document.getElementById('workout-start-modal').classList.contains('hidden')).toBe(true);
+
+      window.showWorkoutStartModal(55);
+      document.getElementById('workout-start-dismiss-btn').click();
       expect(document.getElementById('workout-start-modal').classList.contains('hidden')).toBe(true);
 
       window.showWorkoutStartModal(55);

@@ -1109,6 +1109,169 @@ bindTabGroup({
     onTabSelect: switchTab
 });
 
+let medicationControlsBound = false;
+
+function bindMedicationControls() {
+    if (medicationControlsBound) return;
+    medicationControlsBound = true;
+
+    const bindClick = (id, handler) => {
+        const element = document.getElementById(id);
+        if (element) element.addEventListener('click', handler);
+    };
+
+    const bindChange = (id, handler) => {
+        const element = document.getElementById(id);
+        if (element) element.addEventListener('change', handler);
+    };
+
+    bindChange('history-filter-med', () => loadHistory());
+    bindChange('history-filter-days', () => loadHistory());
+
+    bindClick('add-btn', () => showAddModal());
+    bindClick('med-modal-cancel-btn', () => closeModal());
+    bindClick('med-modal-save-btn', () => saveMedication());
+
+    bindChange('schedule-type', () => toggleScheduleFields());
+    document.querySelectorAll('#days-container .days-select span').forEach((day) => {
+        day.addEventListener('click', () => toggleDay(day));
+    });
+
+    bindClick('initial-remove-time-btn', () => {
+        const button = document.getElementById('initial-remove-time-btn');
+        if (button) removeTime(button);
+    });
+    bindClick('add-time-btn', () => addTimeInput());
+
+    bindChange('med-track-inventory', () => toggleInventoryFields());
+    bindClick('restock-add-btn', () => handleRestock());
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindMedicationControls, { once: true });
+}
+bindMedicationControls();
+
+let measurementControlsBound = false;
+
+function bindMeasurementControls() {
+    if (measurementControlsBound) return;
+    measurementControlsBound = true;
+
+    const bindClick = (id, handler) => {
+        const element = document.getElementById(id);
+        if (element) element.addEventListener('click', handler);
+    };
+
+    bindClick('add-bp-btn', () => showBPRecordModal());
+    bindClick('bp-modal-cancel-btn', () => closeBPRecordModal());
+    bindClick('add-weight-btn', () => showWeightModal());
+    bindClick('weight-modal-cancel-btn', () => closeWeightModal());
+
+    const bpForm = document.getElementById('bp-form');
+    if (bpForm) {
+        bpForm.addEventListener('submit', (event) => {
+            handleBPSubmit(event);
+        });
+    }
+
+    const weightForm = document.getElementById('weight-form');
+    if (weightForm) {
+        weightForm.addEventListener('submit', (event) => {
+            handleWeightSubmit(event);
+        });
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindMeasurementControls, { once: true });
+}
+bindMeasurementControls();
+
+let notificationControlsBound = false;
+
+function bindNotificationControls() {
+    if (notificationControlsBound) return;
+    notificationControlsBound = true;
+
+    const bindClick = (id, handler) => {
+        const element = document.getElementById(id);
+        if (element) element.addEventListener('click', handler);
+    };
+
+    bindClick('test-med-notification-btn', () => sendTestMedicationNotification());
+    bindClick('test-bp-notification-btn', () => sendTestBPNotification());
+
+    bindClick('med-confirm-dismiss-btn', () => closeMedicationConfirmModal());
+    bindClick('med-confirm-action-btn', () => confirmSelectedMedications());
+    bindClick('med-confirm-snooze-btn', () => snoozeMedicationConfirm());
+
+    bindClick('workout-start-now-btn', () => startWorkoutFromModal());
+    bindClick('workout-start-snooze-60-btn', () => snoozeWorkout(60));
+    bindClick('workout-start-snooze-120-btn', () => snoozeWorkout(120));
+    bindClick('workout-start-skip-btn', () => skipWorkoutFromModal());
+    bindClick('workout-start-dismiss-btn', () => closeWorkoutStartModal());
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindNotificationControls, { once: true });
+}
+bindNotificationControls();
+
+let foodControlsBound = false;
+
+function bindFoodControls() {
+    if (foodControlsBound) return;
+    foodControlsBound = true;
+
+    const bindClick = (id, handler) => {
+        const element = document.getElementById(id);
+        if (element) element.addEventListener('click', handler);
+    };
+    const bindChange = (id, handler) => {
+        const element = document.getElementById(id);
+        if (element) element.addEventListener('change', handler);
+    };
+    const bindInput = (id, handler) => {
+        const element = document.getElementById(id);
+        if (element) element.addEventListener('input', handler);
+    };
+    const bindFocus = (id, handler) => {
+        const element = document.getElementById(id);
+        if (element) element.addEventListener('focus', handler);
+    };
+
+    bindClick('food-period-day-link', () => window.setFoodStatsPeriod('day'));
+    bindClick('food-period-week-link', () => window.setFoodStatsPeriod('week'));
+    bindClick('add-food-btn', () => showAddFoodModal());
+    bindClick('food-date-prev-btn', () => shiftFoodDate(-1));
+    bindClick('food-date-next-btn', () => shiftFoodDate(1));
+    bindChange('food-date-filter', () => loadFoodLogs());
+
+    bindClick('food-modal-cancel-btn', () => closeFoodModal());
+    bindClick('food-modal-save-btn', () => saveFoodLog());
+    bindInput('food-weight', () => calculateFoodCalories());
+    bindInput('food-barcode', () => onFoodBarcodeChange());
+    bindClick('food-scan-btn', () => openFoodScannerModal());
+    bindInput('food-name', () => onFoodNameChange());
+    bindFocus('food-name', () => onFoodNameFocus());
+    bindInput('food-carbs', () => calculateFoodCalories());
+    bindInput('food-protein', () => calculateFoodCalories());
+    bindInput('food-fat', () => calculateFoodCalories());
+    bindChange('food-per-100g', () => onFoodPer100gChange());
+    bindFocus('food-calories', () => onFoodCaloriesFocus());
+
+    bindClick('food-scanner-use-photo-btn', () => openPhotoPickerAndDecode());
+    bindClick('food-scanner-close-btn', () => closeFoodScannerModal());
+    bindClick('food-product-cancel-btn', () => closeFoodProductModal());
+    bindClick('food-product-save-btn', () => saveFoodProduct());
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindFoodControls, { once: true });
+}
+bindFoodControls();
+
 // -- Food Intake Autocomplete & Logic --
 
 let foodAutoCompleteSuggestions = [];
