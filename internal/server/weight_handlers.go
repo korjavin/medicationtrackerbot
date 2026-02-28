@@ -58,10 +58,10 @@ func (s *Server) handleCreateWeight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cross-channel sync: if reminder is handled from web, clear Telegram notification.
+	// Cross-channel sync: if reminder is handled from web, clear notification.
 	if state, err := s.store.GetWeightReminderState(userID); err == nil && state != nil {
-		if state.NotificationMessageID != nil && s.bot != nil {
-			_ = s.bot.DeleteMessage(*state.NotificationMessageID)
+		if state.NotificationMessageID != nil {
+			s.deleteNotification(r.Context(), *state.NotificationMessageID)
 		}
 		_ = s.store.ClearWeightReminderNotificationMessage(userID)
 	}
@@ -287,10 +287,10 @@ func (s *Server) handleSnoozeWeightReminder(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Cross-channel sync: remove Telegram reminder message when snoozed from web/push.
+	// Cross-channel sync: remove notification when snoozed from web/push.
 	if state, err := s.store.GetWeightReminderState(userID); err == nil && state != nil {
-		if state.NotificationMessageID != nil && s.bot != nil {
-			_ = s.bot.DeleteMessage(*state.NotificationMessageID)
+		if state.NotificationMessageID != nil {
+			s.deleteNotification(r.Context(), *state.NotificationMessageID)
 		}
 		_ = s.store.ClearWeightReminderNotificationMessage(userID)
 	}
@@ -310,10 +310,10 @@ func (s *Server) handleDontBugMeWeightReminder(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Cross-channel sync: remove Telegram reminder message when disabled from web/push.
+	// Cross-channel sync: remove notification when disabled from web/push.
 	if state, err := s.store.GetWeightReminderState(userID); err == nil && state != nil {
-		if state.NotificationMessageID != nil && s.bot != nil {
-			_ = s.bot.DeleteMessage(*state.NotificationMessageID)
+		if state.NotificationMessageID != nil {
+			s.deleteNotification(r.Context(), *state.NotificationMessageID)
 		}
 		_ = s.store.ClearWeightReminderNotificationMessage(userID)
 	}

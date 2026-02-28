@@ -132,7 +132,7 @@ func main() {
 
 	srv := server.New(s, tgBot, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidConfig)
 
-	// Build notifiers slice
+	// Build notifiers slice (shared between server and scheduler)
 	var notifiers []notifier.Notifier
 	if tgBot != nil {
 		notifiers = append(notifiers, notifier.NewTelegram(tgBot))
@@ -140,6 +140,7 @@ func main() {
 	if wp := srv.GetWebPushService(); wp != nil {
 		notifiers = append(notifiers, notifier.NewWebPush(wp))
 	}
+	srv.SetNotifiers(notifiers)
 
 	// Always start scheduler (works with web push even without bot)
 	sch := scheduler.New(s, allowedUserID, notifiers)

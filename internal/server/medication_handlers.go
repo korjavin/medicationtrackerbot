@@ -1,14 +1,15 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -113,15 +114,11 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 		pending, err := s.store.GetPendingIntakesForMedication(id)
 		if err == nil {
 			for _, p := range pending {
-				// 1. Delete Telegram messages
+				// 1. Delete notification messages
 				msgIDs, err := s.store.GetIntakeReminders(p.ID)
 				if err == nil {
 					for _, msgID := range msgIDs {
-						if s.bot != nil {
-						if err := s.bot.DeleteMessage(msgID); err != nil {
-							log.Printf("[server] delete message failed: %v", err)
-						}
-					}
+						s.deleteNotification(r.Context(), msgID)
 					}
 				}
 				// 2. Delete the pending intake
@@ -251,14 +248,10 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 				if err := s.store.DecrementInventory(intake.MedicationID, 1); err != nil {
 					log.Printf("Error decrementing inventory: %v", err)
 				}
-				// Clear reminders?
+				// Clear reminders
 				reminders, _ := s.store.GetIntakeReminders(intake.ID)
 				for _, msgID := range reminders {
-					if s.bot != nil {
-						if err := s.bot.DeleteMessage(msgID); err != nil {
-						log.Printf("[server] delete message failed: %v", err)
-					}
-					}
+					s.deleteNotification(r.Context(), msgID)
 				}
 			}
 		}
@@ -375,14 +368,10 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 
 		// If intake exists and is pending, mark as taken
 		if intake != nil && intake.Status == "PENDING" {
-			// Delete Telegram reminder messages
+			// Delete notification messages
 			reminders, _ := s.store.GetIntakeReminders(intake.ID)
 			for _, msgID := range reminders {
-				if s.bot != nil {
-					if err := s.bot.DeleteMessage(msgID); err != nil {
-						log.Printf("[server] delete message failed: %v", err)
-					}
-				}
+				s.deleteNotification(r.Context(), msgID)
 			}
 
 			// Confirm the intake with current time
@@ -423,15 +412,36 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 		// If intake exists but is already taken, skip it
 	}
 
-	// Send confirmation notification (only web push for now, we'll add Telegram bot method next)
-	if s.webPush != nil && len(confirmedMeds) > 0 && len(confirmedIntakeIDs) > 0 {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if err := s.webPush.SendEarlyIntakeConfirmation(ctx, userID, confirmedMeds, nextTime, now, confirmedIntakeIDs); err != nil {
-				log.Printf("Failed to send early intake confirmation: %v", err)
+	// Send early intake confirmation notification via all channels
+	if len(s.notifiers) > 0 && len(confirmedMeds) > 0 && len(confirmedIntakeIDs) > 0 {
+		earlyMedNames := make([]string, len(confirmedMeds))
+		earlyMedIDs := make([]int64, len(confirmedMeds))
+		for i, m := range confirmedMeds {
+			name := m.Name
+			if m.Dosage != "" {
+				name += " " + m.Dosage
 			}
-		}()
+			earlyMedNames[i] = name
+			earlyMedIDs[i] = m.ID
+		}
+
+		n := notifier.Notification{
+			Text: fmt.Sprintf("**Medication taken early**\n%s (scheduled for %s)", strings.Join(earlyMedNames, ", "), nextTime.Format("15:04")),
+			Actions: []notifier.Action{
+				{ID: "cancel_intake", Label: "Cancel (Undo)"},
+			},
+			Tag: fmt.Sprintf("medication-early-%s", nextTime.Format(time.RFC3339)),
+			Metadata: map[string]interface{}{
+				"type":             "medication_early_confirmed",
+				"scheduled_at":     nextTime.Format(time.RFC3339),
+				"taken_at":         now.Format(time.RFC3339),
+				"medication_ids":   earlyMedIDs,
+				"medication_names": earlyMedNames,
+				"intake_ids":       confirmedIntakeIDs,
+			},
+		}
+
+		s.notify(r.Context(), n)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
