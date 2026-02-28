@@ -227,23 +227,25 @@ func (s *Scheduler) checkSchedule() error {
 		}
 
 		// Send Telegram Notification
-		go func(meds []store.Medication, target time.Time, iIDs []int64) {
-			intakeByMedication := make(map[int64]int64, len(meds))
-			for i := 0; i < len(meds) && i < len(iIDs); i++ {
-				intakeByMedication[meds[i].ID] = iIDs[i]
-			}
-
-			msgID, err := s.bot.SendGroupNotification(meds, intakeByMedication, target)
-			if err != nil {
-				log.Printf("Failed to send group notification: %v", err)
-				return
-			}
-			for _, iID := range iIDs {
-				if err := s.store.AddIntakeReminder(iID, msgID); err != nil {
-					log.Printf("Failed to add intake reminder for int %d msg %d: %v", iID, msgID, err)
+		if s.bot != nil {
+			go func(meds []store.Medication, target time.Time, iIDs []int64) {
+				intakeByMedication := make(map[int64]int64, len(meds))
+				for i := 0; i < len(meds) && i < len(iIDs); i++ {
+					intakeByMedication[meds[i].ID] = iIDs[i]
 				}
-			}
-		}(group.Meds, group.Target, intakeIDs)
+
+				msgID, err := s.bot.SendGroupNotification(meds, intakeByMedication, target)
+				if err != nil {
+					log.Printf("Failed to send group notification: %v", err)
+					return
+				}
+				for _, iID := range iIDs {
+					if err := s.store.AddIntakeReminder(iID, msgID); err != nil {
+						log.Printf("Failed to add intake reminder for int %d msg %d: %v", iID, msgID, err)
+					}
+				}
+			}(group.Meds, group.Target, intakeIDs)
+		}
 
 		// Send Web Push Notification
 		if s.webPush != nil {
@@ -281,13 +283,15 @@ func (s *Scheduler) checkReminders() error {
 			text := fmt.Sprintf("🔔 REMINDER: You haven't confirmed taking %s (%s) yet on %s!",
 				med.Name, med.Dosage, scheduledAt.Format("15:04"))
 
-			msgID, err := s.bot.SendNotification(text, p.ID, med.ID)
-			if err != nil {
-				log.Printf("Failed to send reminder: %v", err)
-			} else {
-				if err := s.store.AddIntakeReminder(p.ID, msgID); err != nil {
-				log.Printf("Failed to store intake reminder: %v", err)
-			}
+			if s.bot != nil {
+				msgID, err := s.bot.SendNotification(text, p.ID, med.ID)
+				if err != nil {
+					log.Printf("Failed to send reminder: %v", err)
+				} else {
+					if err := s.store.AddIntakeReminder(p.ID, msgID); err != nil {
+						log.Printf("Failed to store intake reminder: %v", err)
+					}
+				}
 			}
 		}
 	}
@@ -338,8 +342,10 @@ func (s *Scheduler) checkLowStock() {
 
 	sb += "\nPlease restock soon!"
 
-	if err := s.bot.SendLowStockWarning(sb); err != nil {
-		log.Printf("Failed to send low stock warning: %v", err)
+	if s.bot != nil {
+		if err := s.bot.SendLowStockWarning(sb); err != nil {
+			log.Printf("Failed to send low stock warning: %v", err)
+		}
 	}
 
 	if s.webPush != nil {

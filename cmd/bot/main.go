@@ -23,8 +23,7 @@ func main() {
 
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if botToken == "" {
-		log.Println("TELEGRAM_BOT_TOKEN is required. Bot functionality will fail.")
-		// In local dev sometimes we might want to skip if only testing web
+		log.Println("TELEGRAM_BOT_TOKEN not set. Running in web-only mode.")
 	}
 
 	sessionSecret := os.Getenv("SESSION_SECRET")
@@ -145,11 +144,13 @@ func main() {
 
 	srv := server.New(s, tgBot, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidConfig)
 
+	// Always start scheduler (works with web push even without bot)
+	sch := scheduler.New(s, tgBot, allowedUserID, srv.GetWebPushService())
+	sch.Start()
 	if tgBot != nil {
-		// Scheduler needs WebPush service from server
-		sch := scheduler.New(s, tgBot, allowedUserID, srv.GetWebPushService())
-		sch.Start()
 		log.Println("Scheduler started")
+	} else {
+		log.Println("Scheduler started (web push only, no Telegram notifications)")
 	}
 
 	// Start Server
