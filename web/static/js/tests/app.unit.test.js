@@ -81,6 +81,7 @@ describe('app.js unit tests', () => {
       const medConfirmModal = document.getElementById('med-confirm-modal');
       const workoutStartModal = document.getElementById('workout-start-modal');
       const workoutGroupModal = document.getElementById('workout-group-modal');
+      const workoutVariantModal = document.getElementById('workout-variant-modal');
       expect(foodModal.tagName.toLowerCase()).toBe('mt-modal');
       expect(foodProductModal.tagName.toLowerCase()).toBe('mt-modal');
       expect(bpModal.tagName.toLowerCase()).toBe('mt-modal');
@@ -89,6 +90,7 @@ describe('app.js unit tests', () => {
       expect(medConfirmModal.tagName.toLowerCase()).toBe('mt-modal');
       expect(workoutStartModal.tagName.toLowerCase()).toBe('mt-modal');
       expect(workoutGroupModal.tagName.toLowerCase()).toBe('mt-modal');
+      expect(workoutVariantModal.tagName.toLowerCase()).toBe('mt-modal');
 
       foodModal.open();
       expect(foodModal.classList.contains('hidden')).toBe(false);
@@ -138,6 +140,13 @@ describe('app.js unit tests', () => {
       window.ModalManager.workoutGroup.close();
       expect(workoutGroupModal.classList.contains('hidden')).toBe(true);
       expect(workoutGroupModal.getAttribute('aria-hidden')).toBe('true');
+
+      window.ModalManager.workoutVariant.open();
+      expect(workoutVariantModal.classList.contains('hidden')).toBe(false);
+      expect(workoutVariantModal.getAttribute('aria-hidden')).toBe('false');
+      window.ModalManager.workoutVariant.close();
+      expect(workoutVariantModal.classList.contains('hidden')).toBe(true);
+      expect(workoutVariantModal.getAttribute('aria-hidden')).toBe('true');
     } finally {
       cleanup();
     }
