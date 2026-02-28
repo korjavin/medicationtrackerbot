@@ -68,151 +68,255 @@ function clearAuthState() {
     console.log('[Auth] Cleared auth state cache');
 }
 
-function ensureDataStoreAvailable() {
-    if (window.DataStore) return;
-
-    const inFlight = new Map();
-    const keyToTags = new Map();
-    const tagToKeys = new Map();
-    const CHANGE_CURSOR_KEY = 'medtracker_changes_cursor';
-
-    const registerKeyTags = (key, tags = []) => {
-        if (!key) return;
-
-        const previousTags = keyToTags.get(key) || [];
-        previousTags.forEach((tag) => {
-            const keys = tagToKeys.get(tag);
-            if (!keys) return;
-            keys.delete(key);
-            if (keys.size === 0) tagToKeys.delete(tag);
-        });
-
-        const normalized = [...new Set(tags.filter(Boolean))];
-        keyToTags.set(key, normalized);
-        normalized.forEach((tag) => {
-            if (!tagToKeys.has(tag)) tagToKeys.set(tag, new Set());
-            tagToKeys.get(tag).add(key);
-        });
-    };
-
-    window.DataStore = {
-        async getCached(key) {
-            if (!window.MedTrackerDB?.ApiCache) return null;
-            return await window.MedTrackerDB.ApiCache.get(key);
-        },
-
-        async setCached(key, data) {
-            if (!window.MedTrackerDB?.ApiCache) return;
-            await window.MedTrackerDB.ApiCache.set(key, data);
-        },
-
-        async clearCached(key) {
-            if (!window.MedTrackerDB?.ApiCache) return;
-            await window.MedTrackerDB.ApiCache.clear(key);
-        },
-
-        async fetchFresh(key, fetcher, tags = []) {
-            registerKeyTags(key, tags);
-            if (inFlight.has(key)) return await inFlight.get(key);
-
-            const request = (async () => {
-                const fresh = await fetcher();
-                if (fresh !== null && fresh !== undefined) {
-                    await this.setCached(key, fresh);
-                }
-                return fresh;
-            })().finally(() => {
-                inFlight.delete(key);
-            });
-            inFlight.set(key, request);
-            return await request;
-        },
-
-        async loadSWR(options) {
-            const {
-                key,
-                tags = [],
-                fetcher,
-                onCached,
-                onFresh,
-                onError,
-                allowNullFresh = false
-            } = options;
-
-            registerKeyTags(key, tags);
-            const cached = await this.getCached(key);
-            if (cached !== null && cached !== undefined && onCached) {
-                await onCached(cached);
-            }
-
-            try {
-                const fresh = await this.fetchFresh(key, fetcher, tags);
-                if ((allowNullFresh || (fresh !== null && fresh !== undefined)) && onFresh) {
-                    await onFresh(fresh, cached);
-                }
-                return { cached, fresh };
-            } catch (error) {
-                if (onError) {
-                    await onError(error, cached);
-                } else {
-                    throw error;
-                }
-                return { cached, fresh: null, error };
-            }
-        },
-
-        async invalidateByTag(tag) {
-            const keys = tagToKeys.get(tag);
-            if (!keys || keys.size === 0) return;
-            await Promise.all([...keys].map((key) => this.clearCached(key)));
-        },
-
-        async invalidateTags(tags = []) {
-            for (const tag of tags) {
-                await this.invalidateByTag(tag);
-            }
-        },
-
-        async invalidateKey(key) {
-            await this.clearCached(key);
-        },
-
-        getChangeCursor() {
-            const raw = localStorage.getItem(CHANGE_CURSOR_KEY);
-            const parsed = raw ? parseInt(raw, 10) : 0;
-            return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-        },
-
-        setChangeCursor(cursor) {
-            const parsed = Number(cursor);
-            if (!Number.isFinite(parsed) || parsed < 0) return;
-            localStorage.setItem(CHANGE_CURSOR_KEY, String(Math.floor(parsed)));
-        },
-
-        requestTabRefresh(changedTags = []) {
-            if (typeof window.requestTabRefresh === 'function') {
-                window.requestTabRefresh({ changedTags, source: 'changes' });
-            } else if (window.reloadCurrentTab) {
-                window.reloadCurrentTab();
-            }
-        },
-
-        async applyChangesPayload(res) {
-            if (!res || typeof res.cursor !== 'number') return;
-            const changedTags = Array.isArray(res.changed_tags) ? res.changed_tags : [];
-            if (changedTags.length > 0) {
-                await this.invalidateTags(changedTags);
-                this.requestTabRefresh(changedTags);
-            }
-            this.setChangeCursor(res.cursor);
-        },
-
-        startChangePolling() {},
-        stopChangePolling() {}
-    };
+if (!window.DataStore) {
+    throw new Error('DataStore is not available. Ensure data-store.js loads before app.js');
 }
 
-ensureDataStoreAvailable();
+function formatDateTimeLocalForInput(dateValue = new Date()) {
+    const localDate = dateValue instanceof Date ? new Date(dateValue.getTime()) : new Date(dateValue);
+    localDate.setMinutes(localDate.getMinutes() - localDate.getTimezoneOffset());
+    return localDate.toISOString().slice(0, 16);
+}
+
+function downloadBlobAsFile(blob, filename) {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(link);
+}
+
+class MTModal extends HTMLElement {
+    connectedCallback() {
+        if (!this.hasAttribute('role')) this.setAttribute('role', 'dialog');
+        if (!this.hasAttribute('aria-modal')) this.setAttribute('aria-modal', 'true');
+        if (!this.hasAttribute('aria-hidden')) {
+            this.setAttribute('aria-hidden', this.classList.contains('hidden') ? 'true' : 'false');
+        }
+    }
+
+    open() {
+        this.classList.remove('hidden');
+        this.setAttribute('aria-hidden', 'false');
+    }
+
+    close() {
+        this.classList.add('hidden');
+        this.setAttribute('aria-hidden', 'true');
+    }
+}
+
+if (window.customElements && !window.customElements.get('mt-modal')) {
+    window.customElements.define('mt-modal', MTModal);
+}
+
+const ModalManager = {
+    open(modalId) {
+        const overlay = document.getElementById('modal-overlay');
+        if (overlay) overlay.classList.remove('hidden');
+
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+        if (typeof modal.open === 'function') {
+            modal.open();
+        } else {
+            modal.classList.remove('hidden');
+        }
+    },
+
+    close(modalId) {
+        const overlay = document.getElementById('modal-overlay');
+        if (overlay) overlay.classList.add('hidden');
+
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+        if (typeof modal.close === 'function') {
+            modal.close();
+        } else {
+            modal.classList.add('hidden');
+        }
+    },
+
+    bp: {
+        open() {
+            ModalManager.open('bp-modal');
+        },
+        close() {
+            ModalManager.close('bp-modal');
+        }
+    },
+
+    weight: {
+        open() {
+            ModalManager.open('weight-modal');
+        },
+        close() {
+            ModalManager.close('weight-modal');
+        }
+    },
+
+    food: {
+        open() {
+            ModalManager.open('food-modal');
+        },
+        close() {
+            if (typeof closeFoodScannerModal === 'function') {
+                closeFoodScannerModal();
+            }
+            ModalManager.close('food-modal');
+        }
+    },
+
+    med: {
+        open() {
+            ModalManager.open('med-modal');
+        },
+        close() {
+            ModalManager.close('med-modal');
+        }
+    },
+
+    medConfirm: {
+        open() {
+            ModalManager.open('med-confirm-modal');
+        },
+        close() {
+            ModalManager.close('med-confirm-modal');
+        }
+    },
+
+    workoutStart: {
+        open() {
+            ModalManager.open('workout-start-modal');
+        },
+        close() {
+            ModalManager.close('workout-start-modal');
+        }
+    },
+
+    workoutGroup: {
+        open() {
+            ModalManager.open('workout-group-modal');
+        },
+        close() {
+            ModalManager.close('workout-group-modal');
+        }
+    },
+
+    workoutVariant: {
+        open() {
+            ModalManager.open('workout-variant-modal');
+        },
+        close() {
+            ModalManager.close('workout-variant-modal');
+        }
+    },
+
+    workoutExercise: {
+        open() {
+            ModalManager.open('workout-exercise-modal');
+        },
+        close() {
+            ModalManager.close('workout-exercise-modal');
+        }
+    },
+
+    workoutSession: {
+        open() {
+            ModalManager.open('workout-session-modal');
+        },
+        close() {
+            ModalManager.close('workout-session-modal');
+        }
+    },
+
+    workoutAddExerciseToSession: {
+        open() {
+            document.getElementById('modal-overlay').classList.remove('hidden');
+            document.getElementById('workout-add-exercise-to-session-modal').classList.remove('hidden');
+        },
+        close() {
+            document.getElementById('workout-add-exercise-to-session-modal').classList.add('hidden');
+        }
+    },
+
+    foodProduct: {
+        open() {
+            const modal = document.getElementById('food-product-modal');
+            if (modal && typeof modal.open === 'function') {
+                modal.open();
+            } else if (modal) {
+                modal.classList.remove('hidden');
+            }
+        },
+        close() {
+            const modal = document.getElementById('food-product-modal');
+            if (modal && typeof modal.close === 'function') {
+                modal.close();
+            } else if (modal) {
+                modal.classList.add('hidden');
+            }
+        }
+    },
+
+    foodScanner: {
+        open() {
+            const scannerModal = document.getElementById('food-scanner-modal');
+            if (!scannerModal) return;
+            scannerModal.classList.remove('hidden');
+            setFoodScannerStatus('Point camera at barcode or QR.');
+            startFoodScanner();
+        },
+        close() {
+            stopFoodScanner();
+            const scannerModal = document.getElementById('food-scanner-modal');
+            if (scannerModal) scannerModal.classList.add('hidden');
+        }
+    },
+
+    getTopModalDefs() {
+        return [
+            { id: 'med-modal', fn: () => ModalManager.med.close() },
+            { id: 'med-confirm-modal', fn: () => ModalManager.medConfirm.close() },
+            { id: 'bp-modal', fn: () => ModalManager.bp.close() },
+            { id: 'weight-modal', fn: () => ModalManager.weight.close() },
+            { id: 'food-modal', fn: () => ModalManager.food.close() },
+            { id: 'workout-group-modal', fn: () => typeof closeWorkoutGroupModal === 'function' ? closeWorkoutGroupModal() : ModalManager.workoutGroup.close() },
+            { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' ? closeVariantModal() : ModalManager.workoutVariant.close() },
+            { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' ? closeExerciseModal() : ModalManager.workoutExercise.close() },
+            { id: 'workout-session-modal', fn: () => typeof closeWorkoutSessionModal === 'function' ? closeWorkoutSessionModal() : ModalManager.workoutSession.close() },
+            { id: 'workout-start-modal', fn: () => ModalManager.workoutStart.close() },
+        ];
+    },
+
+    getSubModalDefs() {
+        return [
+            { id: 'workout-add-exercise-to-session-modal', fn: () => typeof closeAddExerciseToSessionModal === 'function' ? closeAddExerciseToSessionModal() : ModalManager.workoutAddExerciseToSession.close() },
+            { id: 'food-scanner-modal', fn: () => ModalManager.foodScanner.close() },
+            { id: 'food-product-modal', fn: () => ModalManager.foodProduct.close() },
+        ];
+    },
+
+    getClosePriorityModalDefs() {
+        return [...ModalManager.getSubModalDefs(), ...ModalManager.getTopModalDefs()];
+    },
+
+    closeTopMostVisibleModal() {
+        for (const modalDef of ModalManager.getClosePriorityModalDefs()) {
+            const modal = document.getElementById(modalDef.id);
+            if (modal && !modal.classList.contains('hidden')) {
+                modalDef.fn();
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+window.ModalManager = ModalManager;
 
 window.onDataStoreUnauthorized = function () {
     if (sessionStorage.getItem('medtracker_auth_reload_in_progress') === '1') {
@@ -850,6 +954,34 @@ const formatDate = (dateStr) => {
 };
 
 // UI Functions
+function activateTabGroup(tab, options) {
+    const { buttonSelector, contentSelector, contentIdFromTab } = options;
+    document.querySelectorAll(buttonSelector).forEach((el) => el.classList.remove('active'));
+    document.querySelectorAll(contentSelector).forEach((el) => el.classList.remove('active'));
+
+    const tabButton = document.querySelector(`${buttonSelector}[data-tab="${tab}"]`);
+    const tabContent = document.getElementById(contentIdFromTab(tab));
+    if (!tabButton || !tabContent) return false;
+
+    tabButton.classList.add('active');
+    tabContent.classList.add('active');
+    return true;
+}
+
+function bindTabGroup(options) {
+    const { container, buttonSelector, onTabSelect } = options;
+    if (!container || container.dataset.tabBound === '1') return;
+    container.dataset.tabBound = '1';
+
+    container.addEventListener('click', (event) => {
+        const button = event.target.closest(buttonSelector);
+        if (!button || !container.contains(button)) return;
+        const tab = button.dataset.tab;
+        if (!tab) return;
+        onTabSelect(tab);
+    });
+}
+
 function switchTab(tab) {
     const tabToFeature = {
         food: 'food',
@@ -864,11 +996,12 @@ function switchTab(tab) {
         return;
     }
 
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-
-    document.querySelector(`.tab[data-tab="${tab}"]`).classList.add('active');
-    document.getElementById(`${tab}-view`).classList.add('active');
+    const activated = activateTabGroup(tab, {
+        buttonSelector: '.tab',
+        contentSelector: '.view',
+        contentIdFromTab: (tabName) => `${tabName}-view`
+    });
+    if (!activated) return;
 
     if (tab === 'meds') {
         if (!document.querySelector('.med-tab.active')) {
@@ -883,6 +1016,12 @@ function switchTab(tab) {
     else if (tab === 'food') { loadFoodLogs(); }
     else if (tab === 'settings') { loadSettings(); }
 }
+
+bindTabGroup({
+    container: document.getElementById('tabs'),
+    buttonSelector: '.tab',
+    onTabSelect: switchTab
+});
 
 // -- Food Intake Autocomplete & Logic --
 
@@ -1428,19 +1567,11 @@ window.addEventListener('pagehide', stopFoodScanner);
 window.addEventListener('beforeunload', stopFoodScanner);
 
 function openFoodScannerModal() {
-    const scannerModal = document.getElementById('food-scanner-modal');
-    if (!scannerModal) return;
-    scannerModal.classList.remove('hidden');
-    setFoodScannerStatus('Point camera at barcode or QR.');
-    startFoodScanner();
+    window.ModalManager.foodScanner.open();
 }
 
 function closeFoodScannerModal() {
-    stopFoodScanner();
-    const scannerModal = document.getElementById('food-scanner-modal');
-    if (scannerModal) {
-        scannerModal.classList.add('hidden');
-    }
+    window.ModalManager.foodScanner.close();
 }
 
 function decodeBarcodeFromImageFallback(image) {
@@ -1664,11 +1795,11 @@ function showEditFoodProductModal(product) {
     document.getElementById('food-product-protein').value = product.protein_100g || '';
     document.getElementById('food-product-fat').value = product.fat_100g || '';
     document.getElementById('food-product-calories').value = product.energy_kcal_100g || '';
-    document.getElementById('food-product-modal').classList.remove('hidden');
+    window.ModalManager.foodProduct.open();
 }
 
 function closeFoodProductModal() {
-    document.getElementById('food-product-modal').classList.add('hidden');
+    window.ModalManager.foodProduct.close();
 }
 
 async function saveFoodProduct() {
@@ -1851,14 +1982,11 @@ function shiftFoodDate(deltaDays) {
 }
 
 function showAddFoodModal() {
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('food-modal').classList.remove('hidden');
+    window.ModalManager.food.open();
     document.getElementById('food-modal-title').innerText = 'Log Food';
 
     // Set default date/time
-    const now = new Date();
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    document.getElementById('food-datetime').value = now.toISOString().slice(0, 16);
+    document.getElementById('food-datetime').value = formatDateTimeLocalForInput();
 
     // Clear inputs
     document.getElementById('food-id').value = '';
@@ -1883,8 +2011,7 @@ function editFoodLog(id) {
     const log = currentFoodLogs[id];
     if (!log) return;
 
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('food-modal').classList.remove('hidden');
+    window.ModalManager.food.open();
     document.getElementById('food-modal-title').innerText = 'Edit Food';
 
     document.getElementById('food-id').value = log.id;
@@ -1909,17 +2036,13 @@ function editFoodLog(id) {
     }
 
     if (log.eaten_at) {
-        const local = new Date(log.eaten_at);
-        local.setMinutes(local.getMinutes() - local.getTimezoneOffset());
-        document.getElementById('food-datetime').value = local.toISOString().slice(0, 16);
+        document.getElementById('food-datetime').value = formatDateTimeLocalForInput(log.eaten_at);
     }
     document.getElementById('food-weight').focus();
 }
 
 function closeFoodModal() {
-    closeFoodScannerModal();
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('food-modal').classList.add('hidden');
+    window.ModalManager.food.close();
 }
 
 async function saveFoodLog() {
@@ -2219,15 +2342,22 @@ async function deleteFoodLog(id) {
 
 
 function switchMedTab(tab) {
-    document.querySelectorAll('.med-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.med-tab-content').forEach(c => c.classList.remove('active'));
-
-    document.querySelector(`.med-tab[data-tab="${tab}"]`).classList.add('active');
-    document.getElementById(`med-${tab}-tab`).classList.add('active');
+    const activated = activateTabGroup(tab, {
+        buttonSelector: '.med-tab',
+        contentSelector: '.med-tab-content',
+        contentIdFromTab: (tabName) => `med-${tabName}-tab`
+    });
+    if (!activated) return;
 
     if (tab === 'schedule') { loadMeds(); }
     else if (tab === 'history') { loadHistory(); }
 }
+
+bindTabGroup({
+    container: document.querySelector('.med-tabs'),
+    buttonSelector: '.med-tab',
+    onTabSelect: switchMedTab
+});
 
 // Load settings (BP reminders status, etc.)
 async function loadSettings() {
@@ -2469,8 +2599,7 @@ window.reloadCurrentTab = reloadCurrentTab;
 
 function showAddModal() {
     editingMedId = null;
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('med-modal').classList.remove('hidden');
+    window.ModalManager.med.open();
 
     // Reset inputs
     document.getElementById('med-name').value = '';
@@ -2505,8 +2634,7 @@ function showEditModal(id) {
     const med = medications.find(m => m.id === id);
     if (!med) return;
 
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('med-modal').classList.remove('hidden');
+    window.ModalManager.med.open();
 
     // Fill inputs
     document.getElementById('med-name').value = med.name;
@@ -2572,8 +2700,7 @@ function showEditModal(id) {
 }
 
 function closeModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('med-modal').classList.add('hidden');
+    window.ModalManager.med.close();
 }
 
 function toggleScheduleFields() {
@@ -3448,14 +3575,10 @@ function getBPCategory(sys, dia) {
 
 // Show BP recording modal
 function showBPRecordModal() {
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('bp-modal').classList.remove('hidden');
+    window.ModalManager.bp.open();
 
     // Set default datetime to now
-    const now = new Date();
-    const offset = now.getTimezoneOffset() * 60000;
-    const localISOTime = (new Date(now - offset)).toISOString().slice(0, 16);
-    document.getElementById('bp-datetime').value = localISOTime;
+    document.getElementById('bp-datetime').value = formatDateTimeLocalForInput();
 
     // Clear other fields
     document.getElementById('bp-systolic').value = '';
@@ -3471,8 +3594,7 @@ function showBPRecordModal() {
 
 // Close BP modal
 function closeBPRecordModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('bp-modal').classList.add('hidden');
+    window.ModalManager.bp.close();
 }
 
 // Handle BP form submission
@@ -3987,14 +4109,7 @@ async function exportBPCSV() {
         }
 
         const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'blood_pressure_export.csv';
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
+        downloadBlobAsFile(blob, 'blood_pressure_export.csv');
     } catch (err) {
         console.error('Export error:', err);
         tg.showAlert('Failed to export data');
@@ -4007,14 +4122,10 @@ async function exportBPCSV() {
 let cachedWeightLogs = [];
 
 function showWeightModal() {
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('weight-modal').classList.remove('hidden');
+    window.ModalManager.weight.open();
 
     // Set default datetime to now
-    const now = new Date();
-    const offset = now.getTimezoneOffset() * 60000;
-    const localISOTime = (new Date(now - offset)).toISOString().slice(0, 16);
-    document.getElementById('weight-datetime').value = localISOTime;
+    document.getElementById('weight-datetime').value = formatDateTimeLocalForInput();
 
     // Clear notes field
     document.getElementById('weight-notes').value = '';
@@ -4032,8 +4143,7 @@ function showWeightModal() {
 }
 
 function closeWeightModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('weight-modal').classList.add('hidden');
+    window.ModalManager.weight.close();
 }
 
 async function handleWeightSubmit(event) {
@@ -4806,14 +4916,7 @@ async function exportWeightCSV() {
         }
 
         const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'weight_export.csv';
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
+        downloadBlobAsFile(blob, 'weight_export.csv');
     } catch (err) {
         console.error('Export error:', err);
         tg.showAlert('Failed to export data');
@@ -4850,8 +4953,7 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
     pendingMedConfirmMode = mode;
     pendingMedConfirmIntakeIds = intakeIds;
 
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('med-confirm-modal').classList.remove('hidden');
+    window.ModalManager.medConfirm.open();
 
     const titleEl = document.getElementById('med-confirm-title');
     const subtitleEl = document.getElementById('med-confirm-subtitle');
@@ -4868,9 +4970,7 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
 
         // Set time input (handling both ISO strings and formatted strings if parsable)
         try {
-            const d = new Date(scheduledAt);
-            const isoLocal = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
-            timeInput.value = isoLocal;
+            timeInput.value = formatDateTimeLocalForInput(scheduledAt);
         } catch (e) {
             console.error("Error formatting date for input", e);
         }
@@ -4918,8 +5018,7 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
 }
 
 function closeMedicationConfirmModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('med-confirm-modal').classList.add('hidden');
+    window.ModalManager.medConfirm.close();
 }
 
 async function confirmSelectedMedications() {
@@ -5051,13 +5150,11 @@ function snoozeMedicationConfirm() {
 
 function showWorkoutStartModal(sessionId) {
     pendingWorkoutSessionId = sessionId;
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('workout-start-modal').classList.remove('hidden');
+    window.ModalManager.workoutStart.open();
 }
 
 function closeWorkoutStartModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('workout-start-modal').classList.add('hidden');
+    window.ModalManager.workoutStart.close();
 }
 
 function startWorkoutFromModal() {
@@ -5159,32 +5256,6 @@ async function sendTestMedicationNotification() {
     let modalPushed = false;
     let poppingFromHistory = false;
 
-    // Sub-modals: closing them leaves the overlay visible (parent modal stays open)
-    const subModalDefs = [
-        { id: 'workout-add-exercise-to-session-modal', fn: () => typeof closeAddExerciseToSessionModal === 'function' && closeAddExerciseToSessionModal() },
-        { id: 'food-scanner-modal', fn: () => closeFoodScannerModal() },
-    ];
-    // Top-level modals: closing them also hides the overlay
-    const topModalDefs = [
-        { id: 'med-modal', fn: () => closeModal() },
-        { id: 'med-confirm-modal', fn: () => closeMedicationConfirmModal() },
-        { id: 'bp-modal', fn: () => closeBPRecordModal() },
-        { id: 'weight-modal', fn: () => closeWeightModal() },
-        { id: 'food-modal', fn: () => closeFoodModal() },
-        { id: 'workout-group-modal', fn: () => typeof closeWorkoutGroupModal === 'function' && closeWorkoutGroupModal() },
-        { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' && closeVariantModal() },
-        { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' && closeExerciseModal() },
-        { id: 'workout-session-modal', fn: () => typeof closeWorkoutSessionModal === 'function' && closeWorkoutSessionModal() },
-        { id: 'workout-start-modal', fn: () => closeWorkoutStartModal() },
-    ];
-
-    function findAndCloseTopModal() {
-        for (const m of [...subModalDefs, ...topModalDefs]) {
-            const el = document.getElementById(m.id);
-            if (el && !el.classList.contains('hidden')) { m.fn(); return; }
-        }
-    }
-
     function onOverlayShown() {
         if (modalPushed) return;
         modalPushed = true;
@@ -5209,7 +5280,7 @@ async function sendTestMedicationNotification() {
             return;
         }
         poppingFromHistory = true;
-        findAndCloseTopModal();
+        window.ModalManager.closeTopMostVisibleModal();
         poppingFromHistory = false;
         modalPushed = false;
         // Sub-modal closed but parent still open → re-push so next back also works
@@ -5227,7 +5298,7 @@ async function sendTestMedicationNotification() {
             const overlay = document.getElementById('modal-overlay');
             if (!overlay || overlay.classList.contains('hidden')) return;
             poppingFromHistory = true;
-            findAndCloseTopModal();
+            window.ModalManager.closeTopMostVisibleModal();
             poppingFromHistory = false;
             modalPushed = false;
             if (!overlay.classList.contains('hidden')) {

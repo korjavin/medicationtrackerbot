@@ -31,6 +31,23 @@ describe('workout.js UI characterization', () => {
     }
   });
 
+  it('workout tab click binding switches subtab and triggers loader', () => {
+    const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
+    try {
+      const loadStatsSpy = vi.fn();
+      window.loadWorkoutStatsTab = loadStatsSpy;
+
+      const statsTab = document.querySelector('.workout-tab[data-tab="stats"]');
+      statsTab.click();
+
+      expect(statsTab.classList.contains('active')).toBe(true);
+      expect(document.getElementById('workout-stats-tab').classList.contains('active')).toBe(true);
+      expect(loadStatsSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('opens and closes workout group modal using shared overlay', () => {
     const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
     try {

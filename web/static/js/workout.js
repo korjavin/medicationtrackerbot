@@ -16,16 +16,23 @@ let currentVariantForExercise = null;
 // ====================================
 
 function switchWorkoutTab(tab) {
-    document.querySelectorAll('.workout-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.workout-tab-content').forEach(c => c.classList.remove('active'));
-
-    document.querySelector(`.workout-tab[data-tab="${tab}"]`).classList.add('active');
-    document.getElementById(`workout-${tab}-tab`).classList.add('active');
+    const activated = activateTabGroup(tab, {
+        buttonSelector: '.workout-tab',
+        contentSelector: '.workout-tab-content',
+        contentIdFromTab: (tabName) => `workout-${tabName}-tab`
+    });
+    if (!activated) return;
 
     if (tab === 'groups') { loadWorkoutGroups(); }
     else if (tab === 'history') { loadNextWorkout(); loadWorkoutHistoryTab(); }
     else if (tab === 'stats') { loadWorkoutStatsTab(); }
 }
+
+bindTabGroup({
+    container: document.querySelector('.workout-tabs'),
+    buttonSelector: '.workout-tab',
+    onTabSelect: switchWorkoutTab
+});
 
 // Main load function called when switching to workouts tab
 function loadWorkouts() {
@@ -236,8 +243,7 @@ function _renderWorkoutGroups(container, groups) {
 function showAddWorkoutGroupModal() {
     currentEditingGroupId = null;
     document.getElementById('workout-group-modal-title').textContent = 'Add Workout Group';
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('workout-group-modal').classList.remove('hidden');
+    window.ModalManager.workoutGroup.open();
 
     // Reset fields
     document.getElementById('workout-group-name').value = '';
@@ -262,8 +268,7 @@ async function showEditWorkoutGroupModal(groupId) {
     if (!group) return;
 
     document.getElementById('workout-group-modal-title').textContent = 'Edit Workout Group';
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('workout-group-modal').classList.remove('hidden');
+    window.ModalManager.workoutGroup.open();
 
     // Fill fields
     document.getElementById('workout-group-name').value = group.name;
@@ -313,8 +318,7 @@ async function showEditWorkoutGroupModal(groupId) {
 }
 
 function closeWorkoutGroupModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('workout-group-modal').classList.add('hidden');
+    window.ModalManager.workoutGroup.close();
     currentEditingGroupId = null;
 }
 
@@ -454,8 +458,7 @@ function showAddVariantModal() {
 
     currentEditingVariantId = null;
     document.getElementById('workout-variant-modal-title').textContent = 'Add Variant';
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('workout-variant-modal').classList.remove('hidden');
+    window.ModalManager.workoutVariant.open();
 
     document.getElementById('workout-variant-name').value = '';
     document.getElementById('workout-variant-description').value = '';
@@ -480,8 +483,7 @@ async function showEditVariantModal(variantId) {
     if (!variant) return;
 
     document.getElementById('workout-variant-modal-title').textContent = 'Edit Variant';
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('workout-variant-modal').classList.remove('hidden');
+    window.ModalManager.workoutVariant.open();
 
     document.getElementById('workout-variant-name').value = variant.name;
     document.getElementById('workout-variant-description').value = variant.description || '';
@@ -499,8 +501,7 @@ async function showEditVariantModal(variantId) {
 }
 
 function closeVariantModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('workout-variant-modal').classList.add('hidden');
+    window.ModalManager.workoutVariant.close();
     currentEditingVariantId = null;
 }
 
@@ -600,8 +601,7 @@ function showAddExerciseModal() {
 
     currentEditingExerciseId = null;
     document.getElementById('workout-exercise-modal-title').textContent = 'Add Exercise';
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('workout-exercise-modal').classList.remove('hidden');
+    window.ModalManager.workoutExercise.open();
 
     document.getElementById('workout-exercise-name').value = '';
     document.getElementById('workout-exercise-sets').value = '';
@@ -624,8 +624,7 @@ async function showEditExerciseModal(exerciseId) {
     if (!exercise) return;
 
     document.getElementById('workout-exercise-modal-title').textContent = 'Edit Exercise';
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('workout-exercise-modal').classList.remove('hidden');
+    window.ModalManager.workoutExercise.open();
 
     document.getElementById('workout-exercise-name').value = exercise.exercise_name;
     document.getElementById('workout-exercise-sets').value = exercise.target_sets;
@@ -636,8 +635,7 @@ async function showEditExerciseModal(exerciseId) {
 }
 
 function closeExerciseModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('workout-exercise-modal').classList.add('hidden');
+    window.ModalManager.workoutExercise.close();
     currentEditingExerciseId = null;
 }
 
@@ -773,7 +771,6 @@ let currentSessionData = null;
 let originalSessionStatus = null;
 
 async function showWorkoutSessionModal(sessionId) {
-    const modal = document.getElementById('workout-session-modal');
     const logsContainer = document.getElementById('workout-session-logs');
     const infoContainer = document.getElementById('workout-session-info');
     const overlay = document.getElementById('modal-overlay');
@@ -879,8 +876,7 @@ async function showWorkoutSessionModal(sessionId) {
 
         logsContainer.innerHTML = html || '<p style="text-align: center; color: #888;">No exercises logged</p>';
 
-        modal.classList.remove('hidden');
-        overlay.classList.remove('hidden');
+        window.ModalManager.workoutSession.open();
 
         // Add click handler to overlay to close modal
         overlay.onclick = function (e) {
@@ -974,8 +970,7 @@ async function deleteExerciseLog(index) {
 function closeWorkoutSessionModal() {
     const overlay = document.getElementById('modal-overlay');
     overlay.onclick = null; // Remove click handler
-    document.getElementById('workout-session-modal').classList.add('hidden');
-    overlay.classList.add('hidden');
+    window.ModalManager.workoutSession.close();
     currentSessionData = null;
     originalSessionStatus = null;
 }
@@ -1302,8 +1297,7 @@ async function showAddExerciseToSessionModal() {
         console.error('Error loading unique exercises:', error);
     }
 
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('workout-add-exercise-to-session-modal').classList.remove('hidden');
+    window.ModalManager.workoutAddExerciseToSession.open();
 
     // Ensure overlay closes this modal too
     const overlay = document.getElementById('modal-overlay');
@@ -1315,7 +1309,7 @@ async function showAddExerciseToSessionModal() {
 }
 
 function closeAddExerciseToSessionModal() {
-    document.getElementById('workout-add-exercise-to-session-modal').classList.add('hidden');
+    window.ModalManager.workoutAddExerciseToSession.close();
 
     // Revert overlay onclick to close session modal
     const overlay = document.getElementById('modal-overlay');
