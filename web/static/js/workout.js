@@ -243,8 +243,7 @@ function _renderWorkoutGroups(container, groups) {
 function showAddWorkoutGroupModal() {
     currentEditingGroupId = null;
     document.getElementById('workout-group-modal-title').textContent = 'Add Workout Group';
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('workout-group-modal').classList.remove('hidden');
+    window.ModalManager.workoutGroup.open();
 
     // Reset fields
     document.getElementById('workout-group-name').value = '';
@@ -269,8 +268,7 @@ async function showEditWorkoutGroupModal(groupId) {
     if (!group) return;
 
     document.getElementById('workout-group-modal-title').textContent = 'Edit Workout Group';
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('workout-group-modal').classList.remove('hidden');
+    window.ModalManager.workoutGroup.open();
 
     // Fill fields
     document.getElementById('workout-group-name').value = group.name;
@@ -320,8 +318,7 @@ async function showEditWorkoutGroupModal(groupId) {
 }
 
 function closeWorkoutGroupModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('workout-group-modal').classList.add('hidden');
+    window.ModalManager.workoutGroup.close();
     currentEditingGroupId = null;
 }
 

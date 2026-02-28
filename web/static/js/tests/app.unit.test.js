@@ -109,6 +109,7 @@ describe('app.js unit tests', () => {
       const medModal = document.getElementById('med-modal');
       const medConfirmModal = document.getElementById('med-confirm-modal');
       const workoutStartModal = document.getElementById('workout-start-modal');
+      const workoutGroupModal = document.getElementById('workout-group-modal');
 
       window.ModalManager.open('bp-modal');
       expect(overlay.classList.contains('hidden')).toBe(false);
@@ -137,6 +138,11 @@ describe('app.js unit tests', () => {
       expect(workoutStartModal.classList.contains('hidden')).toBe(false);
       window.ModalManager.workoutStart.close();
       expect(workoutStartModal.classList.contains('hidden')).toBe(true);
+
+      window.ModalManager.workoutGroup.open();
+      expect(workoutGroupModal.classList.contains('hidden')).toBe(false);
+      window.ModalManager.workoutGroup.close();
+      expect(workoutGroupModal.classList.contains('hidden')).toBe(true);
 
       scannerModal.classList.remove('hidden');
       window.ModalManager.food.open();
