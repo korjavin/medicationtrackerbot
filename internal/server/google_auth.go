@@ -186,7 +186,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	// We'll trust this cookie in auth middleware.
 
 	// Just use the email as session value, signed with bot token to prevent tampering
-	sessionValue := createSessionToken(firstNonEmpty(userInfo.Email, subject, userInfo.PreferredUsername), s.botToken)
+	sessionValue := createSessionToken(firstNonEmpty(userInfo.Email, subject, userInfo.PreferredUsername), s.sessionSecret)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_session",
 		Value:    sessionValue,

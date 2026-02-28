@@ -28,6 +28,7 @@ type Server struct {
 	bot             *bot.Bot
 	rxnorm          *rxnorm.Client
 	botToken        string
+	sessionSecret   string
 	allowedUserID   int64
 	oidcConfig      OIDCConfig
 	oauthConfig     *oauth2.Config
@@ -178,6 +179,7 @@ func New(s *store.Store, b *bot.Bot, botToken, sessionSecret string, allowedUser
 		bot:             b,
 		rxnorm:          rxnorm.New(),
 		botToken:        botToken,
+		sessionSecret:   sessionSecret,
 		allowedUserID:   allowedUserID,
 		oidcConfig:      oidc,
 		botUsername:     botUsername,
@@ -359,7 +361,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
 
 	// Apply Middleware to API
-	authMW := AuthMiddleware(s.botToken, s.allowedUserID)
+	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)
 	mux.Handle("/api/", authMW(apiMux))
 
 	return mux
@@ -651,7 +653,7 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Create session (same as OIDC auth)
-	sessionValue := createSessionToken(user.Username, s.botToken)
+	sessionValue := createSessionToken(user.Username, s.sessionSecret)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_session",
 		Value:    sessionValue,
