@@ -5322,12 +5322,20 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
         const div = document.createElement('div');
         div.className = 'form-row';
         div.style.marginBottom = '10px';
-        div.innerHTML = `
-            <label class="checkbox-label" style="font-weight: 500;">
-                <input type="checkbox" value="${id}" checked class="med-confirm-check">
-                ${escapeHtml(name)}
-            </label>
-        `;
+
+        const label = document.createElement('label');
+        label.className = 'checkbox-label';
+        label.style.fontWeight = '500';
+
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.value = String(id);
+        input.checked = true;
+        input.className = 'med-confirm-check';
+
+        label.appendChild(input);
+        label.appendChild(document.createTextNode(` ${name}`));
+        div.appendChild(label);
         list.appendChild(div);
     });
 }
