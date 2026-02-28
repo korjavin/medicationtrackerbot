@@ -35,7 +35,7 @@ describe('app.js modal history and back behavior', () => {
     const { window, document, backButtonState, cleanup } = loadFrontendEnv();
 
     try {
-      window.showWeightModal();
+      window.ModalManager.weight.open();
       await flushMutations();
 
       expect(document.getElementById('weight-modal').classList.contains('hidden')).toBe(false);
@@ -47,6 +47,29 @@ describe('app.js modal history and back behavior', () => {
       expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(true);
       expect(backButtonState.hideCalls).toBeGreaterThan(0);
     } finally {
+      cleanup();
+    }
+  });
+
+  it('popstate also closes food modal opened via modal manager API', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    let pauseSpy;
+
+    try {
+      pauseSpy = vi
+        .spyOn(window.HTMLMediaElement.prototype, 'pause')
+        .mockImplementation(() => {});
+      window.ModalManager.food.open();
+      await flushMutations();
+      expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
+
+      window.dispatchEvent(new window.PopStateEvent('popstate'));
+      await flushMutations();
+
+      expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(true);
+      expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(true);
+    } finally {
+      if (pauseSpy) pauseSpy.mockRestore();
       cleanup();
     }
   });

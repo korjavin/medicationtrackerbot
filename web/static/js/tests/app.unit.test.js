@@ -114,11 +114,18 @@ describe('app.js unit tests', () => {
     }
   });
 
-  it('exposes modal manager open/close API', () => {
+  it('exposes modal manager APIs for generic and typed modal operations', () => {
     const { window, document, cleanup } = loadFrontendEnv();
+    let pauseSpy;
     try {
+      pauseSpy = vi
+        .spyOn(window.HTMLMediaElement.prototype, 'pause')
+        .mockImplementation(() => {});
       const overlay = document.getElementById('modal-overlay');
       const bpModal = document.getElementById('bp-modal');
+      const weightModal = document.getElementById('weight-modal');
+      const foodModal = document.getElementById('food-modal');
+      const scannerModal = document.getElementById('food-scanner-modal');
 
       window.ModalManager.open('bp-modal');
       expect(overlay.classList.contains('hidden')).toBe(false);
@@ -127,7 +134,20 @@ describe('app.js unit tests', () => {
       window.ModalManager.close('bp-modal');
       expect(overlay.classList.contains('hidden')).toBe(true);
       expect(bpModal.classList.contains('hidden')).toBe(true);
+
+      window.ModalManager.weight.open();
+      expect(weightModal.classList.contains('hidden')).toBe(false);
+      window.ModalManager.weight.close();
+      expect(weightModal.classList.contains('hidden')).toBe(true);
+
+      scannerModal.classList.remove('hidden');
+      window.ModalManager.food.open();
+      expect(foodModal.classList.contains('hidden')).toBe(false);
+      window.ModalManager.food.close();
+      expect(foodModal.classList.contains('hidden')).toBe(true);
+      expect(scannerModal.classList.contains('hidden')).toBe(true);
     } finally {
+      if (pauseSpy) pauseSpy.mockRestore();
       cleanup();
     }
   });
