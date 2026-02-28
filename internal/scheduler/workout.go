@@ -41,8 +41,10 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 	if activeSession != nil && activeSession.StartedAt != nil {
 		duration := now.Sub(*activeSession.StartedAt)
 		if duration > 90*time.Minute && !strings.Contains(activeSession.Notes, "stale_reminded") {
-			if _, err := s.bot.SendWorkoutStaleNotification("🏋️ Still training? It's been 1.5 hours. Don't forget to log your results!", activeSession.ID); err != nil {
-				log.Printf("[scheduler] send stale notification failed: %v", err)
+			if s.bot != nil {
+				if _, err := s.bot.SendWorkoutStaleNotification("🏋️ Still training? It's been 1.5 hours. Don't forget to log your results!", activeSession.ID); err != nil {
+					log.Printf("[scheduler] send stale notification failed: %v", err)
+				}
 			}
 			if err := s.store.UpdateWorkoutSessionNotes(activeSession.ID, activeSession.Notes+" stale_reminded"); err != nil {
 				log.Printf("Failed to update session notes: %v", err)
@@ -61,7 +63,7 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 						log.Printf("Failed to advance rotation after stale auto-skip for group %d: %v", group.ID, err)
 					}
 				}
-				if activeSession.NotificationMessageID != nil {
+				if s.bot != nil && activeSession.NotificationMessageID != nil {
 					if err := s.bot.DeleteMessage(*activeSession.NotificationMessageID); err != nil {
 						log.Printf("[scheduler] delete message failed: %v", err)
 					}
@@ -200,7 +202,7 @@ func (s *Scheduler) checkWorkoutNotifications() error {
 					if err := s.store.SkipSession(existing.ID); err != nil {
 						log.Printf("Failed to skip session: %v", err)
 					}
-					if existing.NotificationMessageID != nil {
+					if s.bot != nil && existing.NotificationMessageID != nil {
 						if err := s.bot.DeleteMessage(*existing.NotificationMessageID); err != nil {
 							log.Printf("[scheduler] delete message failed: %v", err)
 						}
@@ -263,21 +265,23 @@ func (s *Scheduler) sendWorkoutNotification(session *store.WorkoutSession, group
 	}
 
 	// Delete previous notification if exists to avoid clutter
-	if session.NotificationMessageID != nil {
+	if s.bot != nil && session.NotificationMessageID != nil {
 		if err := s.bot.DeleteMessage(*session.NotificationMessageID); err != nil {
 			log.Printf("[scheduler] delete message failed: %v", err)
 		}
 	}
 
 	// Send notification with inline buttons via bot
-	messageID, err := s.bot.SendWorkoutNotification(message, session.ID)
-	if err != nil {
-		return err
-	}
-
-	// Store message ID for later editing
-	if err := s.store.SetSessionNotificationMessageID(session.ID, messageID); err != nil {
-		log.Printf("Failed to store notification message ID: %v", err)
+	if s.bot != nil {
+		messageID, err := s.bot.SendWorkoutNotification(message, session.ID)
+		if err != nil {
+			log.Printf("Failed to send workout notification via Telegram: %v", err)
+		} else {
+			// Store message ID for later editing
+			if err := s.store.SetSessionNotificationMessageID(session.ID, messageID); err != nil {
+				log.Printf("Failed to store notification message ID: %v", err)
+			}
+		}
 	}
 
 	// Send Web Push
