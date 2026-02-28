@@ -62,20 +62,27 @@
         document.getElementById('food-carbs').value = product.carbs_100g || 0;
         document.getElementById('food-protein').value = product.protein_100g || 0;
         document.getElementById('food-fat').value = product.fat_100g || 0;
-        document.getElementById('food-calories').value = product.energy_kcal_100g || 0;
+        document.getElementById('food-calories').dataset.baseKcal = product.energy_kcal_100g || 0;
         document.getElementById('food-weight').focus();
         window.calculateFoodCalories();
     };
 
     window.calculateFoodCalories = function () {
         const w = parseFloat(document.getElementById('food-weight').value) || 0;
-        const c = parseFloat(document.getElementById('food-carbs').value) || 0;
-        const p = parseFloat(document.getElementById('food-protein').value) || 0;
-        const f = parseFloat(document.getElementById('food-fat').value) || 0;
         const per100 = document.getElementById('food-per-100g').checked;
-        const mult = per100 ? w / 100 : 1;
-        const total = Math.round((4 * c * mult) + (4 * p * mult) + (9 * f * mult));
-        document.getElementById('food-calories').value = total;
+        const baseKcalAttr = document.getElementById('food-calories').dataset.baseKcal;
+
+        if (w > 0 && per100 && baseKcalAttr !== undefined && !isNaN(parseFloat(baseKcalAttr))) {
+            const baseKcal = parseFloat(baseKcalAttr);
+            document.getElementById('food-calories').value = Math.round(baseKcal * (w / 100));
+        } else if (w > 0 && per100) {
+            const c = parseFloat(document.getElementById('food-carbs').value) || 0;
+            const p = parseFloat(document.getElementById('food-protein').value) || 0;
+            const f = parseFloat(document.getElementById('food-fat').value) || 0;
+            const mult = w / 100;
+            const total = Math.round((4 * c * mult) + (4 * p * mult) + (9 * f * mult));
+            document.getElementById('food-calories').value = total;
+        }
     };
 
     window.loadFoodLogs = async function () {
@@ -127,7 +134,8 @@
         document.getElementById('food-modal-title').innerText = 'Log Food';
         document.getElementById('food-datetime').value = window.formatDateTimeLocalForInput();
         ['food-id', 'food-name', 'food-barcode', 'food-weight', 'food-carbs', 'food-protein', 'food-fat', 'food-calories'].forEach(id => {
-            const el = document.getElementById(id); if (el) el.value = '';
+            const el = document.getElementById(id);
+            if (el) { el.value = ''; delete el.dataset.baseKcal; }
         });
         document.getElementById('food-per-100g').checked = true;
         document.getElementById('food-weight').focus();
@@ -147,13 +155,14 @@
             document.getElementById('food-carbs').value = +((log.carbs / log.weight) * 100).toFixed(1);
             document.getElementById('food-protein').value = +((log.protein / log.weight) * 100).toFixed(1);
             document.getElementById('food-fat').value = +((log.fat / log.weight) * 100).toFixed(1);
-            window.calculateFoodCalories();
         } else {
             document.getElementById('food-carbs').value = log.carbs || '';
             document.getElementById('food-protein').value = log.protein || '';
             document.getElementById('food-fat').value = log.fat || '';
-            document.getElementById('food-calories').value = log.calories || '';
         }
+        const calsRaw = document.getElementById('food-calories');
+        calsRaw.value = log.calories !== undefined ? log.calories : '';
+        delete calsRaw.dataset.baseKcal;
         document.getElementById('food-datetime').value = window.formatDateTimeLocalForInput(log.eaten_at);
         document.getElementById('food-weight').focus();
     };
@@ -162,10 +171,11 @@
         const name = document.getElementById('food-name').value, dt = document.getElementById('food-datetime').value;
         if (!dt) { window.safeAlert("Please enter date."); return; }
         const w = parseFloat(document.getElementById('food-weight').value) || 0, c = parseFloat(document.getElementById('food-carbs').value) || 0, p = parseFloat(document.getElementById('food-protein').value) || 0, f = parseFloat(document.getElementById('food-fat').value) || 0;
+        const calsRaw = parseFloat(document.getElementById('food-calories').value);
         const per100 = document.getElementById('food-per-100g').checked, mult = per100 ? w / 100 : 1;
         const payload = {
             eaten_at: new Date(dt).toISOString(), name, barcode: document.getElementById('food-barcode').value,
-            weight: w, carbs: Math.round(c * mult), protein: Math.round(p * mult), fat: Math.round(f * mult), calories: Math.round((4 * c * mult) + (4 * p * mult) + (9 * f * mult))
+            weight: w, carbs: Math.round(c * mult), protein: Math.round(p * mult), fat: Math.round(f * mult), calories: !isNaN(calsRaw) ? Math.round(calsRaw) : Math.round((4 * c * mult) + (4 * p * mult) + (9 * f * mult))
         };
         const id = document.getElementById('food-id').value;
         try {
@@ -181,4 +191,17 @@
         try { await window.apiCall(`/api/food/log/${id}`, 'DELETE'); window.loadFoodLogs(); }
         catch (e) { window.safeAlert("Failed to delete food log."); }
     };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        ['food-weight', 'food-carbs', 'food-protein', 'food-fat'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', window.calculateFoodCalories);
+        });
+        const calsEl = document.getElementById('food-calories');
+        if (calsEl) {
+            calsEl.addEventListener('input', function () {
+                delete this.dataset.baseKcal;
+            });
+        }
+    });
 })();
