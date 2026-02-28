@@ -72,6 +72,12 @@ if (!window.DataStore) {
     throw new Error('DataStore is not available. Ensure data-store.js loads before app.js');
 }
 
+function formatDateTimeLocalForInput(dateValue = new Date()) {
+    const localDate = dateValue instanceof Date ? new Date(dateValue.getTime()) : new Date(dateValue);
+    localDate.setMinutes(localDate.getMinutes() - localDate.getTimezoneOffset());
+    return localDate.toISOString().slice(0, 16);
+}
+
 window.onDataStoreUnauthorized = function () {
     if (sessionStorage.getItem('medtracker_auth_reload_in_progress') === '1') {
         return;
@@ -1596,9 +1602,7 @@ function showAddFoodModal() {
     document.getElementById('food-modal-title').innerText = 'Log Food';
 
     // Set default date/time
-    const now = new Date();
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    document.getElementById('food-datetime').value = now.toISOString().slice(0, 16);
+    document.getElementById('food-datetime').value = formatDateTimeLocalForInput();
 
     // Clear inputs
     document.getElementById('food-id').value = '';
@@ -1649,9 +1653,7 @@ function editFoodLog(id) {
     }
 
     if (log.eaten_at) {
-        const local = new Date(log.eaten_at);
-        local.setMinutes(local.getMinutes() - local.getTimezoneOffset());
-        document.getElementById('food-datetime').value = local.toISOString().slice(0, 16);
+        document.getElementById('food-datetime').value = formatDateTimeLocalForInput(log.eaten_at);
     }
     document.getElementById('food-weight').focus();
 }
@@ -3189,10 +3191,7 @@ function showBPRecordModal() {
     document.getElementById('bp-modal').classList.remove('hidden');
 
     // Set default datetime to now
-    const now = new Date();
-    const offset = now.getTimezoneOffset() * 60000;
-    const localISOTime = (new Date(now - offset)).toISOString().slice(0, 16);
-    document.getElementById('bp-datetime').value = localISOTime;
+    document.getElementById('bp-datetime').value = formatDateTimeLocalForInput();
 
     // Clear other fields
     document.getElementById('bp-systolic').value = '';
@@ -3748,10 +3747,7 @@ function showWeightModal() {
     document.getElementById('weight-modal').classList.remove('hidden');
 
     // Set default datetime to now
-    const now = new Date();
-    const offset = now.getTimezoneOffset() * 60000;
-    const localISOTime = (new Date(now - offset)).toISOString().slice(0, 16);
-    document.getElementById('weight-datetime').value = localISOTime;
+    document.getElementById('weight-datetime').value = formatDateTimeLocalForInput();
 
     // Clear notes field
     document.getElementById('weight-notes').value = '';
@@ -4605,9 +4601,7 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
 
         // Set time input (handling both ISO strings and formatted strings if parsable)
         try {
-            const d = new Date(scheduledAt);
-            const isoLocal = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
-            timeInput.value = isoLocal;
+            timeInput.value = formatDateTimeLocalForInput(scheduledAt);
         } catch (e) {
             console.error("Error formatting date for input", e);
         }

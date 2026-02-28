@@ -56,4 +56,15 @@ describe('app.js unit tests', () => {
       cleanup();
     }
   });
+
+  it('formats datetime-local input values and throws for invalid date values', () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      const value = window.formatDateTimeLocalForInput('2026-02-28T10:15:00Z');
+      expect(value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+      expect(() => window.formatDateTimeLocalForInput('not-a-date')).toThrow('Invalid time value');
+    } finally {
+      cleanup();
+    }
+  });
 });
