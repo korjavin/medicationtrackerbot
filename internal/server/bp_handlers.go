@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -49,10 +50,10 @@ func (s *Server) handleCreateBloodPressure(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Cross-channel sync: if reminder is handled from web, clear Telegram notification.
+	// Cross-channel sync: if reminder is handled from web, clear notification.
 	if state, err := s.store.GetBPReminderState(userID); err == nil && state != nil {
-		if state.NotificationMessageID != nil && s.bot != nil {
-			_ = s.bot.DeleteMessage(*state.NotificationMessageID)
+		if state.NotificationMessageID != nil {
+			s.deleteNotification(r.Context(), *state.NotificationMessageID)
 		}
 		_ = s.store.ClearBPReminderNotificationMessage(userID)
 	}
@@ -308,10 +309,10 @@ func (s *Server) handleSnoozeBPReminder(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Cross-channel sync: remove Telegram reminder message when snoozed from web/push.
+	// Cross-channel sync: remove notification when snoozed from web/push.
 	if state, err := s.store.GetBPReminderState(userID); err == nil && state != nil {
-		if state.NotificationMessageID != nil && s.bot != nil {
-			_ = s.bot.DeleteMessage(*state.NotificationMessageID)
+		if state.NotificationMessageID != nil {
+			s.deleteNotification(r.Context(), *state.NotificationMessageID)
 		}
 		_ = s.store.ClearBPReminderNotificationMessage(userID)
 	}
@@ -333,10 +334,10 @@ func (s *Server) handleDontBugMeBPReminder(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Cross-channel sync: remove Telegram reminder message when disabled from web/push.
+	// Cross-channel sync: remove notification when disabled from web/push.
 	if state, err := s.store.GetBPReminderState(userID); err == nil && state != nil {
-		if state.NotificationMessageID != nil && s.bot != nil {
-			_ = s.bot.DeleteMessage(*state.NotificationMessageID)
+		if state.NotificationMessageID != nil {
+			s.deleteNotification(r.Context(), *state.NotificationMessageID)
 		}
 		_ = s.store.ClearBPReminderNotificationMessage(userID)
 	}
@@ -351,18 +352,29 @@ func (s *Server) handleDontBugMeBPReminder(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleSendTestBPNotification(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	_ = r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	if s.webPush == nil {
-		http.Error(w, "Web Push not configured", http.StatusBadRequest)
+	if len(s.notifiers) == 0 {
+		http.Error(w, "No notification channels configured", http.StatusBadRequest)
 		return
 	}
 
-	// Send test notification with enhanced=false
-	if err := s.webPush.SendBPReminderNotification(r.Context(), userID, false); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	// Send test BP notification matching the scheduler's format
+	n := notifier.Notification{
+		Text: "📊 **Time to measure your blood pressure**\n\nPlease take a moment to measure and record your BP.",
+		Actions: []notifier.Action{
+			{ID: "bp_confirm", Label: "✅ Confirm"},
+			{ID: "bp_snooze", Label: "⏰ Snooze (2h)"},
+			{ID: "bp_dontbug", Label: "🔇 Don't Bug Me (24h)"},
+		},
+		Tag: "bp-reminder",
+		Metadata: map[string]interface{}{
+			"type":     "bp_reminder",
+			"enhanced": false,
+		},
 	}
+
+	s.notify(r.Context(), n)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{

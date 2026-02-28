@@ -17,6 +17,7 @@ import (
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
+	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	"github.com/korjavin/medicationtrackerbot/internal/webpush"
@@ -26,6 +27,7 @@ import (
 type Server struct {
 	store           *store.Store
 	bot             *bot.Bot
+	notifiers       []notifier.Notifier
 	rxnorm          *rxnorm.Client
 	botToken        string
 	sessionSecret   string
@@ -199,6 +201,37 @@ func New(s *store.Store, b *bot.Bot, botToken, sessionSecret string, allowedUser
 
 func (s *Server) GetWebPushService() *webpush.Service {
 	return s.webPush
+}
+
+// SetNotifiers configures the notification channels after construction.
+// This is needed because the WebPush notifier depends on the server's webpush.Service.
+func (s *Server) SetNotifiers(notifiers []notifier.Notifier) {
+	s.notifiers = notifiers
+}
+
+// deleteNotification deletes a previously sent notification from all notifiers.
+func (s *Server) deleteNotification(ctx context.Context, msgID int) {
+	if msgID == 0 {
+		return
+	}
+	for _, nr := range s.notifiers {
+		go func(nr notifier.Notifier) {
+			if err := nr.Delete(ctx, s.allowedUserID, msgID); err != nil {
+				log.Printf("[server] notification delete failed (%T): %v", nr, err)
+			}
+		}(nr)
+	}
+}
+
+// notify sends a notification through all configured notifiers.
+func (s *Server) notify(ctx context.Context, n notifier.Notification) {
+	for _, nr := range s.notifiers {
+		go func(nr notifier.Notifier) {
+			if _, err := nr.Send(ctx, s.allowedUserID, n); err != nil {
+				log.Printf("[server] notification send failed (%T): %v", nr, err)
+			}
+		}(nr)
+	}
 }
 
 // noCacheMiddleware adds headers to prevent caching
@@ -776,14 +809,10 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if intake.Status == "PENDING" {
-				// Delete Telegram Messages
+				// Delete notification messages
 				reminders, _ := s.store.GetIntakeReminders(id)
 				for _, msgID := range reminders {
-					if s.bot != nil {
-						if err := s.bot.DeleteMessage(msgID); err != nil {
-							log.Printf("[server] delete message failed: %v", err)
-						}
-					}
+					s.deleteNotification(r.Context(), msgID)
 				}
 
 				if err := s.store.ConfirmIntake(id, now); err != nil {
@@ -818,14 +847,10 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if intake != nil && intake.UserID == userID && intake.Status == "PENDING" {
-			// Delete Telegram Messages
+			// Delete notification messages
 			reminders, _ := s.store.GetIntakeReminders(intake.ID)
 			for _, msgID := range reminders {
-				if s.bot != nil {
-					if err := s.bot.DeleteMessage(msgID); err != nil {
-						log.Printf("[server] delete message failed: %v", err)
-					}
-				}
+				s.deleteNotification(r.Context(), msgID)
 			}
 
 			if err := s.store.ConfirmIntake(intake.ID, now); err != nil {
@@ -845,10 +870,10 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSendTestMedicationNotification(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+	_ = r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	if s.webPush == nil {
-		http.Error(w, "Web Push not configured", http.StatusBadRequest)
+	if len(s.notifiers) == 0 {
+		http.Error(w, "No notification channels configured", http.StatusBadRequest)
 		return
 	}
 
@@ -929,12 +954,34 @@ func (s *Server) handleSendTestMedicationNotification(w http.ResponseWriter, r *
 		return
 	}
 
-	// Send simulated Push
-	ctx := context.Background()
-	if err := s.webPush.SendMedicationNotification(ctx, userID, medsAtEarliest, earliestNext, nil); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to send push: %v", err), http.StatusInternalServerError)
-		return
+	// Build notification matching the scheduler's medication notification format
+	medNames := make([]string, len(medsAtEarliest))
+	medIDs := make([]int64, len(medsAtEarliest))
+	for i, m := range medsAtEarliest {
+		name := m.Name
+		if m.Dosage != "" {
+			name += " " + m.Dosage
+		}
+		medNames[i] = name
+		medIDs[i] = m.ID
 	}
+
+	n := notifier.Notification{
+		Text: fmt.Sprintf("**Time to take medication**\n%s", strings.Join(medNames, ", ")),
+		Actions: []notifier.Action{
+			{ID: "confirm_all", Label: "Confirm All"},
+			{ID: "snooze", Label: "Snooze 10m"},
+		},
+		Tag: fmt.Sprintf("medication-%s", earliestNext.Format(time.RFC3339)),
+		Metadata: map[string]interface{}{
+			"type":             "medication",
+			"scheduled_at":     earliestNext.Format(time.RFC3339),
+			"medication_ids":   medIDs,
+			"medication_names": medNames,
+		},
+	}
+
+	s.notify(r.Context(), n)
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Sent simulated notification for %d medication(s) scheduled at %s", len(medsAtEarliest), earliestNext.Format("15:04"))
