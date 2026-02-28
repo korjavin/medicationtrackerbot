@@ -2812,18 +2812,30 @@ async function loadRestockHistory(medId) {
     const restocks = await apiCall(`/api/medications/${medId}/restocks`);
     const container = document.getElementById('restock-history');
 
+    container.replaceChildren();
+
     if (!restocks || restocks.length === 0) {
-        container.innerHTML = '<p class="hint">No restock history</p>';
+        const empty = document.createElement('p');
+        empty.className = 'hint';
+        empty.textContent = 'No restock history';
+        container.appendChild(empty);
         return;
     }
 
-    let html = '<p class="hint">Recent restocks:</p><ul>';
-    restocks.slice(0, 5).forEach(r => {
+    const title = document.createElement('p');
+    title.className = 'hint';
+    title.textContent = 'Recent restocks:';
+    container.appendChild(title);
+
+    const list = document.createElement('ul');
+    restocks.slice(0, 5).forEach((r) => {
         const date = formatDate(r.restocked_at);
-        html += `<li>+${r.quantity} on ${date}${r.note ? ' - ' + escapeHtml(r.note) : ''}</li>`;
+        const item = document.createElement('li');
+        item.textContent = `+${r.quantity} on ${date}${r.note ? ` - ${r.note}` : ''}`;
+        list.appendChild(item);
     });
-    html += '</ul>';
-    container.innerHTML = html;
+
+    container.appendChild(list);
 }
 
 async function handleRestock() {
