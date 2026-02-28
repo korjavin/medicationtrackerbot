@@ -195,6 +195,14 @@ describe('app.js charts, scanner and visualization helpers', () => {
       window.renderWeightChart(logs, goalData);
       expect(weightChart.querySelector('svg')).toBeTruthy();
       expect(document.getElementById('weight-stats').innerHTML).toContain('Trend:');
+      expect(document.querySelectorAll('#weight-stats .weight-stat-item').length).toBeGreaterThan(2);
+
+      window.renderWeightStats({
+        trendWeight: 80.5,
+        weeklyRate: undefined,
+        forecastDate: null
+      });
+      expect(document.getElementById('weight-stats').textContent).toContain('Forecast: Unknown');
 
       const tsBase = Date.now() - (24 * 60 * 60 * 1000);
       window.renderVitalsLineChart('heartRateChart', [
