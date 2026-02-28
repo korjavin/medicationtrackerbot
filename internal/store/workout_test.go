@@ -12,37 +12,50 @@ import (
 )
 
 // setupTestDB creates an in-memory test database with the workout schema from migrations
+func applyMigration(t *testing.T, db *sql.DB, migrationFile string) {
+	schemaBytes, err := os.ReadFile(migrationFile)
+	if err != nil {
+		t.Fatalf("Failed to read migration file %s: %v", migrationFile, err)
+	}
+
+	schemaSQL := string(schemaBytes)
+	upStart := strings.Index(schemaSQL, "-- +goose Up")
+	downStart := strings.Index(schemaSQL, "-- +goose Down")
+
+	if upStart == -1 || downStart == -1 {
+		t.Fatalf("Migration file %s doesn't contain goose directives", migrationFile)
+	}
+
+	upSQL := schemaSQL[upStart:downStart]
+	upSQL = strings.TrimPrefix(upSQL, "-- +goose Up")
+	upSQL = strings.TrimSpace(upSQL)
+
+	if _, err := db.Exec(upSQL); err != nil {
+		t.Fatalf("Failed to execute migration %s: %v", migrationFile, err)
+	}
+}
+
 func setupTestDB(t *testing.T) *Store {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}
 
-	// Read the workout migration file
-	migrationPath := filepath.Join("migrations", "012_add_workout_tracking.sql")
-	schemaBytes, err := os.ReadFile(migrationPath)
-	if err != nil {
-		t.Fatalf("Failed to read migration file: %v", err)
+	// Apply workout migration
+	applyMigration(t, db, filepath.Join("migrations", "012_add_workout_tracking.sql"))
+
+	// Create change_events table (needed by exercise_library triggers)
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS change_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER,
+		tag TEXT NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		t.Fatalf("Failed to create change_events table: %v", err)
 	}
 
-	// Extract only the SQL between "-- +goose Up" and "-- +goose Down"
-	schemaSQL := string(schemaBytes)
-	upStart := strings.Index(schemaSQL, "-- +goose Up")
-	downStart := strings.Index(schemaSQL, "-- +goose Down")
-
-	if upStart == -1 || downStart == -1 {
-		t.Fatalf("Migration file doesn't contain goose directives")
-	}
-
-	// Get SQL between directives, skipping the "-- +goose Up" line itself
-	upSQL := schemaSQL[upStart:downStart]
-	upSQL = strings.TrimPrefix(upSQL, "-- +goose Up")
-	upSQL = strings.TrimSpace(upSQL)
-
-	// Execute the migration
-	if _, err := db.Exec(upSQL); err != nil {
-		t.Fatalf("Failed to execute migration: %v", err)
-	}
+	// Apply exercise library migration
+	applyMigration(t, db, filepath.Join("migrations", "028_add_exercise_library.sql"))
 
 	return &Store{db: db}
 }
