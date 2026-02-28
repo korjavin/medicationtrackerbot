@@ -47,7 +47,6 @@ func setupTestDB(t *testing.T) *Store {
 	// Create change_events table (needed by exercise_library triggers)
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS change_events (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id INTEGER,
 		tag TEXT NOT NULL,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`); err != nil {
