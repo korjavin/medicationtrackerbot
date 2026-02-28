@@ -16,15 +16,35 @@ let currentVariantForExercise = null;
 // ====================================
 
 function switchWorkoutTab(tab) {
-    document.querySelectorAll('.workout-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.workout-tab-content').forEach(c => c.classList.remove('active'));
-
-    document.querySelector(`.workout-tab[data-tab="${tab}"]`).classList.add('active');
-    document.getElementById(`workout-${tab}-tab`).classList.add('active');
+    const activated = typeof activateTabGroup === 'function'
+        ? activateTabGroup(tab, {
+            buttonSelector: '.workout-tab',
+            contentSelector: '.workout-tab-content',
+            contentIdFromTab: (tabName) => `workout-${tabName}-tab`
+        })
+        : (() => {
+            document.querySelectorAll('.workout-tab').forEach((t) => t.classList.remove('active'));
+            document.querySelectorAll('.workout-tab-content').forEach((c) => c.classList.remove('active'));
+            const tabButton = document.querySelector(`.workout-tab[data-tab="${tab}"]`);
+            const tabContent = document.getElementById(`workout-${tab}-tab`);
+            if (!tabButton || !tabContent) return false;
+            tabButton.classList.add('active');
+            tabContent.classList.add('active');
+            return true;
+        })();
+    if (!activated) return;
 
     if (tab === 'groups') { loadWorkoutGroups(); }
     else if (tab === 'history') { loadNextWorkout(); loadWorkoutHistoryTab(); }
     else if (tab === 'stats') { loadWorkoutStatsTab(); }
+}
+
+if (typeof bindTabGroup === 'function') {
+    bindTabGroup({
+        container: document.querySelector('.workout-tabs'),
+        buttonSelector: '.workout-tab',
+        onTabSelect: switchWorkoutTab
+    });
 }
 
 // Main load function called when switching to workouts tab
