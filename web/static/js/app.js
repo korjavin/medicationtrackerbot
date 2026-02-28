@@ -1898,7 +1898,7 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
     const list = document.getElementById('food-autocomplete-list');
     if (!list) return;
 
-    list.innerHTML = '';
+    list.replaceChildren();
 
     if (foodAutoCompleteSuggestions.length === 0) {
         list.classList.add('hidden');
@@ -1908,7 +1908,9 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
     // Add a close button at the top
     const closeBtn = document.createElement('div');
     closeBtn.className = 'autocomplete-close';
-    closeBtn.innerHTML = '<span>&#x25B2; Close</span>'; // Up arrow
+    const closeSpan = document.createElement('span');
+    closeSpan.textContent = '▲ Close';
+    closeBtn.appendChild(closeSpan);
     closeBtn.onclick = function (e) {
         e.stopPropagation(); // prevent document click listener
         list.classList.add('hidden');
@@ -1944,7 +1946,7 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
 
             const editBtn = document.createElement('button');
             editBtn.className = 'autocomplete-action-btn';
-            editBtn.innerHTML = '&#9998;'; // pencil
+            editBtn.textContent = '✎'; // pencil
             editBtn.title = 'Edit product';
             editBtn.onclick = function (e) {
                 e.stopPropagation();
@@ -1955,7 +1957,7 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
 
             const deleteBtn = document.createElement('button');
             deleteBtn.className = 'autocomplete-action-btn autocomplete-action-delete';
-            deleteBtn.innerHTML = '&#10005;'; // x mark
+            deleteBtn.textContent = '✕'; // x mark
             deleteBtn.title = 'Delete product';
             deleteBtn.onclick = function (e) {
                 e.stopPropagation();
@@ -2935,14 +2937,14 @@ function showAddModal() {
     document.getElementById('med-inventory-count').value = '';
     document.getElementById('inventory-fields').classList.add('hidden');
     document.getElementById('restock-section').style.display = 'none';
-    document.getElementById('restock-history').innerHTML = '';
+    document.getElementById('restock-history').replaceChildren();
 
     // Default: Daily, 1 time input
     document.getElementById('schedule-type').value = 'daily';
     toggleScheduleFields();
 
     const timeContainer = document.getElementById('time-inputs');
-    timeContainer.innerHTML = '';
+    timeContainer.replaceChildren();
     addTimeInput(); // One empty input
 
     // Clear days
@@ -2985,7 +2987,7 @@ function showEditModal(id) {
     } else {
         document.getElementById('inventory-fields').classList.add('hidden');
         document.getElementById('restock-section').style.display = 'none';
-        document.getElementById('restock-history').innerHTML = '';
+        document.getElementById('restock-history').replaceChildren();
     }
 
     // Parse schedule
@@ -3002,7 +3004,7 @@ function showEditModal(id) {
 
     // Set times
     const timeContainer = document.getElementById('time-inputs');
-    timeContainer.innerHTML = '';
+    timeContainer.replaceChildren();
     if (sched.times && sched.times.length > 0) {
         sched.times.forEach(t => addTimeInput(t));
     } else {
@@ -3598,7 +3600,10 @@ function populateMedFilter() {
     const currentVal = select.value;
 
     // Keep "All Medications"
-    select.innerHTML = '<option value="0">All Medications</option>';
+    const allOpt = document.createElement('option');
+    allOpt.value = "0";
+    allOpt.textContent = "All Medications";
+    select.replaceChildren(allOpt);
 
     // Sort alphabetically
     const sorted = [...medications].sort((a, b) => a.name.localeCompare(b.name));
@@ -4708,7 +4713,7 @@ function initWeightRuler(initialWeight) {
 
 function renderRulerTicks(centerWeight) {
     const ruler = document.getElementById('weight-ruler');
-    ruler.innerHTML = ''; // Clear existing ticks
+    ruler.replaceChildren(); // Clear existing ticks
 
     const container = document.getElementById('weight-ruler-container');
     const containerWidth = container.clientWidth;
@@ -5540,7 +5545,7 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
     }
 
     const list = document.getElementById('med-confirm-list');
-    list.innerHTML = '';
+    list.replaceChildren();
 
     ids.forEach((id, index) => {
         const name = names[index] || ('Medication ' + id);
