@@ -200,7 +200,12 @@ async function loadWorkoutGroups() {
         },
         onError: async (error, cached) => {
             console.error('Error loading workout groups:', error);
-            if (!cached) container.innerHTML = '<p style="color: red;">Error loading workout groups</p>';
+            if (!cached) {
+                const message = document.createElement('p');
+                message.style.color = 'red';
+                message.textContent = 'Error loading workout groups';
+                container.replaceChildren(message);
+            }
         }
     });
 }
@@ -209,32 +214,67 @@ function _renderWorkoutGroups(container, groups) {
     workoutGroups = groups || [];
 
     if (!groups || groups.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout groups yet. Click "+ Add Workout Group" to get started!</p>';
+        const empty = document.createElement('p');
+        empty.style.textAlign = 'center';
+        empty.style.color = 'var(--hint-color)';
+        empty.style.padding = '40px';
+        empty.textContent = 'No workout groups yet. Click "+ Add Workout Group" to get started!';
+        container.replaceChildren(empty);
         return;
     }
 
-    let html = '';
-    groups.forEach(group => {
-        const daysArray = JSON.parse(group.days_of_week || '[]');
+    container.replaceChildren();
+    groups.forEach((group) => {
+        let daysArray = [];
+        try {
+            daysArray = JSON.parse(group.days_of_week || '[]');
+        } catch (e) { }
         const daysMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const daysText = daysArray.map(d => daysMap[d]).join(', ');
+        const daysText = daysArray.map((day) => daysMap[day]).join(', ');
 
-        html += `
-                <div class="med-item" style="margin-bottom: 15px;">
-                    <div class="med-info" onclick="showEditWorkoutGroupModal(${group.id})" style="cursor: pointer;">
-                        <h4>${escapeHtml(group.name)} ${group.is_rotating ? '🔄' : ''} ${!group.active ? '(Inactive)' : ''}</h4>
-                        <p>${escapeHtml(group.description || '')}</p>
-                        <p style="font-size: 0.9em; color: #666;">
-                            📅 ${daysText} at ${group.scheduled_time}
-                            <br>🔔 ${group.notification_advance_minutes} min before
-                        </p>
-                    </div>
-                    <button class="delete-btn" onclick="deleteWorkoutGroup(${group.id}, event)">&times;</button>
-                </div>
-            `;
+        const card = document.createElement('div');
+        card.className = 'med-item';
+        card.style.marginBottom = '15px';
+
+        const info = document.createElement('div');
+        info.className = 'med-info';
+        info.style.cursor = 'pointer';
+        info.addEventListener('click', () => {
+            showEditWorkoutGroupModal(group.id);
+        });
+
+        const title = document.createElement('h4');
+        const titleParts = [group.name];
+        if (group.is_rotating) titleParts.push('🔄');
+        if (!group.active) titleParts.push('(Inactive)');
+        title.textContent = titleParts.join(' ');
+
+        const description = document.createElement('p');
+        description.textContent = group.description || '';
+
+        const schedule = document.createElement('p');
+        schedule.style.fontSize = '0.9em';
+        schedule.style.color = '#666';
+        schedule.appendChild(document.createTextNode(`📅 ${daysText} at ${group.scheduled_time}`));
+        schedule.appendChild(document.createElement('br'));
+        schedule.appendChild(document.createTextNode(`🔔 ${group.notification_advance_minutes} min before`));
+
+        info.appendChild(title);
+        info.appendChild(description);
+        info.appendChild(schedule);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = '×';
+        deleteBtn.addEventListener('click', (event) => {
+            deleteWorkoutGroup(group.id, event);
+        });
+
+        card.appendChild(info);
+        card.appendChild(deleteBtn);
+        container.appendChild(card);
     });
-
-    container.innerHTML = html;
 }
 
 // ====================================
