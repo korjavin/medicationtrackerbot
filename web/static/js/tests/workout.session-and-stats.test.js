@@ -366,4 +366,35 @@ describe('workout.js session and stats flows', () => {
       cleanup();
     }
   });
+
+  it('closeAddExerciseToSessionModal restores overlay handler and selection fallback clears hidden id', async () => {
+    const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
+
+    try {
+      window.apiCall = vi.fn(async (endpoint) => {
+        if (endpoint.startsWith('/api/workout/sessions/details')) return sessionDetailsFixture();
+        if (endpoint.startsWith('/api/workout/exercises?variant_id=')) return plannedExercisesFixture();
+        if (endpoint === '/api/workout/exercises/unique') {
+          return [{ id: 123, exercise_name: 'Cable Row', target_sets: 3, target_reps_min: 10, target_weight_kg: 45 }];
+        }
+        return { ok: true };
+      });
+
+      await window.showWorkoutSessionModal(77);
+      const closeSessionSpy = vi.spyOn(window, 'closeWorkoutSessionModal');
+      await window.showAddExerciseToSessionModal();
+
+      document.getElementById('session-add-exercise-name').value = 'Nonexistent Exercise';
+      document.getElementById('session-add-exercise-id').value = '999';
+      window.onSessionExerciseSelect();
+      expect(document.getElementById('session-add-exercise-id').value).toBe('');
+
+      window.closeAddExerciseToSessionModal();
+      const overlay = document.getElementById('modal-overlay');
+      overlay.onclick({ target: overlay });
+      expect(closeSessionSpy).toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
 });
