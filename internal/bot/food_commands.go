@@ -3,11 +3,10 @@ package bot
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -40,55 +39,23 @@ Example:
 		return
 	}
 
-	parts := strings.Fields(args)
-	if len(parts) < 4 {
-		msgConfig.Text = "❌ Invalid format. Need at least 4 numbers: carbs protein fat weight"
+	parsed, err := domain.ParseIntakeArgs(args)
+	if err != nil {
+		msgConfig.Text = "❌ " + err.Error()
 		return
 	}
 
-	// Parse numbers
-	carbs100, err := strconv.ParseFloat(parts[0], 64)
-	if err != nil {
-		msgConfig.Text = "❌ Invalid carbs value"
-		return
-	}
-	prot100, err := strconv.ParseFloat(parts[1], 64)
-	if err != nil {
-		msgConfig.Text = "❌ Invalid protein value"
-		return
-	}
-	fat100, err := strconv.ParseFloat(parts[2], 64)
-	if err != nil {
-		msgConfig.Text = "❌ Invalid fat value"
-		return
-	}
-	weight, err := strconv.ParseFloat(parts[3], 64)
-	if err != nil {
-		msgConfig.Text = "❌ Invalid weight value"
-		return
-	}
-
-	// Calculate totals
-	totalCarbs := int((carbs100 * weight) / 100)
-	totalProt := int((prot100 * weight) / 100)
-	totalFat := int((fat100 * weight) / 100)
-	totalCals := (4 * totalCarbs) + (4 * totalProt) + (9 * totalFat)
-
-	// Name
-	name := "Food"
-	if len(parts) > 4 {
-		name = strings.Join(parts[4:], " ")
-	}
+	totalCarbs, totalProt, totalFat, totalCals := domain.CalculateMacros(parsed.Carbs100, parsed.Prot100, parsed.Fat100, parsed.Weight)
 
 	log := &store.FoodLog{
 		UserID:   b.allowedUserID,
 		EatenAt:  time.Unix(int64(msg.Date), 0),
-		Weight:   int(weight),
+		Weight:   int(parsed.Weight),
 		Carbs:    totalCarbs,
 		Protein:  totalProt,
 		Fat:      totalFat,
 		Calories: totalCals,
-		Name:     name,
+		Name:     parsed.Name,
 	}
 
 	_, err = b.food.CreateFoodLog(context.Background(), log)
@@ -98,5 +65,5 @@ Example:
 	}
 
 	msgConfig.Text = fmt.Sprintf("✅ Logged %s\n\n📊 Macros: %dg C / %dg P / %dg F\n🔥 Calories: %d kcal\n⚖️ Weight: %dg",
-		name, totalCarbs, totalProt, totalFat, totalCals, int(weight))
+		parsed.Name, totalCarbs, totalProt, totalFat, totalCals, int(parsed.Weight))
 }
