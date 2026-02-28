@@ -11,6 +11,10 @@ const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
 
+function evalWithSourceURL(window, source, scriptPath) {
+  window.eval(`${source}\n//# sourceURL=file://${scriptPath}`);
+}
+
 function disableAutoBootstrap(source) {
   const bootStart = source.indexOf('// Initial Load');
   const bootEnd = source.indexOf('// Check for Telegram start_param');
@@ -96,12 +100,12 @@ export function loadFrontendEnv({ withWorkout = false } = {}) {
   window.eval('var history = window.history;');
 
   const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
-  window.eval(appSource);
+  evalWithSourceURL(window, appSource, APP_JS);
   window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 
   if (withWorkout) {
     const workoutSource = fs.readFileSync(WORKOUT_JS, 'utf8');
-    window.eval(workoutSource);
+    evalWithSourceURL(window, workoutSource, WORKOUT_JS);
   }
 
   return {

@@ -12,3 +12,4 @@ docs/screenshots
 import.sql
 frontendplan.markdown
 node_modules/
+coverage/

@@ -8,6 +8,10 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 
+function evalWithSourceURL(window, source, scriptPath) {
+  window.eval(`${source}\n//# sourceURL=file://${scriptPath}`);
+}
+
 function createApiCacheMock(initialCache = {}) {
   const map = new Map(Object.entries(initialCache));
 
@@ -39,7 +43,7 @@ export function loadDataStoreEnv({ initialCache = {} } = {}) {
   window.apiCallDirect = async () => ({ cursor: 0, changed_tags: [] });
 
   const source = fs.readFileSync(DATA_STORE_JS, 'utf8');
-  window.eval(source);
+  evalWithSourceURL(window, source, DATA_STORE_JS);
 
   return {
     window,
