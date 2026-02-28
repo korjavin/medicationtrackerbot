@@ -168,6 +168,54 @@ describe('sync.js offlineAwareApiCall behavior', () => {
     }
   });
 
+  it('falls back to offline BP/weight writes on network errors while online', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = true;
+      window.apiCallDirect = vi.fn()
+        .mockRejectedValueOnce(new Error('Network request failed'))
+        .mockRejectedValueOnce(new Error('Failed to fetch'));
+
+      window.MedTrackerDB.BPStore.save = vi.fn().mockResolvedValue({ localId: 31 });
+      window.MedTrackerDB.WeightStore.save = vi.fn().mockResolvedValue({ localId: 32 });
+      const registerSpy = vi.spyOn(window.SyncManager, 'registerBackgroundSync').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+
+      const bpRes = await window.offlineAwareApiCall('/api/bp', 'POST', { systolic: 140, diastolic: 90 });
+      const weightRes = await window.offlineAwareApiCall('/api/weight', 'POST', { weight: 80.4 });
+
+      expect(bpRes).toMatchObject({ localId: 31, isLocal: true });
+      expect(weightRes).toMatchObject({ localId: 32, isLocal: true });
+      expect(registerSpy).toHaveBeenCalledWith('sync-bp-readings');
+      expect(registerSpy).toHaveBeenCalledWith('sync-weight-logs');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('falls back to offline weight reads on network error for GET /api/weight', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = true;
+      window.apiCallDirect = vi.fn().mockRejectedValue(new Error('503 Service Unavailable'));
+      window.MedTrackerDB.WeightStore.getAll = vi.fn().mockResolvedValue([
+        { localId: 3, serverId: null, weight: 77.7, syncStatus: 'pending' },
+        { localId: 4, serverId: 44, weight: 76.9, syncStatus: 'synced' }
+      ]);
+
+      const result = await window.offlineAwareApiCall('/api/weight?days=35', 'GET');
+
+      expect(result).toEqual([
+        { id: 'local_3', localId: 3, serverId: null, weight: 77.7, syncStatus: 'pending', isLocal: true },
+        { id: 44, localId: 4, serverId: 44, weight: 76.9, syncStatus: 'synced', isLocal: false }
+      ]);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('returns network result directly when request succeeds', async () => {
     const { window, cleanup } = loadSyncEnv();
 
