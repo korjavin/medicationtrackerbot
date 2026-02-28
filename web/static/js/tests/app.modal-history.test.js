@@ -115,4 +115,23 @@ describe('app.js modal history and back behavior', () => {
       cleanup();
     }
   });
+
+  it('skips Telegram BackButton show/hide wiring on unsupported WebApp versions', async () => {
+    const { window, document, backButtonState, cleanup } = loadFrontendEnv({ telegramVersion: '6.0' });
+
+    try {
+      window.showBPRecordModal();
+      await flushMutations();
+      expect(document.getElementById('bp-modal').classList.contains('hidden')).toBe(false);
+      expect(backButtonState.showCalls).toBe(0);
+      expect(backButtonState.clickHandler).toBeNull();
+
+      window.closeBPRecordModal();
+      await flushMutations();
+      expect(document.getElementById('bp-modal').classList.contains('hidden')).toBe(true);
+      expect(backButtonState.hideCalls).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
 });

@@ -157,6 +157,10 @@ describe('app.js charts, scanner and visualization helpers', () => {
         stats_30: { days: 28, systolic: 126, diastolic: 81 }
       });
       expect(document.getElementById('bp-averages').innerHTML).toContain('14d');
+      expect(document.querySelectorAll('#bp-averages .bp-avg-item')).toHaveLength(2);
+
+      window.renderBPAverages(null);
+      expect(document.getElementById('bp-averages').children).toHaveLength(0);
 
       window.renderBPReadings(readings);
       const bpListHtml = document.getElementById('bp-list').innerHTML;
@@ -191,6 +195,14 @@ describe('app.js charts, scanner and visualization helpers', () => {
       window.renderWeightChart(logs, goalData);
       expect(weightChart.querySelector('svg')).toBeTruthy();
       expect(document.getElementById('weight-stats').innerHTML).toContain('Trend:');
+      expect(document.querySelectorAll('#weight-stats .weight-stat-item').length).toBeGreaterThan(2);
+
+      window.renderWeightStats({
+        trendWeight: 80.5,
+        weeklyRate: undefined,
+        forecastDate: null
+      });
+      expect(document.getElementById('weight-stats').textContent).toContain('Forecast: Unknown');
 
       const tsBase = Date.now() - (24 * 60 * 60 * 1000);
       window.renderVitalsLineChart('heartRateChart', [

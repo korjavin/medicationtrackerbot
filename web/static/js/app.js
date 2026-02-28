@@ -96,16 +96,27 @@ class MTModal extends HTMLElement {
         if (!this.hasAttribute('aria-hidden')) {
             this.setAttribute('aria-hidden', this.classList.contains('hidden') ? 'true' : 'false');
         }
+        if (this.classList.contains('hidden')) {
+            this.setAttribute('inert', '');
+        } else {
+            this.removeAttribute('inert');
+        }
     }
 
     open() {
         this.classList.remove('hidden');
         this.setAttribute('aria-hidden', 'false');
+        this.removeAttribute('inert');
     }
 
     close() {
+        const activeElement = document.activeElement;
+        if (activeElement && this.contains(activeElement) && typeof activeElement.blur === 'function') {
+            activeElement.blur();
+        }
         this.classList.add('hidden');
         this.setAttribute('aria-hidden', 'true');
+        this.setAttribute('inert', '');
     }
 }
 
@@ -2628,10 +2639,17 @@ function getRefreshBanner() {
     banner = document.createElement('div');
     banner.id = 'data-refresh-banner';
     banner.className = 'data-refresh-banner hidden';
-    banner.innerHTML = `
-        <span>New data is available.</span>
-        <button type="button" onclick="applyPendingTabRefresh()">Refresh</button>
-    `;
+
+    const message = document.createElement('span');
+    message.textContent = 'New data is available.';
+
+    const refreshButton = document.createElement('button');
+    refreshButton.type = 'button';
+    refreshButton.textContent = 'Refresh';
+    refreshButton.addEventListener('click', applyPendingTabRefresh);
+
+    banner.appendChild(message);
+    banner.appendChild(refreshButton);
     document.body.appendChild(banner);
     return banner;
 }
@@ -2985,10 +3003,22 @@ function addTimeInput(value = '') {
     const container = document.getElementById('time-inputs');
     const div = document.createElement('div');
     div.className = 'time-row';
-    div.innerHTML = `
-        <input type="time" class="med-time-input" value="${escapeHtml(value)}">
-        <button class="remove-time" onclick="removeTime(this)">×</button>
-    `;
+
+    const input = document.createElement('input');
+    input.type = 'time';
+    input.className = 'med-time-input';
+    input.value = value;
+
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.className = 'remove-time';
+    removeButton.textContent = '×';
+    removeButton.addEventListener('click', () => {
+        removeTime(removeButton);
+    });
+
+    div.appendChild(input);
+    div.appendChild(removeButton);
     container.appendChild(div);
 }
 
@@ -4128,33 +4158,40 @@ function renderBPAverages(stats) {
 
     // Check if stats object has any data
     if (!stats || (!stats.stats_14 && !stats.stats_30 && !stats.stats_60)) {
-        container.innerHTML = '';
+        container.replaceChildren();
         return;
     }
 
-    let html = '<div class="bp-avg-row">';
+    const row = document.createElement('div');
+    row.className = 'bp-avg-row';
 
-    if (stats.stats_14) {
-        html += `<div class="bp-avg-item"><span class="bp-avg-label">14d (${stats.stats_14.days}d)</span><span class="bp-avg-value">${stats.stats_14.systolic}/${stats.stats_14.diastolic}</span></div>`;
-    }
-    if (stats.stats_30) {
-        html += `<div class="bp-avg-item"><span class="bp-avg-label">30d (${stats.stats_30.days}d)</span><span class="bp-avg-value">${stats.stats_30.systolic}/${stats.stats_30.diastolic}</span></div>`;
-    }
-    if (stats.stats_60) {
-        html += `<div class="bp-avg-item"><span class="bp-avg-label">60d (${stats.stats_60.days}d)</span><span class="bp-avg-value">${stats.stats_60.systolic}/${stats.stats_60.diastolic}</span></div>`;
-    }
+    const appendAverageItem = (label, stat) => {
+        const item = document.createElement('div');
+        item.className = 'bp-avg-item';
+        const labelEl = document.createElement('span');
+        labelEl.className = 'bp-avg-label';
+        labelEl.textContent = `${label} (${stat.days}d)`;
+        const valueEl = document.createElement('span');
+        valueEl.className = 'bp-avg-value';
+        valueEl.textContent = `${stat.systolic}/${stat.diastolic}`;
+        item.appendChild(labelEl);
+        item.appendChild(valueEl);
+        row.appendChild(item);
+    };
 
-    html += '</div>';
-    container.innerHTML = html;
+    if (stats.stats_14) appendAverageItem('14d', stats.stats_14);
+    if (stats.stats_30) appendAverageItem('30d', stats.stats_30);
+    if (stats.stats_60) appendAverageItem('60d', stats.stats_60);
+
+    container.replaceChildren(row);
 }
 
 // Render BP readings grouped by date
 function renderBPReadings(readings) {
     const list = document.getElementById('bp-list');
-    list.innerHTML = '';
+    list.replaceChildren();
 
     if (!readings || readings.length === 0) {
-        list.innerHTML = '';
         return;
     }
 
@@ -4180,69 +4217,121 @@ function renderBPReadings(readings) {
     });
 
     // Helper to render a group
-    const renderGroup = (headerText, readings) => {
-        if (readings.length === 0) return '';
+    const renderGroup = (headerText, groupReadings) => {
+        if (groupReadings.length === 0) return null;
 
         // Sort readings within this group by time (newest first)
-        const sortedReadings = [...readings].sort((a, b) =>
+        const sortedReadings = [...groupReadings].sort((a, b) =>
             new Date(b.measured_at) - new Date(a.measured_at)
         );
 
-        let html = `<li class="bp-date-group">
-            <div class="bp-date-header">${headerText}</div>
-            <ul style="list-style:none;padding:0;margin:0;">`;
+        const groupItem = document.createElement('li');
+        groupItem.className = 'bp-date-group';
+
+        const header = document.createElement('div');
+        header.className = 'bp-date-header';
+        header.textContent = headerText;
+
+        const groupList = document.createElement('ul');
+        groupList.style.listStyle = 'none';
+        groupList.style.padding = '0';
+        groupList.style.margin = '0';
+        groupItem.appendChild(header);
+        groupItem.appendChild(groupList);
 
         sortedReadings.forEach(r => {
             const category = getBPCategory(r.systolic, r.diastolic);
-            const timeStr = formatDate(r.measured_at).split(' ')[1]; // Get HH:MM part
+            const [, timeStr = ''] = formatDate(r.measured_at).split(' '); // Get HH:MM part
             const pendingClass = r.isLocal ? ' pending-sync' : '';
 
-            html += `<li class="bp-item${pendingClass}">
-                <div class="bp-reading">
-                    <div class="bp-values">
-                        <span class="bp-sys">${r.systolic}</span>
-                        <span class="bp-dia">/${r.diastolic}</span>
-                        ${r.isLocal ? '<span class="sync-pending-badge">Pending</span>' : ''}
-                    </div>
-                    <div class="bp-meta">
-                        <span>${timeStr}</span>`;
+            const item = document.createElement('li');
+            item.className = `bp-item${pendingClass}`;
 
-            if (r.pulse) {
-                html += `<span class="bp-pulse">${r.pulse} bpm</span>`;
+            const reading = document.createElement('div');
+            reading.className = 'bp-reading';
+
+            const values = document.createElement('div');
+            values.className = 'bp-values';
+
+            const sys = document.createElement('span');
+            sys.className = 'bp-sys';
+            sys.textContent = String(r.systolic);
+
+            const dia = document.createElement('span');
+            dia.className = 'bp-dia';
+            dia.textContent = `/${r.diastolic}`;
+
+            values.appendChild(sys);
+            values.appendChild(dia);
+
+            if (r.isLocal) {
+                const badge = document.createElement('span');
+                badge.className = 'sync-pending-badge';
+                badge.textContent = 'Pending';
+                values.appendChild(badge);
             }
 
-            html += `<span class="bp-category ${category.class}">${category.label}</span>
-                    </div>
-                </div>
-                <button class="delete-btn" onclick="deleteBPReading('${r.id}')" title="Delete">&times;</button>
-            </li>`;
+            const meta = document.createElement('div');
+            meta.className = 'bp-meta';
+
+            const time = document.createElement('span');
+            time.textContent = timeStr;
+            meta.appendChild(time);
+
+            if (r.pulse) {
+                const pulse = document.createElement('span');
+                pulse.className = 'bp-pulse';
+                pulse.textContent = `${r.pulse} bpm`;
+                meta.appendChild(pulse);
+            }
+
+            const categoryEl = document.createElement('span');
+            categoryEl.className = `bp-category ${category.class}`;
+            categoryEl.textContent = category.label;
+            meta.appendChild(categoryEl);
+
+            reading.appendChild(values);
+            reading.appendChild(meta);
+
+            const deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'delete-btn';
+            deleteButton.title = 'Delete';
+            deleteButton.textContent = '×';
+            deleteButton.addEventListener('click', () => {
+                deleteBPReading(String(r.id));
+            });
+
+            item.appendChild(reading);
+            item.appendChild(deleteButton);
+            groupList.appendChild(item);
         });
 
-        html += '</ul></li>';
-        return html;
+        return groupItem;
     };
 
     // Render groups in order
-    let html = '';
-    html += renderGroup('Today', groups.today);
-    html += renderGroup('Yesterday', groups.yesterday);
+    const todayGroup = renderGroup('Today', groups.today);
+    const yesterdayGroup = renderGroup('Yesterday', groups.yesterday);
+
+    if (todayGroup) list.appendChild(todayGroup);
+    if (yesterdayGroup) list.appendChild(yesterdayGroup);
 
     if (groups.older.length > 0) {
         // Format older dates
-        const olderGroups = {};
+        const olderGroups = new Map();
         groups.older.forEach(r => {
             const d = new Date(r.measured_at);
             const key = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-            if (!olderGroups[key]) olderGroups[key] = [];
-            olderGroups[key].push(r);
+            if (!olderGroups.has(key)) olderGroups.set(key, []);
+            olderGroups.get(key).push(r);
         });
 
-        Object.keys(olderGroups).forEach(dateKey => {
-            html += renderGroup(dateKey, olderGroups[dateKey]);
+        olderGroups.forEach((olderReadings, dateKey) => {
+            const olderGroup = renderGroup(dateKey, olderReadings);
+            if (olderGroup) list.appendChild(olderGroup);
         });
     }
-
-    list.innerHTML = html;
 }
 
 // Delete a BP reading
@@ -4917,44 +5006,57 @@ function renderWeightStats(stats) {
     const statsContainer = document.getElementById('weight-stats');
     if (!statsContainer) return;
 
-    let html = '<div class="weight-stats-container">';
+    const root = document.createElement('div');
+    root.className = 'weight-stats-container';
 
-    // Left column
-    html += '<div class="weight-stats-column">';
-    html += `<div class="weight-stat-item"><span class="weight-stat-label">Trend:</span> <span class="weight-stat-value">${escapeHtml(stats.trendWeight.toFixed(1))} kg</span></div>`;
+    const leftColumn = document.createElement('div');
+    leftColumn.className = 'weight-stats-column';
+    const rightColumn = document.createElement('div');
+    rightColumn.className = 'weight-stats-column';
+
+    const appendStatItem = (column, label, value) => {
+        const item = document.createElement('div');
+        item.className = 'weight-stat-item';
+        const labelEl = document.createElement('span');
+        labelEl.className = 'weight-stat-label';
+        labelEl.textContent = `${label}:`;
+        const valueEl = document.createElement('span');
+        valueEl.className = 'weight-stat-value';
+        valueEl.textContent = value;
+        item.appendChild(labelEl);
+        item.appendChild(document.createTextNode(' '));
+        item.appendChild(valueEl);
+        column.appendChild(item);
+    };
+
+    appendStatItem(leftColumn, 'Trend', `${stats.trendWeight.toFixed(1)} kg`);
 
     if (stats.weeklyRate !== undefined) {
         const rateStr = stats.weeklyRate >= 0
             ? `+${stats.weeklyRate.toFixed(1)} kg/week`
             : `${stats.weeklyRate.toFixed(1)} kg/week`;
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Rate:</span> <span class="weight-stat-value">${escapeHtml(rateStr)}</span></div>`;
+        appendStatItem(leftColumn, 'Rate', rateStr);
     }
 
     if (stats.forecastDate) {
         const dateStr = stats.forecastDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Forecast:</span> <span class="weight-stat-value">${escapeHtml(dateStr)}</span></div>`;
+        appendStatItem(leftColumn, 'Forecast', dateStr);
     } else {
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Forecast:</span> <span class="weight-stat-value">Unknown</span></div>`;
+        appendStatItem(leftColumn, 'Forecast', 'Unknown');
     }
 
-    html += '</div>';
-
-    // Right column
-    html += '<div class="weight-stats-column">';
-
     if (stats.goalWeight !== undefined) {
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Goal:</span> <span class="weight-stat-value">${escapeHtml(stats.goalWeight.toFixed(1))} kg</span></div>`;
+        appendStatItem(rightColumn, 'Goal', `${stats.goalWeight.toFixed(1)} kg`);
 
         const deltaStr = stats.deltaFromGoal >= 0
             ? `+${stats.deltaFromGoal.toFixed(1)} kg`
             : `${stats.deltaFromGoal.toFixed(1)} kg`;
-        html += `<div class="weight-stat-item"><span class="weight-stat-label">Δ from goal:</span> <span class="weight-stat-value">${escapeHtml(deltaStr)}</span></div>`;
+        appendStatItem(rightColumn, 'Δ from goal', deltaStr);
     }
 
-    html += '</div>';
-    html += '</div>';
-
-    statsContainer.innerHTML = html;
+    root.appendChild(leftColumn);
+    root.appendChild(rightColumn);
+    statsContainer.replaceChildren(root);
 }
 
 
@@ -5022,10 +5124,9 @@ async function _renderWeightData(logsRes, goalRes) {
 
 function renderWeightLogs(logs) {
     const list = document.getElementById('weight-list');
-    list.innerHTML = '';
+    list.replaceChildren();
 
     if (!logs || logs.length === 0) {
-        list.innerHTML = '';
         return;
     }
 
@@ -5034,24 +5135,52 @@ function renderWeightLogs(logs) {
         logs = logs.slice(0, 30);
     }
 
-    let html = '';
     logs.forEach(w => {
-        const dateStr = escapeHtml(formatDate(w.measured_at));
+        const dateStr = formatDate(w.measured_at);
         const trendDiff = w.weight_trend ? (w.weight - w.weight_trend).toFixed(1) : '0.0';
         const trendIcon = trendDiff > 0 ? '📈' : (trendDiff < 0 ? '📉' : '➡️');
         const pendingClass = w.isLocal ? ' pending-sync' : '';
+        const listItem = document.createElement('li');
+        listItem.className = `weight-item${pendingClass}`;
 
-        html += `<li class="weight-item${pendingClass}">
-            <div class="weight-data">
-                <div class="weight-value">${escapeHtml(w.weight.toFixed(1))} kg ${w.isLocal ? '<span class="sync-pending-badge">Pending</span>' : ''}</div>
-                <div class="weight-trend">${trendIcon} Trend: ${w.weight_trend ? escapeHtml(w.weight_trend.toFixed(1)) : escapeHtml(w.weight.toFixed(1))} kg</div>
-                <div class="weight-meta">${dateStr}</div>
-            </div>
-            <button class="delete-btn" onclick="deleteWeightLog('${w.id}')" title="Delete">&times;</button>
-        </li>`;
+        const data = document.createElement('div');
+        data.className = 'weight-data';
+
+        const value = document.createElement('div');
+        value.className = 'weight-value';
+        value.appendChild(document.createTextNode(`${w.weight.toFixed(1)} kg `));
+        if (w.isLocal) {
+            const pendingBadge = document.createElement('span');
+            pendingBadge.className = 'sync-pending-badge';
+            pendingBadge.textContent = 'Pending';
+            value.appendChild(pendingBadge);
+        }
+
+        const trend = document.createElement('div');
+        trend.className = 'weight-trend';
+        trend.textContent = `${trendIcon} Trend: ${w.weight_trend ? w.weight_trend.toFixed(1) : w.weight.toFixed(1)} kg`;
+
+        const meta = document.createElement('div');
+        meta.className = 'weight-meta';
+        meta.textContent = dateStr;
+
+        data.appendChild(value);
+        data.appendChild(trend);
+        data.appendChild(meta);
+
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'delete-btn';
+        deleteButton.title = 'Delete';
+        deleteButton.textContent = '×';
+        deleteButton.addEventListener('click', () => {
+            deleteWeightLog(String(w.id));
+        });
+
+        listItem.appendChild(data);
+        listItem.appendChild(deleteButton);
+        list.appendChild(listItem);
     });
-
-    list.innerHTML = html;
 }
 
 async function deleteWeightLog(id) {
@@ -5212,12 +5341,20 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
         const div = document.createElement('div');
         div.className = 'form-row';
         div.style.marginBottom = '10px';
-        div.innerHTML = `
-            <label class="checkbox-label" style="font-weight: 500;">
-                <input type="checkbox" value="${id}" checked class="med-confirm-check">
-                ${escapeHtml(name)}
-            </label>
-        `;
+
+        const label = document.createElement('label');
+        label.className = 'checkbox-label';
+        label.style.fontWeight = '500';
+
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.value = String(id);
+        input.checked = true;
+        input.className = 'med-confirm-check';
+
+        label.appendChild(input);
+        label.appendChild(document.createTextNode(` ${name}`));
+        div.appendChild(label);
         list.appendChild(div);
     });
 }
@@ -5460,19 +5597,24 @@ async function sendTestMedicationNotification() {
 (function initModalHistory() {
     let modalPushed = false;
     let poppingFromHistory = false;
+    const webApp = window.Telegram?.WebApp;
+    const backButton = webApp?.BackButton;
+    const isBackButtonSupported = !!backButton && (
+        typeof webApp?.isVersionAtLeast !== 'function' || webApp.isVersionAtLeast('6.1')
+    );
 
     function onOverlayShown() {
         if (modalPushed) return;
         modalPushed = true;
         history.pushState({ modal: true }, '');
-        window.Telegram?.WebApp?.BackButton?.show();
+        if (isBackButtonSupported) backButton.show();
     }
 
     function onOverlayClosed() {
         if (!modalPushed || poppingFromHistory) return;
         modalPushed = false;
         history.back();
-        window.Telegram?.WebApp?.BackButton?.hide();
+        if (isBackButtonSupported) backButton.hide();
     }
 
     // iOS edge-swipe (and desktop browser back)
@@ -5481,7 +5623,7 @@ async function sendTestMedicationNotification() {
         const overlay = document.getElementById('modal-overlay');
         if (!overlay || overlay.classList.contains('hidden')) {
             modalPushed = false;
-            window.Telegram?.WebApp?.BackButton?.hide();
+            if (isBackButtonSupported) backButton.hide();
             return;
         }
         poppingFromHistory = true;
@@ -5493,13 +5635,13 @@ async function sendTestMedicationNotification() {
             modalPushed = true;
             history.pushState({ modal: true }, '');
         } else {
-            window.Telegram?.WebApp?.BackButton?.hide();
+            if (isBackButtonSupported) backButton.hide();
         }
     });
 
     // Android hardware back / Telegram header back button
-    if (window.Telegram?.WebApp?.BackButton) {
-        window.Telegram.WebApp.BackButton.onClick(() => {
+    if (isBackButtonSupported) {
+        backButton.onClick(() => {
             const overlay = document.getElementById('modal-overlay');
             if (!overlay || overlay.classList.contains('hidden')) return;
             poppingFromHistory = true;
@@ -5509,7 +5651,7 @@ async function sendTestMedicationNotification() {
             if (!overlay.classList.contains('hidden')) {
                 modalPushed = true; // BackButton stays visible
             } else {
-                window.Telegram.WebApp.BackButton.hide();
+                backButton.hide();
                 history.back(); // clean up the history entry we pushed
             }
         });
