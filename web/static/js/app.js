@@ -166,6 +166,43 @@ const ModalManager = {
         }
     },
 
+    workoutVariant: {
+        open() {
+            ModalManager.open('workout-variant-modal');
+        },
+        close() {
+            ModalManager.close('workout-variant-modal');
+        }
+    },
+
+    workoutExercise: {
+        open() {
+            ModalManager.open('workout-exercise-modal');
+        },
+        close() {
+            ModalManager.close('workout-exercise-modal');
+        }
+    },
+
+    workoutSession: {
+        open() {
+            ModalManager.open('workout-session-modal');
+        },
+        close() {
+            ModalManager.close('workout-session-modal');
+        }
+    },
+
+    workoutAddExerciseToSession: {
+        open() {
+            document.getElementById('modal-overlay').classList.remove('hidden');
+            document.getElementById('workout-add-exercise-to-session-modal').classList.remove('hidden');
+        },
+        close() {
+            document.getElementById('workout-add-exercise-to-session-modal').classList.add('hidden');
+        }
+    },
+
     foodProduct: {
         open() {
             const modal = document.getElementById('food-product-modal');
@@ -185,16 +222,16 @@ const ModalManager = {
             { id: 'weight-modal', fn: () => ModalManager.weight.close() },
             { id: 'food-modal', fn: () => ModalManager.food.close() },
             { id: 'workout-group-modal', fn: () => typeof closeWorkoutGroupModal === 'function' ? closeWorkoutGroupModal() : ModalManager.workoutGroup.close() },
-            { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' && closeVariantModal() },
-            { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' && closeExerciseModal() },
-            { id: 'workout-session-modal', fn: () => typeof closeWorkoutSessionModal === 'function' && closeWorkoutSessionModal() },
+            { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' ? closeVariantModal() : ModalManager.workoutVariant.close() },
+            { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' ? closeExerciseModal() : ModalManager.workoutExercise.close() },
+            { id: 'workout-session-modal', fn: () => typeof closeWorkoutSessionModal === 'function' ? closeWorkoutSessionModal() : ModalManager.workoutSession.close() },
             { id: 'workout-start-modal', fn: () => ModalManager.workoutStart.close() },
         ];
     },
 
     getSubModalDefs() {
         return [
-            { id: 'workout-add-exercise-to-session-modal', fn: () => typeof closeAddExerciseToSessionModal === 'function' && closeAddExerciseToSessionModal() },
+            { id: 'workout-add-exercise-to-session-modal', fn: () => typeof closeAddExerciseToSessionModal === 'function' ? closeAddExerciseToSessionModal() : ModalManager.workoutAddExerciseToSession.close() },
             { id: 'food-scanner-modal', fn: () => closeFoodScannerModal() },
             { id: 'food-product-modal', fn: () => ModalManager.foodProduct.close() },
         ];
