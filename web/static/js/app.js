@@ -2300,6 +2300,9 @@ function applyPendingTabRefresh() {
 function requestTabRefresh(meta = {}) {
     const source = meta?.source || 'changes';
     if (!isSafeToAutoRefresh()) {
+        console.log('[refresh] deferred: source=%s modal=%s editing=%s hidden=%s tags=%o',
+            source, hasOpenModal(), isEditingNow(), document.hidden,
+            meta?.changedTags || []);
         pendingRefreshReason = source;
         showRefreshBanner();
         return;
