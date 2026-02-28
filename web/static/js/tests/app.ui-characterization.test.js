@@ -120,4 +120,33 @@ describe('app.js UI characterization', () => {
       cleanup();
     }
   });
+
+  it('medication controls are wired via JS listeners instead of inline handlers', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const modal = document.getElementById('med-modal');
+      expect(modal.classList.contains('hidden')).toBe(true);
+
+      document.getElementById('add-btn').click();
+      expect(modal.classList.contains('hidden')).toBe(false);
+
+      const scheduleType = document.getElementById('schedule-type');
+      scheduleType.value = 'weekly';
+      scheduleType.dispatchEvent(new window.Event('change', { bubbles: true }));
+      expect(document.getElementById('days-container').classList.contains('hidden')).toBe(false);
+
+      const monday = document.querySelector('#days-container .days-select span[data-day="1"]');
+      monday.click();
+      expect(monday.classList.contains('selected')).toBe(true);
+
+      const loadHistorySpy = vi.spyOn(window, 'loadHistory').mockImplementation(() => {});
+      document.getElementById('history-filter-days').dispatchEvent(new window.Event('change', { bubbles: true }));
+      expect(loadHistorySpy).toHaveBeenCalled();
+
+      document.getElementById('med-modal-cancel-btn').click();
+      expect(modal.classList.contains('hidden')).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
 });

@@ -47,10 +47,10 @@
             <div id="med-history-tab" class="med-tab-content active">
                 <h3>Intake History</h3>
                 <div class="filters">
-                    <select id="history-filter-med" onchange="loadHistory()">
+                    <select id="history-filter-med">
                         <option value="0">All Medications</option>
                     </select>
-                    <select id="history-filter-days" onchange="loadHistory()">
+                    <select id="history-filter-days">
                         <option value="1">Last 24 Hours</option>
                         <option value="3" selected>Last 3 Days</option>
                         <option value="7">Last 7 Days</option>
@@ -65,7 +65,7 @@
                 <div id="med-list">
                     <!-- Meds injected here -->
                 </div>
-                <button id="add-btn" onclick="showAddModal()">+ Add Medication</button>
+                <button id="add-btn">+ Add Medication</button>
             </div>
         </div>
 
@@ -634,8 +634,8 @@
         <div class="modal-header">
             <h3>Add Medication</h3>
             <div class="actions">
-                <button onclick="closeModal()" class="secondary">Cancel</button>
-                <button onclick="saveMedication()" class="primary">Save</button>
+                <button id="med-modal-cancel-btn" class="secondary">Cancel</button>
+                <button id="med-modal-save-btn" class="primary">Save</button>
             </div>
         </div>
         <input type="text" id="med-name" placeholder="Name (e.g. Aspirin)">
@@ -643,7 +643,7 @@
         <p id="med-rx-display" style="font-size: 0.85em; color: var(--hint-color); margin-top: 5px; display: none;"></p>
 
         <label>Schedule Type:</label>
-        <select id="schedule-type" onchange="toggleScheduleFields()">
+        <select id="schedule-type">
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
             <option value="as_needed">As Needed</option>
@@ -652,13 +652,13 @@
         <div id="days-container" class="hidden">
             <label>Days:</label>
             <div class="days-select">
-                <span data-day="1" onclick="toggleDay(this)">Mon</span>
-                <span data-day="2" onclick="toggleDay(this)">Tue</span>
-                <span data-day="3" onclick="toggleDay(this)">Wed</span>
-                <span data-day="4" onclick="toggleDay(this)">Thu</span>
-                <span data-day="5" onclick="toggleDay(this)">Fri</span>
-                <span data-day="6" onclick="toggleDay(this)">Sat</span>
-                <span data-day="0" onclick="toggleDay(this)">Sun</span>
+                <span data-day="1">Mon</span>
+                <span data-day="2">Tue</span>
+                <span data-day="3">Wed</span>
+                <span data-day="4">Thu</span>
+                <span data-day="5">Fri</span>
+                <span data-day="6">Sat</span>
+                <span data-day="0">Sun</span>
             </div>
         </div>
 
@@ -667,10 +667,10 @@
             <div id="time-inputs">
                 <div class="time-row">
                     <input type="time" class="med-time-input">
-                    <button class="remove-time" onclick="removeTime(this)">×</button>
+                    <button class="remove-time" id="initial-remove-time-btn">×</button>
                 </div>
             </div>
-            <button class="small-btn" onclick="addTimeInput()">+ Add Time</button>
+            <button class="small-btn" id="add-time-btn">+ Add Time</button>
         </div>
 
         <div class="form-row">
@@ -684,7 +684,7 @@
 
         <div class="inventory-section">
             <label class="checkbox-label">
-                <input type="checkbox" id="med-track-inventory" onchange="toggleInventoryFields()"> Track Inventory
+                <input type="checkbox" id="med-track-inventory"> Track Inventory
             </label>
             <div id="inventory-fields" class="hidden">
                 <div class="form-row">
@@ -696,7 +696,7 @@
                         <label>Quick Restock:</label>
                         <div class="restock-row">
                             <input type="number" id="restock-qty" min="1" placeholder="Qty">
-                            <button type="button" class="small-btn" onclick="handleRestock()">+ Add</button>
+                            <button type="button" class="small-btn" id="restock-add-btn">+ Add</button>
                         </div>
                     </div>
                     <div id="restock-history" class="restock-history"></div>
