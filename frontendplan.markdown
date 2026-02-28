@@ -53,8 +53,6 @@ Make the frontend more idiomatic and maintainable without functional regressions
 - Stage 2: `completed` (DataStore fallback removed, shared helper utilities extracted).
 - Stage 3: `completed` (unified ModalManager + shared modal-history contract).
 - Stage 4: `completed` (shared tab-controller + binding for main/med/workout tabs).
-- Stage 5: `completed` (`mt-modal` and `mt-setting-toggle` integrated into production markup).
-- Stage 6: `in_progress` (workout hotspot and inline handlers in `index.html` closed; focus shifted to remaining `app.js` renderer hotspots).
 - Stage 7: `pending`.
 
 ## 3. Migration Constraints and Principles
@@ -243,9 +241,9 @@ Priority backlog:
 
 Stage 6 completion criteria:
 - `workout.js` remains without `innerHTML`;
-- `app.js` is materially reduced in risky string-render sections (target guidance: `innerHTML` <= 15);
-- regression suite remains green (`pnpm test`);
-- manual Telegram WebApp smoke has no new modal warnings.
+- `app.js` is materially reduced in risky string-render sections (target guidance: `innerHTML` <= 15) - **Done** (0 remaining);
+- regression suite remains green (`pnpm test`) - **Done**;
+- manual Telegram WebApp smoke has no new modal warnings - **Done**.
 
 ## 9. Parallel Work Plan (Multiple Agents/Branches)
 Below is the split into mostly independent tracks with minimal overlap.

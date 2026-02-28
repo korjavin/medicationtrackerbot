@@ -113,14 +113,14 @@ From `frontendplan.markdown`:
 
 - Stage 1 (test baseline): completed
 - Stage 2 (dedup/helpers): completed for DataStore fallback removal + core shared helpers
-- Stage 3 (modal infrastructure): in progress with `ModalManager` now owning close registries and back-close priority
-- Stage 4 (tabs abstraction): in progress with shared tab controller applied to main/med/workout groups
-
-Stages 5-7 remain future work (Web Components, safer rendering migration, full cleanup/docs finalization).
+- Stage 3 (modal infrastructure): completed with `ModalManager` owning close registries
+- Stage 4 (tabs abstraction): completed
+- Stage 5 (components): completed (`mt-modal`/`mt-setting-toggle`)
+- Stage 6 (renderer safety): completed (all `.innerHTML` removed from `app.js` and `workout.js`)
+- Stage 7 (finalization): completed
 
 ## Next Incremental Targets
 
-1. Continue reducing inline handlers outside tabs (modal open/close and action buttons).
-2. Move additional modal groups (workout CRUD modals) behind typed `ModalManager` APIs where safe.
-3. Start introducing `mt-modal`/`mt-setting-toggle` in one narrow production slice with adapter shims.
-4. Reduce `innerHTML` in high-risk sections with user-provided text paths.
+1. Identify areas to pull out smaller vanilla Web Components (`mt-list-item`, etc).
+2. Refine component caching and service worker lifecycle logic further.
+3. Remove outdated documentation or structural notes from earlier phases.

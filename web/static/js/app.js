@@ -591,7 +591,10 @@ async function checkAuth() {
         loginContainer.appendChild(title);
 
         const message = document.createElement('p');
-        message.innerHTML = "You need an internet connection to log in for the first time.<br><br>If you have logged in before, your session will be available once you're back online.";
+        message.appendChild(document.createTextNode("You need an internet connection to log in for the first time."));
+        message.appendChild(document.createElement('br'));
+        message.appendChild(document.createElement('br'));
+        message.appendChild(document.createTextNode("If you have logged in before, your session will be available once you're back online."));
         message.style.cssText = "color: var(--text-color, #666); text-align: center; max-width: 400px; line-height: 1.6;";
         loginContainer.appendChild(message);
 
@@ -635,7 +638,15 @@ async function checkAuth() {
             // Divider
             const divider = document.createElement('div');
             divider.style.cssText = "display:flex; align-items:center; gap:10px; color: #999; margin: 10px 0;";
-            divider.innerHTML = '<span style=\"flex:1; height:1px; background:#ddd;\"></span><span>or</span><span style=\"flex:1; height:1px; background:#ddd;\"></span>';
+            const line1 = document.createElement('span');
+            line1.style.cssText = "flex:1; height:1px; background:#ddd;";
+            const textSpan = document.createElement('span');
+            textSpan.textContent = "or";
+            const line2 = document.createElement('span');
+            line2.style.cssText = "flex:1; height:1px; background:#ddd;";
+            divider.appendChild(line1);
+            divider.appendChild(textSpan);
+            divider.appendChild(line2);
             loginContainer.appendChild(divider);
 
             // OIDC login button
@@ -656,7 +667,7 @@ async function checkAuth() {
         }
     }
 
-    document.body.innerHTML = "";
+    document.body.replaceChildren();
     document.body.appendChild(loginContainer);
 
     // Define global callback for Telegram Login Widget
@@ -690,7 +701,7 @@ function initOIDCSetupBanner() {
 
     const oidcConfig = window.OIDC_CONFIG || { enabled: false };
     if (!oidcConfig.enabled) {
-        container.innerHTML = '';
+        container.replaceChildren();
         return;
     }
 
@@ -715,7 +726,7 @@ function initOIDCSetupBanner() {
 
     wrapper.appendChild(textWrap);
     wrapper.appendChild(actionBtn);
-    container.innerHTML = '';
+    container.replaceChildren();
     container.appendChild(wrapper);
 }
 
@@ -1290,7 +1301,7 @@ function decodeFoodDisplayText(value) {
     if (!raw) return '';
 
     const textarea = document.createElement('textarea');
-    textarea.innerHTML = raw;
+    textarea.textContent = raw;
     let decoded = textarea.value.trim();
 
     if (decoded.includes('%')) {
@@ -4152,10 +4163,13 @@ function renderBPChart(readings, goalData) {
     const container = document.getElementById('bpChart');
     if (!container) return;
 
-    container.innerHTML = '';
+    container.replaceChildren();
 
     if (!readings || readings.length === 0) {
-        container.innerHTML = '<span style="color:var(--hint-color);font-size:14px;">No data available</span>';
+        const noDataSpan = document.createElement('span');
+        noDataSpan.style.cssText = "color:var(--hint-color);font-size:14px;";
+        noDataSpan.textContent = "No data available";
+        container.appendChild(noDataSpan);
         return;
     }
 
@@ -4951,10 +4965,13 @@ function renderWeightChart(logs, goalData) {
     const container = document.getElementById('weightChart');
     if (!container) return;
 
-    container.innerHTML = ''; // Clear previous
+    container.replaceChildren(); // Clear previous
 
     if (!logs || logs.length === 0) {
-        container.innerHTML = '<span style="color:var(--hint-color);font-size:14px;">No data available</span>';
+        const noDataSpan = document.createElement('span');
+        noDataSpan.style.cssText = "color:var(--hint-color);font-size:14px;";
+        noDataSpan.textContent = "No data available";
+        container.appendChild(noDataSpan);
         return;
     }
 
@@ -4972,7 +4989,10 @@ function renderWeightChart(logs, goalData) {
         .sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
 
     if (periodLogs.length === 0) {
-        container.innerHTML = '<span style="color:var(--hint-color);font-size:14px;">No data in current period</span>';
+        const noPeriodSpan = document.createElement('span');
+        noPeriodSpan.style.cssText = "color:var(--hint-color);font-size:14px;";
+        noPeriodSpan.textContent = "No data in current period";
+        container.replaceChildren(noPeriodSpan);
         return;
     }
 
@@ -5885,7 +5905,7 @@ async function sendTestMedicationNotification() {
 
 // --- Health Overview ---
 function renderHealthOverviewContent(content, data) {
-    content.innerHTML = '';
+    content.replaceChildren();
 
     const renderVitalGroup = (id, title, history, color, min, max, stat7d, stat30d, unit) => {
         if (history && history.length > 0) {
