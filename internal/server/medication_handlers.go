@@ -15,7 +15,7 @@ import (
 
 func (s *Server) handleListMedications(w http.ResponseWriter, r *http.Request) {
 	showArchived := r.URL.Query().Get("archived") == "true"
-	meds, err := s.store.ListMedications(showArchived)
+	meds, err := s.meds.ListMedications(showArchived)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -43,7 +43,7 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 	rxcui, normalizedName, _ := s.rxnorm.SearchRxNorm(req.Name)
 
 	// 2. Create in DB
-	id, err := s.store.CreateMedication(req.Name, req.Dosage, req.Schedule, req.StartDate, req.EndDate, rxcui, normalizedName)
+	id, err := s.meds.CreateMedication(req.Name, req.Dosage, req.Schedule, req.StartDate, req.EndDate, rxcui, normalizedName)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -52,7 +52,7 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 	// 3. Check Interactions
 	var warning string
 	if rxcui != "" {
-		meds, err := s.store.ListMedications(false) // Only active
+		meds, err := s.meds.ListMedications(false) // Only active
 		if err == nil {
 			var rxcuis []string
 			for _, m := range meds {
@@ -111,18 +111,18 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 
 	// If archiving, clean up pending notifications/intakes
 	if req.Archived {
-		pending, err := s.store.GetPendingIntakesForMedication(id)
+		pending, err := s.meds.GetPendingIntakesForMedication(id)
 		if err == nil {
 			for _, p := range pending {
 				// 1. Delete notification messages
-				msgIDs, err := s.store.GetIntakeReminders(p.ID)
+				msgIDs, err := s.meds.GetIntakeReminders(p.ID)
 				if err == nil {
 					for _, msgID := range msgIDs {
 						s.deleteNotification(r.Context(), msgID)
 					}
 				}
 				// 2. Delete the pending intake
-				if err := s.store.DeleteIntake(p.ID); err != nil {
+				if err := s.meds.DeleteIntake(p.ID); err != nil {
 					log.Printf("[server] delete intake failed: %v", err)
 				}
 			}
@@ -131,7 +131,7 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	if err := s.store.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate, rxcui, normalizedName, req.InventoryCount); err != nil {
+	if err := s.meds.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate, rxcui, normalizedName, req.InventoryCount); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -142,7 +142,7 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 	if !req.Archived {
 		// We have the new RxCUI now
 		if rxcui != "" {
-			meds, err := s.store.ListMedications(false) // Active only
+			meds, err := s.meds.ListMedications(false) // Active only
 			if err == nil {
 				var rxcuis []string
 				for _, m := range meds {
@@ -184,7 +184,7 @@ func (s *Server) handleDeleteMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := s.store.DeleteMedication(id); err != nil {
+	if err := s.meds.DeleteMedication(id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -210,7 +210,7 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 
 	for _, up := range req.Updates {
 		// Verify ownership
-		intake, err := s.store.GetIntake(up.ID)
+		intake, err := s.meds.GetIntake(up.ID)
 		if err != nil {
 			log.Printf("Error getting intake %d: %v", up.ID, err)
 			continue
@@ -238,25 +238,25 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 			// Inventory increment?
 			if intake.Status == "TAKEN" {
 				// Reverting a taken status, so add back to inventory
-				if err := s.store.DecrementInventory(intake.MedicationID, -1); err != nil {
+				if err := s.meds.DecrementInventory(intake.MedicationID, -1); err != nil {
 					log.Printf("Error incrementing inventory on revert: %v", err)
 				}
 			}
 		case "TAKEN":
 			// If it was PENDING, we are confirming.
 			if intake.Status == "PENDING" {
-				if err := s.store.DecrementInventory(intake.MedicationID, 1); err != nil {
+				if err := s.meds.DecrementInventory(intake.MedicationID, 1); err != nil {
 					log.Printf("Error decrementing inventory: %v", err)
 				}
 				// Clear reminders
-				reminders, _ := s.store.GetIntakeReminders(intake.ID)
+				reminders, _ := s.meds.GetIntakeReminders(intake.ID)
 				for _, msgID := range reminders {
 					s.deleteNotification(r.Context(), msgID)
 				}
 			}
 		}
 
-		if err := s.store.UpdateIntake(up.ID, takenAt, up.Status); err != nil {
+		if err := s.meds.UpdateIntake(up.ID, takenAt, up.Status); err != nil {
 			log.Printf("Error updating intake %d: %v", up.ID, err)
 		}
 	}
@@ -269,7 +269,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	// Get all active medications
-	meds, err := s.store.ListMedications(false)
+	meds, err := s.meds.ListMedications(false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -357,31 +357,31 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 
 	for _, medID := range nextMeds {
 		// Get medication info for response
-		med, _ := s.store.GetMedication(medID)
+		med, _ := s.meds.GetMedication(medID)
 		if med != nil {
 			medNames = append(medNames, med.Name)
 			confirmedMeds = append(confirmedMeds, *med)
 		}
 
 		// Check if intake log exists
-		intake, _ := s.store.GetIntakeBySchedule(medID, nextTime)
+		intake, _ := s.meds.GetIntakeBySchedule(medID, nextTime)
 
 		// If intake exists and is pending, mark as taken
 		if intake != nil && intake.Status == "PENDING" {
 			// Delete notification messages
-			reminders, _ := s.store.GetIntakeReminders(intake.ID)
+			reminders, _ := s.meds.GetIntakeReminders(intake.ID)
 			for _, msgID := range reminders {
 				s.deleteNotification(r.Context(), msgID)
 			}
 
 			// Confirm the intake with current time
-			if err := s.store.ConfirmIntake(intake.ID, now); err != nil {
+			if err := s.meds.ConfirmIntake(intake.ID, now); err != nil {
 				log.Printf("Error confirming intake %d: %v", intake.ID, err)
 				continue
 			}
 
 			// Decrement inventory
-			if err := s.store.DecrementInventory(medID, 1); err != nil {
+			if err := s.meds.DecrementInventory(medID, 1); err != nil {
 				log.Printf("Error decrementing inventory: %v", err)
 			}
 
@@ -389,20 +389,20 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			confirmedCount++
 		} else if intake == nil {
 			// Create a new intake log and mark it as taken immediately
-			intakeID, err := s.store.CreateIntake(medID, userID, nextTime)
+			intakeID, err := s.meds.CreateIntake(medID, userID, nextTime)
 			if err != nil {
 				log.Printf("Error creating intake for med %d: %v", medID, err)
 				continue
 			}
 
 			// Immediately confirm it
-			if err := s.store.ConfirmIntake(intakeID, now); err != nil {
+			if err := s.meds.ConfirmIntake(intakeID, now); err != nil {
 				log.Printf("Error confirming new intake %d: %v", intakeID, err)
 				continue
 			}
 
 			// Decrement inventory
-			if err := s.store.DecrementInventory(medID, 1); err != nil {
+			if err := s.meds.DecrementInventory(medID, 1); err != nil {
 				log.Printf("Error decrementing inventory: %v", err)
 			}
 
@@ -459,7 +459,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 // handleGetNextIntake returns the next scheduled intake for the UI
 func (s *Server) handleGetNextIntake(w http.ResponseWriter, r *http.Request) {
 	// Get all active medications
-	meds, err := s.store.ListMedications(false)
+	meds, err := s.meds.ListMedications(false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -524,7 +524,7 @@ func (s *Server) handleGetNextIntake(w http.ResponseWriter, r *http.Request) {
 				}
 
 				// Check if already taken
-				intake, _ := s.store.GetIntakeBySchedule(med.ID, target)
+				intake, _ := s.meds.GetIntakeBySchedule(med.ID, target)
 				if intake != nil && (intake.Status == "TAKEN" || intake.Status == "SKIPPED") {
 					continue
 				}
@@ -579,21 +579,21 @@ func (s *Server) handleLogPastIntake(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify medication belongs to user (all meds are shared for now, but good practice)
-	med, err := s.store.GetMedication(req.MedicationID)
+	med, err := s.meds.GetMedication(req.MedicationID)
 	if err != nil || med == nil {
 		http.Error(w, "Medication not found", http.StatusNotFound)
 		return
 	}
 
 	// Create manual intake
-	id, err := s.store.CreateManualIntake(req.MedicationID, userId, takenAt)
+	id, err := s.meds.CreateManualIntake(req.MedicationID, userId, takenAt)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Decrement inventory
-	if err := s.store.DecrementInventory(req.MedicationID, 1); err != nil {
+	if err := s.meds.DecrementInventory(req.MedicationID, 1); err != nil {
 		log.Printf("Error decrementing inventory: %v", err)
 	}
 

@@ -39,7 +39,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		return
 	}
 
-	session, err := b.store.GetWorkoutSession(sessionID)
+	session, err := b.workouts.GetWorkoutSession(sessionID)
 	if err != nil || session == nil {
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Workout session not found.")); err != nil {
 			log.Printf("[bot] send failed: %v", err)
@@ -48,7 +48,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 	}
 
 	// Get group info for rotation handling
-	group, err := b.store.GetWorkoutGroup(session.GroupID)
+	group, err := b.workouts.GetWorkoutGroup(session.GroupID)
 	if err != nil || group == nil {
 		log.Printf("Failed to get workout group: %v", err)
 		return
@@ -57,7 +57,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 	switch action {
 	case "start":
 		// Mark session as in_progress
-		if err := b.store.StartSession(sessionID); err != nil {
+		if err := b.workouts.StartSession(sessionID); err != nil {
 			log.Printf("Failed to start session: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error starting workout.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)
@@ -77,7 +77,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		b.startExerciseLoop(sessionID, session.VariantID, cb.Message.Chat.ID)
 
 	case "snooze1":
-		if err := b.store.SnoozeSession(sessionID, 1*time.Hour); err != nil {
+		if err := b.workouts.SnoozeSession(sessionID, 1*time.Hour); err != nil {
 			log.Printf("Failed to snooze session: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing workout.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)
@@ -90,7 +90,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		}
 
 	case "snooze2":
-		if err := b.store.SnoozeSession(sessionID, 2*time.Hour); err != nil {
+		if err := b.workouts.SnoozeSession(sessionID, 2*time.Hour); err != nil {
 			log.Printf("Failed to snooze session: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing workout.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)
@@ -103,7 +103,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		}
 
 	case "skip":
-		if err := b.store.SkipSession(sessionID); err != nil {
+		if err := b.workouts.SkipSession(sessionID); err != nil {
 			log.Printf("Failed to skip session: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error skipping workout.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)
@@ -113,7 +113,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 
 		// Advance rotation if applicable
 		if group.IsRotating {
-			if err := b.store.AdvanceRotation(group.ID); err != nil {
+			if err := b.workouts.AdvanceRotation(group.ID); err != nil {
 				log.Printf("Failed to advance rotation: %v", err)
 			}
 		}
@@ -125,7 +125,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 	case "finish":
 		// User explicitly finished the workout
 		if session.Status != "completed" {
-			if err := b.store.CompleteSession(sessionID); err != nil {
+			if err := b.workouts.CompleteSession(sessionID); err != nil {
 				log.Printf("Failed to complete session: %v", err)
 				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error saving workout.")); err != nil {
 					log.Printf("[bot] send failed: %v", err)
@@ -135,7 +135,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 
 			// Advance rotation if applicable
 			if group.IsRotating {
-				if err := b.store.AdvanceRotation(group.ID); err != nil {
+				if err := b.workouts.AdvanceRotation(group.ID); err != nil {
 					log.Printf("Failed to advance rotation: %v", err)
 				}
 			}
@@ -157,7 +157,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 
 // startExerciseLoop sends exercise prompts one by one
 func (b *Bot) startExerciseLoop(sessionID, variantID int64, chatID int64) {
-	exercises, err := b.store.ListExercisesByVariant(variantID)
+	exercises, err := b.workouts.ListExercisesByVariant(variantID)
 	if err != nil || len(exercises) == 0 {
 		if _, err := b.api.Send(tgbotapi.NewMessage(chatID, "❌ No exercises found for this workout.")); err != nil {
 			log.Printf("[bot] send failed: %v", err)
@@ -190,7 +190,7 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 	sessionID, _ := strconv.ParseInt(parts[2], 10, 64)
 	exerciseID, _ := strconv.ParseInt(parts[3], 10, 64)
 
-	exercise, err := b.store.GetWorkoutExercise(exerciseID)
+	exercise, err := b.workouts.GetWorkoutExercise(exerciseID)
 	if err != nil || exercise == nil {
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Exercise not found.")); err != nil {
 			log.Printf("[bot] send failed: %v", err)
@@ -201,13 +201,13 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 	switch action {
 	case "done":
 		// Check if a log already exists for this session+exercise (idempotent)
-		existingLog, _ := b.store.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
+		existingLog, _ := b.workouts.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
 		if existingLog != nil {
 			// Already logged — update it with default values instead of creating duplicate
-			_ = b.store.UpdateExerciseLog(existingLog.ID, &exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "")
+			_ = b.workouts.UpdateExerciseLog(existingLog.ID, &exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "")
 		} else {
 			// Log exercise with default values
-			_, err := b.store.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
+			_, err := b.workouts.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
 				&exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "completed", "")
 			if err != nil {
 				log.Printf("Failed to log exercise: %v", err)
@@ -239,12 +239,12 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 
 	case "skip":
 		// Check if a log already exists for this session+exercise (idempotent)
-		existingLog, _ := b.store.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
+		existingLog, _ := b.workouts.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
 		if existingLog != nil {
 			// Already logged — just leave it as-is (don't create duplicate)
 		} else {
 			// Log exercise as skipped
-			_, err := b.store.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
+			_, err := b.workouts.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
 				nil, nil, nil, "skipped", "")
 			if err != nil {
 				log.Printf("Failed to log skipped exercise: %v", err)
@@ -281,13 +281,13 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 		}
 
 		// Check if a log already exists for this session+exercise (idempotent)
-		existingLog, _ := b.store.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
+		existingLog, _ := b.workouts.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
 		if existingLog != nil {
 			// Already logged — update it
-			_ = b.store.UpdateExerciseLog(existingLog.ID, &exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "")
+			_ = b.workouts.UpdateExerciseLog(existingLog.ID, &exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "")
 		} else {
 			// Log with default values for now
-			_, err = b.store.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
+			_, err = b.workouts.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
 				&exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "completed", "")
 			if err != nil {
 				log.Printf("Failed to log exercise: %v", err)
@@ -317,19 +317,19 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 
 // checkWorkoutCompletion checks if all exercises are done and completes the session
 func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
-	session, err := b.store.GetWorkoutSession(sessionID)
+	session, err := b.workouts.GetWorkoutSession(sessionID)
 	if err != nil || session == nil {
 		return
 	}
 
 	// Get all exercises for this variant
-	exercises, err := b.store.ListExercisesByVariant(session.VariantID)
+	exercises, err := b.workouts.ListExercisesByVariant(session.VariantID)
 	if err != nil {
 		return
 	}
 
 	// Get logged exercises
-	logs, err := b.store.GetExerciseLogs(sessionID)
+	logs, err := b.workouts.GetExerciseLogs(sessionID)
 	if err != nil {
 		return
 	}

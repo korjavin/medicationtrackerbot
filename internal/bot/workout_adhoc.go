@@ -14,7 +14,7 @@ func (b *Bot) handleAdHocWorkoutCommand(msgConfig *tgbotapi.MessageConfig) {
 	now := time.Now()
 	scheduledTime := now.Format("15:04")
 
-	session, err := b.store.CreateAdHocWorkoutSession(b.allowedUserID, now, scheduledTime)
+	session, err := b.workouts.CreateAdHocWorkoutSession(b.allowedUserID, now, scheduledTime)
 	if err != nil {
 		log.Printf("Error creating ad-hoc workout session: %v", err)
 		msgConfig.Text = "❌ Error creating ad-hoc workout session."

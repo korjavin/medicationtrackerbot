@@ -16,7 +16,7 @@ import (
 // Assumes macros are per 100g
 func (b *Bot) handleIntakeCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.MessageConfig) {
 	// Check if feature is enabled
-	enabled, err := b.store.GetFoodIntakeEnabled(context.Background())
+	enabled, err := b.food.GetFoodIntakeEnabled(context.Background())
 	if err != nil {
 		msgConfig.Text = "❌ Error checking settings."
 		return
@@ -91,7 +91,7 @@ Example:
 		Name:     name,
 	}
 
-	_, err = b.store.CreateFoodLog(context.Background(), log)
+	_, err = b.food.CreateFoodLog(context.Background(), log)
 	if err != nil {
 		msgConfig.Text = "❌ Error saving food log."
 		return

@@ -32,7 +32,12 @@ func TestIntakeCommand(t *testing.T) {
 
 	b := &Bot{
 		api:           api,
-		store:         s,
+		meds:          s,
+		bp:            s,
+		weight:        s,
+		workouts:      s,
+		food:          s,
+		imports:       s,
 		allowedUserID: 123456,
 	}
 
@@ -93,7 +98,7 @@ func TestIntakeCommand_Disabled(t *testing.T) {
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
 
-	b := &Bot{api: api, store: s, allowedUserID: 123456}
+	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, food: s, imports: s, allowedUserID: 123456}
 
 	// Ensure disabled
 	s.SetFoodIntakeEnabled(context.Background(), false)

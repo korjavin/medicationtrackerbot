@@ -44,18 +44,18 @@ func (s *Server) handleCreateBloodPressure(w http.ResponseWriter, r *http.Reques
 		Tag:        req.Tag,
 	}
 
-	id, err := s.store.CreateBloodPressureReading(r.Context(), bp)
+	id, err := s.bp.CreateBloodPressureReading(r.Context(), bp)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Cross-channel sync: if reminder is handled from web, clear notification.
-	if state, err := s.store.GetBPReminderState(userID); err == nil && state != nil {
+	if state, err := s.bp.GetBPReminderState(userID); err == nil && state != nil {
 		if state.NotificationMessageID != nil {
 			s.deleteNotification(r.Context(), *state.NotificationMessageID)
 		}
-		_ = s.store.ClearBPReminderNotificationMessage(userID)
+		_ = s.bp.ClearBPReminderNotificationMessage(userID)
 	}
 
 	bp.ID = id
@@ -88,7 +88,7 @@ func (s *Server) handleListBloodPressure(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	readings, err := s.store.GetBloodPressureReadings(r.Context(), userID, since)
+	readings, err := s.bp.GetBloodPressureReadings(r.Context(), userID, since)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -113,7 +113,7 @@ func (s *Server) handleDeleteBloodPressure(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := s.store.DeleteBloodPressureReading(r.Context(), id, userID); err != nil {
+	if err := s.bp.DeleteBloodPressureReading(r.Context(), id, userID); err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "Reading not found", http.StatusNotFound)
 			return
@@ -159,7 +159,7 @@ func (s *Server) handleImportBloodPressure(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	if err := s.store.ImportBloodPressureReadings(r.Context(), userID, readings); err != nil {
+	if err := s.bp.ImportBloodPressureReadings(r.Context(), userID, readings); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -184,7 +184,7 @@ func (s *Server) handleExportBloodPressure(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	readings, err := s.store.GetBloodPressureReadings(r.Context(), userID, since)
+	readings, err := s.bp.GetBloodPressureReadings(r.Context(), userID, since)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -232,7 +232,7 @@ func (s *Server) handleExportBloodPressure(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleGetBPGoal(w http.ResponseWriter, r *http.Request) {
-	goal, err := s.store.GetBPGoal()
+	goal, err := s.bp.GetBPGoal()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -247,7 +247,7 @@ func (s *Server) handleGetBPGoal(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetBPStats(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	stats, err := s.store.GetBPDailyWeightedStats(r.Context(), userID)
+	stats, err := s.bp.GetBPDailyWeightedStats(r.Context(), userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -264,7 +264,7 @@ func (s *Server) handleGetBPStats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetBPReminderStatus(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	state, err := s.store.GetBPReminderState(userID)
+	state, err := s.bp.GetBPReminderState(userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -287,7 +287,7 @@ func (s *Server) handleToggleBPReminder(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := s.store.SetBPReminderEnabled(userID, req.Enabled); err != nil {
+	if err := s.bp.SetBPReminderEnabled(userID, req.Enabled); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -304,17 +304,17 @@ func (s *Server) handleToggleBPReminder(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleSnoozeBPReminder(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	if err := s.store.SnoozeBPReminder(userID); err != nil {
+	if err := s.bp.SnoozeBPReminder(userID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Cross-channel sync: remove notification when snoozed from web/push.
-	if state, err := s.store.GetBPReminderState(userID); err == nil && state != nil {
+	if state, err := s.bp.GetBPReminderState(userID); err == nil && state != nil {
 		if state.NotificationMessageID != nil {
 			s.deleteNotification(r.Context(), *state.NotificationMessageID)
 		}
-		_ = s.store.ClearBPReminderNotificationMessage(userID)
+		_ = s.bp.ClearBPReminderNotificationMessage(userID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -329,17 +329,17 @@ func (s *Server) handleSnoozeBPReminder(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleDontBugMeBPReminder(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	if err := s.store.DontBugMeBPReminder(userID); err != nil {
+	if err := s.bp.DontBugMeBPReminder(userID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Cross-channel sync: remove notification when disabled from web/push.
-	if state, err := s.store.GetBPReminderState(userID); err == nil && state != nil {
+	if state, err := s.bp.GetBPReminderState(userID); err == nil && state != nil {
 		if state.NotificationMessageID != nil {
 			s.deleteNotification(r.Context(), *state.NotificationMessageID)
 		}
-		_ = s.store.ClearBPReminderNotificationMessage(userID)
+		_ = s.bp.ClearBPReminderNotificationMessage(userID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

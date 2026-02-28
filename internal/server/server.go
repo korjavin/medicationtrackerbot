@@ -32,7 +32,15 @@ type WorkoutInteractor interface {
 }
 
 type Server struct {
-	store           *store.Store
+	meds            MedicationStore
+	bp              BloodPressureStore
+	weight          WeightStore
+	workouts        WorkoutStore
+	food            FoodStore
+	settings        SettingsStore
+	health          HealthStore
+	changes         ChangeStore
+	push            PushStore
 	workout         WorkoutInteractor
 	notifiers       []notifier.Notifier
 	rxnorm          *rxnorm.Client
@@ -175,7 +183,15 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 	changeStreamMaxConn := parseIntEnv("CHANGES_STREAM_MAX_CONN", 40)
 
 	srv := &Server{
-		store:           s,
+		meds:            s,
+		bp:              s,
+		weight:          s,
+		workouts:        s,
+		food:            s,
+		settings:        s,
+		health:          s,
+		changes:         s,
+		push:            s,
 		rxnorm:          rxnorm.New(),
 		botToken:        botToken,
 		sessionSecret:   sessionSecret,
@@ -417,7 +433,7 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	logs, err := s.store.GetIntakeHistory(medID, days)
+	logs, err := s.meds.GetIntakeHistory(medID, days)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -451,13 +467,13 @@ func (s *Server) handleRestock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.store.AddRestock(id, req.Quantity, req.Note); err != nil {
+	if err := s.meds.AddRestock(id, req.Quantity, req.Note); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Get updated medication to return new count
-	med, err := s.store.GetMedication(id)
+	med, err := s.meds.GetMedication(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -481,7 +497,7 @@ func (s *Server) handleGetRestockHistory(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	restocks, err := s.store.GetRestockHistory(id)
+	restocks, err := s.meds.GetRestockHistory(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -502,7 +518,7 @@ func (s *Server) handleGetLowStock(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	meds, err := s.store.GetMedicationsLowOnStock(days)
+	meds, err := s.meds.GetMedicationsLowOnStock(days)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -518,7 +534,7 @@ func (s *Server) handleGetLowStock(w http.ResponseWriter, r *http.Request) {
 	for _, m := range meds {
 		lsm := LowStockMed{
 			Medication:    m,
-			DaysRemaining: s.store.GetDaysOfStockRemaining(&m),
+			DaysRemaining: s.meds.GetDaysOfStockRemaining(&m),
 		}
 		result = append(result, lsm)
 	}
@@ -733,7 +749,7 @@ func (s *Server) handleSubscribePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.store.CreatePushSubscription(userID, req.Endpoint, req.Keys.Auth, req.Keys.P256dh); err != nil {
+	if err := s.push.CreatePushSubscription(userID, req.Endpoint, req.Keys.Auth, req.Keys.P256dh); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -750,7 +766,7 @@ func (s *Server) handleUnsubscribePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.store.DeletePushSubscription(req.Endpoint); err != nil {
+	if err := s.push.DeletePushSubscription(req.Endpoint); err != nil {
 		// Log but don't fail hard
 		log.Printf("Error deleting subscription: %v", err)
 	}
@@ -761,7 +777,7 @@ func (s *Server) handleUnsubscribePush(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListPushSubscriptions(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	subs, err := s.store.GetPushSubscriptions(userID)
+	subs, err := s.push.GetPushSubscriptions(userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -792,7 +808,7 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 	if len(req.IntakeIDs) > 0 {
 		for _, id := range req.IntakeIDs {
 			// Verify ownership and status
-			intake, err := s.store.GetIntake(id)
+			intake, err := s.meds.GetIntake(id)
 			if err != nil {
 				log.Printf("Error getting intake %d: %v", id, err)
 				continue
@@ -803,17 +819,17 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 
 			if intake.Status == "PENDING" {
 				// Delete notification messages
-				reminders, _ := s.store.GetIntakeReminders(id)
+				reminders, _ := s.meds.GetIntakeReminders(id)
 				for _, msgID := range reminders {
 					s.deleteNotification(r.Context(), msgID)
 				}
 
-				if err := s.store.ConfirmIntake(id, now); err != nil {
+				if err := s.meds.ConfirmIntake(id, now); err != nil {
 					log.Printf("Error confirming intake %d: %v", intake.ID, err)
 				}
 
 				// Decrement inventory
-				if err := s.store.DecrementInventory(intake.MedicationID, 1); err != nil {
+				if err := s.meds.DecrementInventory(intake.MedicationID, 1); err != nil {
 					log.Printf("Error decrementing inventory: %v", err)
 				}
 			}
@@ -833,7 +849,7 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, medID := range req.MedicationIDs {
-		intake, err := s.store.GetIntakeBySchedule(medID, parsedTime)
+		intake, err := s.meds.GetIntakeBySchedule(medID, parsedTime)
 		if err != nil {
 			log.Printf("Error finding intake for med %d at %s: %v", medID, req.ScheduledAt, err)
 			continue
@@ -841,17 +857,17 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 
 		if intake != nil && intake.UserID == userID && intake.Status == "PENDING" {
 			// Delete notification messages
-			reminders, _ := s.store.GetIntakeReminders(intake.ID)
+			reminders, _ := s.meds.GetIntakeReminders(intake.ID)
 			for _, msgID := range reminders {
 				s.deleteNotification(r.Context(), msgID)
 			}
 
-			if err := s.store.ConfirmIntake(intake.ID, now); err != nil {
+			if err := s.meds.ConfirmIntake(intake.ID, now); err != nil {
 				log.Printf("Error confirming intake %d: %v", intake.ID, err)
 			}
 
 			// Decrement inventory
-			if err := s.store.DecrementInventory(medID, 1); err != nil {
+			if err := s.meds.DecrementInventory(medID, 1); err != nil {
 				log.Printf("Error decrementing inventory: %v", err)
 			}
 		} else if intake == nil {
@@ -870,7 +886,7 @@ func (s *Server) handleSendTestMedicationNotification(w http.ResponseWriter, r *
 		return
 	}
 
-	meds, err := s.store.ListMedications(false)
+	meds, err := s.meds.ListMedications(false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

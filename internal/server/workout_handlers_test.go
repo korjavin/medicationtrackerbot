@@ -22,7 +22,7 @@ func TestHandleUpdateSessionStatus(t *testing.T) {
 
 	// Create test server
 	srv := &Server{
-		store:         db,
+		workouts: db,
 		allowedUserID: 123456,
 	}
 
@@ -152,7 +152,7 @@ func TestHandleGetNextWorkout_LazyCreation(t *testing.T) {
 	// Create test server
 	userID := int64(123456)
 	srv := &Server{
-		store:         db,
+		workouts: db,
 		allowedUserID: userID,
 	}
 

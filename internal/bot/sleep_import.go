@@ -189,7 +189,7 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 
 	// Import sleep
 	ctx := context.Background()
-	imported, skipped, err := b.store.ImportSleepLogs(ctx, b.allowedUserID, sleepLogs)
+	imported, skipped, err := b.imports.ImportSleepLogs(ctx, b.allowedUserID, sleepLogs)
 	if err != nil {
 		log.Printf("Failed to import sleep logs to database: %v", err)
 		return 0, 0, err
@@ -211,7 +211,7 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 		log.Printf("Failed to parse stress database: %v", err)
 	}
 
-	vitalsImported, vitalsSkipped, err := b.store.ImportVitals(ctx, b.allowedUserID, heartLogs, spo2Logs, stressLogs)
+	vitalsImported, vitalsSkipped, err := b.imports.ImportVitals(ctx, b.allowedUserID, heartLogs, spo2Logs, stressLogs)
 	if err != nil {
 		log.Printf("Failed to import vitals logs to database: %v", err)
 		// We don't return here because we already imported sleep logs
@@ -225,7 +225,7 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 		log.Printf("Failed to parse day database: %v", err)
 	}
 
-	statsImported, statsSkipped, err := b.store.ImportDayStats(ctx, b.allowedUserID, dayStats)
+	statsImported, statsSkipped, err := b.imports.ImportDayStats(ctx, b.allowedUserID, dayStats)
 	if err != nil {
 		log.Printf("Failed to import day stats to database: %v", err)
 	} else {
