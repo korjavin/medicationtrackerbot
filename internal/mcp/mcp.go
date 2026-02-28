@@ -17,6 +17,29 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// HealthDataReader provides read-only access to health tracking data.
+type HealthDataReader interface {
+	GetBloodPressureEnabled(ctx context.Context) (bool, error)
+	GetWeightEnabled(ctx context.Context) (bool, error)
+	GetMedicationEnabled(ctx context.Context) (bool, error)
+	GetWorkoutEnabled(ctx context.Context) (bool, error)
+	GetFoodIntakeEnabled(ctx context.Context) (bool, error)
+	GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error)
+	GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error)
+	GetIntakesSince(since time.Time) ([]store.IntakeWithMedication, error)
+	GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error)
+	GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error)
+	GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error)
+	GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
+	GetSleepLogs(ctx context.Context, userID int64, since time.Time) ([]store.SleepLog, error)
+	GetFoodLogs(ctx context.Context, userID int64, date time.Time, days int) ([]store.FoodLog, error)
+	GetFoodTargets(ctx context.Context) (store.FoodTargets, error)
+	GetDayStats(ctx context.Context, userID int64, since time.Time) ([]store.DayStat, error)
+	GetVitalsHeart(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsHeartLog, error)
+	GetVitalsSpO2(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsSpO2Log, error)
+	GetVitalsStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error)
+}
+
 // Config holds MCP server configuration
 type Config struct {
 	Port           int
@@ -81,7 +104,7 @@ func LoadConfigFromEnv() (*Config, error) {
 // Server represents the MCP server
 type Server struct {
 	config    *Config
-	store     *store.Store
+	data      HealthDataReader
 	mcpServer *mcp.Server
 	oauth     *OAuthHandler
 }
@@ -90,7 +113,7 @@ type Server struct {
 func NewServer(cfg *Config, st *store.Store) (*Server, error) {
 	s := &Server{
 		config: cfg,
-		store:  st,
+		data:   st,
 	}
 
 	// Create MCP server instance

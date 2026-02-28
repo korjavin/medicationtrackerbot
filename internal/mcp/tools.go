@@ -24,15 +24,15 @@ func (s *Server) ensureFeatureEnabled(ctx context.Context, feature string) error
 
 	switch feature {
 	case "bp":
-		enabled, err = s.store.GetBloodPressureEnabled(ctx)
+		enabled, err = s.data.GetBloodPressureEnabled(ctx)
 	case "weight":
-		enabled, err = s.store.GetWeightEnabled(ctx)
+		enabled, err = s.data.GetWeightEnabled(ctx)
 	case "medication":
-		enabled, err = s.store.GetMedicationEnabled(ctx)
+		enabled, err = s.data.GetMedicationEnabled(ctx)
 	case "workout":
-		enabled, err = s.store.GetWorkoutEnabled(ctx)
+		enabled, err = s.data.GetWorkoutEnabled(ctx)
 	case "food":
-		enabled, err = s.store.GetFoodIntakeEnabled(ctx)
+		enabled, err = s.data.GetFoodIntakeEnabled(ctx)
 	default:
 		return nil
 	}
@@ -156,7 +156,7 @@ func (s *Server) handleGetBloodPressure(ctx context.Context, req *mcp.CallToolRe
 	// Get the user ID from config
 	userID := s.config.UserID
 
-	readings, err := s.store.GetBloodPressureReadings(ctx, userID, startDate)
+	readings, err := s.data.GetBloodPressureReadings(ctx, userID, startDate)
 	if err != nil {
 		log.Printf("[MCP] Failed to fetch BP readings: %v", err)
 		return nil, BloodPressureResponse{}, err
@@ -240,7 +240,7 @@ func (s *Server) handleGetWeight(ctx context.Context, req *mcp.CallToolRequest, 
 
 	userID := s.config.UserID
 
-	logs, err := s.store.GetWeightLogs(ctx, userID, startDate)
+	logs, err := s.data.GetWeightLogs(ctx, userID, startDate)
 	if err != nil {
 		log.Printf("[MCP] Failed to fetch Weight logs: %v", err)
 		return nil, WeightResponse{}, err
@@ -321,7 +321,7 @@ func (s *Server) handleGetMedicationIntake(ctx context.Context, req *mcp.CallToo
 	warning = appendWarnings(argsWarning, warning)
 
 	// Get intakes since start date
-	intakes, err := s.store.GetIntakesSince(startDate)
+	intakes, err := s.data.GetIntakesSince(startDate)
 	if err != nil {
 		return nil, MedicationIntakeResponse{}, err
 	}
@@ -436,7 +436,7 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 
 	// Get workout history - the store method returns recent sessions with limit
 	// We'll need to filter by date range
-	sessions, err := s.store.GetWorkoutHistory(userID, 1000) // Get plenty, then filter
+	sessions, err := s.data.GetWorkoutHistory(userID, 1000) // Get plenty, then filter
 	if err != nil {
 		return nil, WorkoutHistoryResponse{}, err
 	}
@@ -449,8 +449,8 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 		}
 
 		// Get group and variant names
-		group, _ := s.store.GetWorkoutGroup(session.GroupID)
-		variant, _ := s.store.GetWorkoutVariant(session.VariantID)
+		group, _ := s.data.GetWorkoutGroup(session.GroupID)
+		variant, _ := s.data.GetWorkoutVariant(session.VariantID)
 
 		groupName := ""
 		variantName := ""
@@ -480,7 +480,7 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 
 		// Include exercises if requested
 		if input.IncludeExercises {
-			logs, err := s.store.GetExerciseLogs(session.ID)
+			logs, err := s.data.GetExerciseLogs(session.ID)
 			if err == nil {
 				var totalVolume float64
 				for _, log := range logs {
@@ -579,7 +579,7 @@ func (s *Server) handleGetSleepLogs(ctx context.Context, req *mcp.CallToolReques
 	log.Printf("[MCP] Fetching Sleep Logs for date range: %s to %s", startDate, endDate)
 
 	userID := s.config.UserID
-	logs, err := s.store.GetSleepLogs(ctx, userID, startDate)
+	logs, err := s.data.GetSleepLogs(ctx, userID, startDate)
 	if err != nil {
 		log.Printf("[MCP] Failed to fetch sleep logs: %v", err)
 		return nil, SleepLogResponse{}, err
@@ -681,7 +681,7 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 
 	current := startDate
 	for !current.After(endDate) {
-		logs, err := s.store.GetFoodLogs(ctx, userID, current, 1)
+		logs, err := s.data.GetFoodLogs(ctx, userID, current, 1)
 		if err != nil {
 			return nil, FoodIntakeResponse{}, fmt.Errorf("failed to fetch food logs for %s: %w", current.Format("2006-01-02"), err)
 		}
@@ -725,7 +725,7 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 			userID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), warning)
 	}
 
-	targets, err := s.store.GetFoodTargets(ctx)
+	targets, err := s.data.GetFoodTargets(ctx)
 	if err != nil {
 		return nil, FoodIntakeResponse{}, fmt.Errorf("failed to fetch food intake targets: %w", err)
 	}
@@ -781,7 +781,7 @@ func (s *Server) handleGetStepHistory(ctx context.Context, req *mcp.CallToolRequ
 	log.Printf("[MCP] Fetching Step History for date range: %s to %s", startDate, endDate)
 
 	userID := s.config.UserID
-	logs, err := s.store.GetDayStats(ctx, userID, startDate)
+	logs, err := s.data.GetDayStats(ctx, userID, startDate)
 	if err != nil {
 		log.Printf("[MCP] Failed to fetch step history: %v", err)
 		return nil, StepHistoryResponse{}, err
