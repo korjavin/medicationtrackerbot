@@ -2,6 +2,7 @@
 const CACHE_VERSION = 'CACHE_VERSION_PLACEHOLDER'; // Auto-updated by CI/CD
 const STATIC_CACHE = `medtracker-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `medtracker-dynamic-${CACHE_VERSION}`;
+const APP_SHELL_CACHE_KEY = '/__app_shell__';
 
 // Static assets to cache on install
 const STATIC_ASSETS = [
@@ -33,6 +34,14 @@ self.addEventListener('install', (event) => {
                 console.log('[SW] Caching static assets');
                 // Cache static assets first
                 return cache.addAll(STATIC_ASSETS)
+                    .then(() => {
+                        // Seed canonical app shell key from root document.
+                        return cache.match('/').then((rootResponse) => {
+                            if (rootResponse) {
+                                return cache.put(APP_SHELL_CACHE_KEY, rootResponse);
+                            }
+                        });
+                    })
                     .then(() => {
                         // Then try to cache external resources (don't fail if unavailable)
                         console.log('[SW] Attempting to cache external resources');
@@ -70,7 +79,7 @@ self.addEventListener('activate', (event) => {
     );
 });
 
-// Fetch event - network-first for API and navigations, cache-first for static assets
+// Fetch event - network-first for API, stale-while-revalidate for navigations, cache-first for static assets
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
 
@@ -128,27 +137,39 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // HTML navigations - network first so new deployments become visible immediately.
+    // HTML navigations - return cached shell immediately and refresh in background.
     if (event.request.mode === 'navigate') {
         event.respondWith(
-            fetch(event.request)
-                .then((networkResponse) => {
-                    if (networkResponse.ok) {
-                        const responseClone = networkResponse.clone();
-                        caches.open(STATIC_CACHE)
-                            .then((cache) => cache.put('/', responseClone));
-                    }
-                    return networkResponse;
-                })
-                .catch(() => {
-                    return caches.match(event.request)
-                        .then((cachedResponse) => {
-                            if (cachedResponse) {
-                                return cachedResponse;
+            caches.open(STATIC_CACHE)
+                .then((cache) => {
+                    return cache.match(APP_SHELL_CACHE_KEY)
+                        .then((cachedShell) => {
+                            const refreshShellPromise = fetch(event.request)
+                                .then((networkResponse) => {
+                                    if (networkResponse.ok) {
+                                        // Keep a canonical navigation shell entry to avoid query-param cache misses.
+                                        cache.put(APP_SHELL_CACHE_KEY, networkResponse.clone());
+                                    }
+                                    return networkResponse;
+                                })
+                                .catch(() => null);
+
+                            // If we have cached shell, serve instantly and refresh in background.
+                            if (cachedShell) {
+                                event.waitUntil(refreshShellPromise);
+                                return cachedShell;
                             }
-                            return caches.match('/');
-                        })
-                        .then((fallbackResponse) => fallbackResponse || new Response('Offline', { status: 503 }));
+
+                            // First navigation: fall back to network, then fallback to old '/' cache if offline.
+                            return refreshShellPromise.then((networkResponse) => {
+                                if (networkResponse) {
+                                    return networkResponse;
+                                }
+                                return cache.match('/').then((fallbackShell) => {
+                                    return fallbackShell || new Response('Offline', { status: 503 });
+                                });
+                            });
+                        });
                 })
         );
         return;
