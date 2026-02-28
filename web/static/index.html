@@ -136,24 +136,24 @@
                 <h3 style="margin-bottom: 0;">Food Intake (experimental)</h3>
                 <div id="food-stats-period-container" class="food-stats-period-container"
                     style="font-size: 13px; font-weight: normal;">
-                    <span class="period-link active" data-period="day" onclick="setFoodStatsPeriod('day')">Day</span>
+                    <span id="food-period-day-link" class="period-link active" data-period="day">Day</span>
                     <span style="color:var(--hint-color)">|</span>
-                    <span class="period-link" data-period="week" onclick="setFoodStatsPeriod('week')">Week</span>
+                    <span id="food-period-week-link" class="period-link" data-period="week">Week</span>
                 </div>
             </div>
-            <button onclick="showAddFoodModal()" class="btn-add">+ Log Food</button>
+            <button id="add-food-btn" class="btn-add">+ Log Food</button>
 
             <div class="food-date-nav">
-                <button class="secondary food-date-shift-btn" onclick="shiftFoodDate(-1)"
+                <button id="food-date-prev-btn" class="secondary food-date-shift-btn"
                     aria-label="Previous day">←</button>
                 <div style="position: relative; flex: 1;">
-                    <input type="date" id="food-date-filter" onchange="loadFoodLogs()"
+                    <input type="date" id="food-date-filter"
                         style="width: 100%; box-sizing: border-box;">
                     <div id="food-week-display" class="hidden"
                         style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--secondary-bg-color); color: var(--text-color); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 14px; pointer-events: none; border: 1px solid var(--border-color); border-radius: 8px;">
                     </div>
                 </div>
-                <button class="secondary food-date-shift-btn" onclick="shiftFoodDate(1)"
+                <button id="food-date-next-btn" class="secondary food-date-shift-btn"
                     aria-label="Next day">→</button>
             </div>
 
@@ -252,9 +252,9 @@
                     <h3>Test Notifications</h3>
                     <p class="setting-desc">Simulate upcoming notifications</p>
                 </div>
-                <button onclick="sendTestMedicationNotification()" class="secondary" style="margin: 0;">Test
+                <button id="test-med-notification-btn" class="secondary" style="margin: 0;">Test
                     Meds</button>
-                <button onclick="sendTestBPNotification()" class="secondary" style="margin: 0; margin-left: 10px;">Test
+                <button id="test-bp-notification-btn" class="secondary" style="margin: 0; margin-left: 10px;">Test
                     BP</button>
             </div>
             <div style="text-align:center;color:var(--hint-color);font-size:10px;padding:20px 10px 10px;">
@@ -502,8 +502,8 @@
         <div class="modal-header">
             <h3 id="food-modal-title">Log Food</h3>
             <div class="actions">
-                <button onclick="closeFoodModal()" class="secondary">Cancel</button>
-                <button onclick="saveFoodLog()" class="primary">Save</button>
+                <button id="food-modal-cancel-btn" class="secondary">Cancel</button>
+                <button id="food-modal-save-btn" class="primary">Save</button>
             </div>
         </div>
         <input type="hidden" id="food-id">
@@ -512,14 +512,13 @@
         <div class="form-row food-quick-row">
             <div class="food-weight-group">
                 <label>Weight (g):</label>
-                <input type="number" id="food-weight" placeholder="150" oninput="calculateFoodCalories()">
+                <input type="number" id="food-weight" placeholder="150">
             </div>
             <div class="food-barcode-group">
                 <label>Barcode:</label>
                 <div class="food-barcode-row">
-                    <input type="text" id="food-barcode" placeholder="e.g. 1234567890123"
-                        oninput="onFoodBarcodeChange()">
-                    <button type="button" class="secondary food-scan-btn" onclick="openFoodScannerModal()"
+                    <input type="text" id="food-barcode" placeholder="e.g. 1234567890123">
+                    <button type="button" id="food-scan-btn" class="secondary food-scan-btn"
                         aria-label="Scan barcode or QR">Scan</button>
                 </div>
             </div>
@@ -529,8 +528,7 @@
             <label>Food Name (optional):</label>
             <p id="food-search-status" class="food-search-status hidden" aria-live="polite"
                 style="margin-bottom: 8px; font-size: 13px; font-weight: 500;"></p>
-            <input type="text" id="food-name" placeholder="e.g. Apple" autocomplete="off" oninput="onFoodNameChange()"
-                onfocus="onFoodNameFocus()">
+            <input type="text" id="food-name" placeholder="e.g. Apple" autocomplete="off">
             <div id="food-autocomplete-list" class="autocomplete-items hidden"></div>
         </div>
 
@@ -539,21 +537,21 @@
             <div class="bp-inputs-row">
                 <div class="bp-input-group">
                     <label>Carbs</label>
-                    <input type="number" id="food-carbs" placeholder="C" oninput="calculateFoodCalories()">
+                    <input type="number" id="food-carbs" placeholder="C">
                 </div>
                 <div class="bp-input-group">
                     <label>Protein</label>
-                    <input type="number" id="food-protein" placeholder="P" oninput="calculateFoodCalories()">
+                    <input type="number" id="food-protein" placeholder="P">
                 </div>
                 <div class="bp-input-group">
                     <label>Fat</label>
-                    <input type="number" id="food-fat" placeholder="F" oninput="calculateFoodCalories()">
+                    <input type="number" id="food-fat" placeholder="F">
                 </div>
             </div>
             <div style="margin-top: 8px; font-size: 0.85em; text-align: right;">
                 <label class="checkbox-label"
                     style="display:inline-flex; align-items:center; gap:4px; font-weight:normal;">
-                    <input type="checkbox" id="food-per-100g" checked onchange="onFoodPer100gChange()" tabindex="-1"
+                    <input type="checkbox" id="food-per-100g" checked tabindex="-1"
                         style="transform: scale(0.9);"> Values are per 100g
                 </label>
             </div>
@@ -561,7 +559,7 @@
 
         <div class="form-row">
             <label>Total Calories:</label>
-            <input type="number" id="food-calories" placeholder="Kcal" onfocus="onFoodCaloriesFocus()"
+            <input type="number" id="food-calories" placeholder="Kcal"
                 style="font-weight: bold;">
         </div>
 
@@ -576,8 +574,8 @@
         <div class="modal-header">
             <h3 id="food-scanner-title">Scan Barcode / QR</h3>
             <div class="actions">
-                <button type="button" class="secondary" onclick="openPhotoPickerAndDecode()">Use Photo</button>
-                <button type="button" class="secondary" onclick="closeFoodScannerModal()">Close</button>
+                <button type="button" id="food-scanner-use-photo-btn" class="secondary">Use Photo</button>
+                <button type="button" id="food-scanner-close-btn" class="secondary">Close</button>
             </div>
         </div>
         <p id="food-scanner-status" class="food-scanner-status">Point camera at barcode or QR.</p>
@@ -588,8 +586,8 @@
         <div class="modal-header">
             <h3>Edit Product</h3>
             <div class="actions">
-                <button onclick="closeFoodProductModal()" class="secondary">Cancel</button>
-                <button onclick="saveFoodProduct()" class="primary">Save</button>
+                <button id="food-product-cancel-btn" class="secondary">Cancel</button>
+                <button id="food-product-save-btn" class="primary">Save</button>
             </div>
         </div>
         <input type="hidden" id="food-product-id">
@@ -803,8 +801,8 @@
         <div class="modal-header">
             <h3 id="med-confirm-title">Time for Meds!</h3>
             <div class="actions">
-                <button onclick="closeMedicationConfirmModal()" class="secondary">Dismiss</button>
-                <button id="med-confirm-action-btn" onclick="confirmSelectedMedications()" class="primary">Confirm
+                <button id="med-confirm-dismiss-btn" class="secondary">Dismiss</button>
+                <button id="med-confirm-action-btn" class="primary">Confirm
                     Selected</button>
             </div>
         </div>
@@ -820,7 +818,7 @@
             <!-- Checkboxes injected here -->
         </div>
         <div class="actions">
-            <button id="med-confirm-snooze-btn" onclick="snoozeMedicationConfirm()" class="secondary">Snooze
+            <button id="med-confirm-snooze-btn" class="secondary">Snooze
                 10m</button>
         </div>
     </mt-modal>
@@ -831,14 +829,14 @@
         <p id="workout-start-subtitle" style="color: #666; margin-bottom: 20px;"></p>
 
         <div class="actions" style="flex-direction: column; gap: 10px;">
-            <button onclick="startWorkoutFromModal()" class="primary" style="width: 100%;">Start Workout</button>
-            <button onclick="snoozeWorkout(60)" class="secondary" style="width: 100%;">Snooze 1 hour</button>
-            <button onclick="snoozeWorkout(120)" class="secondary" style="width: 100%;">Snooze 2 hours</button>
-            <button onclick="skipWorkoutFromModal()" class="danger"
+            <button id="workout-start-now-btn" class="primary" style="width: 100%;">Start Workout</button>
+            <button id="workout-start-snooze-60-btn" class="secondary" style="width: 100%;">Snooze 1 hour</button>
+            <button id="workout-start-snooze-120-btn" class="secondary" style="width: 100%;">Snooze 2 hours</button>
+            <button id="workout-start-skip-btn" class="danger"
                 style="width: 100%; border-color: #ffcccb; color: #d32f2f;">Skip Workout</button>
         </div>
         <div style="margin-top: 15px; text-align: center;">
-            <button onclick="closeWorkoutStartModal()" class="text-btn" style="color: #999;">Dismiss</button>
+            <button id="workout-start-dismiss-btn" class="text-btn" style="color: #999;">Dismiss</button>
         </div>
     </mt-modal>
 

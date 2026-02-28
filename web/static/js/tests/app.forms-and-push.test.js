@@ -27,7 +27,7 @@ describe('app.js form submissions and push modal behavior', () => {
       expect(document.getElementById('med-confirm-snooze-btn').style.display).toBe('inline-block');
       expect(document.querySelectorAll('.med-confirm-check').length).toBe(2);
 
-      window.closeMedicationConfirmModal();
+      document.getElementById('med-confirm-dismiss-btn').click();
       expect(overlay.classList.contains('hidden')).toBe(true);
       expect(modal.classList.contains('hidden')).toBe(true);
     } finally {
