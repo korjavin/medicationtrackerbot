@@ -217,10 +217,10 @@ describe('workout.js SWR and modal edge branches', () => {
 
       window.apiCall = vi.fn(async (endpoint) => {
         if (endpoint.startsWith('/api/workout/sessions/details')) return sessionDetailsFixture();
-        if (endpoint === '/api/workout/exercises/unique') {
+        if (endpoint === '/api/workout/exercise-library') {
           return [
-            { id: 101, exercise_name: 'Pull-up', target_sets: 3, target_reps_min: 8, target_weight_kg: 0 },
-            { id: 102, exercise_name: 'Dip', target_sets: 3, target_reps_min: 10, target_weight_kg: 0 }
+            { id: 101, name: 'Pull-up', default_sets: 3, default_reps_min: 8, default_weight_kg: 0 },
+            { id: 102, name: 'Dip', default_sets: 3, default_reps_min: 10, default_weight_kg: 0 }
           ];
         }
         return [];
