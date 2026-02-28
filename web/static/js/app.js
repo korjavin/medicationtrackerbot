@@ -5696,7 +5696,6 @@ async function loadHealthOverview() {
 
     loading.style.display = 'block';
     content.classList.add('hidden');
-    content.innerHTML = '';
 
     const data = await window.DataStore.fetchFresh(
         'health_overview',
@@ -5704,6 +5703,7 @@ async function loadHealthOverview() {
         ['health']
     );
     loading.style.display = 'none';
+    content.innerHTML = '';
 
     if (!data) {
         content.innerHTML = '<p style="color:red">Failed to load health metrics</p>';
