@@ -89,6 +89,30 @@ function downloadBlobAsFile(blob, filename) {
     document.body.removeChild(link);
 }
 
+class MTModal extends HTMLElement {
+    connectedCallback() {
+        if (!this.hasAttribute('role')) this.setAttribute('role', 'dialog');
+        if (!this.hasAttribute('aria-modal')) this.setAttribute('aria-modal', 'true');
+        if (!this.hasAttribute('aria-hidden')) {
+            this.setAttribute('aria-hidden', this.classList.contains('hidden') ? 'true' : 'false');
+        }
+    }
+
+    open() {
+        this.classList.remove('hidden');
+        this.setAttribute('aria-hidden', 'false');
+    }
+
+    close() {
+        this.classList.add('hidden');
+        this.setAttribute('aria-hidden', 'true');
+    }
+}
+
+if (window.customElements && !window.customElements.get('mt-modal')) {
+    window.customElements.define('mt-modal', MTModal);
+}
+
 const ModalManager = {
     open(modalId) {
         document.getElementById('modal-overlay').classList.remove('hidden');
@@ -206,11 +230,19 @@ const ModalManager = {
     foodProduct: {
         open() {
             const modal = document.getElementById('food-product-modal');
-            if (modal) modal.classList.remove('hidden');
+            if (modal && typeof modal.open === 'function') {
+                modal.open();
+            } else if (modal) {
+                modal.classList.remove('hidden');
+            }
         },
         close() {
             const modal = document.getElementById('food-product-modal');
-            if (modal) modal.classList.add('hidden');
+            if (modal && typeof modal.close === 'function') {
+                modal.close();
+            } else if (modal) {
+                modal.classList.add('hidden');
+            }
         }
     },
 
