@@ -69,22 +69,22 @@ Done when:
 
 ## Stage B: Tabs -> `mt-tab-group`
 Tasks:
-- Replace current tab wrappers in `index.html` with `mt-tab-group` (main/med/workout).
-- Keep current handlers as adapters first: `tabchange -> existing switch*`.
-- Remove `activateTabGroup` and `bindTabGroup` after migration.
+- [x] Replace current tab wrappers in `index.html` with `mt-tab-group` (main/med/workout).
+- [x] Keep current handlers as adapters first: `tabchange -> existing switch*`.
+- [x] Remove `activateTabGroup` and `bindTabGroup` after migration.
 
 Done when:
-- one tab component drives all three tab groups;
-- no duplicated tab plumbing functions remain.
+- [x] one tab component drives all three tab groups;
+- [x] no duplicated tab plumbing functions remain.
 
 ## Stage C: Days selector -> `mt-day-picker`
 Tasks:
-- Replace both `.days-select` blocks with `mt-day-picker`.
-- Replace `toggleDay` and `toggleWorkoutDay` with component value reads/writes.
+- [x] Replace both `.days-select` blocks with `mt-day-picker`.
+- [x] Replace `toggleDay` and `toggleWorkoutDay` with component value reads/writes.
 
 Done when:
-- one day-picker component is reused in meds and workouts;
-- duplicated day-toggle logic removed.
+- [x] one day-picker component is reused in meds and workouts;
+- [x] duplicated day-toggle logic removed.
 
 ## Stage D: Modal simplification around `mt-modal`
 Tasks:

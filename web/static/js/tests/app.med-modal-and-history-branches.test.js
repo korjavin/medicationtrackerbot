@@ -14,8 +14,8 @@ describe('app.js medication modal CRUD and history edge branches', () => {
   let consoleLogSpy;
 
   beforeEach(() => {
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
   });
 
   afterEach(() => {
@@ -30,7 +30,7 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       document.getElementById('med-name').value = 'filled';
       document.getElementById('med-track-inventory').checked = true;
       document.getElementById('inventory-fields').classList.remove('hidden');
-      document.querySelectorAll('.days-select span').forEach((el) => el.classList.add('selected'));
+      document.getElementById('med-days').value = [1, 2, 3];
 
       window.showAddModal();
 
@@ -40,7 +40,7 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       expect(document.getElementById('schedule-type').value).toBe('daily');
       expect(document.getElementById('time-inputs').querySelectorAll('.med-time-input')).toHaveLength(1);
       expect(document.getElementById('inventory-fields').classList.contains('hidden')).toBe(true);
-      expect(document.querySelectorAll('.days-select span.selected')).toHaveLength(0);
+      expect(document.getElementById('med-days').value).toHaveLength(0);
     } finally {
       cleanup();
     }
@@ -79,7 +79,7 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       expect(document.getElementById('med-rx-display').style.display).toBe('block');
       expect(document.getElementById('inventory-fields').classList.contains('hidden')).toBe(false);
       expect(window.loadRestockHistory).toHaveBeenCalledWith(1);
-      expect(document.querySelectorAll('.days-select span.selected').length).toBeGreaterThan(0);
+      expect(document.getElementById('med-days').value.length).toBeGreaterThan(0);
 
       window.showEditModal(2);
       expect(document.getElementById('schedule-type').value).toBe('daily');
@@ -114,11 +114,11 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       document.querySelector('.med-time-input').value = '09:00';
       document.getElementById('schedule-type').value = 'weekly';
       window.toggleScheduleFields();
-      document.querySelectorAll('.days-select span').forEach((el) => el.classList.remove('selected'));
+      document.getElementById('med-days').value = [];
       await window.saveMedication();
       expect(alertSpy).toHaveBeenCalledWith('Select at least one day!');
 
-      document.querySelector('.days-select span[data-day="1"]').classList.add('selected');
+      document.getElementById('med-days').value = [1];
       document.getElementById('med-dosage').value = '20mg';
       document.getElementById('med-start-date').value = '2026-03-01';
       document.getElementById('med-end-date').value = '2026-03-31';

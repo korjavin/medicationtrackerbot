@@ -16,12 +16,12 @@ let currentVariantForExercise = null;
 // ====================================
 
 function switchWorkoutTab(tab) {
-    const activated = activateTabGroup(tab, {
-        buttonSelector: '.workout-tab',
-        contentSelector: '.workout-tab-content',
-        contentIdFromTab: (tabName) => `workout-${tabName}-tab`
-    });
-    if (!activated) return;
+    document.querySelector('.workout-tabs')?.setActiveTab?.(tab);
+    const tabContent = document.getElementById(`workout-${tab}-tab`);
+    if (!tabContent) return;
+
+    document.querySelectorAll('.workout-tab-content').forEach((el) => el.classList.remove('active'));
+    tabContent.classList.add('active');
 
     if (tab === 'groups') { loadWorkoutGroups(); }
     else if (tab === 'history') { loadNextWorkout(); loadWorkoutHistoryTab(); }
@@ -29,10 +29,8 @@ function switchWorkoutTab(tab) {
     else if (tab === 'stats') { loadWorkoutStatsTab(); }
 }
 
-bindTabGroup({
-    container: document.querySelector('.workout-tabs'),
-    buttonSelector: '.workout-tab',
-    onTabSelect: switchWorkoutTab
+document.querySelector('.workout-tabs')?.addEventListener('tabchange', (e) => {
+    switchWorkoutTab(e.detail.tabId);
 });
 
 // Main load function called when switching to workouts tab
@@ -84,11 +82,7 @@ function bindWorkoutControls() {
         });
     }
 
-    document.querySelectorAll('#workout-group-modal .days-select span').forEach((day) => {
-        day.addEventListener('click', () => {
-            toggleWorkoutDay(day);
-        });
-    });
+
 
     const sessionExerciseName = document.getElementById('session-add-exercise-name');
     if (sessionExerciseName) {
@@ -428,8 +422,7 @@ function showAddWorkoutGroupModal() {
     document.getElementById('workout-group-active').checked = true;
 
     // Clear days
-    document.querySelectorAll('#workout-group-modal .days-select span').forEach(s => s.classList.remove('selected'));
-
+    document.getElementById('workout-group-days').value = [];
     // Show/hide sections based on default "Rotating" state (unchecked)
     document.getElementById('workout-variants-section').style.display = 'none';
     document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
@@ -455,15 +448,7 @@ async function showEditWorkoutGroupModal(groupId) {
     document.getElementById('workout-group-active').checked = group.active;
 
     // Set days
-    const daysArray = JSON.parse(group.days_of_week || '[]');
-    document.querySelectorAll('#workout-group-modal .days-select span').forEach(s => {
-        const day = parseInt(s.dataset.day);
-        if (daysArray.includes(day)) {
-            s.classList.add('selected');
-        } else {
-            s.classList.remove('selected');
-        }
-    });
+    document.getElementById('workout-group-days').value = JSON.parse(group.days_of_week || '[]');
 
     // Show variants or flat exercises based on rotation
     if (group.is_rotating) {
@@ -534,9 +519,7 @@ async function toggleRotatingFields() {
     }
 }
 
-function toggleWorkoutDay(el) {
-    el.classList.toggle('selected');
-}
+
 
 async function saveWorkoutGroup() {
     const name = document.getElementById('workout-group-name').value.trim();
@@ -556,8 +539,7 @@ async function saveWorkoutGroup() {
         return;
     }
 
-    const days = Array.from(document.querySelectorAll('#workout-group-modal .days-select span.selected'))
-        .map(s => parseInt(s.dataset.day));
+    const days = document.getElementById('workout-group-days').value;
 
 
     const payload = {
@@ -943,7 +925,7 @@ async function showAddExerciseModal() {
 
     // Add change handler to pre-fill defaults from library
     const nameInput = document.getElementById('workout-exercise-name');
-    nameInput.onchange = function() {
+    nameInput.onchange = function () {
         const option = Array.from(datalist.options).find(o => o.value === nameInput.value);
         if (option) {
             if (!document.getElementById('workout-exercise-sets').value && option.dataset.sets)

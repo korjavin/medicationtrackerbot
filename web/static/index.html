@@ -27,7 +27,7 @@
 
 <body>
     <div id="app">
-        <div id="tabs">
+        <mt-tab-group id="tabs">
             <button class="tab active" data-tab="bp">🩸</button>
             <button class="tab" data-tab="weight">⚖️</button>
             <button class="tab" data-tab="workouts">🏋️</button>
@@ -35,14 +35,14 @@
             <button class="tab" data-tab="health">😴</button>
             <button class="tab" data-tab="meds">💊</button>
             <button class="tab" data-tab="settings">⚙️</button>
-        </div>
+        </mt-tab-group>
 
         <div id="meds-view" class="view active">
             <!-- Med Tabs -->
-            <div class="med-tabs">
+            <mt-tab-group class="med-tabs">
                 <button class="med-tab active" data-tab="history">History</button>
                 <button class="med-tab" data-tab="schedule">Schedule</button>
-            </div>
+            </mt-tab-group>
 
             <div id="med-history-tab" class="med-tab-content active">
                 <h3>Intake History</h3>
@@ -89,12 +89,12 @@
             <h3>🏋️ Workout Planner</h3>
 
             <!-- Tab Navigation for Workouts -->
-            <div class="workout-tabs">
+            <mt-tab-group class="workout-tabs">
                 <button class="workout-tab active" data-tab="history">History</button>
                 <button class="workout-tab" data-tab="groups">Groups</button>
                 <button class="workout-tab" data-tab="exercises">Exercises</button>
                 <button class="workout-tab" data-tab="stats">Statistics</button>
-            </div>
+            </mt-tab-group>
 
             <!-- History View -->
             <div id="workout-history-tab" class="workout-tab-content active">
@@ -282,15 +282,7 @@
 
         <div class="form-row">
             <label>Days of Week:</label>
-            <div class="days-select">
-                <span data-day="1">Mon</span>
-                <span data-day="2">Tue</span>
-                <span data-day="3">Wed</span>
-                <span data-day="4">Thu</span>
-                <span data-day="5">Fri</span>
-                <span data-day="6">Sat</span>
-                <span data-day="0">Sun</span>
-            </div>
+            <mt-day-picker id="workout-group-days"></mt-day-picker>
         </div>
 
         <div class="form-row">
@@ -648,15 +640,7 @@
 
         <div id="days-container" class="hidden">
             <label>Days:</label>
-            <div class="days-select">
-                <span data-day="1">Mon</span>
-                <span data-day="2">Tue</span>
-                <span data-day="3">Wed</span>
-                <span data-day="4">Thu</span>
-                <span data-day="5">Fri</span>
-                <span data-day="6">Sat</span>
-                <span data-day="0">Sun</span>
-            </div>
+            <mt-day-picker id="med-days"></mt-day-picker>
         </div>
 
         <div id="times-container">
@@ -844,6 +828,8 @@
     <script src="static/js/data-store.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/components/mt-modal.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/components/mt-setting-toggle.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="static/js/components/mt-tab-group.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="static/js/components/mt-day-picker.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/components/register-components.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/app.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/workout.js?v=TIMESTAMP_PLACEHOLDER"></script>
