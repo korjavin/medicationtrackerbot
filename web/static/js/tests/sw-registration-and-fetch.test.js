@@ -198,12 +198,12 @@ describe('Service Worker (sw.js) Fetch and Cache Strategies', () => {
         const networkResponse = new Response('<html>Network Shell</html>');
 
         mockCacheInstance.match.mockResolvedValue(null); // No cache available at all
-        global.fetch = vi.fn().mockResolvedValue(networkResponse); // Network is online
+        global.fetch.mockResolvedValue(networkResponse); // Network is online
 
         fetchHandler(event);
         const finalResponse = await event.respondWith.mock.calls[0][0];
 
-        expect(finalResponse).toStrictEqual(networkResponse);
+        expect(finalResponse).toBe(networkResponse);
         // It should have cached the fresh network response against APP_SHELL_CACHE_KEY
         expect(mockCacheInstance.put).toHaveBeenCalledWith('/__app_shell__', networkResponse);
     });
