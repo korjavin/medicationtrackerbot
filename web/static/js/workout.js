@@ -68,7 +68,7 @@ function bindWorkoutControls() {
     bindClick('exercise-library-cancel-btn', () => closeExerciseLibraryModal());
     bindClick('exercise-library-save-btn', () => saveExerciseLibraryItem());
 
-    bindClick('workout-session-cancel-btn', () => closeWorkoutSessionModal());
+    bindClick('workout-session-cancel-btn', () => handleCancelWorkoutSessionModal());
     bindClick('workout-session-save-btn', () => saveWorkoutSessionDetails());
     bindClick('workout-session-add-exercise-btn', () => showAddExerciseToSessionModal());
 
@@ -1335,6 +1335,17 @@ function _renderWorkoutHistory(container, response) {
         chevron.textContent = '›';
         right.appendChild(chevron);
 
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.style.position = 'static';
+        deleteBtn.style.marginLeft = '10px';
+        deleteBtn.textContent = '×';
+        deleteBtn.addEventListener('click', (event) => {
+            deleteWorkoutSession(s.session.id, event);
+        });
+        right.appendChild(deleteBtn);
+
         row.appendChild(left);
         row.appendChild(right);
         card.appendChild(row);
@@ -1622,6 +1633,43 @@ function closeWorkoutSessionModal() {
     window.ModalManager.workoutSession.close();
     currentSessionData = null;
     originalSessionStatus = null;
+}
+
+async function handleCancelWorkoutSessionModal() {
+    if (!currentSessionData) {
+        closeWorkoutSessionModal();
+        return;
+    }
+
+    // Check if there are any saved exercise logs
+    const hasSavedLogs = currentSessionLogs.some(log => log.id && log.id > 0);
+
+    if (!hasSavedLogs) {
+        // If there are no saved logs, immediately delete the session as per user request
+        try {
+            await apiCall(`/api/workout/sessions/delete?id=${currentSessionData.id}`, 'DELETE');
+            loadWorkoutHistoryTab();
+            loadNextWorkout();
+        } catch (error) {
+            console.error('Error auto-deleting empty session:', error);
+        }
+    }
+
+    closeWorkoutSessionModal();
+}
+
+async function deleteWorkoutSession(sessionId, event) {
+    if (event) event.stopPropagation();
+    if (confirm('Delete this workout session?')) {
+        try {
+            await apiCall(`/api/workout/sessions/delete?id=${sessionId}`, 'DELETE');
+            loadWorkoutHistoryTab();
+            loadNextWorkout();
+        } catch (error) {
+            console.error('Error deleting workout session:', error);
+            safeAlert('Failed to delete workout session');
+        }
+    }
 }
 
 async function saveWorkoutSessionDetails() {
@@ -2005,15 +2053,22 @@ async function startWorkoutSession(sessionId) {
 }
 
 async function cancelWorkoutSession(sessionId) {
-    if (confirm('Finish this workout now? It will be marked as completed.')) {
-        try {
+    try {
+        const details = await apiCall(`/api/workout/sessions/details?id=${sessionId}`);
+        const hasLogs = details && details.logs && details.logs.length > 0;
+
+        const confirmMsg = hasLogs
+            ? 'Finish this workout now? It will be marked as completed.'
+            : 'Внимание! У вас тут нет ни одного упражнения, точно хотите закончить?';
+
+        if (confirm(confirmMsg)) {
             await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
             loadNextWorkout();
             loadWorkoutHistoryTab(); // Refresh history if visible
-        } catch (e) {
-            console.error(e);
-            safeAlert('Failed to finish workout');
         }
+    } catch (e) {
+        console.error(e);
+        safeAlert('Failed to finish workout');
     }
 }
 
