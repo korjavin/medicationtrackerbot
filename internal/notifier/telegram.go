@@ -1,18 +1,20 @@
 package notifier
 
-import (
-	"context"
+import "context"
 
-	"github.com/korjavin/medicationtrackerbot/internal/bot"
-)
+// TelegramSender abstracts the Telegram message operations needed by the notifier.
+type TelegramSender interface {
+	SendMarkdownNotification(text string, actions []struct{ ID, Label string }) (int, error)
+	DeleteMessage(messageID int) error
+}
 
-// Telegram implements Notifier by delegating to *bot.Bot.
+// Telegram implements Notifier by delegating to a TelegramSender.
 type Telegram struct {
-	bot *bot.Bot
+	bot TelegramSender
 }
 
 // NewTelegram creates a Notifier that sends via Telegram.
-func NewTelegram(b *bot.Bot) *Telegram {
+func NewTelegram(b TelegramSender) *Telegram {
 	return &Telegram{bot: b}
 }
 
