@@ -5054,10 +5054,9 @@ async function _renderWeightData(logsRes, goalRes) {
 
 function renderWeightLogs(logs) {
     const list = document.getElementById('weight-list');
-    list.innerHTML = '';
+    list.replaceChildren();
 
     if (!logs || logs.length === 0) {
-        list.innerHTML = '';
         return;
     }
 
@@ -5066,24 +5065,52 @@ function renderWeightLogs(logs) {
         logs = logs.slice(0, 30);
     }
 
-    let html = '';
     logs.forEach(w => {
-        const dateStr = escapeHtml(formatDate(w.measured_at));
+        const dateStr = formatDate(w.measured_at);
         const trendDiff = w.weight_trend ? (w.weight - w.weight_trend).toFixed(1) : '0.0';
         const trendIcon = trendDiff > 0 ? '📈' : (trendDiff < 0 ? '📉' : '➡️');
         const pendingClass = w.isLocal ? ' pending-sync' : '';
+        const listItem = document.createElement('li');
+        listItem.className = `weight-item${pendingClass}`;
 
-        html += `<li class="weight-item${pendingClass}">
-            <div class="weight-data">
-                <div class="weight-value">${escapeHtml(w.weight.toFixed(1))} kg ${w.isLocal ? '<span class="sync-pending-badge">Pending</span>' : ''}</div>
-                <div class="weight-trend">${trendIcon} Trend: ${w.weight_trend ? escapeHtml(w.weight_trend.toFixed(1)) : escapeHtml(w.weight.toFixed(1))} kg</div>
-                <div class="weight-meta">${dateStr}</div>
-            </div>
-            <button class="delete-btn" onclick="deleteWeightLog('${w.id}')" title="Delete">&times;</button>
-        </li>`;
+        const data = document.createElement('div');
+        data.className = 'weight-data';
+
+        const value = document.createElement('div');
+        value.className = 'weight-value';
+        value.appendChild(document.createTextNode(`${w.weight.toFixed(1)} kg `));
+        if (w.isLocal) {
+            const pendingBadge = document.createElement('span');
+            pendingBadge.className = 'sync-pending-badge';
+            pendingBadge.textContent = 'Pending';
+            value.appendChild(pendingBadge);
+        }
+
+        const trend = document.createElement('div');
+        trend.className = 'weight-trend';
+        trend.textContent = `${trendIcon} Trend: ${w.weight_trend ? w.weight_trend.toFixed(1) : w.weight.toFixed(1)} kg`;
+
+        const meta = document.createElement('div');
+        meta.className = 'weight-meta';
+        meta.textContent = dateStr;
+
+        data.appendChild(value);
+        data.appendChild(trend);
+        data.appendChild(meta);
+
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'delete-btn';
+        deleteButton.title = 'Delete';
+        deleteButton.textContent = '×';
+        deleteButton.addEventListener('click', () => {
+            deleteWeightLog(String(w.id));
+        });
+
+        listItem.appendChild(data);
+        listItem.appendChild(deleteButton);
+        list.appendChild(listItem);
     });
-
-    list.innerHTML = html;
 }
 
 async function deleteWeightLog(id) {
