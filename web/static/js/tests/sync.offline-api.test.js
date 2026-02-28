@@ -138,6 +138,36 @@ describe('sync.js offlineAwareApiCall behavior', () => {
     }
   });
 
+  it('uses offline weight write flow when offline', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = false;
+      const saveSpy = vi.fn().mockResolvedValue({ localId: 9 });
+      window.MedTrackerDB.WeightStore.save = saveSpy;
+
+      const registerSpy = vi.spyOn(window.SyncManager, 'registerBackgroundSync').mockResolvedValue(undefined);
+      const toastSpy = vi.spyOn(window.SyncManager, 'showToast').mockImplementation(() => {});
+      const updateSpy = vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+
+      const payload = {
+        measured_at: '2026-02-27T11:00:00Z',
+        weight: 79.8,
+        notes: 'offline'
+      };
+
+      const result = await window.offlineAwareApiCall('/api/weight', 'POST', payload);
+
+      expect(saveSpy).toHaveBeenCalledWith(payload);
+      expect(registerSpy).toHaveBeenCalledWith('sync-weight-logs');
+      expect(toastSpy).toHaveBeenCalled();
+      expect(updateSpy).toHaveBeenCalled();
+      expect(result).toMatchObject({ id: 'local_9', localId: 9, isLocal: true, weight: 79.8 });
+    } finally {
+      cleanup();
+    }
+  });
+
   it('returns network result directly when request succeeds', async () => {
     const { window, cleanup } = loadSyncEnv();
 
