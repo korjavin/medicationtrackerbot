@@ -18,6 +18,23 @@ describe('app.js UI characterization', () => {
     }
   });
 
+  it('main tab click binding switches view without inline onclick handlers', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const loadSettingsSpy = vi.fn();
+      window.loadSettings = loadSettingsSpy;
+
+      const settingsTab = document.querySelector('.tab[data-tab="settings"]');
+      settingsTab.click();
+
+      expect(settingsTab.classList.contains('active')).toBe(true);
+      expect(document.getElementById('settings-view').classList.contains('active')).toBe(true);
+      expect(loadSettingsSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('switchMedTab toggles med subtab classes and calls the right loader', () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
