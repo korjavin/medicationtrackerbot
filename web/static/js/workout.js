@@ -1122,26 +1122,45 @@ async function loadWorkoutHistoryTab() {
         },
         onError: async (error, cached) => {
             console.error('Error loading history:', error);
-            if (!cached) container.innerHTML = '<p style="color: red;">Error loading history</p>';
+            if (!cached) {
+                const message = document.createElement('p');
+                message.style.color = 'red';
+                message.textContent = 'Error loading history';
+                container.replaceChildren(message);
+            }
         }
     });
 }
 
 function _renderWorkoutHistory(container, response) {
     if (!response || response.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout history yet</p>';
+        const empty = document.createElement('p');
+        empty.style.textAlign = 'center';
+        empty.style.color = 'var(--hint-color)';
+        empty.style.padding = '40px';
+        empty.textContent = 'No workout history yet';
+        container.replaceChildren(empty);
         return;
     }
 
     const finalSessions = response.filter(s => s.session.status === 'completed' || s.session.status === 'skipped');
 
     if (finalSessions.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout history yet</p>';
+        const empty = document.createElement('p');
+        empty.style.textAlign = 'center';
+        empty.style.color = 'var(--hint-color)';
+        empty.style.padding = '40px';
+        empty.textContent = 'No workout history yet';
+        container.replaceChildren(empty);
         return;
     }
 
-    let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
-    finalSessions.forEach(s => {
+    const root = document.createElement('div');
+    root.style.display = 'flex';
+    root.style.flexDirection = 'column';
+    root.style.gap = '10px';
+
+    finalSessions.forEach((s) => {
         const statusEmoji = {
             'completed': '✅',
             'skipped': '⏭'
@@ -1157,27 +1176,75 @@ function _renderWorkoutHistory(container, response) {
             ? `${Math.round(s.total_volume).toLocaleString()} kg total`
             : '';
 
-        html += `
-                <div onclick="showWorkoutSessionModal(${s.session.id})" style="background: #f8f9fa; padding: 12px; border-radius: 8px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='#f8f9fa'">
-                    <div style="display: flex; justify-content: space-between; align-items: start;">
-                        <div>
-                            <strong>${statusEmoji} ${escapeHtml(s.group_name)}</strong> - ${escapeHtml(s.variant_name)}
-                            <div style="font-size: 0.85em; color: #666; margin-top: 4px;">
-                                ${date} at ${s.session.started_at ? new Date(s.session.started_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : s.session.scheduled_time}
-                                ${s.session.status === 'completed' ? ` • ${s.exercises_completed}/${s.exercises_count} exercises` : ''}
-                                ${volumeText ? `<br><strong style="color: #667eea;">${volumeText}</strong>` : ''}
-                            </div>
-                        </div>
-                        <div style="text-align: right; font-size: 0.85em; color: #667eea; display: flex; align-items: center; gap: 4px;">
-                            ${s.session.status} <span style="font-size: 1.2em;">›</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-    });
-    html += '</div>';
+        const card = document.createElement('div');
+        card.style.background = '#f8f9fa';
+        card.style.padding = '12px';
+        card.style.borderRadius = '8px';
+        card.style.cursor = 'pointer';
+        card.style.transition = 'background 0.2s';
+        card.addEventListener('click', () => {
+            showWorkoutSessionModal(s.session.id);
+        });
+        card.addEventListener('mouseover', () => {
+            card.style.background = '#f0f0f0';
+        });
+        card.addEventListener('mouseout', () => {
+            card.style.background = '#f8f9fa';
+        });
 
-    container.innerHTML = html;
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.alignItems = 'start';
+
+        const left = document.createElement('div');
+        const title = document.createElement('strong');
+        title.textContent = `${statusEmoji} ${s.group_name}`;
+        left.appendChild(title);
+        left.appendChild(document.createTextNode(` - ${s.variant_name}`));
+
+        const details = document.createElement('div');
+        details.style.fontSize = '0.85em';
+        details.style.color = '#666';
+        details.style.marginTop = '4px';
+
+        const timeText = s.session.started_at
+            ? new Date(s.session.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : s.session.scheduled_time;
+        let detailLine = `${date} at ${timeText}`;
+        if (s.session.status === 'completed') {
+            detailLine += ` • ${s.exercises_completed}/${s.exercises_count} exercises`;
+        }
+        details.appendChild(document.createTextNode(detailLine));
+        if (volumeText) {
+            details.appendChild(document.createElement('br'));
+            const volume = document.createElement('strong');
+            volume.style.color = '#667eea';
+            volume.textContent = volumeText;
+            details.appendChild(volume);
+        }
+        left.appendChild(details);
+
+        const right = document.createElement('div');
+        right.style.textAlign = 'right';
+        right.style.fontSize = '0.85em';
+        right.style.color = '#667eea';
+        right.style.display = 'flex';
+        right.style.alignItems = 'center';
+        right.style.gap = '4px';
+        right.appendChild(document.createTextNode(s.session.status));
+        const chevron = document.createElement('span');
+        chevron.style.fontSize = '1.2em';
+        chevron.textContent = '›';
+        right.appendChild(chevron);
+
+        row.appendChild(left);
+        row.appendChild(right);
+        card.appendChild(row);
+        root.appendChild(card);
+    });
+
+    container.replaceChildren(root);
 }
 
 let currentSessionLogs = [];
