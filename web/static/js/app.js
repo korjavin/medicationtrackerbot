@@ -1702,7 +1702,6 @@ async function deleteFoodProduct(id, displayName) {
         }
         await initFoodProductsCache();
         renderFoodAutocomplete(foodProductsCache);
-        safeAlert('Product deleted.');
     } catch (e) {
         console.error('Failed to delete food product', e);
         safeAlert('Failed to delete product.');
