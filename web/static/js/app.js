@@ -5682,20 +5682,12 @@ async function sendTestMedicationNotification() {
 })();
 
 // --- Health Overview ---
-async function loadHealthOverview() {
+function renderHealthOverviewData(data) {
     const content = document.getElementById('health-overview-content');
     const loading = document.getElementById('health-overview-loading');
 
-    loading.style.display = 'block';
-    content.classList.add('hidden');
-    content.innerHTML = '';
-
-    const data = await window.DataStore.fetchFresh(
-        'health_overview',
-        async () => await apiCall('/api/health/overview', 'GET'),
-        ['health']
-    );
     loading.style.display = 'none';
+    content.innerHTML = '';
 
     if (!data) {
         content.innerHTML = '<p style="color:red">Failed to load health metrics</p>';
@@ -5703,7 +5695,6 @@ async function loadHealthOverview() {
         return;
     }
 
-    // Render charts sections
     const renderVitalGroup = (id, title, history, color, min, max, stat7d, stat30d, unit) => {
         if (history && history.length > 0) {
             content.innerHTML += `
@@ -5763,6 +5754,34 @@ async function loadHealthOverview() {
     `;
 
     content.classList.remove('hidden');
+}
+
+async function loadHealthOverview() {
+    const content = document.getElementById('health-overview-content');
+    const loading = document.getElementById('health-overview-loading');
+
+    loading.style.display = 'block';
+    content.classList.add('hidden');
+    content.innerHTML = '';
+
+    await window.DataStore.loadSWR({
+        key: 'health_overview',
+        tags: ['health'],
+        fetcher: async () => await apiCall('/api/health/overview', 'GET'),
+        onCached: (cached) => {
+            renderHealthOverviewData(cached);
+        },
+        onFresh: (fresh, cached) => {
+            renderHealthOverviewData(fresh);
+        },
+        onError: (err, cached) => {
+            if (!cached) {
+                loading.style.display = 'none';
+                content.innerHTML = '<p style="color:red">Failed to load health metrics</p>';
+                content.classList.remove('hidden');
+            }
+        }
+    });
 }
 
 // Render generic line chart with min/max shaded area 
