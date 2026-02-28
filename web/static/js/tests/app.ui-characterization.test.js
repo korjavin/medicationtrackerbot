@@ -157,4 +157,24 @@ describe('app.js UI characterization', () => {
       cleanup();
     }
   });
+
+  it('food controls are wired via JS listeners and toggle period/modal states', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const showFoodModalSpy = vi.spyOn(window, 'showAddFoodModal').mockImplementation(() => {});
+      const closeFoodModalSpy = vi.spyOn(window, 'closeFoodModal').mockImplementation(() => {});
+      window.setFoodStatsPeriod = vi.fn();
+
+      document.getElementById('add-food-btn').click();
+      expect(showFoodModalSpy).toHaveBeenCalled();
+
+      document.getElementById('food-period-week-link').click();
+      expect(window.setFoodStatsPeriod).toHaveBeenCalledWith('week');
+
+      document.getElementById('food-modal-cancel-btn').click();
+      expect(closeFoodModalSpy).toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
 });
