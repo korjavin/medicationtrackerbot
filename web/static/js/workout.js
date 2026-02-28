@@ -66,7 +66,7 @@ async function loadNextWorkout() {
 
 function _renderNextWorkout(container, data) {
     if (!data || !data.session) {
-        container.innerHTML = '';
+        container.replaceChildren();
         return;
     }
 
@@ -113,49 +113,104 @@ function _renderNextWorkout(container, data) {
         weekday: 'short'
     });
 
-    // Show appropriate buttons based on status
+    const variantId = data.variant_id || 0;
+    const groupId = data.group_id || 0;
     const isRotating = data.is_rotating || false;
-    let actionButtons = '';
+
+    const card = document.createElement('div');
+    card.className = cardClass;
+
+    const header = document.createElement('div');
+    header.className = 'next-workout-header';
+
+    const statusEl = document.createElement('div');
+    statusEl.className = 'next-workout-status';
+    statusEl.textContent = `${statusEmoji} ${statusText}`;
+
+    const dateEl = document.createElement('div');
+    dateEl.className = 'next-workout-date';
+    dateEl.textContent = `${dateStr} at ${session.scheduled_time}`;
+
+    header.appendChild(statusEl);
+    header.appendChild(dateEl);
+    card.appendChild(header);
+
+    const info = document.createElement('div');
+    info.className = 'next-workout-info';
+    info.style.cursor = 'pointer';
+    info.title = 'View/edit planned exercises';
+    info.addEventListener('click', () => {
+        openNextWorkoutEditModal(variantId, groupId);
+    });
+
+    const title = document.createElement('h3');
+    title.textContent = data.group_name;
+    const subtitle = document.createElement('p');
+    subtitle.textContent = `${data.variant_name} • ${data.exercises_count} exercises ✏️`;
+    info.appendChild(title);
+    info.appendChild(subtitle);
+    card.appendChild(info);
+
+    const createButton = (label, className, onClick, styles = {}) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = className;
+        button.textContent = label;
+        Object.assign(button.style, styles);
+        button.addEventListener('click', () => {
+            onClick(session.id);
+        });
+        return button;
+    };
+
     if (status === 'in_progress') {
-        actionButtons = `
-                <div style="display: flex; gap: 10px; margin-top: 12px;">
-                    <button onclick="showWorkoutSessionModal(${session.id})" class="primary" style="flex: 1;">🏋️ Continue</button>
-                    <button onclick="cancelWorkoutSession(${session.id})" class="secondary" style="flex: 1; background-color: #ffebee; color: #c62828; border: 1px solid #ef9a9a;">🛑 Stop</button>
-                </div>
-            `;
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.gap = '10px';
+        row.style.marginTop = '12px';
+        row.appendChild(createButton('🏋️ Continue', 'primary', showWorkoutSessionModal, { flex: '1' }));
+        row.appendChild(createButton('🛑 Stop', 'secondary', cancelWorkoutSession, {
+            flex: '1',
+            backgroundColor: '#ffebee',
+            color: '#c62828',
+            border: '1px solid #ef9a9a'
+        }));
+        card.appendChild(row);
     } else if (status === 'pre_skipped') {
-        actionButtons = `<button onclick="cancelPreSkipWorkoutSession(${session.id})" class="btn-pill" style="margin-top: 12px; width: 100%; background-color: var(--button-color, #5288c1); color: white;">↩ Cancel Skip</button>`;
+        card.appendChild(createButton('↩ Cancel Skip', 'btn-pill', cancelPreSkipWorkoutSession, {
+            marginTop: '12px',
+            width: '100%',
+            backgroundColor: 'var(--button-color, #5288c1)',
+            color: 'white'
+        }));
         if (isRotating) {
-            actionButtons += `<button onclick="nextWorkoutVariant(${session.id})" class="secondary" style="margin-top: 8px; width: 100%;">↻ Next Variant</button>`;
+            card.appendChild(createButton('↻ Next Variant', 'secondary', nextWorkoutVariant, {
+                marginTop: '8px',
+                width: '100%'
+            }));
         }
     } else {
-        actionButtons = `
-                <div style="display: flex; gap: 10px; margin-top: 12px;">
-                    <button onclick="startWorkoutSession(${session.id})" class="btn-pill" style="flex: 1;">🏋️ Start Workout</button>
-                    <button onclick="preSkipWorkoutSession(${session.id})" class="secondary" style="flex: 1; background-color: #fff3e0; color: #e65100; border: 1px solid #ffcc80;">⏭ Skip</button>
-                </div>
-            `;
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.gap = '10px';
+        row.style.marginTop = '12px';
+        row.appendChild(createButton('🏋️ Start Workout', 'btn-pill', startWorkoutSession, { flex: '1' }));
+        row.appendChild(createButton('⏭ Skip', 'secondary', preSkipWorkoutSession, {
+            flex: '1',
+            backgroundColor: '#fff3e0',
+            color: '#e65100',
+            border: '1px solid #ffcc80'
+        }));
+        card.appendChild(row);
         if (isRotating) {
-            actionButtons += `<button onclick="nextWorkoutVariant(${session.id})" class="secondary" style="margin-top: 8px; width: 100%;">↻ Next Variant</button>`;
+            card.appendChild(createButton('↻ Next Variant', 'secondary', nextWorkoutVariant, {
+                marginTop: '8px',
+                width: '100%'
+            }));
         }
     }
 
-    const variantId = data.variant_id || 0;
-    const groupId = data.group_id || 0;
-
-    container.innerHTML = `
-            <div class="${cardClass}">
-                <div class="next-workout-header">
-                    <div class="next-workout-status">${statusEmoji} ${statusText}</div>
-                    <div class="next-workout-date">${dateStr} at ${session.scheduled_time}</div>
-                </div>
-                <div class="next-workout-info" onclick="openNextWorkoutEditModal(${variantId}, ${groupId})" style="cursor: pointer;" title="View/edit planned exercises">
-                    <h3>${escapeHtml(data.group_name)}</h3>
-                    <p>${escapeHtml(data.variant_name)} • ${data.exercises_count} exercises ✏️</p>
-                </div>
-                ${actionButtons}
-            </div>
-        `;
+    container.replaceChildren(card);
 }
 
 // ====================================
@@ -200,41 +255,84 @@ async function loadWorkoutGroups() {
         },
         onError: async (error, cached) => {
             console.error('Error loading workout groups:', error);
-            if (!cached) container.innerHTML = '<p style="color: red;">Error loading workout groups</p>';
+            if (!cached) {
+                const message = document.createElement('p');
+                message.style.color = 'red';
+                message.textContent = 'Error loading workout groups';
+                container.replaceChildren(message);
+            }
         }
     });
 }
 
 function _renderWorkoutGroups(container, groups) {
+    if (!container) return;
+    const doc = container.ownerDocument;
+    if (!doc || typeof doc.createElement !== 'function') return;
     workoutGroups = groups || [];
 
     if (!groups || groups.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout groups yet. Click "+ Add Workout Group" to get started!</p>';
+        const empty = doc.createElement('p');
+        empty.style.textAlign = 'center';
+        empty.style.color = 'var(--hint-color)';
+        empty.style.padding = '40px';
+        empty.textContent = 'No workout groups yet. Click "+ Add Workout Group" to get started!';
+        container.replaceChildren(empty);
         return;
     }
 
-    let html = '';
-    groups.forEach(group => {
-        const daysArray = JSON.parse(group.days_of_week || '[]');
+    container.replaceChildren();
+    groups.forEach((group) => {
+        let daysArray = [];
+        try {
+            daysArray = JSON.parse(group.days_of_week || '[]');
+        } catch (e) { }
         const daysMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const daysText = daysArray.map(d => daysMap[d]).join(', ');
+        const daysText = daysArray.map((day) => daysMap[day]).join(', ');
 
-        html += `
-                <div class="med-item" style="margin-bottom: 15px;">
-                    <div class="med-info" onclick="showEditWorkoutGroupModal(${group.id})" style="cursor: pointer;">
-                        <h4>${escapeHtml(group.name)} ${group.is_rotating ? '🔄' : ''} ${!group.active ? '(Inactive)' : ''}</h4>
-                        <p>${escapeHtml(group.description || '')}</p>
-                        <p style="font-size: 0.9em; color: #666;">
-                            📅 ${daysText} at ${group.scheduled_time}
-                            <br>🔔 ${group.notification_advance_minutes} min before
-                        </p>
-                    </div>
-                    <button class="delete-btn" onclick="deleteWorkoutGroup(${group.id}, event)">&times;</button>
-                </div>
-            `;
+        const card = doc.createElement('div');
+        card.className = 'med-item';
+        card.style.marginBottom = '15px';
+
+        const info = doc.createElement('div');
+        info.className = 'med-info';
+        info.style.cursor = 'pointer';
+        info.addEventListener('click', () => {
+            showEditWorkoutGroupModal(group.id);
+        });
+
+        const title = doc.createElement('h4');
+        const titleParts = [group.name];
+        if (group.is_rotating) titleParts.push('🔄');
+        if (!group.active) titleParts.push('(Inactive)');
+        title.textContent = titleParts.join(' ');
+
+        const description = doc.createElement('p');
+        description.textContent = group.description || '';
+
+        const schedule = doc.createElement('p');
+        schedule.style.fontSize = '0.9em';
+        schedule.style.color = '#666';
+        schedule.appendChild(doc.createTextNode(`📅 ${daysText} at ${group.scheduled_time}`));
+        schedule.appendChild(doc.createElement('br'));
+        schedule.appendChild(doc.createTextNode(`🔔 ${group.notification_advance_minutes} min before`));
+
+        info.appendChild(title);
+        info.appendChild(description);
+        info.appendChild(schedule);
+
+        const deleteBtn = doc.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = '×';
+        deleteBtn.addEventListener('click', (event) => {
+            deleteWorkoutGroup(group.id, event);
+        });
+
+        card.appendChild(info);
+        card.appendChild(deleteBtn);
+        container.appendChild(card);
     });
-
-    container.innerHTML = html;
 }
 
 // ====================================
@@ -437,28 +535,69 @@ async function loadVariantsForGroup(groupId) {
         const variants = await apiCall(`/api/workout/variants?group_id=${groupId}`);
 
         if (!variants || variants.length === 0) {
-            container.innerHTML = '<p style="color: var(--hint-color); font-size: 0.9em;">No variants yet. Add one to get started!</p>';
+            const empty = document.createElement('p');
+            empty.style.color = 'var(--hint-color)';
+            empty.style.fontSize = '0.9em';
+            empty.textContent = 'No variants yet. Add one to get started!';
+            container.replaceChildren(empty);
             return;
         }
 
-        let html = '';
-        variants.forEach(variant => {
+        container.replaceChildren();
+        variants.forEach((variant) => {
             const rotationText = variant.rotation_order !== null ? ` (Order: ${variant.rotation_order})` : '';
-            html += `
-                <div style="background: #f8f9fa; padding: 10px; border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
-                    <div onclick="showEditVariantModal(${variant.id})" style="cursor: pointer; flex: 1;">
-                        <strong>${escapeHtml(variant.name)}</strong>${rotationText}
-                        ${variant.description ? `<div style="font-size: 0.85em; color: #666;">${escapeHtml(variant.description)}</div>` : ''}
-                    </div>
-                    <button class="delete-btn" onclick="deleteVariant(${variant.id}, event)" style="position: static; margin-left: 10px;">&times;</button>
-                </div>
-            `;
-        });
 
-        container.innerHTML = html;
+            const card = document.createElement('div');
+            card.style.background = '#f8f9fa';
+            card.style.padding = '10px';
+            card.style.borderRadius = '6px';
+            card.style.marginBottom = '8px';
+            card.style.display = 'flex';
+            card.style.justifyContent = 'space-between';
+            card.style.alignItems = 'center';
+
+            const info = document.createElement('div');
+            info.style.cursor = 'pointer';
+            info.style.flex = '1';
+            info.addEventListener('click', () => {
+                showEditVariantModal(variant.id);
+            });
+
+            const nameStrong = document.createElement('strong');
+            nameStrong.textContent = variant.name;
+            info.appendChild(nameStrong);
+            if (rotationText) {
+                info.appendChild(document.createTextNode(rotationText));
+            }
+
+            if (variant.description) {
+                const description = document.createElement('div');
+                description.style.fontSize = '0.85em';
+                description.style.color = '#666';
+                description.textContent = variant.description;
+                info.appendChild(description);
+            }
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'delete-btn';
+            deleteBtn.style.position = 'static';
+            deleteBtn.style.marginLeft = '10px';
+            deleteBtn.textContent = '×';
+            deleteBtn.addEventListener('click', (event) => {
+                deleteVariant(variant.id, event);
+            });
+
+            card.appendChild(info);
+            card.appendChild(deleteBtn);
+            container.appendChild(card);
+        });
     } catch (error) {
         console.error('Error loading variants:', error);
-        container.innerHTML = '<p style="color: red;">Error loading variants</p>';
+        const message = document.createElement('p');
+        message.style.color = 'red';
+        message.textContent = 'Error loading variants';
+        container.replaceChildren(message);
     }
 }
 
@@ -577,37 +716,70 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
         const exercises = await apiCall(`/api/workout/exercises?variant_id=${variantId}`);
 
         if (!exercises || exercises.length === 0) {
-            container.innerHTML = '<p style="color: var(--hint-color); font-size: 0.9em;">No exercises yet. Add one!</p>';
+            const empty = document.createElement('p');
+            empty.style.color = 'var(--hint-color)';
+            empty.style.fontSize = '0.9em';
+            empty.textContent = 'No exercises yet. Add one!';
+            container.replaceChildren(empty);
             return;
         }
 
         // Sort by order
-        exercises.sort((a, b) => a.order_index - b.order_index);
-
-        let html = '';
-        exercises.forEach(ex => {
+        const sortedExercises = [...exercises].sort((a, b) => a.order_index - b.order_index);
+        container.replaceChildren();
+        sortedExercises.forEach((ex) => {
             const repsText = ex.target_reps_max
                 ? `${ex.target_reps_min}-${ex.target_reps_max}`
                 : `${ex.target_reps_min}`;
             const weightText = ex.target_weight_kg ? ` @ ${ex.target_weight_kg}kg` : '';
 
-            html += `
-                <div style="background: #f0f4ff; padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-                    <div onclick="showEditExerciseModal(${ex.id})" style="cursor: pointer; flex: 1;">
-                        <strong>${ex.order_index + 1}. ${escapeHtml(ex.exercise_name)}</strong>
-                        <div style="font-size: 0.85em; color: #666;">
-                            ${ex.target_sets} sets × ${repsText} reps${weightText}
-                        </div>
-                    </div>
-                    <button class="delete-btn" onclick="deleteExercise(${ex.id}, event)" style="position: static; margin-left: 10px;">&times;</button>
-                </div>
-            `;
-        });
+            const card = document.createElement('div');
+            card.style.background = '#f0f4ff';
+            card.style.padding = '8px 10px';
+            card.style.borderRadius = '6px';
+            card.style.marginBottom = '6px';
+            card.style.display = 'flex';
+            card.style.justifyContent = 'space-between';
+            card.style.alignItems = 'center';
 
-        container.innerHTML = html;
+            const info = document.createElement('div');
+            info.style.cursor = 'pointer';
+            info.style.flex = '1';
+            info.addEventListener('click', () => {
+                showEditExerciseModal(ex.id);
+            });
+
+            const title = document.createElement('strong');
+            title.textContent = `${ex.order_index + 1}. ${ex.exercise_name}`;
+
+            const meta = document.createElement('div');
+            meta.style.fontSize = '0.85em';
+            meta.style.color = '#666';
+            meta.textContent = `${ex.target_sets} sets × ${repsText} reps${weightText}`;
+
+            info.appendChild(title);
+            info.appendChild(meta);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'delete-btn';
+            deleteBtn.style.position = 'static';
+            deleteBtn.style.marginLeft = '10px';
+            deleteBtn.textContent = '×';
+            deleteBtn.addEventListener('click', (event) => {
+                deleteExercise(ex.id, event);
+            });
+
+            card.appendChild(info);
+            card.appendChild(deleteBtn);
+            container.appendChild(card);
+        });
     } catch (error) {
         console.error('Error loading exercises:', error);
-        container.innerHTML = '<p style="color: red;">Error loading exercises</p>';
+        const message = document.createElement('p');
+        message.style.color = 'red';
+        message.textContent = 'Error loading exercises';
+        container.replaceChildren(message);
     }
 }
 
@@ -955,26 +1127,45 @@ async function loadWorkoutHistoryTab() {
         },
         onError: async (error, cached) => {
             console.error('Error loading history:', error);
-            if (!cached) container.innerHTML = '<p style="color: red;">Error loading history</p>';
+            if (!cached) {
+                const message = document.createElement('p');
+                message.style.color = 'red';
+                message.textContent = 'Error loading history';
+                container.replaceChildren(message);
+            }
         }
     });
 }
 
 function _renderWorkoutHistory(container, response) {
     if (!response || response.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout history yet</p>';
+        const empty = document.createElement('p');
+        empty.style.textAlign = 'center';
+        empty.style.color = 'var(--hint-color)';
+        empty.style.padding = '40px';
+        empty.textContent = 'No workout history yet';
+        container.replaceChildren(empty);
         return;
     }
 
     const finalSessions = response.filter(s => s.session.status === 'completed' || s.session.status === 'skipped');
 
     if (finalSessions.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: var(--hint-color); padding: 40px;">No workout history yet</p>';
+        const empty = document.createElement('p');
+        empty.style.textAlign = 'center';
+        empty.style.color = 'var(--hint-color)';
+        empty.style.padding = '40px';
+        empty.textContent = 'No workout history yet';
+        container.replaceChildren(empty);
         return;
     }
 
-    let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
-    finalSessions.forEach(s => {
+    const root = document.createElement('div');
+    root.style.display = 'flex';
+    root.style.flexDirection = 'column';
+    root.style.gap = '10px';
+
+    finalSessions.forEach((s) => {
         const statusEmoji = {
             'completed': '✅',
             'skipped': '⏭'
@@ -990,27 +1181,75 @@ function _renderWorkoutHistory(container, response) {
             ? `${Math.round(s.total_volume).toLocaleString()} kg total`
             : '';
 
-        html += `
-                <div onclick="showWorkoutSessionModal(${s.session.id})" style="background: #f8f9fa; padding: 12px; border-radius: 8px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='#f8f9fa'">
-                    <div style="display: flex; justify-content: space-between; align-items: start;">
-                        <div>
-                            <strong>${statusEmoji} ${escapeHtml(s.group_name)}</strong> - ${escapeHtml(s.variant_name)}
-                            <div style="font-size: 0.85em; color: #666; margin-top: 4px;">
-                                ${date} at ${s.session.started_at ? new Date(s.session.started_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : s.session.scheduled_time}
-                                ${s.session.status === 'completed' ? ` • ${s.exercises_completed}/${s.exercises_count} exercises` : ''}
-                                ${volumeText ? `<br><strong style="color: #667eea;">${volumeText}</strong>` : ''}
-                            </div>
-                        </div>
-                        <div style="text-align: right; font-size: 0.85em; color: #667eea; display: flex; align-items: center; gap: 4px;">
-                            ${s.session.status} <span style="font-size: 1.2em;">›</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-    });
-    html += '</div>';
+        const card = document.createElement('div');
+        card.style.background = '#f8f9fa';
+        card.style.padding = '12px';
+        card.style.borderRadius = '8px';
+        card.style.cursor = 'pointer';
+        card.style.transition = 'background 0.2s';
+        card.addEventListener('click', () => {
+            showWorkoutSessionModal(s.session.id);
+        });
+        card.addEventListener('mouseover', () => {
+            card.style.background = '#f0f0f0';
+        });
+        card.addEventListener('mouseout', () => {
+            card.style.background = '#f8f9fa';
+        });
 
-    container.innerHTML = html;
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.alignItems = 'start';
+
+        const left = document.createElement('div');
+        const title = document.createElement('strong');
+        title.textContent = `${statusEmoji} ${s.group_name}`;
+        left.appendChild(title);
+        left.appendChild(document.createTextNode(` - ${s.variant_name}`));
+
+        const details = document.createElement('div');
+        details.style.fontSize = '0.85em';
+        details.style.color = '#666';
+        details.style.marginTop = '4px';
+
+        const timeText = s.session.started_at
+            ? new Date(s.session.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : s.session.scheduled_time;
+        let detailLine = `${date} at ${timeText}`;
+        if (s.session.status === 'completed') {
+            detailLine += ` • ${s.exercises_completed}/${s.exercises_count} exercises`;
+        }
+        details.appendChild(document.createTextNode(detailLine));
+        if (volumeText) {
+            details.appendChild(document.createElement('br'));
+            const volume = document.createElement('strong');
+            volume.style.color = '#667eea';
+            volume.textContent = volumeText;
+            details.appendChild(volume);
+        }
+        left.appendChild(details);
+
+        const right = document.createElement('div');
+        right.style.textAlign = 'right';
+        right.style.fontSize = '0.85em';
+        right.style.color = '#667eea';
+        right.style.display = 'flex';
+        right.style.alignItems = 'center';
+        right.style.gap = '4px';
+        right.appendChild(document.createTextNode(s.session.status));
+        const chevron = document.createElement('span');
+        chevron.style.fontSize = '1.2em';
+        chevron.textContent = '›';
+        right.appendChild(chevron);
+
+        row.appendChild(left);
+        row.appendChild(right);
+        card.appendChild(row);
+        root.appendChild(card);
+    });
+
+    container.replaceChildren(root);
 }
 
 let currentSessionLogs = [];
