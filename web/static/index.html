@@ -92,6 +92,7 @@
             <div class="workout-tabs">
                 <button class="workout-tab active" data-tab="history">History</button>
                 <button class="workout-tab" data-tab="groups">Groups</button>
+                <button class="workout-tab" data-tab="exercises">Exercises</button>
                 <button class="workout-tab" data-tab="stats">Statistics</button>
             </div>
 
@@ -111,6 +112,14 @@
                 <button onclick="showAddWorkoutGroupModal()" class="btn-add">+ Add Workout Group</button>
                 <div id="workout-groups-list">
                     Loading workout groups...
+                </div>
+            </div>
+
+            <!-- Exercises Library View -->
+            <div id="workout-exercises-tab" class="workout-tab-content">
+                <button onclick="showExerciseLibraryModal()" class="btn-add">+ Add Exercise</button>
+                <div id="exercise-library-list">
+                    Loading exercise library...
                 </div>
             </div>
 
@@ -385,6 +394,44 @@
         <div class="form-row">
             <label>Order in workout:</label>
             <input type="number" id="workout-exercise-order" min="0" placeholder="0 = first, 1 = second, etc.">
+        </div>
+    </mt-modal>
+
+    <!-- Modal for Exercise Library -->
+    <mt-modal id="exercise-library-modal" class="hidden">
+        <div class="modal-header">
+            <h3 id="exercise-library-modal-title">Add Exercise</h3>
+            <div class="actions">
+                <button onclick="closeExerciseLibraryModal()" class="secondary">Cancel</button>
+                <button onclick="saveExerciseLibraryItem()" class="primary">Save</button>
+            </div>
+        </div>
+
+        <input type="text" id="exercise-library-name" placeholder="Exercise Name (e.g., Barbell Rows)">
+
+        <div class="form-row">
+            <label>Default Sets:</label>
+            <input type="number" id="exercise-library-sets" min="1" max="10" placeholder="4">
+        </div>
+
+        <div class="form-row">
+            <label>Default Reps (Min):</label>
+            <input type="number" id="exercise-library-reps-min" min="1" max="100" placeholder="8">
+        </div>
+
+        <div class="form-row">
+            <label>Default Reps (Max, optional):</label>
+            <input type="number" id="exercise-library-reps-max" min="1" max="100" placeholder="10">
+        </div>
+
+        <div class="form-row">
+            <label>Default Weight (kg, optional):</label>
+            <input type="number" id="exercise-library-weight" step="0.5" min="0" placeholder="40">
+        </div>
+
+        <div class="form-row">
+            <label>Notes (optional):</label>
+            <input type="text" id="exercise-library-notes" placeholder="Form cues, variations, etc.">
         </div>
     </mt-modal>
 

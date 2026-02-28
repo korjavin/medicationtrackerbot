@@ -324,6 +324,10 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("PUT /api/workout/sessions/status", s.handleUpdateSessionStatus)
 	apiMux.HandleFunc("GET /api/workout/exercises/unique", s.handleGetUniqueExercises)
 	apiMux.HandleFunc("POST /api/workout/sessions/logs/create", s.handleAddExerciseToSession)
+	apiMux.HandleFunc("GET /api/workout/exercise-library", s.handleListExerciseLibrary)
+	apiMux.HandleFunc("POST /api/workout/exercise-library/create", s.handleCreateExerciseLibraryItem)
+	apiMux.HandleFunc("PUT /api/workout/exercise-library/update", s.handleUpdateExerciseLibraryItem)
+	apiMux.HandleFunc("DELETE /api/workout/exercise-library/delete", s.handleDeleteExerciseLibraryItem)
 
 	// Web Push endpoints
 	apiMux.HandleFunc("GET /api/webpush/vapid-public-key", s.handleGetVAPIDPublicKey)
