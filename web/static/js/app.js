@@ -98,6 +98,36 @@ const ModalManager = {
     close(modalId) {
         document.getElementById('modal-overlay').classList.add('hidden');
         document.getElementById(modalId).classList.add('hidden');
+    },
+
+    bp: {
+        open() {
+            ModalManager.open('bp-modal');
+        },
+        close() {
+            ModalManager.close('bp-modal');
+        }
+    },
+
+    weight: {
+        open() {
+            ModalManager.open('weight-modal');
+        },
+        close() {
+            ModalManager.close('weight-modal');
+        }
+    },
+
+    food: {
+        open() {
+            ModalManager.open('food-modal');
+        },
+        close() {
+            if (typeof closeFoodScannerModal === 'function') {
+                closeFoodScannerModal();
+            }
+            ModalManager.close('food-modal');
+        }
     }
 };
 
@@ -1630,7 +1660,7 @@ function shiftFoodDate(deltaDays) {
 }
 
 function showAddFoodModal() {
-    showOverlayModal('food-modal');
+    window.ModalManager.food.open();
     document.getElementById('food-modal-title').innerText = 'Log Food';
 
     // Set default date/time
@@ -1659,7 +1689,7 @@ function editFoodLog(id) {
     const log = currentFoodLogs[id];
     if (!log) return;
 
-    showOverlayModal('food-modal');
+    window.ModalManager.food.open();
     document.getElementById('food-modal-title').innerText = 'Edit Food';
 
     document.getElementById('food-id').value = log.id;
@@ -1690,8 +1720,7 @@ function editFoodLog(id) {
 }
 
 function closeFoodModal() {
-    closeFoodScannerModal();
-    hideOverlayModal('food-modal');
+    window.ModalManager.food.close();
 }
 
 async function saveFoodLog() {
@@ -3214,7 +3243,7 @@ function getBPCategory(sys, dia) {
 
 // Show BP recording modal
 function showBPRecordModal() {
-    showOverlayModal('bp-modal');
+    window.ModalManager.bp.open();
 
     // Set default datetime to now
     document.getElementById('bp-datetime').value = formatDateTimeLocalForInput();
@@ -3233,7 +3262,7 @@ function showBPRecordModal() {
 
 // Close BP modal
 function closeBPRecordModal() {
-    hideOverlayModal('bp-modal');
+    window.ModalManager.bp.close();
 }
 
 // Handle BP form submission
@@ -3761,7 +3790,7 @@ async function exportBPCSV() {
 let cachedWeightLogs = [];
 
 function showWeightModal() {
-    showOverlayModal('weight-modal');
+    window.ModalManager.weight.open();
 
     // Set default datetime to now
     document.getElementById('weight-datetime').value = formatDateTimeLocalForInput();
@@ -3782,7 +3811,7 @@ function showWeightModal() {
 }
 
 function closeWeightModal() {
-    hideOverlayModal('weight-modal');
+    window.ModalManager.weight.close();
 }
 
 async function handleWeightSubmit(event) {
@@ -4904,9 +4933,9 @@ async function sendTestMedicationNotification() {
     const topModalDefs = [
         { id: 'med-modal', fn: () => closeModal() },
         { id: 'med-confirm-modal', fn: () => closeMedicationConfirmModal() },
-        { id: 'bp-modal', fn: () => closeBPRecordModal() },
-        { id: 'weight-modal', fn: () => closeWeightModal() },
-        { id: 'food-modal', fn: () => closeFoodModal() },
+        { id: 'bp-modal', fn: () => window.ModalManager.bp.close() },
+        { id: 'weight-modal', fn: () => window.ModalManager.weight.close() },
+        { id: 'food-modal', fn: () => window.ModalManager.food.close() },
         { id: 'workout-group-modal', fn: () => typeof closeWorkoutGroupModal === 'function' && closeWorkoutGroupModal() },
         { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' && closeVariantModal() },
         { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' && closeExerciseModal() },
