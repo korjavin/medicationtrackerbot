@@ -115,13 +115,29 @@ if (window.customElements && !window.customElements.get('mt-modal')) {
 
 const ModalManager = {
     open(modalId) {
-        document.getElementById('modal-overlay').classList.remove('hidden');
-        document.getElementById(modalId).classList.remove('hidden');
+        const overlay = document.getElementById('modal-overlay');
+        if (overlay) overlay.classList.remove('hidden');
+
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+        if (typeof modal.open === 'function') {
+            modal.open();
+        } else {
+            modal.classList.remove('hidden');
+        }
     },
 
     close(modalId) {
-        document.getElementById('modal-overlay').classList.add('hidden');
-        document.getElementById(modalId).classList.add('hidden');
+        const overlay = document.getElementById('modal-overlay');
+        if (overlay) overlay.classList.add('hidden');
+
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+        if (typeof modal.close === 'function') {
+            modal.close();
+        } else {
+            modal.classList.add('hidden');
+        }
     },
 
     bp: {
