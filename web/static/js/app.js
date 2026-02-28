@@ -89,6 +89,16 @@ function downloadBlobAsFile(blob, filename) {
     document.body.removeChild(link);
 }
 
+function showOverlayModal(modalId) {
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    document.getElementById(modalId).classList.remove('hidden');
+}
+
+function hideOverlayModal(modalId) {
+    document.getElementById('modal-overlay').classList.add('hidden');
+    document.getElementById(modalId).classList.add('hidden');
+}
+
 window.onDataStoreUnauthorized = function () {
     if (sessionStorage.getItem('medtracker_auth_reload_in_progress') === '1') {
         return;
@@ -1608,8 +1618,7 @@ function shiftFoodDate(deltaDays) {
 }
 
 function showAddFoodModal() {
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('food-modal').classList.remove('hidden');
+    showOverlayModal('food-modal');
     document.getElementById('food-modal-title').innerText = 'Log Food';
 
     // Set default date/time
@@ -1638,8 +1647,7 @@ function editFoodLog(id) {
     const log = currentFoodLogs[id];
     if (!log) return;
 
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('food-modal').classList.remove('hidden');
+    showOverlayModal('food-modal');
     document.getElementById('food-modal-title').innerText = 'Edit Food';
 
     document.getElementById('food-id').value = log.id;
@@ -1671,8 +1679,7 @@ function editFoodLog(id) {
 
 function closeFoodModal() {
     closeFoodScannerModal();
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('food-modal').classList.add('hidden');
+    hideOverlayModal('food-modal');
 }
 
 async function saveFoodLog() {
@@ -2219,8 +2226,7 @@ window.reloadCurrentTab = reloadCurrentTab;
 
 function showAddModal() {
     editingMedId = null;
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('med-modal').classList.remove('hidden');
+    showOverlayModal('med-modal');
 
     // Reset inputs
     document.getElementById('med-name').value = '';
@@ -2255,8 +2261,7 @@ function showEditModal(id) {
     const med = medications.find(m => m.id === id);
     if (!med) return;
 
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('med-modal').classList.remove('hidden');
+    showOverlayModal('med-modal');
 
     // Fill inputs
     document.getElementById('med-name').value = med.name;
@@ -2322,8 +2327,7 @@ function showEditModal(id) {
 }
 
 function closeModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('med-modal').classList.add('hidden');
+    hideOverlayModal('med-modal');
 }
 
 function toggleScheduleFields() {
@@ -3198,8 +3202,7 @@ function getBPCategory(sys, dia) {
 
 // Show BP recording modal
 function showBPRecordModal() {
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('bp-modal').classList.remove('hidden');
+    showOverlayModal('bp-modal');
 
     // Set default datetime to now
     document.getElementById('bp-datetime').value = formatDateTimeLocalForInput();
@@ -3218,8 +3221,7 @@ function showBPRecordModal() {
 
 // Close BP modal
 function closeBPRecordModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('bp-modal').classList.add('hidden');
+    hideOverlayModal('bp-modal');
 }
 
 // Handle BP form submission
@@ -3747,8 +3749,7 @@ async function exportBPCSV() {
 let cachedWeightLogs = [];
 
 function showWeightModal() {
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('weight-modal').classList.remove('hidden');
+    showOverlayModal('weight-modal');
 
     // Set default datetime to now
     document.getElementById('weight-datetime').value = formatDateTimeLocalForInput();
@@ -3769,8 +3770,7 @@ function showWeightModal() {
 }
 
 function closeWeightModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('weight-modal').classList.add('hidden');
+    hideOverlayModal('weight-modal');
 }
 
 async function handleWeightSubmit(event) {
@@ -4580,8 +4580,7 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
     pendingMedConfirmMode = mode;
     pendingMedConfirmIntakeIds = intakeIds;
 
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('med-confirm-modal').classList.remove('hidden');
+    showOverlayModal('med-confirm-modal');
 
     const titleEl = document.getElementById('med-confirm-title');
     const subtitleEl = document.getElementById('med-confirm-subtitle');
@@ -4646,8 +4645,7 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
 }
 
 function closeMedicationConfirmModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('med-confirm-modal').classList.add('hidden');
+    hideOverlayModal('med-confirm-modal');
 }
 
 async function confirmSelectedMedications() {
@@ -4779,13 +4777,11 @@ function snoozeMedicationConfirm() {
 
 function showWorkoutStartModal(sessionId) {
     pendingWorkoutSessionId = sessionId;
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById('workout-start-modal').classList.remove('hidden');
+    showOverlayModal('workout-start-modal');
 }
 
 function closeWorkoutStartModal() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.getElementById('workout-start-modal').classList.add('hidden');
+    hideOverlayModal('workout-start-modal');
 }
 
 function startWorkoutFromModal() {
