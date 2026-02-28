@@ -16,22 +16,11 @@ let currentVariantForExercise = null;
 // ====================================
 
 function switchWorkoutTab(tab) {
-    const activated = typeof activateTabGroup === 'function'
-        ? activateTabGroup(tab, {
-            buttonSelector: '.workout-tab',
-            contentSelector: '.workout-tab-content',
-            contentIdFromTab: (tabName) => `workout-${tabName}-tab`
-        })
-        : (() => {
-            document.querySelectorAll('.workout-tab').forEach((t) => t.classList.remove('active'));
-            document.querySelectorAll('.workout-tab-content').forEach((c) => c.classList.remove('active'));
-            const tabButton = document.querySelector(`.workout-tab[data-tab="${tab}"]`);
-            const tabContent = document.getElementById(`workout-${tab}-tab`);
-            if (!tabButton || !tabContent) return false;
-            tabButton.classList.add('active');
-            tabContent.classList.add('active');
-            return true;
-        })();
+    const activated = activateTabGroup(tab, {
+        buttonSelector: '.workout-tab',
+        contentSelector: '.workout-tab-content',
+        contentIdFromTab: (tabName) => `workout-${tabName}-tab`
+    });
     if (!activated) return;
 
     if (tab === 'groups') { loadWorkoutGroups(); }
@@ -39,13 +28,11 @@ function switchWorkoutTab(tab) {
     else if (tab === 'stats') { loadWorkoutStatsTab(); }
 }
 
-if (typeof bindTabGroup === 'function') {
-    bindTabGroup({
-        container: document.querySelector('.workout-tabs'),
-        buttonSelector: '.workout-tab',
-        onTabSelect: switchWorkoutTab
-    });
-}
+bindTabGroup({
+    container: document.querySelector('.workout-tabs'),
+    buttonSelector: '.workout-tab',
+    onTabSelect: switchWorkoutTab
+});
 
 // Main load function called when switching to workouts tab
 function loadWorkouts() {
