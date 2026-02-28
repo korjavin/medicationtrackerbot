@@ -2379,7 +2379,8 @@ async function loadFoodLogs() {
     if (cached) {
         _renderFoodData(cached.groups, cached.weekStats, period, dateStr);
     } else {
-        list.innerHTML = 'Loading...';
+        const loadingStr = document.createTextNode('Loading...');
+        list.replaceChildren(loadingStr);
     }
 
     // Always fetch fresh data
@@ -2399,7 +2400,10 @@ async function loadFoodLogs() {
     } catch (e) {
         console.error(e);
         if (!cached) {
-            list.innerHTML = '<p class="error">Failed to load food logs.</p>';
+            const errP = document.createElement('p');
+            errP.className = 'error';
+            errP.textContent = 'Failed to load food logs.';
+            list.replaceChildren(errP);
         }
     }
 }
@@ -4083,7 +4087,10 @@ async function loadBPReadings() {
         onError: async (e, cached) => {
             console.error('Failed to load BP data:', e);
             if (!cached) {
-                list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load readings</li>';
+                const errLi = document.createElement('li');
+                errLi.style.cssText = 'text-align:center;color:var(--hint-color);padding:20px;';
+                errLi.textContent = 'Failed to load readings';
+                list.replaceChildren(errLi);
             }
         }
     });
@@ -4116,7 +4123,10 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
     }
 
     if (allReadings.length === 0 && readingsRes === null) {
-        list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load readings</li>';
+        const errLi = document.createElement('li');
+        errLi.style.cssText = 'text-align:center;color:var(--hint-color);padding:20px;';
+        errLi.textContent = 'Failed to load readings';
+        list.replaceChildren(errLi);
         return;
     }
 
@@ -5273,7 +5283,10 @@ async function loadWeightLogs() {
         onError: async (e, cached) => {
             console.error('Failed to load weight data:', e);
             if (!cached) {
-                list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load weight logs</li>';
+                const errLi = document.createElement('li');
+                errLi.style.cssText = 'text-align:center;color:var(--hint-color);padding:20px;';
+                errLi.textContent = 'Failed to load weight logs';
+                list.replaceChildren(errLi);
             }
         }
     });
@@ -5302,7 +5315,10 @@ async function _renderWeightData(logsRes, goalRes) {
     }
 
     if (allLogs.length === 0 && logsRes === null) {
-        list.innerHTML = '<li style="text-align:center;color:var(--hint-color);padding:20px;">Failed to load weight logs</li>';
+        const errLi = document.createElement('li');
+        errLi.style.cssText = 'text-align:center;color:var(--hint-color);padding:20px;';
+        errLi.textContent = 'Failed to load weight logs';
+        list.replaceChildren(errLi);
         return;
     }
 
@@ -5975,7 +5991,10 @@ function renderHealthOverviewContent(content, data) {
 }
 
 function renderHealthOverviewError(content) {
-    content.innerHTML = '<p style="color:red">Failed to load health metrics</p>';
+    const errP = document.createElement('p');
+    errP.style.color = 'red';
+    errP.textContent = 'Failed to load health metrics';
+    content.replaceChildren(errP);
     content.classList.remove('hidden');
 }
 
