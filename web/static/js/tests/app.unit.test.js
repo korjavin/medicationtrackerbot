@@ -110,6 +110,10 @@ describe('app.js unit tests', () => {
       const medConfirmModal = document.getElementById('med-confirm-modal');
       const workoutStartModal = document.getElementById('workout-start-modal');
       const workoutGroupModal = document.getElementById('workout-group-modal');
+      const workoutVariantModal = document.getElementById('workout-variant-modal');
+      const workoutExerciseModal = document.getElementById('workout-exercise-modal');
+      const workoutSessionModal = document.getElementById('workout-session-modal');
+      const addExerciseToSessionModal = document.getElementById('workout-add-exercise-to-session-modal');
 
       window.ModalManager.open('bp-modal');
       expect(overlay.classList.contains('hidden')).toBe(false);
@@ -143,6 +147,26 @@ describe('app.js unit tests', () => {
       expect(workoutGroupModal.classList.contains('hidden')).toBe(false);
       window.ModalManager.workoutGroup.close();
       expect(workoutGroupModal.classList.contains('hidden')).toBe(true);
+
+      window.ModalManager.workoutVariant.open();
+      expect(workoutVariantModal.classList.contains('hidden')).toBe(false);
+      window.ModalManager.workoutVariant.close();
+      expect(workoutVariantModal.classList.contains('hidden')).toBe(true);
+
+      window.ModalManager.workoutExercise.open();
+      expect(workoutExerciseModal.classList.contains('hidden')).toBe(false);
+      window.ModalManager.workoutExercise.close();
+      expect(workoutExerciseModal.classList.contains('hidden')).toBe(true);
+
+      window.ModalManager.workoutSession.open();
+      expect(workoutSessionModal.classList.contains('hidden')).toBe(false);
+      window.ModalManager.workoutSession.close();
+      expect(workoutSessionModal.classList.contains('hidden')).toBe(true);
+
+      window.ModalManager.workoutAddExerciseToSession.open();
+      expect(addExerciseToSessionModal.classList.contains('hidden')).toBe(false);
+      window.ModalManager.workoutAddExerciseToSession.close();
+      expect(addExerciseToSessionModal.classList.contains('hidden')).toBe(true);
 
       scannerModal.classList.remove('hidden');
       window.ModalManager.food.open();
