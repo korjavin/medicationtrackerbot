@@ -278,14 +278,23 @@ const ModalManager = {
         open() {
             const scannerModal = document.getElementById('food-scanner-modal');
             if (!scannerModal) return;
-            scannerModal.classList.remove('hidden');
+            if (typeof scannerModal.open === 'function') {
+                scannerModal.open();
+            } else {
+                scannerModal.classList.remove('hidden');
+            }
             setFoodScannerStatus('Point camera at barcode or QR.');
             startFoodScanner();
         },
         close() {
             stopFoodScanner();
             const scannerModal = document.getElementById('food-scanner-modal');
-            if (scannerModal) scannerModal.classList.add('hidden');
+            if (!scannerModal) return;
+            if (typeof scannerModal.close === 'function') {
+                scannerModal.close();
+            } else {
+                scannerModal.classList.add('hidden');
+            }
         }
     },
 
