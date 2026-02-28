@@ -114,7 +114,7 @@ describe('app.js medication, history and intake flows', () => {
     try {
       await seedMedications(window, [
         { id: 1, name: 'Aspirin' },
-        { id: 2, name: 'Magnesium' }
+        { id: 2, name: '<b>Magnesium</b>' }
       ]);
 
       const now = new Date();
@@ -135,6 +135,8 @@ describe('app.js medication, history and intake flows', () => {
       expect(list.innerHTML).toContain('Aspirin');
       expect(list.innerHTML).toContain('Magnesium');
       expect(list.innerHTML).toContain('✅');
+      expect(list.textContent).toContain('<b>Magnesium</b>');
+      expect(list.innerHTML).not.toContain('<b>');
 
       const groups = list.querySelectorAll('.history-group');
       expect(groups.length).toBeGreaterThan(0);
