@@ -51,6 +51,41 @@ describe('push.js PushManager', () => {
     }
   });
 
+  it('initialize returns false when VAPID key fetch throws', async () => {
+    const { window, cleanup } = loadPushEnv();
+
+    try {
+      window.fetch = vi.fn().mockRejectedValue(new Error('network down'));
+
+      const ok = await window.MedTrackerPush.initialize();
+
+      expect(ok).toBe(false);
+      expect(consoleErrorSpy).toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('initialize tolerates getSubscription failure and still returns true', async () => {
+    const { window, registration, cleanup } = loadPushEnv();
+
+    try {
+      registration.pushManager.getSubscription = vi.fn().mockRejectedValue(new Error('subscription broken'));
+      window.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        async json() { return { public_key: 'BEl6nA' }; }
+      });
+
+      const ok = await window.MedTrackerPush.initialize();
+
+      expect(ok).toBe(true);
+      expect(window.MedTrackerPush.vapidPublicKey).toBe('BEl6nA');
+      expect(consoleErrorSpy).toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
   it('subscribe returns false when notification permission is denied', async () => {
     const { window, cleanup } = loadPushEnv();
 
