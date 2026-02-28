@@ -25,6 +25,7 @@ function switchWorkoutTab(tab) {
 
     if (tab === 'groups') { loadWorkoutGroups(); }
     else if (tab === 'history') { loadNextWorkout(); loadWorkoutHistoryTab(); }
+    else if (tab === 'exercises') { loadExerciseLibrary(); }
     else if (tab === 'stats') { loadWorkoutStatsTab(); }
 }
 
@@ -665,6 +666,49 @@ async function showAddExerciseModal() {
     document.getElementById('workout-exercise-reps-max').value = '';
     document.getElementById('workout-exercise-weight').value = '';
     document.getElementById('workout-exercise-order').value = '0';
+
+    // Load exercise library for autocomplete
+    let datalist = document.getElementById('exercise-library-datalist');
+    if (!datalist) {
+        datalist = document.createElement('datalist');
+        datalist.id = 'exercise-library-datalist';
+        document.body.appendChild(datalist);
+        document.getElementById('workout-exercise-name').setAttribute('list', 'exercise-library-datalist');
+    }
+    datalist.innerHTML = '';
+
+    try {
+        const items = await apiCall('/api/workout/exercise-library');
+        if (items && items.length > 0) {
+            items.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item.name;
+                option.dataset.sets = item.default_sets || '';
+                option.dataset.repsMin = item.default_reps_min || '';
+                option.dataset.repsMax = item.default_reps_max || '';
+                option.dataset.weight = item.default_weight_kg || '';
+                datalist.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading exercise library for autocomplete:', error);
+    }
+
+    // Add change handler to pre-fill defaults from library
+    const nameInput = document.getElementById('workout-exercise-name');
+    nameInput.onchange = function() {
+        const option = Array.from(datalist.options).find(o => o.value === nameInput.value);
+        if (option) {
+            if (!document.getElementById('workout-exercise-sets').value && option.dataset.sets)
+                document.getElementById('workout-exercise-sets').value = option.dataset.sets;
+            if (!document.getElementById('workout-exercise-reps-min').value && option.dataset.repsMin)
+                document.getElementById('workout-exercise-reps-min').value = option.dataset.repsMin;
+            if (!document.getElementById('workout-exercise-reps-max').value && option.dataset.repsMax)
+                document.getElementById('workout-exercise-reps-max').value = option.dataset.repsMax;
+            if (!document.getElementById('workout-exercise-weight').value && option.dataset.weight)
+                document.getElementById('workout-exercise-weight').value = option.dataset.weight;
+        }
+    };
 }
 
 async function showAddExerciseModalFromGroup() {
@@ -739,6 +783,151 @@ async function deleteExercise(exerciseId, event) {
         const result = await apiCall(`/api/workout/exercises/delete?id=${exerciseId}`, 'DELETE');
         if (result || result === true) {
             loadExercisesForVariant(currentVariantForExercise, currentExercisesContainerId);
+        }
+    }
+}
+
+// ====================================
+// EXERCISE LIBRARY
+// ====================================
+
+let currentEditingLibraryItemId = null;
+
+async function loadExerciseLibrary() {
+    const container = document.getElementById('exercise-library-list');
+    await window.DataStore.loadSWR({
+        key: 'exercise_library',
+        tags: ['exercise_library'],
+        fetcher: async () => await apiCall('/api/workout/exercise-library'),
+        onCached: async (cached) => {
+            _renderExerciseLibrary(container, cached);
+        },
+        onFresh: async (fresh) => {
+            _renderExerciseLibrary(container, fresh);
+        },
+        onError: async (error, cached) => {
+            console.error('Error loading exercise library:', error);
+            if (!cached) container.innerHTML = '<p style="color: red;">Error loading exercise library</p>';
+        }
+    });
+}
+
+function _renderExerciseLibrary(container, items) {
+    if (!items || items.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: var(--hint-color);">No exercises in library yet. Add your first exercise!</p>';
+        return;
+    }
+
+    let html = '<div class="exercise-library-items">';
+    for (const item of items) {
+        const repsStr = item.default_reps_max
+            ? `${item.default_reps_min}-${item.default_reps_max}`
+            : `${item.default_reps_min}`;
+        const weightStr = item.default_weight_kg ? ` @ ${item.default_weight_kg}kg` : '';
+        const notesStr = item.notes ? `<div style="font-size: 0.85em; color: var(--hint-color); margin-top: 2px;">${_escapeHtml(item.notes)}</div>` : '';
+
+        html += `
+            <div class="exercise-library-item" onclick="showEditExerciseLibraryModal(${item.id})" style="cursor: pointer;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <strong>${_escapeHtml(item.name)}</strong>
+                        <div style="font-size: 0.9em; color: var(--hint-color);">
+                            ${item.default_sets} sets x ${repsStr} reps${weightStr}
+                        </div>
+                        ${notesStr}
+                    </div>
+                    <button onclick="deleteExerciseLibraryItem(${item.id}, event)" class="secondary" style="padding: 4px 8px; font-size: 0.85em;">Delete</button>
+                </div>
+            </div>`;
+    }
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function _escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function showExerciseLibraryModal(id) {
+    currentEditingLibraryItemId = null;
+    document.getElementById('exercise-library-modal-title').textContent = 'Add Exercise';
+    window.ModalManager.exerciseLibrary.open();
+
+    document.getElementById('exercise-library-name').value = '';
+    document.getElementById('exercise-library-sets').value = '';
+    document.getElementById('exercise-library-reps-min').value = '';
+    document.getElementById('exercise-library-reps-max').value = '';
+    document.getElementById('exercise-library-weight').value = '';
+    document.getElementById('exercise-library-notes').value = '';
+}
+
+async function showEditExerciseLibraryModal(id) {
+    const items = await apiCall('/api/workout/exercise-library');
+    const item = items && items.find(i => i.id === id);
+    if (!item) return;
+
+    currentEditingLibraryItemId = id;
+    document.getElementById('exercise-library-modal-title').textContent = 'Edit Exercise';
+    window.ModalManager.exerciseLibrary.open();
+
+    document.getElementById('exercise-library-name').value = item.name;
+    document.getElementById('exercise-library-sets').value = item.default_sets || '';
+    document.getElementById('exercise-library-reps-min').value = item.default_reps_min || '';
+    document.getElementById('exercise-library-reps-max').value = item.default_reps_max || '';
+    document.getElementById('exercise-library-weight').value = item.default_weight_kg || '';
+    document.getElementById('exercise-library-notes').value = item.notes || '';
+}
+
+function closeExerciseLibraryModal() {
+    window.ModalManager.exerciseLibrary.close();
+    currentEditingLibraryItemId = null;
+}
+
+async function saveExerciseLibraryItem() {
+    const name = document.getElementById('exercise-library-name').value.trim();
+    const sets = parseInt(document.getElementById('exercise-library-sets').value) || 0;
+    const repsMin = parseInt(document.getElementById('exercise-library-reps-min').value) || 0;
+    const repsMaxRaw = document.getElementById('exercise-library-reps-max').value;
+    const repsMax = repsMaxRaw !== '' ? parseInt(repsMaxRaw) : null;
+    const weightRaw = document.getElementById('exercise-library-weight').value;
+    const weight = weightRaw !== '' ? parseFloat(weightRaw) : null;
+    const notes = document.getElementById('exercise-library-notes').value.trim();
+
+    if (!name) {
+        safeAlert('Exercise name is required!');
+        return;
+    }
+
+    const payload = {
+        name: name,
+        default_sets: sets,
+        default_reps_min: repsMin,
+        default_reps_max: repsMax,
+        default_weight_kg: weight,
+        notes: notes
+    };
+
+    let result;
+    if (currentEditingLibraryItemId) {
+        result = await apiCall(`/api/workout/exercise-library/update?id=${currentEditingLibraryItemId}`, 'PUT', payload);
+    } else {
+        result = await apiCall('/api/workout/exercise-library/create', 'POST', payload);
+    }
+
+    if (result || result === true) {
+        closeExerciseLibraryModal();
+        loadExerciseLibrary();
+    }
+}
+
+async function deleteExerciseLibraryItem(id, event) {
+    event.stopPropagation();
+    if (confirm('Delete this exercise from library?')) {
+        const result = await apiCall(`/api/workout/exercise-library/delete?id=${id}`, 'DELETE');
+        if (result || result === true) {
+            loadExerciseLibrary();
         }
     }
 }
@@ -1336,16 +1525,15 @@ async function showAddExerciseToSessionModal() {
     datalist.innerHTML = '';
 
     try {
-        const exercises = await apiCall('/api/workout/exercises/unique');
+        const exercises = await apiCall('/api/workout/exercise-library');
         if (exercises && exercises.length > 0) {
             exercises.forEach(ex => {
                 const option = document.createElement('option');
-                option.value = ex.exercise_name;
+                option.value = ex.name;
                 option.dataset.id = ex.id;
-                // Store default targets in data attributes if we want to autofill
-                option.dataset.sets = ex.target_sets;
-                option.dataset.reps = ex.target_reps_min;
-                option.dataset.weight = ex.target_weight_kg || '';
+                option.dataset.sets = ex.default_sets;
+                option.dataset.reps = ex.default_reps_min;
+                option.dataset.weight = ex.default_weight_kg || '';
                 datalist.appendChild(option);
             });
         }

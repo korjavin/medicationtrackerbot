@@ -1433,3 +1433,102 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 
 	w.WriteHeader(http.StatusOK)
 }
+
+// -- Exercise Library Handlers --
+
+func (s *Server) handleListExerciseLibrary(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListExerciseLibrary(s.allowedUserID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(items); err != nil {
+		log.Printf("encode response: %v", err)
+	}
+}
+
+func (s *Server) handleCreateExerciseLibraryItem(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name            string   `json:"name"`
+		DefaultSets     int      `json:"default_sets"`
+		DefaultRepsMin  int      `json:"default_reps_min"`
+		DefaultRepsMax  *int     `json:"default_reps_max"`
+		DefaultWeightKg *float64 `json:"default_weight_kg"`
+		Notes           string   `json:"notes"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	item, err := s.store.CreateExerciseLibraryItem(s.allowedUserID, req.Name, req.DefaultSets, req.DefaultRepsMin, req.DefaultRepsMax, req.DefaultWeightKg, req.Notes)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(item); err != nil {
+		log.Printf("encode response: %v", err)
+	}
+}
+
+func (s *Server) handleUpdateExerciseLibraryItem(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Query().Get("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Name            string   `json:"name"`
+		DefaultSets     int      `json:"default_sets"`
+		DefaultRepsMin  int      `json:"default_reps_min"`
+		DefaultRepsMax  *int     `json:"default_reps_max"`
+		DefaultWeightKg *float64 `json:"default_weight_kg"`
+		Notes           string   `json:"notes"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.UpdateExerciseLibraryItem(id, req.Name, req.DefaultSets, req.DefaultRepsMin, req.DefaultRepsMax, req.DefaultWeightKg, req.Notes); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleDeleteExerciseLibraryItem(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Query().Get("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.DeleteExerciseLibraryItem(id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}

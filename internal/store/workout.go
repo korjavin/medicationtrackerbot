@@ -364,11 +364,31 @@ func (s *Store) DeleteWorkoutExercise(id int64) error {
 	return err
 }
 
-// GetAllUniqueExercises returns a deduplicated list of all exercises across all workout groups for a user,
-// including inactive groups, sorted alphabetically.
+// GetAllUniqueExercises returns exercises from the exercise library for a user, sorted alphabetically.
+// Falls back to deduplicating workout_exercises if the library is empty.
 func (s *Store) GetAllUniqueExercises(userID int64) ([]WorkoutExercise, error) {
-	// Get all exercises from all workout groups (active and inactive), deduplicated by exercise name.
-	// For duplicates, select any version (we'll use MAX(id) to be deterministic).
+	// Try exercise library first
+	libItems, err := s.ListExerciseLibrary(userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(libItems) > 0 {
+		var exercises []WorkoutExercise
+		for _, item := range libItems {
+			e := WorkoutExercise{
+				ID:            item.ID,
+				ExerciseName:  item.Name,
+				TargetSets:    item.DefaultSets,
+				TargetRepsMin: item.DefaultRepsMin,
+				TargetRepsMax: item.DefaultRepsMax,
+				TargetWeightKg: item.DefaultWeightKg,
+			}
+			exercises = append(exercises, e)
+		}
+		return exercises, nil
+	}
+
+	// Fallback: deduplicate from workout_exercises
 	query := `
 		SELECT we.id, we.variant_id, we.exercise_name, we.target_sets,
 			we.target_reps_min, we.target_reps_max, we.target_weight_kg, we.order_index
@@ -410,6 +430,129 @@ func (s *Store) GetAllUniqueExercises(userID int64) ([]WorkoutExercise, error) {
 		exercises = append(exercises, e)
 	}
 	return exercises, nil
+}
+
+// -- Exercise Library Methods --
+
+// ExerciseLibraryItem represents an exercise in the user's exercise library
+type ExerciseLibraryItem struct {
+	ID              int64     `json:"id"`
+	UserID          int64     `json:"user_id"`
+	Name            string    `json:"name"`
+	DefaultSets     int       `json:"default_sets"`
+	DefaultRepsMin  int       `json:"default_reps_min"`
+	DefaultRepsMax  *int      `json:"default_reps_max,omitempty"`
+	DefaultWeightKg *float64  `json:"default_weight_kg,omitempty"`
+	Notes           string    `json:"notes,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+func (s *Store) ListExerciseLibrary(userID int64) ([]ExerciseLibraryItem, error) {
+	rows, err := s.db.Query(`
+		SELECT id, user_id, name, default_sets, default_reps_min, default_reps_max, default_weight_kg, notes, created_at, updated_at
+		FROM exercise_library
+		WHERE user_id = ?
+		ORDER BY name ASC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []ExerciseLibraryItem
+	for rows.Next() {
+		var item ExerciseLibraryItem
+		var sets, repsMin sql.NullInt64
+		var repsMax sql.NullInt64
+		var weightKg sql.NullFloat64
+		var notes sql.NullString
+		if err := rows.Scan(&item.ID, &item.UserID, &item.Name, &sets, &repsMin, &repsMax, &weightKg, &notes, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if sets.Valid {
+			item.DefaultSets = int(sets.Int64)
+		}
+		if repsMin.Valid {
+			item.DefaultRepsMin = int(repsMin.Int64)
+		}
+		if repsMax.Valid {
+			r := int(repsMax.Int64)
+			item.DefaultRepsMax = &r
+		}
+		if weightKg.Valid {
+			item.DefaultWeightKg = &weightKg.Float64
+		}
+		if notes.Valid {
+			item.Notes = notes.String
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (s *Store) GetExerciseLibraryItem(id int64) (*ExerciseLibraryItem, error) {
+	var item ExerciseLibraryItem
+	var sets, repsMin sql.NullInt64
+	var repsMax sql.NullInt64
+	var weightKg sql.NullFloat64
+	var notes sql.NullString
+	err := s.db.QueryRow(`
+		SELECT id, user_id, name, default_sets, default_reps_min, default_reps_max, default_weight_kg, notes, created_at, updated_at
+		FROM exercise_library WHERE id = ?`, id).Scan(
+		&item.ID, &item.UserID, &item.Name, &sets, &repsMin, &repsMax, &weightKg, &notes, &item.CreatedAt, &item.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if sets.Valid {
+		item.DefaultSets = int(sets.Int64)
+	}
+	if repsMin.Valid {
+		item.DefaultRepsMin = int(repsMin.Int64)
+	}
+	if repsMax.Valid {
+		r := int(repsMax.Int64)
+		item.DefaultRepsMax = &r
+	}
+	if weightKg.Valid {
+		item.DefaultWeightKg = &weightKg.Float64
+	}
+	if notes.Valid {
+		item.Notes = notes.String
+	}
+	return &item, nil
+}
+
+func (s *Store) CreateExerciseLibraryItem(userID int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) (*ExerciseLibraryItem, error) {
+	res, err := s.db.Exec(`
+		INSERT INTO exercise_library (user_id, name, default_sets, default_reps_min, default_reps_max, default_weight_kg, notes)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		userID, name, sets, repsMin, repsMax, weightKg, notes)
+	if err != nil {
+		return nil, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	return s.GetExerciseLibraryItem(id)
+}
+
+func (s *Store) UpdateExerciseLibraryItem(id int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) error {
+	_, err := s.db.Exec(`
+		UPDATE exercise_library
+		SET name = ?, default_sets = ?, default_reps_min = ?, default_reps_max = ?, default_weight_kg = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`,
+		name, sets, repsMin, repsMax, weightKg, notes, id)
+	return err
+}
+
+func (s *Store) DeleteExerciseLibraryItem(id int64) error {
+	_, err := s.db.Exec("DELETE FROM exercise_library WHERE id = ?", id)
+	return err
 }
 
 // -- Rotation State Methods --
