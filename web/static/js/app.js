@@ -4170,10 +4170,9 @@ function renderBPAverages(stats) {
 // Render BP readings grouped by date
 function renderBPReadings(readings) {
     const list = document.getElementById('bp-list');
-    list.innerHTML = '';
+    list.replaceChildren();
 
     if (!readings || readings.length === 0) {
-        list.innerHTML = '';
         return;
     }
 
@@ -4199,69 +4198,121 @@ function renderBPReadings(readings) {
     });
 
     // Helper to render a group
-    const renderGroup = (headerText, readings) => {
-        if (readings.length === 0) return '';
+    const renderGroup = (headerText, groupReadings) => {
+        if (groupReadings.length === 0) return null;
 
         // Sort readings within this group by time (newest first)
-        const sortedReadings = [...readings].sort((a, b) =>
+        const sortedReadings = [...groupReadings].sort((a, b) =>
             new Date(b.measured_at) - new Date(a.measured_at)
         );
 
-        let html = `<li class="bp-date-group">
-            <div class="bp-date-header">${headerText}</div>
-            <ul style="list-style:none;padding:0;margin:0;">`;
+        const groupItem = document.createElement('li');
+        groupItem.className = 'bp-date-group';
+
+        const header = document.createElement('div');
+        header.className = 'bp-date-header';
+        header.textContent = headerText;
+
+        const groupList = document.createElement('ul');
+        groupList.style.listStyle = 'none';
+        groupList.style.padding = '0';
+        groupList.style.margin = '0';
+        groupItem.appendChild(header);
+        groupItem.appendChild(groupList);
 
         sortedReadings.forEach(r => {
             const category = getBPCategory(r.systolic, r.diastolic);
-            const timeStr = formatDate(r.measured_at).split(' ')[1]; // Get HH:MM part
+            const [, timeStr = ''] = formatDate(r.measured_at).split(' '); // Get HH:MM part
             const pendingClass = r.isLocal ? ' pending-sync' : '';
 
-            html += `<li class="bp-item${pendingClass}">
-                <div class="bp-reading">
-                    <div class="bp-values">
-                        <span class="bp-sys">${r.systolic}</span>
-                        <span class="bp-dia">/${r.diastolic}</span>
-                        ${r.isLocal ? '<span class="sync-pending-badge">Pending</span>' : ''}
-                    </div>
-                    <div class="bp-meta">
-                        <span>${timeStr}</span>`;
+            const item = document.createElement('li');
+            item.className = `bp-item${pendingClass}`;
 
-            if (r.pulse) {
-                html += `<span class="bp-pulse">${r.pulse} bpm</span>`;
+            const reading = document.createElement('div');
+            reading.className = 'bp-reading';
+
+            const values = document.createElement('div');
+            values.className = 'bp-values';
+
+            const sys = document.createElement('span');
+            sys.className = 'bp-sys';
+            sys.textContent = String(r.systolic);
+
+            const dia = document.createElement('span');
+            dia.className = 'bp-dia';
+            dia.textContent = `/${r.diastolic}`;
+
+            values.appendChild(sys);
+            values.appendChild(dia);
+
+            if (r.isLocal) {
+                const badge = document.createElement('span');
+                badge.className = 'sync-pending-badge';
+                badge.textContent = 'Pending';
+                values.appendChild(badge);
             }
 
-            html += `<span class="bp-category ${category.class}">${category.label}</span>
-                    </div>
-                </div>
-                <button class="delete-btn" onclick="deleteBPReading('${r.id}')" title="Delete">&times;</button>
-            </li>`;
+            const meta = document.createElement('div');
+            meta.className = 'bp-meta';
+
+            const time = document.createElement('span');
+            time.textContent = timeStr;
+            meta.appendChild(time);
+
+            if (r.pulse) {
+                const pulse = document.createElement('span');
+                pulse.className = 'bp-pulse';
+                pulse.textContent = `${r.pulse} bpm`;
+                meta.appendChild(pulse);
+            }
+
+            const categoryEl = document.createElement('span');
+            categoryEl.className = `bp-category ${category.class}`;
+            categoryEl.textContent = category.label;
+            meta.appendChild(categoryEl);
+
+            reading.appendChild(values);
+            reading.appendChild(meta);
+
+            const deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'delete-btn';
+            deleteButton.title = 'Delete';
+            deleteButton.textContent = '×';
+            deleteButton.addEventListener('click', () => {
+                deleteBPReading(String(r.id));
+            });
+
+            item.appendChild(reading);
+            item.appendChild(deleteButton);
+            groupList.appendChild(item);
         });
 
-        html += '</ul></li>';
-        return html;
+        return groupItem;
     };
 
     // Render groups in order
-    let html = '';
-    html += renderGroup('Today', groups.today);
-    html += renderGroup('Yesterday', groups.yesterday);
+    const todayGroup = renderGroup('Today', groups.today);
+    const yesterdayGroup = renderGroup('Yesterday', groups.yesterday);
+
+    if (todayGroup) list.appendChild(todayGroup);
+    if (yesterdayGroup) list.appendChild(yesterdayGroup);
 
     if (groups.older.length > 0) {
         // Format older dates
-        const olderGroups = {};
+        const olderGroups = new Map();
         groups.older.forEach(r => {
             const d = new Date(r.measured_at);
             const key = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-            if (!olderGroups[key]) olderGroups[key] = [];
-            olderGroups[key].push(r);
+            if (!olderGroups.has(key)) olderGroups.set(key, []);
+            olderGroups.get(key).push(r);
         });
 
-        Object.keys(olderGroups).forEach(dateKey => {
-            html += renderGroup(dateKey, olderGroups[dateKey]);
+        olderGroups.forEach((olderReadings, dateKey) => {
+            const olderGroup = renderGroup(dateKey, olderReadings);
+            if (olderGroup) list.appendChild(olderGroup);
         });
     }
-
-    list.innerHTML = html;
 }
 
 // Delete a BP reading
