@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -126,37 +127,51 @@ func (s *Scheduler) checkBPReminders() error {
 	return nil
 }
 
-// sendBPReminder sends a BP reminder notification via Telegram and Web Push
+// sendBPReminder sends a BP reminder notification via all notifiers
 func (s *Scheduler) sendBPReminder(ctx context.Context, userID int64, enhanced bool) error {
-	var messageID *int
-	telegramSuccess := false
-	webPushSuccess := false
+	text := "📊 **Time to measure your blood pressure**\n\n"
+	if enhanced {
+		text += "⚠️ Your recent readings have been higher than usual. Regular monitoring is important.\n\n"
+	}
+	text += "Please take a moment to measure and record your BP."
 
-	// Send Telegram notification
-	if s.bot != nil {
-		msgID, err := s.bot.SendBPReminderNotification(userID, enhanced)
+	n := notifier.Notification{
+		Text: text,
+		Actions: []notifier.Action{
+			{ID: "bp_confirm", Label: "✅ Confirm"},
+			{ID: "bp_snooze", Label: "⏰ Snooze (2h)"},
+			{ID: "bp_dontbug", Label: "🔇 Don't Bug Me (24h)"},
+		},
+		Tag: "bp-reminder",
+		Metadata: map[string]interface{}{
+			"type":     "bp_reminder",
+			"enhanced": enhanced,
+		},
+	}
+
+	anySuccess := false
+	var firstMsgID int
+
+	for _, nr := range s.notifiers {
+		msgID, err := nr.Send(ctx, userID, n)
 		if err != nil {
-			log.Printf("Failed to send Telegram BP reminder: %v", err)
-		} else {
-			messageID = &msgID
-			telegramSuccess = true
+			log.Printf("Failed to send BP reminder via %T: %v", nr, err)
+			continue
+		}
+		anySuccess = true
+		if msgID != 0 && firstMsgID == 0 {
+			firstMsgID = msgID
 		}
 	}
 
-	// Send Web Push notification
-	if s.webPush != nil {
-		if err := s.webPush.SendBPReminderNotification(ctx, userID, enhanced); err != nil {
-			log.Printf("Failed to send Web Push BP reminder: %v", err)
-		} else {
-			webPushSuccess = true
-		}
-	}
-
-	// Only update state if at least one channel succeeded
-	if !telegramSuccess && !webPushSuccess {
+	if !anySuccess {
 		return fmt.Errorf("failed to send BP reminder via any channel")
 	}
 
 	// Update state with successful delivery
+	var messageID *int
+	if firstMsgID != 0 {
+		messageID = &firstMsgID
+	}
 	return s.store.UpdateBPReminderNotificationSent(userID, messageID)
 }

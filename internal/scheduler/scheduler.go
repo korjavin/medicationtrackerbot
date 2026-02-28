@@ -7,25 +7,53 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/korjavin/medicationtrackerbot/internal/bot"
+	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
-	"github.com/korjavin/medicationtrackerbot/internal/webpush"
 )
 
 type Scheduler struct {
 	store             *store.Store
-	bot               *bot.Bot
+	notifiers         []notifier.Notifier
 	allowedUserID     int64
 	lastLowStockCheck time.Time
-	webPush           *webpush.Service
 }
 
-func New(store *store.Store, bot *bot.Bot, allowedUserID int64, webPush *webpush.Service) *Scheduler {
+func New(store *store.Store, allowedUserID int64, notifiers []notifier.Notifier) *Scheduler {
 	return &Scheduler{
 		store:         store,
-		bot:           bot,
+		notifiers:     notifiers,
 		allowedUserID: allowedUserID,
-		webPush:       webPush,
+	}
+}
+
+// notify sends a notification through all configured notifiers.
+// If storeMsgID is non-nil, the first non-zero message ID is passed to it.
+func (s *Scheduler) notify(ctx context.Context, n notifier.Notification, storeMsgID func(int)) {
+	for _, nr := range s.notifiers {
+		go func(nr notifier.Notifier) {
+			msgID, err := nr.Send(ctx, s.allowedUserID, n)
+			if err != nil {
+				log.Printf("Notification send failed (%T): %v", nr, err)
+				return
+			}
+			if msgID != 0 && storeMsgID != nil {
+				storeMsgID(msgID)
+			}
+		}(nr)
+	}
+}
+
+// deleteNotification deletes a previously sent notification from all notifiers.
+func (s *Scheduler) deleteNotification(ctx context.Context, msgID int) {
+	if msgID == 0 {
+		return
+	}
+	for _, nr := range s.notifiers {
+		go func(nr notifier.Notifier) {
+			if err := nr.Delete(ctx, s.allowedUserID, msgID); err != nil {
+				log.Printf("Notification delete failed (%T): %v", nr, err)
+			}
+		}(nr)
 	}
 }
 
@@ -115,10 +143,6 @@ func (s *Scheduler) checkSchedule() error {
 	}
 
 	now := time.Now()
-	// Truncate to minute to avoid sub-minute drifts if needed, but DB comparison handles equality.
-	// Actually, store stores time.Time. SQLite driver stores it as string usually or timestamp.
-	// For idempotency, we should standardise the "Scheduled At" time we insert.
-	// It should be Today + HH:MM:00 (zero seconds).
 
 	meds, err := s.store.ListMedications(false)
 	if err != nil {
@@ -226,37 +250,67 @@ func (s *Scheduler) checkSchedule() error {
 			}
 		}
 
-		// Send Telegram Notification
-		if s.bot != nil {
-			go func(meds []store.Medication, target time.Time, iIDs []int64) {
-				intakeByMedication := make(map[int64]int64, len(meds))
-				for i := 0; i < len(meds) && i < len(iIDs); i++ {
-					intakeByMedication[meds[i].ID] = iIDs[i]
-				}
-
-				msgID, err := s.bot.SendGroupNotification(meds, intakeByMedication, target)
-				if err != nil {
-					log.Printf("Failed to send group notification: %v", err)
-					return
-				}
-				for _, iID := range iIDs {
-					if err := s.store.AddIntakeReminder(iID, msgID); err != nil {
-						log.Printf("Failed to add intake reminder for int %d msg %d: %v", iID, msgID, err)
-					}
-				}
-			}(group.Meds, group.Target, intakeIDs)
+		// Build notification text
+		text := fmt.Sprintf("💊 Time to take your medications (%s):\n\n", group.Target.Format("15:04"))
+		for _, m := range group.Meds {
+			if m.Dosage != "" {
+				text += fmt.Sprintf("- %s (%s)\n", m.Name, m.Dosage)
+			} else {
+				text += fmt.Sprintf("- %s\n", m.Name)
+			}
 		}
 
-		// Send Web Push Notification
-		if s.webPush != nil {
-			go func(meds []store.Medication, target time.Time, iIDs []int64) {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				if err := s.webPush.SendMedicationNotification(ctx, s.allowedUserID, meds, target, iIDs); err != nil {
-					log.Printf("Failed to send web push notification: %v", err)
-				}
-			}(group.Meds, group.Target, intakeIDs)
+		// Build actions: individual confirm buttons + confirm all
+		intakeByMedication := make(map[int64]int64, len(group.Meds))
+		for i := 0; i < len(group.Meds) && i < len(intakeIDs); i++ {
+			intakeByMedication[group.Meds[i].ID] = intakeIDs[i]
 		}
+
+		var actions []notifier.Action
+		for _, m := range group.Meds {
+			data := "confirm:" + strconv.FormatInt(m.ID, 10)
+			if intakeID := intakeByMedication[m.ID]; intakeID != 0 {
+				data = "confirm_intake:" + strconv.FormatInt(intakeID, 10)
+			}
+			actions = append(actions, notifier.Action{ID: data, Label: "Take " + m.Name})
+		}
+		actions = append(actions, notifier.Action{
+			ID:    "confirm_schedule:" + strconv.FormatInt(group.Target.Unix(), 10),
+			Label: "✅✅ Confirm ALL",
+		})
+
+		medNames := make([]string, len(group.Meds))
+		medIDs := make([]int64, len(group.Meds))
+		for i, m := range group.Meds {
+			name := m.Name
+			if m.Dosage != "" {
+				name += " " + m.Dosage
+			}
+			medNames[i] = name
+			medIDs[i] = m.ID
+		}
+
+		n := notifier.Notification{
+			Text:    text,
+			Actions: actions,
+			Tag:     fmt.Sprintf("medication-%s", group.Target.Format(time.RFC3339)),
+			Metadata: map[string]interface{}{
+				"type":             "medication",
+				"scheduled_at":     group.Target.Format(time.RFC3339),
+				"medication_ids":   medIDs,
+				"medication_names": medNames,
+				"intake_ids":       intakeIDs,
+			},
+		}
+
+		iIDs := intakeIDs
+		s.notify(context.Background(), n, func(msgID int) {
+			for _, iID := range iIDs {
+				if err := s.store.AddIntakeReminder(iID, msgID); err != nil {
+					log.Printf("Failed to add intake reminder for int %d msg %d: %v", iID, msgID, err)
+				}
+			}
+		})
 	}
 
 	return nil
@@ -283,16 +337,24 @@ func (s *Scheduler) checkReminders() error {
 			text := fmt.Sprintf("🔔 REMINDER: You haven't confirmed taking %s (%s) yet on %s!",
 				med.Name, med.Dosage, scheduledAt.Format("15:04"))
 
-			if s.bot != nil {
-				msgID, err := s.bot.SendNotification(text, p.ID, med.ID)
-				if err != nil {
-					log.Printf("Failed to send reminder: %v", err)
-				} else {
-					if err := s.store.AddIntakeReminder(p.ID, msgID); err != nil {
-						log.Printf("Failed to store intake reminder: %v", err)
-					}
-				}
+			intakeID := p.ID
+			n := notifier.Notification{
+				Text: text,
+				Actions: []notifier.Action{
+					{ID: "confirm_intake:" + strconv.FormatInt(p.ID, 10), Label: "✅ Confirm Intake"},
+				},
+				Tag: fmt.Sprintf("medication-reminder-%d", p.ID),
+				Metadata: map[string]interface{}{
+					"type":      "medication_reminder",
+					"intake_id": p.ID,
+				},
 			}
+
+			s.notify(context.Background(), n, func(msgID int) {
+				if err := s.store.AddIntakeReminder(intakeID, msgID); err != nil {
+					log.Printf("Failed to store intake reminder: %v", err)
+				}
+			})
 		}
 	}
 	return nil
@@ -331,29 +393,28 @@ func (s *Scheduler) checkLowStock() {
 	var sb string
 	sb = "⚠️ **Low Stock Warning**\n\nThe following medications are running low (< 7 days):\n\n"
 
-	for _, m := range meds {
+	medNames := make([]string, len(meds))
+	for i, m := range meds {
 		daysRemaining := s.store.GetDaysOfStockRemaining(&m)
 		daysStr := ""
 		if daysRemaining != nil {
 			daysStr = fmt.Sprintf(" (~%.0f days left)", *daysRemaining)
 		}
 		sb += fmt.Sprintf("• **%s**: %d units%s\n", m.Name, *m.InventoryCount, daysStr)
+		medNames[i] = m.Name
 	}
 
 	sb += "\nPlease restock soon!"
 
-	if s.bot != nil {
-		if err := s.bot.SendLowStockWarning(sb); err != nil {
-			log.Printf("Failed to send low stock warning: %v", err)
-		}
+	n := notifier.Notification{
+		Text: sb,
+		Tag:  "low-stock",
+		Metadata: map[string]interface{}{
+			"type": "low_stock",
+		},
 	}
 
-	if s.webPush != nil {
-		ctx := context.Background()
-		if err := s.webPush.SendLowStockNotification(ctx, s.allowedUserID, meds); err != nil {
-			log.Printf("Failed to send Web Push low stock: %v", err)
-		}
-	}
+	s.notify(context.Background(), n, nil)
 
 	s.lastLowStockCheck = time.Now()
 }

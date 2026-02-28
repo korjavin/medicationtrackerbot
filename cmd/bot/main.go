@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
+	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/scheduler"
 	"github.com/korjavin/medicationtrackerbot/internal/server"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -63,20 +64,7 @@ func main() {
 		log.Println("Bot started")
 	}
 
-	// 4. Scheduler
-	// 4. Scheduler
-	// Only start scheduler if bot is active (required for notifications)
-	// But we now have Web Push which *could* work without bot, but
-	// scheduler currently depends heavily on bot.
-	// We'll pass server's WebPush service to scheduler later or
-	// we initialize WebPush service independently?
-	// The plan was: Server initializes WebPush. Scheduler uses Server's instance?
-	// Or we initialize WebPush here and pass to both.
-
-	// Better: Initialize WebPush here if config present.
-	// But Server.New initializes it inside.
-
-	// Let's grab the config first.
+	// 4. VAPID config for Web Push
 	vapidConfig := server.VAPIDConfig{
 		PublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
 		PrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
@@ -144,8 +132,17 @@ func main() {
 
 	srv := server.New(s, tgBot, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidConfig)
 
+	// Build notifiers slice
+	var notifiers []notifier.Notifier
+	if tgBot != nil {
+		notifiers = append(notifiers, notifier.NewTelegram(tgBot))
+	}
+	if wp := srv.GetWebPushService(); wp != nil {
+		notifiers = append(notifiers, notifier.NewWebPush(wp))
+	}
+
 	// Always start scheduler (works with web push even without bot)
-	sch := scheduler.New(s, tgBot, allowedUserID, srv.GetWebPushService())
+	sch := scheduler.New(s, allowedUserID, notifiers)
 	sch.Start()
 	if tgBot != nil {
 		log.Println("Scheduler started")

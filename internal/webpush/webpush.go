@@ -214,6 +214,11 @@ func (s *Service) SendWeightReminderNotification(ctx context.Context, userID int
 	return s.sendToUser(userID, payload)
 }
 
+// SendNotification sends an arbitrary notification payload to all subscriptions for a user.
+func (s *Service) SendNotification(userID int64, payload NotificationPayload) error {
+	return s.sendToUser(userID, payload)
+}
+
 func (s *Service) sendToUser(userID int64, payload NotificationPayload) error {
 	subs, err := s.store.GetPushSubscriptions(userID)
 	if err != nil {
