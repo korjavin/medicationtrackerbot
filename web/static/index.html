@@ -71,7 +71,7 @@
 
         <div id="bp-view" class="view">
             <h3>Blood Pressure Readings</h3>
-            <button onclick="showBPRecordModal()" class="btn-add">+ Record BP</button>
+            <button id="add-bp-btn" class="btn-add">+ Record BP</button>
             <div id="bpChart"></div>
             <div id="bp-averages"></div>
             <ul id="bp-list"></ul>
@@ -79,7 +79,7 @@
 
         <div id="weight-view" class="view">
             <h3>Weight Tracking</h3>
-            <button onclick="showWeightModal()" class="btn-add">+ Log Weight</button>
+            <button id="add-weight-btn" class="btn-add">+ Log Weight</button>
             <div id="weightChart"></div>
             <div id="weight-stats"></div>
             <ul id="weight-list"></ul>
@@ -717,11 +717,11 @@
         <div class="modal-header">
             <h3 id="bp-modal-title">Record Blood Pressure</h3>
             <div class="actions">
-                <button type="button" onclick="closeBPRecordModal()" class="secondary">Cancel</button>
+                <button type="button" id="bp-modal-cancel-btn" class="secondary">Cancel</button>
                 <button type="submit" form="bp-form" class="primary">Save</button>
             </div>
         </div>
-        <form id="bp-form" onsubmit="handleBPSubmit(event)">
+        <form id="bp-form">
             <input type="datetime-local" id="bp-datetime" required>
             <div class="bp-inputs-row">
                 <div class="bp-input-group">
@@ -767,11 +767,11 @@
         <div class="modal-header">
             <h3>Log Weight</h3>
             <div class="actions">
-                <button type="button" onclick="closeWeightModal()" class="secondary">Cancel</button>
+                <button type="button" id="weight-modal-cancel-btn" class="secondary">Cancel</button>
                 <button type="submit" form="weight-form" class="primary">Save</button>
             </div>
         </div>
-        <form id="weight-form" onsubmit="handleWeightSubmit(event)">
+        <form id="weight-form">
             <input type="datetime-local" id="weight-datetime" required>
 
             <!-- Editable weight input styled as large display -->
