@@ -168,6 +168,11 @@ describe('app.js unit tests', () => {
       window.ModalManager.workoutAddExerciseToSession.close();
       expect(addExerciseToSessionModal.classList.contains('hidden')).toBe(true);
 
+      window.ModalManager.foodScanner.open();
+      expect(scannerModal.classList.contains('hidden')).toBe(false);
+      window.ModalManager.foodScanner.close();
+      expect(scannerModal.classList.contains('hidden')).toBe(true);
+
       scannerModal.classList.remove('hidden');
       window.ModalManager.food.open();
       expect(foodModal.classList.contains('hidden')).toBe(false);

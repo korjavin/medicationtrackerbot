@@ -214,6 +214,21 @@ const ModalManager = {
         }
     },
 
+    foodScanner: {
+        open() {
+            const scannerModal = document.getElementById('food-scanner-modal');
+            if (!scannerModal) return;
+            scannerModal.classList.remove('hidden');
+            setFoodScannerStatus('Point camera at barcode or QR.');
+            startFoodScanner();
+        },
+        close() {
+            stopFoodScanner();
+            const scannerModal = document.getElementById('food-scanner-modal');
+            if (scannerModal) scannerModal.classList.add('hidden');
+        }
+    },
+
     getTopModalDefs() {
         return [
             { id: 'med-modal', fn: () => ModalManager.med.close() },
@@ -232,7 +247,7 @@ const ModalManager = {
     getSubModalDefs() {
         return [
             { id: 'workout-add-exercise-to-session-modal', fn: () => typeof closeAddExerciseToSessionModal === 'function' ? closeAddExerciseToSessionModal() : ModalManager.workoutAddExerciseToSession.close() },
-            { id: 'food-scanner-modal', fn: () => closeFoodScannerModal() },
+            { id: 'food-scanner-modal', fn: () => ModalManager.foodScanner.close() },
             { id: 'food-product-modal', fn: () => ModalManager.foodProduct.close() },
         ];
     },
@@ -1504,19 +1519,11 @@ window.addEventListener('pagehide', stopFoodScanner);
 window.addEventListener('beforeunload', stopFoodScanner);
 
 function openFoodScannerModal() {
-    const scannerModal = document.getElementById('food-scanner-modal');
-    if (!scannerModal) return;
-    scannerModal.classList.remove('hidden');
-    setFoodScannerStatus('Point camera at barcode or QR.');
-    startFoodScanner();
+    window.ModalManager.foodScanner.open();
 }
 
 function closeFoodScannerModal() {
-    stopFoodScanner();
-    const scannerModal = document.getElementById('food-scanner-modal');
-    if (scannerModal) {
-        scannerModal.classList.add('hidden');
-    }
+    window.ModalManager.foodScanner.close();
 }
 
 function decodeBarcodeFromImageFallback(image) {
