@@ -2639,10 +2639,17 @@ function getRefreshBanner() {
     banner = document.createElement('div');
     banner.id = 'data-refresh-banner';
     banner.className = 'data-refresh-banner hidden';
-    banner.innerHTML = `
-        <span>New data is available.</span>
-        <button type="button" onclick="applyPendingTabRefresh()">Refresh</button>
-    `;
+
+    const message = document.createElement('span');
+    message.textContent = 'New data is available.';
+
+    const refreshButton = document.createElement('button');
+    refreshButton.type = 'button';
+    refreshButton.textContent = 'Refresh';
+    refreshButton.addEventListener('click', applyPendingTabRefresh);
+
+    banner.appendChild(message);
+    banner.appendChild(refreshButton);
     document.body.appendChild(banner);
     return banner;
 }
