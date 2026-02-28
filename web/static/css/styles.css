@@ -87,6 +87,14 @@ h1 {
     display: block;
 }
 
+/* Exercise Library Items */
+.exercise-library-item {
+    background-color: var(--secondary-bg-color);
+    padding: 12px 16px;
+    border-radius: 12px;
+    margin-bottom: 8px;
+}
+
 /* List Items */
 .med-item,
 .history-item {
