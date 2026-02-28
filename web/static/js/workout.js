@@ -988,40 +988,72 @@ async function loadExerciseLibrary() {
 
 function _renderExerciseLibrary(container, items) {
     if (!items || items.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: var(--hint-color);">No exercises in library yet. Add your first exercise!</p>';
+        const empty = document.createElement('p');
+        empty.style.textAlign = 'center';
+        empty.style.color = 'var(--hint-color)';
+        empty.textContent = 'No exercises in library yet. Add your first exercise!';
+        container.replaceChildren(empty);
         return;
     }
 
-    let html = '<div class="exercise-library-items">';
+    const root = document.createElement('div');
+    root.className = 'exercise-library-items';
+
     for (const item of items) {
         const repsStr = item.default_reps_max
             ? `${item.default_reps_min}-${item.default_reps_max}`
             : `${item.default_reps_min}`;
         const weightStr = item.default_weight_kg ? ` @ ${item.default_weight_kg}kg` : '';
-        const notesStr = item.notes ? `<div style="font-size: 0.85em; color: var(--hint-color); margin-top: 2px;">${_escapeHtml(item.notes)}</div>` : '';
 
-        html += `
-            <div class="exercise-library-item" onclick="showEditExerciseLibraryModal(${item.id})" style="cursor: pointer;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <strong>${_escapeHtml(item.name)}</strong>
-                        <div style="font-size: 0.9em; color: var(--hint-color);">
-                            ${item.default_sets} sets x ${repsStr} reps${weightStr}
-                        </div>
-                        ${notesStr}
-                    </div>
-                    <button onclick="deleteExerciseLibraryItem(${item.id}, event)" class="secondary" style="padding: 4px 8px; font-size: 0.85em;">Delete</button>
-                </div>
-            </div>`;
+        const card = document.createElement('div');
+        card.className = 'exercise-library-item';
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', () => {
+            showEditExerciseLibraryModal(item.id);
+        });
+
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.alignItems = 'center';
+
+        const details = document.createElement('div');
+        const title = document.createElement('strong');
+        title.textContent = item.name || '';
+
+        const defaults = document.createElement('div');
+        defaults.style.fontSize = '0.9em';
+        defaults.style.color = 'var(--hint-color)';
+        defaults.textContent = `${item.default_sets} sets x ${repsStr} reps${weightStr}`;
+
+        details.appendChild(title);
+        details.appendChild(defaults);
+
+        if (item.notes) {
+            const notes = document.createElement('div');
+            notes.style.fontSize = '0.85em';
+            notes.style.color = 'var(--hint-color)';
+            notes.style.marginTop = '2px';
+            notes.textContent = item.notes;
+            details.appendChild(notes);
+        }
+
+        const deleteButton = document.createElement('button');
+        deleteButton.className = 'secondary';
+        deleteButton.style.padding = '4px 8px';
+        deleteButton.style.fontSize = '0.85em';
+        deleteButton.textContent = 'Delete';
+        deleteButton.addEventListener('click', (event) => {
+            deleteExerciseLibraryItem(item.id, event);
+        });
+
+        row.appendChild(details);
+        row.appendChild(deleteButton);
+        card.appendChild(row);
+        root.appendChild(card);
     }
-    html += '</div>';
-    container.innerHTML = html;
-}
 
-function _escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    container.replaceChildren(root);
 }
 
 function showExerciseLibraryModal(id) {
@@ -1097,7 +1129,7 @@ async function saveExerciseLibraryItem() {
 }
 
 async function deleteExerciseLibraryItem(id, event) {
-    event.stopPropagation();
+    event?.stopPropagation?.();
     if (confirm('Delete this exercise from library?')) {
         const result = await apiCall(`/api/workout/exercise-library/delete?id=${id}`, 'DELETE');
         if (result || result === true) {

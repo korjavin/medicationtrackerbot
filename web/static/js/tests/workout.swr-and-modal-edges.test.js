@@ -171,6 +171,52 @@ describe('workout.js SWR and modal edge branches', () => {
     }
   });
 
+  it('exercise library renderer binds edit/delete handlers without inline onclick', async () => {
+    const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
+
+    try {
+      const items = [
+        {
+          id: 111,
+          name: 'Bench <press>',
+          default_sets: 4,
+          default_reps_min: 8,
+          default_reps_max: 10,
+          default_weight_kg: 90,
+          notes: 'Pause @ chest'
+        }
+      ];
+
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onFresh(items);
+      });
+
+      const editSpy = vi.spyOn(window, 'showEditExerciseLibraryModal').mockResolvedValue(undefined);
+      const deleteSpy = vi.spyOn(window, 'deleteExerciseLibraryItem');
+      window.confirm = vi.fn().mockReturnValue(false);
+
+      await window.loadExerciseLibrary();
+
+      const container = document.getElementById('exercise-library-list');
+      const card = container.querySelector('.exercise-library-item');
+      const deleteButton = container.querySelector('.exercise-library-item .secondary');
+
+      expect(card).toBeTruthy();
+      expect(deleteButton).toBeTruthy();
+      expect(container.textContent).toContain('Bench <press>');
+      expect(container.textContent).toContain('4 sets x 8-10 reps @ 90kg');
+
+      deleteButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      expect(deleteSpy).toHaveBeenCalledWith(111, expect.any(Object));
+      expect(editSpy).not.toHaveBeenCalled();
+
+      card.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      expect(editSpy).toHaveBeenCalledWith(111);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('history/stats SWR wrappers and session-detail error/add-exercise modal branches', async () => {
     const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
 
