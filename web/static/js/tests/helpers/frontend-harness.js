@@ -17,6 +17,10 @@ const COMPONENTS = [
   path.join(REPO_ROOT, 'web/static/js/components/mt-card.js'),
   path.join(REPO_ROOT, 'web/static/js/components/register-components.js')
 ];
+const API_JS = path.join(REPO_ROOT, 'web/static/js/features/api.js');
+const CORE_UTILS_JS = path.join(REPO_ROOT, 'web/static/js/features/core-utils.js');
+const UI_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/features/ui-manager.js');
+const FOOD_JS = path.join(REPO_ROOT, 'web/static/js/features/food.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
 
@@ -131,6 +135,12 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
     const compSource = fs.readFileSync(compPath, 'utf8');
     evalWithSourceURL(window, compSource, compPath);
   }
+
+  // Load feature scripts in correct order
+  evalWithSourceURL(window, fs.readFileSync(API_JS, 'utf8'), API_JS);
+  evalWithSourceURL(window, fs.readFileSync(CORE_UTILS_JS, 'utf8'), CORE_UTILS_JS);
+  evalWithSourceURL(window, fs.readFileSync(UI_MANAGER_JS, 'utf8'), UI_MANAGER_JS);
+  evalWithSourceURL(window, fs.readFileSync(FOOD_JS, 'utf8'), FOOD_JS);
 
   const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
   evalWithSourceURL(window, appSource, APP_JS);
