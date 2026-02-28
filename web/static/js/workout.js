@@ -266,10 +266,12 @@ async function loadWorkoutGroups() {
 }
 
 function _renderWorkoutGroups(container, groups) {
+    if (!container) return;
+    const doc = container.ownerDocument || document;
     workoutGroups = groups || [];
 
     if (!groups || groups.length === 0) {
-        const empty = document.createElement('p');
+        const empty = doc.createElement('p');
         empty.style.textAlign = 'center';
         empty.style.color = 'var(--hint-color)';
         empty.style.padding = '40px';
@@ -287,38 +289,38 @@ function _renderWorkoutGroups(container, groups) {
         const daysMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         const daysText = daysArray.map((day) => daysMap[day]).join(', ');
 
-        const card = document.createElement('div');
+        const card = doc.createElement('div');
         card.className = 'med-item';
         card.style.marginBottom = '15px';
 
-        const info = document.createElement('div');
+        const info = doc.createElement('div');
         info.className = 'med-info';
         info.style.cursor = 'pointer';
         info.addEventListener('click', () => {
             showEditWorkoutGroupModal(group.id);
         });
 
-        const title = document.createElement('h4');
+        const title = doc.createElement('h4');
         const titleParts = [group.name];
         if (group.is_rotating) titleParts.push('🔄');
         if (!group.active) titleParts.push('(Inactive)');
         title.textContent = titleParts.join(' ');
 
-        const description = document.createElement('p');
+        const description = doc.createElement('p');
         description.textContent = group.description || '';
 
-        const schedule = document.createElement('p');
+        const schedule = doc.createElement('p');
         schedule.style.fontSize = '0.9em';
         schedule.style.color = '#666';
-        schedule.appendChild(document.createTextNode(`📅 ${daysText} at ${group.scheduled_time}`));
-        schedule.appendChild(document.createElement('br'));
-        schedule.appendChild(document.createTextNode(`🔔 ${group.notification_advance_minutes} min before`));
+        schedule.appendChild(doc.createTextNode(`📅 ${daysText} at ${group.scheduled_time}`));
+        schedule.appendChild(doc.createElement('br'));
+        schedule.appendChild(doc.createTextNode(`🔔 ${group.notification_advance_minutes} min before`));
 
         info.appendChild(title);
         info.appendChild(description);
         info.appendChild(schedule);
 
-        const deleteBtn = document.createElement('button');
+        const deleteBtn = doc.createElement('button');
         deleteBtn.type = 'button';
         deleteBtn.className = 'delete-btn';
         deleteBtn.textContent = '×';
