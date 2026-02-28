@@ -339,6 +339,8 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/food/stats", s.handleGetFoodStats)
 	apiMux.HandleFunc("DELETE /api/food/log/{id}", s.handleDeleteFoodLog)
 	apiMux.HandleFunc("GET /api/food/products", s.handleGetFoodProducts)
+	apiMux.HandleFunc("PUT /api/food/products/{id}", s.handleUpdateFoodProduct)
+	apiMux.HandleFunc("DELETE /api/food/products/{id}", s.handleDeleteFoodProduct)
 	apiMux.HandleFunc("GET /api/food/products/search", s.handleSearchFoodProducts)
 
 	// Init endpoint (returns all data needed for first render)

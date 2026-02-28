@@ -1531,6 +1531,36 @@ func (s *Store) UpsertFoodProduct(ctx context.Context, p *FoodProduct) error {
 	return err
 }
 
+func (s *Store) UpdateFoodProduct(ctx context.Context, p *FoodProduct) error {
+	var barcode interface{}
+	if p.Barcode != nil && *p.Barcode != "" {
+		barcode = *p.Barcode
+	}
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE food_products SET name = ?, barcode = ?, carbs_100g = ?, protein_100g = ?, fat_100g = ?, energy_kcal_100g = ? WHERE id = ? AND user_id = ?",
+		p.Name, barcode, p.Carbs100g, p.Protein100g, p.Fat100g, p.EnergyKcal100g, p.ID, p.UserID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) DeleteFoodProduct(ctx context.Context, id, userID int64) error {
+	res, err := s.db.ExecContext(ctx, "DELETE FROM food_products WHERE id = ? AND user_id = ?", id, userID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) GetFoodProducts(ctx context.Context, userID int64, limit int) ([]FoodProduct, error) {
 	query := `
 		SELECT id, user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, created_at, last_used_at
