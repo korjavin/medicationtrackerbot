@@ -1152,6 +1152,42 @@ if (document.readyState === 'loading') {
 }
 bindMedicationControls();
 
+let measurementControlsBound = false;
+
+function bindMeasurementControls() {
+    if (measurementControlsBound) return;
+    measurementControlsBound = true;
+
+    const bindClick = (id, handler) => {
+        const element = document.getElementById(id);
+        if (element) element.addEventListener('click', handler);
+    };
+
+    bindClick('add-bp-btn', () => showBPRecordModal());
+    bindClick('bp-modal-cancel-btn', () => closeBPRecordModal());
+    bindClick('add-weight-btn', () => showWeightModal());
+    bindClick('weight-modal-cancel-btn', () => closeWeightModal());
+
+    const bpForm = document.getElementById('bp-form');
+    if (bpForm) {
+        bpForm.addEventListener('submit', (event) => {
+            handleBPSubmit(event);
+        });
+    }
+
+    const weightForm = document.getElementById('weight-form');
+    if (weightForm) {
+        weightForm.addEventListener('submit', (event) => {
+            handleWeightSubmit(event);
+        });
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindMeasurementControls, { once: true });
+}
+bindMeasurementControls();
+
 // -- Food Intake Autocomplete & Logic --
 
 let foodAutoCompleteSuggestions = [];

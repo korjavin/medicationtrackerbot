@@ -74,24 +74,32 @@ describe('app.js UI characterization', () => {
     }
   });
 
-  it('opens and closes BP modal with shared overlay', () => {
+  it('BP and weight controls open/close modals via JS click bindings', () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
       const overlay = document.getElementById('modal-overlay');
-      const modal = document.getElementById('bp-modal');
+      const bpModal = document.getElementById('bp-modal');
+      const weightModal = document.getElementById('weight-modal');
 
       expect(overlay.classList.contains('hidden')).toBe(true);
-      expect(modal.classList.contains('hidden')).toBe(true);
+      expect(bpModal.classList.contains('hidden')).toBe(true);
+      expect(weightModal.classList.contains('hidden')).toBe(true);
 
-      window.showBPRecordModal();
+      document.getElementById('add-bp-btn').click();
 
       expect(overlay.classList.contains('hidden')).toBe(false);
-      expect(modal.classList.contains('hidden')).toBe(false);
+      expect(bpModal.classList.contains('hidden')).toBe(false);
       expect(document.getElementById('bp-datetime').value).not.toBe('');
 
-      window.closeBPRecordModal();
+      document.getElementById('bp-modal-cancel-btn').click();
       expect(overlay.classList.contains('hidden')).toBe(true);
-      expect(modal.classList.contains('hidden')).toBe(true);
+      expect(bpModal.classList.contains('hidden')).toBe(true);
+
+      document.getElementById('add-weight-btn').click();
+      expect(weightModal.classList.contains('hidden')).toBe(false);
+
+      document.getElementById('weight-modal-cancel-btn').click();
+      expect(weightModal.classList.contains('hidden')).toBe(true);
     } finally {
       cleanup();
     }
