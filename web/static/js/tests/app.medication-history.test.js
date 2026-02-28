@@ -1,0 +1,267 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadFrontendEnv } from './helpers/frontend-harness.js';
+
+function toLocalTime(date) {
+  return date.toTimeString().slice(0, 5);
+}
+
+async function seedMedications(window, meds) {
+  window.DataStore.loadSWR = vi.fn(async (options) => {
+    await options.onFresh(meds);
+  });
+  window.apiCall = vi.fn().mockResolvedValue([]);
+  await window.loadMeds();
+}
+
+describe('app.js medication, history and intake flows', () => {
+  let consoleLogSpy;
+  let consoleErrorSpy;
+
+  beforeEach(() => {
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleLogSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('addTimeInput/removeTime manipulate dynamic medication time rows', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const container = document.getElementById('time-inputs');
+      const initialRows = container.querySelectorAll('.time-row').length;
+
+      window.addTimeInput('08:45');
+      expect(container.querySelectorAll('.time-row').length).toBe(initialRows + 1);
+      const lastInput = container.querySelector('.time-row:last-child .med-time-input');
+      expect(lastInput.value).toBe('08:45');
+
+      const removeBtn = container.querySelector('.time-row:last-child .remove-time');
+      window.removeTime(removeBtn);
+      expect(container.querySelectorAll('.time-row').length).toBe(initialRows);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('renderMeds and populateMedFilter render mixed schedules and inventory badges', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const now = new Date();
+      const soon = new Date(now.getTime() + (60 * 60 * 1000));
+      const far = new Date(now.getTime() + (20 * 60 * 60 * 1000));
+      const todayDow = now.getDay();
+
+      await seedMedications(window, [
+        {
+          id: 1,
+          name: 'Soon Med',
+          dosage: '10mg',
+          schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(soon)] }),
+          archived: false,
+          inventory_count: 2,
+          last_taken_at: now.toISOString(),
+          normalized_name: 'Soon Med Rx'
+        },
+        {
+          id: 2,
+          name: 'Later Med',
+          dosage: '5mg',
+          schedule: JSON.stringify({ type: 'weekly', days: [todayDow], times: [toLocalTime(far)] }),
+          archived: false,
+          inventory_count: 20,
+          last_taken_at: new Date(now.getTime() - (2 * 24 * 60 * 60 * 1000)).toISOString()
+        },
+        {
+          id: 3,
+          name: 'As Needed',
+          dosage: '1 tab',
+          schedule: JSON.stringify({ type: 'as_needed' }),
+          archived: false,
+          inventory_count: null
+        },
+        {
+          id: 4,
+          name: 'Archived Med',
+          dosage: '2mg',
+          schedule: JSON.stringify({ type: 'daily', times: ['09:00'] }),
+          archived: true
+        }
+      ]);
+
+      const medsHtml = document.getElementById('med-list').innerHTML;
+      expect(medsHtml).toContain('Soon Med');
+      expect(medsHtml).toContain('Weekly');
+      expect(medsHtml).toContain('As Needed');
+      expect(medsHtml).toContain('archived');
+      expect(medsHtml).toContain('⚠️');
+      expect(medsHtml).toContain('Soon Med Rx');
+
+      const filter = document.getElementById('history-filter-med');
+      expect(filter.querySelectorAll('option').length).toBeGreaterThan(2);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('renderHistory groups intakes and opens edit modal on TAKEN group click', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      await seedMedications(window, [
+        { id: 1, name: 'Aspirin' },
+        { id: 2, name: 'Magnesium' }
+      ]);
+
+      const now = new Date();
+      const takenAt = new Date(now.getTime() - (60 * 60 * 1000)).toISOString();
+      const scheduledAt = new Date(now.getTime() - (2 * 60 * 60 * 1000)).toISOString();
+
+      const logs = [
+        { id: 100, medication_id: 1, status: 'TAKEN', taken_at: takenAt, scheduled_at: scheduledAt },
+        { id: 101, medication_id: 2, status: 'TAKEN', taken_at: takenAt, scheduled_at: scheduledAt },
+        { id: 102, medication_id: 1, status: 'PENDING', scheduled_at: new Date(now.getTime() + (60 * 60 * 1000)).toISOString() }
+      ];
+
+      const modalSpy = vi.fn();
+      window.showMedicationConfirmModal = modalSpy;
+
+      window.renderHistory(logs);
+      const list = document.getElementById('history-list');
+      expect(list.innerHTML).toContain('Aspirin');
+      expect(list.innerHTML).toContain('Magnesium');
+      expect(list.innerHTML).toContain('✅');
+
+      const groups = list.querySelectorAll('.history-group');
+      expect(groups.length).toBeGreaterThan(0);
+      groups[1].click();
+
+      expect(modalSpy).toHaveBeenCalled();
+      expect(modalSpy.mock.calls[0][0]).toEqual([1, 2]);
+      expect(modalSpy.mock.calls[0][3]).toBe('edit');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('loadMeds handles cached/fresh/offline-fallback callbacks and refreshes medication list', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const cached = [{
+        id: 10,
+        name: 'Cached Med',
+        dosage: '1',
+        schedule: JSON.stringify({ type: 'daily', times: ['09:00'] }),
+        archived: false
+      }];
+      const fresh = [{
+        id: 11,
+        name: 'Fresh Med',
+        dosage: '2',
+        schedule: JSON.stringify({ type: 'daily', times: ['10:00'] }),
+        archived: false
+      }];
+      const offline = [{
+        id: 12,
+        name: 'Offline Med',
+        dosage: '3',
+        schedule: JSON.stringify({ type: 'daily', times: ['11:00'] }),
+        archived: false
+      }];
+
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onCached(cached);
+        await options.onFresh(fresh);
+        await options.onError(new Error('boom'), null);
+      });
+
+      window.MedTrackerDB = {
+        MedicationStore: {
+          saveCache: vi.fn().mockResolvedValue(undefined),
+          getCache: vi.fn().mockResolvedValue(offline)
+        }
+      };
+
+      window.apiCall = vi.fn(async (endpoint) => {
+        if (endpoint.startsWith('/api/history?days=7')) return [];
+        return [];
+      });
+
+      await window.loadMeds();
+
+      expect(window.DataStore.loadSWR).toHaveBeenCalled();
+      expect(window.MedTrackerDB.MedicationStore.saveCache).toHaveBeenCalledWith(fresh);
+      expect(window.MedTrackerDB.MedicationStore.getCache).toHaveBeenCalled();
+      expect(document.getElementById('med-list').innerHTML).toContain('Offline Med');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('next intake trigger render/action and weekly hub segmentation behave correctly', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const container = document.getElementById('next-intake-trigger');
+      const alertSpy = vi.fn();
+      window.Telegram.WebApp.showAlert = alertSpy;
+
+      window.DataStore.fetchFresh = vi
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          scheduled_at: new Date().toISOString(),
+          medication_names: ['Aspirin', 'Vitamin D']
+        });
+
+      await window.renderNextIntakeTrigger();
+      expect(container.innerHTML).toBe('');
+
+      await window.renderNextIntakeTrigger();
+      expect(container.innerHTML).toContain('Next scheduled intake');
+      expect(container.innerHTML).toContain('Take Now');
+
+      window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+      window.DataStore.invalidateKey = vi.fn().mockResolvedValue(undefined);
+      const loadHistorySpy = vi.spyOn(window, 'loadHistory').mockResolvedValue(undefined);
+
+      window.apiCall = vi
+        .fn()
+        .mockResolvedValueOnce({
+          status: 'confirmed',
+          medication_names: ['Aspirin'],
+          scheduled_at: new Date().toISOString(),
+          taken_at: new Date().toISOString()
+        })
+        .mockRejectedValueOnce(new Error('trigger failed'));
+
+      await window.triggerNextIntake();
+      expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['history', 'medications']);
+      expect(window.DataStore.invalidateKey).toHaveBeenCalledWith('next_intake');
+      expect(loadHistorySpy).toHaveBeenCalled();
+      expect(alertSpy).toHaveBeenCalled();
+
+      await window.triggerNextIntake();
+      expect(alertSpy).toHaveBeenLastCalledWith('Failed to trigger next intake. Please try again.');
+
+      const today = new Date().toISOString().split('T')[0];
+      await seedMedications(window, [
+        { id: 1, name: 'A', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }) },
+        { id: 2, name: 'B', archived: false, schedule: JSON.stringify({ type: 'weekly', days: [new Date().getDay()], times: ['09:00'] }) }
+      ]);
+      window.apiCall = vi.fn().mockResolvedValue([
+        { medication_id: 1, status: 'TAKEN', scheduled_at: `${today}T08:00:00Z` }
+      ]);
+      await window.renderWeeklyHub();
+      expect(document.getElementById('weekly-hub-container').innerHTML).toContain('Last 7 Days');
+      expect(document.getElementById('weekly-hub-container').innerHTML).toContain('day-circle');
+    } finally {
+      cleanup();
+    }
+  });
+});
