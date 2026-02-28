@@ -12,7 +12,7 @@ import (
 
 // checkBPReminders checks if any users need BP reminder notifications
 func (s *Scheduler) checkBPReminders() error {
-	enabled, err := s.store.GetBloodPressureEnabled(context.Background())
+	enabled, err := s.bpReminders.GetBloodPressureEnabled(context.Background())
 	if err != nil {
 		return err
 	}
@@ -21,7 +21,7 @@ func (s *Scheduler) checkBPReminders() error {
 	}
 
 	// Get all users with BP reminders enabled
-	userIDs, err := s.store.GetUsersForBPReminders()
+	userIDs, err := s.bpReminders.GetUsersForBPReminders()
 	if err != nil {
 		return err
 	}
@@ -31,7 +31,7 @@ func (s *Scheduler) checkBPReminders() error {
 
 	for _, userID := range userIDs {
 		// Get reminder state
-		state, err := s.store.GetBPReminderState(userID)
+		state, err := s.bpReminders.GetBPReminderState(userID)
 		if err != nil {
 			log.Printf("Error getting BP reminder state for user %d: %v", userID, err)
 			continue
@@ -53,7 +53,7 @@ func (s *Scheduler) checkBPReminders() error {
 		}
 
 		// Get last BP reading
-		lastReading, err := s.store.GetLastBPReading(ctx, userID)
+		lastReading, err := s.bpReminders.GetLastBPReading(ctx, userID)
 		if err != nil {
 			log.Printf("Error getting last BP reading for user %d: %v", userID, err)
 			continue
@@ -72,7 +72,7 @@ func (s *Scheduler) checkBPReminders() error {
 		}
 
 		// Calculate preferred reminder hour dynamically
-		preferredHour, err := s.store.CalculatePreferredReminderHour(ctx, userID)
+		preferredHour, err := s.bpReminders.CalculatePreferredReminderHour(ctx, userID)
 		if err != nil {
 			log.Printf("Error calculating preferred hour for user %d: %v", userID, err)
 			preferredHour = 20 // Fallback to default
@@ -80,7 +80,7 @@ func (s *Scheduler) checkBPReminders() error {
 
 		// Update if different from stored value
 		if preferredHour != state.PreferredReminderHour {
-			if err := s.store.UpdatePreferredReminderHour(userID, preferredHour); err != nil {
+			if err := s.bpReminders.UpdatePreferredReminderHour(userID, preferredHour); err != nil {
 				log.Printf("Error updating preferred hour for user %d: %v", userID, err)
 			}
 		}
@@ -102,7 +102,7 @@ func (s *Scheduler) checkBPReminders() error {
 
 		// Check if BP is above average (by category)
 		shouldSendEnhanced := false
-		dominantCategory, err := s.store.GetDominantBPCategory(ctx, userID)
+		dominantCategory, err := s.bpReminders.GetDominantBPCategory(ctx, userID)
 		if err != nil {
 			log.Printf("Error getting dominant BP category for user %d: %v", userID, err)
 		} else if lastReading != nil {
@@ -173,5 +173,5 @@ func (s *Scheduler) sendBPReminder(ctx context.Context, userID int64, enhanced b
 	if firstMsgID != 0 {
 		messageID = &firstMsgID
 	}
-	return s.store.UpdateBPReminderNotificationSent(userID, messageID)
+	return s.bpReminders.UpdateBPReminderNotificationSent(userID, messageID)
 }

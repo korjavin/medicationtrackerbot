@@ -46,7 +46,7 @@ func (s *Server) handleGetVitalsHeart(ctx context.Context, req *mcp.CallToolRequ
 	warning = appendWarnings(argsWarning, warning)
 
 	userID := s.config.UserID
-	logs, err := s.store.GetVitalsHeart(ctx, userID, startDate, endDate)
+	logs, err := s.data.GetVitalsHeart(ctx, userID, startDate, endDate)
 	if err != nil {
 		return nil, VitalsResponse{}, err
 	}
@@ -89,7 +89,7 @@ func (s *Server) handleGetVitalsSpO2(ctx context.Context, req *mcp.CallToolReque
 	warning = appendWarnings(argsWarning, warning)
 
 	userID := s.config.UserID
-	logs, err := s.store.GetVitalsSpO2(ctx, userID, startDate, endDate)
+	logs, err := s.data.GetVitalsSpO2(ctx, userID, startDate, endDate)
 	if err != nil {
 		return nil, VitalsResponse{}, err
 	}
@@ -129,7 +129,7 @@ func (s *Server) handleGetVitalsStress(ctx context.Context, req *mcp.CallToolReq
 	warning = appendWarnings(argsWarning, warning)
 
 	userID := s.config.UserID
-	logs, err := s.store.GetVitalsStress(ctx, userID, startDate, endDate)
+	logs, err := s.data.GetVitalsStress(ctx, userID, startDate, endDate)
 	if err != nil {
 		return nil, VitalsResponse{}, err
 	}
@@ -182,9 +182,9 @@ func (s *Server) handleGetHealthOverview(ctx context.Context, req *mcp.CallToolR
 
 	userID := s.config.UserID
 
-	heartLogs, _ := s.store.GetVitalsHeart(ctx, userID, startDate, endDate)
-	spo2Logs, _ := s.store.GetVitalsSpO2(ctx, userID, startDate, endDate)
-	stressLogs, _ := s.store.GetVitalsStress(ctx, userID, startDate, endDate)
+	heartLogs, _ := s.data.GetVitalsHeart(ctx, userID, startDate, endDate)
+	spo2Logs, _ := s.data.GetVitalsSpO2(ctx, userID, startDate, endDate)
+	stressLogs, _ := s.data.GetVitalsStress(ctx, userID, startDate, endDate)
 
 	var hSum, oSum, sSum int
 	for _, l := range heartLogs {

@@ -11,8 +11,68 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
+// MedicationStore is the subset of store operations needed for medication scheduling.
+type MedicationStore interface {
+	GetMedicationEnabled(ctx context.Context) (bool, error)
+	ListMedications(archived bool) ([]store.Medication, error)
+	GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error)
+	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
+	AddIntakeReminder(intakeID int64, msgID int) error
+	GetPendingIntakes() ([]store.IntakeLog, error)
+	GetMedication(id int64) (*store.Medication, error)
+	GetMedicationsLowOnStock(days int) ([]store.Medication, error)
+	GetDaysOfStockRemaining(med *store.Medication) *float64
+}
+
+// WorkoutStore is the subset needed for workout scheduling and notifications.
+type WorkoutStore interface {
+	GetWorkoutEnabled(ctx context.Context) (bool, error)
+	GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error)
+	ListWorkoutGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
+	GetRotationState(groupID int64) (*store.WorkoutRotationState, error)
+	ListVariantsByGroup(groupID int64) ([]store.WorkoutVariant, error)
+	InitializeRotation(groupID, variantID int64) error
+	GetSessionByGroupAndDate(groupID int64, date time.Time) (*store.WorkoutSession, error)
+	CreateWorkoutSession(groupID, variantID, userID int64, date time.Time, scheduledTime string) (*store.WorkoutSession, error)
+	SkipSession(sessionID int64) error
+	GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error)
+	AdvanceRotation(groupID int64) error
+	UpdateSessionStatus(sessionID int64, status string) error
+	UpdateWorkoutSessionNotes(sessionID int64, notes string) error
+	ClearSnooze(sessionID int64) error
+	GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error)
+	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
+	SetSessionNotificationMessageID(sessionID int64, msgID int) error
+}
+
+// BPReminderStore is the subset needed for blood pressure reminders.
+type BPReminderStore interface {
+	GetBloodPressureEnabled(ctx context.Context) (bool, error)
+	GetUsersForBPReminders() ([]int64, error)
+	GetBPReminderState(userID int64) (*store.BPReminderState, error)
+	GetLastBPReading(ctx context.Context, userID int64) (*store.BloodPressure, error)
+	CalculatePreferredReminderHour(ctx context.Context, userID int64) (int, error)
+	UpdatePreferredReminderHour(userID int64, hour int) error
+	GetDominantBPCategory(ctx context.Context, userID int64) (string, error)
+	UpdateBPReminderNotificationSent(userID int64, messageID *int) error
+}
+
+// WeightReminderStore is the subset needed for weight reminders.
+type WeightReminderStore interface {
+	GetWeightEnabled(ctx context.Context) (bool, error)
+	GetUsersForWeightReminders() ([]int64, error)
+	GetWeightReminderState(userID int64) (*store.WeightReminderState, error)
+	GetLastWeightLog(ctx context.Context, userID int64) (*store.WeightLog, error)
+	CalculatePreferredWeightReminderHour(ctx context.Context, userID int64) (int, error)
+	UpdatePreferredWeightReminderHour(userID int64, hour int) error
+	UpdateWeightReminderNotificationSent(userID int64, messageID *int) error
+}
+
 type Scheduler struct {
-	store             *store.Store
+	meds              MedicationStore
+	workouts          WorkoutStore
+	bpReminders       BPReminderStore
+	weightReminders   WeightReminderStore
 	notifiers         []notifier.Notifier
 	allowedUserID     int64
 	lastLowStockCheck time.Time
@@ -20,9 +80,12 @@ type Scheduler struct {
 
 func New(store *store.Store, allowedUserID int64, notifiers []notifier.Notifier) *Scheduler {
 	return &Scheduler{
-		store:         store,
-		notifiers:     notifiers,
-		allowedUserID: allowedUserID,
+		meds:            store,
+		workouts:        store,
+		bpReminders:     store,
+		weightReminders: store,
+		notifiers:       notifiers,
+		allowedUserID:   allowedUserID,
 	}
 }
 
@@ -134,7 +197,7 @@ func (s *Scheduler) Start() {
 }
 
 func (s *Scheduler) checkSchedule() error {
-	enabled, err := s.store.GetMedicationEnabled(context.Background())
+	enabled, err := s.meds.GetMedicationEnabled(context.Background())
 	if err != nil {
 		return err
 	}
@@ -144,7 +207,7 @@ func (s *Scheduler) checkSchedule() error {
 
 	now := time.Now()
 
-	meds, err := s.store.ListMedications(false)
+	meds, err := s.meds.ListMedications(false)
 	if err != nil {
 		return err
 	}
@@ -212,7 +275,7 @@ func (s *Scheduler) checkSchedule() error {
 			}
 
 			// 2. Check if log exists
-			existing, err := s.store.GetIntakeBySchedule(med.ID, target)
+			existing, err := s.meds.GetIntakeBySchedule(med.ID, target)
 			if err != nil {
 				log.Printf("Error checking intake existence: %v", err)
 				continue
@@ -242,7 +305,7 @@ func (s *Scheduler) checkSchedule() error {
 		var intakeIDs []int64
 		for _, med := range group.Meds {
 			log.Printf("Triggering medication %s (%s) scheduled for %s", med.Name, med.Dosage, med.Schedule)
-			id, err := s.store.CreateIntake(med.ID, s.allowedUserID, group.Target)
+			id, err := s.meds.CreateIntake(med.ID, s.allowedUserID, group.Target)
 			if err != nil {
 				log.Printf("Failed to create intake log: %v", err)
 			} else {
@@ -306,7 +369,7 @@ func (s *Scheduler) checkSchedule() error {
 		iIDs := intakeIDs
 		s.notify(context.Background(), n, func(msgID int) {
 			for _, iID := range iIDs {
-				if err := s.store.AddIntakeReminder(iID, msgID); err != nil {
+				if err := s.meds.AddIntakeReminder(iID, msgID); err != nil {
 					log.Printf("Failed to add intake reminder for int %d msg %d: %v", iID, msgID, err)
 				}
 			}
@@ -317,7 +380,7 @@ func (s *Scheduler) checkSchedule() error {
 }
 
 func (s *Scheduler) checkReminders() error {
-	pending, err := s.store.GetPendingIntakes()
+	pending, err := s.meds.GetPendingIntakes()
 	if err != nil {
 		return err
 	}
@@ -326,7 +389,7 @@ func (s *Scheduler) checkReminders() error {
 		scheduledAt := p.ScheduledAt
 		if time.Since(scheduledAt) > 1*time.Hour {
 			// Send reminder
-			med, err := s.store.GetMedication(p.MedicationID)
+			med, err := s.meds.GetMedication(p.MedicationID)
 			if err != nil {
 				continue
 			}
@@ -351,7 +414,7 @@ func (s *Scheduler) checkReminders() error {
 			}
 
 			s.notify(context.Background(), n, func(msgID int) {
-				if err := s.store.AddIntakeReminder(intakeID, msgID); err != nil {
+				if err := s.meds.AddIntakeReminder(intakeID, msgID); err != nil {
 					log.Printf("Failed to store intake reminder: %v", err)
 				}
 			})
@@ -378,7 +441,7 @@ func (s *Scheduler) checkLowStock() {
 		}
 	}
 
-	meds, err := s.store.GetMedicationsLowOnStock(7)
+	meds, err := s.meds.GetMedicationsLowOnStock(7)
 	if err != nil {
 		log.Printf("Error checking low stock: %v", err)
 		return
@@ -395,7 +458,7 @@ func (s *Scheduler) checkLowStock() {
 
 	medNames := make([]string, len(meds))
 	for i, m := range meds {
-		daysRemaining := s.store.GetDaysOfStockRemaining(&m)
+		daysRemaining := s.meds.GetDaysOfStockRemaining(&m)
 		daysStr := ""
 		if daysRemaining != nil {
 			daysStr = fmt.Sprintf(" (~%.0f days left)", *daysRemaining)

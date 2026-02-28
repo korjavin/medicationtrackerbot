@@ -11,7 +11,7 @@ import (
 
 // checkWeightReminders checks if any users need weight reminder notifications
 func (s *Scheduler) checkWeightReminders() error {
-	enabled, err := s.store.GetWeightEnabled(context.Background())
+	enabled, err := s.weightReminders.GetWeightEnabled(context.Background())
 	if err != nil {
 		return err
 	}
@@ -20,7 +20,7 @@ func (s *Scheduler) checkWeightReminders() error {
 	}
 
 	// Get all users with weight reminders enabled
-	userIDs, err := s.store.GetUsersForWeightReminders()
+	userIDs, err := s.weightReminders.GetUsersForWeightReminders()
 	if err != nil {
 		return err
 	}
@@ -30,7 +30,7 @@ func (s *Scheduler) checkWeightReminders() error {
 
 	for _, userID := range userIDs {
 		// Get reminder state
-		state, err := s.store.GetWeightReminderState(userID)
+		state, err := s.weightReminders.GetWeightReminderState(userID)
 		if err != nil {
 			log.Printf("Error getting weight reminder state for user %d: %v", userID, err)
 			continue
@@ -52,7 +52,7 @@ func (s *Scheduler) checkWeightReminders() error {
 		}
 
 		// Get last weight log
-		lastLog, err := s.store.GetLastWeightLog(ctx, userID)
+		lastLog, err := s.weightReminders.GetLastWeightLog(ctx, userID)
 		if err != nil {
 			log.Printf("Error getting last weight log for user %d: %v", userID, err)
 			continue
@@ -69,7 +69,7 @@ func (s *Scheduler) checkWeightReminders() error {
 		}
 
 		// Filter 6: Calculate preferred reminder hour dynamically
-		preferredHour, err := s.store.CalculatePreferredWeightReminderHour(ctx, userID)
+		preferredHour, err := s.weightReminders.CalculatePreferredWeightReminderHour(ctx, userID)
 		if err != nil {
 			log.Printf("Error calculating preferred hour for user %d: %v", userID, err)
 			preferredHour = 9 // Fallback to default
@@ -77,7 +77,7 @@ func (s *Scheduler) checkWeightReminders() error {
 
 		// Update if different from stored value
 		if preferredHour != state.PreferredReminderHour {
-			if err := s.store.UpdatePreferredWeightReminderHour(userID, preferredHour); err != nil {
+			if err := s.weightReminders.UpdatePreferredWeightReminderHour(userID, preferredHour); err != nil {
 				log.Printf("Error updating preferred hour for user %d: %v", userID, err)
 			}
 		}
@@ -151,5 +151,5 @@ func (s *Scheduler) sendWeightReminder(ctx context.Context, userID int64) error 
 	if firstMsgID != 0 {
 		messageID = &firstMsgID
 	}
-	return s.store.UpdateWeightReminderNotificationSent(userID, messageID)
+	return s.weightReminders.UpdateWeightReminderNotificationSent(userID, messageID)
 }

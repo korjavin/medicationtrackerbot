@@ -22,7 +22,7 @@ func setupFoodMCPTestServer(t *testing.T) (*Server, *store.Store) {
 			MaxQueryDays: 90,
 			UserID:       123456,
 		},
-		store: st,
+		data: st,
 	}
 
 	return s, st
