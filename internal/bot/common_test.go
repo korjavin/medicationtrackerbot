@@ -45,7 +45,12 @@ func setupBotTest(t *testing.T) *botTestEnv {
 
 	b := &Bot{
 		api:           api,
-		store:         s,
+		meds:          s,
+		bp:            s,
+		weight:        s,
+		workouts:      s,
+		food:          s,
+		imports:       s,
 		allowedUserID: 123456,
 	}
 

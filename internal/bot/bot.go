@@ -17,7 +17,12 @@ import (
 
 type Bot struct {
 	api           *tgbotapi.BotAPI
-	store         *store.Store
+	meds          MedicationStore
+	bp            BloodPressureStore
+	weight        WeightStore
+	workouts      WorkoutStore
+	food          FoodStore
+	imports       ImportStore
 	allowedUserID int64
 	appDomain     string
 }
@@ -49,7 +54,12 @@ func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 
 	return &Bot{
 		api:           api,
-		store:         s,
+		meds:          s,
+		bp:            s,
+		weight:        s,
+		workouts:      s,
+		food:          s,
+		imports:       s,
 		allowedUserID: allowedUserID,
 		appDomain:     appDomain,
 	}, nil
@@ -69,19 +79,19 @@ func (b *Bot) getFeatureFlags(ctx context.Context) featureFlags {
 		Food:       false,
 	}
 
-	if v, err := b.store.GetMedicationEnabled(ctx); err == nil {
+	if v, err := b.meds.GetMedicationEnabled(ctx); err == nil {
 		flags.Medication = v
 	}
-	if v, err := b.store.GetBloodPressureEnabled(ctx); err == nil {
+	if v, err := b.bp.GetBloodPressureEnabled(ctx); err == nil {
 		flags.BP = v
 	}
-	if v, err := b.store.GetWeightEnabled(ctx); err == nil {
+	if v, err := b.weight.GetWeightEnabled(ctx); err == nil {
 		flags.Weight = v
 	}
-	if v, err := b.store.GetWorkoutEnabled(ctx); err == nil {
+	if v, err := b.workouts.GetWorkoutEnabled(ctx); err == nil {
 		flags.Workout = v
 	}
-	if v, err := b.store.GetFoodIntakeEnabled(ctx); err == nil {
+	if v, err := b.food.GetFoodIntakeEnabled(ctx); err == nil {
 		flags.Food = v
 	}
 
@@ -196,7 +206,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			break
 		}
 		// Fetch active medications
-		meds, err := b.store.ListMedications(false)
+		meds, err := b.meds.ListMedications(false)
 		if err != nil {
 			msgConfig.Text = "Error fetching medications."
 			break
@@ -345,7 +355,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		intake, err := b.store.GetIntake(intakeID)
+		intake, err := b.meds.GetIntake(intakeID)
 		if err != nil {
 			log.Printf("Error getting intake %d: %v", intakeID, err)
 			return
@@ -358,7 +368,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 
 		// Clean up reminders for this exact intake.
-		reminders, _ := b.store.GetIntakeReminders(intakeID)
+		reminders, _ := b.meds.GetIntakeReminders(intakeID)
 		for _, msgID := range reminders {
 			if msgID != cb.Message.MessageID {
 				if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
@@ -367,13 +377,13 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			}
 		}
 
-		if err := b.store.ConfirmIntake(intakeID, time.Now()); err != nil {
+		if err := b.meds.ConfirmIntake(intakeID, time.Now()); err != nil {
 			log.Printf("Error confirming intake %d: %v", intakeID, err)
 			return
 		}
 
 		// Decrement inventory (only affects medications with tracking enabled)
-		if err := b.store.DecrementInventory(intake.MedicationID, 1); err != nil {
+		if err := b.meds.DecrementInventory(intake.MedicationID, 1); err != nil {
 			log.Printf("Error decrementing inventory: %v", err)
 		}
 
@@ -388,7 +398,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		medID, _ := strconv.ParseInt(medIDStr, 10, 64)
 
 		// Find pending intake
-		pending, err := b.store.GetPendingIntakes()
+		pending, err := b.meds.GetPendingIntakes()
 		if err != nil {
 			log.Printf("Error getting pending: %v", err)
 			return
@@ -404,7 +414,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 		if logID != 0 {
 			// Clean up reminders
-			reminders, _ := b.store.GetIntakeReminders(logID)
+			reminders, _ := b.meds.GetIntakeReminders(logID)
 			for _, msgID := range reminders {
 				if msgID != cb.Message.MessageID {
 					if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
@@ -413,13 +423,13 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 				}
 			}
 
-			if err := b.store.ConfirmIntake(logID, time.Now()); err != nil {
+			if err := b.meds.ConfirmIntake(logID, time.Now()); err != nil {
 				log.Printf("Error configuring intake: %v", err)
 				return
 			}
 
 			// Decrement inventory (only affects medications with tracking enabled)
-			if err := b.store.DecrementInventory(medID, 1); err != nil {
+			if err := b.meds.DecrementInventory(medID, 1); err != nil {
 				log.Printf("Error decrementing inventory: %v", err)
 			}
 
@@ -441,7 +451,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 		// Create Intake record (Taken Now)
 		now := time.Now()
-		logID, err := b.store.CreateIntake(medID, b.allowedUserID, now)
+		logID, err := b.meds.CreateIntake(medID, b.allowedUserID, now)
 		if err != nil {
 			log.Printf("Error creating manual intake: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging medication.")); err != nil {
@@ -451,13 +461,13 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 
 		// Confirm immediately
-		if err := b.store.ConfirmIntake(logID, now); err != nil {
+		if err := b.meds.ConfirmIntake(logID, now); err != nil {
 			log.Printf("Error confirming manual intake: %v", err)
 			return
 		}
 
 		// Decrement inventory (only affects medications with tracking enabled)
-		if err := b.store.DecrementInventory(medID, 1); err != nil {
+		if err := b.meds.DecrementInventory(medID, 1); err != nil {
 			log.Printf("Error decrementing inventory: %v", err)
 		}
 
@@ -465,7 +475,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		b.removeButtonFromCallbackMessage(cb, data)
 
 		// Fetch med name for confirmation
-		med, _ := b.store.GetMedication(medID) // Error ignored, just for display
+		med, _ := b.meds.GetMedication(medID) // Error ignored, just for display
 		medName := "Medication"
 		if med != nil {
 			medName = med.Name
@@ -485,10 +495,10 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		target := time.Unix(ts, 0)
 
 		// Clean up reminders for all related intakes
-		pending, err := b.store.GetPendingIntakesBySchedule(b.allowedUserID, target)
+		pending, err := b.meds.GetPendingIntakesBySchedule(b.allowedUserID, target)
 		if err == nil {
 			for _, p := range pending {
-				reminders, _ := b.store.GetIntakeReminders(p.ID)
+				reminders, _ := b.meds.GetIntakeReminders(p.ID)
 				for _, msgID := range reminders {
 					if msgID != cb.Message.MessageID {
 						if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
@@ -499,14 +509,14 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			}
 		}
 
-		if err := b.store.ConfirmIntakesBySchedule(b.allowedUserID, target, time.Now()); err != nil {
+		if err := b.meds.ConfirmIntakesBySchedule(b.allowedUserID, target, time.Now()); err != nil {
 			log.Printf("Error confirming batch: %v", err)
 			return
 		}
 
 		// Decrement inventory for all medications in this schedule
 		for _, p := range pending {
-			if err := b.store.DecrementInventory(p.MedicationID, 1); err != nil {
+			if err := b.meds.DecrementInventory(p.MedicationID, 1); err != nil {
 				log.Printf("Error decrementing inventory for med %d: %v", p.MedicationID, err)
 			}
 		}
@@ -699,7 +709,7 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	var since time.Time
 	switch option {
 	case "since_last":
-		lastDownload, err := b.store.GetLastDownload()
+		lastDownload, err := b.meds.GetLastDownload()
 		if err != nil {
 			log.Printf("Error getting last download: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving last download date.")); err != nil {
@@ -728,7 +738,7 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	}
 
 	// Get medication intakes
-	intakes, err := b.store.GetIntakesSince(since)
+	intakes, err := b.meds.GetIntakesSince(since)
 	if err != nil {
 		log.Printf("Error getting intakes: %v", err)
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving intake data.")); err != nil {
@@ -738,7 +748,7 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	}
 
 	// Get blood pressure readings
-	bpReadings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
+	bpReadings, err := b.bp.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		log.Printf("Error getting BP readings: %v", err)
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving blood pressure data.")); err != nil {
@@ -748,7 +758,7 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	}
 
 	// Get weight logs
-	weightLogs, err := b.store.GetWeightLogs(context.Background(), b.allowedUserID, since)
+	weightLogs, err := b.weight.GetWeightLogs(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		log.Printf("Error getting weight logs: %v", err)
 	}
@@ -761,7 +771,7 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 	}
 
 	// Update last download timestamp
-	if err := b.store.UpdateLastDownload(time.Now()); err != nil {
+	if err := b.meds.UpdateLastDownload(time.Now()); err != nil {
 		log.Printf("Error updating last download: %v", err)
 	}
 
@@ -913,7 +923,7 @@ Pulse: heart rate (optional)`
 		bp.Pulse = &pulse
 	}
 
-	_, err = b.store.CreateBloodPressureReading(context.Background(), bp)
+	_, err = b.bp.CreateBloodPressureReading(context.Background(), bp)
 	if err != nil {
 		log.Printf("Error creating BP reading: %v", err)
 		msgConfig.Text = "❌ Error saving blood pressure reading."
@@ -929,7 +939,7 @@ Pulse: heart rate (optional)`
 
 func (b *Bot) handleBPHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 	since := time.Now().AddDate(0, 0, -30)
-	readings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
+	readings, err := b.bp.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		log.Printf("Error getting BP readings: %v", err)
 		msgConfig.Text = "❌ Error retrieving blood pressure history."
@@ -967,7 +977,7 @@ func (b *Bot) handleBPHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 
 func (b *Bot) handleBPStatsCommand(msgConfig *tgbotapi.MessageConfig) {
 	since := time.Now().AddDate(0, 0, -30)
-	readings, err := b.store.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
+	readings, err := b.bp.GetBloodPressureReadings(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		log.Printf("Error getting BP readings: %v", err)
 		msgConfig.Text = "❌ Error retrieving blood pressure statistics."
@@ -1152,7 +1162,7 @@ The system will automatically calculate your weight trend over time.`
 	}
 
 	// Get last weight log to calculate trend
-	lastLog, err := b.store.GetLastWeightLog(context.Background(), b.allowedUserID)
+	lastLog, err := b.weight.GetLastWeightLog(context.Background(), b.allowedUserID)
 	if err != nil {
 		log.Printf("Error getting last weight log: %v", err)
 	}
@@ -1171,7 +1181,7 @@ The system will automatically calculate your weight trend over time.`
 		WeightTrend: &weightTrend,
 	}
 
-	_, err = b.store.CreateWeightLog(context.Background(), wLog)
+	_, err = b.weight.CreateWeightLog(context.Background(), wLog)
 	if err != nil {
 		log.Printf("Error creating weight log: %v", err)
 		msgConfig.Text = "❌ Error saving weight log."
@@ -1194,7 +1204,7 @@ The system will automatically calculate your weight trend over time.`
 
 func (b *Bot) handleWeightHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 	since := time.Now().AddDate(0, 0, -30)
-	logs, err := b.store.GetWeightLogs(context.Background(), b.allowedUserID, since)
+	logs, err := b.weight.GetWeightLogs(context.Background(), b.allowedUserID, since)
 	if err != nil {
 		log.Printf("Error getting weight logs: %v", err)
 		msgConfig.Text = "❌ Error retrieving weight history."
@@ -1230,7 +1240,7 @@ func (b *Bot) handleGoalCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.Messa
 	args := msg.CommandArguments()
 	if args == "" {
 		// Show current goal
-		goal, err := b.store.GetWeightGoal()
+		goal, err := b.weight.GetWeightGoal()
 		if err != nil {
 			log.Printf("Error getting weight goal: %v", err)
 			msgConfig.Text = "❌ Error retrieving weight goal."
@@ -1278,7 +1288,7 @@ Example: /goal 110 2026-06-01`
 		return
 	}
 
-	err = b.store.SetWeightGoal(weight, targetDate)
+	err = b.weight.SetWeightGoal(weight, targetDate)
 	if err != nil {
 		log.Printf("Error setting weight goal: %v", err)
 		msgConfig.Text = "❌ Error saving weight goal."
@@ -1292,7 +1302,7 @@ func (b *Bot) handleBPGoalCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.Mes
 	args := msg.CommandArguments()
 	if args == "" {
 		// Show current goal
-		goal, err := b.store.GetBPGoal()
+		goal, err := b.bp.GetBPGoal()
 		if err != nil {
 			log.Printf("Error getting BP goal: %v", err)
 			msgConfig.Text = "❌ Error retrieving BP goal."
@@ -1335,7 +1345,7 @@ Example: /bpgoal 120 70`
 		return
 	}
 
-	err = b.store.SetBPGoal(systolic, diastolic)
+	err = b.bp.SetBPGoal(systolic, diastolic)
 	if err != nil {
 		log.Printf("Error setting BP goal: %v", err)
 		msgConfig.Text = "❌ Error saving BP goal."
@@ -1348,7 +1358,7 @@ Example: /bpgoal 120 70`
 // -- Inventory Command --
 
 func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
-	meds, err := b.store.ListMedications(false)
+	meds, err := b.meds.ListMedications(false)
 	if err != nil {
 		log.Printf("Error getting medications: %v", err)
 		msgConfig.Text = "❌ Error retrieving medications."
@@ -1373,14 +1383,14 @@ func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
 	sb.WriteString("📦 **Medication Inventory**\n\n")
 
 	// Check for low stock (< 7 days)
-	lowStockMeds, _ := b.store.GetMedicationsLowOnStock(7)
+	lowStockMeds, _ := b.meds.GetMedicationsLowOnStock(7)
 	lowStockIDs := make(map[int64]bool)
 	for _, m := range lowStockMeds {
 		lowStockIDs[m.ID] = true
 	}
 
 	for _, m := range trackedMeds {
-		daysRemaining := b.store.GetDaysOfStockRemaining(&m)
+		daysRemaining := b.meds.GetDaysOfStockRemaining(&m)
 
 		icon := "✅"
 		if lowStockIDs[m.ID] {
@@ -1406,7 +1416,7 @@ func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
 // handleNextIntakeCommand sends a notification for the next scheduled medication with confirm/cancel buttons
 func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 	// Get all active medications
-	meds, err := b.store.ListMedications(false)
+	meds, err := b.meds.ListMedications(false)
 	if err != nil {
 		msgConfig.Text = "❌ Error fetching medications."
 		return
@@ -1489,10 +1499,10 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 	// Create or find existing pending intakes for this schedule
 	intakeByMedication := make(map[int64]int64, len(nextMeds))
 	for _, med := range nextMeds {
-		intake, _ := b.store.GetIntakeBySchedule(med.ID, nextTime)
+		intake, _ := b.meds.GetIntakeBySchedule(med.ID, nextTime)
 		if intake == nil {
 			// Create pending intake
-			id, err := b.store.CreateIntake(med.ID, b.allowedUserID, nextTime)
+			id, err := b.meds.CreateIntake(med.ID, b.allowedUserID, nextTime)
 			if err != nil {
 				log.Printf("Error creating intake for /next command: %v", err)
 				continue

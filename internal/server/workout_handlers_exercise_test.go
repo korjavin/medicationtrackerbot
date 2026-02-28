@@ -18,7 +18,7 @@ func TestHandleGetUniqueExercises(t *testing.T) {
 	}
 	defer db.Close()
 
-	srv := &Server{store: db, allowedUserID: 123456}
+	srv := &Server{workouts: db, allowedUserID: 123456}
 	userID := int64(123456)
 
 	// Create group and variant
@@ -44,7 +44,7 @@ func TestHandleAddExerciseToSession(t *testing.T) {
 	}
 	defer db.Close()
 
-	srv := &Server{store: db, allowedUserID: 123456}
+	srv := &Server{workouts: db, allowedUserID: 123456}
 	userID := int64(123456)
 	otherUserID := int64(999999)
 

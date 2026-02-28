@@ -12,27 +12,27 @@ import (
 )
 
 func (s *Server) getFeatureMap(ctx context.Context) (map[string]bool, error) {
-	foodEnabled, err := s.store.GetFoodIntakeEnabled(ctx)
+	foodEnabled, err := s.settings.GetFoodIntakeEnabled(ctx)
 	if err != nil {
 		return nil, err
 	}
-	bpEnabled, err := s.store.GetBloodPressureEnabled(ctx)
+	bpEnabled, err := s.settings.GetBloodPressureEnabled(ctx)
 	if err != nil {
 		return nil, err
 	}
-	weightEnabled, err := s.store.GetWeightEnabled(ctx)
+	weightEnabled, err := s.settings.GetWeightEnabled(ctx)
 	if err != nil {
 		return nil, err
 	}
-	medicationEnabled, err := s.store.GetMedicationEnabled(ctx)
+	medicationEnabled, err := s.settings.GetMedicationEnabled(ctx)
 	if err != nil {
 		return nil, err
 	}
-	workoutEnabled, err := s.store.GetWorkoutEnabled(ctx)
+	workoutEnabled, err := s.settings.GetWorkoutEnabled(ctx)
 	if err != nil {
 		return nil, err
 	}
-	healthEnabled, err := s.store.GetHealthEnabled(ctx)
+	healthEnabled, err := s.settings.GetHealthEnabled(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ type weightGoalBootstrapResponse struct {
 
 // computeNextIntakeData returns the nearest scheduled intake in the next 12h window.
 func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []string, error) {
-	meds, err := s.store.ListMedications(false)
+	meds, err := s.meds.ListMedications(false)
 	if err != nil {
 		return time.Time{}, nil, err
 	}
@@ -128,7 +128,7 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []string, erro
 					continue
 				}
 
-				intake, _ := s.store.GetIntakeBySchedule(med.ID, target)
+				intake, _ := s.meds.GetIntakeBySchedule(med.ID, target)
 				if intake != nil && (intake.Status == "TAKEN" || intake.Status == "SKIPPED") {
 					continue
 				}
@@ -174,13 +174,13 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	medications, err := s.store.ListMedications(true)
+	medications, err := s.meds.ListMedications(true)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	historyDefault, err := s.store.GetIntakeHistory(0, 3)
+	historyDefault, err := s.meds.GetIntakeHistory(0, 3)
 	if err != nil {
 		log.Printf("[bootstrap] history query failed: %v", err)
 		historyDefault = []store.IntakeLog{}
@@ -198,34 +198,34 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bpSince := now.AddDate(0, 0, -60)
-	bpReadings, err := s.store.GetBloodPressureReadings(ctx, userID, bpSince)
+	bpReadings, err := s.bp.GetBloodPressureReadings(ctx, userID, bpSince)
 	if err != nil {
 		log.Printf("[bootstrap] bp readings query failed: %v", err)
 		bpReadings = []store.BloodPressure{}
 	}
-	bpGoal, err := s.store.GetBPGoal()
+	bpGoal, err := s.bp.GetBPGoal()
 	if err != nil {
 		log.Printf("[bootstrap] bp goal query failed: %v", err)
 		bpGoal = nil
 	}
-	bpStats, err := s.store.GetBPDailyWeightedStats(ctx, userID)
+	bpStats, err := s.bp.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
 		log.Printf("[bootstrap] bp stats query failed: %v", err)
 		bpStats = nil
 	}
 
 	weightSince := now.AddDate(0, 0, -35)
-	weightLogs, err := s.store.GetWeightLogs(ctx, userID, weightSince)
+	weightLogs, err := s.weight.GetWeightLogs(ctx, userID, weightSince)
 	if err != nil {
 		log.Printf("[bootstrap] weight logs query failed: %v", err)
 		weightLogs = []store.WeightLog{}
 	}
-	weightGoal, err := s.store.GetWeightGoal()
+	weightGoal, err := s.weight.GetWeightGoal()
 	if err != nil {
 		log.Printf("[bootstrap] weight goal query failed: %v", err)
 		weightGoal = nil
 	}
-	highestRecord, err := s.store.GetHighestWeightRecord(ctx, userID)
+	highestRecord, err := s.weight.GetHighestWeightRecord(ctx, userID)
 	if err != nil {
 		log.Printf("[bootstrap] highest weight query failed: %v", err)
 		highestRecord = nil
@@ -240,17 +240,17 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		weightGoalResponse.HighestDate = &highestRecord.MeasuredAt
 	}
 
-	foodTargets, err := s.store.GetFoodTargets(ctx)
+	foodTargets, err := s.food.GetFoodTargets(ctx)
 	if err != nil {
 		log.Printf("[bootstrap] food targets query failed: %v", err)
 		foodTargets = store.FoodTargets{}
 	}
-	bpReminderStatus, err := s.store.GetBPReminderState(userID)
+	bpReminderStatus, err := s.bp.GetBPReminderState(userID)
 	if err != nil {
 		log.Printf("[bootstrap] bp reminder state query failed: %v", err)
 		bpReminderStatus = nil
 	}
-	weightReminderStatus, err := s.store.GetWeightReminderState(userID)
+	weightReminderStatus, err := s.weight.GetWeightReminderState(userID)
 	if err != nil {
 		log.Printf("[bootstrap] weight reminder state query failed: %v", err)
 		weightReminderStatus = nil
@@ -298,17 +298,17 @@ func (s *Server) handleSetFeatureEnabled(w http.ResponseWriter, r *http.Request)
 	var err error
 	switch feature {
 	case "food":
-		err = s.store.SetFoodIntakeEnabled(ctx, req.Enabled)
+		err = s.settings.SetFoodIntakeEnabled(ctx, req.Enabled)
 	case "bp":
-		err = s.store.SetBloodPressureEnabled(ctx, req.Enabled)
+		err = s.settings.SetBloodPressureEnabled(ctx, req.Enabled)
 	case "weight":
-		err = s.store.SetWeightEnabled(ctx, req.Enabled)
+		err = s.settings.SetWeightEnabled(ctx, req.Enabled)
 	case "medication":
-		err = s.store.SetMedicationEnabled(ctx, req.Enabled)
+		err = s.settings.SetMedicationEnabled(ctx, req.Enabled)
 	case "workout":
-		err = s.store.SetWorkoutEnabled(ctx, req.Enabled)
+		err = s.settings.SetWorkoutEnabled(ctx, req.Enabled)
 	case "health":
-		err = s.store.SetHealthEnabled(ctx, req.Enabled)
+		err = s.settings.SetHealthEnabled(ctx, req.Enabled)
 	default:
 		http.Error(w, "Unknown feature", http.StatusBadRequest)
 		return

@@ -119,7 +119,7 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Fetch Heart Rate (30d fetch covers 7d)
-	hrLogs, _ := s.store.GetVitalsHeart(ctx, userId, start30d, now)
+	hrLogs, _ := s.health.GetVitalsHeart(ctx, userId, start30d, now)
 	var hr7d, hr30d []int
 	var hrBucketInput []struct {
 		DateTime time.Time
@@ -141,7 +141,7 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	resp.HeartRateHistory7d = bucketVitals(hrBucketInput)
 
 	// Fetch SpO2
-	spo2Logs, _ := s.store.GetVitalsSpO2(ctx, userId, start30d, now)
+	spo2Logs, _ := s.health.GetVitalsSpO2(ctx, userId, start30d, now)
 	var spo27d, spo230d []int
 	var spo2BucketInput []struct {
 		DateTime time.Time
@@ -162,7 +162,7 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	resp.SpO2History7d = bucketVitals(spo2BucketInput)
 
 	// Fetch Stress
-	stressLogs, _ := s.store.GetVitalsStress(ctx, userId, start30d, now)
+	stressLogs, _ := s.health.GetVitalsStress(ctx, userId, start30d, now)
 	var stress7d, stress30d []int
 	var stressBucketInput []struct {
 		DateTime time.Time
@@ -183,7 +183,7 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	resp.StressHistory7d = bucketVitals(stressBucketInput)
 
 	// Fetch Sleep Logs
-	sleepLogs, _ := s.store.GetSleepLogs(ctx, userId, start30d)
+	sleepLogs, _ := s.health.GetSleepLogs(ctx, userId, start30d)
 	var sleep7dMins, sleep30dMins []int
 	dailyStatsMap := make(map[string]DailySleepStat)
 
@@ -241,7 +241,7 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	resp.AverageSleepHours30d = float64(avgMins30d) / 60.0
 
 	// Fetch Day Stats for Steps
-	dayStats, _ := s.store.GetDayStats(ctx, userId, start30d)
+	dayStats, _ := s.health.GetDayStats(ctx, userId, start30d)
 	var steps7d, steps30d []int
 	var stepStats7d []store.DayStat
 

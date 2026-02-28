@@ -19,7 +19,7 @@ const (
 )
 
 func (s *Server) currentChangeCursor() uint64 {
-	cursor, err := s.store.GetLatestChangeCursor(context.Background())
+	cursor, err := s.changes.GetLatestChangeCursor(context.Background())
 	if err != nil {
 		return 0
 	}
@@ -38,7 +38,7 @@ func (s *Server) maybePruneChangeEvents(cursor int64) {
 	}
 	go func() {
 		defer s.changePruning.Store(false)
-		if err := s.store.PruneChangeEvents(context.Background(), changeEventsKeepLast, changeEventsMaxAge); err != nil {
+		if err := s.changes.PruneChangeEvents(context.Background(), changeEventsKeepLast, changeEventsMaxAge); err != nil {
 			log.Printf("[changes] prune failed: %v", err)
 		}
 	}()
@@ -69,7 +69,7 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cursor, changedTags, err := s.store.GetChangedTagsSince(r.Context(), since)
+	cursor, changedTags, err := s.changes.GetChangedTagsSince(r.Context(), since)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -125,7 +125,7 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	queryCtx, cancel := context.WithTimeout(r.Context(), changeStreamQueryTimeout)
-	cursor, tags, err := s.store.GetChangedTagsSince(queryCtx, since)
+	cursor, tags, err := s.changes.GetChangedTagsSince(queryCtx, since)
 	cancel()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -154,7 +154,7 @@ func (s *Server) handleChangesStream(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ticker.C:
 			queryCtx, cancel := context.WithTimeout(r.Context(), changeStreamQueryTimeout)
-			cursor, tags, err := s.store.GetChangedTagsSince(queryCtx, since)
+			cursor, tags, err := s.changes.GetChangedTagsSince(queryCtx, since)
 			cancel()
 			if err != nil {
 				return

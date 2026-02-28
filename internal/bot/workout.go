@@ -10,7 +10,7 @@ import (
 // StartWorkoutFlowFromWeb mirrors Telegram "Start" callback behavior when workout is started from web UI.
 // It sends a confirmation message and exercise prompts with inline action buttons.
 func (b *Bot) StartWorkoutFlowFromWeb(sessionID int64) error {
-	session, err := b.store.GetWorkoutSession(sessionID)
+	session, err := b.workouts.GetWorkoutSession(sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to get workout session: %w", err)
 	}

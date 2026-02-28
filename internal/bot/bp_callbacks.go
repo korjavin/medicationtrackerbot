@@ -73,7 +73,7 @@ func (b *Bot) handleBPReminderCallback(cb *tgbotapi.CallbackQuery, data string) 
 
 	case "bp_snooze":
 		// Snooze for 2 hours
-		if err := b.store.SnoozeBPReminder(cb.From.ID); err != nil {
+		if err := b.bp.SnoozeBPReminder(cb.From.ID); err != nil {
 			log.Printf("Error snoozing BP reminder: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing reminder.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)
@@ -94,7 +94,7 @@ func (b *Bot) handleBPReminderCallback(cb *tgbotapi.CallbackQuery, data string) 
 
 	case "bp_dontbug":
 		// Block for 24 hours
-		if err := b.store.DontBugMeBPReminder(cb.From.ID); err != nil {
+		if err := b.bp.DontBugMeBPReminder(cb.From.ID); err != nil {
 			log.Printf("Error setting don't bug me for BP reminder: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error blocking reminders.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)

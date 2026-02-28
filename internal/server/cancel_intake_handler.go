@@ -24,7 +24,7 @@ func (s *Server) handleCancelIntake(w http.ResponseWriter, r *http.Request) {
 
 	for _, intakeID := range req.IntakeIDs {
 		// Verify ownership
-		intake, err := s.store.GetIntake(intakeID)
+		intake, err := s.meds.GetIntake(intakeID)
 		if err != nil {
 			log.Printf("Error getting intake %d: %v", intakeID, err)
 			continue
@@ -42,13 +42,13 @@ func (s *Server) handleCancelIntake(w http.ResponseWriter, r *http.Request) {
 
 		// Revert to PENDING status
 		emptyTime := time.Time{} // Zero time for taken_at
-		if err := s.store.UpdateIntake(intakeID, emptyTime, "PENDING"); err != nil {
+		if err := s.meds.UpdateIntake(intakeID, emptyTime, "PENDING"); err != nil {
 			log.Printf("Error reverting intake %d to PENDING: %v", intakeID, err)
 			continue
 		}
 
 		// Increment inventory back (undoing the decrement)
-		if err := s.store.DecrementInventory(intake.MedicationID, -1); err != nil {
+		if err := s.meds.DecrementInventory(intake.MedicationID, -1); err != nil {
 			log.Printf("Error incrementing inventory on cancel: %v", err)
 		}
 
