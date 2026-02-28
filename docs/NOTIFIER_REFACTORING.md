@@ -50,4 +50,40 @@ Migrated 12 delete call sites and 3 send call sites in `internal/server/` from d
 ### Decision Log
 
 - **Why `SetNotifiers()` instead of constructor param?** — The webpush.Service is created inside `server.New()`, but the WebPush notifier wraps it. Using a setter avoids the chicken-and-egg dependency.
-- **Why keep `*bot.Bot` on Server?** — `UpdateWorkoutMessage` and `StartWorkoutFlowFromWeb` are inherently Telegram-interactive (editing inline keyboards, triggering reply chains). These don't fit the send/delete abstraction.
+- **Why keep `*bot.Bot` on Server?** — `UpdateWorkoutMessage` and `StartWorkoutFlowFromWeb` are inherently Telegram-interactive (editing inline keyboards, triggering reply chains). These don't fit the send/delete abstraction. *(Resolved in Phase 3 via `WorkoutInteractor` interface.)*
+
+---
+
+## Phase 3 (Complete): Full Server Decoupling
+
+Removed all `internal/bot` and `internal/webpush` imports from `internal/server/`. The server package now has zero knowledge of Telegram or WebPush implementation details.
+
+### What Changed
+
+- **`WorkoutInteractor` interface** — narrow interface in `server.go` with `UpdateWorkoutMessage()` and `StartWorkoutFlowFromWeb()`. `*bot.Bot` satisfies it implicitly.
+- **`*bot.Bot` field removed** — replaced with `workout WorkoutInteractor` field + `SetWorkoutInteractor()` setter.
+- **`*webpush.Service` creation moved** — from inside `server.New()` to `cmd/bot/main.go`. Server no longer creates or holds a webpush.Service.
+- **`VAPIDConfig` struct removed** — replaced with a simple `vapidPublicKey string` field (only the public key is needed for the VAPID endpoint).
+- **`GetWebPushService()` removed** — callers build webpush.Service and notifiers independently.
+- **`bot.DeleteMessage()` call** — the direct call inside `handleStartWorkoutSession` replaced with `s.deleteNotification()` (consistent with Phase 2 pattern).
+- **`server.New()` signature simplified** — removed `*bot.Bot` and `VAPIDConfig` params, added `vapidPublicKey string`.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `internal/server/server.go` | Defined `WorkoutInteractor` interface; removed `bot`/`webPush`/`vapidConfig` fields; added `workout`/`vapidPublicKey` fields; removed `VAPIDConfig` type, `GetWebPushService()`; added `SetWorkoutInteractor()`; updated `New()` signature; removed bot/webpush imports |
+| `internal/server/workout_handlers.go` | Replaced `s.bot` → `s.workout`; used `s.deleteNotification()` for notification cleanup |
+| `cmd/bot/main.go` | Created `webpush.Service` before server; updated `server.New()` call; added `srv.SetWorkoutInteractor(tgBot)` |
+| `internal/server/*_test.go` (6 files) | Updated `New()` calls to match new signature |
+
+### Import Verification
+
+```
+internal/server/ → zero imports of internal/bot or internal/webpush ✅
+internal/scheduler/ → zero imports of internal/bot or internal/webpush ✅
+```
+
+The only packages that import `internal/bot` or `internal/webpush` are:
+- `cmd/bot/main.go` — wiring layer (expected)
+- `internal/notifier/` — adapter implementations (expected)

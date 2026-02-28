@@ -20,7 +20,7 @@ func createBPTestServer(t *testing.T) (*Server, *store.Store) {
 		t.Fatalf("Failed to create test store: %v", err)
 	}
 
-	srv := New(db, nil, "test-token", "test-secret", 123456, OIDCConfig{}, "test-bot", VAPIDConfig{})
+	srv := New(db, "test-token", "test-secret", 123456, OIDCConfig{}, "test-bot", "")
 	return srv, db
 }
 
