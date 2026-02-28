@@ -267,9 +267,9 @@ describe('workout.js session and stats flows', () => {
       const apiCallSpy = vi.fn(async (endpoint, method, payload) => {
         if (endpoint.startsWith('/api/workout/sessions/details')) return sessionDetailsFixture();
         if (endpoint.startsWith('/api/workout/exercises?variant_id=')) return plannedExercisesFixture();
-        if (endpoint === '/api/workout/exercises/unique') {
+        if (endpoint === '/api/workout/exercise-library') {
           return [
-            { id: 111, exercise_name: 'Overhead Press', target_sets: 3, target_reps_min: 8, target_weight_kg: 35 }
+            { id: 111, name: 'Overhead Press', default_sets: 3, default_reps_min: 8, default_weight_kg: 35 }
           ];
         }
         if (endpoint === '/api/workout/sessions/logs/create' && method === 'POST') {
@@ -335,8 +335,8 @@ describe('workout.js session and stats flows', () => {
       const apiCallSpy = vi.fn(async (endpoint) => {
         if (endpoint.startsWith('/api/workout/sessions/details')) return sessionDetailsFixture();
         if (endpoint.startsWith('/api/workout/exercises?variant_id=')) return plannedExercisesFixture();
-        if (endpoint === '/api/workout/exercises/unique') {
-          return [{ id: 222, exercise_name: 'Lat Pulldown', target_sets: 4, target_reps_min: 10, target_weight_kg: 50 }];
+        if (endpoint === '/api/workout/exercise-library') {
+          return [{ id: 222, name: 'Lat Pulldown', default_sets: 4, default_reps_min: 10, default_weight_kg: 50 }];
         }
         if (endpoint === '/api/workout/sessions/logs/create') {
           throw new Error('create failed');
@@ -374,8 +374,8 @@ describe('workout.js session and stats flows', () => {
       window.apiCall = vi.fn(async (endpoint) => {
         if (endpoint.startsWith('/api/workout/sessions/details')) return sessionDetailsFixture();
         if (endpoint.startsWith('/api/workout/exercises?variant_id=')) return plannedExercisesFixture();
-        if (endpoint === '/api/workout/exercises/unique') {
-          return [{ id: 123, exercise_name: 'Cable Row', target_sets: 3, target_reps_min: 10, target_weight_kg: 45 }];
+        if (endpoint === '/api/workout/exercise-library') {
+          return [{ id: 123, name: 'Cable Row', default_sets: 3, default_reps_min: 10, default_weight_kg: 45 }];
         }
         return { ok: true };
       });

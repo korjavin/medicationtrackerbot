@@ -3036,52 +3036,90 @@ function removeTime(btn) {
     btn.parentElement.remove();
 }
 
+function parseMedicationSchedule(rawSchedule) {
+    try {
+        return JSON.parse(rawSchedule);
+    } catch (e) {
+        return null;
+    }
+}
+
+function getNextScheduledDate(schedule, now = new Date()) {
+    if (!schedule) return null;
+
+    const parseCandidate = (baseDate, timeStr) => {
+        const [h, min] = String(timeStr).split(':').map(Number);
+        if (Number.isNaN(h) || Number.isNaN(min)) return null;
+        const candidate = new Date(baseDate);
+        candidate.setHours(h, min, 0, 0);
+        return candidate;
+    };
+
+    if (schedule.type === 'daily' && Array.isArray(schedule.times)) {
+        const candidates = schedule.times
+            .map((timeStr) => {
+                const candidate = parseCandidate(now, timeStr);
+                if (!candidate) return null;
+                if (candidate <= now) {
+                    candidate.setDate(candidate.getDate() + 1);
+                }
+                return candidate;
+            })
+            .filter(Boolean);
+        return candidates.sort((a, b) => a - b)[0] || null;
+    }
+
+    if (schedule.type === 'weekly' && Array.isArray(schedule.days) && Array.isArray(schedule.times)) {
+        const candidates = [];
+        for (let i = 0; i < 8; i++) {
+            const dayBase = new Date(now);
+            dayBase.setDate(now.getDate() + i);
+            if (!schedule.days.includes(dayBase.getDay())) continue;
+
+            schedule.times.forEach((timeStr) => {
+                const candidate = parseCandidate(dayBase, timeStr);
+                if (candidate && candidate > now) {
+                    candidates.push(candidate);
+                }
+            });
+        }
+        return candidates.sort((a, b) => a - b)[0] || null;
+    }
+
+    return null;
+}
+
+function getMedicationScheduleText(med, schedule) {
+    if (!schedule) {
+        return escapeHtml(med.schedule);
+    }
+
+    if (schedule.type === 'daily') {
+        const times = Array.isArray(schedule.times) ? schedule.times : [];
+        return `Daily: ${times.join(', ')}`;
+    }
+
+    if (schedule.type === 'weekly') {
+        const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const days = Array.isArray(schedule.days) ? schedule.days : [];
+        const times = Array.isArray(schedule.times) ? schedule.times : [];
+        const dayNames = days.map((day) => daysMap[day]);
+        return `Weekly (${dayNames.join(', ')}): ${times.join(', ')}`;
+    }
+
+    return 'As Needed';
+}
+
+function getLastTakenTimeMs(medication) {
+    return medication.last_taken_at ? new Date(medication.last_taken_at).getTime() : 0;
+}
+
 // Render
 // Render
 function renderMeds() {
     const list = document.getElementById('med-list');
-    list.innerHTML = '';
-
-    // Helper to calculate next scheduled time
-    const getNextScheduled = (m) => {
-        try {
-            const sched = JSON.parse(m.schedule);
-            const now = new Date();
-
-            if (sched.type === 'daily' && sched.times) {
-                // Find next time today or tomorrow
-                let candidates = [];
-                sched.times.forEach(t => {
-                    const [h, min] = t.split(':').map(Number);
-                    let d = new Date(now);
-                    d.setHours(h, min, 0, 0);
-                    if (d <= now) d.setDate(d.getDate() + 1); // Tomorrow
-                    candidates.push(d);
-                });
-                return candidates.sort((a, b) => a - b)[0];
-            }
-            if (sched.type === 'weekly' && sched.days && sched.times) {
-                // Complex weekly logic, fallback to far future if hard
-                // Simple implementation: check next 7 days
-                let candidates = [];
-                for (let i = 0; i < 8; i++) {
-                    let dBase = new Date(now);
-                    dBase.setDate(now.getDate() + i);
-                    const day = dBase.getDay(); // 0-6
-                    if (sched.days.includes(day)) {
-                        sched.times.forEach(t => {
-                            const [h, min] = t.split(':').map(Number);
-                            let d = new Date(dBase);
-                            d.setHours(h, min, 0, 0);
-                            if (d > now) candidates.push(d);
-                        });
-                    }
-                }
-                return candidates.sort((a, b) => a - b)[0];
-            }
-        } catch (e) { }
-        return null;
-    };
+    list.replaceChildren();
+    const now = new Date();
 
     // Buckets
     const scheduledSoon = [];
@@ -3089,49 +3127,35 @@ function renderMeds() {
     const asNeeded = [];
     const archived = [];
 
-    medications.forEach(m => {
-        if (m.archived) {
-            archived.push(m);
+    medications.forEach((med) => {
+        const schedule = parseMedicationSchedule(med.schedule);
+        const scheduleType = schedule?.type || 'daily';
+
+        if (med.archived) {
+            archived.push({ med, schedule, next: null });
             return;
         }
 
-        let type = 'daily';
-        try { type = JSON.parse(m.schedule).type; } catch (e) { }
-
-        if (type === 'as_needed') {
-            asNeeded.push(m);
+        if (scheduleType === 'as_needed') {
+            asNeeded.push({ med, schedule, next: null });
         } else {
-            // Recurring
-            const next = getNextScheduled(m);
-            m._next = next; // Cache for sort
-
-            // "Scheduled Soon" definition:
-            // If next is within 18 hours? Or just sort all by next?
-            // User: "then from recent to oldest that were taken"
-            // This implies a group that is NOT "Scheduled Soon".
-            // If I took my morning med, next is tomorrow morning (24h away).
-            // That fits "Recent Taken".
-            // If I have a med tonight, it is "Soon".
-
-            // Threshold: Let's say 14 hours.
+            const next = getNextScheduledDate(schedule, now);
             const hoursUntil = next ? (next - new Date()) / (1000 * 60 * 60) : 999;
 
             if (hoursUntil < 14) {
-                scheduledSoon.push(m);
+                scheduledSoon.push({ med, schedule, next });
             } else {
-                recentTaken.push(m);
+                recentTaken.push({ med, schedule, next });
             }
         }
     });
 
     // Sort Buckets
-    scheduledSoon.sort((a, b) => (a._next || 0) - (b._next || 0));
+    scheduledSoon.sort((a, b) => (a.next || 0) - (b.next || 0));
 
     // Recent Taken: Recent logs first
     const sortByTaken = (a, b) => {
-        const tA = a.last_taken_at ? new Date(a.last_taken_at) : 0;
-        const tB = b.last_taken_at ? new Date(b.last_taken_at) : 0;
-        return tB - tA;
+        return getLastTakenTimeMs(b.med) - getLastTakenTimeMs(a.med);
     };
 
     recentTaken.sort(sortByTaken);
@@ -3141,67 +3165,51 @@ function renderMeds() {
     // Combine
     const sorted = [...scheduledSoon, ...recentTaken, ...asNeeded, ...archived];
 
-    sorted.forEach(m => {
+    sorted.forEach(({ med, schedule: parsedSchedule }) => {
         const div = document.createElement('div');
         div.className = 'med-item';
-        if (m.archived) div.classList.add('archived');
+        if (med.archived) div.classList.add('archived');
 
-        let scheduleText = '';
-        try {
-            const sched = JSON.parse(m.schedule);
-            if (sched.type === 'daily') {
-                scheduleText = `Daily: ${sched.times.join(', ')}`;
-            } else if (sched.type === 'weekly') {
-                // Convert [1,2] -> ["Mon", "Tue"]
-                const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-                const dayNames = (sched.days || []).map(d => daysMap[d]);
-                scheduleText = `Weekly (${dayNames.join(', ')}): ${sched.times.join(', ')}`;
-            } else {
-                scheduleText = 'As Needed';
-            }
-        } catch (e) {
-            // Legacy fallback
-            scheduleText = escapeHtml(m.schedule);
-        }
+        const scheduleText = getMedicationScheduleText(med, parsedSchedule);
 
         const info = document.createElement('div');
         info.className = 'med-info';
         info.style.cursor = 'pointer';
         info.addEventListener('click', () => {
-            showEditModal(m.id);
+            showEditModal(med.id);
         });
 
         const title = document.createElement('h4');
-        title.textContent = `${m.name} `;
+        title.textContent = `${med.name} `;
         const dosage = document.createElement('small');
-        dosage.textContent = `(${m.dosage})`;
+        dosage.textContent = `(${med.dosage})`;
         title.appendChild(dosage);
         info.appendChild(title);
 
-        if (m.normalized_name) {
+        if (med.normalized_name) {
             const normalized = document.createElement('p');
             normalized.style.cssText = 'font-size:0.85em;color:var(--hint-color);margin-top:-5px;margin-bottom:4px;';
-            normalized.textContent = `Rx: ${m.normalized_name}`;
+            normalized.textContent = `Rx: ${med.normalized_name}`;
             info.appendChild(normalized);
         }
 
-        const schedule = document.createElement('p');
-        schedule.textContent = `Schedule: ${scheduleText}`;
-        info.appendChild(schedule);
+        const scheduleLine = document.createElement('p');
+        scheduleLine.textContent = `Schedule: ${scheduleText}`;
+        info.appendChild(scheduleLine);
 
-        if (m.start_date || m.end_date) {
-            const start = m.start_date ? formatDate(m.start_date).split(' ')[0] : 'N/A';
-            const end = m.end_date ? formatDate(m.end_date).split(' ')[0] : 'N/A';
+        if (med.start_date || med.end_date) {
+            const start = med.start_date ? formatDate(med.start_date).split(' ')[0] : 'N/A';
+            const end = med.end_date ? formatDate(med.end_date).split(' ')[0] : 'N/A';
             const dates = document.createElement('p');
             dates.textContent = `Dates: ${start} - ${end}`;
             info.appendChild(dates);
         }
 
-        if (m.inventory_count !== null && m.inventory_count !== undefined) {
-            const isLow = isLowOnStock(m);
+        if (med.inventory_count !== null && med.inventory_count !== undefined) {
+            const isLow = isLowOnStock(med);
             const inventory = document.createElement('p');
             inventory.className = `inventory-badge ${isLow ? 'low' : ''}`.trim();
-            inventory.textContent = `📦 ${m.inventory_count} doses${isLow ? ' ⚠️' : ''}`;
+            inventory.textContent = `📦 ${med.inventory_count} doses${isLow ? ' ⚠️' : ''}`;
             info.appendChild(inventory);
         }
 
@@ -3212,7 +3220,7 @@ function renderMeds() {
         logBtn.className = 'small-btn secondary';
         logBtn.textContent = 'Log';
         logBtn.addEventListener('click', () => {
-            logMedicationPast(m.id, m.name);
+            logMedicationPast(med.id, med.name);
         });
 
         const deleteBtn = document.createElement('button');
@@ -3220,7 +3228,7 @@ function renderMeds() {
         deleteBtn.className = 'delete-btn';
         deleteBtn.textContent = '×';
         deleteBtn.addEventListener('click', () => {
-            deleteMed(m.id);
+            deleteMed(med.id);
         });
 
         actions.appendChild(logBtn);
@@ -5682,10 +5690,18 @@ async function sendTestMedicationNotification() {
 })();
 
 // --- Health Overview ---
-function renderHealthOverviewData(data) {
+async function loadHealthOverview() {
     const content = document.getElementById('health-overview-content');
     const loading = document.getElementById('health-overview-loading');
 
+    loading.style.display = 'block';
+    content.classList.add('hidden');
+
+    const data = await window.DataStore.fetchFresh(
+        'health_overview',
+        async () => await apiCall('/api/health/overview', 'GET'),
+        ['health']
+    );
     loading.style.display = 'none';
     content.innerHTML = '';
 
@@ -5695,6 +5711,7 @@ function renderHealthOverviewData(data) {
         return;
     }
 
+    // Render charts sections
     const renderVitalGroup = (id, title, history, color, min, max, stat7d, stat30d, unit) => {
         if (history && history.length > 0) {
             content.innerHTML += `
@@ -5754,34 +5771,6 @@ function renderHealthOverviewData(data) {
     `;
 
     content.classList.remove('hidden');
-}
-
-async function loadHealthOverview() {
-    const content = document.getElementById('health-overview-content');
-    const loading = document.getElementById('health-overview-loading');
-
-    loading.style.display = 'block';
-    content.classList.add('hidden');
-    content.innerHTML = '';
-
-    await window.DataStore.loadSWR({
-        key: 'health_overview',
-        tags: ['health'],
-        fetcher: async () => await apiCall('/api/health/overview', 'GET'),
-        onCached: (cached) => {
-            renderHealthOverviewData(cached);
-        },
-        onFresh: (fresh, cached) => {
-            renderHealthOverviewData(fresh);
-        },
-        onError: (err, cached) => {
-            if (!cached) {
-                loading.style.display = 'none';
-                content.innerHTML = '<p style="color:red">Failed to load health metrics</p>';
-                content.classList.remove('hidden');
-            }
-        }
-    });
 }
 
 // Render generic line chart with min/max shaded area 
