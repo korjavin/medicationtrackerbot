@@ -189,6 +189,21 @@ const ModalManager = {
             { id: 'food-scanner-modal', fn: () => closeFoodScannerModal() },
             { id: 'food-product-modal', fn: () => ModalManager.foodProduct.close() },
         ];
+    },
+
+    getClosePriorityModalDefs() {
+        return [...ModalManager.getSubModalDefs(), ...ModalManager.getTopModalDefs()];
+    },
+
+    closeTopMostVisibleModal() {
+        for (const modalDef of ModalManager.getClosePriorityModalDefs()) {
+            const modal = document.getElementById(modalDef.id);
+            if (modal && !modal.classList.contains('hidden')) {
+                modalDef.fn();
+                return true;
+            }
+        }
+        return false;
     }
 };
 
@@ -5091,18 +5106,6 @@ async function sendTestMedicationNotification() {
     let modalPushed = false;
     let poppingFromHistory = false;
 
-    // Sub-modals: closing them leaves the overlay visible (parent modal stays open)
-    const subModalDefs = window.ModalManager.getSubModalDefs();
-    // Top-level modals: closing them also hides the overlay
-    const topModalDefs = window.ModalManager.getTopModalDefs();
-
-    function findAndCloseTopModal() {
-        for (const m of [...subModalDefs, ...topModalDefs]) {
-            const el = document.getElementById(m.id);
-            if (el && !el.classList.contains('hidden')) { m.fn(); return; }
-        }
-    }
-
     function onOverlayShown() {
         if (modalPushed) return;
         modalPushed = true;
@@ -5127,7 +5130,7 @@ async function sendTestMedicationNotification() {
             return;
         }
         poppingFromHistory = true;
-        findAndCloseTopModal();
+        window.ModalManager.closeTopMostVisibleModal();
         poppingFromHistory = false;
         modalPushed = false;
         // Sub-modal closed but parent still open → re-push so next back also works
@@ -5145,7 +5148,7 @@ async function sendTestMedicationNotification() {
             const overlay = document.getElementById('modal-overlay');
             if (!overlay || overlay.classList.contains('hidden')) return;
             poppingFromHistory = true;
-            findAndCloseTopModal();
+            window.ModalManager.closeTopMostVisibleModal();
             poppingFromHistory = false;
             modalPushed = false;
             if (!overlay.classList.contains('hidden')) {
