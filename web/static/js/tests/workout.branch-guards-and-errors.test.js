@@ -105,6 +105,9 @@ describe('workout.js guard and error branches', () => {
       window.showAddVariantModal();
       expect(variantModal.classList.contains('hidden')).toBe(true);
       expect(window.safeAlert).toHaveBeenCalledWith('Save this workout group first to add variants.');
+      await window.showAddExerciseModal();
+      expect(exerciseModal.classList.contains('hidden')).toBe(true);
+      expect(window.safeAlert).toHaveBeenCalledWith('Save this workout group first to add exercises.');
 
       window._renderWorkoutGroups(document.getElementById('workout-groups-list'), [{
         id: 2,
@@ -137,12 +140,14 @@ describe('workout.js guard and error branches', () => {
       expect(loadExercisesSpy).toHaveBeenCalledWith(4);
       window.loadExercisesForVariant = realLoadExercisesForVariant;
 
-      window.showAddExerciseModal();
-      expect(exerciseModal.classList.contains('hidden')).toBe(true);
+      await window.showAddExerciseModal();
+      expect(exerciseModal.classList.contains('hidden')).toBe(false);
+      expect(document.getElementById('workout-exercise-order').value).toBe('0');
+      window.closeExerciseModal();
 
       window.apiCall = vi.fn().mockResolvedValue([]);
       await window.loadExercisesForVariant(77);
-      window.showAddExerciseModalFromGroup();
+      await window.showAddExerciseModalFromGroup();
       expect(exerciseModal.classList.contains('hidden')).toBe(false);
       expect(document.getElementById('workout-exercise-order').value).toBe('0');
 
