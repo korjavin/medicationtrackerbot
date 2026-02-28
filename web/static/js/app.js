@@ -128,6 +128,21 @@ const ModalManager = {
             }
             ModalManager.close('food-modal');
         }
+    },
+
+    getTopModalDefs() {
+        return [
+            { id: 'med-modal', fn: () => closeModal() },
+            { id: 'med-confirm-modal', fn: () => closeMedicationConfirmModal() },
+            { id: 'bp-modal', fn: () => ModalManager.bp.close() },
+            { id: 'weight-modal', fn: () => ModalManager.weight.close() },
+            { id: 'food-modal', fn: () => ModalManager.food.close() },
+            { id: 'workout-group-modal', fn: () => typeof closeWorkoutGroupModal === 'function' && closeWorkoutGroupModal() },
+            { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' && closeVariantModal() },
+            { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' && closeExerciseModal() },
+            { id: 'workout-session-modal', fn: () => typeof closeWorkoutSessionModal === 'function' && closeWorkoutSessionModal() },
+            { id: 'workout-start-modal', fn: () => closeWorkoutStartModal() },
+        ];
     }
 };
 
@@ -4930,18 +4945,7 @@ async function sendTestMedicationNotification() {
         { id: 'food-scanner-modal', fn: () => closeFoodScannerModal() },
     ];
     // Top-level modals: closing them also hides the overlay
-    const topModalDefs = [
-        { id: 'med-modal', fn: () => closeModal() },
-        { id: 'med-confirm-modal', fn: () => closeMedicationConfirmModal() },
-        { id: 'bp-modal', fn: () => window.ModalManager.bp.close() },
-        { id: 'weight-modal', fn: () => window.ModalManager.weight.close() },
-        { id: 'food-modal', fn: () => window.ModalManager.food.close() },
-        { id: 'workout-group-modal', fn: () => typeof closeWorkoutGroupModal === 'function' && closeWorkoutGroupModal() },
-        { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' && closeVariantModal() },
-        { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' && closeExerciseModal() },
-        { id: 'workout-session-modal', fn: () => typeof closeWorkoutSessionModal === 'function' && closeWorkoutSessionModal() },
-        { id: 'workout-start-modal', fn: () => closeWorkoutStartModal() },
-    ];
+    const topModalDefs = window.ModalManager.getTopModalDefs();
 
     function findAndCloseTopModal() {
         for (const m of [...subModalDefs, ...topModalDefs]) {
