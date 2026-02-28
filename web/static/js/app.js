@@ -236,10 +236,22 @@ const ModalManager = {
     workoutAddExerciseToSession: {
         open() {
             document.getElementById('modal-overlay').classList.remove('hidden');
-            document.getElementById('workout-add-exercise-to-session-modal').classList.remove('hidden');
+            const modal = document.getElementById('workout-add-exercise-to-session-modal');
+            if (!modal) return;
+            if (typeof modal.open === 'function') {
+                modal.open();
+            } else {
+                modal.classList.remove('hidden');
+            }
         },
         close() {
-            document.getElementById('workout-add-exercise-to-session-modal').classList.add('hidden');
+            const modal = document.getElementById('workout-add-exercise-to-session-modal');
+            if (!modal) return;
+            if (typeof modal.close === 'function') {
+                modal.close();
+            } else {
+                modal.classList.add('hidden');
+            }
         }
     },
 
