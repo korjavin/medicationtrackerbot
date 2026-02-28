@@ -2229,12 +2229,16 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
     const list = document.getElementById('food-list');
     const summary = document.getElementById('food-summary');
 
-    list.innerHTML = '';
+    list.replaceChildren();
     let dayCals = 0, dayCarbs = 0, dayProt = 0, dayFat = 0;
     currentFoodLogs = {};
 
     if (!groups || groups.length === 0) {
-        list.innerHTML = '<p class="hint" style="text-align:center;">No food logs for this day.</p>';
+        const empty = document.createElement('p');
+        empty.className = 'hint';
+        empty.style.textAlign = 'center';
+        empty.textContent = 'No food logs for this day.';
+        list.appendChild(empty);
     } else {
         groups.forEach(group => {
             dayCals += group.calories;
@@ -2245,28 +2249,57 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
             const groupDiv = document.createElement('div');
             groupDiv.className = 'history-group';
 
-            let html = `<div class="history-header">
-                    <strong>${group.name}</strong>
-                    <span style="font-weight:normal; color:var(--hint-color);">(${group.time})</span>
-                    <span style="margin-left:auto; font-size:0.9em;">
-                        ${group.calories} kcal (C:${group.carbs} P:${group.protein} F:${group.fat})
-                    </span>
-                </div>`;
+            const header = document.createElement('div');
+            header.className = 'history-header';
+            const title = document.createElement('strong');
+            title.textContent = group.name;
+            const time = document.createElement('span');
+            time.style.cssText = 'font-weight:normal; color:var(--hint-color);';
+            time.textContent = `(${group.time})`;
+            const totals = document.createElement('span');
+            totals.style.cssText = 'margin-left:auto; font-size:0.9em;';
+            totals.textContent = `${group.calories} kcal (C:${group.carbs} P:${group.protein} F:${group.fat})`;
+            header.appendChild(title);
+            header.appendChild(time);
+            header.appendChild(totals);
+            groupDiv.appendChild(header);
 
             group.logs.forEach(log => {
                 currentFoodLogs[log.id] = log;
-                html += `<div class="history-item" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer;" onclick="editFoodLog(${log.id})">
-                        <div style="flex:1;">
-                            <div style="font-weight:500;">${log.name || 'Food'}</div>
-                            <div style="font-size:0.85em; color:var(--hint-color);">
-                                ${log.weight}g • ${log.calories} kcal
-                            </div>
-                        </div>
-                        <button class="delete-btn" onclick="event.stopPropagation(); deleteFoodLog(${log.id})" style="font-size:16px;">×</button>
-                    </div>`;
+
+                const item = document.createElement('div');
+                item.className = 'history-item';
+                item.style.cssText = 'padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer;';
+                item.addEventListener('click', () => {
+                    editFoodLog(log.id);
+                });
+
+                const itemBody = document.createElement('div');
+                itemBody.style.flex = '1';
+                const name = document.createElement('div');
+                name.style.fontWeight = '500';
+                name.textContent = log.name || 'Food';
+                const meta = document.createElement('div');
+                meta.style.cssText = 'font-size:0.85em; color:var(--hint-color);';
+                meta.textContent = `${log.weight}g • ${log.calories} kcal`;
+                itemBody.appendChild(name);
+                itemBody.appendChild(meta);
+
+                const deleteButton = document.createElement('button');
+                deleteButton.type = 'button';
+                deleteButton.className = 'delete-btn';
+                deleteButton.style.fontSize = '16px';
+                deleteButton.textContent = '×';
+                deleteButton.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    deleteFoodLog(log.id);
+                });
+
+                item.appendChild(itemBody);
+                item.appendChild(deleteButton);
+                groupDiv.appendChild(item);
             });
 
-            groupDiv.innerHTML = html;
             list.appendChild(groupDiv);
         });
     }

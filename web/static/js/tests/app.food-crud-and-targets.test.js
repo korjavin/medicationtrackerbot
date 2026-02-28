@@ -205,7 +205,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
             },
             {
               id: 2,
-              name: 'Tea',
+              name: '<b>Tea</b>',
               barcode: '222',
               weight: 0,
               carbs: 0,
@@ -220,6 +220,8 @@ describe('app.js food CRUD, targets and period helpers', () => {
 
       window._renderFoodData(groups, { calories: 500, carbs: 50, protein: 30, fat: 15 }, 'day', '2026-03-01');
       expect(document.getElementById('food-list').innerHTML).toContain('Rice Bowl');
+      expect(document.getElementById('food-list').textContent).toContain('<b>Tea</b>');
+      expect(document.getElementById('food-list').innerHTML).not.toContain('<b>');
       expect(document.getElementById('food-summary').innerHTML).toContain('Daily Total');
 
       window.editFoodLog(1);
