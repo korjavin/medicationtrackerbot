@@ -838,6 +838,34 @@ const formatDate = (dateStr) => {
 };
 
 // UI Functions
+function activateTabGroup(tab, options) {
+    const { buttonSelector, contentSelector, contentIdFromTab } = options;
+    document.querySelectorAll(buttonSelector).forEach((el) => el.classList.remove('active'));
+    document.querySelectorAll(contentSelector).forEach((el) => el.classList.remove('active'));
+
+    const tabButton = document.querySelector(`${buttonSelector}[data-tab="${tab}"]`);
+    const tabContent = document.getElementById(contentIdFromTab(tab));
+    if (!tabButton || !tabContent) return false;
+
+    tabButton.classList.add('active');
+    tabContent.classList.add('active');
+    return true;
+}
+
+function bindTabGroup(options) {
+    const { container, buttonSelector, onTabSelect } = options;
+    if (!container || container.dataset.tabBound === '1') return;
+    container.dataset.tabBound = '1';
+
+    container.addEventListener('click', (event) => {
+        const button = event.target.closest(buttonSelector);
+        if (!button || !container.contains(button)) return;
+        const tab = button.dataset.tab;
+        if (!tab) return;
+        onTabSelect(tab);
+    });
+}
+
 function switchTab(tab) {
     const tabToFeature = {
         food: 'food',
@@ -852,11 +880,12 @@ function switchTab(tab) {
         return;
     }
 
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-
-    document.querySelector(`.tab[data-tab="${tab}"]`).classList.add('active');
-    document.getElementById(`${tab}-view`).classList.add('active');
+    const activated = activateTabGroup(tab, {
+        buttonSelector: '.tab',
+        contentSelector: '.view',
+        contentIdFromTab: (tabName) => `${tabName}-view`
+    });
+    if (!activated) return;
 
     if (tab === 'meds') {
         if (!document.querySelector('.med-tab.active')) {
@@ -871,6 +900,12 @@ function switchTab(tab) {
     else if (tab === 'food') { loadFoodLogs(); }
     else if (tab === 'settings') { loadSettings(); }
 }
+
+bindTabGroup({
+    container: document.getElementById('tabs'),
+    buttonSelector: '.tab',
+    onTabSelect: switchTab
+});
 
 // -- Food Intake Autocomplete & Logic --
 
