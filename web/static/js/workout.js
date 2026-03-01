@@ -174,7 +174,7 @@ function _renderNextWorkout(container, data) {
     const groupId = data.group_id || 0;
     const isRotating = data.is_rotating || false;
 
-    const card = document.createElement('div');
+    const card = document.createElement('mt-card');
     card.className = cardClass;
 
     const header = document.createElement('div');
@@ -347,7 +347,7 @@ function _renderWorkoutGroups(container, groups) {
         const daysMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         const daysText = daysArray.map((day) => daysMap[day]).join(', ');
 
-        const card = doc.createElement('div');
+        const card = doc.createElement('mt-card');
         card.className = 'med-item';
         card.style.marginBottom = '15px';
 
@@ -602,7 +602,7 @@ async function loadVariantsForGroup(groupId) {
         variants.forEach((variant) => {
             const rotationText = variant.rotation_order !== null ? ` (Order: ${variant.rotation_order})` : '';
 
-            const card = document.createElement('div');
+            const card = document.createElement('mt-card');
             card.style.background = '#f8f9fa';
             card.style.padding = '10px';
             card.style.borderRadius = '6px';
@@ -788,7 +788,7 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
                 : `${ex.target_reps_min}`;
             const weightText = ex.target_weight_kg ? ` @ ${ex.target_weight_kg}kg` : '';
 
-            const card = document.createElement('div');
+            const card = document.createElement('mt-card');
             card.style.background = '#f0f4ff';
             card.style.padding = '8px 10px';
             card.style.borderRadius = '6px';
@@ -1065,7 +1065,7 @@ function _renderExerciseLibrary(container, items) {
             : `${item.default_reps_min}`;
         const weightStr = item.default_weight_kg ? ` @ ${item.default_weight_kg}kg` : '';
 
-        const card = document.createElement('div');
+        const card = document.createElement('mt-card');
         card.className = 'exercise-library-item';
         card.style.cursor = 'pointer';
         card.addEventListener('click', () => {
@@ -1746,7 +1746,7 @@ function _renderWorkoutStats(container, stats) {
     topGrid.style.marginBottom = '12px';
 
     const buildHeroCard = (background, valueText, labelText) => {
-        const card = document.createElement('div');
+        const card = document.createElement('mt-card');
         card.style.background = background;
         card.style.color = 'white';
         card.style.padding = '18px 8px';
@@ -1781,7 +1781,7 @@ function _renderWorkoutStats(container, stats) {
     totalsGrid.style.gap = '10px';
 
     const buildTotalsCard = (background, borderColor, valueColor, valueText, labelText) => {
-        const card = document.createElement('div');
+        const card = document.createElement('mt-card');
         card.style.background = background;
         card.style.padding = '14px 8px';
         card.style.borderRadius = '8px';

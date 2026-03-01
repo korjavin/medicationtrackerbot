@@ -98,9 +98,13 @@ Done when:
 
 ## Stage E: Visual shell reuse via `mt-card`
 Tasks:
-- Introduce `mt-card` for common card containers in meds/workouts/history sections.
-- Move repeated inline style blocks to CSS classes.
-- Keep rendering logic in JS, but reduce style mutation in JS.
+- [x] Create `mt-card` component.
+- [x] Replace repeated `.card`, `.bp-card`, `.med-card` boilerplate with `mt-card`.
+- [x] Focus on the 'med history' rows and 'dashboard' boxes.
+
+Done when:
+- [x] `mt-card` exists and is used in at least 5 different places;
+- [x] card styles are significantly deduplicated in `styles.css`. mutation in JS.
 
 Done when:
 - `.style.*` writes reduced significantly in workout and app renderers;
