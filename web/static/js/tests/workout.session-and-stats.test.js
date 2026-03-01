@@ -38,8 +38,8 @@ describe('workout.js session and stats flows', () => {
   let consoleLogSpy;
 
   beforeEach(() => {
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
   });
 
   afterEach(() => {
@@ -206,6 +206,66 @@ describe('workout.js session and stats flows', () => {
       expect(statsContainer.innerHTML).toContain('Top Exercises');
       expect(statsContainer.innerHTML).toContain('12-Week Activity');
       expect(statsContainer.innerHTML).toContain('t');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('history renderer sorts items by timestamp using started_at or scheduled time', () => {
+    const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
+
+    try {
+      const historyContainer = document.getElementById('workout-history-display');
+
+      const sessions = [
+        {
+          session: {
+            id: 1,
+            status: 'completed',
+            scheduled_date: '2026-03-02T00:00:00Z',
+            scheduled_time: '18:12',
+            started_at: null
+          },
+          group_name: 'Evening Main',
+          variant_name: 'A',
+          total_volume: 1680,
+          exercises_completed: 2,
+          exercises_count: 2
+        },
+        {
+          session: {
+            id: 2,
+            status: 'completed',
+            scheduled_date: '2026-03-02T00:00:00Z',
+            scheduled_time: '09:24',
+            started_at: null
+          },
+          group_name: 'Morning Workouts',
+          variant_name: 'Swings',
+          total_volume: 0,
+          exercises_completed: 2,
+          exercises_count: 2
+        }
+      ];
+
+      const miband = [
+        {
+          id: 1,
+          start_time: '2026-03-02T15:55:00Z',
+          activity_name: 'cycling',
+          distance_m: 5600,
+          duration_sec: 3780
+        }
+      ];
+
+      window._renderWorkoutHistory(historyContainer, sessions, miband);
+
+      const items = Array.from(historyContainer.firstElementChild.children);
+
+      expect(items[0].textContent).toContain('Evening Main');
+      expect(items[1].textContent).toContain('Cycling');
+      expect(items[2].textContent).toContain('Morning Workouts');
+
     } finally {
       cleanup();
     }

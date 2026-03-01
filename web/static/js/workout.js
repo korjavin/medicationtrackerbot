@@ -1264,7 +1264,15 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts) {
         s.session.status === 'completed' || s.session.status === 'skipped'
     );
     finalSessions.forEach(s => {
-        items.push({ type: 'session', ts: new Date(s.session.scheduled_date).getTime(), data: s });
+        let ts;
+        if (s.session.started_at) {
+            ts = new Date(s.session.started_at).getTime();
+        } else {
+            const dateStr = s.session.scheduled_date.split('T')[0];
+            const timeStr = s.session.scheduled_time || '00:00';
+            ts = new Date(`${dateStr}T${timeStr}:00`).getTime();
+        }
+        items.push({ type: 'session', ts: ts, data: s });
     });
 
     // Mi Band outdoor workouts
