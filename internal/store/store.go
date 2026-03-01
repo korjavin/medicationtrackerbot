@@ -1513,7 +1513,7 @@ func (s *Store) UpsertFoodProduct(ctx context.Context, p *FoodProduct) error {
 		INSERT INTO food_products (user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, last_used_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
 		ON CONFLICT(user_id, name) DO UPDATE SET
-			barcode = excluded.barcode,
+			barcode = COALESCE(excluded.barcode, food_products.barcode),
 			carbs_100g = excluded.carbs_100g,
 			protein_100g = excluded.protein_100g,
 			fat_100g = excluded.fat_100g,

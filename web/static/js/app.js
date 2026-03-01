@@ -2026,9 +2026,7 @@ function autofillFoodProduct(product) {
         input.value = displayName;
     }
 
-    if (product.barcode) {
-        document.getElementById('food-barcode').value = product.barcode;
-    }
+    document.getElementById('food-barcode').value = product.barcode || '';
 
     // Check per 100g to auto-fill macros directly
     document.getElementById('food-per-100g').checked = true;
