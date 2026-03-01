@@ -117,3 +117,34 @@ func TestHandleStockCommand(t *testing.T) {
 		t.Fatal("Timeout waiting for stock response")
 	}
 }
+
+func TestHandleLogCommandWithDosage(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	env.s.CreateMedication("Allopurinol AL", "100mg", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "")
+	env.s.CreateMedication("Bisoprolol", "", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "")
+
+	msg := &tgbotapi.Message{
+		Chat: &tgbotapi.Chat{ID: 123},
+		Text: "/log",
+		From: &tgbotapi.User{ID: 123456},
+		Entities: []tgbotapi.MessageEntity{
+			{Type: "bot_command", Offset: 0, Length: 4},
+		},
+	}
+
+	env.b.handleMessage(msg)
+
+	select {
+	case body := <-env.messageChan:
+		if !strings.Contains(body, "Take Allopurinol AL (100mg)") {
+			t.Errorf("Expected dosage in button for Allopurinol AL, got payload: %s", body)
+		}
+		if !strings.Contains(body, "\"text\":\"Take Bisoprolol\"") {
+			t.Errorf("Expected exactly \"Take Bisoprolol\" formatting for Bisoprolol without dosage, got payload: %s", body)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timeout waiting for /log response")
+	}
+}
