@@ -13,3 +13,7 @@ if (window.customElements && !window.customElements.get('mt-tab-group')) {
 if (window.customElements && !window.customElements.get('mt-day-picker')) {
     window.customElements.define('mt-day-picker', window.MTDayPicker);
 }
+
+if (window.customElements && !window.customElements.get('mt-card')) {
+    window.customElements.define('mt-card', window.MTCard);
+}

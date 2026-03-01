@@ -3141,7 +3141,7 @@ function renderMeds() {
     const sorted = [...scheduledSoon, ...recentTaken, ...asNeeded, ...archived];
 
     sorted.forEach(({ med, schedule: parsedSchedule }) => {
-        const div = document.createElement('div');
+        const div = document.createElement('mt-card');
         div.className = 'med-item';
         if (med.archived) div.classList.add('archived');
 
@@ -3270,13 +3270,13 @@ function renderHistory(logs) {
 
     // Render Groups
     groups.forEach(g => {
-        const div = document.createElement('div');
-        div.className = 'history-group';
+        const container = document.createElement('mt-card');
+        container.className = 'history-group';
 
         // Make PENDING and TAKEN items clickable
         if (g.status === 'PENDING' || g.status === 'TAKEN') {
-            div.style.cursor = 'pointer';
-            div.onclick = () => {
+            container.style.cursor = 'pointer';
+            container.onclick = () => {
                 // Collect med ids and names
                 const ids = g.items.map(i => i.medication_id);
                 const names = g.items.map(i => {
@@ -3327,9 +3327,9 @@ function renderHistory(logs) {
             items.appendChild(subitem);
         });
 
-        div.appendChild(header);
-        div.appendChild(items);
-        list.appendChild(div);
+        container.appendChild(header);
+        container.appendChild(items);
+        list.appendChild(container);
     });
 }
 
@@ -3598,7 +3598,7 @@ async function renderNextIntakeTrigger() {
             minute: '2-digit'
         });
 
-        const card = document.createElement('div');
+        const card = document.createElement('mt-card');
         card.style.cssText = 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;';
 
         const body = document.createElement('div');
@@ -4263,7 +4263,7 @@ function renderBPReadings(readings) {
             const [, timeStr = ''] = formatDate(r.measured_at).split(' '); // Get HH:MM part
             const pendingClass = r.isLocal ? ' pending-sync' : '';
 
-            const item = document.createElement('li');
+            const item = document.createElement('mt-card');
             item.className = `bp-item${pendingClass}`;
 
             const reading = document.createElement('div');
@@ -5031,7 +5031,7 @@ function renderWeightStats(stats) {
     const statsContainer = document.getElementById('weight-stats');
     if (!statsContainer) return;
 
-    const root = document.createElement('div');
+    const root = document.createElement('mt-card');
     root.className = 'weight-stats-container';
 
     const leftColumn = document.createElement('div');
@@ -5171,7 +5171,7 @@ function renderWeightLogs(logs) {
         const trendDiff = w.weight_trend ? (w.weight - w.weight_trend).toFixed(1) : '0.0';
         const trendIcon = trendDiff > 0 ? '📈' : (trendDiff < 0 ? '📉' : '➡️');
         const pendingClass = w.isLocal ? ' pending-sync' : '';
-        const listItem = document.createElement('li');
+        const listItem = document.createElement('mt-card');
         listItem.className = `weight-item${pendingClass}`;
 
         const data = document.createElement('div');
