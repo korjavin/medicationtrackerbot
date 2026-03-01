@@ -70,6 +70,7 @@ function bindWorkoutControls() {
     bindClick('exercise-library-cancel-btn', () => closeExerciseLibraryModal());
     bindClick('exercise-library-save-btn', () => saveExerciseLibraryItem());
 
+    bindClick('workout-session-delete-btn', () => deleteWorkoutSession());
     bindClick('workout-session-cancel-btn', () => closeWorkoutSessionModal());
     bindClick('workout-session-save-btn', () => saveWorkoutSessionDetails());
     bindClick('workout-session-add-exercise-btn', () => showAddExerciseToSessionModal());
@@ -1641,6 +1642,17 @@ async function deleteExerciseLog(index) {
     currentSessionLogs.splice(index, 1);
     const logsContainer = document.getElementById('workout-session-logs');
     renderWorkoutSessionLogs(logsContainer);
+}
+
+async function deleteWorkoutSession() {
+    if (!currentSessionData) return;
+    if (!confirm('Delete this workout session?')) return;
+
+    const result = await apiCall(`/api/workout/sessions/delete?id=${currentSessionData.id}`, 'DELETE');
+    if (result || result === true) {
+        closeWorkoutSessionModal();
+        loadWorkoutHistoryTab();
+    }
 }
 
 function closeWorkoutSessionModal() {

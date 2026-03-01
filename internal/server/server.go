@@ -348,6 +348,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/workout/exercises/create", s.handleCreateExercise)
 	apiMux.HandleFunc("PUT /api/workout/exercises/update", s.handleUpdateExercise)
 	apiMux.HandleFunc("DELETE /api/workout/exercises/delete", s.handleDeleteExercise)
+	apiMux.HandleFunc("DELETE /api/workout/sessions/delete", s.handleDeleteWorkoutSession)
 	apiMux.HandleFunc("GET /api/workout/sessions", s.handleListWorkoutSessions)
 	apiMux.HandleFunc("GET /api/workout/sessions/next", s.handleGetNextWorkout)
 	apiMux.HandleFunc("GET /api/workout/sessions/details", s.handleGetSessionDetails)
