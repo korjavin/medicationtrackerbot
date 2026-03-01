@@ -24,6 +24,249 @@ function getCachedAuthState() {
     return null;
 }
 
+function clearAuthState() {
+    localStorage.removeItem(AUTH_CACHE_KEY);
+}
+
+async function cacheApiSnapshot(key, value) {
+    if (window.DataStore) await window.DataStore.setCached(key, value);
+}
+window.cacheApiSnapshot = cacheApiSnapshot;
+
+async function applyBootstrapPayload(res) {
+    if (!res) return false;
+
+    if (typeof res.cursor === 'number') {
+        if (window.DataStore) window.DataStore.setChangeCursor(res.cursor);
+    }
+
+    if (res.features) {
+        window.featureSettings = { ...(window.featureSettings || {}), ...res.features };
+        window.featureSettingsLoaded = true;
+        if (typeof window.applyFeatureSettings === 'function') window.applyFeatureSettings(window.featureSettings);
+    }
+
+    if (Array.isArray(res.medications)) {
+        window.medications = res.medications;
+        initialAuthLoad = true;
+        if (window.MedTrackerDB?.MedicationStore) {
+            await window.MedTrackerDB.MedicationStore.saveCache(window.medications);
+        }
+        await cacheApiSnapshot('medications', window.medications);
+    }
+
+    if (Array.isArray(res.history_default)) {
+        await cacheApiSnapshot('history_3_0', res.history_default);
+        if (window.MedTrackerDB?.IntakeHistoryStore) {
+            await window.MedTrackerDB.IntakeHistoryStore.saveCache('history_3_0', res.history_default);
+        }
+    }
+
+    if (res.next_intake) {
+        await cacheApiSnapshot('next_intake', res.next_intake);
+    }
+
+    if (res.bp) {
+        await cacheApiSnapshot('bp', {
+            readingsRes: res.bp.readings || [],
+            goalRes: res.bp.goal || {},
+            statsRes: res.bp.stats || {}
+        });
+    }
+
+    if (res.weight) {
+        await cacheApiSnapshot('weight', {
+            logsRes: res.weight.logs || [],
+            goalRes: res.weight.goal || {}
+        });
+    }
+
+    const settingsBundle = (typeof window.normalizeSettingsBundle === 'function')
+        ? window.normalizeSettingsBundle({
+            features: res.features || {},
+            settings: res.settings || {},
+            food_targets: res.settings?.food_targets,
+            bp_reminder_status: res.settings?.bp_reminder_status,
+            weight_reminder_status: res.settings?.weight_reminder_status
+        })
+        : null;
+    if (settingsBundle) await cacheApiSnapshot('settings_bundle', settingsBundle);
+
+    return true;
+}
+window.applyBootstrapPayload = applyBootstrapPayload;
+
+async function loadInitData() {
+    try {
+        const res = await window.apiCall('/api/init', 'GET');
+        if (res && res.features) {
+            window.featureSettings = { ...(window.featureSettings || {}), ...res.features };
+            window.featureSettingsLoaded = true;
+            if (typeof window.applyFeatureSettings === 'function') window.applyFeatureSettings(window.featureSettings);
+        }
+    } catch (e) {
+        console.error('[Init] Failed to load init data:', e);
+    }
+}
+
+async function checkAuth() {
+    if (window.userInitData) {
+        sessionStorage.removeItem('medtracker_auth_reload_in_progress');
+        saveAuthState('telegram');
+        const bootstrap = await window.apiCall('/api/bootstrap', 'GET');
+        if (bootstrap) {
+            await applyBootstrapPayload(bootstrap);
+        } else {
+            await loadInitData();
+        }
+        return true;
+    }
+
+    const cachedAuth = getCachedAuthState();
+
+    let serverUnavailable = false;
+    try {
+        const res = await fetch('/api/bootstrap', { method: 'GET' });
+        if (res.status === 200) {
+            const data = await res.json();
+            await applyBootstrapPayload(data);
+            sessionStorage.removeItem('medtracker_auth_reload_in_progress');
+            saveAuthState('cookie');
+            return true;
+        } else if (res.status === 401 || res.status === 403) {
+            clearAuthState();
+        } else if (res.status >= 500) {
+            console.log('[Auth] Server error', res.status, '- will try cached auth');
+            serverUnavailable = true;
+        }
+    } catch (e) {
+        console.log("[Auth] Network check failed:", e);
+        serverUnavailable = true;
+    }
+
+    if (serverUnavailable && cachedAuth && cachedAuth.authenticated) {
+        console.log('[Auth] Server unavailable, using cached auth state');
+        sessionStorage.removeItem('medtracker_auth_reload_in_progress');
+        if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
+            const cached = await window.MedTrackerDB.MedicationStore.getCache();
+            if (cached) {
+                console.log('[Auth] Loaded medications from cache:', cached.length);
+                window.medications = cached;
+                initialAuthLoad = true;
+            }
+        }
+        return true;
+    }
+
+    // Not authorized. Show login UI.
+    const loginContainer = document.createElement('div');
+    loginContainer.style.cssText = "display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:60vh; gap: 20px; padding: 20px;";
+
+    const isOffline = !navigator.onLine;
+
+    if (isOffline) {
+        const title = document.createElement('h2');
+        title.innerText = "Offline";
+        title.style.cssText = "color: var(--text-color, #333); margin-bottom: 10px;";
+        loginContainer.appendChild(title);
+
+        const message = document.createElement('p');
+        message.appendChild(document.createTextNode("You need an internet connection to log in for the first time."));
+        message.appendChild(document.createElement('br'));
+        message.appendChild(document.createElement('br'));
+        message.appendChild(document.createTextNode("If you have logged in before, your session will be available once you're back online."));
+        message.style.cssText = "color: var(--text-color, #666); text-align: center; max-width: 400px; line-height: 1.6;";
+        loginContainer.appendChild(message);
+
+        const retryBtn = document.createElement('button');
+        retryBtn.innerText = "Retry";
+        retryBtn.onclick = () => location.reload();
+        retryBtn.style.cssText = "padding: 12px 24px; font-size: 16px; background: var(--primary-color, #007bff); color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 10px;";
+        loginContainer.appendChild(retryBtn);
+
+        window.addEventListener('online', () => {
+            console.log('[Auth] Back online, reloading...');
+            location.reload();
+        });
+    } else {
+        const title = document.createElement('h2');
+        title.innerText = "Login to Med Tracker";
+        title.style.cssText = "color: var(--text-color, #333); margin-bottom: 10px;";
+        loginContainer.appendChild(title);
+
+        const tgWidgetContainer = document.createElement('div');
+        tgWidgetContainer.id = 'telegram-login-container';
+
+        const tgScript = document.createElement('script');
+        tgScript.async = true;
+        tgScript.src = "https://telegram.org/js/telegram-widget.js?22";
+        tgScript.setAttribute('data-telegram-login', window.BOT_USERNAME);
+        tgScript.setAttribute('data-size', 'large');
+        tgScript.setAttribute('data-onauth', 'onTelegramAuth(user)');
+        tgScript.setAttribute('data-request-access', 'write');
+
+        tgWidgetContainer.appendChild(tgScript);
+        loginContainer.appendChild(tgWidgetContainer);
+
+        const oidcConfig = window.OIDC_CONFIG || { enabled: false };
+        if (oidcConfig.enabled) {
+            const divider = document.createElement('div');
+            divider.style.cssText = "display:flex; align-items:center; gap:10px; color: #999; margin: 10px 0;";
+            const line1 = document.createElement('span');
+            line1.style.cssText = "flex:1; height:1px; background:#ddd;";
+            const textSpan = document.createElement('span');
+            textSpan.textContent = "or";
+            const line2 = document.createElement('span');
+            line2.style.cssText = "flex:1; height:1px; background:#ddd;";
+            divider.appendChild(line1);
+            divider.appendChild(textSpan);
+            divider.appendChild(line2);
+            loginContainer.appendChild(divider);
+
+            const oidcBtn = document.createElement('button');
+            oidcBtn.innerText = oidcConfig.label || "Login";
+            oidcBtn.onclick = () => window.location.href = (oidcConfig.loginUrl || "/auth/oidc/login");
+            const oidcBg = oidcConfig.buttonColor || "var(--button-color, #2481cc)";
+            const oidcText = oidcConfig.buttonText || "var(--button-text-color, #fff)";
+            oidcBtn.style.cssText = `padding: 12px 24px; font-size: 16px; background: ${oidcBg}; color: ${oidcText}; border: none; border-radius: 5px; cursor: pointer;`;
+            loginContainer.appendChild(oidcBtn);
+
+            const setupLink = document.createElement('a');
+            setupLink.href = '/oidc-setup';
+            setupLink.innerText = 'Need setup info?';
+            setupLink.style.cssText = 'margin-top: 4px; font-size: 13px; color: var(--link-color, #2481cc);';
+            loginContainer.appendChild(setupLink);
+        }
+    }
+
+    document.body.replaceChildren();
+    document.body.appendChild(loginContainer);
+
+    window.onTelegramAuth = async function (user) {
+        console.log("Telegram auth callback received:", user);
+        try {
+            const res = await fetch('/auth/telegram/callback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(user)
+            });
+            if (res.ok) {
+                window.location.reload();
+            } else {
+                const err = await res.text();
+                console.error("Telegram login failed:", err);
+                alert("Login failed: " + err);
+            }
+        } catch (e) {
+            console.error("Telegram login error:", e);
+            alert("Login error: " + e.message);
+        }
+    };
+
+    return false;
+}
+window.checkAuth = checkAuth;
+
 // Global initialization
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[App] Starting initialization...');
@@ -44,23 +287,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const foodForm = document.getElementById('food-form');
     if (foodForm) foodForm.onsubmit = window.saveFoodLog;
 
-    // Try OIDC or Cookie auth
-    const cached = getCachedAuthState();
-    if (cached) {
-        console.log('[Auth] Using cached session');
+    const authorized = await checkAuth();
+    if (authorized) {
         await onAuth();
-    } else {
-        try {
-            const auth = await window.apiCallDirect('/api/auth/session', 'GET');
-            if (auth.authenticated) {
-                saveAuthState('cookie');
-                await onAuth();
-                return;
-            }
-        } catch (e) { console.warn('[Auth] Session check failed'); }
-
-        // Show login options
-        document.getElementById('login-view')?.classList.add('active');
     }
 });
 
@@ -86,6 +315,18 @@ async function onAuth() {
     }
     if (typeof window.switchTab === 'function') window.switchTab('meds');
 }
+
+// Wrap loadMeds to also refresh weekly hub
+(function wrapLoadMeds() {
+    const _origLoadMeds = window.loadMeds;
+    if (!_origLoadMeds) return;
+    window.loadMeds = async function () {
+        await _origLoadMeds();
+        try {
+            if (typeof window.renderWeeklyHub === 'function') await window.renderWeeklyHub();
+        } catch (_e) { /* guard against DOM teardown in tests */ }
+    };
+})();
 
 // Swipe gesture navigation between tabs
 (function initSwipeNav() {
@@ -143,6 +384,9 @@ window.switchMedTab = function (tab) {
 };
 
 window.loadHistory = async function () {
+    if (window.medications && window.medications.length === 0) {
+        await window.loadMeds();
+    }
     const medId = document.getElementById('history-filter-med')?.value || '0';
     const days = document.getElementById('history-filter-days')?.value || '7';
     const key = `history_${days}_${medId}`;
@@ -152,8 +396,20 @@ window.loadHistory = async function () {
             key, tags: ['history'],
             fetcher: async () => await window.apiCall(`/api/history?days=${days}&med_id=${medId}`),
             onCached: (cached) => window.renderHistory(cached),
-            onFresh: (fresh) => window.renderHistory(fresh)
+            onFresh: (fresh) => {
+                if (fresh && window.MedTrackerDB?.IntakeHistoryStore) {
+                    window.MedTrackerDB.IntakeHistoryStore.saveCache(key, fresh);
+                }
+                window.renderHistory(fresh || []);
+            },
+            onError: async (_err, cached) => {
+                if (!cached) window.renderHistory([]);
+            }
         });
+    }
+
+    if (typeof window.renderNextIntakeTrigger === 'function') {
+        await window.renderNextIntakeTrigger();
     }
 };
 
@@ -172,19 +428,228 @@ window.onDataStoreUnauthorized = function () {
     window.location.reload();
 };
 
-window.requestTabRefresh = function ({ changedTags }) {
-    const activeTab = document.querySelector('#tabs .tab.active')?.dataset.tab;
-    if (!activeTab) return;
+// Tab refresh with debouncing and deferral
+let pendingRefreshReason = null;
+let refreshDebounceTimer = null;
 
-    const tagMatch = (tags) => tags.some(t => changedTags.includes(t));
+function getRefreshBanner() {
+    let banner = document.getElementById('data-refresh-banner');
+    if (banner) return banner;
 
-    if (activeTab === 'meds' && tagMatch(['medications', 'history'])) window.loadMeds(), window.loadHistory();
-    else if (activeTab === 'bp' && tagMatch(['bp'])) window.loadBPReadings();
-    else if (activeTab === 'weight' && tagMatch(['weight'])) window.loadWeightLogs();
-    else if (activeTab === 'workouts' && tagMatch(['workout'])) window.loadWorkouts();
-    else if (activeTab === 'food' && tagMatch(['food'])) window.loadFoodLogs();
-    else if (activeTab === 'health' && tagMatch(['health'])) window.loadHealthOverview();
-    else if (activeTab === 'settings' && tagMatch(['settings'])) window.loadSettings();
+    banner = document.createElement('div');
+    banner.id = 'data-refresh-banner';
+    banner.className = 'data-refresh-banner hidden';
+
+    const message = document.createElement('span');
+    message.textContent = 'New data is available.';
+
+    const refreshButton = document.createElement('button');
+    refreshButton.type = 'button';
+    refreshButton.textContent = 'Refresh';
+    refreshButton.addEventListener('click', applyPendingTabRefresh);
+
+    banner.appendChild(message);
+    banner.appendChild(refreshButton);
+    document.body.appendChild(banner);
+    return banner;
+}
+
+function showRefreshBanner() {
+    getRefreshBanner().classList.remove('hidden');
+}
+
+function hideRefreshBanner() {
+    const banner = document.getElementById('data-refresh-banner');
+    if (banner) banner.classList.add('hidden');
+}
+
+function isEditingNow() {
+    const activeElement = document.activeElement;
+    if (!activeElement) return false;
+    if (activeElement.isContentEditable) return true;
+    const tagName = activeElement.tagName;
+    return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
+}
+
+function hasOpenModal() {
+    const modalCandidates = document.querySelectorAll('[id$="-modal"]');
+    return Array.from(modalCandidates).some((el) => {
+        if (!el || el.classList.contains('hidden')) return false;
+        const style = window.getComputedStyle(el);
+        return style.display !== 'none' && style.visibility !== 'hidden';
+    });
+}
+
+function isSafeToAutoRefresh() {
+    return !document.hidden && !isEditingNow() && !hasOpenModal();
+}
+
+function applyPendingTabRefresh() {
+    pendingRefreshReason = null;
+    hideRefreshBanner();
+    window.reloadCurrentTab();
+}
+
+window.requestTabRefresh = function (meta) {
+    if (meta === undefined) meta = {};
+    const source = meta.source || 'changes';
+    if (!isSafeToAutoRefresh()) {
+        pendingRefreshReason = source;
+        showRefreshBanner();
+        return;
+    }
+
+    if (refreshDebounceTimer) {
+        clearTimeout(refreshDebounceTimer);
+    }
+    refreshDebounceTimer = setTimeout(() => {
+        refreshDebounceTimer = null;
+        window.reloadCurrentTab();
+    }, 500);
 };
 
-// ... remaining minimal UI logic (swipe, history) ...
+window.applyPendingTabRefresh = applyPendingTabRefresh;
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !pendingRefreshReason) return;
+    if (!isSafeToAutoRefresh()) return;
+    applyPendingTabRefresh();
+});
+
+window.reloadCurrentTab = function () {
+    const activeTab = document.querySelector('.tab.active');
+    if (!activeTab) return;
+
+    const tab = activeTab.dataset.tab;
+    if (tab === 'meds') {
+        const activeMedTab = document.querySelector('.med-tab.active');
+        const medTab = activeMedTab ? activeMedTab.dataset.tab : 'history';
+        if (medTab === 'schedule') { window.loadMeds(); }
+        else { window.loadHistory(); }
+    } else if (tab === 'bp') { window.loadBPReadings(); }
+    else if (tab === 'weight') { window.loadWeightLogs(); }
+    else if (tab === 'workouts') { window.loadWorkouts(); }
+    else if (tab === 'food') { window.loadFoodLogs(); }
+    else if (tab === 'health') { window.loadHealthOverview(); }
+    else if (tab === 'settings') { window.loadSettings(); }
+};
+
+// Push notification action handler
+let pendingWorkoutSessionId = null;
+
+window.handlePushAction = function (action, params) {
+    if (action === 'medication_confirm') {
+        const ids = params.get('ids') ? params.get('ids').split(',') : [];
+        const names = params.get('names') ? params.get('names').split(',') : [];
+        const scheduled = params.get('scheduled');
+        setTimeout(() => {
+            window.showMedicationConfirmModal(ids, names, scheduled);
+        }, 500);
+    } else if (action === 'workout_start') {
+        const sessionId = params.get('session_id');
+        setTimeout(() => {
+            window.showWorkoutStartModal(sessionId);
+        }, 500);
+    }
+};
+
+window.showWorkoutStartModal = function (sessionId) {
+    pendingWorkoutSessionId = sessionId;
+    window.ModalManager.workoutStart.open();
+};
+
+window.closeWorkoutStartModal = function () {
+    window.ModalManager.workoutStart.close();
+};
+
+window.startWorkoutFromModal = function () {
+    window.closeWorkoutStartModal();
+    window.switchTab('workouts');
+};
+
+window.snoozeWorkout = async function (minutes) {
+    if (!pendingWorkoutSessionId) return;
+    try {
+        await window.apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/snooze`, 'POST', { minutes: minutes });
+        window.safeAlert(`Snoozed for ${minutes} minutes`);
+    } catch (e) {
+        window.safeAlert("Error snoozing");
+    }
+    window.closeWorkoutStartModal();
+};
+
+window.skipWorkoutFromModal = async function () {
+    if (!pendingWorkoutSessionId) return;
+    if (!confirm("Are you sure you want to skip this workout?")) return;
+    try {
+        await window.apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/skip`, 'POST');
+        window.safeAlert("Workout skipped");
+        window.loadWorkouts();
+    } catch (e) {
+        window.safeAlert("Error skipping");
+    }
+    window.closeWorkoutStartModal();
+};
+
+// Bind workout start modal buttons
+(function bindWorkoutStartControls() {
+    function setup() {
+        var el;
+        el = document.getElementById('workout-start-now-btn');
+        if (el) el.addEventListener('click', function () { window.startWorkoutFromModal(); });
+        el = document.getElementById('workout-start-dismiss-btn');
+        if (el) el.addEventListener('click', function () { window.closeWorkoutStartModal(); });
+        el = document.getElementById('workout-start-snooze-60-btn');
+        if (el) el.addEventListener('click', function () { window.snoozeWorkout(60); });
+        el = document.getElementById('workout-start-snooze-120-btn');
+        if (el) el.addEventListener('click', function () { window.snoozeWorkout(120); });
+        el = document.getElementById('workout-start-skip-btn');
+        if (el) el.addEventListener('click', function () { window.skipWorkoutFromModal(); });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setup, { once: true });
+    } else {
+        setup();
+    }
+})();
+
+window.sendTestMedicationNotification = async function () {
+    try {
+        const res = await fetch('/api/webpush/test-medication', {
+            method: 'POST',
+            headers: { 'X-Telegram-Init-Data': window.userInitData }
+        });
+        const text = await res.text();
+        if (res.ok) {
+            window.safeAlert(text || "Test notification sent!");
+        } else {
+            window.safeAlert("Error: " + text);
+        }
+    } catch (e) {
+        console.error(e);
+        window.safeAlert("Error sending test notification: " + e.message);
+    }
+};
+
+window.sendTestBPNotification = async function () {
+    try {
+        const res = await window.apiCall('/api/bp/reminder/test', 'POST');
+        if (res) {
+            window.safeAlert("Notification sent! Check your device.");
+        }
+    } catch (e) {
+        console.error(e);
+        window.safeAlert("Failed to send test notification: " + e.message);
+    }
+};
+
+// Check for Telegram start_param
+if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.start_param === 'bp_add') {
+    const checkInterval = setInterval(() => {
+        if (typeof window.showBPRecordModal === 'function') {
+            clearInterval(checkInterval);
+            window.switchTab('bp');
+            setTimeout(window.showBPRecordModal, 500);
+        }
+    }, 100);
+}

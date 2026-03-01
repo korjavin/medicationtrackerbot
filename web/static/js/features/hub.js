@@ -83,9 +83,65 @@
         });
     };
 
-    window.renderWeeklyHub = function (data) {
-        const container = document.getElementById('weekly-hub-container');
-        if (!container || !data) return;
+    window.renderWeeklyHub = async function (data) {
+        let container;
+        try { container = document.getElementById('weekly-hub-container'); } catch (_e) { return; }
+        if (!container) return;
+
+        // If no data provided, fetch 7-day history and build medication adherence calendar
+        if (!data) {
+            const meds = window.medications || [];
+            if (meds.length === 0) { container.replaceChildren(); return; }
+
+            const history = await window.apiCall('/api/history?days=7&med_id=0') || [];
+            container.replaceChildren();
+
+            const card = document.createElement('mt-card');
+            const title = document.createElement('h3');
+            title.style.marginTop = '0';
+            title.textContent = 'Last 7 Days';
+            card.appendChild(title);
+
+            const daysRow = document.createElement('div');
+            daysRow.style.cssText = 'display:flex;justify-content:space-between;gap:4px;margin-top:10px;';
+
+            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const today = new Date();
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date(today);
+                d.setDate(today.getDate() - i);
+                const dateStr = d.toISOString().split('T')[0];
+
+                const dayLogs = history.filter(h => {
+                    const logDate = (h.taken_at || h.scheduled_at || '').split('T')[0];
+                    return logDate === dateStr;
+                });
+                const taken = dayLogs.filter(h => h.status === 'TAKEN').length;
+                const total = dayLogs.length;
+
+                const col = document.createElement('div');
+                col.style.cssText = 'text-align:center;flex:1;';
+
+                const label = document.createElement('div');
+                label.style.cssText = 'font-size:0.7em;color:var(--hint-color);';
+                label.textContent = dayNames[d.getDay()];
+
+                const circle = document.createElement('div');
+                circle.className = 'day-circle';
+                if (total > 0 && taken === total) circle.classList.add('complete');
+                else if (taken > 0) circle.classList.add('partial');
+                circle.textContent = d.getDate();
+
+                col.appendChild(label);
+                col.appendChild(circle);
+                daysRow.appendChild(col);
+            }
+
+            card.appendChild(daysRow);
+            container.appendChild(card);
+            return;
+        }
+
         container.replaceChildren();
 
         const card = document.createElement('mt-card');

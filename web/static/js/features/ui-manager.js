@@ -149,6 +149,27 @@
             : setup();
     })();
 
+    // Fallback click bindings for tabs (web component tabchange may not fire in all environments)
+    (function bindTabClicks() {
+        function setup() {
+            document.querySelectorAll('#tabs .tab').forEach(function (tab) {
+                tab.addEventListener('click', function () {
+                    if (typeof window.switchTab === 'function') window.switchTab(tab.dataset.tab);
+                });
+            });
+            document.querySelectorAll('.med-tabs .med-tab').forEach(function (tab) {
+                tab.addEventListener('click', function () {
+                    if (typeof window.switchMedTab === 'function') window.switchMedTab(tab.dataset.tab);
+                });
+            });
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setup, { once: true });
+        } else {
+            setup();
+        }
+    })();
+
     window.switchTab = function (tab) {
         document.querySelectorAll('.tab').forEach((el) => {
             if (el.dataset.tab === tab) {

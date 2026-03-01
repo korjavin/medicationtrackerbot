@@ -12,6 +12,84 @@
         const d = String(date.getDate()).padStart(2, '0');
         return `${y}-${m}-${d}`;
     }
+    window.toISODateLocal = toISODateLocal;
+
+    function parseOptionalNumber(rawValue) {
+        const v = String(rawValue || '').trim();
+        if (v === '') return null;
+        const n = parseFloat(v);
+        if (Number.isNaN(n)) return null;
+        return n;
+    }
+    window.parseOptionalNumber = parseOptionalNumber;
+
+    function onFoodPer100gChange() {
+        const per100gCheckbox = document.getElementById('food-per-100g');
+        if (!per100gCheckbox.checked) {
+            const weight = parseFloat(document.getElementById('food-weight').value) || 0;
+            if (weight > 0) {
+                const carbsInput = document.getElementById('food-carbs');
+                const proteinInput = document.getElementById('food-protein');
+                const fatInput = document.getElementById('food-fat');
+                const carbsPer100 = parseFloat(carbsInput.value);
+                const proteinPer100 = parseFloat(proteinInput.value);
+                const fatPer100 = parseFloat(fatInput.value);
+                if (!Number.isNaN(carbsPer100)) carbsInput.value = +((carbsPer100 * weight) / 100).toFixed(1);
+                if (!Number.isNaN(proteinPer100)) proteinInput.value = +((proteinPer100 * weight) / 100).toFixed(1);
+                if (!Number.isNaN(fatPer100)) fatInput.value = +((fatPer100 * weight) / 100).toFixed(1);
+            }
+        }
+        window.calculateFoodCalories();
+    }
+    window.onFoodPer100gChange = onFoodPer100gChange;
+
+    function computeFoodTotals() {
+        const carbsRaw = parseOptionalNumber(document.getElementById('food-carbs').value);
+        const proteinRaw = parseOptionalNumber(document.getElementById('food-protein').value);
+        const fatRaw = parseOptionalNumber(document.getElementById('food-fat').value);
+        const caloriesRaw = parseOptionalNumber(document.getElementById('food-calories').value);
+        const weightRaw = parseOptionalNumber(document.getElementById('food-weight').value);
+        const per100g = document.getElementById('food-per-100g').checked;
+        const weight = weightRaw && weightRaw > 0 ? weightRaw : 0;
+        const multiplier = per100g && weight > 0 ? weight / 100 : 1;
+
+        let totalCarbs = carbsRaw === null ? null : carbsRaw * multiplier;
+        let totalProtein = proteinRaw === null ? null : proteinRaw * multiplier;
+        let totalFat = fatRaw === null ? null : fatRaw * multiplier;
+        let totalCalories = caloriesRaw;
+        if (per100g && caloriesRaw !== null && weight > 0) {
+            totalCalories = caloriesRaw * multiplier;
+        }
+
+        const missing = [];
+        if (totalCarbs === null) missing.push('carbs');
+        if (totalProtein === null) missing.push('protein');
+        if (totalFat === null) missing.push('fat');
+        if (totalCalories === null) missing.push('calories');
+
+        if (missing.length === 1) {
+            const f = missing[0];
+            if (f === 'calories' && totalCarbs !== null && totalProtein !== null && totalFat !== null) {
+                totalCalories = (4 * totalCarbs) + (4 * totalProtein) + (9 * totalFat);
+            } else if (f === 'carbs' && totalCalories !== null && totalProtein !== null && totalFat !== null) {
+                totalCarbs = (totalCalories - (4 * totalProtein) - (9 * totalFat)) / 4;
+            } else if (f === 'protein' && totalCalories !== null && totalCarbs !== null && totalFat !== null) {
+                totalProtein = (totalCalories - (4 * totalCarbs) - (9 * totalFat)) / 4;
+            } else if (f === 'fat' && totalCalories !== null && totalCarbs !== null && totalProtein !== null) {
+                totalFat = (totalCalories - (4 * totalCarbs) - (4 * totalProtein)) / 9;
+            }
+        }
+
+        return {
+            weight: Math.round(weight),
+            carbs: Math.round(Math.max(0, totalCarbs || 0)),
+            protein: Math.round(Math.max(0, totalProtein || 0)),
+            fat: Math.round(Math.max(0, totalFat || 0)),
+            calories: Math.round(Math.max(0, totalCalories || 0)),
+            per100g
+        };
+    }
+    window.computeFoodTotals = computeFoodTotals;
 
     window.decodeFoodDisplayText = function (raw) {
         if (!raw) return "";
@@ -411,7 +489,7 @@
 
     window.setFoodScannerStatus = function (message) {
         const status = document.getElementById('food-scanner-status');
-        if (status) status.textContent = message || '';
+        if (status) status.innerText = message || '';
     };
     window.openFoodScannerModal = function () {
         window.ModalManager?.foodScanner?.open?.();
@@ -483,7 +561,7 @@
         const list = document.getElementById('food-list');
         if (!list) return;
         list.replaceChildren();
-        if (!groups?.length) { list.innerHTML = '<p class="hint" style="text-align:center;">No logs for this day.</p>'; return; }
+        if (!groups?.length) { list.innerHTML = '<p class="hint" style="text-align:center;">No food logs for this day.</p>'; return; }
 
         currentFoodLogs = {};
         window.currentFoodLogs = currentFoodLogs;
@@ -497,13 +575,31 @@
                 const item = document.createElement('div'); item.className = 'history-item';
                 item.style.cssText = 'padding:8px 0;border-bottom:1px solid rgba(0,0,0,0.05);cursor:pointer;display:flex;justify-content:space-between;align-items:center;';
                 item.onclick = () => window.editFoodLog(l.id);
-                item.innerHTML = `<div><div style="font-weight:500;">${l.name || 'Food'}</div><div style="font-size:0.85em;color:var(--hint-color);">${l.weight}g • ${l.calories} kcal</div></div>`;
+                const itemContent = document.createElement('div');
+                const nameDiv = document.createElement('div'); nameDiv.style.fontWeight = '500'; nameDiv.textContent = l.name || 'Food';
+                const metaDiv = document.createElement('div'); metaDiv.style.cssText = 'font-size:0.85em;color:var(--hint-color);'; metaDiv.textContent = `${l.weight}g \u2022 ${l.calories} kcal`;
+                itemContent.appendChild(nameDiv); itemContent.appendChild(metaDiv);
+                item.appendChild(itemContent);
                 const del = document.createElement('button'); del.className = 'delete-btn'; del.textContent = '×';
                 del.onclick = (e) => { e.stopPropagation(); window.deleteFoodLog(l.id); };
                 item.appendChild(del); items.appendChild(item);
             });
             card.appendChild(items); list.appendChild(card);
         });
+
+        // Render food summary
+        const summary = document.getElementById('food-summary');
+        if (summary && stats) {
+            const periodLabel = period === 'week' ? 'Weekly Total' : 'Daily Total';
+            const totalCalories = stats.calories || 0;
+            const totalCarbs = stats.carbs || 0;
+            const totalProtein = stats.protein || 0;
+            const totalFat = stats.fat || 0;
+            summary.innerHTML = `<div class="food-summary-row"><strong>${periodLabel}:</strong> ${totalCalories} kcal (C:${totalCarbs} P:${totalProtein} F:${totalFat})</div>`;
+            if (typeof window.renderFoodTargetProgress === 'function') {
+                window.renderFoodTargetProgress(totalCalories, totalCarbs, totalProtein, totalFat, period);
+            }
+        }
     };
 
     window.showAddFoodModal = function () {
@@ -550,15 +646,16 @@
         const w = parseFloat(document.getElementById('food-weight').value) || 0, c = parseFloat(document.getElementById('food-carbs').value) || 0, p = parseFloat(document.getElementById('food-protein').value) || 0, f = parseFloat(document.getElementById('food-fat').value) || 0;
         const calsRaw = parseFloat(document.getElementById('food-calories').value);
         const per100 = document.getElementById('food-per-100g').checked, mult = per100 ? w / 100 : 1;
+        if (per100 && w <= 0) { window.safeAlert("Please enter weight for per 100g mode, or uncheck it."); return; }
         const payload = {
             eaten_at: new Date(dt).toISOString(), name, barcode: document.getElementById('food-barcode').value,
-            weight: w, carbs: Math.round(c * mult), protein: Math.round(p * mult), fat: Math.round(f * mult), calories: !isNaN(calsRaw) ? Math.round(calsRaw) : Math.round((4 * c * mult) + (4 * p * mult) + (9 * f * mult))
+            weight: w, per_100g: per100, carbs: Math.round(c * mult), protein: Math.round(p * mult), fat: Math.round(f * mult), calories: !isNaN(calsRaw) ? Math.round(calsRaw) : Math.round((4 * c * mult) + (4 * p * mult) + (9 * f * mult))
         };
         const id = document.getElementById('food-id').value;
         try {
             if (id) await window.apiCall(`/api/food/log/${id}`, 'PUT', payload);
             else await window.apiCall('/api/food/log', 'POST', payload);
-            if (window.ModalManager && window.ModalManager.food) window.ModalManager.food.close();
+            window.closeFoodModal();
             window.loadFoodLogs();
         } catch (e) { window.safeAlert("Failed to save food log."); }
     };
@@ -566,8 +663,195 @@
     window.deleteFoodLog = async function (id) {
         if (!confirm("Delete this food log?")) return;
         try { await window.apiCall(`/api/food/log/${id}`, 'DELETE'); window.loadFoodLogs(); }
-        catch (e) { window.safeAlert("Failed to delete food log."); }
+        catch (e) { window.safeAlert("Failed to delete."); }
     };
+
+    function createFoodBarcodeDetector() {
+        if (!window.BarcodeDetector) return null;
+        if (foodBarcodeDetector) return foodBarcodeDetector;
+
+        const formats = [
+            'qr_code', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf'
+        ];
+        try {
+            foodBarcodeDetector = new BarcodeDetector({ formats });
+        } catch (e) {
+            console.error('Failed to create BarcodeDetector with formats, retrying default:', e);
+            foodBarcodeDetector = new BarcodeDetector();
+        }
+        return foodBarcodeDetector;
+    }
+    window.createFoodBarcodeDetector = createFoodBarcodeDetector;
+
+    function sanitizeScannedValue(rawValue) {
+        if (!rawValue) return { text: '', numeric: '' };
+        const text = String(rawValue).replace(/\u200B/g, '').trim();
+        const digitsOnly = text.replace(/\D/g, '');
+        const numeric = digitsOnly.length >= FOOD_NUMERIC_BARCODE_MIN_LEN ? digitsOnly : '';
+        return { text, numeric };
+    }
+    window.sanitizeScannedValue = sanitizeScannedValue;
+
+    function handleDecodedValue(rawValue) {
+        const { text, numeric } = sanitizeScannedValue(rawValue);
+        if (!text) return false;
+
+        if (numeric) {
+            const barcodeInput = document.getElementById('food-barcode');
+            if (barcodeInput) barcodeInput.value = numeric;
+            window.onFoodBarcodeChange();
+        } else {
+            const nameInput = document.getElementById('food-name');
+            if (nameInput) nameInput.value = text;
+            if (typeof window.safeAlert === 'function') window.safeAlert('Scanned QR text was added to Food Name.');
+        }
+        window.closeFoodScannerModal();
+        return true;
+    }
+    window.handleDecodedValue = handleDecodedValue;
+
+    async function scanFrameLoop() {
+        if (!foodScannerRunning) return;
+
+        const video = document.getElementById('food-scanner-video');
+        const detector = createFoodBarcodeDetector();
+        if (!video || !detector || video.readyState < 2) {
+            foodScanLoopTimer = setTimeout(scanFrameLoop, FOOD_SCAN_THROTTLE_MS);
+            return;
+        }
+
+        try {
+            const results = await detector.detect(video);
+            if (results && results.length > 0) {
+                const first = results.find(r => r && r.rawValue) || results[0];
+                if (first && handleDecodedValue(first.rawValue)) return;
+            }
+        } catch (e) {
+            console.error('Food scanner frame decode failed:', e);
+        }
+
+        foodScanLoopTimer = setTimeout(scanFrameLoop, FOOD_SCAN_THROTTLE_MS);
+    }
+
+    async function startFoodScanner() {
+        const modal = document.getElementById('food-scanner-modal');
+        if (!modal) return;
+
+        if (!window.isSecureContext) {
+            window.setFoodScannerStatus('Camera requires HTTPS (or localhost). Use "Use Photo" or manual entry.');
+            return;
+        }
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            window.setFoodScannerStatus('Camera is unavailable. Use "Use Photo" or manual entry.');
+            return;
+        }
+
+        if (!window.BarcodeDetector) {
+            window.setFoodScannerStatus('Live scan is unavailable on this browser. Use "Use Photo".');
+            return;
+        }
+
+        const video = document.getElementById('food-scanner-video');
+        try {
+            window.setFoodScannerStatus('Requesting camera access...');
+            foodScannerStream = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: { facingMode: { ideal: 'environment' } }
+            });
+            video.srcObject = foodScannerStream;
+            await video.play();
+            window.setFoodScannerStatus('Point camera at barcode or QR.');
+            foodScannerRunning = true;
+            scanFrameLoop();
+        } catch (e) {
+            console.error('Failed to start food scanner:', e);
+            window.setFoodScannerStatus('Camera access denied or unavailable. Use "Use Photo".');
+        }
+    }
+    window.startFoodScanner = startFoodScanner;
+
+    function stopFoodScanner() {
+        foodScannerRunning = false;
+
+        if (foodScanLoopTimer) {
+            clearTimeout(foodScanLoopTimer);
+            foodScanLoopTimer = null;
+        }
+
+        const video = document.getElementById('food-scanner-video');
+        if (video) {
+            video.pause();
+            video.srcObject = null;
+        }
+
+        if (foodScannerStream) {
+            foodScannerStream.getTracks().forEach(track => track.stop());
+            foodScannerStream = null;
+        }
+    }
+    window.stopFoodScanner = stopFoodScanner;
+
+    window.closeFoodModal = function () {
+        if (window.ModalManager && window.ModalManager.food) window.ModalManager.food.close();
+    };
+
+    window.renderFoodTargetProgress = function (calories, carbs, protein, fat, period) {
+        const container = document.getElementById('food-target-progress');
+        if (!container) return;
+        container.replaceChildren();
+
+        const targets = window.foodTargets || {};
+        const mult = period === 'week' ? 7 : 1;
+        const tCal = (targets.calories || 0) * mult;
+        const tCarbs = (targets.carbs || 0) * mult;
+        const tProtein = (targets.protein || 0) * mult;
+        const tFat = (targets.fat || 0) * mult;
+
+        if (tCal <= 0 && tCarbs <= 0 && tProtein <= 0 && tFat <= 0) {
+            container.classList.add('hidden');
+            return;
+        }
+        container.classList.remove('hidden');
+
+        const rows = [
+            { label: 'Energy', current: calories, target: tCal, unit: 'kcal' },
+            { label: 'Carbs', current: carbs, target: tCarbs, unit: 'g' },
+            { label: 'Protein', current: protein, target: tProtein, unit: 'g' },
+            { label: 'Fat', current: fat, target: tFat, unit: 'g' }
+        ];
+
+        rows.forEach(r => {
+            const row = document.createElement('div');
+            row.className = 'food-target-row';
+
+            const labelEl = document.createElement('div');
+            labelEl.className = 'food-target-label';
+            labelEl.textContent = r.label;
+
+            const values = document.createElement('div');
+            values.className = 'food-target-values';
+            const isExcess = r.target > 0 && r.current > r.target;
+            if (isExcess) values.classList.add('excess-text');
+            values.textContent = `${r.current} / ${r.target} ${r.unit}`;
+
+            const bar = document.createElement('div');
+            bar.className = 'food-target-bar';
+            const fill = document.createElement('div');
+            fill.className = 'food-target-fill';
+            const pct = r.target > 0 ? Math.min((r.current / r.target) * 100, 100) : 0;
+            fill.style.width = pct + '%';
+            if (isExcess) fill.classList.add('excess');
+            bar.appendChild(fill);
+
+            row.appendChild(labelEl);
+            row.appendChild(values);
+            row.appendChild(bar);
+            container.appendChild(row);
+        });
+    };
+
+    window._renderFoodData = window.renderFoodData;
 
     let foodControlsBound = false;
     function bindFoodControls() {
@@ -594,7 +878,7 @@
         bindClick('food-date-next-btn', () => window.shiftFoodDate(1));
         bindChange('food-date-filter', () => window.loadFoodLogs());
 
-        bindClick('food-modal-cancel-btn', () => window.ModalManager?.food?.close?.());
+        bindClick('food-modal-cancel-btn', () => window.closeFoodModal());
         bindClick('food-modal-save-btn', () => window.saveFoodLog());
         bindClick('food-scan-btn', () => window.openFoodScannerModal());
         bindClick('food-scanner-close-btn', () => window.closeFoodScannerModal());

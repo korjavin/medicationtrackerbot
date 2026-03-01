@@ -17,10 +17,23 @@ const COMPONENTS = [
   path.join(REPO_ROOT, 'web/static/js/components/mt-card.js'),
   path.join(REPO_ROOT, 'web/static/js/components/register-components.js')
 ];
-const API_JS = path.join(REPO_ROOT, 'web/static/js/features/api.js');
-const CORE_UTILS_JS = path.join(REPO_ROOT, 'web/static/js/features/core-utils.js');
-const UI_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/features/ui-manager.js');
-const FOOD_JS = path.join(REPO_ROOT, 'web/static/js/features/food.js');
+
+// Feature modules loaded in dependency order
+const FEATURE_SCRIPTS = [
+  path.join(REPO_ROOT, 'web/static/js/features/core-utils.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/state.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/api.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/ui-manager.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/bp.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/weight.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/food.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/medications.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/medication-modals.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/health.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/hub.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/settings.js')
+];
+
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
 
@@ -29,17 +42,17 @@ function evalWithSourceURL(window, source, scriptPath) {
 }
 
 function disableAutoBootstrap(source) {
-  const bootStart = source.indexOf('// Initial Load');
-  const bootEnd = source.indexOf('// Check for Telegram start_param');
-  if (bootStart !== -1 && bootEnd !== -1 && bootEnd > bootStart) {
-    source = `${source.slice(0, bootStart)}// Initial Load (disabled in tests)\n${source.slice(bootEnd)}`;
-  }
+  // Remove the DOMContentLoaded async handler that does auth/loading
+  source = source.replace(
+    /document\.addEventListener\('DOMContentLoaded',\s*async\s*\(\)\s*=>\s*\{[\s\S]*?\n\}\);/,
+    '// DOMContentLoaded auto-bootstrap disabled in tests'
+  );
 
-  const startParamStart = source.indexOf('// Check for Telegram start_param');
-  const startParamEnd = source.indexOf('async function sendTestBPNotification()', startParamStart);
-  if (startParamStart !== -1 && startParamEnd !== -1 && startParamEnd > startParamStart) {
-    source = `${source.slice(0, startParamStart)}// Check for Telegram start_param (disabled in tests)\n\n${source.slice(startParamEnd)}`;
-  }
+  // Remove the Telegram start_param check
+  source = source.replace(
+    /\/\/ Check for Telegram start_param[\s\S]*?}, 100\);\s*\}/,
+    '// Telegram start_param check disabled in tests'
+  );
 
   return source;
 }
@@ -136,11 +149,11 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
     evalWithSourceURL(window, compSource, compPath);
   }
 
-  // Load feature scripts in correct order
-  evalWithSourceURL(window, fs.readFileSync(API_JS, 'utf8'), API_JS);
-  evalWithSourceURL(window, fs.readFileSync(CORE_UTILS_JS, 'utf8'), CORE_UTILS_JS);
-  evalWithSourceURL(window, fs.readFileSync(UI_MANAGER_JS, 'utf8'), UI_MANAGER_JS);
-  evalWithSourceURL(window, fs.readFileSync(FOOD_JS, 'utf8'), FOOD_JS);
+  // Load all feature scripts in correct order
+  for (const scriptPath of FEATURE_SCRIPTS) {
+    const source = fs.readFileSync(scriptPath, 'utf8');
+    evalWithSourceURL(window, source, scriptPath);
+  }
 
   const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
   evalWithSourceURL(window, appSource, APP_JS);

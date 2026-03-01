@@ -94,7 +94,7 @@
             tags: ['settings', 'food_targets'],
             fetcher: async () => (await window.apiCall('/api/food/settings/targets', 'GET')) || { calories: 0, carbs: 0, protein: 0, fat: 0 },
             onCached: (cached) => applyFoodTargetsToInputs(cached),
-            onFresh: (fresh) => applyFoodTargetsToInputs(fresh),
+            onFresh: async (fresh) => { applyFoodTargetsToInputs(fresh); if (window.DataStore) await window.DataStore.setCached('food_targets', fresh); },
             onError: () => applyFoodTargetsToInputs(window.foodTargets || {})
         });
     };
@@ -107,15 +107,19 @@
             fat: parseInt(document.getElementById('food-target-fat')?.value, 10) || 0
         };
 
-        const result = await window.apiCall('/api/food/settings/targets', 'POST', payload);
-        if (!result) return;
+        try {
+            const result = await window.apiCall('/api/food/settings/targets', 'POST', payload);
+            if (!result) return;
 
-        applyFoodTargetsToInputs(payload);
-        if (window.DataStore) await window.DataStore.invalidateTags(['settings', 'food_targets']);
-        if (typeof window.safeAlert === 'function') window.safeAlert('Food targets saved');
+            applyFoodTargetsToInputs(payload);
+            if (window.DataStore) await window.DataStore.invalidateTags(['settings', 'food_targets']);
+            if (typeof window.safeAlert === 'function') window.safeAlert('Food targets saved');
 
-        if (document.querySelector('.tab.active')?.dataset.tab === 'food' && typeof window.loadFoodLogs === 'function') {
-            window.loadFoodLogs();
+            if (document.querySelector('.tab.active')?.dataset.tab === 'food' && typeof window.loadFoodLogs === 'function') {
+                window.loadFoodLogs();
+            }
+        } catch (e) {
+            if (typeof window.safeAlert === 'function') window.safeAlert('Failed to save food targets');
         }
     };
 
@@ -212,6 +216,31 @@
             setTimeout(() => { status.style.display = 'none'; }, 3000);
         });
     }
+
+    function normalizeSettingsBundle(raw) {
+        const foodTargetsRaw = raw?.foodTargets || raw?.food_targets || raw?.settings?.food_targets || {};
+        const bpReminderRaw = raw?.bpReminderStatus || raw?.bp_reminder_status || raw?.settings?.bp_reminder_status || {};
+        const weightReminderRaw = raw?.weightReminderStatus || raw?.weight_reminder_status || raw?.settings?.weight_reminder_status || {};
+
+        return {
+            featureSettings: raw?.featureSettings || raw?.features || {},
+            foodTargets: {
+                calories: Number(foodTargetsRaw.calories) || 0,
+                carbs: Number(foodTargetsRaw.carbs) || 0,
+                protein: Number(foodTargetsRaw.protein) || 0,
+                fat: Number(foodTargetsRaw.fat) || 0
+            },
+            bpReminderStatus: {
+                ...bpReminderRaw,
+                enabled: !!bpReminderRaw.enabled
+            },
+            weightReminderStatus: {
+                ...weightReminderRaw,
+                enabled: !!weightReminderRaw.enabled
+            }
+        };
+    }
+    window.normalizeSettingsBundle = normalizeSettingsBundle;
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', bindSettingsControls, { once: true });

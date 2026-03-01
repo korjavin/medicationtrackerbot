@@ -92,7 +92,7 @@
             }
             const actions = document.createElement('div'); actions.className = 'med-actions';
             const logBtn = document.createElement('button'); logBtn.className = 'small-btn secondary'; logBtn.textContent = 'Log';
-            logBtn.onclick = () => window.showMedicationConfirmModal([med.id], [med.name], now, 'log_past');
+            logBtn.onclick = () => window.logMedicationPast(med.id, med.name);
             const delBtn = document.createElement('button'); delBtn.className = 'delete-btn'; delBtn.textContent = '×';
             delBtn.onclick = () => window.deleteMed(med.id);
             actions.append(logBtn, delBtn); card.append(info, actions); list.appendChild(card);
@@ -105,7 +105,7 @@
                 key: 'medications', tags: ['medications'],
                 fetcher: async () => await window.apiCall('/api/medications?archived=true'),
                 onCached: async (cached) => { window.medications = cached; window.renderMeds(); window.populateMedFilter(); },
-                onFresh: async (fresh) => { window.medications = fresh; window.renderMeds(); window.populateMedFilter(); },
+                onFresh: async (fresh) => { window.medications = fresh; if (window.MedTrackerDB?.MedicationStore) await window.MedTrackerDB.MedicationStore.saveCache(fresh); window.renderMeds(); window.populateMedFilter(); },
                 onError: async () => {
                     const offline = await window.MedTrackerDB?.MedicationStore.getCache();
                     if (offline) { window.medications = offline; window.renderMeds(); window.populateMedFilter(); }
@@ -156,6 +156,85 @@
             card.append(head, items); list.appendChild(card);
         });
     };
+
+    async function renderNextIntakeTrigger() {
+        const container = document.getElementById('next-intake-trigger');
+        if (!container) return;
+
+        try {
+            const res = await window.DataStore.fetchFresh(
+                'next_intake',
+                async () => await window.apiCall('/api/medications/next-intake', 'GET'),
+                ['history', 'medications']
+            );
+
+            if (!res || !res.scheduled_at) {
+                container.replaceChildren();
+                return;
+            }
+
+            const nextTime = new Date(res.scheduled_at);
+            const medNamesStr = res.medication_names.join(', ');
+
+            const timeStr = nextTime.toLocaleString('de-DE', {
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            const card = document.createElement('div');
+            card.style.cssText = 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;';
+
+            const body = document.createElement('div');
+            const title = document.createElement('div');
+            title.style.cssText = 'font-size: 14px; font-weight: 600; margin-bottom: 4px;';
+            title.textContent = 'Next scheduled intake';
+            const details = document.createElement('div');
+            details.style.cssText = 'font-size: 12px; opacity: 0.9;';
+            details.textContent = `${medNamesStr} at ${timeStr}`;
+            body.appendChild(title);
+            body.appendChild(details);
+
+            const action = document.createElement('button');
+            action.type = 'button';
+            action.className = 'btn-pill';
+            action.style.cssText = 'background: rgba(255,255,255,0.25); color: white; white-space: nowrap;';
+            action.textContent = 'Take Now';
+            action.addEventListener('click', () => {
+                window.triggerNextIntake();
+            });
+
+            card.appendChild(body);
+            card.appendChild(action);
+            container.replaceChildren(card);
+        } catch (e) {
+            console.error("Error fetching next intake:", e);
+            container.replaceChildren();
+        }
+    }
+    window.renderNextIntakeTrigger = renderNextIntakeTrigger;
+
+    async function triggerNextIntake() {
+        try {
+            const res = await window.apiCall('/api/medications/trigger-next-intake', 'POST');
+
+            if (res && res.status === 'confirmed') {
+                await window.DataStore.invalidateTags(['history', 'medications']);
+                await window.DataStore.invalidateKey('next_intake');
+                const medNamesStr = res.medication_names ? res.medication_names.join(', ') : `${res.medication_count} medication(s)`;
+                if (typeof window.safeAlert === 'function') {
+                    window.safeAlert(`Confirmed: ${medNamesStr}\n\nScheduled for: ${window.formatDate(res.scheduled_at)}\nTaken at: ${window.formatDate(res.taken_at)}`);
+                }
+
+                await window.loadHistory();
+            }
+        } catch (error) {
+            console.error('Error triggering next intake:', error);
+            if (typeof window.safeAlert === 'function') window.safeAlert('Failed to trigger next intake. Please try again.');
+        }
+    }
+    window.triggerNextIntake = triggerNextIntake;
 
     window.populateMedFilter = function () {
         const sel = document.getElementById('history-filter-med');

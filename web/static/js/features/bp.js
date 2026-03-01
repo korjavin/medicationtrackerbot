@@ -34,7 +34,7 @@
         const pulseRaw = document.getElementById('bp-pulse')?.value;
         const pulse = pulseRaw ? parseInt(pulseRaw, 10) : null;
         const site = document.getElementById('bp-site')?.value || 'right_arm';
-        const position = document.getElementById('bp-position')?.value || 'seated';
+        const position = document.getElementById('bp-position')?.value || '';
         const notes = document.getElementById('bp-notes')?.value || '';
 
         if (!datetime || !systolic || !diastolic) {
@@ -411,6 +411,82 @@
         renderGroup('Yesterday', groups.yesterday);
         renderGroup('Older Readings', groups.older);
     };
+
+    async function deleteBPReading(id) {
+        const confirmMsg = 'Delete this blood pressure reading?';
+
+        if (window.userInitData && window.tg && window.tg.showConfirm) {
+            try {
+                window.tg.showConfirm(confirmMsg, (ok) => {
+                    if (ok) window._deleteBPApi(id);
+                });
+                return;
+            } catch (e) {
+                console.log('tg.showConfirm failed, falling back', e);
+            }
+        }
+
+        if (confirm(confirmMsg)) {
+            window._deleteBPApi(id);
+        }
+    }
+    window.deleteBPReading = deleteBPReading;
+
+    async function _deleteBPApi(id) {
+        if (typeof id === 'string' && id.startsWith('local_')) {
+            const localId = parseInt(id.replace('local_', ''));
+            if (window.MedTrackerDB) {
+                await window.MedTrackerDB.BPStore.confirmDelete(localId);
+                if (window.SyncManager) window.SyncManager.updateStatus();
+            }
+            window.loadBPReadings();
+            return;
+        }
+
+        const res = await window.apiCall(`/api/bp/${id}`, 'DELETE');
+        if (res) {
+            await window.DataStore.invalidateTags(['bp']);
+            if (window.MedTrackerDB) {
+                try {
+                    const allReadings = await window.MedTrackerDB.BPStore.getAll();
+                    const localRecord = allReadings.find(r => r.serverId === parseInt(id));
+                    if (localRecord && localRecord.localId) {
+                        await window.MedTrackerDB.BPStore.confirmDelete(localRecord.localId);
+                        if (window.SyncManager) window.SyncManager.updateStatus();
+                    }
+                } catch (e) {
+                    console.error('Failed to delete from local DB:', e);
+                }
+            }
+            window.loadBPReadings();
+        }
+    }
+    window._deleteBPApi = _deleteBPApi;
+
+    async function exportBPCSV() {
+        try {
+            const headers = {};
+            if (window.userInitData) headers['Authorization'] = `tma ${window.userInitData}`;
+            const response = await fetch('/api/bp/export', {
+                method: 'GET',
+                headers
+            });
+
+            if (!response.ok) {
+                if (typeof window.safeAlert === 'function') window.safeAlert('Failed to generate export');
+                return;
+            }
+
+            const blob = await response.blob();
+            if (typeof window.downloadBlobAsFile === 'function') {
+                window.downloadBlobAsFile(blob, 'blood_pressure_export.csv');
+            }
+        } catch (err) {
+            console.error('Export error:', err);
+            if (typeof window.safeAlert === 'function') window.safeAlert('Failed to export data');
+        }
+    }
+    window.exportBPCSV = exportBPCSV;
 
     let bpControlsBound = false;
     function bindBPControls() {
