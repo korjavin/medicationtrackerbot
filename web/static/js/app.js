@@ -2959,7 +2959,7 @@ function showAddModal() {
     addTimeInput(); // One empty input
 
     // Clear days
-    document.querySelectorAll('.days-select span').forEach(s => s.classList.remove('selected'));
+    document.querySelectorAll('#days-container .days-select span').forEach(s => s.classList.remove('selected'));
 }
 
 function showEditModal(id) {
@@ -3023,10 +3023,10 @@ function showEditModal(id) {
     }
 
     // Set days
-    document.querySelectorAll('.days-select span').forEach(s => s.classList.remove('selected'));
+    document.querySelectorAll('#days-container .days-select span').forEach(s => s.classList.remove('selected'));
     if (sched.days) {
         sched.days.forEach(d => {
-            const span = document.querySelector(`span[data-day="${d}"]`);
+            const span = document.querySelector(`#days-container .days-select span[data-day="${d}"]`);
             if (span) span.classList.add('selected');
         });
     }
