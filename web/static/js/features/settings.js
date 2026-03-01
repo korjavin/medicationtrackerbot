@@ -1,110 +1,220 @@
 (function () {
-    window.loadFeatureSettings = async function () {
-        if (!window.DataStore || window.featureSettingsLoaded) return;
-        await window.DataStore.loadSWR({
-            key: 'settings_features', tags: ['settings'],
-            fetcher: async () => await window.apiCall('/api/settings/features', 'GET'),
-            onCached: (cached) => window.applyFeatureSettings(cached),
-            onFresh: (fresh) => { window.featureSettingsLoaded = true; window.applyFeatureSettings(fresh); },
-            onError: () => window.applyFeatureSettings({ medication: true, workout: true }) // defaults
-        });
+    const FEATURE_TOGGLE_IDS = {
+        food: 'food-intake-toggle',
+        bp: 'bp-feature-toggle',
+        weight: 'weight-feature-toggle',
+        health: 'health-feature-toggle',
+        medication: 'medication-feature-toggle',
+        workout: 'workout-feature-toggle'
     };
+
+    const TAB_BY_FEATURE = {
+        food: 'food',
+        bp: 'bp',
+        weight: 'weight',
+        health: 'health',
+        medication: 'meds',
+        workout: 'workouts'
+    };
+
+    function setFeatureTabVisibility(feature, enabled) {
+        const tabName = TAB_BY_FEATURE[feature];
+        if (!tabName) return;
+        const tabButton = document.querySelector(`.tab[data-tab="${tabName}"]`);
+        if (tabButton) {
+            tabButton.style.display = enabled ? 'inline-block' : 'none';
+        }
+    }
 
     window.applyFeatureSettings = function (settings) {
         if (!settings) return;
-        window.featureSettings = settings;
-        const tabs = {
-            'tab-med-link': settings.medication,
-            'tab-workout-link': settings.workout,
-            'tab-food-link': settings.food,
-            'tab-bp-link': settings.bp,
-            'tab-weight-link': settings.weight,
-            'tab-health-link': settings.health
-        };
-        Object.entries(tabs).forEach(([id, show]) => {
-            const el = document.getElementById(id); if (el) el.style.display = show ? 'flex' : 'none';
+        window.featureSettings = { ...window.featureSettings, ...settings };
+        window.featureSettingsLoaded = true;
+
+        Object.entries(FEATURE_TOGGLE_IDS).forEach(([feature, id]) => {
+            const input = document.getElementById(id);
+            if (input) input.checked = !!window.featureSettings[feature];
+            setFeatureTabVisibility(feature, !!window.featureSettings[feature]);
         });
-        const currentActive = document.querySelector('#tabs .tab.active');
-        if (currentActive && currentActive.style.display === 'none') {
+
+        const activeTab = document.querySelector('#tabs .tab.active');
+        if (activeTab && activeTab.style.display === 'none') {
             const firstVisible = document.querySelector('#tabs .tab:not([style*="display: none"])');
-            if (firstVisible) window.switchTab(firstVisible.dataset.tab);
+            if (firstVisible && typeof window.switchTab === 'function') {
+                window.switchTab(firstVisible.dataset.tab);
+            }
         }
-        window.renderTabSettings(settings);
     };
 
-    window.renderTabSettings = function (settings) {
-        const container = document.getElementById('settings-features-list');
-        if (!container) return;
-        container.replaceChildren();
-        const card = document.createElement('mt-card'); card.innerHTML = '<h3 style="margin-top:0;">Enabled Features</h3><p style="color:var(--hint-color);font-size:0.9em;">Toggle whole tabs on or off.</p>';
-        const list = document.createElement('div'); list.style.cssText = 'display:flex;flex-direction:column;gap:12px;margin-top:20px;';
+    window.loadFeatureSettings = async function () {
+        if (!window.DataStore) return;
 
-        const toggles = [
-            { key: 'medication', label: 'Medications', icon: '💊' },
-            { key: 'workout', label: 'Workouts', icon: '💪' },
-            { key: 'food', label: 'Food Logging', icon: '🍎' },
-            { key: 'bp', label: 'Blood Pressure', icon: '💓' },
-            { key: 'weight', label: 'Weight Tracking', icon: '⚖️' },
-            { key: 'health', label: 'Health Vitals', icon: '🫀' }
-        ];
-
-        toggles.forEach(t => {
-            const row = document.createElement('mt-setting-toggle');
-            row.setAttribute('label', `${t.icon} ${t.label}`);
-            if (settings[t.key]) row.setAttribute('checked', '');
-            row.onchange = async () => {
-                const updated = { ...window.featureSettings, [t.key]: row.checked };
-                try {
-                    await window.apiCall('/api/settings/features', 'POST', updated);
-                    window.applyFeatureSettings(updated);
-                    if (window.DataStore) await window.DataStore.invalidateTags(['settings']);
-                } catch (e) { window.safeAlert('Failed to save settings'); row.checked = !row.checked; }
-            };
-            list.appendChild(row);
+        await window.DataStore.loadSWR({
+            key: 'settings_features',
+            tags: ['settings', 'feature_settings'],
+            fetcher: async () => await window.apiCall('/api/settings/features', 'GET'),
+            onCached: (cached) => window.applyFeatureSettings(cached),
+            onFresh: (fresh) => window.applyFeatureSettings(fresh),
+            onError: () => window.applyFeatureSettings({
+                medication: true,
+                workout: true,
+                food: true,
+                bp: true,
+                weight: true,
+                health: true
+            })
         });
-        card.appendChild(list); container.appendChild(card);
     };
+
+    function applyFoodTargetsToInputs(targets) {
+        const normalized = {
+            calories: targets?.calories || 0,
+            carbs: targets?.carbs || 0,
+            protein: targets?.protein || 0,
+            fat: targets?.fat || 0
+        };
+        window.foodTargets = normalized;
+
+        const calories = document.getElementById('food-target-calories');
+        const carbs = document.getElementById('food-target-carbs');
+        const protein = document.getElementById('food-target-protein');
+        const fat = document.getElementById('food-target-fat');
+
+        if (calories) calories.value = normalized.calories || '';
+        if (carbs) carbs.value = normalized.carbs || '';
+        if (protein) protein.value = normalized.protein || '';
+        if (fat) fat.value = normalized.fat || '';
+    }
 
     window.loadFoodTargets = async function () {
         if (!window.DataStore) return;
+
         await window.DataStore.loadSWR({
-            key: 'settings_food_targets', tags: ['settings'],
-            fetcher: async () => await window.apiCall('/api/settings/food/targets', 'GET'),
-            onCached: (cached) => { if (cached) window.foodTargets = cached; window.renderFoodTargetsSettings(cached); },
-            onFresh: (fresh) => { if (fresh) window.foodTargets = fresh; window.renderFoodTargetsSettings(fresh); }
+            key: 'settings_food_targets',
+            tags: ['settings', 'food_targets'],
+            fetcher: async () => (await window.apiCall('/api/food/settings/targets', 'GET')) || { calories: 0, carbs: 0, protein: 0, fat: 0 },
+            onCached: (cached) => applyFoodTargetsToInputs(cached),
+            onFresh: (fresh) => applyFoodTargetsToInputs(fresh),
+            onError: () => applyFoodTargetsToInputs(window.foodTargets || {})
         });
     };
 
-    window.renderFoodTargetsSettings = function (targets) {
-        const container = document.getElementById('settings-food-targets-list');
-        if (!container) return;
-        container.replaceChildren();
-        const card = document.createElement('mt-card'); card.innerHTML = '<h3 style="margin-top:0;">Food Targets</h3><p style="color:var(--hint-color);font-size:0.9em;">Daily goals for macros.</p>';
-        const list = document.createElement('div'); list.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:15px;';
-
-        const inputs = [
-            { key: 'calories', label: 'Calories', unit: 'kcal' },
-            { key: 'carbs', label: 'Carbs', unit: 'g' },
-            { key: 'protein', label: 'Protein', unit: 'g' },
-            { key: 'fat', label: 'Fat', unit: 'g' }
-        ];
-
-        inputs.forEach(i => {
-            const div = document.createElement('div');
-            div.innerHTML = `<label style="display:block;font-size:0.8em;color:var(--hint-color);">${i.label} (${i.unit})</label><input type="number" id="target-${i.key}" value="${targets?.[i.key] || 0}" style="width:100%;box-sizing:border-box;">`;
-            list.appendChild(div);
-        });
-
-        const saveBtn = document.createElement('button'); saveBtn.className = 'primary'; saveBtn.style.marginTop = '15px'; saveBtn.textContent = 'Save Food Targets';
-        saveBtn.onclick = async () => {
-            const updated = {}; inputs.forEach(i => updated[i.key] = parseInt(document.getElementById(`target-${i.key}`).value) || 0);
-            try {
-                await window.apiCall('/api/settings/food/targets', 'POST', updated);
-                window.foodTargets = updated;
-                if (window.DataStore) await window.DataStore.invalidateTags(['settings']);
-                window.safeAlert('Targets saved');
-            } catch (e) { window.safeAlert('Failed to save targets'); }
+    window.saveFoodTargets = async function () {
+        const payload = {
+            calories: parseInt(document.getElementById('food-target-calories')?.value, 10) || 0,
+            carbs: parseInt(document.getElementById('food-target-carbs')?.value, 10) || 0,
+            protein: parseInt(document.getElementById('food-target-protein')?.value, 10) || 0,
+            fat: parseInt(document.getElementById('food-target-fat')?.value, 10) || 0
         };
-        card.appendChild(list); card.appendChild(saveBtn); container.appendChild(card);
+
+        const result = await window.apiCall('/api/food/settings/targets', 'POST', payload);
+        if (!result) return;
+
+        applyFoodTargetsToInputs(payload);
+        if (window.DataStore) await window.DataStore.invalidateTags(['settings', 'food_targets']);
+        if (typeof window.safeAlert === 'function') window.safeAlert('Food targets saved');
+
+        if (document.querySelector('.tab.active')?.dataset.tab === 'food' && typeof window.loadFoodLogs === 'function') {
+            window.loadFoodLogs();
+        }
     };
+
+    window.toggleFeatureSetting = async function (feature, enabled) {
+        const result = await window.apiCall(`/api/settings/features/${feature}`, 'POST', { enabled });
+        if (!result) return;
+
+        const updated = { ...window.featureSettings, [feature]: enabled };
+        window.applyFeatureSettings(updated);
+        if (window.DataStore) await window.DataStore.invalidateTags(['settings', 'feature_settings']);
+    };
+
+    async function loadReminderSettings() {
+        const [bp, weight] = await Promise.all([
+            window.apiCall('/api/bp/reminder/status', 'GET'),
+            window.apiCall('/api/weight/reminder/status', 'GET')
+        ]);
+
+        const bpToggle = document.getElementById('bp-reminders-toggle');
+        if (bpToggle) bpToggle.checked = !!bp?.enabled;
+
+        const weightToggle = document.getElementById('weight-reminders-toggle');
+        if (weightToggle) weightToggle.checked = !!weight?.enabled;
+    }
+
+    window.loadSettings = async function () {
+        await Promise.allSettled([
+            window.loadFeatureSettings(),
+            window.loadFoodTargets(),
+            loadReminderSettings()
+        ]);
+    };
+
+    let settingsControlsBound = false;
+    function bindSettingsControls() {
+        if (settingsControlsBound) return;
+        settingsControlsBound = true;
+
+        const bindChange = (id, handler) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', handler);
+        };
+        const bindClick = (id, handler) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('click', handler);
+        };
+
+        bindChange('food-intake-toggle', async function () { await window.toggleFeatureSetting('food', this.checked); });
+        bindChange('bp-feature-toggle', async function () { await window.toggleFeatureSetting('bp', this.checked); });
+        bindChange('weight-feature-toggle', async function () { await window.toggleFeatureSetting('weight', this.checked); });
+        bindChange('health-feature-toggle', async function () { await window.toggleFeatureSetting('health', this.checked); });
+        bindChange('medication-feature-toggle', async function () { await window.toggleFeatureSetting('medication', this.checked); });
+        bindChange('workout-feature-toggle', async function () { await window.toggleFeatureSetting('workout', this.checked); });
+
+        bindChange('bp-reminders-toggle', async function () {
+            const enabled = this.checked;
+            const res = await window.apiCall('/api/bp/reminder/toggle', 'POST', { enabled });
+            if (!res) this.checked = !enabled;
+        });
+        bindChange('weight-reminders-toggle', async function () {
+            const enabled = this.checked;
+            const res = await window.apiCall('/api/weight/reminder/toggle', 'POST', { enabled });
+            if (!res) this.checked = !enabled;
+        });
+
+        bindClick('save-food-targets-btn', async () => { await window.saveFoodTargets(); });
+
+        bindChange('webpush-toggle', async function () {
+            const status = document.getElementById('webpush-status');
+            if (!status) return;
+
+            status.style.display = 'block';
+            if (!window.MedTrackerPush) {
+                status.textContent = 'Push is unavailable';
+                status.style.color = 'red';
+                this.checked = false;
+                return;
+            }
+
+            if (this.checked) {
+                status.textContent = 'Requesting permission...';
+                status.style.color = '';
+                const success = await window.MedTrackerPush.subscribe();
+                status.textContent = success ? 'Notifications enabled' : 'Failed to enable notifications';
+                status.style.color = success ? 'green' : 'red';
+                if (!success) this.checked = false;
+            } else {
+                const success = await window.MedTrackerPush.unsubscribe();
+                status.textContent = success ? 'Notifications disabled' : 'Failed to disable notifications';
+                status.style.color = success ? 'gray' : 'red';
+                if (!success) this.checked = true;
+            }
+
+            setTimeout(() => { status.style.display = 'none'; }, 3000);
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bindSettingsControls, { once: true });
+    }
+    bindSettingsControls();
 })();

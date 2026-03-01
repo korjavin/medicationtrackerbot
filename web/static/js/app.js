@@ -44,9 +44,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const foodForm = document.getElementById('food-form');
     if (foodForm) foodForm.onsubmit = window.saveFoodLog;
 
-    // Start polling for changes
-    if (window.DataStore) window.DataStore.startChangePolling();
-
     // Try OIDC or Cookie auth
     const cached = getCachedAuthState();
     if (cached) {
@@ -73,11 +70,20 @@ async function onAuth() {
 
     // Initial data load
     window.initialAuthLoad = true;
-    await Promise.all([
-        window.loadMeds(),
-        window.loadFeatureSettings(),
-        window.loadWeeklyHub()
+    await Promise.allSettled([
+        typeof window.loadMeds === 'function' ? window.loadMeds() : Promise.resolve(),
+        typeof window.loadFeatureSettings === 'function' ? window.loadFeatureSettings() : Promise.resolve(),
+        typeof window.loadWeeklyHub === 'function' ? window.loadWeeklyHub() : Promise.resolve()
     ]);
+    if (window.SyncManager && typeof window.SyncManager.init === 'function') {
+        window.SyncManager.init();
+    }
+    if (window.MedTrackerPush && typeof window.MedTrackerPush.initialize === 'function') {
+        window.MedTrackerPush.initialize().catch(() => { /* non-fatal */ });
+    }
+    if (window.DataStore && typeof window.DataStore.startChangePolling === 'function') {
+        window.DataStore.startChangePolling();
+    }
     if (typeof window.switchTab === 'function') window.switchTab('meds');
 }
 
@@ -151,12 +157,14 @@ window.loadHistory = async function () {
     }
 };
 
-window.loadSettings = async function () {
-    await Promise.all([
-        window.loadFeatureSettings(),
-        window.loadFoodTargets()
-    ]);
-};
+if (typeof window.loadSettings !== 'function') {
+    window.loadSettings = async function () {
+        await Promise.allSettled([
+            typeof window.loadFeatureSettings === 'function' ? window.loadFeatureSettings() : Promise.resolve(),
+            typeof window.loadFoodTargets === 'function' ? window.loadFoodTargets() : Promise.resolve()
+        ]);
+    };
+}
 
 // Global handlers
 window.onDataStoreUnauthorized = function () {
