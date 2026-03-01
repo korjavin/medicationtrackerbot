@@ -516,6 +516,80 @@ func TestCheckWorkoutNotifications_PreSkippedSession(t *testing.T) {
 	}
 }
 
+// TestCheckWorkout_SessionVariantUpdatedWhenRotationChanges reproduces the bug where:
+//  1. A group was non-rotating with variant "Swings".
+//  2. A session was pre-created for today with variant "Swings".
+//  3. The group was then made rotating with "Bodyweight" as the current variant.
+//  4. When the scheduler runs, it should update the existing session's variant_id
+//     to match the current rotation state (Bodyweight), not leave it pointing to Swings.
+//
+// Without the fix, the notification shows Bodyweight but the workout starts Swings.
+func TestCheckWorkout_SessionVariantUpdatedWhenRotationChanges(t *testing.T) {
+	sched, db := setupTestScheduler(t)
+
+	now := time.Now()
+	todayIdx := int(now.Weekday())
+	daysOfWeek := "[" + intToStr(todayIdx) + "]"
+	// Schedule in the future so notification is not triggered yet, but session IS created
+	pastTime := now.Add(-30 * time.Minute).Format("15:04")
+
+	// Step 1: Create group as non-rotating with only "Swings" variant
+	group, err := db.CreateWorkoutGroup("Morning Workouts", "desc", false, 123456, daysOfWeek, pastTime, 15)
+	if err != nil {
+		t.Fatalf("CreateWorkoutGroup: %v", err)
+	}
+
+	swingsVariant, err := db.CreateWorkoutVariant(group.ID, "Swings", nil, "")
+	if err != nil {
+		t.Fatalf("CreateWorkoutVariant Swings: %v", err)
+	}
+
+	// Step 2: Session was already created for today with the old variant (Swings)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	session, err := db.CreateWorkoutSession(group.ID, swingsVariant.ID, 123456, today, pastTime)
+	if err != nil {
+		t.Fatalf("CreateWorkoutSession: %v", err)
+	}
+
+	// Verify initial state: session points to Swings
+	if session.VariantID != swingsVariant.ID {
+		t.Fatalf("pre-condition: session should have swings variant %d, got %d", swingsVariant.ID, session.VariantID)
+	}
+
+	// Step 3: User makes the group rotating and adds "Bodyweight" variant
+	err = db.UpdateWorkoutGroup(group.ID, "Morning Workouts", "desc", true, daysOfWeek, pastTime, 15, true)
+	if err != nil {
+		t.Fatalf("UpdateWorkoutGroup (make rotating): %v", err)
+	}
+
+	order := 1
+	bodyweightVariant, err := db.CreateWorkoutVariant(group.ID, "Bodyweight", &order, "")
+	if err != nil {
+		t.Fatalf("CreateWorkoutVariant Bodyweight: %v", err)
+	}
+
+	// Initialize rotation to Bodyweight (what the user does in the UI)
+	if err := db.InitializeRotation(group.ID, bodyweightVariant.ID); err != nil {
+		t.Fatalf("InitializeRotation: %v", err)
+	}
+
+	// Step 4: Run the scheduler
+	err = sched.WorkoutChecker.Check(context.Background())
+	if err != nil {
+		t.Fatalf("WorkoutChecker.Check: %v", err)
+	}
+
+	// Step 5: Verify the session's variant_id was updated to Bodyweight
+	updated, err := db.GetWorkoutSession(session.ID)
+	if err != nil {
+		t.Fatalf("GetWorkoutSession: %v", err)
+	}
+	if updated.VariantID != bodyweightVariant.ID {
+		t.Errorf("BUG: session variant was not updated — got variant_id=%d (Swings), want %d (Bodyweight)",
+			updated.VariantID, bodyweightVariant.ID)
+	}
+}
+
 // --- Helper functions ---
 
 func intToStr(i int) string {
