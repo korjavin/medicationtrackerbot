@@ -86,4 +86,5 @@ type ImportStore interface {
 	ImportSleepLogs(ctx context.Context, userID int64, logs []store.SleepLog) (int, int, error)
 	ImportVitals(ctx context.Context, userID int64, heartLogs []store.VitalsHeartLog, spo2Logs []store.VitalsSpO2Log, stressLogs []store.VitalsStressLog) (int, int, error)
 	ImportDayStats(ctx context.Context, userID int64, stats []store.DayStat) (int, int, error)
+	ImportMiBandWorkouts(ctx context.Context, workouts []store.MiBandWorkout, gpsTracks map[int64][]store.MiBandGPSPoint) (int, int, error)
 }
