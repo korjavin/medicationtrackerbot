@@ -24,11 +24,28 @@
             }
             throw new Error('Unauthorized');
         }
+        // Check if this is a service worker offline response
+        if (res.status === 503) {
+            const txt = await res.text();
+            try {
+                const json = JSON.parse(txt);
+                if (json.error === 'offline') {
+                    throw new Error('Network request failed');
+                }
+            } catch (e) {
+                if (e.message === 'Network request failed') throw e;
+            }
+        }
         if (!res.ok) {
             const err = await res.text();
             throw new Error(err || 'API call failed');
         }
-        return await res.json();
+        if (res.status === 204 || method === 'DELETE') {
+            return true;
+        }
+        const txt = await res.text();
+        if (!txt) return true;
+        return JSON.parse(txt);
     };
 
     window.apiCall = async function (endpoint, method = "GET", body = null) {

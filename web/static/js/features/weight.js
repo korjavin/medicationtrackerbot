@@ -309,6 +309,69 @@
             svg.appendChild(goalLabel);
         }
 
+        // Diet plan line from highest weight (all time) to goal
+        if (goalData && goalData.goal && goalData.goal_date && goalData.highest_weight && goalData.highest_date) {
+            const highestDate = new Date(goalData.highest_date);
+            const highestWeight = goalData.highest_weight;
+            const goalDate = new Date(goalData.goal_date);
+            const goalWeight = goalData.goal;
+
+            const totalTimeSpan = goalDate - highestDate;
+            const weightDiff = goalWeight - highestWeight;
+
+            if (totalTimeSpan > 0) {
+                const getWeightAtDate = (date) => {
+                    const elapsed = date - highestDate;
+                    return highestWeight + (weightDiff * elapsed / totalTimeSpan);
+                };
+
+                let startDate = highestDate < chartStartDate ? chartStartDate : highestDate;
+                let endDate = goalDate > chartEndDate ? chartEndDate : goalDate;
+
+                const startWeight = getWeightAtDate(startDate);
+                const endWeight = getWeightAtDate(endDate);
+
+                const startX = xScaleByDate(startDate);
+                const startY = yScale(startWeight);
+                const endX = xScaleByDate(endDate);
+                const endY = yScale(endWeight);
+
+                const planLine = document.createElementNS(svgNs, 'line');
+                planLine.setAttribute('x1', startX);
+                planLine.setAttribute('y1', startY);
+                planLine.setAttribute('x2', endX);
+                planLine.setAttribute('y2', endY);
+                planLine.setAttribute('stroke', '#06b6d4');
+                planLine.setAttribute('stroke-width', '2');
+                planLine.setAttribute('stroke-dasharray', '5,5');
+                planLine.setAttribute('opacity', '0.6');
+                svg.appendChild(planLine);
+
+                const now = new Date();
+                if (now >= highestDate && now <= goalDate) {
+                    const todayPlanWeight = getWeightAtDate(now);
+                    const todayX = xScaleByDate(now);
+                    const todayY = yScale(todayPlanWeight);
+
+                    const todayMarker = document.createElementNS(svgNs, 'circle');
+                    todayMarker.setAttribute('cx', todayX);
+                    todayMarker.setAttribute('cy', todayY);
+                    todayMarker.setAttribute('r', 4);
+                    todayMarker.setAttribute('fill', '#06b6d4');
+                    todayMarker.setAttribute('stroke', 'var(--bg-color)');
+                    todayMarker.setAttribute('stroke-width', '2');
+                    svg.appendChild(todayMarker);
+
+                    const todayLabel = document.createElementNS(svgNs, 'text');
+                    todayLabel.setAttribute('x', todayX);
+                    todayLabel.setAttribute('y', todayY - 12);
+                    todayLabel.setAttribute('style', 'text-anchor:middle;fill:#06b6d4;font-weight:bold;font-size:12px;');
+                    todayLabel.textContent = todayPlanWeight.toFixed(1) + ' kg';
+                    svg.appendChild(todayLabel);
+                }
+            }
+        }
+
         const points = data.map((d) => [xScaleByDate(d.date), yScale(d.weight)]);
         const smoothPath = window.catmullRomSpline(points, 15);
         const firstPoint = points[0];
@@ -432,10 +495,9 @@
         if (window.ModalManager && window.ModalManager.weight) window.ModalManager.weight.open();
         const dt = document.getElementById('weight-datetime');
         if (dt && typeof window.formatDateTimeLocalForInput === 'function') dt.value = window.formatDateTimeLocalForInput();
-        ['weight-value', 'weight-notes'].forEach((id) => {
-            const el = document.getElementById(id);
-            if (el) el.value = '';
-        });
+        const notesEl = document.getElementById('weight-notes');
+        if (notesEl) notesEl.value = '';
+        setWeightValue(rulerState.currentWeight);
     };
 
     window.showWeightModal = window.showWeightRecordModal;
@@ -473,6 +535,139 @@
         const cancelBtn = document.getElementById('weight-modal-cancel-btn');
         if (cancelBtn) cancelBtn.addEventListener('click', () => window.closeWeightModal());
     }
+
+    // Weight ruler state
+    let rulerState = {
+        currentWeight: 75.0,
+        isDragging: false,
+        startX: 0,
+        startWeight: 0,
+        pixelsPerKg: 40
+    };
+
+    function setWeightValue(weight) {
+        weight = Math.max(30, Math.min(300, weight));
+        weight = Math.round(weight * 10) / 10;
+        rulerState.currentWeight = weight;
+        const el = document.getElementById('weight-value');
+        if (el) el.value = weight.toFixed(1);
+    }
+    window.setWeightValue = setWeightValue;
+
+    function handleDragStart(e) {
+        rulerState.isDragging = true;
+        rulerState.startWeight = rulerState.currentWeight;
+        if (e.type === 'touchstart') {
+            rulerState.startX = e.touches[0].clientX;
+            e.preventDefault();
+        } else {
+            rulerState.startX = e.clientX;
+        }
+    }
+    window.handleDragStart = handleDragStart;
+
+    function handleDragMove(e) {
+        if (!rulerState.isDragging) return;
+        let currentX;
+        if (e.type === 'touchmove') {
+            currentX = e.touches[0].clientX;
+            e.preventDefault();
+        } else {
+            currentX = e.clientX;
+        }
+        const deltaX = rulerState.startX - currentX;
+        const deltaWeight = deltaX / rulerState.pixelsPerKg;
+        const newWeight = rulerState.startWeight + deltaWeight;
+        setWeightValue(newWeight);
+        if (typeof window.renderRulerTicks === 'function') window.renderRulerTicks(newWeight);
+    }
+    window.handleDragMove = handleDragMove;
+
+    function handleDragEnd() {
+        if (!rulerState.isDragging) return;
+        rulerState.isDragging = false;
+    }
+    window.handleDragEnd = handleDragEnd;
+
+    async function deleteWeightLog(id) {
+        const confirmMsg = 'Delete this weight log?';
+
+        if (window.userInitData && window.tg && window.tg.showConfirm) {
+            try {
+                window.tg.showConfirm(confirmMsg, (ok) => {
+                    if (ok) window._deleteWeightApi(id);
+                });
+                return;
+            } catch (e) {
+                console.log('tg.showConfirm failed, falling back', e);
+            }
+        }
+
+        if (confirm(confirmMsg)) {
+            window._deleteWeightApi(id);
+        }
+    }
+    window.deleteWeightLog = deleteWeightLog;
+
+    async function _deleteWeightApi(id) {
+        if (typeof id === 'string' && id.startsWith('local_')) {
+            const localId = parseInt(id.replace('local_', ''));
+            if (window.MedTrackerDB) {
+                await window.MedTrackerDB.WeightStore.confirmDelete(localId);
+                if (window.SyncManager) window.SyncManager.updateStatus();
+            }
+            window.loadWeightLogs();
+            return;
+        }
+
+        const res = await window.apiCall(`/api/weight/${id}`, 'DELETE');
+        if (res) {
+            await window.DataStore.invalidateTags(['weight']);
+            if (window.MedTrackerDB) {
+                try {
+                    const allLogs = await window.MedTrackerDB.WeightStore.getAll();
+                    const localRecord = allLogs.find(l => l.serverId === parseInt(id));
+                    if (localRecord && localRecord.localId) {
+                        await window.MedTrackerDB.WeightStore.confirmDelete(localRecord.localId);
+                        if (window.SyncManager) window.SyncManager.updateStatus();
+                    }
+                } catch (e) {
+                    console.error('Failed to delete from local DB:', e);
+                }
+            }
+            window.loadWeightLogs();
+        }
+    }
+    window._deleteWeightApi = _deleteWeightApi;
+
+    async function exportWeightCSV() {
+        try {
+            const headers = {};
+            if (window.userInitData) headers['Authorization'] = `tma ${window.userInitData}`;
+            const response = await fetch('/api/weight/export', {
+                method: 'GET',
+                headers
+            });
+
+            if (!response.ok) {
+                if (typeof window.safeAlert === 'function') window.safeAlert('Failed to generate export');
+                return;
+            }
+
+            const blob = await response.blob();
+            if (typeof window.downloadBlobAsFile === 'function') {
+                window.downloadBlobAsFile(blob, 'weight_export.csv');
+            }
+        } catch (err) {
+            console.error('Export error:', err);
+            if (typeof window.safeAlert === 'function') window.safeAlert('Failed to export data');
+        }
+    }
+    window.exportWeightCSV = exportWeightCSV;
+
+    window.linearRegression = linearRegression;
+    window.calculateYAxisTicks = calculateYAxisTicks;
+    window.calculateWeightStats = calculateWeightStats;
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', bindWeightControls, { once: true });
