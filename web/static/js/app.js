@@ -28,6 +28,25 @@ function getCachedAuthState() {
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[App] Starting initialization...');
 
+    // Bind tab groups via custom tabchange events as early as possible.
+    document.getElementById('tabs')?.addEventListener('tabchange', (e) => {
+        if (typeof window.switchTab === 'function') window.switchTab(e.detail.tabId);
+    });
+    document.querySelector('.med-tabs')?.addEventListener('tabchange', (e) => {
+        if (typeof window.switchMedTab === 'function') window.switchMedTab(e.detail.tabId);
+    });
+
+    // BP & Weight Submit
+    const bpForm = document.getElementById('bp-form');
+    if (bpForm) bpForm.onsubmit = window.handleBPSubmit;
+    const weightForm = document.getElementById('weight-form');
+    if (weightForm) weightForm.onsubmit = window.handleWeightSubmit;
+    const foodForm = document.getElementById('food-form');
+    if (foodForm) foodForm.onsubmit = window.saveFoodLog;
+
+    // Start polling for changes
+    if (window.DataStore) window.DataStore.startChangePolling();
+
     // Try OIDC or Cookie auth
     const cached = getCachedAuthState();
     if (cached) {
@@ -44,29 +63,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch (e) { console.warn('[Auth] Session check failed'); }
 
         // Show login options
-        document.getElementById('login-view').classList.add('active');
+        document.getElementById('login-view')?.classList.add('active');
     }
-
-    // Tab switching in meds
-    document.querySelectorAll('.med-tab').forEach(t => {
-        t.onclick = () => window.switchMedTab(t.dataset.tab);
-    });
-
-    // BP & Weight Submit
-    const bpForm = document.getElementById('bp-form');
-    if (bpForm) bpForm.onsubmit = window.handleBPSubmit;
-    const weightForm = document.getElementById('weight-form');
-    if (weightForm) weightForm.onsubmit = window.handleWeightSubmit;
-    const foodForm = document.getElementById('food-form');
-    if (foodForm) foodForm.onsubmit = window.saveFoodLog;
-
-    // Start polling for changes
-    if (window.DataStore) window.DataStore.startChangePolling();
 });
 
 async function onAuth() {
-    document.getElementById('login-view').classList.remove('active');
-    document.getElementById('main-view').classList.remove('hidden');
+    document.getElementById('login-view')?.classList.remove('active');
+    document.getElementById('main-view')?.classList.remove('hidden');
 
     // Initial data load
     window.initialAuthLoad = true;
@@ -75,7 +78,7 @@ async function onAuth() {
         window.loadFeatureSettings(),
         window.loadWeeklyHub()
     ]);
-    window.switchTab('meds');
+    if (typeof window.switchTab === 'function') window.switchTab('meds');
 }
 
 // Swipe gesture navigation between tabs
@@ -107,23 +110,30 @@ async function onAuth() {
     window.addEventListener('popstate', () => {
         if (!modalPushed) return;
         popping = true; window.ModalManager.closeTopMostVisibleModal(); popping = false; modalPushed = false;
-        if (!document.getElementById('modal-overlay').classList.contains('hidden')) { modalPushed = true; history.pushState({ modal: true }, ''); }
+        const overlay = document.getElementById('modal-overlay');
+        if (overlay && !overlay.classList.contains('hidden')) { modalPushed = true; history.pushState({ modal: true }, ''); }
         else if (isBackSupported) backButton.hide();
     });
 
     if (isBackSupported) backButton.onClick(() => { popping = true; window.ModalManager.closeTopMostVisibleModal(); popping = false; modalPushed = false; if (isBackSupported) backButton.hide(); history.back(); });
 
-    const observer = new MutationObserver(() => { document.getElementById('modal-overlay').classList.contains('hidden') ? onHide() : onShow(); });
+    const observer = new MutationObserver(() => {
+        const overlay = document.getElementById('modal-overlay');
+        if (!overlay) return;
+        overlay.classList.contains('hidden') ? onHide() : onShow();
+    });
     const ov = document.getElementById('modal-overlay'); if (ov) observer.observe(ov, { attributes: true, attributeFilter: ['class'] });
 })();
 
 window.switchMedTab = function (tab) {
+    document.querySelector('.med-tabs')?.setActiveTab?.(tab);
     document.querySelectorAll('.med-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-    document.getElementById('history-view').classList.toggle('hidden', tab !== 'history');
-    document.getElementById('current-meds-view').classList.toggle('hidden', tab !== 'current');
+
+    document.getElementById('med-history-tab')?.classList.toggle('active', tab === 'history');
+    document.getElementById('med-schedule-tab')?.classList.toggle('active', tab === 'schedule');
 
     if (tab === 'history') window.loadHistory();
-    else if (tab === 'current') window.renderMeds();
+    else if (tab === 'schedule') window.loadMeds();
 };
 
 window.loadHistory = async function () {
