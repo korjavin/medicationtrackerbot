@@ -2,6 +2,8 @@
     let foodScannerStream = null, foodScannerRunning = false, foodScanLoopTimer = null, foodBarcodeDetector = null;
     const FOOD_SCAN_THROTTLE_MS = 250, FOOD_NUMERIC_BARCODE_MIN_LEN = 8;
     let foodAutoCompleteSuggestions = [], foodProductsCache = [], currentFoodLogs = {};
+    let foodSearchTimeout = null, foodSearchRequestId = 0, lastFoodSearchQueryNormalized = '';
+    let foodOutsideClickBound = false;
     window.currentFoodStatsPeriod = window.currentFoodStatsPeriod || 'day';
 
     function toISODateLocal(date) {
@@ -91,6 +93,331 @@
             const total = Math.round((4 * c * mult) + (4 * p * mult) + (9 * f * mult));
             document.getElementById('food-calories').value = total;
         }
+    };
+
+    function normalizeFoodSearchQuery(raw) {
+        return String(raw || '').trim().toLowerCase();
+    }
+
+    function dedupeFoodProducts(products) {
+        const result = [];
+        const seen = new Set();
+        for (const p of products || []) {
+            if (!p) continue;
+            const key = `${(p.id || 0)}|${String(p.barcode || '').trim()}|${normalizeFoodSearchQuery(window.decodeFoodDisplayText(p.name))}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            result.push(p);
+        }
+        return result;
+    }
+
+    async function readSearchResponse(res) {
+        const contentType = res.headers.get('content-type') || '';
+        if (!res.body || contentType.includes('application/json')) {
+            const parsed = await res.json();
+            return Array.isArray(parsed) ? parsed : [];
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let lastParsed = [];
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (value) {
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+                    try {
+                        const parsed = JSON.parse(trimmed);
+                        if (Array.isArray(parsed)) lastParsed = parsed;
+                    } catch (_e) {
+                        // ignore partial/broken line
+                    }
+                }
+            }
+            if (done) break;
+        }
+
+        if (buffer.trim()) {
+            try {
+                const parsed = JSON.parse(buffer.trim());
+                if (Array.isArray(parsed)) lastParsed = parsed;
+            } catch (_e) {
+                // ignore
+            }
+        }
+        return lastParsed;
+    }
+
+    async function fetchFoodProductsSearch(query, remote = false) {
+        const endpoint = `/api/food/products/search?q=${encodeURIComponent(query)}${remote ? '&remote=true' : ''}`;
+        const headers = { 'X-Requested-With': 'XMLHttpRequest' };
+        if (window.userInitData) headers['X-Telegram-Init-Data'] = window.userInitData;
+        const res = await fetch(endpoint, { method: 'GET', headers });
+        if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(errText || `Search failed (${res.status})`);
+        }
+        return await readSearchResponse(res);
+    }
+
+    window.setFoodSearchStatus = function (type, message) {
+        const status = document.getElementById('food-search-status');
+        if (!status) return;
+        status.className = 'food-search-status';
+        if (!type || !message) {
+            status.classList.add('hidden');
+            status.textContent = '';
+            return;
+        }
+        status.classList.remove('hidden');
+        status.classList.add(type);
+        status.textContent = message;
+    };
+
+    window.onFoodNameFocus = function () {
+        const list = document.getElementById('food-autocomplete-list');
+        if (!list) return;
+        if (foodAutoCompleteSuggestions.length > 0) list.classList.remove('hidden');
+    };
+
+    window.onFoodNameChange = async function () {
+        const input = document.getElementById('food-name');
+        if (!input) return;
+        const query = input.value;
+        const normalized = normalizeFoodSearchQuery(query);
+
+        if (normalized.length >= 2 && normalized === lastFoodSearchQueryNormalized) {
+            const list = document.getElementById('food-autocomplete-list');
+            if (list && foodAutoCompleteSuggestions.length > 0) list.classList.remove('hidden');
+            return;
+        }
+
+        const selected = foodAutoCompleteSuggestions.find((p) => normalizeFoodSearchQuery(window.decodeFoodDisplayText(p.name)) === normalized);
+        if (selected) {
+            window.autofillFoodProduct(selected);
+            window.setFoodSearchStatus('success', 'Product selected.');
+            return;
+        }
+
+        clearTimeout(foodSearchTimeout);
+        if (normalized.length < 2) {
+            lastFoodSearchQueryNormalized = '';
+            window.setFoodSearchStatus();
+            const list = document.getElementById('food-autocomplete-list');
+            if (list) list.classList.add('hidden');
+            return;
+        }
+
+        foodSearchTimeout = setTimeout(async () => {
+            const requestId = ++foodSearchRequestId;
+            lastFoodSearchQueryNormalized = normalized;
+            window.setFoodSearchStatus('loading', 'Searching local database...');
+
+            if (!foodProductsCache.length) await window.initFoodProductsCache();
+            const cacheMatches = (foodProductsCache || []).filter((p) => {
+                const name = normalizeFoodSearchQuery(window.decodeFoodDisplayText(p.name));
+                const barcode = normalizeFoodSearchQuery(p.barcode);
+                return name.includes(normalized) || barcode.includes(normalized);
+            });
+
+            let localApiResults = [];
+            try {
+                localApiResults = await fetchFoodProductsSearch(query, false);
+            } catch (_e) {
+                localApiResults = [];
+            }
+            if (requestId !== foodSearchRequestId) return;
+
+            const localUnique = dedupeFoodProducts([...cacheMatches, ...localApiResults]);
+            const loadMoreCallback = async () => {
+                if (requestId !== foodSearchRequestId) return;
+                window.setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
+                try {
+                    const remoteResults = await fetchFoodProductsSearch(query, true);
+                    if (requestId !== foodSearchRequestId) return;
+                    const merged = dedupeFoodProducts([...localUnique, ...(remoteResults || [])]);
+                    window.renderFoodAutocomplete(merged, false, null, true);
+                    window.setFoodSearchStatus('success', `Found ${merged.length} result(s).`);
+                } catch (_e) {
+                    if (requestId !== foodSearchRequestId) return;
+                    window.renderFoodAutocomplete(localUnique, false, null, true);
+                    window.setFoodSearchStatus(localUnique.length ? 'success' : 'empty', localUnique.length ? `Found ${localUnique.length} local result(s).` : 'No products found.');
+                }
+            };
+
+            window.renderFoodAutocomplete(localUnique, navigator.onLine, loadMoreCallback, true);
+            if (localUnique.length > 0) {
+                window.setFoodSearchStatus('success', `Found ${localUnique.length} local result(s).`);
+            } else if (navigator.onLine) {
+                window.setFoodSearchStatus('empty', 'No local products found.');
+                await loadMoreCallback();
+            } else {
+                window.setFoodSearchStatus('empty', 'No products found.');
+            }
+        }, 350);
+    };
+
+    window.onFoodBarcodeChange = async function () {
+        const input = document.getElementById('food-barcode');
+        if (!input) return;
+        const barcode = String(input.value || '').trim();
+
+        clearTimeout(foodSearchTimeout);
+        if (barcode.length < 5) {
+            window.setFoodSearchStatus();
+            return;
+        }
+
+        foodSearchTimeout = setTimeout(async () => {
+            const requestId = ++foodSearchRequestId;
+            window.setFoodSearchStatus('loading', 'Searching by barcode...');
+
+            if (!foodProductsCache.length) await window.initFoodProductsCache();
+            const cacheMatch = (foodProductsCache || []).find((p) => String(p.barcode || '').trim() === barcode);
+            if (cacheMatch) {
+                window.autofillFoodProduct(cacheMatch);
+                window.setFoodSearchStatus('success', 'Product found and filled in.');
+                return;
+            }
+
+            let localApiResults = [];
+            try {
+                localApiResults = await fetchFoodProductsSearch(barcode, false);
+            } catch (_e) {
+                localApiResults = [];
+            }
+            if (requestId !== foodSearchRequestId) return;
+
+            const localMatch = (localApiResults || []).find((p) => String(p.barcode || '').trim() === barcode);
+            if (localMatch) {
+                window.autofillFoodProduct(localMatch);
+                window.setFoodSearchStatus('success', 'Product found and filled in.');
+                return;
+            }
+
+            if (!navigator.onLine) {
+                window.setFoodSearchStatus('empty', 'No local products found.');
+                return;
+            }
+
+            try {
+                const remoteResults = await fetchFoodProductsSearch(barcode, true);
+                if (requestId !== foodSearchRequestId) return;
+                const remoteMatch = (remoteResults || []).find((p) => String(p.barcode || '').trim() === barcode);
+                if (remoteMatch) {
+                    window.autofillFoodProduct(remoteMatch);
+                    window.setFoodSearchStatus('success', 'Product found and filled in.');
+                    return;
+                }
+                const merged = dedupeFoodProducts([...(localApiResults || []), ...(remoteResults || [])]);
+                window.renderFoodAutocomplete(merged, false, null, true);
+                window.setFoodSearchStatus(merged.length ? 'success' : 'empty', merged.length ? `Found ${merged.length} result(s).` : 'No products found.');
+            } catch (_e) {
+                window.setFoodSearchStatus('empty', 'No products found.');
+            }
+        }, 350);
+    };
+
+    window.showEditFoodProductModal = function (product) {
+        if (!product) return;
+        const id = document.getElementById('food-product-id');
+        const name = document.getElementById('food-product-name');
+        const barcode = document.getElementById('food-product-barcode');
+        const carbs = document.getElementById('food-product-carbs');
+        const protein = document.getElementById('food-product-protein');
+        const fat = document.getElementById('food-product-fat');
+        const calories = document.getElementById('food-product-calories');
+        if (!id || !name || !barcode || !carbs || !protein || !fat || !calories) return;
+
+        id.value = product.id || '';
+        name.value = window.decodeFoodDisplayText(product.name || '');
+        barcode.value = product.barcode || '';
+        carbs.value = product.carbs_100g || '';
+        protein.value = product.protein_100g || '';
+        fat.value = product.fat_100g || '';
+        calories.value = product.energy_kcal_100g || '';
+        window.ModalManager?.foodProduct?.open?.();
+    };
+
+    window.closeFoodProductModal = function () {
+        window.ModalManager?.foodProduct?.close?.();
+    };
+
+    window.saveFoodProduct = async function () {
+        const id = document.getElementById('food-product-id')?.value;
+        const name = document.getElementById('food-product-name')?.value?.trim();
+        if (!id) return;
+        if (!name) {
+            window.safeAlert?.('Please enter a product name.');
+            return;
+        }
+
+        const payload = {
+            name,
+            barcode: document.getElementById('food-product-barcode')?.value?.trim() || '',
+            carbs_100g: parseFloat(document.getElementById('food-product-carbs')?.value) || 0,
+            protein_100g: parseFloat(document.getElementById('food-product-protein')?.value) || 0,
+            fat_100g: parseFloat(document.getElementById('food-product-fat')?.value) || 0,
+            energy_kcal_100g: parseFloat(document.getElementById('food-product-calories')?.value) || 0
+        };
+
+        try {
+            const result = await window.apiCall(`/api/food/products/${id}`, 'PUT', payload);
+            if (!result) {
+                window.safeAlert?.('Failed to update product.');
+                return;
+            }
+
+            window.closeFoodProductModal();
+            foodProductsCache = [];
+            if (window.MedTrackerDB?.FoodProductsStore) {
+                await window.MedTrackerDB.FoodProductsStore.clearCache();
+            }
+            await window.initFoodProductsCache();
+            window.renderFoodAutocomplete(foodProductsCache, false, null, false);
+            window.safeAlert?.('Product updated.');
+        } catch (_e) {
+            window.safeAlert?.('Failed to update product.');
+        }
+    };
+
+    window.deleteFoodProduct = async function (id, displayName) {
+        if (!id) return;
+        if (!confirm(`Delete "${displayName}" from your food database?`)) return;
+        try {
+            const result = await window.apiCall(`/api/food/products/${id}`, 'DELETE');
+            if (!result) {
+                window.safeAlert?.('Failed to delete product.');
+                return;
+            }
+
+            foodProductsCache = [];
+            if (window.MedTrackerDB?.FoodProductsStore) {
+                await window.MedTrackerDB.FoodProductsStore.clearCache();
+            }
+            await window.initFoodProductsCache();
+            window.renderFoodAutocomplete(foodProductsCache, false, null, false);
+        } catch (_e) {
+            window.safeAlert?.('Failed to delete product.');
+        }
+    };
+
+    window.setFoodScannerStatus = function (message) {
+        const status = document.getElementById('food-scanner-status');
+        if (status) status.textContent = message || '';
+    };
+    window.openFoodScannerModal = function () {
+        window.ModalManager?.foodScanner?.open?.();
+    };
+    window.closeFoodScannerModal = function () {
+        window.ModalManager?.foodScanner?.close?.();
     };
 
     window.setFoodStatsPeriod = function (period) {
@@ -269,6 +596,14 @@
 
         bindClick('food-modal-cancel-btn', () => window.ModalManager?.food?.close?.());
         bindClick('food-modal-save-btn', () => window.saveFoodLog());
+        bindClick('food-scan-btn', () => window.openFoodScannerModal());
+        bindClick('food-scanner-close-btn', () => window.closeFoodScannerModal());
+        bindClick('food-scanner-use-photo-btn', () => window.safeAlert?.('Photo scan is unavailable in this build yet.'));
+        bindClick('food-product-cancel-btn', () => window.closeFoodProductModal());
+        bindClick('food-product-save-btn', () => window.saveFoodProduct());
+
+        bindInput('food-name', () => window.onFoodNameChange());
+        bindInput('food-barcode', () => window.onFoodBarcodeChange());
         bindInput('food-weight', () => window.calculateFoodCalories());
         bindInput('food-carbs', () => window.calculateFoodCalories());
         bindInput('food-protein', () => window.calculateFoodCalories());
@@ -277,6 +612,21 @@
             delete this.dataset.baseKcal;
         });
         bindChange('food-per-100g', () => window.calculateFoodCalories());
+
+        const nameInput = document.getElementById('food-name');
+        if (nameInput) nameInput.addEventListener('focus', () => window.onFoodNameFocus());
+
+        if (!foodOutsideClickBound) {
+            foodOutsideClickBound = true;
+            document.addEventListener('click', (e) => {
+                const list = document.getElementById('food-autocomplete-list');
+                const input = document.getElementById('food-name');
+                if (!list || !input) return;
+                if (e.target !== input && e.target !== list && !list.contains(e.target)) {
+                    list.classList.add('hidden');
+                }
+            });
+        }
     }
 
     if (document.readyState === 'loading') {
