@@ -102,8 +102,12 @@ func ExtractBackupDB(nxkPath string) (string, func(), error) {
 
 	rc, err := dbFile.Open()
 	if err != nil {
-		os.Remove(tempDB.Name())
-		tempDB.Close()
+		if closeErr := tempDB.Close(); closeErr != nil {
+			log.Printf("failed to close temp db: %v", closeErr)
+		}
+		if rmErr := os.Remove(tempDB.Name()); rmErr != nil {
+			log.Printf("failed to remove temp db: %v", rmErr)
+		}
 		return "", nil, err
 	}
 	defer rc.Close()
@@ -111,15 +115,23 @@ func ExtractBackupDB(nxkPath string) (string, func(), error) {
 	const maxSleepDBSize = 256 * 1024 * 1024
 	_, err = io.Copy(tempDB, io.LimitReader(rc, maxSleepDBSize))
 	if err != nil {
-		os.Remove(tempDB.Name())
-		tempDB.Close()
+		if closeErr := tempDB.Close(); closeErr != nil {
+			log.Printf("failed to close temp db: %v", closeErr)
+		}
+		if rmErr := os.Remove(tempDB.Name()); rmErr != nil {
+			log.Printf("failed to remove temp db: %v", rmErr)
+		}
 		return "", nil, err
 	}
-	_ = tempDB.Close()
+	if closeErr := tempDB.Close(); closeErr != nil {
+		log.Printf("failed to close temp db on success: %v", closeErr)
+	}
 
 	path := tempDB.Name()
 	cleanup := func() {
-		os.Remove(path)
+		if rmErr := os.Remove(path); rmErr != nil {
+			log.Printf("failed to remove temp db during cleanup: %v", rmErr)
+		}
 	}
 	return path, cleanup, nil
 }
