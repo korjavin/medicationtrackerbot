@@ -232,8 +232,8 @@ function _renderNextWorkout(container, data) {
         row.style.display = 'flex';
         row.style.gap = '10px';
         row.style.marginTop = '12px';
-        row.appendChild(createButton('🏋️ Continue', 'primary', showWorkoutSessionModal, { flex: '1' }));
-        row.appendChild(createButton('🛑 Stop', 'secondary', cancelWorkoutSession, {
+        row.appendChild(createButton('🏋️ Continue', 'btn-pill', showWorkoutSessionModal, { flex: '1' }));
+        row.appendChild(createButton('🛑 Stop', 'btn-pill', cancelWorkoutSession, {
             flex: '1',
             backgroundColor: '#ffebee',
             color: '#c62828',
@@ -248,9 +248,12 @@ function _renderNextWorkout(container, data) {
             color: 'white'
         }));
         if (isRotating) {
-            card.appendChild(createButton('↻ Next Variant', 'secondary', nextWorkoutVariant, {
+            card.appendChild(createButton('↻ Next Variant', 'btn-pill', nextWorkoutVariant, {
                 marginTop: '8px',
-                width: '100%'
+                width: '100%',
+                backgroundColor: 'var(--secondary-bg-color, #f0f0f0)',
+                color: 'var(--text-color, #000)',
+                boxShadow: 'none'
             }));
         }
     } else {
@@ -259,7 +262,7 @@ function _renderNextWorkout(container, data) {
         row.style.gap = '10px';
         row.style.marginTop = '12px';
         row.appendChild(createButton('🏋️ Start Workout', 'btn-pill', startWorkoutSession, { flex: '1' }));
-        row.appendChild(createButton('⏭ Skip', 'secondary', preSkipWorkoutSession, {
+        row.appendChild(createButton('⏭ Skip', 'btn-pill', preSkipWorkoutSession, {
             flex: '1',
             backgroundColor: '#fff3e0',
             color: '#e65100',
@@ -267,9 +270,12 @@ function _renderNextWorkout(container, data) {
         }));
         card.appendChild(row);
         if (isRotating) {
-            card.appendChild(createButton('↻ Next Variant', 'secondary', nextWorkoutVariant, {
+            card.appendChild(createButton('↻ Next Variant', 'btn-pill', nextWorkoutVariant, {
                 marginTop: '8px',
-                width: '100%'
+                width: '100%',
+                backgroundColor: 'var(--secondary-bg-color, #f0f0f0)',
+                color: 'var(--text-color, #000)',
+                boxShadow: 'none'
             }));
         }
     }
