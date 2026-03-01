@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func setupMiBandTestStore(t *testing.T) *Store {
@@ -15,6 +16,12 @@ func setupMiBandTestStore(t *testing.T) *Store {
 	return db
 }
 
+// recentMs returns a Unix-millisecond timestamp that is recent enough
+// to pass the 90-day filter in ListMiBandWorkouts.
+func recentMs(daysAgo int) int64 {
+	return time.Now().AddDate(0, 0, -daysAgo).UnixMilli()
+}
+
 func TestImportMiBandWorkouts_Basic(t *testing.T) {
 	db := setupMiBandTestStore(t)
 	ctx := context.Background()
@@ -23,8 +30,8 @@ func TestImportMiBandWorkouts_Basic(t *testing.T) {
 	workouts := []MiBandWorkout{
 		{
 			UserID:        userID,
-			SourceStartMs: 1700000000000,
-			SourceEndMs:   1700007200000,
+			SourceStartMs: recentMs(5),
+			SourceEndMs:   recentMs(5) + 7200000,
 			ActivityType:  12,
 			ActivityName:  "cycling",
 			DurationSec:   7200,
@@ -35,8 +42,8 @@ func TestImportMiBandWorkouts_Basic(t *testing.T) {
 		},
 		{
 			UserID:        userID,
-			SourceStartMs: 1700100000000,
-			SourceEndMs:   1700107715000,
+			SourceStartMs: recentMs(3),
+			SourceEndMs:   recentMs(3) + 7715000,
 			ActivityType:  80,
 			ActivityName:  "nordic_walking",
 			DurationSec:   7715,
@@ -88,8 +95,8 @@ func TestImportMiBandWorkouts_Deduplication(t *testing.T) {
 	workouts := []MiBandWorkout{
 		{
 			UserID:        userID,
-			SourceStartMs: 1700000000000,
-			SourceEndMs:   1700003600000,
+			SourceStartMs: recentMs(10),
+			SourceEndMs:   recentMs(10) + 3600000,
 			ActivityType:  12,
 			ActivityName:  "cycling",
 			DurationSec:   3600,
@@ -136,7 +143,7 @@ func TestImportMiBandWorkouts_WithGPS(t *testing.T) {
 	ctx := context.Background()
 	userID := int64(42)
 
-	startMs := int64(1700000000000)
+	startMs := recentMs(7)
 	workouts := []MiBandWorkout{
 		{
 			UserID:        userID,
@@ -195,7 +202,7 @@ func TestImportMiBandWorkouts_GPSNotDuplicatedOnReimport(t *testing.T) {
 	ctx := context.Background()
 	userID := int64(42)
 
-	startMs := int64(1700000000000)
+	startMs := recentMs(2)
 	workouts := []MiBandWorkout{
 		{
 			UserID: userID, SourceStartMs: startMs, SourceEndMs: startMs + 1000000,
