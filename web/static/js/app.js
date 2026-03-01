@@ -3663,7 +3663,7 @@ async function saveMedication() {
     }
 
     if (type === 'weekly') {
-        const days = Array.from(document.querySelectorAll('.days-select span.selected'))
+        const days = Array.from(document.querySelectorAll('#days-container .days-select span.selected'))
             .map(s => parseInt(s.dataset.day));
 
         if (days.length === 0) {

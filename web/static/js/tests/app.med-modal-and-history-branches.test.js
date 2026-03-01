@@ -30,7 +30,7 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       document.getElementById('med-name').value = 'filled';
       document.getElementById('med-track-inventory').checked = true;
       document.getElementById('inventory-fields').classList.remove('hidden');
-      document.querySelectorAll('.days-select span').forEach((el) => el.classList.add('selected'));
+      document.querySelectorAll('#days-container .days-select span').forEach((el) => el.classList.add('selected'));
 
       window.showAddModal();
 
@@ -40,7 +40,7 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       expect(document.getElementById('schedule-type').value).toBe('daily');
       expect(document.getElementById('time-inputs').querySelectorAll('.med-time-input')).toHaveLength(1);
       expect(document.getElementById('inventory-fields').classList.contains('hidden')).toBe(true);
-      expect(document.querySelectorAll('.days-select span.selected')).toHaveLength(0);
+      expect(document.querySelectorAll('#days-container .days-select span.selected')).toHaveLength(0);
     } finally {
       cleanup();
     }
@@ -114,11 +114,11 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       document.querySelector('.med-time-input').value = '09:00';
       document.getElementById('schedule-type').value = 'weekly';
       window.toggleScheduleFields();
-      document.querySelectorAll('.days-select span').forEach((el) => el.classList.remove('selected'));
+      document.querySelectorAll('#days-container .days-select span').forEach((el) => el.classList.remove('selected'));
       await window.saveMedication();
       expect(alertSpy).toHaveBeenCalledWith('Select at least one day!');
 
-      document.querySelector('.days-select span[data-day="1"]').classList.add('selected');
+      document.querySelector('#days-container .days-select span[data-day="1"]').classList.add('selected');
       document.getElementById('med-dosage').value = '20mg';
       document.getElementById('med-start-date').value = '2026-03-01';
       document.getElementById('med-end-date').value = '2026-03-31';
@@ -259,6 +259,149 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       expect(window.DataStore.loadSWR).toHaveBeenCalled();
       expect(window.renderHistory).toHaveBeenCalledTimes(3);
       expect(window.renderNextIntakeTrigger).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('app.js weekly schedule day selection – regression tests', () => {
+  // Day values: Sun=0, Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6
+  const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+
+  function getSelectedDays(document) {
+    return Array.from(
+      document.querySelectorAll('#days-container .days-select span.selected')
+    ).map((s) => parseInt(s.dataset.day, 10));
+  }
+
+  async function seedMedications(window, meds) {
+    window.DataStore.loadSWR = vi.fn(async (options) => {
+      await options.onFresh(meds);
+    });
+    window.apiCall = vi.fn().mockResolvedValue([]);
+    await window.loadMeds();
+  }
+
+  it('showEditModal marks Saturday (day 6) when schedule has days:[6]', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      await seedMedications(window, [
+        {
+          id: 1,
+          name: 'Sat Med',
+          dosage: '10mg',
+          schedule: JSON.stringify({ type: 'weekly', times: ['10:00'], days: [6] }),
+          archived: false,
+        },
+      ]);
+      window.loadRestockHistory = vi.fn().mockResolvedValue(undefined);
+      window.showEditModal(1);
+
+      const satSpan = document.querySelector('#days-container .days-select span[data-day="6"]');
+      expect(satSpan).not.toBeNull();
+      expect(satSpan.classList.contains('selected')).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('showEditModal marks exactly the scheduled days and no others', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      // Test each individual day
+      for (const day of ALL_DAYS) {
+        await seedMedications(window, [
+          {
+            id: day + 10,
+            name: `Med day ${day}`,
+            dosage: '5mg',
+            schedule: JSON.stringify({ type: 'weekly', times: ['08:00'], days: [day] }),
+            archived: false,
+          },
+        ]);
+        window.loadRestockHistory = vi.fn().mockResolvedValue(undefined);
+        window.showEditModal(day + 10);
+
+        const selected = getSelectedDays(document);
+        expect(selected).toEqual([day]);
+
+        // Confirm the specific day span has 'selected', others don't
+        for (const other of ALL_DAYS) {
+          const span = document.querySelector(
+            `#days-container .days-select span[data-day="${other}"]`
+          );
+          expect(span).not.toBeNull();
+          if (other === day) {
+            expect(span.classList.contains('selected')).toBe(true);
+          } else {
+            expect(span.classList.contains('selected')).toBe(false);
+          }
+        }
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('showEditModal marks multiple days including Saturday correctly', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      await seedMedications(window, [
+        {
+          id: 1,
+          name: 'Multi Med',
+          dosage: '5mg',
+          schedule: JSON.stringify({ type: 'weekly', times: ['09:00'], days: [1, 3, 6] }), // Mon, Wed, Sat
+          archived: false,
+        },
+      ]);
+      window.loadRestockHistory = vi.fn().mockResolvedValue(undefined);
+      window.showEditModal(1);
+
+      const selected = getSelectedDays(document).sort((a, b) => a - b);
+      expect(selected).toEqual([1, 3, 6]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('saveMedication collects days only from #days-container, not workout modal spans', async () => {
+    // Regression: .days-select span.selected (unscoped) could pick up workout group
+    // modal spans. The fix scopes the selector to #days-container.
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      window.showAddModal();
+      document.getElementById('med-name').value = 'Sat Only Med';
+      document.getElementById('med-dosage').value = '10mg';
+      document.getElementById('schedule-type').value = 'weekly';
+      window.toggleScheduleFields();
+
+      // Select Saturday in the medication modal
+      document.querySelector('#days-container .days-select span[data-day="6"]').classList.add('selected');
+
+      // Simulate workout group modal having Monday selected (stale state from a prior interaction)
+      document.querySelector('#workout-group-modal .days-select span[data-day="1"]').classList.add('selected');
+
+      document.querySelector('.med-time-input').value = '10:00';
+
+      const alertSpy = vi.fn();
+      window.Telegram.WebApp.showAlert = alertSpy;
+      window.apiCall = vi.fn().mockResolvedValue({});
+      window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+      window.DataStore.invalidateKey = vi.fn().mockResolvedValue(undefined);
+      window.closeModal = vi.fn();
+      window.loadMeds = vi.fn();
+
+      await window.saveMedication();
+
+      expect(window.apiCall).toHaveBeenCalledWith(
+        '/api/medications',
+        'POST',
+        expect.objectContaining({
+          schedule: JSON.stringify({ type: 'weekly', times: ['10:00'], days: [6] }),
+        })
+      );
     } finally {
       cleanup();
     }
