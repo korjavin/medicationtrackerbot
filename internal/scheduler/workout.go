@@ -31,6 +31,7 @@ type WorkoutStore interface {
 	GetWorkoutVariant(variantID int64) (*store.WorkoutVariant, error)
 	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
 	SetSessionNotificationMessageID(sessionID int64, msgID int) error
+	UpdateSessionVariant(sessionID int64, variantID int64) error
 }
 
 // WorkoutChecker checks for scheduled workouts and sends notifications.
@@ -181,6 +182,17 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 				continue
 			}
 			existing = session
+		} else if existing.VariantID != variantID && (existing.Status == "pending" || existing.Status == "notified") {
+			// The session was pre-created with a stale variant (e.g., group was converted from
+			// non-rotating to rotating after the session was already created). Update it now
+			// so the notification and the actual workout exercise list are consistent.
+			log.Printf("Updating session %d variant from %d to %d (rotation changed)",
+				existing.ID, existing.VariantID, variantID)
+			if err := c.store.UpdateSessionVariant(existing.ID, variantID); err != nil {
+				log.Printf("Failed to update session variant: %v", err)
+			} else {
+				existing.VariantID = variantID
+			}
 		}
 
 		// 8. Handle pre_skipped sessions
