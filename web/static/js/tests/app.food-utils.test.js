@@ -81,6 +81,32 @@ describe('app.js food helpers', () => {
     }
   });
 
+  it('computeFoodTotals does not doubly multiply calories in per-100g mode', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      document.getElementById('food-weight').value = '500';
+      document.getElementById('food-carbs').value = '4';
+      document.getElementById('food-protein').value = '3.4';
+      document.getElementById('food-fat').value = '1.6';
+      document.getElementById('food-calories').value = '220';
+      document.getElementById('food-per-100g').checked = true;
+
+      const totals = window.computeFoodTotals();
+
+      expect(totals).toEqual({
+        weight: 500,
+        carbs: 20,
+        protein: 17,
+        fat: 8,
+        calories: 220, // Should NOT be 220 * 5 = 1100
+        per100g: true
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
   it('toISODateLocal formats date without timezone offset artifacts', () => {
     const { window, cleanup } = loadFrontendEnv();
 

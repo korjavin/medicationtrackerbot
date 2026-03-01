@@ -2183,9 +2183,6 @@ function computeFoodTotals() {
     let totalProtein = proteinInput === null ? null : proteinInput * multiplier;
     let totalFat = fatInput === null ? null : fatInput * multiplier;
     let totalCalories = caloriesInput;
-    if (per100g && caloriesInput !== null && weight > 0) {
-        totalCalories = caloriesInput * multiplier;
-    }
 
     const missing = [];
     if (totalCarbs === null) missing.push('carbs');
