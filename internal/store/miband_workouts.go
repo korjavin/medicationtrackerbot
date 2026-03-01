@@ -117,19 +117,21 @@ func (s *Store) ImportMiBandWorkouts(ctx context.Context, workouts []MiBandWorko
 	return imported, skipped, nil
 }
 
-// ListMiBandWorkouts returns the most recent outdoor workouts for the given user.
+// ListMiBandWorkouts returns the most recent outdoor workouts for the given user (last 90 days).
 func (s *Store) ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]MiBandWorkout, error) {
 	if limit <= 0 {
 		limit = 50
 	}
+	// Filter to last 90 days to avoid surfacing ancient workouts
+	cutoffMs := time.Now().AddDate(0, 0, -90).UnixMilli()
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, user_id, source_start_ms, source_end_ms, activity_type, activity_name,
 		       duration_sec, distance_m, steps, calories, heart_rate_avg, spo2_avg,
 		       pause_ms, tz_offset, imported_at
 		FROM miband_workouts
-		WHERE user_id = ?
+		WHERE user_id = ? AND source_start_ms >= ?
 		ORDER BY source_start_ms DESC
-		LIMIT ?`, userID, limit)
+		LIMIT ?`, userID, cutoffMs, limit)
 	if err != nil {
 		return nil, err
 	}

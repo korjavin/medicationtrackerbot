@@ -52,9 +52,10 @@ func (s *Server) handleListMiBandWorkouts(w http.ResponseWriter, r *http.Request
 	for _, wo := range workouts {
 		startTime := time.UnixMilli(wo.SourceStartMs).UTC()
 		endTime := time.UnixMilli(wo.SourceEndMs).UTC()
-		// Apply timezone offset so the frontend shows local time
+		// Apply timezone offset so the frontend shows local time.
+		// tz_offset is stored in seconds (e.g. 3600 = UTC+1).
 		if wo.TzOffset != 0 {
-			loc := time.FixedZone("local", wo.TzOffset*60)
+			loc := time.FixedZone("local", wo.TzOffset)
 			startTime = startTime.In(loc)
 			endTime = endTime.In(loc)
 		}
