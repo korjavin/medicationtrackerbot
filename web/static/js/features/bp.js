@@ -135,7 +135,7 @@
         window.renderBPReadings(filtered);
     };
 
-    window.renderBPChart = function (readings) {
+    window.renderBPChart = function (readings, goalData) {
         const container = document.getElementById('bpChart');
         if (!container) return;
         container.replaceChildren();
@@ -149,53 +149,147 @@
         }
 
         const sorted = [...readings].sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
-        const w = Math.max(container.clientWidth || 320, 320);
-        const h = Math.max(container.clientHeight || 200, 200);
-        const pad = 20;
-        const minY = Math.min(...sorted.map((r) => Math.min(r.systolic, r.diastolic))) - 10;
-        const maxY = Math.max(...sorted.map((r) => Math.max(r.systolic, r.diastolic))) + 10;
-        const rangeY = Math.max(maxY - minY, 1);
-        const len = Math.max(sorted.length - 1, 1);
+        const data = sorted.map((r) => ({
+            date: new Date(r.measured_at),
+            sys: r.systolic,
+            dia: r.diastolic,
+            pulse: r.pulse,
+            category: window.getBPCategory(r.systolic, r.diastolic)
+        }));
 
-        const x = (i) => pad + (i / len) * (w - pad * 2);
-        const y = (v) => h - pad - ((v - minY) / rangeY) * (h - pad * 2);
+        const avgSys = data.reduce((sum, d) => sum + d.sys, 0) / data.length;
+        const avgDia = data.reduce((sum, d) => sum + d.dia, 0) / data.length;
 
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        const leftPadding = 40;
+        const totalWidth = Math.max(container.clientWidth || 320, 320);
+        const chartWidth = totalWidth - leftPadding - 10;
+        const chartHeight = Math.max((container.clientHeight || 220) - 35, 160);
+
+        let minVal = Math.min(...data.map((d) => d.dia), ...data.filter((d) => d.pulse).map((d) => d.pulse));
+        let maxVal = Math.max(...data.map((d) => d.sys), ...data.filter((d) => d.pulse).map((d) => d.pulse));
+        minVal = Math.min(minVal, avgDia);
+        maxVal = Math.max(maxVal, avgSys);
+        minVal = Math.floor(minVal / 10) * 10;
+        maxVal = Math.ceil(maxVal / 10) * 10;
+
+        const effectiveMin = minVal - 10;
+        const effectiveMax = maxVal + 10;
+        const effectiveRange = Math.max(effectiveMax - effectiveMin, 1);
+        const yInterval = effectiveRange > 80 ? 20 : 10;
+
+        const firstDate = data[0].date;
+        const lastDate = data[data.length - 1].date;
+        const dateRange = lastDate - firstDate || 1;
+        const xScaleByDate = (date) => leftPadding + ((date - firstDate) / dateRange) * chartWidth;
+        const yScale = (v) => chartHeight - ((v - effectiveMin) / effectiveRange) * chartHeight;
+
+        const getClassColor = (category) => {
+            const colorMap = {
+                normal: '#22c55e',
+                highnormal: '#eab308',
+                grade1: '#f97316',
+                grade2: '#ef4444'
+            };
+            return colorMap[category.class] || '#22c55e';
+        };
+
+        const svgNs = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNs, 'svg');
         svg.setAttribute('width', '100%');
         svg.setAttribute('height', '100%');
-        svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+        svg.setAttribute('viewBox', `0 0 ${totalWidth} ${chartHeight + 20}`);
 
-        const makePath = (selector) => sorted.map((r, i) => `${i === 0 ? 'M' : 'L'} ${x(i)},${y(r[selector])}`).join(' ');
+        for (let val = Math.ceil(effectiveMin / yInterval) * yInterval; val <= effectiveMax; val += yInterval) {
+            const y = yScale(val);
+            const text = document.createElementNS(svgNs, 'text');
+            text.setAttribute('x', leftPadding - 5);
+            text.setAttribute('y', y + 4);
+            text.setAttribute('style', 'text-anchor:end;fill:var(--hint-color);font-size:11px;');
+            text.textContent = String(val);
+            svg.appendChild(text);
 
-        const systolicPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        systolicPath.setAttribute('d', makePath('systolic'));
-        systolicPath.setAttribute('fill', 'none');
-        systolicPath.setAttribute('stroke', '#ef4444');
-        systolicPath.setAttribute('stroke-width', '2');
-        svg.appendChild(systolicPath);
+            const gridLine = document.createElementNS(svgNs, 'line');
+            gridLine.setAttribute('x1', leftPadding);
+            gridLine.setAttribute('y1', y);
+            gridLine.setAttribute('x2', totalWidth - 10);
+            gridLine.setAttribute('y2', y);
+            gridLine.setAttribute('class', 'chart-grid');
+            svg.appendChild(gridLine);
+        }
 
-        const diastolicPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        diastolicPath.setAttribute('d', makePath('diastolic'));
-        diastolicPath.setAttribute('fill', 'none');
-        diastolicPath.setAttribute('stroke', '#3b82f6');
-        diastolicPath.setAttribute('stroke-width', '2');
-        svg.appendChild(diastolicPath);
+        const avgSysY = yScale(avgSys);
+        const avgSysLine = document.createElementNS(svgNs, 'line');
+        avgSysLine.setAttribute('x1', leftPadding);
+        avgSysLine.setAttribute('y1', avgSysY);
+        avgSysLine.setAttribute('x2', totalWidth - 10);
+        avgSysLine.setAttribute('y2', avgSysY);
+        avgSysLine.setAttribute('class', 'bp-chart-avg-line');
+        svg.appendChild(avgSysLine);
 
-        sorted.forEach((r, i) => {
-            const s = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            s.setAttribute('cx', x(i));
-            s.setAttribute('cy', y(r.systolic));
-            s.setAttribute('r', '2.5');
-            s.setAttribute('fill', '#ef4444');
-            svg.appendChild(s);
+        const avgDiaY = yScale(avgDia);
+        const avgDiaLine = document.createElementNS(svgNs, 'line');
+        avgDiaLine.setAttribute('x1', leftPadding);
+        avgDiaLine.setAttribute('y1', avgDiaY);
+        avgDiaLine.setAttribute('x2', totalWidth - 10);
+        avgDiaLine.setAttribute('y2', avgDiaY);
+        avgDiaLine.setAttribute('class', 'bp-chart-avg-line');
+        svg.appendChild(avgDiaLine);
 
-            const d = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            d.setAttribute('cx', x(i));
-            d.setAttribute('cy', y(r.diastolic));
-            d.setAttribute('r', '2.5');
-            d.setAttribute('fill', '#3b82f6');
-            svg.appendChild(d);
+        for (let i = 0; i < data.length - 1; i++) {
+            const color = getClassColor(data[i].category);
+            const sysLine = document.createElementNS(svgNs, 'line');
+            sysLine.setAttribute('x1', xScaleByDate(data[i].date));
+            sysLine.setAttribute('y1', yScale(data[i].sys));
+            sysLine.setAttribute('x2', xScaleByDate(data[i + 1].date));
+            sysLine.setAttribute('y2', yScale(data[i + 1].sys));
+            sysLine.setAttribute('stroke', color);
+            sysLine.setAttribute('stroke-width', '2.5');
+            svg.appendChild(sysLine);
+
+            const diaLine = document.createElementNS(svgNs, 'line');
+            diaLine.setAttribute('x1', xScaleByDate(data[i].date));
+            diaLine.setAttribute('y1', yScale(data[i].dia));
+            diaLine.setAttribute('x2', xScaleByDate(data[i + 1].date));
+            diaLine.setAttribute('y2', yScale(data[i + 1].dia));
+            diaLine.setAttribute('stroke', color);
+            diaLine.setAttribute('stroke-width', '2.5');
+            svg.appendChild(diaLine);
+        }
+
+        data.forEach((d) => {
+            const color = getClassColor(d.category);
+            const sysPoint = document.createElementNS(svgNs, 'circle');
+            sysPoint.setAttribute('cx', xScaleByDate(d.date));
+            sysPoint.setAttribute('cy', yScale(d.sys));
+            sysPoint.setAttribute('r', '4');
+            sysPoint.setAttribute('fill', color);
+            sysPoint.setAttribute('stroke', 'var(--bg-color)');
+            sysPoint.setAttribute('stroke-width', '2');
+            svg.appendChild(sysPoint);
+
+            const diaPoint = document.createElementNS(svgNs, 'circle');
+            diaPoint.setAttribute('cx', xScaleByDate(d.date));
+            diaPoint.setAttribute('cy', yScale(d.dia));
+            diaPoint.setAttribute('r', '4');
+            diaPoint.setAttribute('fill', color);
+            diaPoint.setAttribute('stroke', 'var(--bg-color)');
+            diaPoint.setAttribute('stroke-width', '2');
+            svg.appendChild(diaPoint);
         });
+
+        const firstLabel = document.createElementNS(svgNs, 'text');
+        firstLabel.setAttribute('x', leftPadding);
+        firstLabel.setAttribute('y', chartHeight + 15);
+        firstLabel.setAttribute('style', 'text-anchor:start;fill:var(--hint-color);font-size:11px;');
+        firstLabel.textContent = data[0].date.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' });
+        svg.appendChild(firstLabel);
+
+        const lastLabel = document.createElementNS(svgNs, 'text');
+        lastLabel.setAttribute('x', totalWidth - 10);
+        lastLabel.setAttribute('y', chartHeight + 15);
+        lastLabel.setAttribute('style', 'text-anchor:end;fill:var(--hint-color);font-size:11px;');
+        lastLabel.textContent = data[data.length - 1].date.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' });
+        svg.appendChild(lastLabel);
 
         container.appendChild(svg);
     };
