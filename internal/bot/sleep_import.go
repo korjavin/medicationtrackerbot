@@ -207,7 +207,56 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 		log.Printf("Successfully imported %d day stats, skipped %d", statsImported, statsSkipped)
 	}
 
-	return imported + vitalsImported + statsImported, skipped + vitalsSkipped + statsSkipped, nil
+	// Parse and import Mi Band outdoor workouts
+	domainWorkouts, domainGPS, err := domain.ParseOutdoorWorkouts(dbPath)
+	if err != nil {
+		log.Printf("Failed to parse outdoor workouts: %v", err)
+	}
+	wImported, wSkipped := 0, 0
+	if len(domainWorkouts) > 0 {
+		storeWorkouts := make([]store.MiBandWorkout, len(domainWorkouts))
+		for i, w := range domainWorkouts {
+			storeWorkouts[i] = store.MiBandWorkout{
+				UserID:        b.allowedUserID,
+				SourceStartMs: w.SourceStartMs,
+				SourceEndMs:   w.SourceEndMs,
+				ActivityType:  w.ActivityType,
+				ActivityName:  w.ActivityName,
+				DurationSec:   w.DurationSec,
+				DistanceM:     w.DistanceM,
+				Steps:         w.Steps,
+				Calories:      w.Calories,
+				HeartRateAvg:  w.HeartRateAvg,
+				SpO2Avg:       w.SpO2Avg,
+				PauseMs:       w.PauseMs,
+				TzOffset:      w.TzOffset,
+			}
+		}
+		// Convert domain GPS tracks to store GPS tracks
+		storeGPS := make(map[int64][]store.MiBandGPSPoint, len(domainGPS))
+		for startMs, pts := range domainGPS {
+			storePts := make([]store.MiBandGPSPoint, len(pts))
+			for i, pt := range pts {
+				storePts[i] = store.MiBandGPSPoint{
+					TsMs:      pt.TsMs,
+					Latitude:  pt.Latitude,
+					Longitude: pt.Longitude,
+					Altitude:  pt.Altitude,
+					IsPause:   pt.IsPause,
+				}
+			}
+			storeGPS[startMs] = storePts
+		}
+		wImported, wSkipped, err = b.imports.ImportMiBandWorkouts(ctx, storeWorkouts, storeGPS)
+		if err != nil {
+			log.Printf("Failed to import Mi Band workouts: %v", err)
+		} else {
+			log.Printf("Successfully imported %d Mi Band workouts, skipped %d", wImported, wSkipped)
+		}
+	}
+
+	return imported + vitalsImported + statsImported + wImported,
+		skipped + vitalsSkipped + statsSkipped + wSkipped, nil
 }
 
 func (b *Bot) updateStatusMessage(chatID int64, messageID int, text string) {
