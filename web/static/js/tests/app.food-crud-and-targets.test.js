@@ -172,9 +172,11 @@ describe('app.js food CRUD, targets and period helpers', () => {
       expect(window.apiCall).toHaveBeenCalledWith('/api/food/log/6', 'DELETE');
       expect(window.loadFoodLogs).toHaveBeenCalled();
 
-      window.apiCall = vi.fn().mockRejectedValue(new Error('delete failed'));
+      // apiCall returns null (error handled internally by apiCall) → loadFoodLogs not called
+      window.apiCall = vi.fn().mockResolvedValue(null);
+      window.loadFoodLogs = vi.fn();
       await window.deleteFoodLog(7);
-      expect(window.safeAlert).toHaveBeenCalledWith('Failed to delete.');
+      expect(window.loadFoodLogs).not.toHaveBeenCalled();
 
       window.loadFoodLogs = vi.fn();
       window.setFoodStatsPeriod('week');

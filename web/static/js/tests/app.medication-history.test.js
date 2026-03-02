@@ -263,7 +263,7 @@ describe('app.js medication, history and intake flows', () => {
           scheduled_at: new Date().toISOString(),
           taken_at: new Date().toISOString()
         })
-        .mockRejectedValueOnce(new Error('trigger failed'));
+        .mockResolvedValueOnce(null); // null = apiCall handled the error internally
 
       await window.triggerNextIntake();
       expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['history', 'medications']);
@@ -271,8 +271,12 @@ describe('app.js medication, history and intake flows', () => {
       expect(loadHistorySpy).toHaveBeenCalled();
       expect(alertSpy).toHaveBeenCalled();
 
+      // apiCall returned null → no further action (no extra alert from triggerNextIntake)
+      loadHistorySpy.mockClear();
+      alertSpy.mockClear();
       await window.triggerNextIntake();
-      expect(alertSpy).toHaveBeenLastCalledWith('Failed to trigger next intake. Please try again.');
+      expect(loadHistorySpy).not.toHaveBeenCalled();
+      expect(alertSpy).not.toHaveBeenCalled();
 
       const today = new Date().toISOString().split('T')[0];
       await seedMedications(window, [

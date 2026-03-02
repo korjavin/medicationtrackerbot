@@ -462,16 +462,13 @@ async function applyBootstrapPayload(res) {
 
 // Load init data (feature settings) needed before first render.
 // Falls back gracefully so auth flow is not blocked on failure.
+// apiCall() already catches errors and returns null – no try/catch needed here.
 async function loadInitData() {
-    try {
-        const res = await apiCall('/api/init', 'GET');
-        if (res && res.features) {
-            featureSettings = { ...featureSettings, ...res.features };
-            featureSettingsLoaded = true;
-            updateFeatureTabVisibility();
-        }
-    } catch (e) {
-        console.error('[Init] Failed to load init data:', e);
+    const res = await apiCall('/api/init', 'GET');
+    if (res && res.features) {
+        featureSettings = { ...featureSettings, ...res.features };
+        featureSettingsLoaded = true;
+        updateFeatureTabVisibility();
     }
 }
 
@@ -693,14 +690,9 @@ function initOIDCSetupBanner() {
 // Bootstrap orchestration lives in features/bootstrap.js (loaded after all feature scripts).
 
 async function sendTestBPNotification() {
-    try {
-        const res = await apiCall('/api/bp/reminder/test', 'POST');
-        if (res) {
-            safeAlert("Notification sent! Check your device.");
-        }
-    } catch (e) {
-        console.error(e);
-        safeAlert("Failed to send test notification: " + e.message);
+    const res = await apiCall('/api/bp/reminder/test', 'POST');
+    if (res) {
+        safeAlert("Notification sent! Check your device.");
     }
 }
 
@@ -742,15 +734,13 @@ document.getElementById('webpush-toggle').addEventListener('change', async funct
 // BP Reminders Toggle Handler
 document.getElementById('bp-reminders-toggle').addEventListener('change', async function () {
     const enabled = this.checked;
-    try {
-        const response = await apiCall('/api/bp/reminder/toggle', 'POST', { enabled });
+    const response = await apiCall('/api/bp/reminder/toggle', 'POST', { enabled });
+    if (response) {
         await window.DataStore.invalidateTags(['settings']);
         console.log('BP reminders toggled:', enabled);
-    } catch (error) {
-        console.error('Failed to toggle BP reminders:', error);
-        // Revert toggle on error
+    } else {
+        // apiCall already showed the error alert; revert the toggle UI
         this.checked = !enabled;
-        alert('Failed to update BP reminder settings. Please try again.');
     }
 });
 
@@ -785,15 +775,13 @@ document.getElementById('save-food-targets-btn').addEventListener('click', async
 // Weight Reminders Toggle Handler
 document.getElementById('weight-reminders-toggle').addEventListener('change', async function () {
     const enabled = this.checked;
-    try {
-        const response = await apiCall('/api/weight/reminder/toggle', 'POST', { enabled });
+    const response = await apiCall('/api/weight/reminder/toggle', 'POST', { enabled });
+    if (response) {
         await window.DataStore.invalidateTags(['settings']);
         console.log('Weight reminders toggled:', enabled);
-    } catch (error) {
-        console.error('Failed to toggle weight reminders:', error);
-        // Revert toggle on error
+    } else {
+        // apiCall already showed the error alert; revert the toggle UI
         this.checked = !enabled;
-        alert('Failed to update weight reminder settings. Please try again.');
     }
 });
 
@@ -2544,13 +2532,8 @@ async function saveFoodTargets() {
 
 async function deleteFoodLog(id) {
     if (!confirm("Delete this entry?")) return;
-    try {
-        await apiCall(`/api/food/log/${id}`, 'DELETE');
-        loadFoodLogs();
-    } catch (e) {
-        console.error(e);
-        safeAlert("Failed to delete.");
-    }
+    const ok = await apiCall(`/api/food/log/${id}`, 'DELETE');
+    if (ok) loadFoodLogs();
 }
 
 
@@ -2632,14 +2615,12 @@ async function loadSettings() {
 }
 
 async function loadFeatureSettings() {
-    try {
-        const res = await apiCall('/api/settings/features', 'GET');
+    const res = await apiCall('/api/settings/features', 'GET');
+    if (res) {
         featureSettings = { ...featureSettings, ...res };
         featureSettingsLoaded = true;
         updateFeatureToggles();
         updateFeatureTabVisibility();
-    } catch (e) {
-        console.error('Failed to load feature settings:', e);
     }
 }
 
@@ -3718,21 +3699,13 @@ async function renderNextIntakeTrigger() {
 }
 
 async function triggerNextIntake() {
-    try {
-        const res = await apiCall('/api/medications/trigger-next-intake', 'POST');
-
-        if (res && res.status === 'confirmed') {
-            await window.DataStore.invalidateTags(['history', 'medications']);
-            await window.DataStore.invalidateKey('next_intake');
-            const medNamesStr = res.medication_names ? res.medication_names.join(', ') : `${res.medication_count} medication(s)`;
-            safeAlert(`✅ Confirmed: ${medNamesStr}\n\nScheduled for: ${formatDate(res.scheduled_at)}\nTaken at: ${formatDate(res.taken_at)}`);
-
-            // Reload history which will also recalculate the next intake trigger
-            await loadHistory();
-        }
-    } catch (error) {
-        console.error('Error triggering next intake:', error);
-        safeAlert('Failed to trigger next intake. Please try again.');
+    const res = await apiCall('/api/medications/trigger-next-intake', 'POST');
+    if (res && res.status === 'confirmed') {
+        await window.DataStore.invalidateTags(['history', 'medications']);
+        await window.DataStore.invalidateKey('next_intake');
+        const medNamesStr = res.medication_names ? res.medication_names.join(', ') : `${res.medication_count} medication(s)`;
+        safeAlert(`✅ Confirmed: ${medNamesStr}\n\nScheduled for: ${formatDate(res.scheduled_at)}\nTaken at: ${formatDate(res.taken_at)}`);
+        await loadHistory();
     }
 }
 
