@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 )
@@ -238,14 +239,14 @@ func TestDeleteBloodPressureReading(t *testing.T) {
 		}
 
 		err = db.DeleteBloodPressureReading(ctx, id2, 999)
-		if err != sql.ErrNoRows {
+		if !errors.Is(err, sql.ErrNoRows) {
 			t.Errorf("expected sql.ErrNoRows for wrong user, got %v", err)
 		}
 	})
 
 	t.Run("delete non-existent reading returns ErrNoRows", func(t *testing.T) {
 		err := db.DeleteBloodPressureReading(ctx, 99999, userID)
-		if err != sql.ErrNoRows {
+		if !errors.Is(err, sql.ErrNoRows) {
 			t.Errorf("expected sql.ErrNoRows for non-existent reading, got %v", err)
 		}
 	})

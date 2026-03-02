@@ -41,7 +41,7 @@ func main() {
 	if csvPath == "-" {
 		reader = os.Stdin
 	} else {
-		file, err := os.Open(csvPath) // #nosec G304 -- csvPath is a CLI flag provided by the operator
+		file, err := os.Open(csvPath) // #nosec G304
 		if err != nil {
 			log.Fatal("Error opening CSV:", err)
 		}

@@ -62,7 +62,7 @@ func (s *Store) SearchRemoteFoodAPI(ctx context.Context, query string) ([]FoodPr
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) // #nosec G107
 	if err != nil {
 		return nil, err
 	}

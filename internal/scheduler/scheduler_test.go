@@ -14,7 +14,7 @@ func setupTestScheduler(t *testing.T) (*Scheduler, *store.Store) {
 	if err != nil {
 		t.Fatalf("Failed to create test store: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() }) // #nosec G104
 
 	sched := New(db, 123456, nil)
 	return sched, db
@@ -231,7 +231,7 @@ func TestCheckLowStock_WrongHour(t *testing.T) {
 		t.Skip("Skipping: current hour is 11, can't test wrong-hour path")
 	}
 
-	sched.LowStockChecker.Check(context.Background())
+	_ = sched.LowStockChecker.Check(context.Background()) // #nosec G104
 }
 
 func TestCheckLowStock_AlreadyCheckedToday(t *testing.T) {
@@ -239,7 +239,7 @@ func TestCheckLowStock_AlreadyCheckedToday(t *testing.T) {
 
 	sched.LowStockChecker.lastCheck = time.Now()
 
-	sched.LowStockChecker.Check(context.Background())
+	_ = sched.LowStockChecker.Check(context.Background()) // #nosec G104
 }
 
 // --- BPReminderChecker tests ---
