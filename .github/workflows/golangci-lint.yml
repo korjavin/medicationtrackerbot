@@ -31,7 +31,8 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: v1.64.2
-          args: --timeout=5m --out-format=colored-line-number:stdout,sarif:golangci-lint-result.sarif
+          args: --timeout=5m --out-format=github-actions:stdout,sarif:golangci-lint-result.sarif
+          print-resources-usage: true
 
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
