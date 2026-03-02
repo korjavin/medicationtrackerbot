@@ -10,6 +10,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 )
 
 type botTestEnv struct {
@@ -49,6 +50,7 @@ func setupBotTest(t *testing.T) *botTestEnv {
 		bp:            s,
 		weight:        s,
 		workouts:      s,
+		workoutSvc:    workoutsvc.New(s),
 		food:          s,
 		imports:       s,
 		allowedUserID: 123456,
