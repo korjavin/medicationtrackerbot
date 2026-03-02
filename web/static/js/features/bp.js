@@ -1,6 +1,3 @@
-// `tg` is declared in app.js as `window.tg = window.Telegram.WebApp` (not const)
-// so redeclaring it here is safe and provides a convenient local alias.
-const tg = window.tg;
 
 // ==================== Blood Pressure Functions ====================
 
@@ -53,7 +50,7 @@ async function handleBPSubmit(event) {
     const notes = document.getElementById('bp-notes').value;
 
     if (!datetime || !systolic || !diastolic) {
-        tg.showAlert('Please fill in all required fields');
+        window.tg.showAlert('Please fill in all required fields');
         return;
     }
 
@@ -533,14 +530,14 @@ function renderBPReadings(readings) {
 async function deleteBPReading(id) {
     const confirmMsg = 'Delete this blood pressure reading?';
 
-    if (userInitData && tg.showConfirm) {
+    if (userInitData && window.tg.showConfirm) {
         try {
-            tg.showConfirm(confirmMsg, (ok) => {
+            window.tg.showConfirm(confirmMsg, (ok) => {
                 if (ok) _deleteBPApi(id);
             });
             return;
         } catch (e) {
-            console.log('tg.showConfirm failed, falling back', e);
+            console.log('window.tg.showConfirm failed, falling back', e);
         }
     }
 
@@ -593,7 +590,7 @@ async function exportBPCSV() {
         });
 
         if (!response.ok) {
-            tg.showAlert('Failed to generate export');
+            window.tg.showAlert('Failed to generate export');
             return;
         }
 
@@ -601,6 +598,6 @@ async function exportBPCSV() {
         downloadBlobAsFile(blob, 'blood_pressure_export.csv');
     } catch (err) {
         console.error('Export error:', err);
-        tg.showAlert('Failed to export data');
+        window.tg.showAlert('Failed to export data');
     }
 }
