@@ -64,10 +64,10 @@ function isVersionAtLeast(currentVersion, targetVersion) {
   return true;
 }
 
-export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', telegramVersion = '6.9' } = {}) {
+export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', telegramVersion = '6.9', url = 'https://example.test/' } = {}) {
   const html = fs.readFileSync(INDEX_HTML, 'utf8');
   const dom = new JSDOM(html, {
-    url: 'https://example.test/',
+    url,
     pretendToBeVisual: true,
     runScripts: 'outside-only'
   });
