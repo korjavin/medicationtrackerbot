@@ -19,14 +19,9 @@ function evalWithSourceURL(window, source, scriptPath) {
 }
 
 function disableAutoBootstrap(source) {
-  // Remove the "// Initial Load" checkAuth().then(...) block.
-  // The block ends just before the first top-level async function after it.
-  const bootStart = source.indexOf('// Initial Load');
-  const bootEnd = source.indexOf('async function sendTestBPNotification()');
-  if (bootStart !== -1 && bootEnd !== -1 && bootEnd > bootStart) {
-    source = `${source.slice(0, bootStart)}// Initial Load (disabled in tests)\n\n${source.slice(bootEnd)}`;
-  }
-
+  // The bootstrap block has been moved to features/bootstrap.js which the
+  // harness intentionally does not load.  This function is kept as a no-op
+  // stub so callers do not need to change.
   return source;
 }
 

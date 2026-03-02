@@ -690,38 +690,7 @@ function initOIDCSetupBanner() {
     container.appendChild(wrapper);
 }
 
-// Initial Load
-checkAuth().then(authorized => {
-    if (authorized) {
-        window.DataStore.startChangePolling();
-        window.addEventListener('beforeunload', () => window.DataStore.stopChangePolling(), { once: true });
-
-        // Initialize SyncManager for offline support
-        if (window.SyncManager) {
-            window.SyncManager.init();
-        }
-
-        // Initialize PushManager
-        if (window.MedTrackerPush) {
-            window.MedTrackerPush.initialize().then(supported => {
-                if (supported && window.MedTrackerPush.subscription) {
-                    // Update UI if already subscribed
-                    const toggle = document.getElementById('webpush-toggle');
-                    if (toggle) toggle.checked = true;
-                }
-            });
-        }
-
-        initOIDCSetupBanner();
-
-        // Only load data if authorized
-        // Determine start tab? default bp
-        switchTab('bp');
-
-        // Handle deep links and push actions from URL
-        handleDeepLinks();
-    }
-});
+// Bootstrap orchestration lives in features/bootstrap.js (loaded after all feature scripts).
 
 async function sendTestBPNotification() {
     try {
