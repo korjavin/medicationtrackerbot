@@ -16,8 +16,13 @@ const ACTION_ROW_JS = path.join(REPO_ROOT, 'web/static/js/components/action-row.
 const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
 const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
 const APP_KERNEL_JS = path.join(REPO_ROOT, 'web/static/js/core/app-kernel.js');
+const STORE_JS = path.join(REPO_ROOT, 'web/static/js/core/store.js');
+const MODAL_CONTROLLER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-controller.js');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
+const FOOD_JS = path.join(REPO_ROOT, 'web/static/js/features/food.js');
+const BP_JS = path.join(REPO_ROOT, 'web/static/js/features/bp.js');
+const WEIGHT_JS = path.join(REPO_ROOT, 'web/static/js/features/weight.js');
 const AUTH_FLOW_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-flow.js');
 const MODAL_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/modal-history.js');
 const DEEPLINK_ROUTER_JS = path.join(REPO_ROOT, 'web/static/js/features/deeplink-router.js');
@@ -127,12 +132,19 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalWithSourceURL(window, fs.readFileSync(MODAL_MANAGER_JS, 'utf8'), MODAL_MANAGER_JS);
   evalWithSourceURL(window, fs.readFileSync(CORE_API_JS, 'utf8'), CORE_API_JS);
   evalWithSourceURL(window, fs.readFileSync(APP_KERNEL_JS, 'utf8'), APP_KERNEL_JS);
+  evalWithSourceURL(window, fs.readFileSync(STORE_JS, 'utf8'), STORE_JS);
+  evalWithSourceURL(window, fs.readFileSync(MODAL_CONTROLLER_JS, 'utf8'), MODAL_CONTROLLER_JS);
 
   const dataStoreSource = fs.readFileSync(DATA_STORE_JS, 'utf8');
   evalWithSourceURL(window, dataStoreSource, DATA_STORE_JS);
 
   const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
   evalWithSourceURL(window, appSource, APP_JS);
+
+  // Feature modules extracted from app.js (food, bp, weight).
+  evalWithSourceURL(window, fs.readFileSync(FOOD_JS, 'utf8'), FOOD_JS);
+  evalWithSourceURL(window, fs.readFileSync(BP_JS, 'utf8'), BP_JS);
+  evalWithSourceURL(window, fs.readFileSync(WEIGHT_JS, 'utf8'), WEIGHT_JS);
 
   // auth-flow.js: provides saveAuthState / getCachedAuthState / clearAuthState.
   const authFlowSource = fs.readFileSync(AUTH_FLOW_JS, 'utf8');
