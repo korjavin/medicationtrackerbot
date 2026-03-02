@@ -96,7 +96,12 @@ func TestCheckSchedule_WeeklyNotToday(t *testing.T) {
 func TestCheckSchedule_FutureTimeSkipped(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 
-	futureTime := time.Now().Add(2 * time.Hour).Format("15:04")
+	now := time.Now()
+	futureTimeObj := now.Add(2 * time.Hour)
+	if futureTimeObj.Day() != now.Day() {
+		t.Skip("Skipping: future time crosses into next day")
+	}
+	futureTime := futureTimeObj.Format("15:04")
 	schedule := `{"type":"daily","times":["` + futureTime + `"]}`
 	_, err := db.CreateMedication("FutureMed", "5mg", schedule, nil, nil, "", "")
 	if err != nil {
@@ -120,8 +125,13 @@ func TestCheckSchedule_FutureTimeSkipped(t *testing.T) {
 func TestCheckSchedule_StartDateNotYetActive(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 
-	pastTime := time.Now().Add(-1 * time.Hour).Format("15:04")
-	futureStart := time.Now().Add(24 * time.Hour)
+	now := time.Now()
+	pastTimeObj := now.Add(-1 * time.Hour)
+	if pastTimeObj.Day() != now.Day() {
+		t.Skip("Skipping: past time crosses into previous day")
+	}
+	pastTime := pastTimeObj.Format("15:04")
+	futureStart := now.Add(24 * time.Hour)
 	schedule := `{"type":"daily","times":["` + pastTime + `"]}`
 	_, err := db.CreateMedication("FutureStartMed", "5mg", schedule, &futureStart, nil, "", "")
 	if err != nil {
@@ -145,8 +155,13 @@ func TestCheckSchedule_StartDateNotYetActive(t *testing.T) {
 func TestCheckSchedule_EndDatePassed(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 
-	pastTime := time.Now().Add(-1 * time.Hour).Format("15:04")
-	pastEnd := time.Now().Add(-24 * time.Hour)
+	now := time.Now()
+	pastTimeObj := now.Add(-1 * time.Hour)
+	if pastTimeObj.Day() != now.Day() {
+		t.Skip("Skipping: past time crosses into previous day")
+	}
+	pastTime := pastTimeObj.Format("15:04")
+	pastEnd := now.Add(-24 * time.Hour)
 	schedule := `{"type":"daily","times":["` + pastTime + `"]}`
 	_, err := db.CreateMedication("EndedMed", "5mg", schedule, nil, &pastEnd, "", "")
 	if err != nil {
@@ -170,7 +185,11 @@ func TestCheckSchedule_EndDatePassed(t *testing.T) {
 func TestCheckSchedule_ExistingIntakeNotDuplicated(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 
-	pastTime := time.Now().Add(-1 * time.Hour)
+	now := time.Now()
+	pastTime := now.Add(-1 * time.Hour)
+	if pastTime.Day() != now.Day() {
+		t.Skip("Skipping: past time crosses into previous day")
+	}
 	timeStr := pastTime.Format("15:04")
 	schedule := `{"type":"daily","times":["` + timeStr + `"]}`
 	medID, err := db.CreateMedication("DailyMed", "5mg", schedule, nil, nil, "", "")
@@ -178,7 +197,6 @@ func TestCheckSchedule_ExistingIntakeNotDuplicated(t *testing.T) {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 
-	now := time.Now()
 	target := time.Date(now.Year(), now.Month(), now.Day(),
 		pastTime.Hour(), pastTime.Minute(), 0, 0, now.Location())
 	_, err = db.CreateIntake(medID, 123456, target)
@@ -440,10 +458,14 @@ func TestCheckWorkoutNotifications_SessionCreatedOnScheduledDay(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 
 	now := time.Now()
+	futureTimeObj := now.Add(2 * time.Hour)
+	if futureTimeObj.Day() != now.Day() {
+		t.Skip("Skipping: future time crosses into next day")
+	}
 	todayIdx := int(now.Weekday())
 	daysOfWeek := "[" + intToStr(todayIdx) + "]"
 
-	futureTime := now.Add(2 * time.Hour).Format("15:04")
+	futureTime := futureTimeObj.Format("15:04")
 
 	group, err := db.CreateWorkoutGroup("TodayGroup", "desc", false, 123456, daysOfWeek, futureTime, 15)
 	if err != nil {
@@ -477,10 +499,14 @@ func TestCheckWorkoutNotifications_PreSkippedSession(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 
 	now := time.Now()
+	pastTimeObj := now.Add(-1 * time.Hour)
+	if pastTimeObj.Day() != now.Day() {
+		t.Skip("Skipping: past time crosses into previous day")
+	}
 	todayIdx := int(now.Weekday())
 	daysOfWeek := "[" + intToStr(todayIdx) + "]"
 
-	pastTime := now.Add(-1 * time.Hour).Format("15:04")
+	pastTime := pastTimeObj.Format("15:04")
 
 	group, err := db.CreateWorkoutGroup("SkipGroup", "desc", false, 123456, daysOfWeek, pastTime, 15)
 	if err != nil {
@@ -528,10 +554,14 @@ func TestCheckWorkout_SessionVariantUpdatedWhenRotationChanges(t *testing.T) {
 	sched, db := setupTestScheduler(t)
 
 	now := time.Now()
+	pastTimeObj := now.Add(-30 * time.Minute)
+	if pastTimeObj.Day() != now.Day() {
+		t.Skip("Skipping: past time crosses into previous day")
+	}
 	todayIdx := int(now.Weekday())
 	daysOfWeek := "[" + intToStr(todayIdx) + "]"
 	// Schedule in the future so notification is not triggered yet, but session IS created
-	pastTime := now.Add(-30 * time.Minute).Format("15:04")
+	pastTime := pastTimeObj.Format("15:04")
 
 	// Step 1: Create group as non-rotating with only "Swings" variant
 	group, err := db.CreateWorkoutGroup("Morning Workouts", "desc", false, 123456, daysOfWeek, pastTime, 15)

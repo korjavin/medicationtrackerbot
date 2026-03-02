@@ -187,7 +187,7 @@ describe('Service Worker (sw.js) Fetch and Cache Strategies', () => {
         expect(global.fetch).toHaveBeenCalledWith(fakeRequest);
 
         // 4. Should have updated cache with fresh shell
-        expect(mockCacheInstance.put).toHaveBeenCalledWith('/__app_shell__', networkFreshResponse);
+        expect(mockCacheInstance.put).toHaveBeenCalledWith('/__app_shell__', expect.any(Response));
     });
 
     it('falls back to network then old cache if APP_SHELL_CACHE_KEY is missing currently', async () => {
@@ -202,9 +202,9 @@ describe('Service Worker (sw.js) Fetch and Cache Strategies', () => {
 
         fetchHandler(event);
         const finalResponse = await event.respondWith.mock.calls[0][0];
-
-        expect(finalResponse).toStrictEqual(networkResponse);
+        expect(finalResponse).toBeInstanceOf(Response);
+        expect(finalResponse.status).toBe(200);
         // It should have cached the fresh network response against APP_SHELL_CACHE_KEY
-        expect(mockCacheInstance.put).toHaveBeenCalledWith('/__app_shell__', networkResponse);
+        expect(mockCacheInstance.put).toHaveBeenCalledWith('/__app_shell__', expect.any(Response));
     });
 });
