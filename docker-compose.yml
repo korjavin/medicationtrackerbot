@@ -146,9 +146,9 @@ services:
                 bucket: $${R2_BUCKET}
                 path: medtracker
                 endpoint: $${R2_ENDPOINT}
-                sync-interval: 1h
-                snapshot-interval: 24h
-                retention: 168h
+                sync-interval: $${LITESTREAM_SYNC_INTERVAL:-10h}
+                snapshot-interval: $${LITESTREAM_SNAPSHOT_INTERVAL:-240h}
+                retention: $${LITESTREAM_RETENTION:-1680h}
         EOF
         exec litestream replicate -config /tmp/litestream.yml
     volumes:
@@ -158,6 +158,9 @@ services:
       - LITESTREAM_SECRET_ACCESS_KEY=${LITESTREAM_SECRET_ACCESS_KEY}
       - R2_ENDPOINT=${R2_ENDPOINT}
       - R2_BUCKET=${R2_BUCKET}
+      - LITESTREAM_SYNC_INTERVAL=${LITESTREAM_SYNC_INTERVAL:-10h}
+      - LITESTREAM_SNAPSHOT_INTERVAL=${LITESTREAM_SNAPSHOT_INTERVAL:-240h}
+      - LITESTREAM_RETENTION=${LITESTREAM_RETENTION:-1680h}
     depends_on:
       - medtracker
 
