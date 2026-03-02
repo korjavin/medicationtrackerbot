@@ -9,6 +9,31 @@ const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 
 const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
+const COMPONENTS = [
+  path.join(REPO_ROOT, 'web/static/js/components/mt-modal.js'),
+  path.join(REPO_ROOT, 'web/static/js/components/mt-setting-toggle.js'),
+  path.join(REPO_ROOT, 'web/static/js/components/mt-tab-group.js'),
+  path.join(REPO_ROOT, 'web/static/js/components/mt-day-picker.js'),
+  path.join(REPO_ROOT, 'web/static/js/components/mt-card.js'),
+  path.join(REPO_ROOT, 'web/static/js/components/register-components.js')
+];
+
+// Feature modules loaded in dependency order
+const FEATURE_SCRIPTS = [
+  path.join(REPO_ROOT, 'web/static/js/features/core-utils.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/state.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/api.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/ui-manager.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/bp.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/weight.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/food.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/medications.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/medication-modals.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/health.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/hub.js'),
+  path.join(REPO_ROOT, 'web/static/js/features/settings.js')
+];
+
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
 
@@ -17,17 +42,11 @@ function evalWithSourceURL(window, source, scriptPath) {
 }
 
 function disableAutoBootstrap(source) {
-  const bootStart = source.indexOf('// Initial Load');
-  const bootEnd = source.indexOf('// Check for Telegram start_param');
-  if (bootStart !== -1 && bootEnd !== -1 && bootEnd > bootStart) {
-    source = `${source.slice(0, bootStart)}// Initial Load (disabled in tests)\n${source.slice(bootEnd)}`;
-  }
-
-  const startParamStart = source.indexOf('// Check for Telegram start_param');
-  const startParamEnd = source.indexOf('async function sendTestBPNotification()', startParamStart);
-  if (startParamStart !== -1 && startParamEnd !== -1 && startParamEnd > startParamStart) {
-    source = `${source.slice(0, startParamStart)}// Check for Telegram start_param (disabled in tests)\n\n${source.slice(startParamEnd)}`;
-  }
+  // Remove the DOMContentLoaded async handler that does auth/loading
+  source = source.replace(
+    /document\.addEventListener\('DOMContentLoaded',\s*async\s*\(\)\s*=>\s*\{[\s\S]*?\n\}\);/,
+    '// DOMContentLoaded auto-bootstrap disabled in tests'
+  );
 
   return source;
 }
@@ -96,12 +115,12 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
     WebApp: {
       initData: telegramInitData,
       initDataUnsafe: {},
-      ready() {},
-      expand() {},
+      ready() { },
+      expand() { },
       isVersionAtLeast(version) {
         return isVersionAtLeast(telegramVersion, version);
       },
-      showAlert() {},
+      showAlert() { },
       showConfirm(_msg, cb) {
         cb(true);
       },
@@ -111,13 +130,24 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   window.OIDC_CONFIG = { enabled: false };
   window.BOT_USERNAME = 'test_bot';
-  window.alert = () => {};
+  window.alert = () => { };
   window.confirm = () => true;
   window.fetch = async () => createMockResponse({ status: 200, json: {} });
   window.eval('var history = window.history;');
 
   const dataStoreSource = fs.readFileSync(DATA_STORE_JS, 'utf8');
   evalWithSourceURL(window, dataStoreSource, DATA_STORE_JS);
+
+  for (const compPath of COMPONENTS) {
+    const compSource = fs.readFileSync(compPath, 'utf8');
+    evalWithSourceURL(window, compSource, compPath);
+  }
+
+  // Load all feature scripts in correct order
+  for (const scriptPath of FEATURE_SCRIPTS) {
+    const source = fs.readFileSync(scriptPath, 'utf8');
+    evalWithSourceURL(window, source, scriptPath);
+  }
 
   const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
   evalWithSourceURL(window, appSource, APP_JS);

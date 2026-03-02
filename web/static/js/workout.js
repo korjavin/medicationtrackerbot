@@ -16,12 +16,12 @@ let currentVariantForExercise = null;
 // ====================================
 
 function switchWorkoutTab(tab) {
-    const activated = activateTabGroup(tab, {
-        buttonSelector: '.workout-tab',
-        contentSelector: '.workout-tab-content',
-        contentIdFromTab: (tabName) => `workout-${tabName}-tab`
-    });
-    if (!activated) return;
+    document.querySelector('.workout-tabs')?.setActiveTab?.(tab);
+    const tabContent = document.getElementById(`workout-${tab}-tab`);
+    if (!tabContent) return;
+
+    document.querySelectorAll('.workout-tab-content').forEach((el) => el.classList.remove('active'));
+    tabContent.classList.add('active');
 
     if (tab === 'groups') { loadWorkoutGroups(); }
     else if (tab === 'history') { loadNextWorkout(); loadWorkoutHistoryTab(); }
@@ -29,10 +29,8 @@ function switchWorkoutTab(tab) {
     else if (tab === 'stats') { loadWorkoutStatsTab(); }
 }
 
-bindTabGroup({
-    container: document.querySelector('.workout-tabs'),
-    buttonSelector: '.workout-tab',
-    onTabSelect: switchWorkoutTab
+document.querySelector('.workout-tabs')?.addEventListener('tabchange', (e) => {
+    switchWorkoutTab(e.detail.tabId);
 });
 
 // Main load function called when switching to workouts tab
@@ -71,7 +69,7 @@ function bindWorkoutControls() {
     bindClick('exercise-library-save-btn', () => saveExerciseLibraryItem());
 
     bindClick('workout-session-delete-btn', () => deleteWorkoutSession());
-    bindClick('workout-session-cancel-btn', () => closeWorkoutSessionModal());
+    bindClick('workout-session-cancel-btn', () => handleCancelWorkoutSessionModal());
     bindClick('workout-session-save-btn', () => saveWorkoutSessionDetails());
     bindClick('workout-session-add-exercise-btn', () => showAddExerciseToSessionModal());
 
@@ -85,11 +83,7 @@ function bindWorkoutControls() {
         });
     }
 
-    document.querySelectorAll('#workout-group-modal .days-select span').forEach((day) => {
-        day.addEventListener('click', () => {
-            toggleWorkoutDay(day);
-        });
-    });
+
 
     const sessionExerciseName = document.getElementById('session-add-exercise-name');
     if (sessionExerciseName) {
@@ -181,7 +175,7 @@ function _renderNextWorkout(container, data) {
     const groupId = data.group_id || 0;
     const isRotating = data.is_rotating || false;
 
-    const card = document.createElement('div');
+    const card = document.createElement('mt-card');
     card.className = cardClass;
 
     const header = document.createElement('div');
@@ -360,7 +354,7 @@ function _renderWorkoutGroups(container, groups) {
         const daysMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         const daysText = daysArray.map((day) => daysMap[day]).join(', ');
 
-        const card = doc.createElement('div');
+        const card = doc.createElement('mt-card');
         card.className = 'med-item';
         card.style.marginBottom = '15px';
 
@@ -435,8 +429,7 @@ function showAddWorkoutGroupModal() {
     document.getElementById('workout-group-active').checked = true;
 
     // Clear days
-    document.querySelectorAll('#workout-group-modal .days-select span').forEach(s => s.classList.remove('selected'));
-
+    document.getElementById('workout-group-days').value = [];
     // Show/hide sections based on default "Rotating" state (unchecked)
     document.getElementById('workout-variants-section').style.display = 'none';
     document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
@@ -462,15 +455,7 @@ async function showEditWorkoutGroupModal(groupId) {
     document.getElementById('workout-group-active').checked = group.active;
 
     // Set days
-    const daysArray = JSON.parse(group.days_of_week || '[]');
-    document.querySelectorAll('#workout-group-modal .days-select span').forEach(s => {
-        const day = parseInt(s.dataset.day);
-        if (daysArray.includes(day)) {
-            s.classList.add('selected');
-        } else {
-            s.classList.remove('selected');
-        }
-    });
+    document.getElementById('workout-group-days').value = JSON.parse(group.days_of_week || '[]');
 
     // Show variants or flat exercises based on rotation
     if (group.is_rotating) {
@@ -541,9 +526,7 @@ async function toggleRotatingFields() {
     }
 }
 
-function toggleWorkoutDay(el) {
-    el.classList.toggle('selected');
-}
+
 
 async function saveWorkoutGroup() {
     const name = document.getElementById('workout-group-name').value.trim();
@@ -563,8 +546,7 @@ async function saveWorkoutGroup() {
         return;
     }
 
-    const days = Array.from(document.querySelectorAll('#workout-group-modal .days-select span.selected'))
-        .map(s => parseInt(s.dataset.day));
+    const days = document.getElementById('workout-group-days').value;
 
 
     const payload = {
@@ -627,7 +609,7 @@ async function loadVariantsForGroup(groupId) {
         variants.forEach((variant) => {
             const rotationText = variant.rotation_order !== null ? ` (Order: ${variant.rotation_order})` : '';
 
-            const card = document.createElement('div');
+            const card = document.createElement('mt-card');
             card.style.background = '#f8f9fa';
             card.style.padding = '10px';
             card.style.borderRadius = '6px';
@@ -813,7 +795,7 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
                 : `${ex.target_reps_min}`;
             const weightText = ex.target_weight_kg ? ` @ ${ex.target_weight_kg}kg` : '';
 
-            const card = document.createElement('div');
+            const card = document.createElement('mt-card');
             card.style.background = '#f0f4ff';
             card.style.padding = '8px 10px';
             card.style.borderRadius = '6px';
@@ -1090,7 +1072,7 @@ function _renderExerciseLibrary(container, items) {
             : `${item.default_reps_min}`;
         const weightStr = item.default_weight_kg ? ` @ ${item.default_weight_kg}kg` : '';
 
-        const card = document.createElement('div');
+        const card = document.createElement('mt-card');
         card.className = 'exercise-library-item';
         card.style.cursor = 'pointer';
         card.addEventListener('click', () => {
@@ -1384,6 +1366,17 @@ function _buildSessionCard(s) {
     chevron.style.fontSize = '1.2em';
     chevron.textContent = '›';
     right.appendChild(chevron);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'delete-btn';
+    deleteBtn.style.position = 'static';
+    deleteBtn.style.marginLeft = '10px';
+    deleteBtn.textContent = '×';
+    deleteBtn.addEventListener('click', (event) => {
+        deleteWorkoutSession(s.session.id, event);
+    });
+    right.appendChild(deleteBtn);
 
     row.appendChild(left);
     row.appendChild(right);
@@ -1692,13 +1685,6 @@ async function showWorkoutSessionModal(sessionId) {
         renderWorkoutSessionLogs(logsContainer);
 
         window.ModalManager.workoutSession.open();
-
-        // Add click handler to overlay to close modal
-        overlay.onclick = function (e) {
-            if (e.target === overlay) {
-                closeWorkoutSessionModal();
-            }
-        };
     } catch (error) {
         console.error('Error loading session details:', error);
         safeAlert('Error loading session details');
@@ -1751,23 +1737,51 @@ async function deleteExerciseLog(index) {
     renderWorkoutSessionLogs(logsContainer);
 }
 
-async function deleteWorkoutSession() {
-    if (!currentSessionData) return;
+// Called from modal delete button (no args) or from per-row card button (sessionId, event).
+async function deleteWorkoutSession(sessionId, event) {
+    if (event) event.stopPropagation();
+    const id = sessionId ?? currentSessionData?.id;
+    if (!id) return;
     if (!confirm('Delete this workout session?')) return;
 
-    const result = await apiCall(`/api/workout/sessions/delete?id=${currentSessionData.id}`, 'DELETE');
-    if (result || result === true) {
-        closeWorkoutSessionModal();
+    try {
+        await apiCall(`/api/workout/sessions/delete?id=${id}`, 'DELETE');
+        if (!sessionId) closeWorkoutSessionModal();
         loadWorkoutHistoryTab();
+        loadNextWorkout();
+    } catch (error) {
+        console.error('Error deleting workout session:', error);
+        safeAlert('Failed to delete workout session');
     }
 }
 
 function closeWorkoutSessionModal() {
-    const overlay = document.getElementById('modal-overlay');
-    overlay.onclick = null; // Remove click handler
     window.ModalManager.workoutSession.close();
     currentSessionData = null;
     originalSessionStatus = null;
+}
+
+async function handleCancelWorkoutSessionModal() {
+    if (!currentSessionData) {
+        closeWorkoutSessionModal();
+        return;
+    }
+
+    // Check if there are any saved exercise logs
+    const hasSavedLogs = currentSessionLogs.some(log => log.id && log.id > 0);
+
+    if (!hasSavedLogs) {
+        // If there are no saved logs, immediately delete the session as per user request
+        try {
+            await apiCall(`/api/workout/sessions/delete?id=${currentSessionData.id}`, 'DELETE');
+            loadWorkoutHistoryTab();
+            loadNextWorkout();
+        } catch (error) {
+            console.error('Error auto-deleting empty session:', error);
+        }
+    }
+
+    closeWorkoutSessionModal();
 }
 
 async function saveWorkoutSessionDetails() {
@@ -1892,7 +1906,7 @@ function _renderWorkoutStats(container, stats) {
     topGrid.style.marginBottom = '12px';
 
     const buildHeroCard = (background, valueText, labelText) => {
-        const card = document.createElement('div');
+        const card = document.createElement('mt-card');
         card.style.background = background;
         card.style.color = 'white';
         card.style.padding = '18px 8px';
@@ -1927,7 +1941,7 @@ function _renderWorkoutStats(container, stats) {
     totalsGrid.style.gap = '10px';
 
     const buildTotalsCard = (background, borderColor, valueColor, valueText, labelText) => {
-        const card = document.createElement('div');
+        const card = document.createElement('mt-card');
         card.style.background = background;
         card.style.padding = '14px 8px';
         card.style.borderRadius = '8px';
@@ -2151,15 +2165,22 @@ async function startWorkoutSession(sessionId) {
 }
 
 async function cancelWorkoutSession(sessionId) {
-    if (confirm('Finish this workout now? It will be marked as completed.')) {
-        try {
+    try {
+        const details = await apiCall(`/api/workout/sessions/details?id=${sessionId}`);
+        const hasLogs = details && details.logs && details.logs.length > 0;
+
+        const confirmMsg = hasLogs
+            ? 'Finish this workout now? It will be marked as completed.'
+            : 'Warning! You have no exercises logged. Are you sure you want to finish this workout?';
+
+        if (confirm(confirmMsg)) {
             await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
             loadNextWorkout();
             loadWorkoutHistoryTab(); // Refresh history if visible
-        } catch (e) {
-            console.error(e);
-            safeAlert('Failed to finish workout');
         }
+    } catch (e) {
+        console.error(e);
+        safeAlert('Failed to finish workout');
     }
 }
 
@@ -2224,26 +2245,10 @@ async function showAddExerciseToSessionModal() {
     }
 
     window.ModalManager.workoutAddExerciseToSession.open();
-
-    // Ensure overlay closes this modal too
-    const overlay = document.getElementById('modal-overlay');
-    overlay.onclick = function (e) {
-        if (e.target === overlay) {
-            closeAddExerciseToSessionModal();
-        }
-    };
 }
 
 function closeAddExerciseToSessionModal() {
     window.ModalManager.workoutAddExerciseToSession.close();
-
-    // Revert overlay onclick to close session modal
-    const overlay = document.getElementById('modal-overlay');
-    overlay.onclick = function (e) {
-        if (e.target === overlay) {
-            closeWorkoutSessionModal();
-        }
-    };
 }
 
 function onSessionExerciseSelect() {
