@@ -31,7 +31,9 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.10.1
-          args: --out-format github-actions,sarif --output.sarif=golangci-lint-result.sarif
+          # In v2, many flags like --out-format are replaced by --output.<format>.<option>
+          # But for the action, let's try the most robust way to get both
+          args: --output.github-actions.path=stdout --output.sarif.path=golangci-lint-result.sarif
 
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v4
