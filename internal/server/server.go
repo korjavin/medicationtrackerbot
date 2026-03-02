@@ -19,6 +19,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 	"golang.org/x/oauth2"
 )
 
@@ -36,6 +37,7 @@ type Server struct {
 	bp              BloodPressureStore
 	weight          WeightStore
 	workouts        WorkoutStore
+	workoutSvc      workoutsvc.WorkoutService
 	food            FoodStore
 	settings        SettingsStore
 	health          HealthStore
@@ -188,6 +190,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		bp:              s,
 		weight:          s,
 		workouts:        s,
+		workoutSvc:      workoutsvc.New(s),
 		food:            s,
 		settings:        s,
 		health:          s,

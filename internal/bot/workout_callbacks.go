@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strconv"
@@ -48,17 +49,12 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		return
 	}
 
-	// Get group info for rotation handling
-	group, err := b.workouts.GetWorkoutGroup(session.GroupID)
-	if err != nil || group == nil {
-		log.Printf("Failed to get workout group: %v", err)
-		return
-	}
+	ctx := context.Background()
 
 	switch action {
 	case "start":
-		// Mark session as in_progress
-		if err := b.workouts.StartSession(sessionID); err != nil {
+		// Mark session as in_progress and clear any snooze
+		if err := b.workoutSvc.StartSession(ctx, sessionID); err != nil {
 			log.Printf("Failed to start session: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error starting workout.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)
@@ -78,7 +74,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		b.startExerciseLoop(sessionID, session.VariantID, cb.Message.Chat.ID)
 
 	case "snooze1":
-		if err := b.workouts.SnoozeSession(sessionID, 1*time.Hour); err != nil {
+		if err := b.workoutSvc.SnoozeSession(ctx, sessionID, 1*time.Hour); err != nil {
 			log.Printf("Failed to snooze session: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing workout.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)
@@ -91,7 +87,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		}
 
 	case "snooze2":
-		if err := b.workouts.SnoozeSession(sessionID, 2*time.Hour); err != nil {
+		if err := b.workoutSvc.SnoozeSession(ctx, sessionID, 2*time.Hour); err != nil {
 			log.Printf("Failed to snooze session: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing workout.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)
@@ -104,19 +100,13 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		}
 
 	case "skip":
-		if err := b.workouts.SkipSession(sessionID); err != nil {
+		// Service handles skip + rotation advancement for rotating groups
+		if err := b.workoutSvc.SkipSession(ctx, sessionID); err != nil {
 			log.Printf("Failed to skip session: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error skipping workout.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)
 			}
 			return
-		}
-
-		// Advance rotation if applicable
-		if group.IsRotating {
-			if err := b.workouts.AdvanceRotation(group.ID); err != nil {
-				log.Printf("Failed to advance rotation: %v", err)
-			}
 		}
 		// Delete notification
 		if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
@@ -124,21 +114,14 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		}
 
 	case "finish":
-		// User explicitly finished the workout
+		// User explicitly finished the workout; service handles complete + rotation advancement
 		if session.Status != "completed" {
-			if err := b.workouts.CompleteSession(sessionID); err != nil {
+			if err := b.workoutSvc.CompleteSession(ctx, sessionID); err != nil {
 				log.Printf("Failed to complete session: %v", err)
 				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error saving workout.")); err != nil {
 					log.Printf("[bot] send failed: %v", err)
 				}
 				return
-			}
-
-			// Advance rotation if applicable
-			if group.IsRotating {
-				if err := b.workouts.AdvanceRotation(group.ID); err != nil {
-					log.Printf("Failed to advance rotation: %v", err)
-				}
 			}
 		}
 

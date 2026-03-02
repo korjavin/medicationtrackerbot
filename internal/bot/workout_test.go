@@ -12,6 +12,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 )
 
 func TestWorkoutCallbackRouting_PanicRegression(t *testing.T) {
@@ -34,7 +35,7 @@ func TestWorkoutCallbackRouting_PanicRegression(t *testing.T) {
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
 
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, food: s, imports: s, allowedUserID: 123}
+	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), food: s, imports: s, allowedUserID: 123}
 
 	// Create a dummy session so it doesn't fail on "session not found" before routing
 	// Actually routing happens before session lookup in handleCallback,
@@ -100,6 +101,7 @@ func TestWorkoutFinish_StateUpdate(t *testing.T) {
 		bp:            s,
 		weight:        s,
 		workouts:      s,
+		workoutSvc:    workoutsvc.New(s),
 		food:          s,
 		imports:       s,
 		allowedUserID: 123456,
@@ -178,6 +180,7 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 		bp:            s,
 		weight:        s,
 		workouts:      s,
+		workoutSvc:    workoutsvc.New(s),
 		food:          s,
 		imports:       s,
 		allowedUserID: 123456,
@@ -331,7 +334,7 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 
 	api := &tgbotapi.BotAPI{Token: "TEST", Client: &http.Client{}}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, food: s, imports: s, allowedUserID: 1}
+	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), food: s, imports: s, allowedUserID: 1}
 
 	// Create group/variant with 2 exercises
 	group, _ := s.CreateWorkoutGroup("G", "", false, 1, "[1]", "09:00", 15)
@@ -413,7 +416,7 @@ func TestDismissNotification(t *testing.T) {
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
 
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, food: s, imports: s, allowedUserID: 123}
+	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), food: s, imports: s, allowedUserID: 123}
 
 	cb := &tgbotapi.CallbackQuery{
 		ID:   "1",

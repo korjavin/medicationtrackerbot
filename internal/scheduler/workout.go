@@ -10,6 +10,7 @@ import (
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 )
 
 // WorkoutStore is the subset needed for workout scheduling and notifications.
@@ -22,9 +23,7 @@ type WorkoutStore interface {
 	InitializeRotation(groupID, variantID int64) error
 	GetSessionByGroupAndDate(groupID int64, date time.Time) (*store.WorkoutSession, error)
 	CreateWorkoutSession(groupID, variantID, userID int64, date time.Time, scheduledTime string) (*store.WorkoutSession, error)
-	SkipSession(sessionID int64) error
 	GetWorkoutGroup(groupID int64) (*store.WorkoutGroup, error)
-	AdvanceRotation(groupID int64) error
 	UpdateSessionStatus(sessionID int64, status string) error
 	UpdateWorkoutSessionNotes(sessionID int64, notes string) error
 	ClearSnooze(sessionID int64) error
@@ -37,7 +36,8 @@ type WorkoutStore interface {
 // WorkoutChecker checks for scheduled workouts and sends notifications.
 type WorkoutChecker struct {
 	NotifyHelper
-	store WorkoutStore
+	store      WorkoutStore
+	workoutSvc workoutsvc.WorkoutService
 }
 
 func (c *WorkoutChecker) Check(ctx context.Context) error {
@@ -89,15 +89,9 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 
 		// Clear blocked state after 4 hours of inactivity
 		if duration > 4*time.Hour {
-			if err := c.store.SkipSession(activeSession.ID); err != nil {
+			if err := c.workoutSvc.SkipSession(ctx, activeSession.ID); err != nil {
 				log.Printf("Failed to skip stale session: %v", err)
 			} else {
-				group, err := c.store.GetWorkoutGroup(activeSession.GroupID)
-				if err == nil && group != nil && group.IsRotating {
-					if err := c.store.AdvanceRotation(group.ID); err != nil {
-						log.Printf("Failed to advance rotation after stale auto-skip for group %d: %v", group.ID, err)
-					}
-				}
 				if activeSession.NotificationMessageID != nil {
 					c.DeleteNotification(ctx, *activeSession.NotificationMessageID)
 				}
@@ -198,12 +192,8 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		// 8. Handle pre_skipped sessions
 		if existing.Status == "pre_skipped" {
 			if now.After(scheduledTime) {
-				if err := c.store.SkipSession(existing.ID); err != nil {
+				if err := c.workoutSvc.SkipSession(ctx, existing.ID); err != nil {
 					log.Printf("Failed to auto-skip pre_skipped session %d: %v", existing.ID, err)
-				} else if group.IsRotating {
-					if err := c.store.AdvanceRotation(group.ID); err != nil {
-						log.Printf("Failed to advance rotation after auto-skip for group %d: %v", group.ID, err)
-					}
 				}
 			}
 			continue
@@ -240,7 +230,8 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 						log.Printf("Failed to update session notes: %v", err)
 					}
 				} else if now.After(scheduledTime.Add(6 * time.Hour)) {
-					if err := c.store.SkipSession(existing.ID); err != nil {
+					// Service handles skip + rotation advancement for rotating groups
+					if err := c.workoutSvc.SkipSession(ctx, existing.ID); err != nil {
 						log.Printf("Failed to skip session: %v", err)
 					}
 					if existing.NotificationMessageID != nil {
