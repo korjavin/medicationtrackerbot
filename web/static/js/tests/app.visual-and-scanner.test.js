@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { allowConsoleNoise } from './helpers/setup.js';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
 function setElementSize(element, width, height) {
@@ -43,14 +44,8 @@ function buildHealthOverviewPayload() {
 }
 
 describe('app.js charts, scanner and visualization helpers', () => {
-  let consoleErrorSpy;
-
   beforeEach(() => {
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
+    allowConsoleNoise();
   });
 
   it('scanner helpers sanitize/route decoded values and handle detector fallbacks', () => {

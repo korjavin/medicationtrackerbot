@@ -1,7 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadDataStoreEnv } from './helpers/data-store-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 describe('data-store.js unit tests', () => {
+  beforeEach(() => {
+    allowConsoleNoise();
+  });
+
   it('loadSWR emits cached first, then fresh, and updates cache', async () => {
     const cachedValue = { source: 'cache' };
     const freshValue = { source: 'fresh' };

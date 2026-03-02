@@ -1,20 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockResponse, loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 const AUTH_CACHE_KEY = 'medtracker_auth_state';
 
 describe('app.js checkAuth behavior', () => {
-  let consoleLogSpy;
-  let consoleErrorSpy;
-
   beforeEach(() => {
-    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    consoleLogSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
+    allowConsoleNoise();
   });
 
   it('authorizes via cookie bootstrap and stores auth state', async () => {

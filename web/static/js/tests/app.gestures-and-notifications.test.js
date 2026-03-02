@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 function makeTouchEvent(window, type, { x, y }) {
   const event = new window.Event(type, { bubbles: true, cancelable: true });
@@ -13,6 +14,10 @@ function makeTouchEvent(window, type, { x, y }) {
 }
 
 describe('app.js swipe navigation and test notification flows', () => {
+  beforeEach(() => {
+    allowConsoleNoise();
+  });
+
   it('sendTestMedicationNotification shows success, server error and network error alerts', async () => {
     const { window, cleanup } = loadFrontendEnv();
 

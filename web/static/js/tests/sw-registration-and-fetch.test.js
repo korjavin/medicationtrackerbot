@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -10,6 +11,7 @@ describe('PWA Registration and App Shell behavior', () => {
     let env;
 
     beforeEach(() => {
+        allowConsoleNoise();
         env = loadFrontendEnv();
         // Execute the script directly against the JSDOM window context
         // This is necessary because JSDOM doesn't run dynamically injected scripts by default
