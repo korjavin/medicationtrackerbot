@@ -68,6 +68,7 @@ function bindWorkoutControls() {
     bindClick('exercise-library-cancel-btn', () => closeExerciseLibraryModal());
     bindClick('exercise-library-save-btn', () => saveExerciseLibraryItem());
 
+    bindClick('workout-session-delete-btn', () => deleteWorkoutSession());
     bindClick('workout-session-cancel-btn', () => handleCancelWorkoutSessionModal());
     bindClick('workout-session-save-btn', () => saveWorkoutSessionDetails());
     bindClick('workout-session-add-exercise-btn', () => showAddExerciseToSessionModal());
@@ -1204,45 +1205,59 @@ async function deleteExerciseLibraryItem(id, event) {
 
 async function loadWorkoutHistoryTab() {
     const container = document.getElementById('workout-history-display');
-    await window.DataStore.loadSWR({
-        key: 'workout_history',
-        tags: ['workout'],
-        fetcher: async () => await apiCall('/api/workout/sessions?limit=30'),
-        onCached: async (cached) => {
-            _renderWorkoutHistory(container, cached);
-        },
-        onFresh: async (response) => {
-            if (response && window.MedTrackerDB?.WorkoutStore) {
-                await window.MedTrackerDB.WorkoutStore.saveCache('sessions', response);
-            }
-            _renderWorkoutHistory(container, response);
-        },
-        onError: async (error, cached) => {
-            console.error('Error loading history:', error);
-            if (!cached) {
-                const message = document.createElement('p');
-                message.style.color = 'red';
-                message.textContent = 'Error loading history';
-                container.replaceChildren(message);
-            }
-        }
-    });
+    try {
+        // Fetch both manual sessions and Mi Band outdoor workouts in parallel
+        const [sessionsResp, mibandResp] = await Promise.all([
+            apiCall('/api/workout/sessions?limit=50').catch(() => []),
+            apiCall('/api/workout/miband?limit=100').catch(() => [])
+        ]);
+        _renderWorkoutHistory(container, sessionsResp || [], mibandResp || []);
+    } catch (error) {
+        console.error('Error loading workout history:', error);
+        const message = document.createElement('p');
+        message.style.color = 'red';
+        message.textContent = 'Error loading history';
+        container.replaceChildren(message);
+    }
 }
 
-function _renderWorkoutHistory(container, response) {
-    if (!response || response.length === 0) {
-        const empty = document.createElement('p');
-        empty.style.textAlign = 'center';
-        empty.style.color = 'var(--hint-color)';
-        empty.style.padding = '40px';
-        empty.textContent = 'No workout history yet';
-        container.replaceChildren(empty);
-        return;
-    }
+// Maps Mi Band activity_name → display label + icon
+const MIBAND_ACTIVITY_META = {
+    'nordic_walking': { label: 'Nordic Walking', icon: '🏔️' },
+    'cycling': { label: 'Cycling', icon: '🚴' },
+    'walking': { label: 'Walking', icon: '🚶' },
+    'running': { label: 'Running', icon: '🏃' },
+};
 
-    const finalSessions = response.filter(s => s.session.status === 'completed' || s.session.status === 'skipped');
+function _formatDuration(sec) {
+    if (!sec || sec <= 0) return '—';
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    if (h > 0) return `${h}h ${m}min`;
+    return `${m}min`;
+}
 
-    if (finalSessions.length === 0) {
+function _renderWorkoutHistory(container, sessions, mibandWorkouts) {
+    // Build unified list sorted by date DESC
+    const items = [];
+
+    // Manual strength sessions
+    const finalSessions = (sessions || []).filter(s =>
+        s.session.status === 'completed' || s.session.status === 'skipped'
+    );
+    finalSessions.forEach(s => {
+        items.push({ type: 'session', ts: new Date(s.session.scheduled_date).getTime(), data: s });
+    });
+
+    // Mi Band outdoor workouts
+    (mibandWorkouts || []).forEach(w => {
+        items.push({ type: 'miband', ts: new Date(w.start_time).getTime(), data: w });
+    });
+
+    // Sort newest first
+    items.sort((a, b) => b.ts - a.ts);
+
+    if (items.length === 0) {
         const empty = document.createElement('p');
         empty.style.textAlign = 'center';
         empty.style.color = 'var(--hint-color)';
@@ -1257,102 +1272,181 @@ function _renderWorkoutHistory(container, response) {
     root.style.flexDirection = 'column';
     root.style.gap = '10px';
 
-    finalSessions.forEach((s) => {
-        const statusEmoji = {
-            'completed': '✅',
-            'skipped': '⏭'
-        }[s.session.status] || '⏰';
-
-        const date = new Date(s.session.scheduled_date).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-        });
-
-        const volumeText = s.total_volume > 0
-            ? `${Math.round(s.total_volume).toLocaleString()} kg total`
-            : '';
-
-        const card = document.createElement('div');
-        card.style.background = '#f8f9fa';
-        card.style.padding = '12px';
-        card.style.borderRadius = '8px';
-        card.style.cursor = 'pointer';
-        card.style.transition = 'background 0.2s';
-        card.addEventListener('click', () => {
-            showWorkoutSessionModal(s.session.id);
-        });
-        card.addEventListener('mouseover', () => {
-            card.style.background = '#f0f0f0';
-        });
-        card.addEventListener('mouseout', () => {
-            card.style.background = '#f8f9fa';
-        });
-
-        const row = document.createElement('div');
-        row.style.display = 'flex';
-        row.style.justifyContent = 'space-between';
-        row.style.alignItems = 'start';
-
-        const left = document.createElement('div');
-        const title = document.createElement('strong');
-        title.textContent = `${statusEmoji} ${s.group_name}`;
-        left.appendChild(title);
-        left.appendChild(document.createTextNode(` - ${s.variant_name}`));
-
-        const details = document.createElement('div');
-        details.style.fontSize = '0.85em';
-        details.style.color = '#666';
-        details.style.marginTop = '4px';
-
-        const timeText = s.session.started_at
-            ? new Date(s.session.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            : s.session.scheduled_time;
-        let detailLine = `${date} at ${timeText}`;
-        if (s.session.status === 'completed') {
-            detailLine += ` • ${s.exercises_completed}/${s.exercises_count} exercises`;
+    items.forEach(item => {
+        if (item.type === 'session') {
+            root.appendChild(_buildSessionCard(item.data));
+        } else {
+            root.appendChild(_buildMiBandCard(item.data));
         }
-        details.appendChild(document.createTextNode(detailLine));
-        if (volumeText) {
-            details.appendChild(document.createElement('br'));
-            const volume = document.createElement('strong');
-            volume.style.color = '#667eea';
-            volume.textContent = volumeText;
-            details.appendChild(volume);
-        }
-        left.appendChild(details);
-
-        const right = document.createElement('div');
-        right.style.textAlign = 'right';
-        right.style.fontSize = '0.85em';
-        right.style.color = '#667eea';
-        right.style.display = 'flex';
-        right.style.alignItems = 'center';
-        right.style.gap = '4px';
-        right.appendChild(document.createTextNode(s.session.status));
-        const chevron = document.createElement('span');
-        chevron.style.fontSize = '1.2em';
-        chevron.textContent = '›';
-        right.appendChild(chevron);
-
-        const deleteBtn = document.createElement('button');
-        deleteBtn.type = 'button';
-        deleteBtn.className = 'delete-btn';
-        deleteBtn.style.position = 'static';
-        deleteBtn.style.marginLeft = '10px';
-        deleteBtn.textContent = '×';
-        deleteBtn.addEventListener('click', (event) => {
-            deleteWorkoutSession(s.session.id, event);
-        });
-        right.appendChild(deleteBtn);
-
-        row.appendChild(left);
-        row.appendChild(right);
-        card.appendChild(row);
-        root.appendChild(card);
     });
 
     container.replaceChildren(root);
+}
+
+function _buildSessionCard(s) {
+    const statusEmoji = {
+        'completed': '✅',
+        'skipped': '⏭'
+    }[s.session.status] || '⏰';
+
+    const date = new Date(s.session.scheduled_date).toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric'
+    });
+
+    const volumeText = s.total_volume > 0
+        ? `${Math.round(s.total_volume).toLocaleString()} kg total`
+        : '';
+
+    const card = document.createElement('div');
+    card.style.background = '#f8f9fa';
+    card.style.padding = '12px';
+    card.style.borderRadius = '8px';
+    card.style.cursor = 'pointer';
+    card.style.transition = 'background 0.2s';
+    card.addEventListener('click', () => showWorkoutSessionModal(s.session.id));
+    card.addEventListener('mouseover', () => { card.style.background = '#f0f0f0'; });
+    card.addEventListener('mouseout', () => { card.style.background = '#f8f9fa'; });
+
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.justifyContent = 'space-between';
+    row.style.alignItems = 'start';
+
+    const left = document.createElement('div');
+    const title = document.createElement('strong');
+    title.textContent = `${statusEmoji} ${s.group_name}`;
+    left.appendChild(title);
+    left.appendChild(document.createTextNode(` - ${s.variant_name}`));
+
+    const details = document.createElement('div');
+    details.style.fontSize = '0.85em';
+    details.style.color = '#666';
+    details.style.marginTop = '4px';
+
+    const timeText = s.session.started_at
+        ? new Date(s.session.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : s.session.scheduled_time;
+    let detailLine = `${date} at ${timeText}`;
+    if (s.session.status === 'completed') {
+        detailLine += ` • ${s.exercises_completed}/${s.exercises_count} exercises`;
+    }
+    details.appendChild(document.createTextNode(detailLine));
+    if (volumeText) {
+        details.appendChild(document.createElement('br'));
+        const volume = document.createElement('strong');
+        volume.style.color = '#667eea';
+        volume.textContent = volumeText;
+        details.appendChild(volume);
+    }
+    left.appendChild(details);
+
+    const right = document.createElement('div');
+    right.style.textAlign = 'right';
+    right.style.fontSize = '0.85em';
+    right.style.color = '#667eea';
+    right.style.display = 'flex';
+    right.style.alignItems = 'center';
+    right.style.gap = '4px';
+    right.appendChild(document.createTextNode(s.session.status));
+    const chevron = document.createElement('span');
+    chevron.style.fontSize = '1.2em';
+    chevron.textContent = '›';
+    right.appendChild(chevron);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'delete-btn';
+    deleteBtn.style.position = 'static';
+    deleteBtn.style.marginLeft = '10px';
+    deleteBtn.textContent = '×';
+    deleteBtn.addEventListener('click', (event) => {
+        deleteWorkoutSession(s.session.id, event);
+    });
+    right.appendChild(deleteBtn);
+
+    row.appendChild(left);
+    row.appendChild(right);
+    card.appendChild(row);
+    return card;
+}
+
+function _buildMiBandCard(w) {
+    const meta = MIBAND_ACTIVITY_META[w.activity_name] || { label: w.activity_name, icon: '🏅' };
+    const startDate = new Date(w.start_time);
+    const dateStr = startDate.toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric'
+    });
+    const timeStr = startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const distKm = w.distance_m >= 1000
+        ? `${(w.distance_m / 1000).toFixed(1)} km`
+        : `${Math.round(w.distance_m)} m`;
+    const duration = _formatDuration(w.duration_sec);
+
+    // Stats chips
+    const chips = [];
+    chips.push(`📏 ${distKm}`);
+    chips.push(`⏱ ${duration}`);
+    if (w.steps > 0) chips.push(`👣 ${w.steps.toLocaleString()}`);
+    if (w.heart_rate_avg > 0) chips.push(`❤️ ${w.heart_rate_avg} bpm`);
+    if (w.calories > 0) chips.push(`🔥 ${w.calories} kcal`);
+
+    const card = document.createElement('div');
+    card.style.background = '#f0f7f0';
+    card.style.padding = '12px';
+    card.style.borderRadius = '8px';
+    card.style.borderLeft = '3px solid #4caf50';
+
+    // Title row
+    const titleRow = document.createElement('div');
+    titleRow.style.display = 'flex';
+    titleRow.style.justifyContent = 'space-between';
+    titleRow.style.alignItems = 'center';
+
+    const titleLeft = document.createElement('strong');
+    titleLeft.textContent = `${meta.icon} ${meta.label}`;
+
+    const badge = document.createElement('span');
+    badge.textContent = 'Mi Band';
+    badge.style.fontSize = '0.7em';
+    badge.style.padding = '2px 7px';
+    badge.style.borderRadius = '10px';
+    badge.style.background = '#e8f5e9';
+    badge.style.color = '#388e3c';
+    badge.style.border = '1px solid #a5d6a7';
+    badge.style.fontWeight = '600';
+    badge.style.letterSpacing = '0.03em';
+
+    titleRow.appendChild(titleLeft);
+    titleRow.appendChild(badge);
+    card.appendChild(titleRow);
+
+    // Date line
+    const dateEl = document.createElement('div');
+    dateEl.style.fontSize = '0.82em';
+    dateEl.style.color = '#666';
+    dateEl.style.marginTop = '2px';
+    dateEl.textContent = `${dateStr} at ${timeStr}`;
+    card.appendChild(dateEl);
+
+    // Stats chips
+    const chipsEl = document.createElement('div');
+    chipsEl.style.display = 'flex';
+    chipsEl.style.flexWrap = 'wrap';
+    chipsEl.style.gap = '6px';
+    chipsEl.style.marginTop = '8px';
+    chips.forEach(text => {
+        const chip = document.createElement('span');
+        chip.textContent = text;
+        chip.style.fontSize = '0.82em';
+        chip.style.padding = '2px 8px';
+        chip.style.borderRadius = '12px';
+        chip.style.background = '#e8f5e9';
+        chip.style.color = '#2e7d32';
+        chipsEl.appendChild(chip);
+    });
+    card.appendChild(chipsEl);
+
+    return card;
 }
 
 let currentSessionLogs = [];
@@ -1629,6 +1723,24 @@ async function deleteExerciseLog(index) {
     renderWorkoutSessionLogs(logsContainer);
 }
 
+// Called from modal delete button (no args) or from per-row card button (sessionId, event).
+async function deleteWorkoutSession(sessionId, event) {
+    if (event) event.stopPropagation();
+    const id = sessionId ?? currentSessionData?.id;
+    if (!id) return;
+    if (!confirm('Delete this workout session?')) return;
+
+    try {
+        await apiCall(`/api/workout/sessions/delete?id=${id}`, 'DELETE');
+        if (!sessionId) closeWorkoutSessionModal();
+        loadWorkoutHistoryTab();
+        loadNextWorkout();
+    } catch (error) {
+        console.error('Error deleting workout session:', error);
+        safeAlert('Failed to delete workout session');
+    }
+}
+
 function closeWorkoutSessionModal() {
     window.ModalManager.workoutSession.close();
     currentSessionData = null;
@@ -1656,20 +1768,6 @@ async function handleCancelWorkoutSessionModal() {
     }
 
     closeWorkoutSessionModal();
-}
-
-async function deleteWorkoutSession(sessionId, event) {
-    if (event) event.stopPropagation();
-    if (confirm('Delete this workout session?')) {
-        try {
-            await apiCall(`/api/workout/sessions/delete?id=${sessionId}`, 'DELETE');
-            loadWorkoutHistoryTab();
-            loadNextWorkout();
-        } catch (error) {
-            console.error('Error deleting workout session:', error);
-            safeAlert('Failed to delete workout session');
-        }
-    }
 }
 
 async function saveWorkoutSessionDetails() {

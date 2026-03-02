@@ -419,11 +419,11 @@ func (s *Store) GetAllUniqueExercises(userID int64) ([]WorkoutExercise, error) {
 		var exercises []WorkoutExercise
 		for _, item := range libItems {
 			e := WorkoutExercise{
-				ID:            item.ID,
-				ExerciseName:  item.Name,
-				TargetSets:    item.DefaultSets,
-				TargetRepsMin: item.DefaultRepsMin,
-				TargetRepsMax: item.DefaultRepsMax,
+				ID:             item.ID,
+				ExerciseName:   item.Name,
+				TargetSets:     item.DefaultSets,
+				TargetRepsMin:  item.DefaultRepsMin,
+				TargetRepsMax:  item.DefaultRepsMax,
 				TargetWeightKg: item.DefaultWeightKg,
 			}
 			exercises = append(exercises, e)
@@ -821,6 +821,17 @@ func (s *Store) StartSession(id int64) error {
 		UPDATE workout_sessions 
 		SET status = 'in_progress', started_at = CURRENT_TIMESTAMP 
 		WHERE id = ?`, id)
+	return err
+}
+
+// UpdateSessionVariant updates the variant_id of a session when the rotation has changed
+// but the session was already created with an outdated variant.
+// Only safe to call on sessions that have not yet started (pending/notified).
+func (s *Store) UpdateSessionVariant(id int64, variantID int64) error {
+	_, err := s.db.Exec(`
+		UPDATE workout_sessions
+		SET variant_id = ?
+		WHERE id = ? AND status IN ('pending', 'notified')`, variantID, id)
 	return err
 }
 

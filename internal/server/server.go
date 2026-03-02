@@ -41,6 +41,7 @@ type Server struct {
 	health          HealthStore
 	changes         ChangeStore
 	push            PushStore
+	miband          MiBandStore
 	workout         WorkoutInteractor
 	notifiers       []notifier.Notifier
 	rxnorm          *rxnorm.Client
@@ -192,6 +193,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		health:          s,
 		changes:         s,
 		push:            s,
+		miband:          s,
 		rxnorm:          rxnorm.New(),
 		botToken:        botToken,
 		sessionSecret:   sessionSecret,
@@ -348,6 +350,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/workout/exercises/create", s.handleCreateExercise)
 	apiMux.HandleFunc("PUT /api/workout/exercises/update", s.handleUpdateExercise)
 	apiMux.HandleFunc("DELETE /api/workout/exercises/delete", s.handleDeleteExercise)
+	apiMux.HandleFunc("DELETE /api/workout/sessions/delete", s.handleDeleteWorkoutSession)
 	apiMux.HandleFunc("GET /api/workout/sessions", s.handleListWorkoutSessions)
 	apiMux.HandleFunc("DELETE /api/workout/sessions/delete", s.handleDeleteWorkoutSession)
 	apiMux.HandleFunc("GET /api/workout/sessions/next", s.handleGetNextWorkout)
@@ -371,6 +374,10 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/workout/exercise-library/create", s.handleCreateExerciseLibraryItem)
 	apiMux.HandleFunc("PUT /api/workout/exercise-library/update", s.handleUpdateExerciseLibraryItem)
 	apiMux.HandleFunc("DELETE /api/workout/exercise-library/delete", s.handleDeleteExerciseLibraryItem)
+
+	// Mi Band outdoor workout endpoints
+	apiMux.HandleFunc("GET /api/workout/miband", s.handleListMiBandWorkouts)
+	apiMux.HandleFunc("GET /api/workout/miband/{id}/gps", s.handleGetMiBandWorkoutGPS)
 
 	// Web Push endpoints
 	apiMux.HandleFunc("GET /api/webpush/vapid-public-key", s.handleGetVAPIDPublicKey)

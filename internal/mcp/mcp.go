@@ -38,6 +38,7 @@ type HealthDataReader interface {
 	GetVitalsHeart(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsHeartLog, error)
 	GetVitalsSpO2(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsSpO2Log, error)
 	GetVitalsStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error)
+	ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error)
 }
 
 // Config holds MCP server configuration
@@ -210,7 +211,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "get_workout_history",
-			Description: "Retrieve workout session history for a date range. Returns workout groups, variants, completion status, and optionally exercise details with sets/reps/weight. Maximum 90 days per query.",
+			Description: "Retrieve workout session history for a date range. Returns both manual gym workouts (with sets/reps) and outdoor Mi Band workouts (cycling, walking, etc. with distance/calories/heart rate). Maximum 90 days per query.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -224,7 +225,7 @@ func (s *Server) registerTools() {
 					},
 					"include_exercises": {
 						"type": "boolean",
-						"description": "If true, include detailed exercise logs for each workout session. Defaults to false."
+						"description": "If true, include detailed exercise logs for manual gym workout sessions. Defaults to false."
 					}
 				}
 			}`),

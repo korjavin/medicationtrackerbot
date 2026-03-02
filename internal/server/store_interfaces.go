@@ -173,3 +173,10 @@ type PushStore interface {
 	DeletePushSubscription(endpoint string) error
 	GetPushSubscriptions(userID int64) ([]store.PushSubscription, error)
 }
+
+// MiBandStore is the subset of store operations needed for Mi Band workout history.
+type MiBandStore interface {
+	ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error)
+	GetMiBandWorkout(ctx context.Context, id int64) (*store.MiBandWorkout, error)
+	GetMiBandWorkoutGPS(ctx context.Context, workoutID int64) ([]store.MiBandGPSPoint, error)
+}

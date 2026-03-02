@@ -396,8 +396,9 @@ type ExerciseLogResult struct {
 
 // WorkoutSessionResult represents a workout session for the tool response
 type WorkoutSessionResult struct {
+	Type          string              `json:"type"` // "manual" or "miband"
 	GroupName     string              `json:"group_name"`
-	VariantName   string              `json:"variant_name"`
+	VariantName   string              `json:"variant_name,omitempty"`
 	ScheduledDate string              `json:"scheduled_date"`
 	Status        string              `json:"status"`
 	StartedAt     *string             `json:"started_at,omitempty"`
@@ -405,6 +406,13 @@ type WorkoutSessionResult struct {
 	Notes         string              `json:"notes,omitempty"`
 	Exercises     []ExerciseLogResult `json:"exercises,omitempty"`
 	TotalVolumeKg *float64            `json:"total_volume_kg,omitempty"`
+
+	// MiBand specific fields
+	DurationSec  *int     `json:"duration_sec,omitempty"`
+	DistanceM    *float64 `json:"distance_m,omitempty"`
+	Steps        *int     `json:"steps,omitempty"`
+	Calories     *int     `json:"calories,omitempty"`
+	HeartRateAvg *int     `json:"heart_rate_avg,omitempty"`
 }
 
 // WorkoutHistoryResponse is the response for the get_workout_history tool
@@ -462,6 +470,7 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 		}
 
 		result := WorkoutSessionResult{
+			Type:          "manual",
 			GroupName:     groupName,
 			VariantName:   variantName,
 			ScheduledDate: session.ScheduledDate.Format("2006-01-02"),
@@ -507,6 +516,66 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 
 		results = append(results, result)
 	}
+
+	// Fetch Mi Band workouts
+	mibandWorkouts, err := s.data.ListMiBandWorkouts(ctx, userID, 1000)
+	if err == nil {
+		for _, wo := range mibandWorkouts {
+			startTime := time.UnixMilli(wo.SourceStartMs).UTC()
+			endTime := time.UnixMilli(wo.SourceEndMs).UTC()
+			if wo.TzOffset != 0 {
+				loc := time.FixedZone("local", wo.TzOffset)
+				startTime = startTime.In(loc)
+				endTime = endTime.In(loc)
+			}
+
+			// Filter by start date range
+			if startTime.Before(startDate) || startTime.After(endDate) {
+				continue
+			}
+
+			startedStr := startTime.Format("2006-01-02 15:04")
+			completedStr := endTime.Format("2006-01-02 15:04")
+
+			result := WorkoutSessionResult{
+				Type:          "miband",
+				GroupName:     wo.ActivityName,
+				ScheduledDate: startTime.Format("2006-01-02"),
+				Status:        "completed",
+				StartedAt:     &startedStr,
+				CompletedAt:   &completedStr,
+				DurationSec:   &wo.DurationSec,
+				DistanceM:     &wo.DistanceM,
+			}
+			if wo.Steps > 0 {
+				s := wo.Steps
+				result.Steps = &s
+			}
+			if wo.Calories > 0 {
+				c := wo.Calories
+				result.Calories = &c
+			}
+			if wo.HeartRateAvg > 0 {
+				hr := wo.HeartRateAvg
+				result.HeartRateAvg = &hr
+			}
+			results = append(results, result)
+		}
+	}
+
+	// Sort mixed results by date (descending)
+	sort.Slice(results, func(i, j int) bool {
+		t1 := results[i].ScheduledDate
+		if results[i].StartedAt != nil {
+			t1 = *results[i].StartedAt
+		}
+		t2 := results[j].ScheduledDate
+		if results[j].StartedAt != nil {
+			t2 = *results[j].StartedAt
+		}
+		return t1 > t2
+	})
+
 	log.Printf("[MCP] Workout query result: store_count=%d, returned_count=%d, period=%s, include_exercises=%t",
 		len(sessions), len(results), formatPeriod(startDate, endDate), input.IncludeExercises)
 	if len(results) == 0 {

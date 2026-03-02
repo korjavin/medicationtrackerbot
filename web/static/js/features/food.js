@@ -57,9 +57,6 @@
         let totalProtein = proteinRaw === null ? null : proteinRaw * multiplier;
         let totalFat = fatRaw === null ? null : fatRaw * multiplier;
         let totalCalories = caloriesRaw;
-        if (per100g && caloriesRaw !== null && weight > 0) {
-            totalCalories = caloriesRaw * multiplier;
-        }
 
         const missing = [];
         if (totalCarbs === null) missing.push('carbs');
