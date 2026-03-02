@@ -10,6 +10,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
+const AUTH_FLOW_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-flow.js');
 const DEEPLINK_ROUTER_JS = path.join(REPO_ROOT, 'web/static/js/features/deeplink-router.js');
 const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
 
@@ -121,6 +122,10 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 
   // Load feature modules that expose helpers used by tests.
+  // auth-flow.js: provides saveAuthState / getCachedAuthState / clearAuthState.
+  const authFlowSource = fs.readFileSync(AUTH_FLOW_JS, 'utf8');
+  evalWithSourceURL(window, authFlowSource, AUTH_FLOW_JS);
+
   // deeplink-router.js: provides handleDeepLinks() on window.
   // The Telegram start_param auto-run is harmless (initDataUnsafe={} in tests).
   const deeplinkSource = fs.readFileSync(DEEPLINK_ROUTER_JS, 'utf8');
