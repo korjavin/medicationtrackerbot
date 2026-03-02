@@ -37,6 +37,9 @@ const ALLOWED_GLOBALS = new Set([
 
     // App core (app.js)
     'window.userInitData',              // app.js — Telegram initData for feature files
+    'window.tg',                        // app.js — Telegram.WebApp alias; exposed as window.tg
+    //   (not const) so feature files can safely alias it
+    //   without a const-redeclaration SyntaxError
     'window.onDataStoreUnauthorized',   // app.js — callback consumed by data-store.js
     'window.onTelegramAuth',            // app.js — OIDC callback injected by Telegram script
     'window.requestTabRefresh',         // app.js — called by data-store.js on change event

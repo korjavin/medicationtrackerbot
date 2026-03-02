@@ -1,4 +1,6 @@
-const tg = window.Telegram.WebApp;
+// `tg` is declared in app.js as `window.tg = window.Telegram.WebApp` (not const)
+// so redeclaring it here is safe and provides a convenient local alias.
+const tg = window.tg;
 
 // ==================== Blood Pressure Functions ====================
 
