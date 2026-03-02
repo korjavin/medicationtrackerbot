@@ -14,10 +14,14 @@ type LowStockChecker struct {
 	NotifyHelper
 	store     MedicationStore
 	lastCheck time.Time
+	now       func() time.Time // injectable clock; defaults to time.Now
 }
 
 func (c *LowStockChecker) Check(_ context.Context) error {
-	now := time.Now()
+	if c.now == nil {
+		c.now = time.Now
+	}
+	now := c.now()
 
 	// Only send warnings between 11:00 and 11:59 AM
 	if now.Hour() != 11 {

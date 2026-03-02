@@ -159,3 +159,461 @@ func TestHandleGetFoodIntakeAcceptsCamelCaseDates(t *testing.T) {
 		t.Fatal("expected compatibility warning for camelCase date fields")
 	}
 }
+
+// --- handleGetBloodPressure tests ---
+
+func TestHandleGetBloodPressure_WithData(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetBloodPressureEnabled(ctx, true); err != nil {
+		t.Fatalf("SetBloodPressureEnabled: %v", err)
+	}
+
+	pulse := 72
+	_, err := st.CreateBloodPressureReading(ctx, &store.BloodPressure{
+		UserID:     123456,
+		MeasuredAt: time.Date(2026, 2, 18, 9, 0, 0, 0, time.UTC),
+		Systolic:   120,
+		Diastolic:  80,
+		Pulse:      &pulse,
+		Category:   "normal",
+	})
+	if err != nil {
+		t.Fatalf("CreateBloodPressureReading: %v", err)
+	}
+
+	_, resp, err := s.handleGetBloodPressure(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetBloodPressure error: %v", err)
+	}
+
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 reading, got %d", resp.Count)
+	}
+	r := resp.Readings[0]
+	if r.Systolic != 120 {
+		t.Errorf("expected systolic 120, got %d", r.Systolic)
+	}
+	if r.Diastolic != 80 {
+		t.Errorf("expected diastolic 80, got %d", r.Diastolic)
+	}
+	if r.Pulse != 72 {
+		t.Errorf("expected pulse 72, got %d", r.Pulse)
+	}
+}
+
+func TestHandleGetBloodPressure_FeatureDisabled(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetBloodPressureEnabled(ctx, false); err != nil {
+		t.Fatalf("SetBloodPressureEnabled: %v", err)
+	}
+
+	_, _, err := s.handleGetBloodPressure(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err == nil {
+		t.Fatal("expected error when BP feature is disabled")
+	}
+}
+
+func TestHandleGetBloodPressure_EmptyRange(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetBloodPressureEnabled(ctx, true); err != nil {
+		t.Fatalf("SetBloodPressureEnabled: %v", err)
+	}
+
+	_, resp, err := s.handleGetBloodPressure(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetBloodPressure error: %v", err)
+	}
+
+	if resp.Count != 0 {
+		t.Errorf("expected 0 readings for empty range, got %d", resp.Count)
+	}
+	if resp.Warning == "" {
+		t.Error("expected a warning when no readings found")
+	}
+}
+
+// --- handleGetWeight tests ---
+
+func TestHandleGetWeight_WithData(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWeightEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWeightEnabled: %v", err)
+	}
+
+	_, err := st.CreateWeightLog(ctx, &store.WeightLog{
+		UserID:     123456,
+		MeasuredAt: time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC),
+		Weight:     75.5,
+	})
+	if err != nil {
+		t.Fatalf("CreateWeightLog: %v", err)
+	}
+
+	_, resp, err := s.handleGetWeight(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetWeight error: %v", err)
+	}
+
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 weight log, got %d", resp.Count)
+	}
+	if resp.Logs[0].Weight != 75.5 {
+		t.Errorf("expected weight 75.5, got %f", resp.Logs[0].Weight)
+	}
+}
+
+func TestHandleGetWeight_FeatureDisabled(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWeightEnabled(ctx, false); err != nil {
+		t.Fatalf("SetWeightEnabled: %v", err)
+	}
+
+	_, _, err := s.handleGetWeight(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err == nil {
+		t.Fatal("expected error when weight feature is disabled")
+	}
+}
+
+// --- handleGetMedicationIntake tests ---
+
+func TestHandleGetMedicationIntake_WithData(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetMedicationEnabled(ctx, true); err != nil {
+		t.Fatalf("SetMedicationEnabled: %v", err)
+	}
+
+	medID, err := st.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+
+	scheduledAt := time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC)
+	intakeID, err := st.CreateIntake(medID, 123456, scheduledAt)
+	if err != nil {
+		t.Fatalf("CreateIntake: %v", err)
+	}
+	if err := st.ConfirmIntake(intakeID, scheduledAt); err != nil {
+		t.Fatalf("ConfirmIntake: %v", err)
+	}
+
+	_, resp, err := s.handleGetMedicationIntake(ctx, nil, MedicationIntakeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetMedicationIntake error: %v", err)
+	}
+
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 intake, got %d", resp.Count)
+	}
+	if resp.Intakes[0].MedicationName != "Aspirin" {
+		t.Errorf("expected medication name 'Aspirin', got %q", resp.Intakes[0].MedicationName)
+	}
+	if resp.Intakes[0].Status != "TAKEN" {
+		t.Errorf("expected status 'TAKEN', got %q", resp.Intakes[0].Status)
+	}
+}
+
+func TestHandleGetMedicationIntake_FilterByName(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetMedicationEnabled(ctx, true); err != nil {
+		t.Fatalf("SetMedicationEnabled: %v", err)
+	}
+
+	// Create two medications
+	med1ID, _ := st.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "")
+	med2ID, _ := st.CreateMedication("Ibuprofen", "200mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "")
+
+	scheduledAt := time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC)
+	id1, _ := st.CreateIntake(med1ID, 123456, scheduledAt)
+	id2, _ := st.CreateIntake(med2ID, 123456, scheduledAt)
+	st.ConfirmIntake(id1, scheduledAt)
+	st.ConfirmIntake(id2, scheduledAt)
+
+	_, resp, err := s.handleGetMedicationIntake(ctx, nil, MedicationIntakeInput{
+		StartDate:      "2026-02-17",
+		EndDate:        "2026-02-19",
+		MedicationName: "aspirin",
+	})
+	if err != nil {
+		t.Fatalf("handleGetMedicationIntake error: %v", err)
+	}
+
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 intake after name filter, got %d", resp.Count)
+	}
+	if resp.Intakes[0].MedicationName != "Aspirin" {
+		t.Errorf("expected 'Aspirin', got %q", resp.Intakes[0].MedicationName)
+	}
+}
+
+func TestHandleGetMedicationIntake_FeatureDisabled(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetMedicationEnabled(ctx, false); err != nil {
+		t.Fatalf("SetMedicationEnabled: %v", err)
+	}
+
+	_, _, err := s.handleGetMedicationIntake(ctx, nil, MedicationIntakeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err == nil {
+		t.Fatal("expected error when medication feature is disabled")
+	}
+}
+
+// --- handleGetWorkoutHistory tests ---
+
+func TestHandleGetWorkoutHistory_WithData(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+
+	group, err := st.CreateWorkoutGroup("Push Day", "chest/shoulders/triceps", false, 123456, "[1]", "08:00", 15)
+	if err != nil {
+		t.Fatalf("CreateWorkoutGroup: %v", err)
+	}
+	order := 0
+	variant, err := st.CreateWorkoutVariant(group.ID, "Heavy", &order, "")
+	if err != nil {
+		t.Fatalf("CreateWorkoutVariant: %v", err)
+	}
+
+	scheduledDate := time.Date(2026, 2, 18, 0, 0, 0, 0, time.UTC)
+	session, err := st.CreateWorkoutSession(group.ID, variant.ID, 123456, scheduledDate, "08:00")
+	if err != nil {
+		t.Fatalf("CreateWorkoutSession: %v", err)
+	}
+	if err := st.CompleteSession(session.ID); err != nil {
+		t.Fatalf("CompleteSession: %v", err)
+	}
+
+	_, resp, err := s.handleGetWorkoutHistory(ctx, nil, WorkoutHistoryInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetWorkoutHistory error: %v", err)
+	}
+
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 session, got %d", resp.Count)
+	}
+	if resp.Sessions[0].GroupName != "Push Day" {
+		t.Errorf("expected GroupName 'Push Day', got %q", resp.Sessions[0].GroupName)
+	}
+	if resp.Sessions[0].VariantName != "Heavy" {
+		t.Errorf("expected VariantName 'Heavy', got %q", resp.Sessions[0].VariantName)
+	}
+	if resp.Sessions[0].Status != "completed" {
+		t.Errorf("expected status 'completed', got %q", resp.Sessions[0].Status)
+	}
+}
+
+func TestHandleGetWorkoutHistory_FeatureDisabled(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWorkoutEnabled(ctx, false); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+
+	_, _, err := s.handleGetWorkoutHistory(ctx, nil, WorkoutHistoryInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err == nil {
+		t.Fatal("expected error when workout feature is disabled")
+	}
+}
+
+func TestHandleGetWorkoutHistory_EmptyRange(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+
+	_, resp, err := s.handleGetWorkoutHistory(ctx, nil, WorkoutHistoryInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetWorkoutHistory error: %v", err)
+	}
+	if resp.Count != 0 {
+		t.Errorf("expected 0 sessions for empty range, got %d", resp.Count)
+	}
+	if resp.Warning == "" {
+		t.Error("expected a warning when no sessions found")
+	}
+}
+
+// --- handleGetSleepLogs tests ---
+
+func TestHandleGetSleepLogs_WithData(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	total := 480
+	deep := 90
+	log := store.SleepLog{
+		UserID:    123456,
+		StartTime: time.Date(2026, 2, 18, 22, 30, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 2, 19, 6, 30, 0, 0, time.UTC),
+		Day:       "2026-02-18",
+		TotalMinutes: &total,
+		DeepMinutes:  &deep,
+	}
+	if _, _, err := st.ImportSleepLogs(ctx, 123456, []store.SleepLog{log}); err != nil {
+		t.Fatalf("ImportSleepLogs: %v", err)
+	}
+
+	_, resp, err := s.handleGetSleepLogs(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-18",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetSleepLogs error: %v", err)
+	}
+
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 sleep log, got %d", resp.Count)
+	}
+	if resp.Logs[0].TotalMinutes == nil || *resp.Logs[0].TotalMinutes != 480 {
+		t.Errorf("expected TotalMinutes=480, got %v", resp.Logs[0].TotalMinutes)
+	}
+	if resp.Logs[0].DeepMinutes == nil || *resp.Logs[0].DeepMinutes != 90 {
+		t.Errorf("expected DeepMinutes=90, got %v", resp.Logs[0].DeepMinutes)
+	}
+}
+
+func TestHandleGetSleepLogs_EmptyRange(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+
+	_, resp, err := s.handleGetSleepLogs(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetSleepLogs error: %v", err)
+	}
+	if resp.Count != 0 {
+		t.Errorf("expected 0 logs, got %d", resp.Count)
+	}
+	if resp.Warning == "" {
+		t.Error("expected a warning when no sleep logs found")
+	}
+}
+
+// --- handleGetStepHistory tests ---
+
+func TestHandleGetStepHistory_WithData(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	stat := store.DayStat{
+		UserID:   123456,
+		Day:      "2026-02-18",
+		Steps:    8500,
+		Calories: 320,
+		Distance: 6200,
+	}
+	if _, _, err := st.ImportDayStats(ctx, 123456, []store.DayStat{stat}); err != nil {
+		t.Fatalf("ImportDayStats: %v", err)
+	}
+
+	_, resp, err := s.handleGetStepHistory(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetStepHistory error: %v", err)
+	}
+
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 stat, got %d", resp.Count)
+	}
+	if resp.Logs[0].Steps != 8500 {
+		t.Errorf("expected Steps=8500, got %d", resp.Logs[0].Steps)
+	}
+	if resp.Logs[0].Calories != 320 {
+		t.Errorf("expected Calories=320, got %d", resp.Logs[0].Calories)
+	}
+	if resp.Logs[0].Distance != 6200 {
+		t.Errorf("expected Distance=6200, got %d", resp.Logs[0].Distance)
+	}
+}
+
+func TestHandleGetStepHistory_EmptyRange(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+
+	_, resp, err := s.handleGetStepHistory(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetStepHistory error: %v", err)
+	}
+	if resp.Count != 0 {
+		t.Errorf("expected 0 stats, got %d", resp.Count)
+	}
+	if resp.Warning == "" {
+		t.Error("expected a warning when no step data found")
+	}
+}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 )
 
 // Checker is the interface each independent check implements.
@@ -44,7 +45,7 @@ func New(s *store.Store, allowedUserID int64, notifiers []notifier.Notifier) *Sc
 	medChecker := &MedicationChecker{NotifyHelper: helper, store: s}
 	medReminderChecker := &MedicationReminderChecker{NotifyHelper: helper, store: s}
 	lowStockChecker := &LowStockChecker{NotifyHelper: helper, store: s}
-	workoutChecker := &WorkoutChecker{NotifyHelper: helper, store: s}
+	workoutChecker := &WorkoutChecker{NotifyHelper: helper, store: s, workoutSvc: workoutsvc.New(s)}
 	bpChecker := &BPReminderChecker{store: s, notifiers: notifiers}
 	weightChecker := &WeightReminderChecker{store: s, notifiers: notifiers}
 

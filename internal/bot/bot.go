@@ -13,6 +13,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 )
 
 type Bot struct {
@@ -21,6 +22,7 @@ type Bot struct {
 	bp            BloodPressureStore
 	weight        WeightStore
 	workouts      WorkoutStore
+	workoutSvc    workoutsvc.WorkoutService
 	food          FoodStore
 	imports       ImportStore
 	allowedUserID int64
@@ -58,6 +60,7 @@ func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 		bp:            s,
 		weight:        s,
 		workouts:      s,
+		workoutSvc:    workoutsvc.New(s),
 		food:          s,
 		imports:       s,
 		allowedUserID: allowedUserID,
