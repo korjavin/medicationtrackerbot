@@ -401,3 +401,158 @@ func TestHandleGetMedicationIntake_FeatureDisabled(t *testing.T) {
 		t.Fatal("expected error when medication feature is disabled")
 	}
 }
+
+// --- handleGetWorkoutHistory tests ---
+
+func TestHandleGetWorkoutHistory_WithData(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+
+	group, err := st.CreateWorkoutGroup("Push Day", "chest/shoulders/triceps", false, 123456, "[1]", "08:00", 15)
+	if err != nil {
+		t.Fatalf("CreateWorkoutGroup: %v", err)
+	}
+	order := 0
+	variant, err := st.CreateWorkoutVariant(group.ID, "Heavy", &order, "")
+	if err != nil {
+		t.Fatalf("CreateWorkoutVariant: %v", err)
+	}
+
+	scheduledDate := time.Date(2026, 2, 18, 0, 0, 0, 0, time.UTC)
+	session, err := st.CreateWorkoutSession(group.ID, variant.ID, 123456, scheduledDate, "08:00")
+	if err != nil {
+		t.Fatalf("CreateWorkoutSession: %v", err)
+	}
+	if err := st.CompleteSession(session.ID); err != nil {
+		t.Fatalf("CompleteSession: %v", err)
+	}
+
+	_, resp, err := s.handleGetWorkoutHistory(ctx, nil, WorkoutHistoryInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetWorkoutHistory error: %v", err)
+	}
+
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 session, got %d", resp.Count)
+	}
+	if resp.Sessions[0].GroupName != "Push Day" {
+		t.Errorf("expected GroupName 'Push Day', got %q", resp.Sessions[0].GroupName)
+	}
+	if resp.Sessions[0].VariantName != "Heavy" {
+		t.Errorf("expected VariantName 'Heavy', got %q", resp.Sessions[0].VariantName)
+	}
+	if resp.Sessions[0].Status != "completed" {
+		t.Errorf("expected status 'completed', got %q", resp.Sessions[0].Status)
+	}
+}
+
+func TestHandleGetWorkoutHistory_FeatureDisabled(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWorkoutEnabled(ctx, false); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+
+	_, _, err := s.handleGetWorkoutHistory(ctx, nil, WorkoutHistoryInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err == nil {
+		t.Fatal("expected error when workout feature is disabled")
+	}
+}
+
+func TestHandleGetWorkoutHistory_EmptyRange(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+
+	_, resp, err := s.handleGetWorkoutHistory(ctx, nil, WorkoutHistoryInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetWorkoutHistory error: %v", err)
+	}
+	if resp.Count != 0 {
+		t.Errorf("expected 0 sessions for empty range, got %d", resp.Count)
+	}
+	if resp.Warning == "" {
+		t.Error("expected a warning when no sessions found")
+	}
+}
+
+// --- handleGetSleepLogs tests ---
+
+func TestHandleGetSleepLogs_WithData(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	total := 480
+	deep := 90
+	log := store.SleepLog{
+		UserID:    123456,
+		StartTime: time.Date(2026, 2, 18, 22, 30, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 2, 19, 6, 30, 0, 0, time.UTC),
+		Day:       "2026-02-18",
+		TotalMinutes: &total,
+		DeepMinutes:  &deep,
+	}
+	if _, _, err := st.ImportSleepLogs(ctx, 123456, []store.SleepLog{log}); err != nil {
+		t.Fatalf("ImportSleepLogs: %v", err)
+	}
+
+	_, resp, err := s.handleGetSleepLogs(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-18",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetSleepLogs error: %v", err)
+	}
+
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 sleep log, got %d", resp.Count)
+	}
+	if resp.Logs[0].TotalMinutes == nil || *resp.Logs[0].TotalMinutes != 480 {
+		t.Errorf("expected TotalMinutes=480, got %v", resp.Logs[0].TotalMinutes)
+	}
+	if resp.Logs[0].DeepMinutes == nil || *resp.Logs[0].DeepMinutes != 90 {
+		t.Errorf("expected DeepMinutes=90, got %v", resp.Logs[0].DeepMinutes)
+	}
+}
+
+func TestHandleGetSleepLogs_EmptyRange(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+
+	_, resp, err := s.handleGetSleepLogs(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetSleepLogs error: %v", err)
+	}
+	if resp.Count != 0 {
+		t.Errorf("expected 0 logs, got %d", resp.Count)
+	}
+	if resp.Warning == "" {
+		t.Error("expected a warning when no sleep logs found")
+	}
+}
