@@ -6,8 +6,8 @@ describe('workout.js CRUD flows', () => {
   let consoleErrorSpy;
 
   beforeEach(() => {
-    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
   });
 
   afterEach(() => {
@@ -52,8 +52,7 @@ describe('workout.js CRUD flows', () => {
       document.getElementById('workout-group-description').value = 'Cardio';
       document.getElementById('workout-group-time').value = '08:30';
       document.getElementById('workout-group-notification').value = '20';
-      document.querySelector('#workout-group-modal .days-select span[data-day="1"]').classList.add('selected');
-      document.querySelector('#workout-group-modal .days-select span[data-day="3"]').classList.add('selected');
+      document.getElementById('workout-group-days').value = [1, 3];
 
       await window.saveWorkoutGroup();
 
@@ -214,13 +213,13 @@ describe('workout.js CRUD flows', () => {
       await window.loadExercisesForVariant(66);
 
       window.confirm = vi.fn().mockReturnValue(false);
-      await window.deleteVariant(7, { stopPropagation() {} });
-      await window.deleteExercise(8, { stopPropagation() {} });
+      await window.deleteVariant(7, { stopPropagation() { } });
+      await window.deleteExercise(8, { stopPropagation() { } });
       expect(apiCallSpy).not.toHaveBeenCalled();
 
       window.confirm = vi.fn().mockReturnValue(true);
-      await window.deleteVariant(7, { stopPropagation() {} });
-      await window.deleteExercise(8, { stopPropagation() {} });
+      await window.deleteVariant(7, { stopPropagation() { } });
+      await window.deleteExercise(8, { stopPropagation() { } });
 
       expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/variants/delete?id=7', 'DELETE');
       expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/exercises/delete?id=8', 'DELETE');

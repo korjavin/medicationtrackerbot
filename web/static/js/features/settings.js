@@ -1,0 +1,249 @@
+(function () {
+    const FEATURE_TOGGLE_IDS = {
+        food: 'food-intake-toggle',
+        bp: 'bp-feature-toggle',
+        weight: 'weight-feature-toggle',
+        health: 'health-feature-toggle',
+        medication: 'medication-feature-toggle',
+        workout: 'workout-feature-toggle'
+    };
+
+    const TAB_BY_FEATURE = {
+        food: 'food',
+        bp: 'bp',
+        weight: 'weight',
+        health: 'health',
+        medication: 'meds',
+        workout: 'workouts'
+    };
+
+    function setFeatureTabVisibility(feature, enabled) {
+        const tabName = TAB_BY_FEATURE[feature];
+        if (!tabName) return;
+        const tabButton = document.querySelector(`.tab[data-tab="${tabName}"]`);
+        if (tabButton) {
+            tabButton.style.display = enabled ? 'inline-block' : 'none';
+        }
+    }
+
+    window.applyFeatureSettings = function (settings) {
+        if (!settings) return;
+        window.featureSettings = { ...window.featureSettings, ...settings };
+        window.featureSettingsLoaded = true;
+
+        Object.entries(FEATURE_TOGGLE_IDS).forEach(([feature, id]) => {
+            const input = document.getElementById(id);
+            if (input) input.checked = !!window.featureSettings[feature];
+            setFeatureTabVisibility(feature, !!window.featureSettings[feature]);
+        });
+
+        const activeTab = document.querySelector('#tabs .tab.active');
+        if (activeTab && activeTab.style.display === 'none') {
+            const firstVisible = document.querySelector('#tabs .tab:not([style*="display: none"])');
+            if (firstVisible && typeof window.switchTab === 'function') {
+                window.switchTab(firstVisible.dataset.tab);
+            }
+        }
+    };
+
+    window.loadFeatureSettings = async function () {
+        if (!window.DataStore) return;
+
+        await window.DataStore.loadSWR({
+            key: 'settings_features',
+            tags: ['settings', 'feature_settings'],
+            fetcher: async () => await window.apiCall('/api/settings/features', 'GET'),
+            onCached: (cached) => window.applyFeatureSettings(cached),
+            onFresh: (fresh) => window.applyFeatureSettings(fresh),
+            onError: () => window.applyFeatureSettings({
+                medication: true,
+                workout: true,
+                food: true,
+                bp: true,
+                weight: true,
+                health: true
+            })
+        });
+    };
+
+    function applyFoodTargetsToInputs(targets) {
+        const normalized = {
+            calories: targets?.calories || 0,
+            carbs: targets?.carbs || 0,
+            protein: targets?.protein || 0,
+            fat: targets?.fat || 0
+        };
+        window.foodTargets = normalized;
+
+        const calories = document.getElementById('food-target-calories');
+        const carbs = document.getElementById('food-target-carbs');
+        const protein = document.getElementById('food-target-protein');
+        const fat = document.getElementById('food-target-fat');
+
+        if (calories) calories.value = normalized.calories || '';
+        if (carbs) carbs.value = normalized.carbs || '';
+        if (protein) protein.value = normalized.protein || '';
+        if (fat) fat.value = normalized.fat || '';
+    }
+
+    window.loadFoodTargets = async function () {
+        if (!window.DataStore) return;
+
+        await window.DataStore.loadSWR({
+            key: 'settings_food_targets',
+            tags: ['settings', 'food_targets'],
+            fetcher: async () => (await window.apiCall('/api/food/settings/targets', 'GET')) || { calories: 0, carbs: 0, protein: 0, fat: 0 },
+            onCached: (cached) => applyFoodTargetsToInputs(cached),
+            onFresh: async (fresh) => { applyFoodTargetsToInputs(fresh); if (window.DataStore) await window.DataStore.setCached('food_targets', fresh); },
+            onError: () => applyFoodTargetsToInputs(window.foodTargets || {})
+        });
+    };
+
+    window.saveFoodTargets = async function () {
+        const payload = {
+            calories: parseInt(document.getElementById('food-target-calories')?.value, 10) || 0,
+            carbs: parseInt(document.getElementById('food-target-carbs')?.value, 10) || 0,
+            protein: parseInt(document.getElementById('food-target-protein')?.value, 10) || 0,
+            fat: parseInt(document.getElementById('food-target-fat')?.value, 10) || 0
+        };
+
+        try {
+            const result = await window.apiCall('/api/food/settings/targets', 'POST', payload);
+            if (!result) return;
+
+            applyFoodTargetsToInputs(payload);
+            if (window.DataStore) await window.DataStore.invalidateTags(['settings', 'food_targets']);
+            if (typeof window.safeAlert === 'function') window.safeAlert('Food targets saved');
+
+            if (document.querySelector('.tab.active')?.dataset.tab === 'food' && typeof window.loadFoodLogs === 'function') {
+                window.loadFoodLogs();
+            }
+        } catch (e) {
+            if (typeof window.safeAlert === 'function') window.safeAlert('Failed to save food targets');
+        }
+    };
+
+    window.toggleFeatureSetting = async function (feature, enabled) {
+        const result = await window.apiCall(`/api/settings/features/${feature}`, 'POST', { enabled });
+        if (!result) return;
+
+        const updated = { ...window.featureSettings, [feature]: enabled };
+        window.applyFeatureSettings(updated);
+        if (window.DataStore) await window.DataStore.invalidateTags(['settings', 'feature_settings']);
+    };
+
+    async function loadReminderSettings() {
+        const [bp, weight] = await Promise.all([
+            window.apiCall('/api/bp/reminder/status', 'GET'),
+            window.apiCall('/api/weight/reminder/status', 'GET')
+        ]);
+
+        const bpToggle = document.getElementById('bp-reminders-toggle');
+        if (bpToggle) bpToggle.checked = !!bp?.enabled;
+
+        const weightToggle = document.getElementById('weight-reminders-toggle');
+        if (weightToggle) weightToggle.checked = !!weight?.enabled;
+    }
+
+    window.loadSettings = async function () {
+        await Promise.allSettled([
+            window.loadFeatureSettings(),
+            window.loadFoodTargets(),
+            loadReminderSettings()
+        ]);
+    };
+
+    let settingsControlsBound = false;
+    function bindSettingsControls() {
+        if (settingsControlsBound) return;
+        settingsControlsBound = true;
+
+        const bindChange = (id, handler) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', handler);
+        };
+        const bindClick = (id, handler) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('click', handler);
+        };
+
+        bindChange('food-intake-toggle', async function () { await window.toggleFeatureSetting('food', this.checked); });
+        bindChange('bp-feature-toggle', async function () { await window.toggleFeatureSetting('bp', this.checked); });
+        bindChange('weight-feature-toggle', async function () { await window.toggleFeatureSetting('weight', this.checked); });
+        bindChange('health-feature-toggle', async function () { await window.toggleFeatureSetting('health', this.checked); });
+        bindChange('medication-feature-toggle', async function () { await window.toggleFeatureSetting('medication', this.checked); });
+        bindChange('workout-feature-toggle', async function () { await window.toggleFeatureSetting('workout', this.checked); });
+
+        bindChange('bp-reminders-toggle', async function () {
+            const enabled = this.checked;
+            const res = await window.apiCall('/api/bp/reminder/toggle', 'POST', { enabled });
+            if (!res) this.checked = !enabled;
+        });
+        bindChange('weight-reminders-toggle', async function () {
+            const enabled = this.checked;
+            const res = await window.apiCall('/api/weight/reminder/toggle', 'POST', { enabled });
+            if (!res) this.checked = !enabled;
+        });
+
+        bindClick('save-food-targets-btn', async () => { await window.saveFoodTargets(); });
+
+        bindChange('webpush-toggle', async function () {
+            const status = document.getElementById('webpush-status');
+            if (!status) return;
+
+            status.style.display = 'block';
+            if (!window.MedTrackerPush) {
+                status.textContent = 'Push is unavailable';
+                status.style.color = 'red';
+                this.checked = false;
+                return;
+            }
+
+            if (this.checked) {
+                status.textContent = 'Requesting permission...';
+                status.style.color = '';
+                const success = await window.MedTrackerPush.subscribe();
+                status.textContent = success ? 'Notifications enabled' : 'Failed to enable notifications';
+                status.style.color = success ? 'green' : 'red';
+                if (!success) this.checked = false;
+            } else {
+                const success = await window.MedTrackerPush.unsubscribe();
+                status.textContent = success ? 'Notifications disabled' : 'Failed to disable notifications';
+                status.style.color = success ? 'gray' : 'red';
+                if (!success) this.checked = true;
+            }
+
+            setTimeout(() => { status.style.display = 'none'; }, 3000);
+        });
+    }
+
+    function normalizeSettingsBundle(raw) {
+        const foodTargetsRaw = raw?.foodTargets || raw?.food_targets || raw?.settings?.food_targets || {};
+        const bpReminderRaw = raw?.bpReminderStatus || raw?.bp_reminder_status || raw?.settings?.bp_reminder_status || {};
+        const weightReminderRaw = raw?.weightReminderStatus || raw?.weight_reminder_status || raw?.settings?.weight_reminder_status || {};
+
+        return {
+            featureSettings: raw?.featureSettings || raw?.features || {},
+            foodTargets: {
+                calories: Number(foodTargetsRaw.calories) || 0,
+                carbs: Number(foodTargetsRaw.carbs) || 0,
+                protein: Number(foodTargetsRaw.protein) || 0,
+                fat: Number(foodTargetsRaw.fat) || 0
+            },
+            bpReminderStatus: {
+                ...bpReminderRaw,
+                enabled: !!bpReminderRaw.enabled
+            },
+            weightReminderStatus: {
+                ...weightReminderRaw,
+                enabled: !!weightReminderRaw.enabled
+            }
+        };
+    }
+    window.normalizeSettingsBundle = normalizeSettingsBundle;
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bindSettingsControls, { once: true });
+    }
+    bindSettingsControls();
+})();
