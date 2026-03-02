@@ -143,11 +143,11 @@ describe('app.js UI characterization', () => {
       scheduleType.dispatchEvent(new window.Event('change', { bubbles: true }));
       expect(document.getElementById('days-container').classList.contains('hidden')).toBe(false);
 
-      const monday = document.querySelector('#med-days').querySelector('span[data-day="1"]');
+      const monday = document.querySelector('#days-container .days-select span[data-day="1"]');
       monday.click();
       expect(monday.classList.contains('selected')).toBe(true);
 
-      const loadHistorySpy = vi.spyOn(window, 'loadHistory').mockImplementation(() => { });
+      const loadHistorySpy = vi.spyOn(window, 'loadHistory').mockImplementation(() => {});
       document.getElementById('history-filter-days').dispatchEvent(new window.Event('change', { bubbles: true }));
       expect(loadHistorySpy).toHaveBeenCalled();
 
@@ -161,8 +161,8 @@ describe('app.js UI characterization', () => {
   it('food controls are wired via JS listeners and toggle period/modal states', () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
-      const showFoodModalSpy = vi.spyOn(window, 'showAddFoodModal').mockImplementation(() => { });
-      const closeFoodModalSpy = vi.spyOn(window, 'closeFoodModal').mockImplementation(() => { });
+      const showFoodModalSpy = vi.spyOn(window, 'showAddFoodModal').mockImplementation(() => {});
+      const closeFoodModalSpy = vi.spyOn(window, 'closeFoodModal').mockImplementation(() => {});
       window.setFoodStatsPeriod = vi.fn();
 
       document.getElementById('add-food-btn').click();

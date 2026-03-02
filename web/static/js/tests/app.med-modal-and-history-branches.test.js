@@ -30,7 +30,7 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       document.getElementById('med-name').value = 'filled';
       document.getElementById('med-track-inventory').checked = true;
       document.getElementById('inventory-fields').classList.remove('hidden');
-      document.getElementById('med-days').value = [1, 2, 3];
+      document.querySelectorAll('.days-select span').forEach((el) => el.classList.add('selected'));
 
       window.showAddModal();
 
@@ -114,11 +114,11 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       document.querySelector('.med-time-input').value = '09:00';
       document.getElementById('schedule-type').value = 'weekly';
       window.toggleScheduleFields();
-      document.getElementById('med-days').value = [];
+      document.querySelectorAll('.days-select span').forEach((el) => el.classList.remove('selected'));
       await window.saveMedication();
       expect(alertSpy).toHaveBeenCalledWith('Select at least one day!');
 
-      document.getElementById('med-days').value = [1];
+      document.querySelector('.days-select span[data-day="1"]').classList.add('selected');
       document.getElementById('med-dosage').value = '20mg';
       document.getElementById('med-start-date').value = '2026-03-01';
       document.getElementById('med-end-date').value = '2026-03-31';

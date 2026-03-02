@@ -19,7 +19,7 @@ describe('workout.js SWR and modal edge branches', () => {
   let consoleErrorSpy;
 
   beforeEach(() => {
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -30,7 +30,7 @@ describe('workout.js SWR and modal edge branches', () => {
     const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
 
     try {
-      const switchSpy = vi.spyOn(window, 'switchWorkoutTab').mockImplementation(() => { });
+      const switchSpy = vi.spyOn(window, 'switchWorkoutTab').mockImplementation(() => {});
       window.loadWorkouts();
       expect(switchSpy).toHaveBeenCalledWith('history');
 
@@ -111,7 +111,7 @@ describe('workout.js SWR and modal edge branches', () => {
       window.DataStore.loadSWR = vi.fn(async (options) => {
         await options.onFresh([]);
       });
-      await window.deleteWorkoutGroup(1, { stopPropagation() { } });
+      await window.deleteWorkoutGroup(1, { stopPropagation() {} });
       expect(window.apiCall).toHaveBeenCalledWith('/api/workout/groups/delete?id=1', 'DELETE');
     } finally {
       cleanup();
@@ -278,7 +278,7 @@ describe('workout.js SWR and modal edge branches', () => {
       expect(document.getElementById('unique-exercises-list').querySelectorAll('option')).toHaveLength(2);
 
       const overlay = document.getElementById('modal-overlay');
-      overlay.click();
+      overlay.onclick({ target: overlay });
       expect(document.getElementById('workout-add-exercise-to-session-modal').classList.contains('hidden')).toBe(true);
     } finally {
       cleanup();
