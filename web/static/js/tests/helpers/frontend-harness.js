@@ -11,6 +11,7 @@ const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const AUTH_FLOW_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-flow.js');
+const MODAL_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/modal-history.js');
 const DEEPLINK_ROUTER_JS = path.join(REPO_ROOT, 'web/static/js/features/deeplink-router.js');
 const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
 
@@ -114,12 +115,19 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
   evalWithSourceURL(window, appSource, APP_JS);
-  window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 
-  // Load feature modules that expose helpers used by tests.
   // auth-flow.js: provides saveAuthState / getCachedAuthState / clearAuthState.
   const authFlowSource = fs.readFileSync(AUTH_FLOW_JS, 'utf8');
   evalWithSourceURL(window, authFlowSource, AUTH_FLOW_JS);
+
+  // modal-history.js must load BEFORE DOMContentLoaded fires so its internal
+  // 'DOMContentLoaded' listener can call setupObserver() at the right time.
+  // (JSDOM keeps readyState='loading' until its own lifecycle completes.)
+  const modalHistorySource = fs.readFileSync(MODAL_HISTORY_JS, 'utf8');
+  evalWithSourceURL(window, modalHistorySource, MODAL_HISTORY_JS);
+
+  // Fire DOMContentLoaded – triggers setupObserver() inside modal-history.js.
+  window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 
   // deeplink-router.js: provides handleDeepLinks() on window.
   // The Telegram start_param auto-run is harmless (initDataUnsafe={} in tests).
