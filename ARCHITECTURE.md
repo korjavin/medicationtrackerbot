@@ -173,7 +173,12 @@ The frontend is split across several files, each with a clear responsibility:
 
 | File | Role |
 |------|------|
-| `app.js` | Core UI: all health-data handlers, modals, tab switching, charts, auth flow |
+| `core/utils.js` | Shared utilities: `safeAlert`, `formatDateTimeLocalForInput`, `downloadBlobAsFile` |
+| `core/api.js` | HTTP client: `apiCallDirect` (raw fetch + auth header) and `apiCall` (offline-aware wrapper) |
+| `core/modal-manager.js` | Central modal open/close registry (`window.ModalManager`) for all domain modals |
+| `core/app-kernel.js` | Module registry + lifecycle hooks (`onTabSwitch`, `onAuth`, `onReady`); `window.AppKernel` |
+| `components/mt-elements.js` | Custom element definitions: `<mt-modal>` and `<mt-setting-toggle>` |
+| `app.js` | Domain UI: health-data handlers, tab switching, charts, auth flow (`checkAuth`) |
 | `features/auth-flow.js` | Stateless auth-cache helpers (`saveAuthState`, `getCachedAuthState`, `clearAuthState`) |
 | `features/bootstrap.js` | Post-auth orchestration: runs `checkAuth()` then starts polling, SyncManager, PushManager, and deep links |
 | `features/deeplink-router.js` | URL routing: path deep links, query-param actions, Telegram `start_param` |
@@ -186,17 +191,22 @@ The frontend is split across several files, each with a clear responsibility:
 | `db.js` | Dexie/IndexedDB stores for offline queue and SWR cache |
 
 **Script load order in `index.html`** (loading order matters for dependency resolution):
-1. `db.js` — must be first; sets up Dexie/IndexedDB stores (`window.MedTrackerDB`)
-2. `sync.js` — depends on `db.js`; provides `offlineAwareApiCall` and `SyncManager`
-3. `data-store.js` — depends on `window.MedTrackerDB` (db.js) for cache storage; uses `window.apiCallDirect` (app.js) lazily at change-poll time; no direct dependency on sync.js exports
-4. `app.js` — depends on `DataStore`; defines all core UI functions
-5. `features/auth-flow.js` — provides auth-cache helpers called by `checkAuth()` in app.js
-6. `features/modal-history.js` — sets up MutationObserver before DOMContentLoaded
-7. `features/deeplink-router.js` — registers `window.handleDeepLinks`
-8. `workout.js`, `push.js`, `app-shell.js` — feature extensions
-9. `features/bootstrap.js` — **must be last**; runs `checkAuth()` to start the app
+1. `core/utils.js` — no deps; provides `safeAlert`, format helpers
+2. `components/mt-elements.js` — no deps; registers `<mt-modal>` and `<mt-setting-toggle>`
+3. `core/modal-manager.js` — no deps; provides `window.ModalManager`
+4. `core/api.js` — depends on `safeAlert` (utils.js); reads `window.userInitData` lazily; provides `apiCallDirect`, `apiCall`
+5. `core/app-kernel.js` — no deps; provides `window.AppKernel` module registry
+6. `db.js` — must load before sync.js; sets up Dexie/IndexedDB stores (`window.MedTrackerDB`)
+7. `sync.js` — depends on `db.js`; provides `offlineAwareApiCall` and `SyncManager`
+8. `data-store.js` — depends on `window.MedTrackerDB` (db.js) for cache storage; uses `window.apiCallDirect` (core/api.js) lazily at change-poll time; no direct dependency on sync.js exports
+9. `app.js` — depends on `DataStore`, `ModalManager`, `apiCall`; defines domain UI and `checkAuth`
+10. `features/auth-flow.js` — provides auth-cache helpers called by `checkAuth()` in app.js
+11. `features/modal-history.js` — sets up MutationObserver before DOMContentLoaded
+12. `features/deeplink-router.js` — registers `window.handleDeepLinks`
+13. `workout.js`, `push.js`, `app-shell.js` — feature extensions
+14. `features/bootstrap.js` — **must be last**; runs `checkAuth()` to start the app
 
-**Global namespace policy**: `app.js` exposes 111 functions on `window` — those referenced by tests, feature files, or the bootstrap orchestrator. Fifty-one internal helper functions (rendering, ruler drag, food scanner internals, etc.) are defined at module scope and not explicitly exported. Feature files follow the same principle: `modal-history.js` wraps everything in an IIFE; other feature files export only what is needed. The baseline (pre-refactoring) had 34 explicit `window.X =` assignments in `app.js` alone; the current total across all frontend files is 15 explicit `window.*` assignments (56% reduction).
+**Global namespace policy**: `app.js` exposes key functions on `window` — those referenced by tests, feature files, or the bootstrap orchestrator. The current total across all frontend files is 15 explicit `window.*` assignments (Stage 3 target: ≤8).
 
 ### Auth Caching (`features/auth-flow.js` + `app.js`)
 

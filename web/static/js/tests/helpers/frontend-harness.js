@@ -8,6 +8,11 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 
 const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
+const UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/utils.js');
+const MT_ELEMENTS_JS = path.join(REPO_ROOT, 'web/static/js/components/mt-elements.js');
+const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
+const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
+const APP_KERNEL_JS = path.join(REPO_ROOT, 'web/static/js/core/app-kernel.js');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const AUTH_FLOW_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-flow.js');
@@ -109,6 +114,13 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   window.confirm = () => true;
   window.fetch = async () => createMockResponse({ status: 200, json: {} });
   window.eval('var history = window.history;');
+
+  // Core infrastructure files (loaded before data-store.js and app.js)
+  evalWithSourceURL(window, fs.readFileSync(UTILS_JS, 'utf8'), UTILS_JS);
+  evalWithSourceURL(window, fs.readFileSync(MT_ELEMENTS_JS, 'utf8'), MT_ELEMENTS_JS);
+  evalWithSourceURL(window, fs.readFileSync(MODAL_MANAGER_JS, 'utf8'), MODAL_MANAGER_JS);
+  evalWithSourceURL(window, fs.readFileSync(CORE_API_JS, 'utf8'), CORE_API_JS);
+  evalWithSourceURL(window, fs.readFileSync(APP_KERNEL_JS, 'utf8'), APP_KERNEL_JS);
 
   const dataStoreSource = fs.readFileSync(DATA_STORE_JS, 'utf8');
   evalWithSourceURL(window, dataStoreSource, DATA_STORE_JS);
