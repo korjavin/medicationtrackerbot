@@ -1,0 +1,113 @@
+/**
+ * architecture.globals.test.js
+ *
+ * Lint guard: asserts that no JS source file introduces an explicit
+ * `window.<name> = ` assignment that is not on the approved list below.
+ *
+ * Intent: prevent uncontrolled proliferation of window globals.
+ * Each entry in ALLOWED_GLOBALS must have a brief justification.
+ */
+import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const REPO_ROOT = path.resolve(__dirname, '../../../..');
+const JS_ROOT = path.join(REPO_ROOT, 'web/static/js');
+
+/**
+ * Approved window globals. New globals require a PR updating this list.
+ *
+ * Format: 'window.Name': reason
+ */
+const ALLOWED_GLOBALS = new Set([
+    // Infrastructure — stable, out of scope for frontend refactoring
+    'window.MedTrackerDB',              // db.js — IndexedDB facade
+    'window.SyncManager',               // sync.js — offline sync manager
+    'window.offlineAwareApiCall',       // sync.js — public API entry point
+    'window.SyncDebug',                 // sync.js — dev-mode diagnostics
+    'window.DataStore',                 // data-store.js — SWR cache layer
+    'window.MedTrackerPush',            // push.js — web push manager
+
+    // App shell
+    'window.initServiceWorker',         // app-shell.js — SW registration
+    'window.showUpdateToast',           // app-shell.js — SW update banner
+
+    // App core (app.js)
+    'window.userInitData',              // app.js — Telegram initData for feature files
+    'window.onDataStoreUnauthorized',   // app.js — callback consumed by data-store.js
+    'window.onTelegramAuth',            // app.js — OIDC callback injected by Telegram script
+    'window.requestTabRefresh',         // app.js — called by data-store.js on change event
+    'window.reloadCurrentTab',          // app.js — called by data-store.js + sync.js
+
+    // Core modules
+    'window.apiCallDirect',             // core/api.js — low-level fetch used by data-store.js
+    'window.AppKernel',                 // core/app-kernel.js — module registry
+    'window.ModalManager',              // core/modal-manager.js — modal lifecycle façade
+    'window.AppStore',                  // core/store.js — ephemeral UI state
+
+    // Features
+    'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js
+]);
+
+/**
+ * Recursively collect *.js files, skipping tests/ and *.min.js
+ */
+function collectJsFiles(dir, results = []) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            if (entry.name !== 'tests' && entry.name !== 'node_modules') {
+                collectJsFiles(full, results);
+            }
+        } else if (entry.name.endsWith('.js') && !entry.name.endsWith('.min.js')) {
+            results.push(full);
+        }
+    }
+    return results;
+}
+
+/**
+ * Regex that matches an explicit window assignment:
+ *   window.Foo =   (but NOT window.Foo.bar = or window.Foo?.bar)
+ */
+const WINDOW_ASSIGN_RE = /window\.([A-Za-z_][A-Za-z0-9_]*)\s*=/g;
+
+describe('Architecture – window globals guard', () => {
+    it('no JS file introduces an unapproved explicit window.* assignment', () => {
+        const jsFiles = collectJsFiles(JS_ROOT);
+        expect(jsFiles.length).toBeGreaterThan(0);
+
+        const violations = [];
+
+        for (const filePath of jsFiles) {
+            const source = fs.readFileSync(filePath, 'utf8');
+            const rel = path.relative(REPO_ROOT, filePath);
+            let match;
+            WINDOW_ASSIGN_RE.lastIndex = 0;
+            while ((match = WINDOW_ASSIGN_RE.exec(source)) !== null) {
+                const name = `window.${match[1]}`;
+                // Skip chained property access: window.Foo.bar = or window.Foo?.bar =
+                const charAfterMatch = source[match.index + match[0].length];
+                const precedingFull = match[0]; // e.g. "window.Foo ="
+                // If the char right after 'window.Name' (before ' =') is '.' or '?', skip it
+                const nameEnd = match.index + 'window.'.length + match[1].length;
+                const charAfterName = source[nameEnd];
+                if (charAfterName === '.' || charAfterName === '?') continue;
+                if (!ALLOWED_GLOBALS.has(name)) {
+                    violations.push(`${rel}: ${name}`);
+                }
+            }
+        }
+
+        if (violations.length > 0) {
+            throw new Error(
+                `Unapproved window.* assignments found.\n` +
+                `Add to ALLOWED_GLOBALS in architecture.globals.test.js with a justification:\n\n` +
+                violations.map(v => `  • ${v}`).join('\n')
+            );
+        }
+    });
+});
