@@ -1,6 +1,3 @@
-// `tg` is declared in app.js as `window.tg = window.Telegram.WebApp` (not const)
-// so redeclaring it here is safe and provides a convenient local alias.
-const tg = window.tg;
 
 // ==================== Weight Tracking Functions ====================
 
@@ -40,7 +37,7 @@ async function handleWeightSubmit(event) {
     const notes = document.getElementById('weight-notes').value;
 
     if (!datetime || !weight) {
-        tg.showAlert('Please fill in all required fields');
+        window.tg.showAlert('Please fill in all required fields');
         return;
     }
 
@@ -769,14 +766,14 @@ function renderWeightLogs(logs) {
 async function deleteWeightLog(id) {
     const confirmMsg = 'Delete this weight log?';
 
-    if (userInitData && tg.showConfirm) {
+    if (userInitData && window.tg.showConfirm) {
         try {
-            tg.showConfirm(confirmMsg, (ok) => {
+            window.tg.showConfirm(confirmMsg, (ok) => {
                 if (ok) _deleteWeightApi(id);
             });
             return;
         } catch (e) {
-            console.log('tg.showConfirm failed, falling back', e);
+            console.log('window.tg.showConfirm failed, falling back', e);
         }
     }
 
@@ -828,7 +825,7 @@ async function exportWeightCSV() {
         });
 
         if (!response.ok) {
-            tg.showAlert('Failed to generate export');
+            window.tg.showAlert('Failed to generate export');
             return;
         }
 
@@ -836,6 +833,6 @@ async function exportWeightCSV() {
         downloadBlobAsFile(blob, 'weight_export.csv');
     } catch (err) {
         console.error('Export error:', err);
-        tg.showAlert('Failed to export data');
+        window.tg.showAlert('Failed to export data');
     }
 }
