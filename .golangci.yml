@@ -5,13 +5,6 @@ run:
   timeout: 5m
   concurrency: 4
 
-output:
-  formats:
-    text:
-      path: stdout
-    sarif:
-      path: golangci-lint-result.sarif
-
 linters:
   enable:
     - gosec           # Go security issues
