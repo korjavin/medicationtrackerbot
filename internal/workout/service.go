@@ -2,6 +2,7 @@ package workout
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -67,14 +68,7 @@ func (s *Service) SkipSession(_ context.Context, sessionID int64) error {
 	if err := s.store.SkipSession(sessionID); err != nil {
 		return err
 	}
-	if session != nil {
-		group, err := s.store.GetWorkoutGroup(session.GroupID)
-		if err == nil && group != nil && group.IsRotating {
-			if err := s.store.AdvanceRotation(group.ID); err != nil {
-				return err
-			}
-		}
-	}
+	s.tryAdvanceRotation(session)
 	return nil
 }
 
@@ -87,18 +81,32 @@ func (s *Service) CompleteSession(_ context.Context, sessionID int64) error {
 	if err := s.store.CompleteSession(sessionID); err != nil {
 		return err
 	}
-	if session != nil {
-		group, err := s.store.GetWorkoutGroup(session.GroupID)
-		if err == nil && group != nil && group.IsRotating {
-			if err := s.store.AdvanceRotation(group.ID); err != nil {
-				return err
-			}
-		}
-	}
+	s.tryAdvanceRotation(session)
 	return nil
 }
 
 // CreateAdHocSession creates a new ad-hoc (unscheduled) workout session already in progress.
 func (s *Service) CreateAdHocSession(_ context.Context, userID int64, now time.Time, scheduledTime string) (*store.WorkoutSession, error) {
 	return s.store.CreateAdHocWorkoutSession(userID, now, scheduledTime)
+}
+
+// tryAdvanceRotation performs best-effort rotation advancement after a successful
+// terminal state transition. The primary transition should not fail if this step fails.
+func (s *Service) tryAdvanceRotation(session *store.WorkoutSession) {
+	if session == nil {
+		return
+	}
+
+	group, err := s.store.GetWorkoutGroup(session.GroupID)
+	if err != nil {
+		log.Printf("workout service: failed to load group %d for session %d: %v", session.GroupID, session.ID, err)
+		return
+	}
+	if group == nil || !group.IsRotating {
+		return
+	}
+
+	if err := s.store.AdvanceRotation(group.ID); err != nil {
+		log.Printf("workout service: failed to advance rotation for group %d: %v", group.ID, err)
+	}
 }
