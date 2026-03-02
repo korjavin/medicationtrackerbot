@@ -146,12 +146,17 @@ describe('food product edit/delete in autocomplete', () => {
 
     try {
       window.safeAlert = vi.fn();
+      window.closeFoodProductModal = vi.fn();
       document.getElementById('food-product-id').value = '10';
       document.getElementById('food-product-name').value = 'Failing Product';
-      window.apiCall = vi.fn().mockRejectedValue(new Error('network error'));
+      // apiCall returns null on error (it handles the error internally)
+      window.apiCall = vi.fn().mockResolvedValue(null);
 
       await window.saveFoodProduct();
-      expect(window.safeAlert).toHaveBeenCalledWith('Failed to update product.');
+      // modal stays open when apiCall returns null
+      expect(window.closeFoodProductModal).not.toHaveBeenCalled();
+      // 'Product updated.' should not be shown on failure
+      expect(window.safeAlert).not.toHaveBeenCalledWith('Product updated.');
     } finally {
       cleanup();
     }
