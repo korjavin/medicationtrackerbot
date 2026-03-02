@@ -188,7 +188,7 @@ The frontend is split across several files, each with a clear responsibility:
 **Script load order in `index.html`** (loading order matters for dependency resolution):
 1. `db.js` — must be first; sets up Dexie/IndexedDB stores (`window.MedTrackerDB`)
 2. `sync.js` — depends on `db.js`; provides `offlineAwareApiCall` and `SyncManager`
-3. `data-store.js` — depends on `sync.js`; provides `window.DataStore` (SWR cache)
+3. `data-store.js` — depends on `window.MedTrackerDB` (db.js) for cache storage; uses `window.apiCallDirect` (app.js) lazily at change-poll time; no direct dependency on sync.js exports
 4. `app.js` — depends on `DataStore`; defines all core UI functions
 5. `features/auth-flow.js` — provides auth-cache helpers called by `checkAuth()` in app.js
 6. `features/modal-history.js` — sets up MutationObserver before DOMContentLoaded
@@ -196,7 +196,7 @@ The frontend is split across several files, each with a clear responsibility:
 8. `workout.js`, `push.js`, `app-shell.js` — feature extensions
 9. `features/bootstrap.js` — **must be last**; runs `checkAuth()` to start the app
 
-**Global namespace policy**: `app.js` exposes 111 functions on `window` — those referenced by tests, feature files, or the bootstrap orchestrator. Fifty-one internal helper functions (rendering, ruler drag, food scanner internals, etc.) are defined at module scope and not explicitly exported. Feature files follow the same principle: `modal-history.js` wraps everything in an IIFE; other feature files export only what is needed. The baseline (pre-refactoring) had 34 explicit `window.X =` assignments in `app.js` alone; the current total across all frontend files is ~14 explicit window exports (59% reduction).
+**Global namespace policy**: `app.js` exposes 111 functions on `window` — those referenced by tests, feature files, or the bootstrap orchestrator. Fifty-one internal helper functions (rendering, ruler drag, food scanner internals, etc.) are defined at module scope and not explicitly exported. Feature files follow the same principle: `modal-history.js` wraps everything in an IIFE; other feature files export only what is needed. The baseline (pre-refactoring) had 34 explicit `window.X =` assignments in `app.js` alone; the current total across all frontend files is 15 explicit `window.*` assignments (56% reduction).
 
 ### Auth Caching (`features/auth-flow.js` + `app.js`)
 
