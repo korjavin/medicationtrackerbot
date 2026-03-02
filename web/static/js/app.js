@@ -267,17 +267,20 @@ async function checkAuth() {
 }
 window.checkAuth = checkAuth;
 
-// Global initialization
-document.addEventListener('DOMContentLoaded', async () => {
-    console.log('[App] Starting initialization...');
-
-    // Bind tab groups via custom tabchange events as early as possible.
+// Bind tab-group custom events. Kept in a non-async listener so the test harness (which strips
+// the async bootstrap below) still sets up these handlers when it fires DOMContentLoaded.
+document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('tabs')?.addEventListener('tabchange', (e) => {
         if (typeof window.switchTab === 'function') window.switchTab(e.detail.tabId);
     });
     document.querySelector('.med-tabs')?.addEventListener('tabchange', (e) => {
         if (typeof window.switchMedTab === 'function') window.switchMedTab(e.detail.tabId);
     });
+});
+
+// Global initialization
+document.addEventListener('DOMContentLoaded', async () => {
+    console.log('[App] Starting initialization...');
 
     // BP & Weight Submit
     const bpForm = document.getElementById('bp-form');
@@ -314,6 +317,27 @@ async function onAuth() {
         window.DataStore.startChangePolling();
     }
     if (typeof window.switchTab === 'function') window.switchTab('meds');
+
+    // Handle deep links: push-notification URL params and path-based routes
+    const _dlParams = new URLSearchParams(window.location.search);
+    const _dlAction = _dlParams.get('action');
+    const _dlTab = _dlParams.get('tab');
+    const _dlPath = window.location.pathname;
+    const _dlStartParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
+
+    const _dlDirty = _dlPath !== '/' || window.location.search !== '';
+    if (_dlPath === '/bp_add' || _dlStartParam === 'bp_add' || (_dlTab === 'bp' && _dlAction === 'add')) {
+        window.switchTab('bp');
+        setTimeout(() => { if (typeof window.showBPRecordModal === 'function') window.showBPRecordModal(); }, 500);
+        if (_dlDirty) window.history.replaceState({}, '', '/');
+    } else if (_dlPath === '/weight_add' || _dlStartParam === 'weight_add' || (_dlTab === 'weight' && _dlAction === 'add')) {
+        window.switchTab('weight');
+        setTimeout(() => { if (typeof window.showWeightRecordModal === 'function') window.showWeightRecordModal(); }, 500);
+        if (_dlDirty) window.history.replaceState({}, '', '/');
+    } else if (_dlAction && typeof window.handlePushAction === 'function') {
+        window.handlePushAction(_dlAction, _dlParams);
+        window.history.replaceState({}, '', '/');
+    }
 }
 
 // Wrap loadMeds to also refresh weekly hub
@@ -643,13 +667,3 @@ window.sendTestBPNotification = async function () {
     }
 };
 
-// Check for Telegram start_param
-if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.start_param === 'bp_add') {
-    const checkInterval = setInterval(() => {
-        if (typeof window.showBPRecordModal === 'function') {
-            clearInterval(checkInterval);
-            window.switchTab('bp');
-            setTimeout(window.showBPRecordModal, 500);
-        }
-    }, 100);
-}
