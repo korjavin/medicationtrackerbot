@@ -149,9 +149,12 @@
             : setup();
     })();
 
-    // Fallback click bindings for tabs (web component tabchange may not fire in all environments)
+    // Fallback click bindings for tabs – only when mt-tab-group has not been upgraded.
+    // connectedCallback sets data-initialized; if any upgraded instance is found the component
+    // is active and will dispatch tabchange (handled by app.js), so no duplicate handler needed.
     (function bindTabClicks() {
         function setup() {
+            if (document.querySelector('mt-tab-group[data-initialized]')) return;
             document.querySelectorAll('#tabs .tab').forEach(function (tab) {
                 tab.addEventListener('click', function () {
                     if (typeof window.switchTab === 'function') window.switchTab(tab.dataset.tab);

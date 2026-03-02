@@ -48,12 +48,6 @@ function disableAutoBootstrap(source) {
     '// DOMContentLoaded auto-bootstrap disabled in tests'
   );
 
-  // Remove the Telegram start_param check
-  source = source.replace(
-    /\/\/ Check for Telegram start_param[\s\S]*?}, 100\);\s*\}/,
-    '// Telegram start_param check disabled in tests'
-  );
-
   return source;
 }
 
