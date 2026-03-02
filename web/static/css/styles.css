@@ -28,14 +28,6 @@ h1 {
     margin-bottom: 16px;
 }
 
-mt-card {
-    display: block;
-    background-color: var(--secondary-bg-color);
-    padding: 12px 16px;
-    border-radius: 12px;
-    margin-bottom: 12px;
-}
-
 /* Tabs */
 #tabs {
     display: flex;
@@ -95,9 +87,21 @@ mt-card {
     display: block;
 }
 
+/* Exercise Library Items */
+.exercise-library-item {
+    background-color: var(--secondary-bg-color);
+    padding: 12px 16px;
+    border-radius: 12px;
+    margin-bottom: 8px;
+}
+
 /* List Items */
 .med-item,
 .history-item {
+    background-color: var(--secondary-bg-color);
+    padding: 12px 16px;
+    border-radius: 12px;
+    margin-bottom: 12px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -360,6 +364,13 @@ select {
 }
 
 /* History Grouping */
+.history-group {
+    background-color: var(--secondary-bg-color);
+    padding: 12px 16px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+}
+
 .history-header {
     font-size: 14px;
     margin-bottom: 8px;
@@ -451,6 +462,10 @@ select {
 }
 
 .bp-item {
+    background-color: var(--secondary-bg-color);
+    padding: 16px;
+    border-radius: 12px;
+    margin-bottom: 12px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -670,6 +685,9 @@ svg.chart-svg {
     display: flex;
     justify-content: space-between;
     gap: 16px;
+    background: var(--secondary-bg-color);
+    padding: 16px;
+    border-radius: 12px;
     margin-bottom: 20px;
 }
 
@@ -810,6 +828,10 @@ svg.chart-svg {
 }
 
 .weight-item {
+    background-color: var(--secondary-bg-color);
+    padding: 16px;
+    border-radius: 12px;
+    margin-bottom: 12px;
     display: flex;
     justify-content: space-between;
     align-items: center;
