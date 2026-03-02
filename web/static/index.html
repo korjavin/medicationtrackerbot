@@ -5,7 +5,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#2481cc">
-    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Med Tracker">
@@ -28,7 +27,7 @@
 
 <body>
     <div id="app">
-        <mt-tab-group id="tabs">
+        <div id="tabs">
             <button class="tab active" data-tab="bp">🩸</button>
             <button class="tab" data-tab="weight">⚖️</button>
             <button class="tab" data-tab="workouts">🏋️</button>
@@ -36,14 +35,14 @@
             <button class="tab" data-tab="health">😴</button>
             <button class="tab" data-tab="meds">💊</button>
             <button class="tab" data-tab="settings">⚙️</button>
-        </mt-tab-group>
+        </div>
 
         <div id="meds-view" class="view active">
             <!-- Med Tabs -->
-            <mt-tab-group class="med-tabs">
+            <div class="med-tabs">
                 <button class="med-tab active" data-tab="history">History</button>
                 <button class="med-tab" data-tab="schedule">Schedule</button>
-            </mt-tab-group>
+            </div>
 
             <div id="med-history-tab" class="med-tab-content active">
                 <h3>Intake History</h3>
@@ -62,7 +61,7 @@
             </div>
 
             <div id="med-schedule-tab" class="med-tab-content">
-                <mt-card id="weekly-hub-container"></mt-card>
+                <div id="weekly-hub-container"></div>
                 <div id="med-list">
                     <!-- Meds injected here -->
                 </div>
@@ -73,16 +72,16 @@
         <div id="bp-view" class="view">
             <h3>Blood Pressure Readings</h3>
             <button id="add-bp-btn" class="btn-add">+ Record BP</button>
-            <mt-card id="bpChart"></mt-card>
-            <mt-card id="bp-averages"></mt-card>
+            <div id="bpChart"></div>
+            <div id="bp-averages"></div>
             <ul id="bp-list"></ul>
         </div>
 
         <div id="weight-view" class="view">
             <h3>Weight Tracking</h3>
             <button id="add-weight-btn" class="btn-add">+ Log Weight</button>
-            <mt-card id="weightChart"></mt-card>
-            <mt-card id="weight-stats"></mt-card>
+            <div id="weightChart"></div>
+            <div id="weight-stats"></div>
             <ul id="weight-list"></ul>
         </div>
 
@@ -90,12 +89,12 @@
             <h3>🏋️ Workout Planner</h3>
 
             <!-- Tab Navigation for Workouts -->
-            <mt-tab-group class="workout-tabs">
+            <div class="workout-tabs">
                 <button class="workout-tab active" data-tab="history">History</button>
                 <button class="workout-tab" data-tab="groups">Groups</button>
                 <button class="workout-tab" data-tab="exercises">Exercises</button>
                 <button class="workout-tab" data-tab="stats">Statistics</button>
-            </mt-tab-group>
+            </div>
 
             <!-- History View -->
             <div id="workout-history-tab" class="workout-tab-content active">
@@ -283,7 +282,15 @@
 
         <div class="form-row">
             <label>Days of Week:</label>
-            <mt-day-picker id="workout-group-days"></mt-day-picker>
+            <div class="days-select">
+                <span data-day="1">Mon</span>
+                <span data-day="2">Tue</span>
+                <span data-day="3">Wed</span>
+                <span data-day="4">Thu</span>
+                <span data-day="5">Fri</span>
+                <span data-day="6">Sat</span>
+                <span data-day="0">Sun</span>
+            </div>
         </div>
 
         <div class="form-row">
@@ -642,7 +649,15 @@
 
         <div id="days-container" class="hidden">
             <label>Days:</label>
-            <mt-day-picker id="med-days"></mt-day-picker>
+            <div class="days-select">
+                <span data-day="1">Mon</span>
+                <span data-day="2">Tue</span>
+                <span data-day="3">Wed</span>
+                <span data-day="4">Thu</span>
+                <span data-day="5">Fri</span>
+                <span data-day="6">Sat</span>
+                <span data-day="0">Sun</span>
+            </div>
         </div>
 
         <div id="times-container">
@@ -828,24 +843,6 @@
     <script src="static/js/db.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/sync.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/data-store.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/features/core-utils.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/features/state.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/features/api.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/features/ui-manager.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/features/bp.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/features/weight.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/features/food.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/features/medications.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/features/medication-modals.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/features/health.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/features/hub.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/features/settings.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/components/mt-modal.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/components/mt-setting-toggle.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/components/mt-tab-group.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/components/mt-day-picker.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/components/mt-card.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="static/js/components/register-components.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/app.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/workout.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="static/js/push.js?v=TIMESTAMP_PLACEHOLDER"></script>
