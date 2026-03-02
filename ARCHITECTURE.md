@@ -167,7 +167,36 @@ Top-level caching layer implementing Stale-While-Revalidate with tag-based inval
 - 7 days: `history_*`, `food_*`
 - 14 days: everything else
 
-### Auth Caching (`web/static/js/app.js`)
+### Frontend Module Structure (`web/static/js/`)
+
+The frontend is split across several files, each with a clear responsibility:
+
+| File | Role |
+|------|------|
+| `app.js` | Core UI: all health-data handlers, modals, tab switching, charts, auth flow |
+| `features/auth-flow.js` | Stateless auth-cache helpers (`saveAuthState`, `getCachedAuthState`, `clearAuthState`) |
+| `features/bootstrap.js` | Post-auth orchestration: runs `checkAuth()` then starts polling, SyncManager, PushManager, and deep links |
+| `features/deeplink-router.js` | URL routing: path deep links, query-param actions, Telegram `start_param` |
+| `features/modal-history.js` | Browser history / Telegram BackButton integration for modal open/close |
+| `workout.js` | Workout-specific UI: groups, variants, exercises, sessions |
+| `push.js` | Web Push subscription management (`PushManager`) |
+| `app-shell.js` | Custom element `<mt-tab-group>` and `<mt-setting-toggle>` |
+| `sync.js` | Offline-write queue and `offlineAwareApiCall()` |
+| `data-store.js` | Stale-While-Revalidate cache, change polling, tag-based invalidation |
+| `db.js` | Dexie/IndexedDB stores for offline queue and SWR cache |
+
+**Script load order in `index.html`** (loading order matters for dependency resolution):
+1. `data-store.js` — must be first (other scripts depend on `window.DataStore`)
+2. `app.js` — defines all core UI functions
+3. `features/auth-flow.js` — provides auth-cache helpers called by `checkAuth()` in app.js
+4. `features/modal-history.js` — sets up MutationObserver before DOMContentLoaded
+5. `features/deeplink-router.js` — registers `window.handleDeepLinks`
+6. `workout.js`, `push.js`, `app-shell.js` — feature extensions
+7. `features/bootstrap.js` — **must be last**; runs `checkAuth()` to start the app
+
+**Global namespace policy**: `app.js` exposes 111 functions on `window` — those referenced by tests, feature files, or the bootstrap orchestrator. Fifty-one internal helper functions (rendering, ruler drag, food scanner internals, etc.) are defined at module scope and not explicitly exported. Feature files follow the same principle: `modal-history.js` wraps everything in an IIFE; other feature files export only what is needed. The baseline (pre-refactoring) had 34 explicit `window.X =` assignments in `app.js` alone; the current total across all frontend files is ~14 explicit window exports (59% reduction).
+
+### Auth Caching (`features/auth-flow.js` + `app.js`)
 
 Auth state is cached in `localStorage` with a 30-day TTL (matching the server cookie).
 

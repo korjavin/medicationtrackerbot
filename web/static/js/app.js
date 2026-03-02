@@ -17,8 +17,6 @@ function safeAlert(msg) {
 }
 
 // Config
-// Config
-// Config
 const userInitData = tg.initData;
 window.userInitData = userInitData;
 let initialAuthLoad = false;
@@ -2611,16 +2609,6 @@ async function loadSettings() {
         });
     } catch (error) {
         console.error('Failed to load settings:', error);
-    }
-}
-
-async function loadFeatureSettings() {
-    const res = await apiCall('/api/settings/features', 'GET');
-    if (res) {
-        featureSettings = { ...featureSettings, ...res };
-        featureSettingsLoaded = true;
-        updateFeatureToggles();
-        updateFeatureTabVisibility();
     }
 }
 
