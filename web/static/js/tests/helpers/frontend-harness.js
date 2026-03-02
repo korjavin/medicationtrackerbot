@@ -10,6 +10,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
+const DEEPLINK_ROUTER_JS = path.join(REPO_ROOT, 'web/static/js/features/deeplink-router.js');
 const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
 
 function evalWithSourceURL(window, source, scriptPath) {
@@ -17,16 +18,12 @@ function evalWithSourceURL(window, source, scriptPath) {
 }
 
 function disableAutoBootstrap(source) {
+  // Remove the "// Initial Load" checkAuth().then(...) block.
+  // The block ends just before the first top-level async function after it.
   const bootStart = source.indexOf('// Initial Load');
-  const bootEnd = source.indexOf('// Check for Telegram start_param');
+  const bootEnd = source.indexOf('async function sendTestBPNotification()');
   if (bootStart !== -1 && bootEnd !== -1 && bootEnd > bootStart) {
-    source = `${source.slice(0, bootStart)}// Initial Load (disabled in tests)\n${source.slice(bootEnd)}`;
-  }
-
-  const startParamStart = source.indexOf('// Check for Telegram start_param');
-  const startParamEnd = source.indexOf('async function sendTestBPNotification()', startParamStart);
-  if (startParamStart !== -1 && startParamEnd !== -1 && startParamEnd > startParamStart) {
-    source = `${source.slice(0, startParamStart)}// Check for Telegram start_param (disabled in tests)\n\n${source.slice(startParamEnd)}`;
+    source = `${source.slice(0, bootStart)}// Initial Load (disabled in tests)\n\n${source.slice(bootEnd)}`;
   }
 
   return source;
@@ -122,6 +119,12 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
   evalWithSourceURL(window, appSource, APP_JS);
   window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
+
+  // Load feature modules that expose helpers used by tests.
+  // deeplink-router.js: provides handleDeepLinks() on window.
+  // The Telegram start_param auto-run is harmless (initDataUnsafe={} in tests).
+  const deeplinkSource = fs.readFileSync(DEEPLINK_ROUTER_JS, 'utf8');
+  evalWithSourceURL(window, deeplinkSource, DEEPLINK_ROUTER_JS);
 
   if (withWorkout) {
     const workoutSource = fs.readFileSync(WORKOUT_JS, 'utf8');
