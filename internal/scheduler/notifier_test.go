@@ -808,6 +808,117 @@ func TestCheckSchedule_StoresIntakeReminderMsgID(t *testing.T) {
 	}
 }
 
+// --- LowStockChecker notification tests ---
+
+func TestCheckLowStock_SendsNotificationWhen11AM(t *testing.T) {
+	sched, db, mock := setupTestSchedulerWithMock(t)
+
+	// Create a daily medication with only 5 units inventory (< 7 days)
+	medID, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+	count := 5
+	if err := db.SetInventory(medID, &count); err != nil {
+		t.Fatalf("SetInventory: %v", err)
+	}
+
+	// Inject clock returning 11:00 AM today
+	now := time.Now()
+	elevenAM := time.Date(now.Year(), now.Month(), now.Day(), 11, 0, 0, 0, now.Location())
+	sched.LowStockChecker.now = func() time.Time { return elevenAM }
+
+	if err := sched.LowStockChecker.Check(context.Background()); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+
+	if !mock.waitForSendCalls(1, 2*time.Second) {
+		t.Fatal("timed out waiting for low-stock notification")
+	}
+
+	calls := mock.getSendCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 send call, got %d", len(calls))
+	}
+
+	n := calls[0].Notification
+	if !strings.Contains(n.Text, "Aspirin") {
+		t.Errorf("notification should contain medication name, got: %s", n.Text)
+	}
+	if !strings.Contains(n.Text, "Low Stock") {
+		t.Errorf("notification should contain 'Low Stock', got: %s", n.Text)
+	}
+	if n.Tag != "low-stock" {
+		t.Errorf("tag = %q, want 'low-stock'", n.Tag)
+	}
+	if n.Metadata["type"] != "low_stock" {
+		t.Errorf("metadata type = %v, want low_stock", n.Metadata["type"])
+	}
+}
+
+func TestCheckLowStock_NoNotificationWhenEnoughStock(t *testing.T) {
+	sched, db, mock := setupTestSchedulerWithMock(t)
+
+	// Create a daily medication with plenty of inventory (50 > 7 days)
+	medID, err := db.CreateMedication("Vitamin", "500mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+	count := 50
+	if err := db.SetInventory(medID, &count); err != nil {
+		t.Fatalf("SetInventory: %v", err)
+	}
+
+	now := time.Now()
+	elevenAM := time.Date(now.Year(), now.Month(), now.Day(), 11, 0, 0, 0, now.Location())
+	sched.LowStockChecker.now = func() time.Time { return elevenAM }
+
+	if err := sched.LowStockChecker.Check(context.Background()); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	calls := mock.getSendCalls()
+	if len(calls) != 0 {
+		t.Errorf("expected no notification when stock is adequate, got %d calls", len(calls))
+	}
+}
+
+func TestCheckLowStock_LastCheckUpdatedAfterCheck(t *testing.T) {
+	sched, db, mock := setupTestSchedulerWithMock(t)
+	_ = mock
+
+	// Create low-stock medication
+	medID, err := db.CreateMedication("LowMed", "10mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+	count := 3
+	if err := db.SetInventory(medID, &count); err != nil {
+		t.Fatalf("SetInventory: %v", err)
+	}
+
+	now := time.Now()
+	elevenAM := time.Date(now.Year(), now.Month(), now.Day(), 11, 0, 0, 0, now.Location())
+	sched.LowStockChecker.now = func() time.Time { return elevenAM }
+
+	if sched.LowStockChecker.lastCheck.IsZero() == false {
+		t.Fatal("pre-condition: lastCheck should be zero before first Check")
+	}
+
+	if err := sched.LowStockChecker.Check(context.Background()); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+
+	// Wait for async notification to complete so lastCheck is updated
+	mock.waitForSendCalls(1, 2*time.Second)
+	time.Sleep(50 * time.Millisecond)
+
+	if sched.LowStockChecker.lastCheck.IsZero() {
+		t.Error("expected lastCheck to be updated after first Check")
+	}
+}
+
 // --- Helpers ---
 
 func intPtr(i int) *int           { return &i }
