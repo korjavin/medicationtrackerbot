@@ -219,7 +219,11 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		var rows [][]tgbotapi.InlineKeyboardButton
 		for _, m := range meds {
 			callbackData := "log:" + strconv.FormatInt(m.ID, 10)
-			btn := tgbotapi.NewInlineKeyboardButtonData("Take "+m.Name, callbackData)
+			text := "Take " + m.Name
+			if m.Dosage != "" {
+				text += " (" + m.Dosage + ")"
+			}
+			btn := tgbotapi.NewInlineKeyboardButtonData(text, callbackData)
 			rows = append(rows, tgbotapi.NewInlineKeyboardRow(btn))
 		}
 
@@ -678,7 +682,11 @@ func (b *Bot) SendGroupNotification(meds []store.Medication, intakeByMedication 
 		if intakeID := intakeByMedication[m.ID]; intakeID != 0 {
 			data = "confirm_intake:" + strconv.FormatInt(intakeID, 10)
 		}
-		btn := tgbotapi.NewInlineKeyboardButtonData("Take "+m.Name, data) // Shorten text
+		text := "Take " + m.Name
+		if m.Dosage != "" {
+			text += " (" + m.Dosage + ")"
+		}
+		btn := tgbotapi.NewInlineKeyboardButtonData(text, data) // Shorten text
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(btn))
 	}
 
@@ -866,7 +874,6 @@ func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) 
 		}
 	}
 }
-
 
 // -- Blood Pressure Commands --
 
@@ -1433,7 +1440,11 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 		if intakeID := intakeByMedication[m.ID]; intakeID != 0 {
 			data = "confirm_intake:" + strconv.FormatInt(intakeID, 10)
 		}
-		btn := tgbotapi.NewInlineKeyboardButtonData("Take "+m.Name, data)
+		text := "Take " + m.Name
+		if m.Dosage != "" {
+			text += " (" + m.Dosage + ")"
+		}
+		btn := tgbotapi.NewInlineKeyboardButtonData(text, data)
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(btn))
 	}
 
