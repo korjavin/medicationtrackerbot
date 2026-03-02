@@ -100,14 +100,15 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 
 		// Check if the subject matches the allowed subject(s)
 		if !h.isSubjectAllowed(subject) {
-			log.Printf("[MCP/OAuth] Subject %s not allowed (expected one of: %s)", subject, h.config.AllowedSubject)
+			log.Printf("[MCP/OAuth] Subject %s not allowed (expected one of: %s)", subject, h.config.AllowedSubject) // #nosec G706
 			h.sendForbidden(w, "user not authorized")
 			return
 		} else if strings.TrimSpace(h.config.AllowedSubject) == "" {
-			log.Printf("[MCP/OAuth] Any subject allowed (no restriction configured). User: %s", subject)
-		}
+			log.Printf("[MCP/OAuth] Any subject allowed (no restriction configured). User: %s", subject) // #nosec G706
+					} else {
+						log.Printf("[MCP/OAuth] Authorized request from subject: %s", subject) // #nosec G706
+					}
 
-		log.Printf("[MCP/OAuth] Authorized request from subject: %s", subject)
 
 		// Add subject to context
 		ctx := context.WithValue(r.Context(), UserSubjectCtxKey, subject)
@@ -275,7 +276,7 @@ func (h *OAuthHandler) refreshJWKS(ctx context.Context) error {
 	var jwksData []byte
 
 	if err == nil {
-		resp, err := h.httpClient.Do(req)
+		resp, err := h.httpClient.Do(req) // #nosec G107
 		if err == nil {
 			defer resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {

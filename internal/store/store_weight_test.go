@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"math"
 	"testing"
 	"time"
@@ -161,7 +162,7 @@ func TestDeleteWeightLogWrongUser(t *testing.T) {
 	}
 
 	err = db.DeleteWeightLog(ctx, id, 999)
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("Expected sql.ErrNoRows for wrong user, got: %v", err)
 	}
 }
@@ -171,7 +172,7 @@ func TestDeleteWeightLogNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	err := db.DeleteWeightLog(ctx, 99999, 123)
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("Expected sql.ErrNoRows for non-existent log, got: %v", err)
 	}
 }

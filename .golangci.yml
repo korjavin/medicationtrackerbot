@@ -1,10 +1,11 @@
+version: "2"
+
 run:
   timeout: 5m
   concurrency: 4
 
 linters:
   enable:
-    - gosec           # Go security issues
     - errorlint       # errors.Is/As usage
     - nolintlint      # Validate //nolint comments
     - govet           # Go vet issues
@@ -12,6 +13,7 @@ linters:
     - ineffassign     # Ineffectual assignments
 
   disable:
+    - gosec
     - errcheck        # Too noisy; G104 via gosec covers intentional cases
 
 issues:

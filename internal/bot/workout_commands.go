@@ -75,7 +75,8 @@ func (b *Bot) handleStartNextCommand(msgConfig *tgbotapi.MessageConfig) {
 
 	var rows [][]tgbotapi.InlineKeyboardButton
 	for i, s := range pendingSessions {
-		sb.WriteString(fmt.Sprintf("%d. %s - %s (%s)\n", i+1, s.GroupName, s.VariantName, s.Time))
+		fmt.Fprintf(&sb, 
+"%d. %s - %s (%s)\n", i+1, s.GroupName, s.VariantName, s.Time)
 
 		callbackData := fmt.Sprintf("workout_start_%d", s.SessionID)
 		btn := tgbotapi.NewInlineKeyboardButtonData(
@@ -146,7 +147,8 @@ func (b *Bot) handleWorkoutStatusCommand(msgConfig *tgbotapi.MessageConfig) {
 				totalPending++
 			}
 
-			sb.WriteString(fmt.Sprintf("%s **%s** - %s (%s)\n", statusEmoji, group.Name, variantName, session.ScheduledTime))
+			fmt.Fprintf(&sb, 
+"%s **%s** - %s (%s)\n", statusEmoji, group.Name, variantName, session.ScheduledTime)
 
 			// Show exercise completion if in progress or completed
 			if session.Status == "in_progress" || session.Status == "completed" {
@@ -159,16 +161,19 @@ func (b *Bot) handleWorkoutStatusCommand(msgConfig *tgbotapi.MessageConfig) {
 							completedEx++
 						}
 					}
-					sb.WriteString(fmt.Sprintf("   Progress: %d/%d exercises\n", completedEx, len(exercises)))
+					fmt.Fprintf(&sb, 
+"   Progress: %d/%d exercises\n", completedEx, len(exercises))
 				}
 			}
 		} else {
 			// Not scheduled for today
-			sb.WriteString(fmt.Sprintf("⚪ **%s** - Not scheduled\n", group.Name))
+			fmt.Fprintf(&sb, 
+"⚪ **%s** - Not scheduled\n", group.Name)
 		}
 	}
 
-	sb.WriteString(fmt.Sprintf("\n**Summary:** %d completed, %d pending, %d skipped", totalCompleted, totalPending, totalSkipped))
+	fmt.Fprintf(&sb, 
+"\n**Summary:** %d completed, %d pending, %d skipped", totalCompleted, totalPending, totalSkipped)
 
 	msgConfig.Text = sb.String()
 	msgConfig.ParseMode = "Markdown"
@@ -219,7 +224,8 @@ func (b *Bot) handleWorkoutHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 
 		dateStr := session.ScheduledDate.Format("02.01")
 
-		sb.WriteString(fmt.Sprintf("%s %s — %s - %s", statusEmoji, dateStr, groupName, variantName))
+		fmt.Fprintf(&sb, 
+"%s %s — %s - %s", statusEmoji, dateStr, groupName, variantName)
 
 		// Add exercise completion info if available
 		if session.Status == "completed" {
@@ -231,7 +237,8 @@ func (b *Bot) handleWorkoutHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 						completedCount++
 					}
 				}
-				sb.WriteString(fmt.Sprintf(" (%d ex.)", completedCount))
+				fmt.Fprintf(&sb, 
+" (%d ex.)", completedCount)
 			}
 		}
 
@@ -246,7 +253,8 @@ func (b *Bot) handleWorkoutHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 	streak := domain.CalculateStreak(sessionStatuses)
 
 	if streak > 0 {
-		sb.WriteString(fmt.Sprintf("\n🔥 **Current streak:** %d workout%s", streak, map[bool]string{true: "s", false: ""}[streak != 1]))
+		fmt.Fprintf(&sb, 
+"\n🔥 **Current streak:** %d workout%s", streak, map[bool]string{true: "s", false: ""}[streak != 1])
 	}
 
 	msgConfig.Text = sb.String()

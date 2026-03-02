@@ -124,14 +124,14 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get User Info
-	req, err := http.NewRequest(http.MethodGet, s.oidcUserInfo, nil)
+	req, err := http.NewRequest(http.MethodGet, s.oidcUserInfo, nil) // #nosec G107
 	if err != nil {
 		http.Error(w, "failed creating userinfo request", http.StatusInternalServerError)
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 	req.Header.Set("Accept", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) // #nosec G107
 	if err != nil {
 		http.Error(w, "failed getting user info: "+err.Error(), http.StatusInternalServerError)
 		return

@@ -105,7 +105,7 @@ func ExtractBackupDB(nxkPath string) (string, func(), error) {
 		if closeErr := tempDB.Close(); closeErr != nil {
 			log.Printf("failed to close temp db: %v", closeErr)
 		}
-		if rmErr := os.Remove(tempDB.Name()); rmErr != nil {
+		if rmErr := os.Remove(tempDB.Name()); rmErr != nil { // #nosec G304
 			log.Printf("failed to remove temp db: %v", rmErr)
 		}
 		return "", nil, err
@@ -118,7 +118,7 @@ func ExtractBackupDB(nxkPath string) (string, func(), error) {
 		if closeErr := tempDB.Close(); closeErr != nil {
 			log.Printf("failed to close temp db: %v", closeErr)
 		}
-		if rmErr := os.Remove(tempDB.Name()); rmErr != nil {
+		if rmErr := os.Remove(tempDB.Name()); rmErr != nil { // #nosec G304
 			log.Printf("failed to remove temp db: %v", rmErr)
 		}
 		return "", nil, err

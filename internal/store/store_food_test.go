@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 )
@@ -145,7 +146,7 @@ func TestUpdateFoodLogNotFound(t *testing.T) {
 	}
 
 	err := s.UpdateFoodLog(ctx, log)
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("expected sql.ErrNoRows, got %v", err)
 	}
 }
@@ -173,7 +174,7 @@ func TestDeleteFoodLog(t *testing.T) {
 
 	// Delete with wrong user should fail
 	err = s.DeleteFoodLog(ctx, id, 9999)
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("delete wrong user: expected sql.ErrNoRows, got %v", err)
 	}
 
@@ -196,7 +197,7 @@ func TestDeleteFoodLogNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	err := s.DeleteFoodLog(ctx, 9999, 1)
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("expected sql.ErrNoRows, got %v", err)
 	}
 }
@@ -379,7 +380,7 @@ func TestUpdateFoodProductWrongUser(t *testing.T) {
 	wrongUser.UserID = 9999
 
 	err = s.UpdateFoodProduct(ctx, &wrongUser)
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("expected sql.ErrNoRows, got %v", err)
 	}
 }
@@ -409,7 +410,7 @@ func TestDeleteFoodProduct(t *testing.T) {
 
 	// Delete with wrong user
 	err = s.DeleteFoodProduct(ctx, id, 9999)
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("delete wrong user: expected sql.ErrNoRows, got %v", err)
 	}
 
@@ -432,7 +433,7 @@ func TestDeleteFoodProductNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	err := s.DeleteFoodProduct(ctx, 9999, 1)
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("expected sql.ErrNoRows, got %v", err)
 	}
 }

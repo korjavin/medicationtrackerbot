@@ -999,7 +999,7 @@ func (b *Bot) handleBPHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 		if category == "" {
 			category = domain.CalculateBPCategory(bp.Systolic, bp.Diastolic)
 		}
-		sb.WriteString(fmt.Sprintf("%s — %d/%d%s 📊 %s\n", dateStr, bp.Systolic, bp.Diastolic, pulseStr, category))
+		fmt.Fprintf(&sb, "%s — %d/%d%s 📊 %s\n", dateStr, bp.Systolic, bp.Diastolic, pulseStr, category)
 	}
 
 	msgConfig.Text = sb.String()
@@ -1134,7 +1134,7 @@ func (b *Bot) handleWeightHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 		if w.WeightTrend != nil {
 			trendStr = fmt.Sprintf(" (trend: %.1f kg)", *w.WeightTrend)
 		}
-		sb.WriteString(fmt.Sprintf("%s — %.1f kg%s\n", dateStr, w.Weight, trendStr))
+		fmt.Fprintf(&sb, "%s — %.1f kg%s\n", dateStr, w.Weight, trendStr)
 	}
 
 	msgConfig.Text = sb.String()
@@ -1306,7 +1306,7 @@ func (b *Bot) handleStockCommand(msgConfig *tgbotapi.MessageConfig) {
 			daysStr = fmt.Sprintf(" (~%.0f days)", *daysRemaining)
 		}
 
-		sb.WriteString(fmt.Sprintf("%s **%s**: %d units%s\n", icon, m.Name, *m.InventoryCount, daysStr))
+		fmt.Fprintf(&sb, "%s **%s**: %d units%s\n", icon, m.Name, *m.InventoryCount, daysStr)
 	}
 
 	if len(lowStockMeds) > 0 {

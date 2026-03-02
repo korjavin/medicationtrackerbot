@@ -29,7 +29,7 @@ func createMiBandTestDB(t *testing.T, workouts []struct {
 		t.Fatalf("create temp db: %v", err)
 	}
 	_ = f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	t.Cleanup(func() { _ = os.Remove(f.Name()) }) // #nosec G104
 
 	db, err := sql.Open("sqlite", f.Name())
 	if err != nil {
@@ -114,9 +114,8 @@ func TestParseOutdoorWorkouts_TypeFiltering(t *testing.T) {
 	if len(workouts) != 3 {
 		t.Fatalf("expected 3 outdoor workouts, got %d", len(workouts))
 	}
-	if gpsTracks == nil {
-		// nil map is fine — no GPS data was added
-	}
+	// nil map is fine — no GPS data was added
+	_ = gpsTracks
 
 	// Verify activity names are mapped correctly
 	nameByType := map[int]string{}
