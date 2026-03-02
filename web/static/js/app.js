@@ -926,13 +926,13 @@ const formatDate = (dateStr) => {
 // UI Functions
 function activateTabGroup(tab, options) {
     const { buttonSelector, contentSelector, contentIdFromTab } = options;
-    document.querySelectorAll(buttonSelector).forEach((el) => el.classList.remove('active'));
-    document.querySelectorAll(contentSelector).forEach((el) => el.classList.remove('active'));
-
+    // Validate target exists BEFORE clearing active state to avoid blank-page on unknown tabs
     const tabButton = document.querySelector(`${buttonSelector}[data-tab="${tab}"]`);
     const tabContent = document.getElementById(contentIdFromTab(tab));
     if (!tabButton || !tabContent) return false;
 
+    document.querySelectorAll(buttonSelector).forEach((el) => el.classList.remove('active'));
+    document.querySelectorAll(contentSelector).forEach((el) => el.classList.remove('active'));
     tabButton.classList.add('active');
     tabContent.classList.add('active');
     return true;

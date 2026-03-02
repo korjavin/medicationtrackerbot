@@ -23,7 +23,9 @@ describe('handleDeepLinks – path deep links', () => {
     const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/bp_add' });
 
     try {
-      const switchTabSpy = vi.spyOn(window, 'switchTab');
+      // Mock switchTab to prevent real data-loader calls (loadBPReadings etc.)
+      // which would fire against the default {} fetch mock and produce noisy errors.
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
       const showBPSpy = vi.spyOn(window, 'showBPRecordModal').mockImplementation(() => {});
       const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
 
@@ -46,7 +48,7 @@ describe('handleDeepLinks – path deep links', () => {
     const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/weight_add' });
 
     try {
-      const switchTabSpy = vi.spyOn(window, 'switchTab');
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
       const showWeightSpy = vi.spyOn(window, 'showWeightModal').mockImplementation(() => {});
       const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
 
@@ -69,6 +71,7 @@ describe('handleDeepLinks – path deep links', () => {
 
     try {
       const pushActionSpy = vi.spyOn(window, 'handlePushAction').mockImplementation(() => {});
+      vi.spyOn(window, 'switchTab').mockImplementation(() => {});
       vi.spyOn(window, 'showBPRecordModal').mockImplementation(() => {});
 
       window.handleDeepLinks();
@@ -96,7 +99,7 @@ describe('handleDeepLinks – query-param deep links (?tab=…&action=add)', () 
     });
 
     try {
-      const switchTabSpy = vi.spyOn(window, 'switchTab');
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
       const showBPSpy = vi.spyOn(window, 'showBPRecordModal').mockImplementation(() => {});
       const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
 
@@ -120,7 +123,7 @@ describe('handleDeepLinks – query-param deep links (?tab=…&action=add)', () 
     });
 
     try {
-      const switchTabSpy = vi.spyOn(window, 'switchTab');
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
       const showWeightSpy = vi.spyOn(window, 'showWeightModal').mockImplementation(() => {});
       const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
 
@@ -138,8 +141,11 @@ describe('handleDeepLinks – query-param deep links (?tab=…&action=add)', () 
     }
   });
 
-  it('?tab=unknown&action=add switches tab and cleans URL without opening a modal', async () => {
-    const { window, cleanup } = loadFrontendEnv({
+  it('?tab=unknown&action=add does NOT call switchTab and still cleans the URL', async () => {
+    // Unknown tabs have no registered modal, so deeplink-router must skip switchTab
+    // entirely to prevent activateTabGroup from blanking the page by deactivating all
+    // views before discovering the target tab does not exist.
+    const { window, document, cleanup } = loadFrontendEnv({
       url: 'https://example.test/?tab=unknown&action=add'
     });
 
@@ -147,11 +153,17 @@ describe('handleDeepLinks – query-param deep links (?tab=…&action=add)', () 
       const switchTabSpy = vi.spyOn(window, 'switchTab');
       const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
 
+      // Record which tab/view is active before the deep-link runs
+      const activeBefore = document.querySelector('.tab.active')?.dataset?.tab;
+
       window.handleDeepLinks();
 
-      expect(switchTabSpy).toHaveBeenCalledWith('unknown');
-      // URL must be cleaned synchronously (no modal to wait for)
+      // switchTab must NOT be called for an unrecognised tab value
+      expect(switchTabSpy).not.toHaveBeenCalled();
+      // URL must still be cleaned up
       expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/');
+      // The previously-active tab must remain active (no blank-page regression)
+      expect(document.querySelector('.tab.active')?.dataset?.tab).toBe(activeBefore);
     } finally {
       cleanup();
     }
