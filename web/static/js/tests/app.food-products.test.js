@@ -1,19 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 function flushPromises() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe('food product edit/delete in autocomplete', () => {
-  let consoleErrorSpy;
-
   beforeEach(() => {
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
+    allowConsoleNoise();
   });
 
   it('renderFoodAutocomplete shows edit/delete buttons for user products (id > 0) but not for OpenFoodFacts (id = 0)', () => {
