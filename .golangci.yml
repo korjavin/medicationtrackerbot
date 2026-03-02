@@ -1,65 +1,52 @@
 version: "2"
-
 run:
-  timeout: 5m
   concurrency: 4
-
 linters:
   enable:
-    - errorlint       # errors.Is/As usage
-    - nolintlint      # Validate //nolint comments
-    - govet           # Go vet issues
-    - staticcheck     # Static analysis
-    - ineffassign     # Ineffectual assignments
-
+    - errorlint
+    - nolintlint
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
   disable:
+    - errcheck
     - gosec
-    - errcheck        # Too noisy; G104 via gosec covers intentional cases
-
-issues:
-  exclude-rules:
-    # Test files: relax security and error-checking rules
-    - path: _test\.go$
-      linters:
-        - gosec
-        - errorlint
-
-    # Migration SQL files
-    - path: "^internal/store/migrations/.*\\.go$"
-      linters:
-        - gosec
-
-    # Gosec taint-analysis rules: noisy for controlled internal server code
-    - text: "G703"
-      linters:
-        - gosec
-    - text: "G704"
-      linters:
-        - gosec
-    - text: "G705"
-      linters:
-        - gosec
-    - text: "G706"
-      linters:
-        - gosec
-
-    # Staticcheck style preferences we consciously accept
-    - text: "QF1012"
-      linters:
-        - staticcheck
-    - text: "SA9003"
-      linters:
-        - staticcheck
-    - text: "SA1019"
-      linters:
-        - staticcheck
-
-linters-settings:
-  gosec:
-    severity: "medium"
-    confidence: "low"
-
-  errorlint:
-    errorf: true
-    asserts: true
-    comparison: true
+  settings:
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+    gosec:
+      severity: medium
+      confidence: low
+  exclusions:
+    rules:
+      - linters:
+          - errorlint
+          - gosec
+        path: _test\.go$
+      - linters:
+          - gosec
+        path: ^internal/store/migrations/.*\.go$
+      - linters:
+          - gosec
+        text: G703
+      - linters:
+          - gosec
+        text: G704
+      - linters:
+          - gosec
+        text: G705
+      - linters:
+          - gosec
+        text: G706
+      - linters:
+          - staticcheck
+        text: QF1012
+      - linters:
+          - staticcheck
+        text: SA9003
+      - linters:
+          - staticcheck
+        text: SA1019
