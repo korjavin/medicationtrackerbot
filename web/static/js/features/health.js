@@ -143,6 +143,7 @@
         const leftPadding = 35, rightPadding = 10, topPadding = 20, bottomPadding = 30;
         const chartWidth = totalWidth - leftPadding - rightPadding;
         const chartHeight = container.clientHeight - topPadding - bottomPadding;
+        if (chartWidth <= 0 || chartHeight <= 0) return;
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         svg.setAttribute("width", "100%"); svg.setAttribute("height", "100%");
         svg.setAttribute("viewBox", `0 0 ${totalWidth} ${container.clientHeight}`);
@@ -210,6 +211,7 @@
         const leftPadding = 35, rightPadding = 20, topPadding = 20, bottomPadding = 30;
         const chartWidth = totalWidth - leftPadding - rightPadding;
         const chartHeight = container.clientHeight - topPadding - bottomPadding;
+        if (chartWidth <= 0 || chartHeight <= 0) return;
         const maxMins = Math.max(...stats.map(d => d.total_mins || 0), 1);
         const hrValues = stats.map(d => d.heart_rate_avg || 0).filter(v => v > 0);
         const minHR = hrValues.length ? Math.min(...hrValues) - 5 : 40;
@@ -290,6 +292,7 @@
         const leftPadding = 35, rightPadding = 20, topPadding = 20, bottomPadding = 30;
         const chartWidth = totalWidth - leftPadding - rightPadding;
         const chartHeight = container.clientHeight - topPadding - bottomPadding;
+        if (chartWidth <= 0 || chartHeight <= 0) return;
         const maxSteps = Math.max(...stats.map(d => d.steps || 0), 1000);
         const yMax = maxSteps * 1.1;
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
