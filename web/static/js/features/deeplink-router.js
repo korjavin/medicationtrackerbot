@@ -40,10 +40,10 @@ function handleDeepLinks() {
             'weight': showWeightModal
         };
         const openFn = tab ? tabAddModals[tab] : null;
-        if (tab) {
-            switchTab(tab);
-        }
         if (openFn) {
+            // Only switch to a known/supported tab; unknown tab values are ignored
+            // to prevent clearing all active views without activating any.
+            switchTab(tab);
             setTimeout(() => {
                 openFn();
                 window.history.replaceState({}, '', '/');
