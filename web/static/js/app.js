@@ -23,50 +23,10 @@ const userInitData = tg.initData;
 window.userInitData = userInitData;
 let initialAuthLoad = false;
 
-// Auth state cache configuration (matches server cookie TTL: 30 days)
-const AUTH_CACHE_KEY = 'medtracker_auth_state';
-const AUTH_CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
-
-// Save auth state to localStorage
-function saveAuthState(authMethod = 'cookie') {
-    const authState = {
-        authenticated: true,
-        authMethod: authMethod,
-        timestamp: Date.now(),
-        ttl: AUTH_CACHE_TTL
-    };
-    localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify(authState));
-    console.log('[Auth] Saved auth state to cache');
-}
-
-// Get cached auth state from localStorage
-function getCachedAuthState() {
-    try {
-        const cached = localStorage.getItem(AUTH_CACHE_KEY);
-        if (!cached) return null;
-
-        const authState = JSON.parse(cached);
-
-        // Check if cache is still valid (within TTL)
-        if (Date.now() - authState.timestamp < authState.ttl) {
-            return authState;
-        }
-
-        // Expired, clear it
-        localStorage.removeItem(AUTH_CACHE_KEY);
-        console.log('[Auth] Auth state cache expired');
-        return null;
-    } catch (e) {
-        console.error('[Auth] Failed to read auth state cache:', e);
-        return null;
-    }
-}
-
-// Clear auth state (for logout)
-function clearAuthState() {
-    localStorage.removeItem(AUTH_CACHE_KEY);
-    console.log('[Auth] Cleared auth state cache');
-}
+// Auth-cache constants and helpers are defined in features/auth-flow.js.
+// checkAuth() (below) calls saveAuthState / getCachedAuthState / clearAuthState
+// by name; those names resolve to the window-scoped definitions from auth-flow.js
+// which is always loaded before checkAuth() is ever invoked.
 
 if (!window.DataStore) {
     throw new Error('DataStore is not available. Ensure data-store.js loads before app.js');
