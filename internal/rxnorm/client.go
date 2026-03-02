@@ -10,12 +10,25 @@ import (
 )
 
 type Client struct {
-	httpClient *http.Client
+	httpClient     *http.Client
+	baseURL        string
+	interactionURL string
 }
 
 func New() *Client {
 	return &Client{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		httpClient:     &http.Client{Timeout: 10 * time.Second},
+		baseURL:        "https://rxnav.nlm.nih.gov",
+		interactionURL: "https://lhncbc.nlm.nih.gov/RxNav/APIs",
+	}
+}
+
+// newWithBaseURLs creates a Client with custom base URLs, intended for testing.
+func newWithBaseURLs(baseURL, interactionURL string) *Client {
+	return &Client{
+		httpClient:     &http.Client{Timeout: 10 * time.Second},
+		baseURL:        baseURL,
+		interactionURL: interactionURL,
 	}
 }
 
@@ -24,7 +37,7 @@ func New() *Client {
 func (c *Client) SearchRxNorm(name string) (string, string, error) {
 	// 1. Get RxCUI (Exact Match)
 	// URL: https://rxnav.nlm.nih.gov/REST/rxcui.json?name=...
-	searchURL := fmt.Sprintf("https://rxnav.nlm.nih.gov/REST/rxcui.json?name=%s", url.QueryEscape(name))
+	searchURL := fmt.Sprintf("%s/REST/rxcui.json?name=%s", c.baseURL, url.QueryEscape(name))
 	resp, err := c.httpClient.Get(searchURL)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to search rxnorm: %w", err)
@@ -53,7 +66,7 @@ func (c *Client) SearchRxNorm(name string) (string, string, error) {
 
 	// 2. Get Properties (Normalized Name)
 	// URL: https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/properties.json
-	propURL := fmt.Sprintf("https://rxnav.nlm.nih.gov/REST/rxcui/%s/properties.json", rxcui)
+	propURL := fmt.Sprintf("%s/REST/rxcui/%s/properties.json", c.baseURL, rxcui)
 	respProp, err := c.httpClient.Get(propURL)
 	if err != nil {
 		// If we got ID but failed to get name, just return ID
@@ -75,7 +88,7 @@ func (c *Client) SearchRxNorm(name string) (string, string, error) {
 
 func (c *Client) searchApproximate(term string) string {
 	// URL: https://rxnav.nlm.nih.gov/REST/approximateTerm.json?term=...&maxEntries=1
-	searchURL := fmt.Sprintf("https://rxnav.nlm.nih.gov/REST/approximateTerm.json?term=%s&maxEntries=1", url.QueryEscape(term))
+	searchURL := fmt.Sprintf("%s/REST/approximateTerm.json?term=%s&maxEntries=1", c.baseURL, url.QueryEscape(term))
 	resp, err := c.httpClient.Get(searchURL)
 	if err != nil {
 		return ""
@@ -110,7 +123,7 @@ func (c *Client) CheckInteractions(rxcuis []string) ([]string, error) {
 
 	// URL: https://lhncbc.nlm.nih.gov/RxNav/APIs/api/interaction/list.json?rxcuis=...
 	ids := strings.Join(rxcuis, "+")
-	checkURL := fmt.Sprintf("https://lhncbc.nlm.nih.gov/RxNav/APIs/api/interaction/list.json?rxcuis=%s", ids)
+	checkURL := fmt.Sprintf("%s/api/interaction/list.json?rxcuis=%s", c.interactionURL, ids)
 
 	resp, err := c.httpClient.Get(checkURL)
 	if err != nil {
