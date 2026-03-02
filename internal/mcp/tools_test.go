@@ -556,3 +556,64 @@ func TestHandleGetSleepLogs_EmptyRange(t *testing.T) {
 		t.Error("expected a warning when no sleep logs found")
 	}
 }
+
+// --- handleGetStepHistory tests ---
+
+func TestHandleGetStepHistory_WithData(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	stat := store.DayStat{
+		UserID:   123456,
+		Day:      "2026-02-18",
+		Steps:    8500,
+		Calories: 320,
+		Distance: 6200,
+	}
+	if _, _, err := st.ImportDayStats(ctx, 123456, []store.DayStat{stat}); err != nil {
+		t.Fatalf("ImportDayStats: %v", err)
+	}
+
+	_, resp, err := s.handleGetStepHistory(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetStepHistory error: %v", err)
+	}
+
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 stat, got %d", resp.Count)
+	}
+	if resp.Logs[0].Steps != 8500 {
+		t.Errorf("expected Steps=8500, got %d", resp.Logs[0].Steps)
+	}
+	if resp.Logs[0].Calories != 320 {
+		t.Errorf("expected Calories=320, got %d", resp.Logs[0].Calories)
+	}
+	if resp.Logs[0].Distance != 6200 {
+		t.Errorf("expected Distance=6200, got %d", resp.Logs[0].Distance)
+	}
+}
+
+func TestHandleGetStepHistory_EmptyRange(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+
+	_, resp, err := s.handleGetStepHistory(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetStepHistory error: %v", err)
+	}
+	if resp.Count != 0 {
+		t.Errorf("expected 0 stats, got %d", resp.Count)
+	}
+	if resp.Warning == "" {
+		t.Error("expected a warning when no step data found")
+	}
+}
