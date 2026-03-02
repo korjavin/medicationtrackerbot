@@ -31,10 +31,7 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.10.1
-          # v2 uses --output.<format>=<path> or --output.<format>.path=<path>
-          # But there seems to be confusion in documentation/implementation.
-          # Let's try the simplest one first.
-          args: --output.github-actions=stdout --output.sarif=golangci-lint-result.sarif
+          args: --out-format github-actions,sarif --output.sarif=golangci-lint-result.sarif
 
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v4
