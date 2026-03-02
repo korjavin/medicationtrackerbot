@@ -51,7 +51,8 @@ type WeightStore interface {
 	DontBugMeWeightReminder(userID int64) error
 }
 
-// WorkoutStore is the subset of store operations needed for workout bot commands.
+// WorkoutStore is the read-only subset of store operations needed for workout bot commands.
+// Compound mutations (start, skip, complete, snooze, create ad-hoc) go through WorkoutService.
 type WorkoutStore interface {
 	GetWorkoutEnabled(ctx context.Context) (bool, error)
 	GetWorkoutSession(id int64) (*store.WorkoutSession, error)
@@ -60,11 +61,6 @@ type WorkoutStore interface {
 	ListWorkoutGroups(userID int64, activeOnly bool) ([]store.WorkoutGroup, error)
 	GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time) (*store.WorkoutSession, error)
 	GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error)
-	StartSession(id int64) error
-	CompleteSession(id int64) error
-	SkipSession(id int64) error
-	SnoozeSession(id int64, snoozeDuration time.Duration) error
-	AdvanceRotation(groupID int64) error
 	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
 	GetWorkoutExercise(id int64) (*store.WorkoutExercise, error)
 	GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) (*store.WorkoutExerciseLog, error)
@@ -72,7 +68,6 @@ type WorkoutStore interface {
 	LogExercise(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes string) (int64, error)
 	GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
 	GetAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error)
-	CreateAdHocWorkoutSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
 }
 
 // FoodStore is the subset of store operations needed for food bot commands.

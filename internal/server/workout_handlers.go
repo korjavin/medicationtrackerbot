@@ -1179,8 +1179,7 @@ func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Reque
 		req.Minutes = 60 // Default
 	}
 
-	err = s.workouts.SnoozeSession(id, time.Duration(req.Minutes)*time.Minute)
-	if err != nil {
+	if err := s.workoutSvc.SnoozeSession(r.Context(), id, time.Duration(req.Minutes)*time.Minute); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1311,22 +1310,14 @@ func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	err = s.workouts.SkipSession(id)
-	if err != nil {
+	// Service handles skip + rotation advancement for rotating groups
+	if err := s.workoutSvc.SkipSession(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if session.NotificationMessageID != nil {
 		s.deleteNotification(r.Context(), *session.NotificationMessageID)
-	}
-
-	// Advance rotation for rotating groups
-	group, err := s.workouts.GetWorkoutGroup(session.GroupID)
-	if err == nil && group != nil && group.IsRotating {
-		if err := s.workouts.AdvanceRotation(group.ID); err != nil {
-			log.Printf("Failed to advance rotation for group %d: %v", group.ID, err)
-		}
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -1340,16 +1331,8 @@ func (s *Server) handleStartWorkoutSession(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Mark session as in_progress and set started_at
-	err = s.workouts.StartSession(id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Clear snooze if it was snoozed
-	err = s.workouts.ClearSnooze(id)
-	if err != nil {
+	// Mark session as in_progress, set started_at, and clear any snooze
+	if err := s.workoutSvc.StartSession(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1426,25 +1409,31 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	err = s.workouts.UpdateSessionStatus(id, req.Status)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	// Route to the appropriate service method for compound operations
+	switch req.Status {
+	case "skipped":
+		// Service handles skip + rotation advancement for rotating groups
+		if err := s.workoutSvc.SkipSession(r.Context(), id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	case "completed":
+		// Service handles complete + rotation advancement for rotating groups
+		if err := s.workoutSvc.CompleteSession(r.Context(), id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	default:
+		// in_progress: simple status update, no compound logic
+		if err := s.workouts.UpdateSessionStatus(id, req.Status); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// If skipped or completed, try to delete the notification message
 	if (req.Status == "skipped" || req.Status == "completed") && session.NotificationMessageID != nil {
 		s.deleteNotification(r.Context(), *session.NotificationMessageID)
-	}
-
-	// Advance rotation for rotating groups when session is completed or skipped
-	if req.Status == "skipped" || req.Status == "completed" {
-		group, err := s.workouts.GetWorkoutGroup(session.GroupID)
-		if err == nil && group != nil && group.IsRotating {
-			if err := s.workouts.AdvanceRotation(group.ID); err != nil {
-				log.Printf("Failed to advance rotation for group %d: %v", group.ID, err)
-			}
-		}
 	}
 
 	w.WriteHeader(http.StatusOK)

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 )
 
 func TestHandleUpdateSessionStatus(t *testing.T) {
@@ -22,7 +23,8 @@ func TestHandleUpdateSessionStatus(t *testing.T) {
 
 	// Create test server
 	srv := &Server{
-		workouts: db,
+		workouts:   db,
+		workoutSvc: workoutsvc.New(db),
 		allowedUserID: 123456,
 	}
 
