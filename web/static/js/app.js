@@ -3,12 +3,11 @@
 // triggering "SyntaxError: Identifier 'tg' has already been declared"
 // (which would happen if multiple scripts all tried `const tg = ...`).
 window.tg = window.Telegram.WebApp;
-const tg = window.tg;
-tg.ready();
-tg.expand();
+window.tg.ready();
+window.tg.expand();
 
 // Config
-const userInitData = tg.initData;
+const userInitData = window.tg.initData;
 window.userInitData = userInitData;
 let initialAuthLoad = false;
 
@@ -1122,7 +1121,7 @@ async function handleRestock() {
     const qty = parseInt(qtyInput.value);
 
     if (!qty || qty <= 0) {
-        tg.showAlert("Please enter a valid quantity");
+        window.tg.showAlert("Please enter a valid quantity");
         return;
     }
 
@@ -1132,7 +1131,7 @@ async function handleRestock() {
         document.getElementById('med-inventory-count').value = res.inventory_count;
         qtyInput.value = '';
         loadRestockHistory(editingMedId);
-        tg.showAlert(`Added ${qty} units. New total: ${res.inventory_count}`);
+        window.tg.showAlert(`Added ${qty} units. New total: ${res.inventory_count}`);
     }
 }
 
@@ -1655,7 +1654,7 @@ async function saveMedication() {
         inventoryCount = parseInt(inventoryCountRaw);
     }
 
-    if (!name) { tg.showAlert("Name is required!"); return; }
+    if (!name) { window.tg.showAlert("Name is required!"); return; }
 
     const schedule = { type: type };
 
@@ -1665,7 +1664,7 @@ async function saveMedication() {
             .filter(v => v !== "");
 
         if (times.length === 0) {
-            tg.showAlert("At least one time is required!");
+            window.tg.showAlert("At least one time is required!");
             return;
         }
         schedule.times = times;
@@ -1676,7 +1675,7 @@ async function saveMedication() {
             .map(s => parseInt(s.dataset.day));
 
         if (days.length === 0) {
-            tg.showAlert("Select at least one day!");
+            window.tg.showAlert("Select at least one day!");
             return;
         }
         schedule.days = days;
@@ -1702,7 +1701,7 @@ async function saveMedication() {
         }
 
         if (res && res.warning) {
-            tg.showAlert("⚠️ " + res.warning);
+            window.tg.showAlert("⚠️ " + res.warning);
         }
 
         await window.DataStore.invalidateTags(['medications', 'history']);
@@ -1717,14 +1716,14 @@ async function deleteMed(id) {
     const confirmMsg = "Archive this medication?";
 
     // Check if we are in Telegram and version supports it
-    if (userInitData && tg.showConfirm) {
+    if (userInitData && window.tg.showConfirm) {
         try {
-            tg.showConfirm(confirmMsg, (ok) => {
+            window.tg.showConfirm(confirmMsg, (ok) => {
                 if (ok) _archiveMedApi(id);
             });
             return;
         } catch (e) {
-            console.log("tg.showConfirm failed, falling back", e);
+            console.log("window.tg.showConfirm failed, falling back", e);
         }
     }
 
@@ -1748,7 +1747,7 @@ async function _archiveMedApi(id) {
 
     const res = await apiCall(`/api/medications/${id}`, 'POST', payload);
     if (res && res.warning) {
-        tg.showAlert("⚠️ " + res.warning);
+        window.tg.showAlert("⚠️ " + res.warning);
     }
     await window.DataStore.invalidateTags(['medications', 'history']);
     await window.DataStore.invalidateKey('next_intake');
