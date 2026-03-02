@@ -1,16 +1,21 @@
-name: Go Security Scanner (gosec)
+name: golangci-lint
 
 on:
+  push:
+    branches:
+      - master
+      - fe-stage2
   pull_request:
     branches:
       - master
+      - fe-stage2
 
 permissions:
   contents: read
   security-events: write
 
 jobs:
-  security:
+  golangci-lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -20,16 +25,18 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+          cache: true
 
-      - name: Run gosec security scanner
-        run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@v2.21.4
-          gosec -no-fail -fmt=sarif -out=gosec-result.sarif ./...
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.2
+          args: --timeout=5m --out-format=colored-line-number:stdout,sarif:golangci-lint-result.sarif
 
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: gosec-result.sarif
-          category: gosec
+          sarif_file: golangci-lint-result.sarif
+          category: golangci-lint
         if: always()
         continue-on-error: true
