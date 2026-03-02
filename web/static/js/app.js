@@ -3526,10 +3526,7 @@ async function loadBPReadings() {
         onError: async (e, cached) => {
             console.error('Failed to load BP data:', e);
             if (!cached) {
-                const errLi = document.createElement('li');
-                errLi.style.cssText = 'text-align:center;color:var(--hint-color);padding:20px;';
-                errLi.textContent = 'Failed to load readings';
-                list.replaceChildren(errLi);
+                list.replaceChildren(createEmptyState('Failed to load readings'));
             }
         }
     });
@@ -3809,17 +3806,10 @@ function renderBPAverages(stats) {
     row.className = 'bp-avg-row';
 
     const appendAverageItem = (label, stat) => {
-        const item = document.createElement('div');
-        item.className = 'bp-avg-item';
-        const labelEl = document.createElement('span');
-        labelEl.className = 'bp-avg-label';
-        labelEl.textContent = `${label} (${stat.days}d)`;
-        const valueEl = document.createElement('span');
-        valueEl.className = 'bp-avg-value';
-        valueEl.textContent = `${stat.systolic}/${stat.diastolic}`;
-        item.appendChild(labelEl);
-        item.appendChild(valueEl);
-        row.appendChild(item);
+        row.appendChild(createStatItem(
+            `${label} (${stat.days}d)`, `${stat.systolic}/${stat.diastolic}`,
+            { className: 'bp-avg-item', labelClass: 'bp-avg-label', valueClass: 'bp-avg-value' }
+        ));
     };
 
     if (stats.stats_14) appendAverageItem('14d', stats.stats_14);
@@ -3908,10 +3898,7 @@ function renderBPReadings(readings) {
             values.appendChild(dia);
 
             if (r.isLocal) {
-                const badge = document.createElement('span');
-                badge.className = 'sync-pending-badge';
-                badge.textContent = 'Pending';
-                values.appendChild(badge);
+                values.appendChild(createSyncBadge());
             }
 
             const meta = document.createElement('div');
@@ -3936,17 +3923,8 @@ function renderBPReadings(readings) {
             reading.appendChild(values);
             reading.appendChild(meta);
 
-            const deleteButton = document.createElement('button');
-            deleteButton.type = 'button';
-            deleteButton.className = 'delete-btn';
-            deleteButton.title = 'Delete';
-            deleteButton.textContent = '×';
-            deleteButton.addEventListener('click', () => {
-                deleteBPReading(String(r.id));
-            });
-
             item.appendChild(reading);
-            item.appendChild(deleteButton);
+            item.appendChild(createDeleteButton(() => deleteBPReading(String(r.id))));
             groupList.appendChild(item);
         });
 
@@ -4664,18 +4642,12 @@ function renderWeightStats(stats) {
     rightColumn.className = 'weight-stats-column';
 
     const appendStatItem = (column, label, value) => {
-        const item = document.createElement('div');
-        item.className = 'weight-stat-item';
-        const labelEl = document.createElement('span');
-        labelEl.className = 'weight-stat-label';
-        labelEl.textContent = `${label}:`;
-        const valueEl = document.createElement('span');
-        valueEl.className = 'weight-stat-value';
-        valueEl.textContent = value;
-        item.appendChild(labelEl);
-        item.appendChild(document.createTextNode(' '));
-        item.appendChild(valueEl);
-        column.appendChild(item);
+        column.appendChild(createStatItem(`${label}:`, value, {
+            className: 'weight-stat-item',
+            labelClass: 'weight-stat-label',
+            valueClass: 'weight-stat-value',
+            separator: ' '
+        }));
     };
 
     appendStatItem(leftColumn, 'Trend', `${stats.trendWeight.toFixed(1)} kg`);
@@ -4731,10 +4703,7 @@ async function loadWeightLogs() {
         onError: async (e, cached) => {
             console.error('Failed to load weight data:', e);
             if (!cached) {
-                const errLi = document.createElement('li');
-                errLi.style.cssText = 'text-align:center;color:var(--hint-color);padding:20px;';
-                errLi.textContent = 'Failed to load weight logs';
-                list.replaceChildren(errLi);
+                list.replaceChildren(createEmptyState('Failed to load weight logs'));
             }
         }
     });
@@ -4805,10 +4774,7 @@ function renderWeightLogs(logs) {
         value.className = 'weight-value';
         value.appendChild(document.createTextNode(`${w.weight.toFixed(1)} kg `));
         if (w.isLocal) {
-            const pendingBadge = document.createElement('span');
-            pendingBadge.className = 'sync-pending-badge';
-            pendingBadge.textContent = 'Pending';
-            value.appendChild(pendingBadge);
+            value.appendChild(createSyncBadge());
         }
 
         const trend = document.createElement('div');
@@ -4823,17 +4789,8 @@ function renderWeightLogs(logs) {
         data.appendChild(trend);
         data.appendChild(meta);
 
-        const deleteButton = document.createElement('button');
-        deleteButton.type = 'button';
-        deleteButton.className = 'delete-btn';
-        deleteButton.title = 'Delete';
-        deleteButton.textContent = '×';
-        deleteButton.addEventListener('click', () => {
-            deleteWeightLog(String(w.id));
-        });
-
         listItem.appendChild(data);
-        listItem.appendChild(deleteButton);
+        listItem.appendChild(createDeleteButton(() => deleteWeightLog(String(w.id))));
         list.appendChild(listItem);
     });
 }
