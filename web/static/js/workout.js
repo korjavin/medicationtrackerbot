@@ -226,8 +226,8 @@ function _renderNextWorkout(container, data) {
         row.style.display = 'flex';
         row.style.gap = '10px';
         row.style.marginTop = '12px';
-        row.appendChild(createButton('🏋️ Continue', 'primary', showWorkoutSessionModal, { flex: '1' }));
-        row.appendChild(createButton('🛑 Stop', 'secondary', cancelWorkoutSession, {
+        row.appendChild(createButton('🏋️ Continue', 'btn-pill', showWorkoutSessionModal, { flex: '1' }));
+        row.appendChild(createButton('🛑 Stop', 'btn-pill', cancelWorkoutSession, {
             flex: '1',
             backgroundColor: '#ffebee',
             color: '#c62828',
@@ -242,9 +242,12 @@ function _renderNextWorkout(container, data) {
             color: 'white'
         }));
         if (isRotating) {
-            card.appendChild(createButton('↻ Next Variant', 'secondary', nextWorkoutVariant, {
+            card.appendChild(createButton('↻ Next Variant', 'btn-pill', nextWorkoutVariant, {
                 marginTop: '8px',
-                width: '100%'
+                width: '100%',
+                backgroundColor: 'var(--secondary-bg-color, #f0f0f0)',
+                color: 'var(--text-color, #000)',
+                boxShadow: 'none'
             }));
         }
     } else {
@@ -253,7 +256,7 @@ function _renderNextWorkout(container, data) {
         row.style.gap = '10px';
         row.style.marginTop = '12px';
         row.appendChild(createButton('🏋️ Start Workout', 'btn-pill', startWorkoutSession, { flex: '1' }));
-        row.appendChild(createButton('⏭ Skip', 'secondary', preSkipWorkoutSession, {
+        row.appendChild(createButton('⏭ Skip', 'btn-pill', preSkipWorkoutSession, {
             flex: '1',
             backgroundColor: '#fff3e0',
             color: '#e65100',
@@ -261,9 +264,12 @@ function _renderNextWorkout(container, data) {
         }));
         card.appendChild(row);
         if (isRotating) {
-            card.appendChild(createButton('↻ Next Variant', 'secondary', nextWorkoutVariant, {
+            card.appendChild(createButton('↻ Next Variant', 'btn-pill', nextWorkoutVariant, {
                 marginTop: '8px',
-                width: '100%'
+                width: '100%',
+                backgroundColor: 'var(--secondary-bg-color, #f0f0f0)',
+                color: 'var(--text-color, #000)',
+                boxShadow: 'none'
             }));
         }
     }
@@ -1246,7 +1252,15 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts) {
         s.session.status === 'completed' || s.session.status === 'skipped'
     );
     finalSessions.forEach(s => {
-        items.push({ type: 'session', ts: new Date(s.session.scheduled_date).getTime(), data: s });
+        let ts;
+        if (s.session.started_at) {
+            ts = new Date(s.session.started_at).getTime();
+        } else {
+            const dateStr = s.session.scheduled_date.split('T')[0];
+            const timeStr = s.session.scheduled_time || '00:00';
+            ts = new Date(`${dateStr}T${timeStr}:00`).getTime();
+        }
+        items.push({ type: 'session', ts: ts, data: s });
     });
 
     // Mi Band outdoor workouts

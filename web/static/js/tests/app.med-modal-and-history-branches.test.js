@@ -40,7 +40,7 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       expect(document.getElementById('schedule-type').value).toBe('daily');
       expect(document.getElementById('time-inputs').querySelectorAll('.med-time-input')).toHaveLength(1);
       expect(document.getElementById('inventory-fields').classList.contains('hidden')).toBe(true);
-      expect(document.getElementById('med-days').value).toHaveLength(0);
+      expect(document.querySelectorAll('#days-container .days-select span.selected')).toHaveLength(0);
     } finally {
       cleanup();
     }
@@ -79,7 +79,7 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       expect(document.getElementById('med-rx-display').style.display).toBe('block');
       expect(document.getElementById('inventory-fields').classList.contains('hidden')).toBe(false);
       expect(window.loadRestockHistory).toHaveBeenCalledWith(1);
-      expect(document.getElementById('med-days').value.length).toBeGreaterThan(0);
+      expect(document.querySelectorAll('#days-container .days-select span.selected').length).toBeGreaterThan(0);
 
       window.showEditModal(2);
       expect(document.getElementById('schedule-type').value).toBe('daily');
