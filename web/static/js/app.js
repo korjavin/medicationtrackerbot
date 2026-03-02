@@ -1,4 +1,9 @@
-const tg = window.Telegram.WebApp;
+// Expose as window property so feature scripts (bp.js, weight.js, etc.)
+// loaded in later <script> tags can use `const tg = window.tg` without
+// triggering "SyntaxError: Identifier 'tg' has already been declared"
+// (which would happen if multiple scripts all tried `const tg = ...`).
+window.tg = window.Telegram.WebApp;
+const tg = window.tg;
 tg.ready();
 tg.expand();
 
