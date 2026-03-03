@@ -7,6 +7,9 @@ MedTrackerBot is a monolithic Go application serving as both a Telegram Bot and 
 ```
 User
 ├── Telegram Chat ──→ Bot (commands, callbacks) ──→ SQLite
+│                       ↓
+│                    Domain (validation, calculation, export)
+│
 └── Web App (PWA) ──→ HTTP Server (REST API) ──→ SQLite
                        ↕
                    Scheduler (notifications, reminders)
@@ -28,9 +31,10 @@ User
 
 | Package | Path | Responsibility |
 |---------|------|----------------|
+| domain | `internal/domain/` | Pure business logic: validation, calculation, classification, CSV export (no Telegram or DB dependencies) |
 | store | `internal/store/` | SQLite repository, goose migrations, all DB queries |
 | server | `internal/server/` | REST API handlers (auth middleware, CORS, routing) |
-| bot | `internal/bot/` | Telegram bot logic (commands, inline callbacks, notifications) |
+| bot | `internal/bot/` | Telegram bot logic (commands, inline callbacks, notifications) — thin adapter over domain |
 | scheduler | `internal/scheduler/` | Periodic jobs: medication/workout/BP/weight reminders |
 | mcp | `internal/mcp/` | Model Context Protocol server (health data tools for AI) |
 | rxnorm | `internal/rxnorm/` | Drug interaction checking via NLM RxNorm API |
@@ -63,6 +67,22 @@ Three auth methods, checked in this order by middleware:
 3. **OIDC / Google OAuth** — browser login outside Telegram
 
 All methods resolve to a user ID checked against `ALLOWED_USER_ID`.
+
+### Domain Layer
+
+The `internal/domain/` package contains pure business logic extracted from the bot and store packages. It has no dependencies on Telegram, SQLite, or any infrastructure — only the standard library and `modernc.org/sqlite` (for parsing imported NXK backup databases).
+
+| File | Contents |
+|------|----------|
+| `vitals.go` | BP validation (`ValidateBP`), weight validation (`ValidateWeight`), BP classification (`CalculateBPCategory`), weight trend EMA (`CalculateWeightTrend`), BP statistics aggregation (`CalculateBPStats`) |
+| `food.go` | Macro calculation (`CalculateMacros`), intake command argument parsing (`ParseIntakeArgs`) |
+| `export.go` | CSV generation for medications, blood pressure, and weight (Libra format) |
+| `workout.go` | Workout streak calculation (`CalculateStreak`), exercise completion checking (`CheckCompletion`) |
+| `sleepimport.go` | NXK file validation, ZIP extraction, SQLite parsing for sleep/heart/SpO2/stress/day-stats data |
+
+The bot package acts as a thin Telegram adapter: it parses Telegram messages, delegates to domain functions for validation and calculation, calls the store for persistence, and formats responses back as Telegram messages. The domain package defines its own mirror types (e.g., `domain.SleepLog`) to avoid importing store, preventing import cycles.
+
+`store.CalculateBPCategory` and `store.CalculateWeightTrend` are kept as deprecated wrappers with their original logic for backward compatibility with existing store and server callers.
 
 ### Scheduler
 
