@@ -31,10 +31,7 @@ func (s *Server) handleCreateWeight(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get last weight log to calculate trend
-	lastLog, err := s.weight.GetLastWeightLog(r.Context(), userID)
-	if err != nil {
-		// Log error but continue
-	}
+	lastLog, _ := s.weight.GetLastWeightLog(r.Context(), userID)
 
 	var previousTrend *float64
 	if lastLog != nil && lastLog.WeightTrend != nil {

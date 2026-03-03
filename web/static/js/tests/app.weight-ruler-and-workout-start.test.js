@@ -1,15 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 describe('app.js weight ruler and workout start modal flows', () => {
-  let consoleErrorSpy;
-
   beforeEach(() => {
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
+    allowConsoleNoise();
   });
 
   it('weight ruler supports mouse/touch dragging and updates value', () => {

@@ -13,7 +13,7 @@ import (
 
 // setupTestDB creates an in-memory test database with the workout schema from migrations
 func applyMigration(t *testing.T, db *sql.DB, migrationFile string) {
-	schemaBytes, err := os.ReadFile(migrationFile)
+	schemaBytes, err := os.ReadFile(migrationFile) // #nosec G304
 	if err != nil {
 		t.Fatalf("Failed to read migration file %s: %v", migrationFile, err)
 	}

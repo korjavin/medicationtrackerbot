@@ -364,8 +364,8 @@ func TestHandleGetMedicationIntake_FilterByName(t *testing.T) {
 	scheduledAt := time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC)
 	id1, _ := st.CreateIntake(med1ID, 123456, scheduledAt)
 	id2, _ := st.CreateIntake(med2ID, 123456, scheduledAt)
-	st.ConfirmIntake(id1, scheduledAt)
-	st.ConfirmIntake(id2, scheduledAt)
+	_ = st.ConfirmIntake(id1, scheduledAt) // #nosec G104
+	_ = st.ConfirmIntake(id2, scheduledAt) // #nosec G104
 
 	_, resp, err := s.handleGetMedicationIntake(ctx, nil, MedicationIntakeInput{
 		StartDate:      "2026-02-17",

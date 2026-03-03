@@ -96,7 +96,7 @@ func setupTestSchedulerWithMock(t *testing.T) (*Scheduler, *store.Store, *mockNo
 	if err != nil {
 		t.Fatalf("Failed to create test store: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() }) // #nosec G104
 
 	mock := &mockNotifier{sendMsgID: 100}
 	sched := New(db, 123456, []notifier.Notifier{mock})

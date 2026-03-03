@@ -167,7 +167,86 @@ Top-level caching layer implementing Stale-While-Revalidate with tag-based inval
 - 7 days: `history_*`, `food_*`
 - 14 days: everything else
 
-### Auth Caching (`web/static/js/app.js`)
+### Frontend Module Structure (`web/static/js/`)
+
+The frontend uses a multi-file vanilla JS architecture. Each script is loaded in dependency order via `<script>` tags. There is no bundler — cross-file communication happens via `window.*` globals (see Global Namespace Policy below).
+
+**Directory layout:**
+
+| Directory / File | Role |
+|------------------|------|
+| `core/utils.js` | Shared utilities: `safeAlert`, `formatDateTimeLocalForInput`, `downloadBlobAsFile` |
+| `core/api.js` | HTTP client: `apiCallDirect` (raw fetch + auth header) and `apiCall` (offline-aware wrapper) |
+| `core/modal-manager.js` | Central modal open/close registry (`window.ModalManager`) for all domain modals |
+| `core/modal-controller.js` | Double-submit guard: `withSubmit(btn, asyncFn)` — disables button during async op |
+| `core/app-kernel.js` | Module registry + lifecycle hooks (`onTabSwitch`, `onAuth`, `onReady`); `window.AppKernel` |
+| `core/store.js` | Lightweight ephemeral UI-state store with pub/sub (`window.AppStore`) |
+| `components/mt-elements.js` | Custom element definitions: `<mt-modal>` and `<mt-setting-toggle>` |
+| `components/empty-state.js` | Renders a standard empty-state message block |
+| `components/stat-card.js` | Renders a stat display card with label + value + optional trend |
+| `components/action-row.js` | Renders a labeled row with optional action buttons |
+| `app.js` | Domain UI: medication, food tabs, tab switching, auth flow (`checkAuth`) |
+| `features/food.js` | Food CRUD, autocomplete, barcode scanner, targets, stats period toggle |
+| `features/bp.js` | Blood pressure CRUD, charts, export |
+| `features/weight.js` | Weight CRUD, trend chart, ruler widget, export |
+| `features/auth-flow.js` | Stateless auth-cache helpers (`saveAuthState`, `getCachedAuthState`, `clearAuthState`) |
+| `features/bootstrap.js` | Post-auth orchestration: runs `checkAuth()` then starts polling, SyncManager, PushManager, and deep links |
+| `features/deeplink-router.js` | URL routing: path deep links, query-param actions, Telegram `start_param` |
+| `features/modal-history.js` | Browser history / Telegram BackButton integration for modal open/close |
+| `features/health.js` | Health overview charts (sleep, steps, vitals) — self-contained IIFE, no window exports |
+| `workout.js` | Workout-specific UI: groups, variants, exercises, sessions |
+| `push.js` | Web Push subscription management (`PushManager`) |
+| `app-shell.js` | PWA shell: service-worker registration and update-toast UI (`initServiceWorker`, `showUpdateToast`) |
+| `sync.js` | Offline-write queue and `offlineAwareApiCall()` |
+| `data-store.js` | Stale-While-Revalidate cache, change polling, tag-based invalidation |
+| `db.js` | Dexie/IndexedDB stores for offline queue and SWR cache |
+
+**Script load order in `index.html`** (loading order matters for dependency resolution):
+1. `core/utils.js` — no deps; provides `safeAlert`, format helpers
+2. `components/mt-elements.js` — no deps; registers `<mt-modal>` and `<mt-setting-toggle>`
+3. `components/empty-state.js`, `stat-card.js`, `action-row.js` — UI primitives
+4. `core/modal-manager.js` — no deps; provides `window.ModalManager`
+5. `core/api.js` — depends on `safeAlert` (utils.js); reads `window.userInitData` lazily; provides `apiCallDirect`, `apiCall`
+6. `core/app-kernel.js` — no deps; provides `window.AppKernel` module registry
+7. `core/store.js` — no deps; provides `window.AppStore` pub/sub state
+8. `core/modal-controller.js` — no deps; provides `withSubmit` double-submit guard
+9. `db.js` — must load before sync.js; sets up Dexie/IndexedDB stores (`window.MedTrackerDB`)
+10. `sync.js` — depends on `db.js`; provides `offlineAwareApiCall` and `SyncManager`
+11. `data-store.js` — depends on `window.MedTrackerDB` (db.js) for cache storage; uses `window.apiCallDirect` (core/api.js) lazily at change-poll time
+12. `app.js` — depends on `DataStore`, `ModalManager`, `apiCall`; defines domain UI and `checkAuth`
+13. `features/food.js`, `features/bp.js`, `features/weight.js` — domain feature modules extracted from app.js
+14. `features/auth-flow.js` — provides auth-cache helpers called by `checkAuth()` in app.js
+15. `features/modal-history.js` — sets up MutationObserver before DOMContentLoaded
+16. `features/deeplink-router.js` — registers `window.handleDeepLinks`
+17. `workout.js`, `push.js`, `app-shell.js` — feature extensions
+18. `features/bootstrap.js` — **must be last**; runs `checkAuth()` to start the app
+
+**Global Namespace Policy**
+
+All explicit `window.*` assignments are tracked in `tests/architecture.globals.test.js`. Adding a new global requires updating the allowlist with a justification. Current approved globals:
+
+| Global | Source | Consumed by |
+|--------|--------|-------------|
+| `window.AppKernel` | `core/app-kernel.js` | module registry |
+| `window.AppStore` | `core/store.js` | app.js, feature modules |
+| `window.ModalManager` | `core/modal-manager.js` | app.js |
+| `window.apiCallDirect` | `core/api.js` | data-store.js (change polling) |
+| `window.userInitData` | `app.js` | feature files (bp.js, weight.js) |
+| `window.onDataStoreUnauthorized` | `app.js` | data-store.js callback |
+| `window.onTelegramAuth` | `app.js` | Telegram OIDC script |
+| `window.requestTabRefresh` | `app.js` | data-store.js change detection |
+| `window.reloadCurrentTab` | `app.js` | data-store.js + sync.js |
+| `window.handleDeepLinks` | `features/deeplink-router.js` | features/bootstrap.js |
+| `window.DataStore` | `data-store.js` | app.js, feature files |
+| `window.MedTrackerDB` | `db.js` | sync.js, data-store.js |
+| `window.SyncManager` | `sync.js` | features/bootstrap.js |
+| `window.offlineAwareApiCall` | `sync.js` | core/api.js |
+| `window.SyncDebug` | `sync.js` | dev diagnostics |
+| `window.MedTrackerPush` | `push.js` | app.js |
+| `window.initServiceWorker` | `app-shell.js` | index.html inline |
+| `window.showUpdateToast` | `app-shell.js` | service worker message |
+
+### Auth Caching (`features/auth-flow.js` + `app.js`)
 
 Auth state is cached in `localStorage` with a 30-day TTL (matching the server cookie).
 

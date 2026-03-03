@@ -25,7 +25,8 @@ func main() {
 		log.Fatalf("Failed to marshal private key: %v", err)
 	}
 
-	pubBytes := elliptic.Marshal(elliptic.P256(), publicKey.X, publicKey.Y)
+	pubBytes := append([]byte{0x04}, publicKey.X.Bytes()...)
+	pubBytes = append(pubBytes, publicKey.Y.Bytes()...)
 
 	fmt.Printf("VAPID_PRIVATE_KEY=%s\n", base64.RawURLEncoding.EncodeToString(privBytes))
 	fmt.Printf("VAPID_PUBLIC_KEY=%s\n", base64.RawURLEncoding.EncodeToString(pubBytes))

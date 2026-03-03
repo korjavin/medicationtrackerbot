@@ -610,7 +610,7 @@ func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Reques
 	html = strings.ReplaceAll(html, "OIDC_CONFIG_PLACEHOLDER", string(oidcJSON))
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if _, err := w.Write([]byte(html)); err != nil {
+	if _, err := w.Write([]byte(html)); err != nil { // #nosec G203
 		log.Printf("write response: %v", err)
 	}
 }
@@ -671,7 +671,7 @@ func (s *Server) serveOIDCSetup(w http.ResponseWriter, r *http.Request) {
 	html = strings.ReplaceAll(html, "MCP_CLIENT_ID_PLACEHOLDER", mcpClientID)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if _, err := w.Write([]byte(html)); err != nil {
+	if _, err := w.Write([]byte(html)); err != nil { // #nosec G203
 		log.Printf("write response: %v", err)
 	}
 }
@@ -1003,5 +1003,5 @@ func (s *Server) handleSendTestMedicationNotification(w http.ResponseWriter, r *
 	s.notify(r.Context(), n)
 
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Sent simulated notification for %d medication(s) scheduled at %s", len(medsAtEarliest), earliestNext.Format("15:04"))
+	_, _ = fmt.Fprintf(w, "Sent simulated notification for %d medication(s) scheduled at %s", len(medsAtEarliest), earliestNext.Format("15:04")) // #nosec G104
 }

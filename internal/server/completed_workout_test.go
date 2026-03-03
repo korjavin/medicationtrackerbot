@@ -73,10 +73,7 @@ func TestHandleGetNextWorkout_CompletedSession(t *testing.T) {
 			ScheduledDate string `json:"scheduled_date"`
 		} `json:"session"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		// It might return nil (null) which is valid JSON, Decode deals with it if we point to pointer?
-		// No, Decode won't error on "null", but we need to check if resp is nil or fields empty.
-	}
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 
 	// If resp is nil, or session is empty, that's fine (means no next workout found).
 	// But if it found the COMPLETED session, that's a bug.

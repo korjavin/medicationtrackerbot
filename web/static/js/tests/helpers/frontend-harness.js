@@ -8,8 +8,24 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 
 const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
+const UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/utils.js');
+const MT_ELEMENTS_JS = path.join(REPO_ROOT, 'web/static/js/components/mt-elements.js');
+const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
+const STAT_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/stat-card.js');
+const ACTION_ROW_JS = path.join(REPO_ROOT, 'web/static/js/components/action-row.js');
+const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
+const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
+const APP_KERNEL_JS = path.join(REPO_ROOT, 'web/static/js/core/app-kernel.js');
+const STORE_JS = path.join(REPO_ROOT, 'web/static/js/core/store.js');
+const MODAL_CONTROLLER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-controller.js');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
+const FOOD_JS = path.join(REPO_ROOT, 'web/static/js/features/food.js');
+const BP_JS = path.join(REPO_ROOT, 'web/static/js/features/bp.js');
+const WEIGHT_JS = path.join(REPO_ROOT, 'web/static/js/features/weight.js');
+const AUTH_FLOW_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-flow.js');
+const MODAL_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/modal-history.js');
+const DEEPLINK_ROUTER_JS = path.join(REPO_ROOT, 'web/static/js/features/deeplink-router.js');
 const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
 
 function evalWithSourceURL(window, source, scriptPath) {
@@ -17,18 +33,9 @@ function evalWithSourceURL(window, source, scriptPath) {
 }
 
 function disableAutoBootstrap(source) {
-  const bootStart = source.indexOf('// Initial Load');
-  const bootEnd = source.indexOf('// Check for Telegram start_param');
-  if (bootStart !== -1 && bootEnd !== -1 && bootEnd > bootStart) {
-    source = `${source.slice(0, bootStart)}// Initial Load (disabled in tests)\n${source.slice(bootEnd)}`;
-  }
-
-  const startParamStart = source.indexOf('// Check for Telegram start_param');
-  const startParamEnd = source.indexOf('async function sendTestBPNotification()', startParamStart);
-  if (startParamStart !== -1 && startParamEnd !== -1 && startParamEnd > startParamStart) {
-    source = `${source.slice(0, startParamStart)}// Check for Telegram start_param (disabled in tests)\n\n${source.slice(startParamEnd)}`;
-  }
-
+  // The bootstrap block has been moved to features/bootstrap.js which the
+  // harness intentionally does not load.  This function is kept as a no-op
+  // stub so callers do not need to change.
   return source;
 }
 
@@ -64,10 +71,10 @@ function isVersionAtLeast(currentVersion, targetVersion) {
   return true;
 }
 
-export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', telegramVersion = '6.9' } = {}) {
+export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', telegramVersion = '6.9', url = 'https://example.test/' } = {}) {
   const html = fs.readFileSync(INDEX_HTML, 'utf8');
   const dom = new JSDOM(html, {
-    url: 'https://example.test/',
+    url,
     pretendToBeVisual: true,
     runScripts: 'outside-only'
   });
@@ -116,12 +123,46 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   window.fetch = async () => createMockResponse({ status: 200, json: {} });
   window.eval('var history = window.history;');
 
+  // Core infrastructure files (loaded before data-store.js and app.js)
+  evalWithSourceURL(window, fs.readFileSync(UTILS_JS, 'utf8'), UTILS_JS);
+  evalWithSourceURL(window, fs.readFileSync(MT_ELEMENTS_JS, 'utf8'), MT_ELEMENTS_JS);
+  evalWithSourceURL(window, fs.readFileSync(EMPTY_STATE_JS, 'utf8'), EMPTY_STATE_JS);
+  evalWithSourceURL(window, fs.readFileSync(STAT_CARD_JS, 'utf8'), STAT_CARD_JS);
+  evalWithSourceURL(window, fs.readFileSync(ACTION_ROW_JS, 'utf8'), ACTION_ROW_JS);
+  evalWithSourceURL(window, fs.readFileSync(MODAL_MANAGER_JS, 'utf8'), MODAL_MANAGER_JS);
+  evalWithSourceURL(window, fs.readFileSync(CORE_API_JS, 'utf8'), CORE_API_JS);
+  evalWithSourceURL(window, fs.readFileSync(APP_KERNEL_JS, 'utf8'), APP_KERNEL_JS);
+  evalWithSourceURL(window, fs.readFileSync(STORE_JS, 'utf8'), STORE_JS);
+  evalWithSourceURL(window, fs.readFileSync(MODAL_CONTROLLER_JS, 'utf8'), MODAL_CONTROLLER_JS);
+
   const dataStoreSource = fs.readFileSync(DATA_STORE_JS, 'utf8');
   evalWithSourceURL(window, dataStoreSource, DATA_STORE_JS);
 
   const appSource = disableAutoBootstrap(fs.readFileSync(APP_JS, 'utf8'));
   evalWithSourceURL(window, appSource, APP_JS);
+
+  // Feature modules extracted from app.js (food, bp, weight).
+  evalWithSourceURL(window, fs.readFileSync(FOOD_JS, 'utf8'), FOOD_JS);
+  evalWithSourceURL(window, fs.readFileSync(BP_JS, 'utf8'), BP_JS);
+  evalWithSourceURL(window, fs.readFileSync(WEIGHT_JS, 'utf8'), WEIGHT_JS);
+
+  // auth-flow.js: provides saveAuthState / getCachedAuthState / clearAuthState.
+  const authFlowSource = fs.readFileSync(AUTH_FLOW_JS, 'utf8');
+  evalWithSourceURL(window, authFlowSource, AUTH_FLOW_JS);
+
+  // modal-history.js must load BEFORE DOMContentLoaded fires so its internal
+  // 'DOMContentLoaded' listener can call setupObserver() at the right time.
+  // (JSDOM keeps readyState='loading' until its own lifecycle completes.)
+  const modalHistorySource = fs.readFileSync(MODAL_HISTORY_JS, 'utf8');
+  evalWithSourceURL(window, modalHistorySource, MODAL_HISTORY_JS);
+
+  // Fire DOMContentLoaded – triggers setupObserver() inside modal-history.js.
   window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
+
+  // deeplink-router.js: provides handleDeepLinks() on window.
+  // The Telegram start_param auto-run is harmless (initDataUnsafe={} in tests).
+  const deeplinkSource = fs.readFileSync(DEEPLINK_ROUTER_JS, 'utf8');
+  evalWithSourceURL(window, deeplinkSource, DEEPLINK_ROUTER_JS);
 
   if (withWorkout) {
     const workoutSource = fs.readFileSync(WORKOUT_JS, 'utf8');
