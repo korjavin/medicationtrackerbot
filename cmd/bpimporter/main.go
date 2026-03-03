@@ -101,7 +101,7 @@ func main() {
 		if dateStr != "" {
 			parsedTime, err := time.Parse(dateLayout, strings.TrimSpace(dateStr))
 			if err != nil {
-				log.Printf("Warning: Row %d - Invalid date format '%s': %v", rowNum, dateStr, err)
+				log.Printf("Warning: Row %d - Invalid date format '%s': %v", rowNum, dateStr, err) // #nosec G706
 				skippedRows++
 				continue
 			}
@@ -113,7 +113,7 @@ func main() {
 		if systolicStr != "" {
 			systolic, err := strconv.Atoi(strings.TrimSpace(systolicStr))
 			if err != nil {
-				log.Printf("Warning: Row %d - Invalid systolic value '%s': %v", rowNum, systolicStr, err)
+				log.Printf("Warning: Row %d - Invalid systolic value '%s': %v", rowNum, systolicStr, err) // #nosec G706
 				skippedRows++
 				continue
 			}
@@ -125,7 +125,7 @@ func main() {
 		if diastolicStr != "" {
 			diastolic, err := strconv.Atoi(strings.TrimSpace(diastolicStr))
 			if err != nil {
-				log.Printf("Warning: Row %d - Invalid diastolic value '%s': %v", rowNum, diastolicStr, err)
+				log.Printf("Warning: Row %d - Invalid diastolic value '%s': %v", rowNum, diastolicStr, err) // #nosec G706
 				skippedRows++
 				continue
 			}

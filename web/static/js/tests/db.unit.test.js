@@ -1,19 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadDbEnv } from './helpers/db-harness.js';
+import { allowConsoleNoise, getGlobalSpies } from './helpers/setup.js';
 
 describe('db.js store behavior', () => {
-  let logSpy;
-  let warnSpy;
-
   beforeEach(() => {
-    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    allowConsoleNoise();
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    logSpy.mockRestore();
-    warnSpy.mockRestore();
   });
 
   it('BPStore supports save/sync/range query/delete lifecycle', async () => {
@@ -254,7 +249,7 @@ describe('db.js store behavior', () => {
       await expect(ApiCache.set('x', { ok: true })).resolves.toBeUndefined();
       await expect(ApiCache.clear('x')).resolves.toBeUndefined();
       await expect(ApiCache.clear()).resolves.toBeUndefined();
-      expect(warnSpy).toHaveBeenCalled();
+      expect(getGlobalSpies().warnSpy).toHaveBeenCalled();
     } finally {
       cleanup();
     }

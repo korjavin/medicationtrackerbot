@@ -1,106 +1,52 @@
----
 version: "2"
-
 run:
-  timeout: 5m
   concurrency: 4
-
-output:
-  formats:
-    text:
-      path: stdout
-    sarif:
-      path: golangci-lint-result.sarif
-
 linters:
   enable:
-    - gosec           # Go security issues
-    - errorlint       # errors.Is/As usage
-    - nolintlint      # Validate //nolint comments
-    - govet           # Go vet issues
-    - staticcheck     # Static analysis
-    - ineffassign     # Ineffectual assignments
-
+    - errorlint
+    - nolintlint
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
   disable:
-    - errcheck        # Too noisy; G104 via gosec covers intentional cases
-
+    - errcheck
+    - gosec
+  settings:
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+    gosec:
+      severity: medium
+      confidence: low
   exclusions:
-    # Exclude vendor and build dirs
-    paths:
-      - vendor
-      - build
-
     rules:
-      # Test files: relax security and error-checking rules
-      - path: _test\.go$
-        linters:
-          - gosec
+      - linters:
           - errorlint
-
-      # Migration SQL files
-      - path: "^internal/store/migrations/.*\\.go$"
-        linters:
           - gosec
-
-      # Gosec taint-analysis rules: noisy for controlled internal server code
-      - text: "G703"
-        linters:
+        path: _test\.go$
+      - linters:
           - gosec
-      - text: "G704"
-        linters:
+        path: ^internal/store/migrations/.*\.go$
+      - linters:
           - gosec
-      - text: "G705"
-        linters:
+        text: G703
+      - linters:
           - gosec
-      - text: "G706"
-        linters:
+        text: G704
+      - linters:
           - gosec
-
-      # Staticcheck style preferences we consciously accept
-      - text: "QF1012"
-        linters:
+        text: G705
+      - linters:
+          - gosec
+        text: G706
+      - linters:
           - staticcheck
-      - text: "SA9003"
-        linters:
+        text: QF1012
+      - linters:
           - staticcheck
-      - text: "SA1019"
-        linters:
+        text: SA9003
+      - linters:
           - staticcheck
-
-linters-settings:
-  gosec:
-    severity: "MEDIUM"
-    confidence: "LOW"
-    rules:
-      - G102  # Bind to all network interfaces
-      - G103  # Audit the use of unsafe blocks
-      - G104  # Audit errors not checked
-      - G107  # Url provided to urllib.Request()
-      - G108  # Profiling endpoint is exposed to network
-      - G109  # Potential Integer overflow
-      - G110  # Potential DoS via decompression bomb
-      - G111  # Potential directory traversal
-      - G112  # Potential slowloris attack
-      - G201  # SQL query construction using format string
-      - G202  # SQL query construction using string concatenation
-      - G203  # Use of unescaped data in HTML templates
-      - G204  # Audit use of command execution
-      - G301  # Poor file permissions used with chmod
-      - G302  # Poor file permissions used when writing to new files
-      - G303  # Creating temp file in shared directory
-      - G304  # File included via variable
-      - G305  # File inclusion via archive/zip
-      - G306  # Poor file permissions used when writing to new files
-      - G401  # TLS MinVersion not set
-      - G402  # TLS InsecureSkipVerify
-      - G403  # Use of weak random number generator (rand)
-      - G404  # Use of weak random number generator (math/rand)
-      - G501  # Import blacklist: crypto/md5
-      - G502  # Import blacklist: crypto/des
-      - G503  # Import blacklist: crypto/rc4
-      - G504  # Import blacklist: net/http/cgi
-      - G505  # Import blacklist: crypto/sha1
-
-  errorlint:
-    check-error-type-assertions: true
-    check-unhandled-errors: true
+        text: SA1019

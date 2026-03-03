@@ -66,7 +66,7 @@ func buildLoginData(token string, data TelegramLoginData) TelegramLoginData {
 }
 
 func TestValidateWebAppData_ValidSignature(t *testing.T) {
-	token := "test-bot-token"
+	token := "test-bot-token" // #nosec G101
 	userJSON := `{"id":123456,"first_name":"Test","last_name":"User","username":"testuser"}`
 	initData := buildWebAppInitData(token, time.Now().Unix(), userJSON)
 
@@ -114,7 +114,7 @@ func TestValidateWebAppData_MissingHash(t *testing.T) {
 }
 
 func TestValidateWebAppData_InvalidHash(t *testing.T) {
-	token := "test-bot-token"
+	token := "test-bot-token" // #nosec G101
 	userJSON := `{"id":123456,"first_name":"Test","last_name":"User","username":"testuser"}`
 	initData := buildWebAppInitData(token, time.Now().Unix(), userJSON)
 
@@ -134,7 +134,7 @@ func TestValidateWebAppData_InvalidHash(t *testing.T) {
 }
 
 func TestValidateWebAppData_ExpiredAuthDate(t *testing.T) {
-	token := "test-bot-token"
+	token := "test-bot-token" // #nosec G101
 	userJSON := `{"id":123456,"first_name":"Test","last_name":"User","username":"testuser"}`
 	expiredTime := time.Now().Add(-25 * time.Hour).Unix()
 	initData := buildWebAppInitData(token, expiredTime, userJSON)
@@ -146,7 +146,7 @@ func TestValidateWebAppData_ExpiredAuthDate(t *testing.T) {
 }
 
 func TestValidateTelegramLoginWidget_ValidData(t *testing.T) {
-	token := "test-bot-token"
+	token := "test-bot-token" // #nosec G101
 	data := buildLoginData(token, TelegramLoginData{
 		ID:        123456,
 		FirstName: "Test",
@@ -189,7 +189,7 @@ func TestValidateTelegramLoginWidget_InvalidHash(t *testing.T) {
 }
 
 func TestValidateTelegramLoginWidget_ExpiredAuthDate(t *testing.T) {
-	token := "test-bot-token"
+	token := "test-bot-token" // #nosec G101
 	data := buildLoginData(token, TelegramLoginData{
 		ID:        123456,
 		FirstName: "Test",

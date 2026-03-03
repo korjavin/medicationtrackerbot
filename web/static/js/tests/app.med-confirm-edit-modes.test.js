@@ -51,9 +51,10 @@ describe('app.js medication confirm edit/log modes', () => {
 
       window.safeAlert = vi.fn();
       window.showMedicationConfirmModal([3], ['C'], '2026-02-28T10:05:00Z');
-      window.apiCall = vi.fn().mockRejectedValue(new Error('confirm failed'));
+      // apiCall returns null on error (handles error internally); modal still closes
+      window.apiCall = vi.fn().mockResolvedValue(null);
       await window.confirmSelectedMedications();
-      expect(window.safeAlert).toHaveBeenCalledWith('Error confirming: confirm failed');
+      expect(window.safeAlert).not.toHaveBeenCalledWith('Confirmed!');
       expect(document.getElementById('med-confirm-modal').classList.contains('hidden')).toBe(true);
     } finally {
       cleanup();
@@ -107,9 +108,11 @@ describe('app.js medication confirm edit/log modes', () => {
 
       window.showMedicationConfirmModal([40], ['Med D'], '2026-02-28T12:10:00Z', 'edit', [400]);
       document.getElementById('med-confirm-datetime').value = '2026-02-28T12:15';
-      window.apiCall = vi.fn().mockRejectedValue(new Error('update failed'));
+      // apiCall returns null on error (handles error internally)
+      window.apiCall = vi.fn().mockResolvedValue(null);
+      window.safeAlert.mockClear();
       await window.updateIntakeHistory();
-      expect(window.safeAlert).toHaveBeenCalledWith('Error updating: update failed');
+      expect(window.safeAlert).not.toHaveBeenCalledWith('Updated!');
     } finally {
       cleanup();
     }
@@ -137,9 +140,11 @@ describe('app.js medication confirm edit/log modes', () => {
 
       window.showMedicationConfirmModal([88], ['Med Y'], '2026-02-28T14:00:00Z', 'log_past', []);
       document.getElementById('med-confirm-datetime').value = '2026-02-28T14:10';
-      window.apiCall = vi.fn().mockRejectedValue(new Error('log failed'));
+      // apiCall returns null on error (handles error internally)
+      window.apiCall = vi.fn().mockResolvedValue(null);
+      window.safeAlert.mockClear();
       await window.confirmLogPast();
-      expect(window.safeAlert).toHaveBeenCalledWith('Error logging: log failed');
+      expect(window.safeAlert).not.toHaveBeenCalledWith('Intake logged!');
     } finally {
       cleanup();
     }

@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 describe('app.js refresh dispatch behavior', () => {
   beforeEach(() => {
+    allowConsoleNoise();
     vi.useFakeTimers();
   });
 

@@ -1,5 +1,5 @@
 (function () {
-    window.renderHealthOverviewContent = function (content, data) {
+    function renderHealthOverviewContent(content, data) {
         content.replaceChildren();
 
         const renderVitalGroup = (id, title, history, color, min, max, stat7d, stat30d, unit) => {
@@ -19,7 +19,7 @@
                 wrapper.appendChild(chartContainer);
                 wrapper.appendChild(statDiv);
                 content.appendChild(wrapper);
-                setTimeout(() => window.renderVitalsLineChart(id + 'ChartContainer', history, color, min, max), 0);
+                setTimeout(() => renderVitalsLineChart(id + 'ChartContainer', history, color, min, max), 0);
             }
         };
 
@@ -60,7 +60,7 @@
             wrapper.appendChild(legend);
             wrapper.appendChild(statDiv);
             content.appendChild(wrapper);
-            setTimeout(() => window.renderSleepChart(data.sleep_stats_7d), 0);
+            setTimeout(() => renderSleepChart(data.sleep_stats_7d), 0);
         }
 
         if (data.step_stats_7d && data.step_stats_7d.length > 0) {
@@ -79,7 +79,7 @@
             wrapper.appendChild(chartContainer);
             wrapper.appendChild(statDiv);
             content.appendChild(wrapper);
-            setTimeout(() => window.renderStepsChart(data.step_stats_7d), 0);
+            setTimeout(() => renderStepsChart(data.step_stats_7d), 0);
         }
 
         renderVitalGroup('heartRate', 'Heart Rate', data.heart_rate_history_7d, '#ff3b30', 40, 160, data.average_heart_rate_7d, data.average_heart_rate_30d, 'bpm');
@@ -90,17 +90,17 @@
         disclaimer.style.cssText = 'font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 30px;';
         disclaimer.textContent = 'This data is gathered from your synced .nxk backups.';
         content.appendChild(disclaimer);
-    };
+    }
 
-    window.renderHealthOverviewError = function (content) {
+    function renderHealthOverviewError(content) {
         const errP = document.createElement('p');
         errP.style.color = 'red';
         errP.textContent = 'Failed to load health metrics';
         content.replaceChildren(errP);
         content.classList.remove('hidden');
-    };
+    }
 
-    window.loadHealthOverview = async function () {
+    async function loadHealthOverview() {
         const content = document.getElementById('health-overview-content');
         const loading = document.getElementById('health-overview-loading');
         if (!content || !loading) return;
@@ -114,29 +114,29 @@
                 allowNullFresh: true,
                 onCached: async (cached) => {
                     if (!cached) return;
-                    window.renderHealthOverviewContent(content, cached);
+                    renderHealthOverviewContent(content, cached);
                     loading.style.display = 'none';
                     content.classList.remove('hidden');
                 },
                 onFresh: async (fresh, cached) => {
                     loading.style.display = 'none';
                     if (!fresh) {
-                        if (!cached) window.renderHealthOverviewError(content);
+                        if (!cached) renderHealthOverviewError(content);
                         return;
                     }
-                    window.renderHealthOverviewContent(content, fresh);
+                    renderHealthOverviewContent(content, fresh);
                     content.classList.remove('hidden');
                 },
                 onError: async (e, cached) => {
                     console.error('Failed to load health overview:', e);
                     loading.style.display = 'none';
-                    if (!cached) window.renderHealthOverviewError(content);
+                    if (!cached) renderHealthOverviewError(content);
                 }
             });
         }
-    };
+    }
 
-    window.renderVitalsLineChart = function (containerId, data, color, yMin, yMax) {
+    function renderVitalsLineChart(containerId, data, color, yMin, yMax) {
         const container = document.getElementById(containerId);
         if (!container || !data || data.length === 0) return;
         const totalWidth = container.clientWidth;
@@ -202,9 +202,9 @@
             svg.appendChild(xLbl);
         }
         container.appendChild(svg);
-    };
+    }
 
-    window.renderSleepChart = function (stats) {
+    function renderSleepChart(stats) {
         const container = document.getElementById('sleepChartContainer');
         if (!container) return;
         const totalWidth = container.clientWidth;
@@ -283,9 +283,9 @@
             const lbl = document.createElementNS("http://www.w3.org/2000/svg", "text"); lbl.setAttribute("x", p.x); lbl.setAttribute("y", p.y - 8); lbl.setAttribute("text-anchor", "middle"); lbl.setAttribute("fill", "#ff3b30"); lbl.setAttribute("font-size", "10px"); lbl.setAttribute("font-weight", "bold"); lbl.textContent = p.val; svg.appendChild(lbl);
         });
         container.appendChild(svg);
-    };
+    }
 
-    window.renderStepsChart = function (stats) {
+    function renderStepsChart(stats) {
         const container = document.getElementById('stepsChartContainer');
         if (!container) return;
         const totalWidth = container.clientWidth;
@@ -342,5 +342,5 @@
             xLbl.setAttribute("fill", "var(--hint-color)"); xLbl.setAttribute("font-size", "11px"); xLbl.textContent = dayName; svg.appendChild(xLbl);
         });
         container.appendChild(svg);
-    };
+    }
 })();

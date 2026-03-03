@@ -61,9 +61,11 @@ describe('app.js food CRUD, targets and period helpers', () => {
       await window.saveFoodLog();
       expect(apiCallSpy).toHaveBeenCalledWith('/api/food/log/77', 'PUT', expect.any(Object));
 
-      window.apiCall = vi.fn().mockRejectedValue(new Error('save failed'));
+      // apiCall returns null on error (handles error internally); modal still closes
+      window.apiCall = vi.fn().mockResolvedValue(null);
+      window.closeFoodModal = vi.fn();
       await window.saveFoodLog();
-      expect(window.safeAlert).toHaveBeenCalledWith('Failed to save food log.');
+      expect(window.closeFoodModal).toHaveBeenCalled();
     } finally {
       cleanup();
     }
@@ -172,9 +174,11 @@ describe('app.js food CRUD, targets and period helpers', () => {
       expect(window.apiCall).toHaveBeenCalledWith('/api/food/log/6', 'DELETE');
       expect(window.loadFoodLogs).toHaveBeenCalled();
 
-      window.apiCall = vi.fn().mockRejectedValue(new Error('delete failed'));
+      // apiCall returns null (error handled internally by apiCall) → loadFoodLogs not called
+      window.apiCall = vi.fn().mockResolvedValue(null);
+      window.loadFoodLogs = vi.fn();
       await window.deleteFoodLog(7);
-      expect(window.safeAlert).toHaveBeenCalledWith('Failed to delete.');
+      expect(window.loadFoodLogs).not.toHaveBeenCalled();
 
       window.loadFoodLogs = vi.fn();
       window.setFoodStatsPeriod('week');

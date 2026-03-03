@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 function sessionDetailsFixture() {
   return {
@@ -16,14 +17,8 @@ function sessionDetailsFixture() {
 }
 
 describe('workout.js SWR and modal edge branches', () => {
-  let consoleErrorSpy;
-
   beforeEach(() => {
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
+    allowConsoleNoise();
   });
 
   it('loadWorkouts delegates to history tab; next-workout loader handles error and edit-modal guard branches', async () => {
