@@ -351,6 +351,12 @@ select {
     margin-bottom: 16px;
 }
 
+/* Group-descriptor label replacement (for spans that describe a group of inputs) */
+.form-label {
+    display: block;
+    margin-bottom: 6px;
+}
+
 .checkbox-label {
     display: flex;
     align-items: center;
