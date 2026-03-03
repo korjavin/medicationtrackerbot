@@ -223,21 +223,21 @@
                     <p class="setting-desc">Daily targets for calories and macronutrients</p>
                     <div class="bp-inputs-row" style="margin-top: 12px;">
                         <div class="bp-input-group">
-                            <label>Calories</label>
+                            <label for="food-target-calories">Calories</label>
                             <input type="number" id="food-target-calories" min="0" placeholder="1700">
                         </div>
                         <div class="bp-input-group">
-                            <label>Carbs (g)</label>
+                            <label for="food-target-carbs">Carbs (g)</label>
                             <input type="number" id="food-target-carbs" min="0" placeholder="170">
                         </div>
                     </div>
                     <div class="bp-inputs-row">
                         <div class="bp-input-group">
-                            <label>Protein (g)</label>
+                            <label for="food-target-protein">Protein (g)</label>
                             <input type="number" id="food-target-protein" min="0" placeholder="120">
                         </div>
                         <div class="bp-input-group">
-                            <label>Fat (g)</label>
+                            <label for="food-target-fat">Fat (g)</label>
                             <input type="number" id="food-target-fat" min="0" placeholder="60">
                         </div>
                     </div>
@@ -294,12 +294,12 @@
         </div>
 
         <div class="form-row">
-            <label>Scheduled Time:</label>
+            <label for="workout-group-time">Scheduled Time:</label>
             <input type="time" id="workout-group-time">
         </div>
 
         <div class="form-row">
-            <label>Notification (minutes before):</label>
+            <label for="workout-group-notification">Notification (minutes before):</label>
             <input type="number" id="workout-group-notification" value="15" min="0" max="60">
         </div>
 
@@ -342,7 +342,7 @@
 
         <div id="workout-variant-rotation-field" style="display: none;">
             <div class="form-row">
-                <label>Rotation Order:</label>
+                <label for="workout-variant-rotation">Rotation Order:</label>
                 <input type="number" id="workout-variant-rotation" min="0" placeholder="0 = first, 1 = second, etc.">
             </div>
         </div>
@@ -370,27 +370,27 @@
         <input type="text" id="workout-exercise-name" placeholder="Exercise Name (e.g., Barbell Rows)">
 
         <div class="form-row">
-            <label>Target Sets:</label>
+            <label for="workout-exercise-sets">Target Sets:</label>
             <input type="number" id="workout-exercise-sets" min="1" max="10" placeholder="4">
         </div>
 
         <div class="form-row">
-            <label>Target Reps (Min):</label>
+            <label for="workout-exercise-reps-min">Target Reps (Min):</label>
             <input type="number" id="workout-exercise-reps-min" min="1" max="100" placeholder="8">
         </div>
 
         <div class="form-row">
-            <label>Target Reps (Max, optional):</label>
+            <label for="workout-exercise-reps-max">Target Reps (Max, optional):</label>
             <input type="number" id="workout-exercise-reps-max" min="1" max="100" placeholder="10">
         </div>
 
         <div class="form-row">
-            <label>Target Weight (kg, optional):</label>
+            <label for="workout-exercise-weight">Target Weight (kg, optional):</label>
             <input type="number" id="workout-exercise-weight" step="0.5" min="0" placeholder="40">
         </div>
 
         <div class="form-row">
-            <label>Order in workout:</label>
+            <label for="workout-exercise-order">Order in workout:</label>
             <input type="number" id="workout-exercise-order" min="0" placeholder="0 = first, 1 = second, etc.">
         </div>
     </mt-modal>
@@ -408,27 +408,27 @@
         <input type="text" id="exercise-library-name" placeholder="Exercise Name (e.g., Barbell Rows)">
 
         <div class="form-row">
-            <label>Default Sets:</label>
+            <label for="exercise-library-sets">Default Sets:</label>
             <input type="number" id="exercise-library-sets" min="1" max="10" placeholder="4">
         </div>
 
         <div class="form-row">
-            <label>Default Reps (Min):</label>
+            <label for="exercise-library-reps-min">Default Reps (Min):</label>
             <input type="number" id="exercise-library-reps-min" min="1" max="100" placeholder="8">
         </div>
 
         <div class="form-row">
-            <label>Default Reps (Max, optional):</label>
+            <label for="exercise-library-reps-max">Default Reps (Max, optional):</label>
             <input type="number" id="exercise-library-reps-max" min="1" max="100" placeholder="10">
         </div>
 
         <div class="form-row">
-            <label>Default Weight (kg, optional):</label>
+            <label for="exercise-library-weight">Default Weight (kg, optional):</label>
             <input type="number" id="exercise-library-weight" step="0.5" min="0" placeholder="40">
         </div>
 
         <div class="form-row">
-            <label>Notes (optional):</label>
+            <label for="exercise-library-notes">Notes (optional):</label>
             <input type="text" id="exercise-library-notes" placeholder="Form cues, variations, etc.">
         </div>
     </mt-modal>
@@ -438,7 +438,8 @@
         <div class="modal-header">
             <h3 id="workout-session-modal-title">Workout Details</h3>
             <div class="actions">
-                <button id="workout-session-delete-btn" class="secondary" style="color: #d32f2f; border-color: #ffcccb;">Delete</button>
+                <button id="workout-session-delete-btn" class="secondary"
+                    style="color: #d32f2f; border-color: #ffcccb;">Delete</button>
                 <button id="workout-session-cancel-btn" class="secondary">Cancel</button>
                 <button id="workout-session-save-btn" class="primary">Save Changes</button>
             </div>
@@ -468,7 +469,7 @@
         </div>
 
         <div class="form-row">
-            <label>Exercise Name:</label>
+            <label for="session-add-exercise-name">Exercise Name:</label>
             <input type="text" id="session-add-exercise-name" list="unique-exercises-list"
                 placeholder="Start typing...">
             <datalist id="unique-exercises-list"></datalist>
@@ -476,22 +477,22 @@
         </div>
 
         <div class="form-row">
-            <label>Sets Completed:</label>
+            <label for="session-add-exercise-sets">Sets Completed:</label>
             <input type="number" id="session-add-exercise-sets" min="1" max="20" placeholder="3">
         </div>
 
         <div class="form-row">
-            <label>Reps Completed:</label>
+            <label for="session-add-exercise-reps">Reps Completed:</label>
             <input type="number" id="session-add-exercise-reps" min="1" max="100" placeholder="10">
         </div>
 
         <div class="form-row">
-            <label>Weight (kg):</label>
+            <label for="session-add-exercise-weight">Weight (kg):</label>
             <input type="number" id="session-add-exercise-weight" step="0.5" min="0" placeholder="0">
         </div>
 
         <div class="form-row">
-            <label>Notes:</label>
+            <label for="session-add-exercise-notes">Notes:</label>
             <input type="text" id="session-add-exercise-notes" placeholder="Optional notes">
         </div>
 
@@ -511,11 +512,11 @@
         <!-- Weight + Barcode above name so autocomplete doesn't cover them -->
         <div class="form-row food-quick-row">
             <div class="food-weight-group">
-                <label>Weight (g):</label>
+                <label for="food-weight">Weight (g):</label>
                 <input type="number" id="food-weight" placeholder="150">
             </div>
             <div class="food-barcode-group">
-                <label>Barcode:</label>
+                <label for="food-barcode">Barcode:</label>
                 <div class="food-barcode-row">
                     <input type="text" id="food-barcode" placeholder="e.g. 1234567890123">
                     <button type="button" id="food-scan-btn" class="secondary food-scan-btn"
@@ -525,7 +526,7 @@
         </div>
 
         <div class="form-row" style="position: relative;">
-            <label>Food Name (optional):</label>
+            <label for="food-name">Food Name (optional):</label>
             <p id="food-search-status" class="food-search-status hidden" aria-live="polite"
                 style="margin-bottom: 8px; font-size: 13px; font-weight: 500;"></p>
             <input type="text" id="food-name" placeholder="e.g. Apple" autocomplete="off">
@@ -536,15 +537,15 @@
             <label>Macros:</label>
             <div class="bp-inputs-row">
                 <div class="bp-input-group">
-                    <label>Carbs</label>
+                    <label for="food-carbs">Carbs</label>
                     <input type="number" id="food-carbs" placeholder="C">
                 </div>
                 <div class="bp-input-group">
-                    <label>Protein</label>
+                    <label for="food-protein">Protein</label>
                     <input type="number" id="food-protein" placeholder="P">
                 </div>
                 <div class="bp-input-group">
-                    <label>Fat</label>
+                    <label for="food-fat">Fat</label>
                     <input type="number" id="food-fat" placeholder="F">
                 </div>
             </div>
@@ -558,12 +559,12 @@
         </div>
 
         <div class="form-row">
-            <label>Total Calories:</label>
+            <label for="food-calories">Total Calories:</label>
             <input type="number" id="food-calories" placeholder="Kcal" style="font-weight: bold;">
         </div>
 
         <div class="form-row">
-            <label>Date & Time:</label>
+            <label for="food-datetime">Date &amp; Time:</label>
             <input type="datetime-local" id="food-datetime">
         </div>
 
@@ -593,12 +594,12 @@
         <input type="hidden" id="food-product-id">
 
         <div class="form-row">
-            <label>Name:</label>
+            <label for="food-product-name">Name:</label>
             <input type="text" id="food-product-name" placeholder="Product name">
         </div>
 
         <div class="form-row">
-            <label>Barcode:</label>
+            <label for="food-product-barcode">Barcode:</label>
             <input type="text" id="food-product-barcode" placeholder="e.g. 1234567890123">
         </div>
 
@@ -606,22 +607,22 @@
             <label>Macros per 100g:</label>
             <div class="bp-inputs-row">
                 <div class="bp-input-group">
-                    <label>Carbs</label>
+                    <label for="food-product-carbs">Carbs</label>
                     <input type="number" id="food-product-carbs" placeholder="C" step="0.1">
                 </div>
                 <div class="bp-input-group">
-                    <label>Protein</label>
+                    <label for="food-product-protein">Protein</label>
                     <input type="number" id="food-product-protein" placeholder="P" step="0.1">
                 </div>
                 <div class="bp-input-group">
-                    <label>Fat</label>
+                    <label for="food-product-fat">Fat</label>
                     <input type="number" id="food-product-fat" placeholder="F" step="0.1">
                 </div>
             </div>
         </div>
 
         <div class="form-row">
-            <label>Calories per 100g:</label>
+            <label for="food-product-calories">Calories per 100g:</label>
             <input type="number" id="food-product-calories" placeholder="Kcal" step="0.1">
         </div>
     </mt-modal>
@@ -640,7 +641,7 @@
         <input type="text" id="med-dosage" placeholder="Dosage (e.g. 100mg)">
         <p id="med-rx-display" style="font-size: 0.85em; color: var(--hint-color); margin-top: 5px; display: none;"></p>
 
-        <label>Schedule Type:</label>
+        <label for="schedule-type">Schedule Type:</label>
         <select id="schedule-type">
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
@@ -672,11 +673,11 @@
         </div>
 
         <div class="form-row">
-            <label>Start Date (Optional):</label>
+            <label for="med-start-date">Start Date (Optional):</label>
             <input type="date" id="med-start-date">
         </div>
         <div class="form-row">
-            <label>End Date (Optional):</label>
+            <label for="med-end-date">End Date (Optional):</label>
             <input type="date" id="med-end-date">
         </div>
 
@@ -686,12 +687,12 @@
             </label>
             <div id="inventory-fields" class="hidden">
                 <div class="form-row">
-                    <label>Current Stock (doses):</label>
+                    <label for="med-inventory-count">Current Stock (doses):</label>
                     <input type="number" id="med-inventory-count" min="0" placeholder="e.g. 30">
                 </div>
                 <div id="restock-section">
                     <div class="form-row">
-                        <label>Quick Restock:</label>
+                        <label for="restock-qty">Quick Restock:</label>
                         <div class="restock-row">
                             <input type="number" id="restock-qty" min="1" placeholder="Qty">
                             <button type="button" class="small-btn" id="restock-add-btn">+ Add</button>
@@ -723,38 +724,38 @@
             <input type="datetime-local" id="bp-datetime" required>
             <div class="bp-inputs-row">
                 <div class="bp-input-group">
-                    <label>Systolic</label>
+                    <label for="bp-systolic">Systolic</label>
                     <input type="number" id="bp-systolic" min="60" max="250" placeholder="120" required
                         inputmode="numeric">
                 </div>
                 <div class="bp-input-group">
-                    <label>Diastolic</label>
+                    <label for="bp-diastolic">Diastolic</label>
                     <input type="number" id="bp-diastolic" min="40" max="150" placeholder="80" required
                         inputmode="numeric">
                 </div>
             </div>
             <div class="bp-inputs-row">
                 <div class="bp-input-group">
-                    <label>Pulse (optional)</label>
+                    <label for="bp-pulse">Pulse (optional)</label>
                     <input type="number" id="bp-pulse" min="30" max="250" placeholder="70" inputmode="numeric">
                 </div>
             </div>
             <div class="form-row">
-                <label>Site:</label>
+                <label for="bp-site">Site:</label>
                 <select id="bp-site">
                     <option value="right_arm">Right Arm</option>
                     <option value="left_arm">Left Arm</option>
                 </select>
             </div>
             <div class="form-row">
-                <label>Position:</label>
+                <label for="bp-position">Position:</label>
                 <select id="bp-position">
                     <option value="seated">Seated</option>
                     <option value="horizontal">Horizontal</option>
                 </select>
             </div>
             <div class="form-row">
-                <label>Notes:</label>
+                <label for="bp-notes">Notes:</label>
                 <textarea id="bp-notes" placeholder="Any notes..." rows="3"></textarea>
             </div>
         </form>
@@ -790,7 +791,7 @@
             </div>
 
             <div class="form-row">
-                <label>Notes (optional):</label>
+                <label for="weight-notes">Notes (optional):</label>
                 <textarea id="weight-notes" placeholder="Any notes..." rows="2"></textarea>
             </div>
         </form>
@@ -810,7 +811,7 @@
 
         <!-- Editable Time Input (Initially Hidden) -->
         <div id="med-confirm-time-edit" style="display: none; margin-bottom: 15px;">
-            <label>Time Taken:</label>
+            <label for="med-confirm-datetime">Time Taken:</label>
             <input type="datetime-local" id="med-confirm-datetime">
         </div>
 
