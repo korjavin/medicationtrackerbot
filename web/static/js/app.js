@@ -946,6 +946,7 @@ function showAddModal() {
     document.getElementById('med-name').value = '';
     document.getElementById('med-dosage').value = '';
     document.getElementById('med-archived').checked = false;
+    document.getElementById('med-supplement').checked = false;
     document.getElementById('med-rx-display').style.display = 'none';
     // showAddModal updates
     document.getElementById('med-start-date').value = '';
@@ -981,6 +982,7 @@ function showEditModal(id) {
     document.getElementById('med-name').value = med.name;
     document.getElementById('med-dosage').value = med.dosage;
     document.getElementById('med-archived').checked = med.archived || false;
+    document.getElementById('med-supplement').checked = med.supplement || false;
 
     // Show RxNorm
     const rxDisplay = document.getElementById('med-rx-display');
@@ -1367,6 +1369,12 @@ function renderMeds() {
         const dosage = document.createElement('small');
         dosage.textContent = `(${med.dosage})`;
         title.appendChild(dosage);
+        if (med.supplement) {
+            const supplementBadge = document.createElement('small');
+            supplementBadge.style.cssText = 'margin-left:6px;color:var(--hint-color);';
+            supplementBadge.textContent = '[Supplement]';
+            title.appendChild(supplementBadge);
+        }
         info.appendChild(title);
 
         if (med.normalized_name) {
@@ -1642,6 +1650,7 @@ async function saveMedication() {
     const dosage = document.getElementById('med-dosage').value;
     const type = document.getElementById('schedule-type').value;
     const archived = document.getElementById('med-archived').checked;
+    const supplement = document.getElementById('med-supplement').checked;
 
     const startDateRaw = document.getElementById('med-start-date').value;
     const endDateRaw = document.getElementById('med-end-date').value;
@@ -1686,6 +1695,7 @@ async function saveMedication() {
         dosage,
         schedule: JSON.stringify(schedule),
         archived,
+        supplement,
         start_date: startDateRaw ? new Date(startDateRaw).toISOString() : null,
         end_date: endDateRaw ? new Date(endDateRaw).toISOString() : null,
         inventory_count: inventoryCount
@@ -1742,6 +1752,7 @@ async function _archiveMedApi(id) {
         name: med.name,
         dosage: med.dosage,
         schedule: med.schedule,
+        supplement: !!med.supplement,
         archived: true // Set archived to true
     };
 

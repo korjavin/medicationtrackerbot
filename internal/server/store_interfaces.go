@@ -11,6 +11,7 @@ import (
 type MedicationStore interface {
 	ListMedications(showArchived bool) ([]store.Medication, error)
 	CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string) (int64, error)
+	SetMedicationSupplement(id int64, supplement bool) error
 	GetMedication(id int64) (*store.Medication, error)
 	UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int) error
 	DeleteMedication(id int64) error

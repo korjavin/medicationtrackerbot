@@ -118,6 +118,47 @@ func TestUpdateMedication(t *testing.T) {
 	}
 }
 
+func TestSetMedicationSupplement(t *testing.T) {
+	db := setupTestStore(t)
+
+	id, err := db.CreateMedication("Magnesium", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication failed: %v", err)
+	}
+
+	if err := db.SetMedicationSupplement(id, true); err != nil {
+		t.Fatalf("SetMedicationSupplement failed: %v", err)
+	}
+
+	med, err := db.GetMedication(id)
+	if err != nil {
+		t.Fatalf("GetMedication failed: %v", err)
+	}
+	if med == nil {
+		t.Fatal("expected medication, got nil")
+	}
+	if !med.Supplement {
+		t.Fatal("expected supplement=true")
+	}
+
+	meds, err := db.ListMedications(true)
+	if err != nil {
+		t.Fatalf("ListMedications failed: %v", err)
+	}
+	found := false
+	for _, m := range meds {
+		if m.ID == id {
+			found = true
+			if !m.Supplement {
+				t.Fatal("expected supplement=true in list results")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("created medication not found in list")
+	}
+}
+
 func TestDeleteMedication(t *testing.T) {
 	db := setupTestStore(t)
 
@@ -238,6 +279,49 @@ func TestCreateIntakePending(t *testing.T) {
 	}
 	if intake.TakenAt != nil {
 		t.Errorf("expected TakenAt to be nil for pending intake")
+	}
+}
+
+func TestSkipIntake(t *testing.T) {
+	db := setupTestStore(t)
+
+	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication failed: %v", err)
+	}
+
+	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
+	intakeID, err := db.CreateIntake(medID, 12345, scheduled)
+	if err != nil {
+		t.Fatalf("CreateIntake failed: %v", err)
+	}
+
+	if err := db.SkipIntake(intakeID); err != nil {
+		t.Fatalf("SkipIntake failed: %v", err)
+	}
+
+	intake, err := db.GetIntake(intakeID)
+	if err != nil {
+		t.Fatalf("GetIntake failed: %v", err)
+	}
+	if intake == nil {
+		t.Fatal("expected intake, got nil")
+	}
+	if intake.Status != "SKIPPED" {
+		t.Fatalf("expected status SKIPPED, got %s", intake.Status)
+	}
+	if intake.TakenAt != nil {
+		t.Fatal("expected taken_at to be NULL for skipped intake")
+	}
+
+	pending, err := db.GetPendingIntakes()
+	if err != nil {
+		t.Fatalf("GetPendingIntakes failed: %v", err)
+	}
+	for _, p := range pending {
+		if p.ID == intakeID {
+			t.Fatal("skipped intake should not be returned as pending")
+		}
 	}
 }
 

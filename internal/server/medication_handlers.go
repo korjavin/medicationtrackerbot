@@ -28,11 +28,12 @@ func (s *Server) handleListMedications(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name      string     `json:"name"`
-		Dosage    string     `json:"dosage"`
-		Schedule  string     `json:"schedule"`
-		StartDate *time.Time `json:"start_date"`
-		EndDate   *time.Time `json:"end_date"`
+		Name       string     `json:"name"`
+		Dosage     string     `json:"dosage"`
+		Schedule   string     `json:"schedule"`
+		Supplement *bool      `json:"supplement"`
+		StartDate  *time.Time `json:"start_date"`
+		EndDate    *time.Time `json:"end_date"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -47,6 +48,12 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if req.Supplement != nil {
+		if err := s.meds.SetMedicationSupplement(id, *req.Supplement); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// 3. Check Interactions
@@ -97,6 +104,7 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 		Dosage         string     `json:"dosage"`
 		Schedule       string     `json:"schedule"`
 		Archived       bool       `json:"archived"`
+		Supplement     *bool      `json:"supplement"`
 		StartDate      *time.Time `json:"start_date"`
 		EndDate        *time.Time `json:"end_date"`
 		InventoryCount *int       `json:"inventory_count"`
@@ -134,6 +142,12 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 	if err := s.meds.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate, rxcui, normalizedName, req.InventoryCount); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if req.Supplement != nil {
+		if err := s.meds.SetMedicationSupplement(id, *req.Supplement); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Check interactions if unarchiving OR just updating (e.g. name change might trigger interaction)
