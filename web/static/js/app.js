@@ -941,13 +941,12 @@ window.reloadCurrentTab = reloadCurrentTab;
 function showAddModal() {
     editingMedId = null;
     window.ModalManager.med.open();
-    const supplementInput = ensureSupplementCheckbox();
 
     // Reset inputs
     document.getElementById('med-name').value = '';
     document.getElementById('med-dosage').value = '';
     document.getElementById('med-archived').checked = false;
-    supplementInput.checked = false;
+    document.getElementById('med-supplement').checked = false;
     document.getElementById('med-rx-display').style.display = 'none';
     // showAddModal updates
     document.getElementById('med-start-date').value = '';
@@ -978,13 +977,12 @@ function showEditModal(id) {
     if (!med) return;
 
     window.ModalManager.med.open();
-    const supplementInput = ensureSupplementCheckbox();
 
     // Fill inputs
     document.getElementById('med-name').value = med.name;
     document.getElementById('med-dosage').value = med.dosage;
     document.getElementById('med-archived').checked = med.archived || false;
-    supplementInput.checked = med.supplement || false;
+    document.getElementById('med-supplement').checked = med.supplement || false;
 
     // Show RxNorm
     const rxDisplay = document.getElementById('med-rx-display');
@@ -1648,12 +1646,11 @@ function populateMedFilter() {
 }
 
 async function saveMedication() {
-    const supplementInput = ensureSupplementCheckbox();
     const name = document.getElementById('med-name').value;
     const dosage = document.getElementById('med-dosage').value;
     const type = document.getElementById('schedule-type').value;
     const archived = document.getElementById('med-archived').checked;
-    const supplement = supplementInput.checked;
+    const supplement = document.getElementById('med-supplement').checked;
 
     const startDateRaw = document.getElementById('med-start-date').value;
     const endDateRaw = document.getElementById('med-end-date').value;
@@ -1723,35 +1720,6 @@ async function saveMedication() {
         closeModal();
         loadMeds();
     });
-}
-
-function ensureSupplementCheckbox() {
-    let input = document.getElementById('med-supplement');
-    if (input) return input;
-
-    const medModal = document.getElementById('med-modal');
-    const archivedRow = document.getElementById('med-archived')?.closest('.form-row');
-    if (!medModal || !archivedRow) {
-        // Hard fallback: return a detached unchecked checkbox-like object shape.
-        return { checked: false };
-    }
-
-    const row = document.createElement('div');
-    row.className = 'form-row';
-
-    const label = document.createElement('label');
-    label.className = 'checkbox-label';
-
-    input = document.createElement('input');
-    input.type = 'checkbox';
-    input.id = 'med-supplement';
-
-    label.appendChild(input);
-    label.appendChild(document.createTextNode(' Supplement (optional, can be skipped in Telegram)'));
-    row.appendChild(label);
-
-    archivedRow.insertAdjacentElement('afterend', row);
-    return input;
 }
 
 async function deleteMed(id) {
