@@ -84,9 +84,10 @@ func TestHandleCreateMedication(t *testing.T) {
 	defer db.Close()
 
 	reqBody := map[string]interface{}{
-		"name":     "Test Med",
-		"dosage":   "500mg",
-		"schedule": "Every day",
+		"name":       "Test Med",
+		"dosage":     "500mg",
+		"schedule":   "Every day",
+		"supplement": true,
 	}
 	body, _ := json.Marshal(reqBody)
 
@@ -116,6 +117,9 @@ func TestHandleCreateMedication(t *testing.T) {
 	if meds[0].Name != "Test Med" {
 		t.Errorf("Expected medication name 'Test Med', got %s", meds[0].Name)
 	}
+	if !meds[0].Supplement {
+		t.Errorf("Expected supplement=true, got false")
+	}
 }
 
 func TestHandleCreateMedication_InvalidJSON(t *testing.T) {
@@ -141,10 +145,11 @@ func TestHandleUpdateMedication(t *testing.T) {
 
 	// Test: Update it
 	reqBody := map[string]interface{}{
-		"name":     "New Name",
-		"dosage":   "20mg",
-		"schedule": "Wait",
-		"archived": false,
+		"name":       "New Name",
+		"dosage":     "20mg",
+		"schedule":   "Wait",
+		"archived":   false,
+		"supplement": true,
 	}
 	body, _ := json.Marshal(reqBody)
 
@@ -167,6 +172,9 @@ func TestHandleUpdateMedication(t *testing.T) {
 	}
 	if med.Dosage != "20mg" {
 		t.Errorf("Expected dosage '20mg', got '%s'", med.Dosage)
+	}
+	if !med.Supplement {
+		t.Errorf("Expected supplement=true after update, got false")
 	}
 }
 

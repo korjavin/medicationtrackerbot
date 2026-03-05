@@ -305,6 +305,52 @@ func TestCheckSchedule_MultipleMeds_GroupedNotification(t *testing.T) {
 	}
 }
 
+func TestCheckSchedule_SupplementHasSkipAction(t *testing.T) {
+	sched, db, mock := setupTestSchedulerWithMock(t)
+
+	pastTime := time.Now().Add(-1 * time.Hour).Format("15:04")
+	schedule := `{"type":"daily","times":["` + pastTime + `"]}`
+	medID, err := db.CreateMedication("Magnesium", "200mg", schedule, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+	if err := db.SetMedicationSupplement(medID, true); err != nil {
+		t.Fatalf("SetMedicationSupplement: %v", err)
+	}
+
+	err = sched.MedicationChecker.Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+
+	if !mock.waitForSendCalls(1, 2*time.Second) {
+		t.Fatal("timed out waiting for send call")
+	}
+
+	calls := mock.getSendCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(calls))
+	}
+
+	n := calls[0].Notification
+	hasTake := false
+	hasSkip := false
+	for _, action := range n.Actions {
+		if strings.HasPrefix(action.ID, "confirm_intake:") {
+			hasTake = true
+		}
+		if strings.HasPrefix(action.ID, "skip_intake:") {
+			hasSkip = true
+		}
+	}
+	if !hasTake {
+		t.Fatal("expected confirm_intake action for supplement")
+	}
+	if !hasSkip {
+		t.Fatal("expected skip_intake action for supplement")
+	}
+}
+
 // --- MedicationReminderChecker with mock notifier ---
 
 func TestCheckReminders_SendsReminderForOldPending(t *testing.T) {
@@ -352,6 +398,59 @@ func TestCheckReminders_SendsReminderForOldPending(t *testing.T) {
 	}
 	if n.Metadata["type"] != "medication_reminder" {
 		t.Errorf("metadata type = %v, want medication_reminder", n.Metadata["type"])
+	}
+}
+
+func TestCheckReminders_SupplementHasSkipAction(t *testing.T) {
+	sched, db, mock := setupTestSchedulerWithMock(t)
+
+	pastTime := time.Now().Add(-2 * time.Hour)
+	timeStr := pastTime.Format("15:04")
+	schedule := `{"type":"daily","times":["` + timeStr + `"]}`
+	medID, err := db.CreateMedication("Vitamin D", "1000IU", schedule, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+	if err := db.SetMedicationSupplement(medID, true); err != nil {
+		t.Fatalf("SetMedicationSupplement: %v", err)
+	}
+
+	now := time.Now()
+	target := time.Date(now.Year(), now.Month(), now.Day(),
+		pastTime.Hour(), pastTime.Minute(), 0, 0, now.Location())
+	_, err = db.CreateIntake(medID, 123456, target)
+	if err != nil {
+		t.Fatalf("CreateIntake: %v", err)
+	}
+
+	err = sched.MedicationReminderChecker.Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+
+	if !mock.waitForSendCalls(1, 2*time.Second) {
+		t.Fatal("timed out waiting for reminder send call")
+	}
+
+	calls := mock.getSendCalls()
+	n := calls[0].Notification
+
+	hasConfirm := false
+	hasSkip := false
+	for _, action := range n.Actions {
+		if strings.HasPrefix(action.ID, "confirm_intake:") {
+			hasConfirm = true
+		}
+		if strings.HasPrefix(action.ID, "skip_intake:") {
+			hasSkip = true
+		}
+	}
+
+	if !hasConfirm {
+		t.Fatal("expected confirm_intake action in reminder")
+	}
+	if !hasSkip {
+		t.Fatal("expected skip_intake action in reminder for supplement")
 	}
 }
 

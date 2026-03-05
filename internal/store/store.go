@@ -34,6 +34,7 @@ type Medication struct {
 	Dosage         string     `json:"dosage"`
 	Schedule       string     `json:"schedule"` // e.g. "09:00" or JSON
 	Archived       bool       `json:"archived"`
+	Supplement     bool       `json:"supplement"`
 	StartDate      *time.Time `json:"start_date"`
 	EndDate        *time.Time `json:"end_date"`
 	LastTakenAt    *time.Time `json:"last_taken_at"`
@@ -72,7 +73,7 @@ type IntakeLog struct {
 	UserID       int64      `json:"user_id"`
 	ScheduledAt  time.Time  `json:"scheduled_at"`
 	TakenAt      *time.Time `json:"taken_at,omitempty"`
-	Status       string     `json:"status"` // PENDING, TAKEN, MISSED
+	Status       string     `json:"status"` // PENDING, TAKEN, SKIPPED, MISSED
 }
 
 type IntakeWithMedication struct {
@@ -216,7 +217,7 @@ func (s *Store) CreateMedication(name, dosage, schedule string, startDate, endDa
 func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 	query := `
 		SELECT 
-			m.id, m.name, m.dosage, m.schedule, m.archived, m.start_date, m.end_date, m.created_at, m.rxcui, m.normalized_name, m.inventory_count,
+			m.id, m.name, m.dosage, m.schedule, m.archived, m.supplement, m.start_date, m.end_date, m.created_at, m.rxcui, m.normalized_name, m.inventory_count,
 			MAX(CASE WHEN l.status = 'TAKEN' THEN l.taken_at ELSE NULL END) as last_taken
 		FROM medications m
 		LEFT JOIN intake_log l ON m.id = l.medication_id
@@ -240,7 +241,7 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 		var rxcui, normalizedName sql.NullString
 		var inventoryCount sql.NullInt64
 
-		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount, &lastTaken); err != nil {
+		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.Supplement, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount, &lastTaken); err != nil {
 			return nil, err
 		}
 
@@ -279,8 +280,8 @@ func (s *Store) GetMedication(id int64) (*Medication, error) {
 	var m Medication
 	var rxcui, normalizedName sql.NullString
 	var inventoryCount sql.NullInt64
-	err := s.db.QueryRow("SELECT id, name, dosage, schedule, archived, start_date, end_date, created_at, rxcui, normalized_name, inventory_count FROM medications WHERE id = ?", id).Scan(
-		&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount,
+	err := s.db.QueryRow("SELECT id, name, dosage, schedule, archived, supplement, start_date, end_date, created_at, rxcui, normalized_name, inventory_count FROM medications WHERE id = ?", id).Scan(
+		&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.Supplement, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil // Not found
@@ -311,6 +312,11 @@ func (s *Store) UpdateMedication(id int64, name, dosage, schedule string, archiv
 
 func (s *Store) DeleteMedication(id int64) error {
 	_, err := s.db.Exec("DELETE FROM medications WHERE id = ?", id)
+	return err
+}
+
+func (s *Store) SetMedicationSupplement(id int64, supplement bool) error {
+	_, err := s.db.Exec("UPDATE medications SET supplement = ? WHERE id = ?", supplement, id)
 	return err
 }
 
@@ -512,6 +518,11 @@ func (s *Store) CreateManualIntake(medID, userID int64, takenAt time.Time) (int6
 
 func (s *Store) ConfirmIntake(id int64, takenAt time.Time) error {
 	_, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at = ? WHERE id = ?", takenAt, id)
+	return err
+}
+
+func (s *Store) SkipIntake(id int64) error {
+	_, err := s.db.Exec("UPDATE intake_log SET status = 'SKIPPED', taken_at = NULL WHERE id = ?", id)
 	return err
 }
 

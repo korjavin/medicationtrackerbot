@@ -37,11 +37,19 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 				med.Name, med.Dosage, scheduledAt.Format("15:04"))
 
 			intakeID := p.ID
+			actions := []notifier.Action{
+				{ID: "confirm_intake:" + strconv.FormatInt(p.ID, 10), Label: "✅ Confirm Intake"},
+			}
+			if med.Supplement {
+				actions = append(actions, notifier.Action{
+					ID:    "skip_intake:" + strconv.FormatInt(p.ID, 10),
+					Label: "⏭ Skip",
+				})
+			}
+
 			n := notifier.Notification{
-				Text: text,
-				Actions: []notifier.Action{
-					{ID: "confirm_intake:" + strconv.FormatInt(p.ID, 10), Label: "✅ Confirm Intake"},
-				},
+				Text:    text,
+				Actions: actions,
 				Tag: fmt.Sprintf("medication-reminder-%d", p.ID),
 				Metadata: map[string]interface{}{
 					"type":      "medication_reminder",

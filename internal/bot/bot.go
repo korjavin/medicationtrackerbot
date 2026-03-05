@@ -354,7 +354,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	}
 
 	data := cb.Data
-	// data format: "confirm_intake:<intakeID>", "confirm:<medID>", "confirm_schedule:<unix>", or "log:<medID>"
+	// data format: "confirm_intake:<intakeID>", "skip_intake:<intakeID>", "confirm:<medID>", "confirm_schedule:<unix>", or "log:<medID>"
 	if strings.HasPrefix(data, "confirm_intake:") {
 		intakeIDStr := strings.TrimPrefix(data, "confirm_intake:")
 		intakeID, _ := strconv.ParseInt(intakeIDStr, 10, 64)
@@ -394,10 +394,68 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			log.Printf("Error decrementing inventory: %v", err)
 		}
 
-		// Remove only the pressed button from the current message.
-		b.removeButtonFromCallbackMessage(cb, data)
+		// For supplements, remove both Take and Skip buttons for this intake.
+		callbacksToRemove := []string{data}
+		if med, err := b.meds.GetMedication(intake.MedicationID); err == nil && med != nil && med.Supplement {
+			callbacksToRemove = append(callbacksToRemove, "skip_intake:"+strconv.FormatInt(intakeID, 10))
+		}
+		b.removeButtonsFromCallbackMessage(cb, callbacksToRemove...)
 
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ Marked as taken.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
+		}
+	} else if strings.HasPrefix(data, "skip_intake:") {
+		intakeIDStr := strings.TrimPrefix(data, "skip_intake:")
+		intakeID, _ := strconv.ParseInt(intakeIDStr, 10, 64)
+		if intakeID == 0 {
+			return
+		}
+
+		intake, err := b.meds.GetIntake(intakeID)
+		if err != nil {
+			log.Printf("Error getting intake %d: %v", intakeID, err)
+			return
+		}
+		if intake == nil || intake.Status != "PENDING" {
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already processed).")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
+			return
+		}
+
+		med, err := b.meds.GetMedication(intake.MedicationID)
+		if err != nil {
+			log.Printf("Error getting medication %d: %v", intake.MedicationID, err)
+			return
+		}
+		if med == nil || !med.Supplement {
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ Skip is available only for supplements.")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
+			return
+		}
+
+		// Clean up reminders for this exact intake.
+		reminders, _ := b.meds.GetIntakeReminders(intakeID)
+		for _, msgID := range reminders {
+			if msgID != cb.Message.MessageID {
+				if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
+					log.Printf("[bot] send failed: %v", err)
+				}
+			}
+		}
+
+		if err := b.meds.SkipIntake(intakeID); err != nil {
+			log.Printf("Error skipping intake %d: %v", intakeID, err)
+			return
+		}
+
+		b.removeButtonsFromCallbackMessage(cb,
+			"confirm_intake:"+strconv.FormatInt(intakeID, 10),
+			"skip_intake:"+strconv.FormatInt(intakeID, 10),
+		)
+
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⏭ Marked as skipped.")); err != nil {
 			log.Printf("[bot] send failed: %v", err)
 		}
 	} else if len(data) > 8 && data[:8] == "confirm:" {
@@ -1465,7 +1523,22 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 }
 
 func (b *Bot) removeButtonFromCallbackMessage(cb *tgbotapi.CallbackQuery, callbackData string) {
+	b.removeButtonsFromCallbackMessage(cb, callbackData)
+}
+
+func (b *Bot) removeButtonsFromCallbackMessage(cb *tgbotapi.CallbackQuery, callbackData ...string) {
 	if cb == nil || cb.Message == nil || cb.Message.Chat == nil {
+		return
+	}
+
+	toRemove := make(map[string]struct{}, len(callbackData))
+	for _, cbData := range callbackData {
+		if cbData == "" {
+			continue
+		}
+		toRemove[cbData] = struct{}{}
+	}
+	if len(toRemove) == 0 {
 		return
 	}
 
@@ -1485,8 +1558,10 @@ func (b *Bot) removeButtonFromCallbackMessage(cb *tgbotapi.CallbackQuery, callba
 	for _, row := range current {
 		filtered := make([]tgbotapi.InlineKeyboardButton, 0, len(row))
 		for _, btn := range row {
-			if btn.CallbackData != nil && *btn.CallbackData == callbackData {
-				continue
+			if btn.CallbackData != nil {
+				if _, shouldRemove := toRemove[*btn.CallbackData]; shouldRemove {
+					continue
+				}
 			}
 			filtered = append(filtered, btn)
 		}
