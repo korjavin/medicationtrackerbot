@@ -441,6 +441,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	} else if len(data) > 8 && data[:8] == "confirm:" {
 		medIDStr := data[8:]
 		medID, _ := strconv.ParseInt(medIDStr, 10, 64)
+		if medID == 0 {
+			return
+		}
 
 		reminders, _, err := b.medSvc.ConfirmMedicationByMedID(context.Background(), medID, time.Now())
 		if err != nil {
@@ -471,6 +474,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	} else if len(data) > 4 && data[:4] == "log:" {
 		medIDStr := data[4:]
 		medID, _ := strconv.ParseInt(medIDStr, 10, 64)
+		if medID == 0 {
+			return
+		}
 
 		if err := b.medSvc.LogMedicationNow(context.Background(), b.allowedUserID, medID); err != nil {
 			log.Printf("Error logging medication now: %v", err)
