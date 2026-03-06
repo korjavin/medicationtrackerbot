@@ -1316,6 +1316,12 @@ func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if s.workout != nil {
+		if err := s.workout.CleanupWorkoutSessionMessages(id); err != nil {
+			log.Printf("Failed to cleanup workout messages for session %d: %v", id, err)
+		}
+	}
+
 	if session.NotificationMessageID != nil {
 		s.deleteNotification(r.Context(), *session.NotificationMessageID)
 	}
@@ -1360,6 +1366,9 @@ func (s *Server) handleStartWorkoutSession(w http.ResponseWriter, r *http.Reques
 				}
 				// Keep UX consistent with Telegram-start flow: remove original notification card.
 				s.deleteNotification(context.Background(), *session.NotificationMessageID)
+			}
+			if err := s.workout.CleanupWorkoutSessionMessages(id); err != nil {
+				log.Printf("Failed to cleanup stale workout messages for session %d: %v", id, err)
 			}
 
 			if err := s.workout.StartWorkoutFlowFromWeb(id); err != nil {
@@ -1432,8 +1441,15 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 	}
 
 	// If skipped or completed, try to delete the notification message
-	if (req.Status == "skipped" || req.Status == "completed") && session.NotificationMessageID != nil {
-		s.deleteNotification(r.Context(), *session.NotificationMessageID)
+	if req.Status == "skipped" || req.Status == "completed" {
+		if s.workout != nil {
+			if err := s.workout.CleanupWorkoutSessionMessages(id); err != nil {
+				log.Printf("Failed to cleanup workout messages for session %d: %v", id, err)
+			}
+		}
+		if session.NotificationMessageID != nil {
+			s.deleteNotification(r.Context(), *session.NotificationMessageID)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)

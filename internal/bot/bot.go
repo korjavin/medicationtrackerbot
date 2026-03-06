@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -27,6 +28,9 @@ type Bot struct {
 	imports       ImportStore
 	allowedUserID int64
 	appDomain     string
+
+	workoutMessagesMu sync.Mutex
+	workoutMessages   map[int64]map[int]struct{}
 }
 
 type featureFlags struct {
@@ -689,6 +693,9 @@ func (b *Bot) SendWorkoutStaleNotification(text string, sessionID int64) (int, e
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(row)
 
 	sentMsg, err := b.api.Send(msg)
+	if err == nil {
+		b.trackWorkoutMessage(sessionID, sentMsg.MessageID)
+	}
 	return sentMsg.MessageID, err
 }
 
@@ -712,6 +719,11 @@ func (b *Bot) SendMarkdownNotification(text string, actions []struct{ ID, Label 
 	if err != nil {
 		return 0, err
 	}
+	for _, a := range actions {
+		if sessionID, ok := extractWorkoutSessionID(a.ID); ok {
+			b.trackWorkoutMessage(sessionID, sentMsg.MessageID)
+		}
+	}
 	return sentMsg.MessageID, nil
 }
 
@@ -720,6 +732,76 @@ func (b *Bot) DeleteMessage(messageID int) error {
 	deleteMsg := tgbotapi.NewDeleteMessage(b.allowedUserID, messageID)
 	_, err := b.api.Request(deleteMsg)
 	return err
+}
+
+func (b *Bot) trackWorkoutMessage(sessionID int64, messageID int) {
+	if sessionID == 0 || messageID == 0 {
+		return
+	}
+
+	b.workoutMessagesMu.Lock()
+	defer b.workoutMessagesMu.Unlock()
+
+	if b.workoutMessages == nil {
+		b.workoutMessages = make(map[int64]map[int]struct{})
+	}
+	if _, ok := b.workoutMessages[sessionID]; !ok {
+		b.workoutMessages[sessionID] = make(map[int]struct{})
+	}
+	b.workoutMessages[sessionID][messageID] = struct{}{}
+}
+
+func (b *Bot) consumeTrackedWorkoutMessages(sessionID int64) []int {
+	if sessionID == 0 {
+		return nil
+	}
+
+	b.workoutMessagesMu.Lock()
+	defer b.workoutMessagesMu.Unlock()
+
+	msgSet, ok := b.workoutMessages[sessionID]
+	if !ok {
+		return nil
+	}
+
+	msgIDs := make([]int, 0, len(msgSet))
+	for msgID := range msgSet {
+		msgIDs = append(msgIDs, msgID)
+	}
+	delete(b.workoutMessages, sessionID)
+	return msgIDs
+}
+
+func extractWorkoutSessionID(actionID string) (int64, bool) {
+	switch {
+	case strings.HasPrefix(actionID, "workout_start_"),
+		strings.HasPrefix(actionID, "workout_snooze1_"),
+		strings.HasPrefix(actionID, "workout_snooze2_"),
+		strings.HasPrefix(actionID, "workout_skip_"),
+		strings.HasPrefix(actionID, "workout_finish_"),
+		strings.HasPrefix(actionID, "add_exercise_"):
+		parts := strings.Split(actionID, "_")
+		if len(parts) == 0 {
+			return 0, false
+		}
+		idStr := parts[len(parts)-1]
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || id == 0 {
+			return 0, false
+		}
+		return id, true
+	default:
+		return 0, false
+	}
+}
+
+// CleanupWorkoutSessionMessages removes tracked Telegram messages for the given workout session.
+func (b *Bot) CleanupWorkoutSessionMessages(sessionID int64) error {
+	msgIDs := b.consumeTrackedWorkoutMessages(sessionID)
+	for _, msgID := range msgIDs {
+		_ = b.DeleteMessage(msgID)
+	}
+	return nil
 }
 
 func (b *Bot) SendGroupNotification(meds []store.Medication, intakeByMedication map[int64]int64, target time.Time) (int, error) {
