@@ -15,6 +15,7 @@ type mockMedicationStore struct {
 	getIntakeFn                   func(id int64) (*store.IntakeLog, error)
 	getMedicationFn               func(id int64) (*store.Medication, error)
 	getIntakeRemindersFn          func(intakeID int64) ([]int, error)
+	getPendingIntakesFn           func() ([]store.IntakeLog, error)
 	getPendingIntakesByScheduleFn func(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
 	confirmIntakeFn               func(id int64, takenAt time.Time) error
 	confirmIntakesByScheduleFn    func(userID int64, scheduledAt time.Time, takenAt time.Time) error
@@ -40,6 +41,13 @@ func (m *mockMedicationStore) GetMedication(id int64) (*store.Medication, error)
 func (m *mockMedicationStore) GetIntakeReminders(intakeID int64) ([]int, error) {
 	if m.getIntakeRemindersFn != nil {
 		return m.getIntakeRemindersFn(intakeID)
+	}
+	return nil, nil
+}
+
+func (m *mockMedicationStore) GetPendingIntakes() ([]store.IntakeLog, error) {
+	if m.getPendingIntakesFn != nil {
+		return m.getPendingIntakesFn()
 	}
 	return nil, nil
 }
@@ -447,6 +455,106 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 			svc := NewMedicationService(tt.store)
 			ids, err := svc.ConfirmScheduleWithCleanup(ctx, 1, scheduledAt)
 
+			if tt.wantErrContains != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Errorf("want error containing %q, got %v", tt.wantErrContains, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !equalIntSlice(ids, tt.wantReminderIDs) {
+				t.Errorf("reminder IDs: got %v, want %v", ids, tt.wantReminderIDs)
+			}
+		})
+	}
+}
+
+func TestConfirmMedicationByMedID(t *testing.T) {
+	ctx := context.Background()
+	takenAt := time.Now()
+
+	tests := []struct {
+		name            string
+		store           *mockMedicationStore
+		medID           int64
+		wantReminderIDs []int
+		wantErr         error
+		wantErrContains string
+	}{
+		{
+			name:  "no pending intake returns ErrNotPending",
+			medID: 42,
+			store: &mockMedicationStore{
+				getPendingIntakesFn: func() ([]store.IntakeLog, error) {
+					return []store.IntakeLog{}, nil
+				},
+			},
+			wantErr: ErrNotPending,
+		},
+		{
+			name:  "store error propagated",
+			medID: 42,
+			store: &mockMedicationStore{
+				getPendingIntakesFn: func() ([]store.IntakeLog, error) {
+					return nil, errors.New("db error")
+				},
+			},
+			wantErrContains: "db error",
+		},
+		{
+			name:  "pending intake found and confirmed",
+			medID: 10,
+			store: &mockMedicationStore{
+				getPendingIntakesFn: func() ([]store.IntakeLog, error) {
+					return []store.IntakeLog{
+						{ID: 5, MedicationID: 10, UserID: 1, Status: "PENDING"},
+					}, nil
+				},
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) {
+					if id == 5 {
+						return &store.IntakeLog{ID: 5, MedicationID: 10, UserID: 1, Status: "PENDING"}, nil
+					}
+					return nil, nil
+				},
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) {
+					return []int{101, 102}, nil
+				},
+			},
+			wantReminderIDs: []int{101, 102},
+		},
+		{
+			name:  "first pending intake used when multiple exist",
+			medID: 10,
+			store: &mockMedicationStore{
+				getPendingIntakesFn: func() ([]store.IntakeLog, error) {
+					return []store.IntakeLog{
+						{ID: 5, MedicationID: 10, UserID: 1, Status: "PENDING"},
+						{ID: 6, MedicationID: 10, UserID: 1, Status: "PENDING"},
+					}, nil
+				},
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) {
+					return &store.IntakeLog{ID: id, MedicationID: 10, UserID: 1, Status: "PENDING"}, nil
+				},
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) {
+					return []int{200}, nil
+				},
+			},
+			wantReminderIDs: []int{200},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewMedicationService(tt.store)
+			ids, _, err := svc.ConfirmMedicationByMedID(ctx, tt.medID, takenAt)
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("want error %v, got %v", tt.wantErr, err)
+				}
+				return
+			}
 			if tt.wantErrContains != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
 					t.Errorf("want error containing %q, got %v", tt.wantErrContains, err)

@@ -224,15 +224,17 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
 
 	case "edit":
-		_, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID,
-			"To edit, please use the web interface for now. Click 'Menu' to open the app."))
-		if err != nil {
-			log.Printf("Failed to send edit message: %v", err)
-		}
-
 		if err := b.exerciseSvc.LogExercise(ctx, sessionID, exerciseID, "completed"); err != nil {
 			log.Printf("Failed to log exercise (edit): %v", err)
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise.")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 			return
+		}
+
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID,
+			"To edit, please use the web interface for now. Click 'Menu' to open the app.")); err != nil {
+			log.Printf("Failed to send edit message: %v", err)
 		}
 
 		editText := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,

@@ -442,53 +442,31 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		medIDStr := data[8:]
 		medID, _ := strconv.ParseInt(medIDStr, 10, 64)
 
-		// Find pending intake by med ID to get the intake ID.
-		pending, err := b.meds.GetPendingIntakes()
+		reminders, _, err := b.medSvc.ConfirmMedicationByMedID(context.Background(), medID, time.Now())
 		if err != nil {
-			log.Printf("Error getting pending: %v", err)
+			if errors.Is(err, domain.ErrNotPending) {
+				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
+					log.Printf("[bot] send failed: %v", err)
+				}
+				return
+			}
+			log.Printf("Error confirming intake for med %d: %v", medID, err)
 			return
 		}
 
-		var logID int64
-		for _, p := range pending {
-			if p.MedicationID == medID {
-				logID = p.ID
-				break
+		for _, msgID := range reminders {
+			if msgID != cb.Message.MessageID {
+				if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
+					log.Printf("[bot] send failed: %v", err)
+				}
 			}
 		}
 
-		if logID != 0 {
-			reminders, _, err := b.medSvc.ConfirmIntakeWithCleanup(context.Background(), logID, time.Now())
-			if err != nil {
-				if errors.Is(err, domain.ErrNotPending) {
-					if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
-						log.Printf("[bot] send failed: %v", err)
-					}
-					return
-				}
-				log.Printf("Error confirming intake %d: %v", logID, err)
-				return
-			}
+		// Legacy callback path: only remove the pressed button.
+		b.removeButtonFromCallbackMessage(cb, data)
 
-			for _, msgID := range reminders {
-				if msgID != cb.Message.MessageID {
-					if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
-						log.Printf("[bot] send failed: %v", err)
-					}
-				}
-			}
-
-			// Legacy callback path: only remove the pressed button.
-			b.removeButtonFromCallbackMessage(cb, data)
-
-			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ Marked as taken.")); err != nil {
-				log.Printf("[bot] send failed: %v", err)
-			}
-		} else {
-			// Maybe it was already taken?
-			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
-				log.Printf("[bot] send failed: %v", err)
-			}
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ Marked as taken.")); err != nil {
+			log.Printf("[bot] send failed: %v", err)
 		}
 	} else if len(data) > 4 && data[:4] == "log:" {
 		medIDStr := data[4:]
@@ -614,7 +592,6 @@ func (b *Bot) SendNotification(text string, intakeID int64, medicationID int64) 
 	return sentMsg.MessageID, err
 }
 
-// SendSimpleNotification sends a notification with custom buttons
 // SendSimpleNotification sends a notification with custom buttons
 func (b *Bot) SendSimpleNotification(text string, buttons []tgbotapi.InlineKeyboardButton) (int, error) {
 	msg := tgbotapi.NewMessage(b.allowedUserID, text)
