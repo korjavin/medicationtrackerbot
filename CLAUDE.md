@@ -95,7 +95,9 @@ User
 **Core Packages** (`internal/`):
 - `store/` - Database layer (SQLite repository, migrations)
 - `server/` - HTTP handlers for REST API
-- `bot/` - Telegram bot logic (commands, callbacks, notifications)
+- `bot/` - Telegram bot logic (commands, callbacks, notifications) — thin channel layer only
+- `domain/` - Business logic services: `medication.go`, `exercise.go`, `reminder.go`, `food.go`
+- `workout/` - Workout session management service (`service.go`)
 - `scheduler/` - Notification scheduling (medications, workouts, BP/weight reminders)
 - `mcp/` - Model Context Protocol server implementation
 - `rxnorm/` - Drug interaction checking via NLM API
@@ -138,6 +140,27 @@ SQLite with 27 goose migrations tracking schema evolution:
 **Optional Google OIDC**:
 - For browser access outside Telegram
 - Configured via `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ADMIN_EMAIL`
+
+## Domain Service Pattern
+
+The bot (`internal/bot/`) is a thin communication channel — it parses Telegram-specific data and sends/deletes messages. All business decisions live in `internal/domain/`:
+
+- `domain/medication.go` — `MedicationService`: confirm/skip/log medication intakes, batch confirm a time slot
+- `domain/exercise.go` — `ExerciseService`: idempotent exercise log upsert, session completion check
+- `domain/reminder.go` — `ReminderService`: snooze/block BP and weight reminders
+- `domain/food.go` — food intake argument parsing and macro calculation
+
+Each service follows the pattern from `internal/workout/service.go`:
+```go
+type FooStore interface { /* minimal store methods needed */ }
+type FooService interface { /* domain operations */ }
+type fooService struct { store FooStore }
+func NewFooService(s FooStore) FooService { return &fooService{store: s} }
+```
+
+Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.ExerciseService`, `reminderSvc domain.ReminderService`, `workoutSvc workoutsvc.WorkoutService`.
+
+**Rule**: bot callbacks may only call domain service methods and Telegram API methods. No direct store calls for business decisions.
 
 ## Feature Implementation Patterns
 
