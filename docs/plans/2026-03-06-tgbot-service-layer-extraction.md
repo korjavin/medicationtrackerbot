@@ -134,13 +134,13 @@ Steps:
 
 Extract BP/weight reminder management from `internal/bot/bp_callbacks.go` and `internal/bot/weight_callbacks.go`:
 
-- [ ] Create `internal/domain/reminder.go` with `ReminderService` interface and struct
-- [ ] Implement `SnoozeBPReminder(ctx, userID) error`
-- [ ] Implement `BlockBPReminders(ctx, userID) error`
-- [ ] Implement `SnoozeWeightReminder(ctx, userID) error`
-- [ ] Implement `BlockWeightReminders(ctx, userID) error`
-- [ ] Create `internal/domain/reminder_test.go` with tests (these are thin wrappers, test store delegation and error propagation)
-- [ ] Run `go test ./internal/domain/...` — must pass before task 7
+- [x] Create `internal/domain/reminder.go` with `ReminderService` interface and struct
+- [x] Implement `SnoozeBPReminder(ctx, userID) error`
+- [x] Implement `BlockBPReminders(ctx, userID) error`
+- [x] Implement `SnoozeWeightReminder(ctx, userID) error`
+- [x] Implement `BlockWeightReminders(ctx, userID) error`
+- [x] Create `internal/domain/reminder_test.go` with tests (these are thin wrappers, test store delegation and error propagation)
+- [x] Run `go test ./internal/domain/...` — must pass before task 7
 
 ---
 
