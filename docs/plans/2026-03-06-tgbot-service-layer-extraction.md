@@ -158,9 +158,9 @@ Extract BP/weight reminder management from `internal/bot/bp_callbacks.go` and `i
 
 ### Task 8: Verify `internal/bot/food_commands.go` already uses domain
 
-- [ ] Read `food_commands.go` — verify it already calls `domain.ParseIntakeArgs()` and `domain.CalculateMacros()`
-- [ ] If any inline logic remains, extract it to `internal/domain/food.go`
-- [ ] Run `go test ./internal/bot/...`
+- [x] Read `food_commands.go` — verify it already calls `domain.ParseIntakeArgs()` and `domain.CalculateMacros()`
+- [x] If any inline logic remains, extract it to `internal/domain/food.go`
+- [x] Run `go test ./internal/bot/...`
 
 ---
 
