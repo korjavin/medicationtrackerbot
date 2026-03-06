@@ -71,16 +71,16 @@ Extract all medication business logic from `internal/bot/bot.go` callbacks:
 - `confirm_schedule:<timestamp>` (lines ~579-599)
 
 Steps:
-- [ ] Create `internal/domain/medication.go` with `MedicationService` interface and `medicationService` struct
-- [ ] Implement `ConfirmIntakeWithCleanup(ctx, intakeID, takenAt) (reminderMsgIDs []int, err error)` — get intake, validate PENDING, get reminders, confirm, decrement inventory
-- [ ] Implement `SkipSupplementIntake(ctx, intakeID) (reminderMsgIDs []int, err error)` — validate supplement type before skipping
-- [ ] Implement `LogMedicationNow(ctx, userID, medID) error` — create intake + immediately confirm + decrement inventory
-- [ ] Implement `ConfirmScheduleWithCleanup(ctx, userID, scheduledAt) (reminderMsgIDs []int, err error)` — batch confirm for time slot
-- [ ] Create `internal/domain/medication_test.go` with table-driven tests using mock store
-- [ ] Write tests for `ConfirmIntakeWithCleanup`: pending intake, already-taken intake, missing intake
-- [ ] Write tests for `SkipSupplementIntake`: supplement ok, non-supplement rejected
-- [ ] Write tests for `ConfirmScheduleWithCleanup`: multiple intakes, empty slot
-- [ ] Run `go test ./internal/domain/...` — must pass before task 3
+- [x] Create `internal/domain/medication.go` with `MedicationService` interface and `medicationService` struct
+- [x] Implement `ConfirmIntakeWithCleanup(ctx, intakeID, takenAt) (reminderMsgIDs []int, err error)` — get intake, validate PENDING, get reminders, confirm, decrement inventory
+- [x] Implement `SkipSupplementIntake(ctx, intakeID) (reminderMsgIDs []int, err error)` — validate supplement type before skipping
+- [x] Implement `LogMedicationNow(ctx, userID, medID) error` — create intake + immediately confirm + decrement inventory
+- [x] Implement `ConfirmScheduleWithCleanup(ctx, userID, scheduledAt) (reminderMsgIDs []int, err error)` — batch confirm for time slot
+- [x] Create `internal/domain/medication_test.go` with table-driven tests using mock store
+- [x] Write tests for `ConfirmIntakeWithCleanup`: pending intake, already-taken intake, missing intake
+- [x] Write tests for `SkipSupplementIntake`: supplement ok, non-supplement rejected
+- [x] Write tests for `ConfirmScheduleWithCleanup`: multiple intakes, empty slot
+- [x] Run `go test ./internal/domain/...` — must pass before task 3
 
 ---
 

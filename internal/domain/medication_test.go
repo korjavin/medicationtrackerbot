@@ -1,0 +1,452 @@
+package domain
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/store"
+)
+
+// mockMedicationStore implements MedicationStore for testing.
+type mockMedicationStore struct {
+	getIntakeFn                   func(id int64) (*store.IntakeLog, error)
+	getMedicationFn               func(id int64) (*store.Medication, error)
+	getIntakeRemindersFn          func(intakeID int64) ([]int, error)
+	getPendingIntakesByScheduleFn func(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
+	confirmIntakeFn               func(id int64, takenAt time.Time) error
+	confirmIntakesByScheduleFn    func(userID int64, scheduledAt time.Time, takenAt time.Time) error
+	skipIntakeFn                  func(id int64) error
+	createIntakeFn                func(medID, userID int64, scheduledAt time.Time) (int64, error)
+	decrementInventoryFn          func(medID int64, qty int) error
+}
+
+func (m *mockMedicationStore) GetIntake(id int64) (*store.IntakeLog, error) {
+	if m.getIntakeFn != nil {
+		return m.getIntakeFn(id)
+	}
+	return nil, nil
+}
+
+func (m *mockMedicationStore) GetMedication(id int64) (*store.Medication, error) {
+	if m.getMedicationFn != nil {
+		return m.getMedicationFn(id)
+	}
+	return nil, nil
+}
+
+func (m *mockMedicationStore) GetIntakeReminders(intakeID int64) ([]int, error) {
+	if m.getIntakeRemindersFn != nil {
+		return m.getIntakeRemindersFn(intakeID)
+	}
+	return nil, nil
+}
+
+func (m *mockMedicationStore) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error) {
+	if m.getPendingIntakesByScheduleFn != nil {
+		return m.getPendingIntakesByScheduleFn(userID, scheduledAt)
+	}
+	return nil, nil
+}
+
+func (m *mockMedicationStore) ConfirmIntake(id int64, takenAt time.Time) error {
+	if m.confirmIntakeFn != nil {
+		return m.confirmIntakeFn(id, takenAt)
+	}
+	return nil
+}
+
+func (m *mockMedicationStore) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) error {
+	if m.confirmIntakesByScheduleFn != nil {
+		return m.confirmIntakesByScheduleFn(userID, scheduledAt, takenAt)
+	}
+	return nil
+}
+
+func (m *mockMedicationStore) SkipIntake(id int64) error {
+	if m.skipIntakeFn != nil {
+		return m.skipIntakeFn(id)
+	}
+	return nil
+}
+
+func (m *mockMedicationStore) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
+	if m.createIntakeFn != nil {
+		return m.createIntakeFn(medID, userID, scheduledAt)
+	}
+	return 1, nil
+}
+
+func (m *mockMedicationStore) DecrementInventory(medID int64, qty int) error {
+	if m.decrementInventoryFn != nil {
+		return m.decrementInventoryFn(medID, qty)
+	}
+	return nil
+}
+
+// pendingIntake returns a helper PENDING IntakeLog.
+func pendingIntake(id, medID int64) *store.IntakeLog {
+	return &store.IntakeLog{ID: id, MedicationID: medID, UserID: 1, Status: "PENDING"}
+}
+
+func TestConfirmIntakeWithCleanup(t *testing.T) {
+	ctx := context.Background()
+	takenAt := time.Now()
+
+	tests := []struct {
+		name              string
+		store             *mockMedicationStore
+		intakeID          int64
+		wantReminderIDs   []int
+		wantErr           error
+		wantErrContains   string
+	}{
+		{
+			name: "pending intake returns reminder IDs",
+			store: &mockMedicationStore{
+				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return []int{101, 102}, nil },
+				confirmIntakeFn:      func(id int64, takenAt time.Time) error { return nil },
+				decrementInventoryFn: func(medID int64, qty int) error { return nil },
+			},
+			intakeID:        42,
+			wantReminderIDs: []int{101, 102},
+		},
+		{
+			name: "nil intake returns ErrNotPending",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) { return nil, nil },
+			},
+			intakeID: 42,
+			wantErr:  ErrNotPending,
+		},
+		{
+			name: "already-taken intake returns ErrNotPending",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) {
+					return &store.IntakeLog{ID: id, MedicationID: 10, Status: "TAKEN"}, nil
+				},
+			},
+			intakeID: 42,
+			wantErr:  ErrNotPending,
+		},
+		{
+			name: "store error on GetIntake propagates",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) {
+					return nil, errors.New("db error")
+				},
+			},
+			intakeID:        42,
+			wantErrContains: "get intake",
+		},
+		{
+			name: "ConfirmIntake error propagates",
+			store: &mockMedicationStore{
+				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return nil, nil },
+				confirmIntakeFn:      func(id int64, takenAt time.Time) error { return errors.New("db write error") },
+			},
+			intakeID:        42,
+			wantErrContains: "confirm intake",
+		},
+		{
+			name: "DecrementInventory error is non-fatal",
+			store: &mockMedicationStore{
+				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return []int{55}, nil },
+				confirmIntakeFn:      func(id int64, takenAt time.Time) error { return nil },
+				decrementInventoryFn: func(medID int64, qty int) error { return errors.New("inventory error") },
+			},
+			intakeID:        42,
+			wantReminderIDs: []int{55},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewMedicationService(tt.store)
+			ids, err := svc.ConfirmIntakeWithCleanup(ctx, tt.intakeID, takenAt)
+
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("want error %v, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if tt.wantErrContains != "" {
+				if err == nil || !containsStr(err.Error(), tt.wantErrContains) {
+					t.Errorf("want error containing %q, got %v", tt.wantErrContains, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !equalIntSlice(ids, tt.wantReminderIDs) {
+				t.Errorf("reminder IDs: got %v, want %v", ids, tt.wantReminderIDs)
+			}
+		})
+	}
+}
+
+func TestSkipSupplementIntake(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name            string
+		store           *mockMedicationStore
+		intakeID        int64
+		wantReminderIDs []int
+		wantErr         error
+		wantErrContains string
+	}{
+		{
+			name: "supplement intake is skipped",
+			store: &mockMedicationStore{
+				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+				getMedicationFn:      func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Supplement: true}, nil },
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return []int{200, 201}, nil },
+				skipIntakeFn:         func(id int64) error { return nil },
+			},
+			intakeID:        7,
+			wantReminderIDs: []int{200, 201},
+		},
+		{
+			name: "non-supplement returns ErrNotSupplement",
+			store: &mockMedicationStore{
+				getIntakeFn:     func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+				getMedicationFn: func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Supplement: false}, nil },
+			},
+			intakeID: 7,
+			wantErr:  ErrNotSupplement,
+		},
+		{
+			name: "nil medication returns ErrNotSupplement",
+			store: &mockMedicationStore{
+				getIntakeFn:     func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+				getMedicationFn: func(id int64) (*store.Medication, error) { return nil, nil },
+			},
+			intakeID: 7,
+			wantErr:  ErrNotSupplement,
+		},
+		{
+			name: "non-pending intake returns ErrNotPending",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) {
+					return &store.IntakeLog{ID: id, MedicationID: 10, Status: "SKIPPED"}, nil
+				},
+			},
+			intakeID: 7,
+			wantErr:  ErrNotPending,
+		},
+		{
+			name: "nil intake returns ErrNotPending",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) { return nil, nil },
+			},
+			intakeID: 7,
+			wantErr:  ErrNotPending,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewMedicationService(tt.store)
+			ids, err := svc.SkipSupplementIntake(ctx, tt.intakeID)
+
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("want error %v, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if tt.wantErrContains != "" {
+				if err == nil || !containsStr(err.Error(), tt.wantErrContains) {
+					t.Errorf("want error containing %q, got %v", tt.wantErrContains, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !equalIntSlice(ids, tt.wantReminderIDs) {
+				t.Errorf("reminder IDs: got %v, want %v", ids, tt.wantReminderIDs)
+			}
+		})
+	}
+}
+
+func TestLogMedicationNow(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name            string
+		store           *mockMedicationStore
+		wantErrContains string
+	}{
+		{
+			name: "creates and confirms intake",
+			store: &mockMedicationStore{
+				createIntakeFn:       func(medID, userID int64, _ time.Time) (int64, error) { return 99, nil },
+				confirmIntakeFn:      func(id int64, takenAt time.Time) error { return nil },
+				decrementInventoryFn: func(medID int64, qty int) error { return nil },
+			},
+		},
+		{
+			name: "CreateIntake error propagates",
+			store: &mockMedicationStore{
+				createIntakeFn: func(medID, userID int64, _ time.Time) (int64, error) {
+					return 0, errors.New("insert failed")
+				},
+			},
+			wantErrContains: "create intake",
+		},
+		{
+			name: "ConfirmIntake error propagates",
+			store: &mockMedicationStore{
+				createIntakeFn:  func(medID, userID int64, _ time.Time) (int64, error) { return 99, nil },
+				confirmIntakeFn: func(id int64, takenAt time.Time) error { return errors.New("confirm failed") },
+			},
+			wantErrContains: "confirm new intake",
+		},
+		{
+			name: "DecrementInventory error is non-fatal",
+			store: &mockMedicationStore{
+				createIntakeFn:       func(medID, userID int64, _ time.Time) (int64, error) { return 99, nil },
+				confirmIntakeFn:      func(id int64, takenAt time.Time) error { return nil },
+				decrementInventoryFn: func(medID int64, qty int) error { return errors.New("decrement failed") },
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewMedicationService(tt.store)
+			err := svc.LogMedicationNow(ctx, 1, 10)
+
+			if tt.wantErrContains != "" {
+				if err == nil || !containsStr(err.Error(), tt.wantErrContains) {
+					t.Errorf("want error containing %q, got %v", tt.wantErrContains, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestConfirmScheduleWithCleanup(t *testing.T) {
+	ctx := context.Background()
+	scheduledAt := time.Now().Truncate(time.Minute)
+
+	tests := []struct {
+		name            string
+		store           *mockMedicationStore
+		wantReminderIDs []int
+		wantErrContains string
+	}{
+		{
+			name: "multiple intakes collects all reminder IDs",
+			store: &mockMedicationStore{
+				getPendingIntakesByScheduleFn: func(userID int64, _ time.Time) ([]store.IntakeLog, error) {
+					return []store.IntakeLog{
+						{ID: 1, MedicationID: 10, Status: "PENDING"},
+						{ID: 2, MedicationID: 11, Status: "PENDING"},
+					}, nil
+				},
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) {
+					if intakeID == 1 {
+						return []int{100, 101}, nil
+					}
+					return []int{200}, nil
+				},
+				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) error { return nil },
+				decrementInventoryFn:       func(medID int64, qty int) error { return nil },
+			},
+			wantReminderIDs: []int{100, 101, 200},
+		},
+		{
+			name: "empty slot returns nil reminders but still calls ConfirmIntakesBySchedule",
+			store: &mockMedicationStore{
+				getPendingIntakesByScheduleFn: func(userID int64, _ time.Time) ([]store.IntakeLog, error) {
+					return nil, nil
+				},
+				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) error { return nil },
+			},
+			wantReminderIDs: nil,
+		},
+		{
+			name: "GetPendingIntakesBySchedule error propagates",
+			store: &mockMedicationStore{
+				getPendingIntakesByScheduleFn: func(userID int64, _ time.Time) ([]store.IntakeLog, error) {
+					return nil, errors.New("db error")
+				},
+			},
+			wantErrContains: "get pending intakes by schedule",
+		},
+		{
+			name: "ConfirmIntakesBySchedule error propagates",
+			store: &mockMedicationStore{
+				getPendingIntakesByScheduleFn: func(userID int64, _ time.Time) ([]store.IntakeLog, error) {
+					return []store.IntakeLog{{ID: 1, MedicationID: 10, Status: "PENDING"}}, nil
+				},
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return nil, nil },
+				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) error {
+					return errors.New("confirm failed")
+				},
+			},
+			wantErrContains: "confirm intakes by schedule",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewMedicationService(tt.store)
+			ids, err := svc.ConfirmScheduleWithCleanup(ctx, 1, scheduledAt)
+
+			if tt.wantErrContains != "" {
+				if err == nil || !containsStr(err.Error(), tt.wantErrContains) {
+					t.Errorf("want error containing %q, got %v", tt.wantErrContains, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !equalIntSlice(ids, tt.wantReminderIDs) {
+				t.Errorf("reminder IDs: got %v, want %v", ids, tt.wantReminderIDs)
+			}
+		})
+	}
+}
+
+// equalIntSlice returns true if both slices have the same elements in the same order.
+func equalIntSlice(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// containsStr reports whether s contains substr.
+func containsStr(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstr(s, substr))
+}
+
+func containsSubstr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
