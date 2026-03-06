@@ -267,7 +267,7 @@ func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
 		return
 	}
 
-	if done {
+	if done && totalCount > 0 {
 		if err := b.SendWorkoutComplete(chatID, sessionID, completedCount, totalCount); err != nil {
 			log.Printf("[bot] send failed: %v", err)
 		}

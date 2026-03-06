@@ -422,7 +422,7 @@ func TestDismissNotification(t *testing.T) {
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
 
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), food: s, imports: s, allowedUserID: 123}
+	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), reminderSvc: domain.NewReminderService(s), food: s, imports: s, allowedUserID: 123}
 
 	cb := &tgbotapi.CallbackQuery{
 		ID:   "1",
