@@ -22,6 +22,7 @@ type Bot struct {
 	medSvc        domain.MedicationService
 	bp            BloodPressureStore
 	weight        WeightStore
+	reminderSvc   domain.ReminderService
 	workouts      WorkoutStore
 	workoutSvc    workoutsvc.WorkoutService
 	exerciseSvc   domain.ExerciseService
@@ -62,6 +63,7 @@ func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 		medSvc:        domain.NewMedicationService(s),
 		bp:            s,
 		weight:        s,
+		reminderSvc:   domain.NewReminderService(s),
 		workouts:      s,
 		workoutSvc:    workoutsvc.New(s),
 		exerciseSvc:   domain.NewExerciseService(s),

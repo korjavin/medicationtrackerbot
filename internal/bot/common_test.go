@@ -51,6 +51,7 @@ func setupBotTest(t *testing.T) *botTestEnv {
 		medSvc:        domain.NewMedicationService(s),
 		bp:            s,
 		weight:        s,
+		reminderSvc:   domain.NewReminderService(s),
 		workouts:      s,
 		workoutSvc:    workoutsvc.New(s),
 		exerciseSvc:   domain.NewExerciseService(s),
