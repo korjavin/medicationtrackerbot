@@ -177,8 +177,8 @@ Extract BP/weight reminder management from `internal/bot/bp_callbacks.go` and `i
 
 ### Task 10: Update documentation
 
-- [ ] Update `CLAUDE.md` to reflect new domain service pattern (mention `domain/medication.go`, `domain/exercise.go`, `domain/reminder.go`)
-- [ ] If new patterns are stable, add to project memory
+- [x] Update `CLAUDE.md` to reflect new domain service pattern (mention `domain/medication.go`, `domain/exercise.go`, `domain/reminder.go`)
+- [x] If new patterns are stable, add to project memory
 
 ---
 
