@@ -35,8 +35,9 @@ type MedicationStore interface {
 type MedicationService interface {
 	// ConfirmIntakeWithCleanup validates the intake is PENDING, collects reminder
 	// message IDs, confirms the intake, and decrements inventory.
-	// Returns the reminder message IDs so the caller can delete them.
-	ConfirmIntakeWithCleanup(ctx context.Context, intakeID int64, takenAt time.Time) (reminderMsgIDs []int, err error)
+	// Returns the reminder message IDs so the caller can delete them, and whether
+	// the confirmed medication is a supplement (for UI purposes).
+	ConfirmIntakeWithCleanup(ctx context.Context, intakeID int64, takenAt time.Time) (reminderMsgIDs []int, isSupplement bool, err error)
 
 	// SkipSupplementIntake validates the intake is PENDING and the medication is a
 	// supplement, collects reminder message IDs, and marks the intake as skipped.
@@ -62,13 +63,19 @@ func NewMedicationService(s MedicationStore) MedicationService {
 	return &medicationService{store: s}
 }
 
-func (s *medicationService) ConfirmIntakeWithCleanup(_ context.Context, intakeID int64, takenAt time.Time) ([]int, error) {
+func (s *medicationService) ConfirmIntakeWithCleanup(_ context.Context, intakeID int64, takenAt time.Time) ([]int, bool, error) {
 	intake, err := s.store.GetIntake(intakeID)
 	if err != nil {
-		return nil, fmt.Errorf("get intake %d: %w", intakeID, err)
+		return nil, false, fmt.Errorf("get intake %d: %w", intakeID, err)
 	}
 	if intake == nil || intake.Status != "PENDING" {
-		return nil, ErrNotPending
+		return nil, false, ErrNotPending
+	}
+
+	// Determine supplement status for the caller's UI needs (best-effort).
+	isSupplement := false
+	if med, err := s.store.GetMedication(intake.MedicationID); err == nil && med != nil {
+		isSupplement = med.Supplement
 	}
 
 	reminders, err := s.store.GetIntakeReminders(intakeID)
@@ -77,13 +84,13 @@ func (s *medicationService) ConfirmIntakeWithCleanup(_ context.Context, intakeID
 	}
 
 	if err := s.store.ConfirmIntake(intakeID, takenAt); err != nil {
-		return nil, fmt.Errorf("confirm intake %d: %w", intakeID, err)
+		return nil, false, fmt.Errorf("confirm intake %d: %w", intakeID, err)
 	}
 
 	// Inventory decrement is best-effort; a confirmed intake is the source of truth.
 	_ = s.store.DecrementInventory(intake.MedicationID, 1)
 
-	return reminders, nil
+	return reminders, isSupplement, nil
 }
 
 func (s *medicationService) SkipSupplementIntake(_ context.Context, intakeID int64) ([]int, error) {

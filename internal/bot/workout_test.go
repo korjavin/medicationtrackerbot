@@ -36,7 +36,7 @@ func TestWorkoutCallbackRouting_PanicRegression(t *testing.T) {
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
 
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), food: s, imports: s, allowedUserID: 123}
+	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), reminderSvc: domain.NewReminderService(s), food: s, imports: s, allowedUserID: 123}
 
 	// Create a dummy session so it doesn't fail on "session not found" before routing
 	// Actually routing happens before session lookup in handleCallback,
@@ -99,11 +99,13 @@ func TestWorkoutFinish_StateUpdate(t *testing.T) {
 	b := &Bot{
 		api:           api,
 		meds:          s,
+		medSvc:        domain.NewMedicationService(s),
 		bp:            s,
 		weight:        s,
 		workouts:      s,
 		workoutSvc:    workoutsvc.New(s),
 		exerciseSvc:   domain.NewExerciseService(s),
+		reminderSvc:   domain.NewReminderService(s),
 		food:          s,
 		imports:       s,
 		allowedUserID: 123456,
@@ -179,11 +181,13 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 	b := &Bot{
 		api:           api,
 		meds:          s,
+		medSvc:        domain.NewMedicationService(s),
 		bp:            s,
 		weight:        s,
 		workouts:      s,
 		workoutSvc:    workoutsvc.New(s),
 		exerciseSvc:   domain.NewExerciseService(s),
+		reminderSvc:   domain.NewReminderService(s),
 		food:          s,
 		imports:       s,
 		allowedUserID: 123456,
@@ -336,7 +340,7 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 
 	api := &tgbotapi.BotAPI{Token: "TEST", Client: &http.Client{}}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), food: s, imports: s, allowedUserID: 1}
+	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), reminderSvc: domain.NewReminderService(s), food: s, imports: s, allowedUserID: 1}
 
 	// Create group/variant with 2 exercises
 	group, _ := s.CreateWorkoutGroup("G", "", false, 1, "[1]", "09:00", 15)
