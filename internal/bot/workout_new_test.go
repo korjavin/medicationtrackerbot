@@ -216,6 +216,33 @@ func TestExerciseDone_CreatesLog(t *testing.T) {
 	}
 }
 
+func TestExerciseDone_ExistingSkippedLogBecomesCompleted(t *testing.T) {
+	env, sessionID, exerciseID := makeWorkoutEnv(t)
+	defer env.teardown()
+
+	if err := env.s.StartSession(sessionID); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	if _, err := env.s.LogExercise(sessionID, exerciseID, "Pull-up", nil, nil, nil, "skipped", ""); err != nil {
+		t.Fatalf("LogExercise skipped: %v", err)
+	}
+
+	cb := workoutCB(fmt.Sprintf("exercise_done_%d_%d", sessionID, exerciseID))
+	env.b.handleExerciseCallback(cb, cb.Data)
+
+	log, err := env.s.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogBySessionAndExercise: %v", err)
+	}
+	if log == nil {
+		t.Fatal("Expected existing log after exercise_done")
+	}
+	if log.Status != "completed" {
+		t.Fatalf("Expected status 'completed' after exercise_done, got %q", log.Status)
+	}
+}
+
 func TestExerciseSkip_CreatesLogAsSkipped(t *testing.T) {
 	env, sessionID, exerciseID := makeWorkoutEnv(t)
 	defer env.teardown()

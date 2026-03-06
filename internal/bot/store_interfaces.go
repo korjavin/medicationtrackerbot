@@ -66,6 +66,7 @@ type WorkoutStore interface {
 	GetWorkoutExercise(id int64) (*store.WorkoutExercise, error)
 	GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) (*store.WorkoutExerciseLog, error)
 	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error
+	UpdateExerciseLogStatus(id int64, status string) error
 	LogExercise(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes string) (int64, error)
 	GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
 	GetAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error)
