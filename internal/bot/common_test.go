@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 )
@@ -47,6 +48,7 @@ func setupBotTest(t *testing.T) *botTestEnv {
 	b := &Bot{
 		api:           api,
 		meds:          s,
+		medSvc:        domain.NewMedicationService(s),
 		bp:            s,
 		weight:        s,
 		workouts:      s,

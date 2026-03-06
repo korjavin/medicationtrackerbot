@@ -19,6 +19,7 @@ import (
 type Bot struct {
 	api           *tgbotapi.BotAPI
 	meds          MedicationStore
+	medSvc        domain.MedicationService
 	bp            BloodPressureStore
 	weight        WeightStore
 	workouts      WorkoutStore
@@ -57,6 +58,7 @@ func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 	return &Bot{
 		api:           api,
 		meds:          s,
+		medSvc:        domain.NewMedicationService(s),
 		bp:            s,
 		weight:        s,
 		workouts:      s,
@@ -362,20 +364,26 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		intake, err := b.meds.GetIntake(intakeID)
-		if err != nil {
-			log.Printf("Error getting intake %d: %v", intakeID, err)
-			return
-		}
-		if intake == nil || intake.Status != "PENDING" {
-			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
-				log.Printf("[bot] send failed: %v", err)
+		// Pre-fetch to determine supplement status for button removal (presentation concern).
+		isSupp := false
+		if intake, err := b.meds.GetIntake(intakeID); err == nil && intake != nil {
+			if med, err := b.meds.GetMedication(intake.MedicationID); err == nil && med != nil {
+				isSupp = med.Supplement
 			}
+		}
+
+		reminders, err := b.medSvc.ConfirmIntakeWithCleanup(context.Background(), intakeID, time.Now())
+		if err != nil {
+			if errors.Is(err, domain.ErrNotPending) {
+				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
+					log.Printf("[bot] send failed: %v", err)
+				}
+				return
+			}
+			log.Printf("Error confirming intake %d: %v", intakeID, err)
 			return
 		}
 
-		// Clean up reminders for this exact intake.
-		reminders, _ := b.meds.GetIntakeReminders(intakeID)
 		for _, msgID := range reminders {
 			if msgID != cb.Message.MessageID {
 				if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
@@ -384,19 +392,8 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			}
 		}
 
-		if err := b.meds.ConfirmIntake(intakeID, time.Now()); err != nil {
-			log.Printf("Error confirming intake %d: %v", intakeID, err)
-			return
-		}
-
-		// Decrement inventory (only affects medications with tracking enabled)
-		if err := b.meds.DecrementInventory(intake.MedicationID, 1); err != nil {
-			log.Printf("Error decrementing inventory: %v", err)
-		}
-
-		// For supplements, remove both Take and Skip buttons for this intake.
 		callbacksToRemove := []string{data}
-		if med, err := b.meds.GetMedication(intake.MedicationID); err == nil && med != nil && med.Supplement {
+		if isSupp {
 			callbacksToRemove = append(callbacksToRemove, "skip_intake:"+strconv.FormatInt(intakeID, 10))
 		}
 		b.removeButtonsFromCallbackMessage(cb, callbacksToRemove...)
@@ -411,43 +408,30 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		intake, err := b.meds.GetIntake(intakeID)
+		reminders, err := b.medSvc.SkipSupplementIntake(context.Background(), intakeID)
 		if err != nil {
-			log.Printf("Error getting intake %d: %v", intakeID, err)
-			return
-		}
-		if intake == nil || intake.Status != "PENDING" {
-			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already processed).")); err != nil {
-				log.Printf("[bot] send failed: %v", err)
+			if errors.Is(err, domain.ErrNotPending) {
+				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already processed).")); err != nil {
+					log.Printf("[bot] send failed: %v", err)
+				}
+				return
 			}
+			if errors.Is(err, domain.ErrNotSupplement) {
+				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ Skip is available only for supplements.")); err != nil {
+					log.Printf("[bot] send failed: %v", err)
+				}
+				return
+			}
+			log.Printf("Error skipping intake %d: %v", intakeID, err)
 			return
 		}
 
-		med, err := b.meds.GetMedication(intake.MedicationID)
-		if err != nil {
-			log.Printf("Error getting medication %d: %v", intake.MedicationID, err)
-			return
-		}
-		if med == nil || !med.Supplement {
-			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ Skip is available only for supplements.")); err != nil {
-				log.Printf("[bot] send failed: %v", err)
-			}
-			return
-		}
-
-		// Clean up reminders for this exact intake.
-		reminders, _ := b.meds.GetIntakeReminders(intakeID)
 		for _, msgID := range reminders {
 			if msgID != cb.Message.MessageID {
 				if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
 					log.Printf("[bot] send failed: %v", err)
 				}
 			}
-		}
-
-		if err := b.meds.SkipIntake(intakeID); err != nil {
-			log.Printf("Error skipping intake %d: %v", intakeID, err)
-			return
 		}
 
 		b.removeButtonsFromCallbackMessage(cb,
@@ -462,7 +446,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		medIDStr := data[8:]
 		medID, _ := strconv.ParseInt(medIDStr, 10, 64)
 
-		// Find pending intake
+		// Find pending intake by med ID to get the intake ID.
 		pending, err := b.meds.GetPendingIntakes()
 		if err != nil {
 			log.Printf("Error getting pending: %v", err)
@@ -478,24 +462,24 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 
 		if logID != 0 {
-			// Clean up reminders
-			reminders, _ := b.meds.GetIntakeReminders(logID)
+			reminders, err := b.medSvc.ConfirmIntakeWithCleanup(context.Background(), logID, time.Now())
+			if err != nil {
+				if errors.Is(err, domain.ErrNotPending) {
+					if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
+						log.Printf("[bot] send failed: %v", err)
+					}
+					return
+				}
+				log.Printf("Error confirming intake %d: %v", logID, err)
+				return
+			}
+
 			for _, msgID := range reminders {
 				if msgID != cb.Message.MessageID {
 					if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
 						log.Printf("[bot] send failed: %v", err)
 					}
 				}
-			}
-
-			if err := b.meds.ConfirmIntake(logID, time.Now()); err != nil {
-				log.Printf("Error configuring intake: %v", err)
-				return
-			}
-
-			// Decrement inventory (only affects medications with tracking enabled)
-			if err := b.meds.DecrementInventory(medID, 1); err != nil {
-				log.Printf("Error decrementing inventory: %v", err)
 			}
 
 			// Legacy callback path: only remove the pressed button.
@@ -514,38 +498,25 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		medIDStr := data[4:]
 		medID, _ := strconv.ParseInt(medIDStr, 10, 64)
 
-		// Create Intake record (Taken Now)
-		now := time.Now()
-		logID, err := b.meds.CreateIntake(medID, b.allowedUserID, now)
-		if err != nil {
-			log.Printf("Error creating manual intake: %v", err)
+		if err := b.medSvc.LogMedicationNow(context.Background(), b.allowedUserID, medID); err != nil {
+			log.Printf("Error logging medication now: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging medication.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)
 			}
 			return
 		}
 
-		// Confirm immediately
-		if err := b.meds.ConfirmIntake(logID, now); err != nil {
-			log.Printf("Error confirming manual intake: %v", err)
-			return
-		}
-
-		// Decrement inventory (only affects medications with tracking enabled)
-		if err := b.meds.DecrementInventory(medID, 1); err != nil {
-			log.Printf("Error decrementing inventory: %v", err)
-		}
-
 		// Remove only the pressed button.
 		b.removeButtonFromCallbackMessage(cb, data)
 
-		// Fetch med name for confirmation
-		med, _ := b.meds.GetMedication(medID) // Error ignored, just for display
+		// Fetch med name for confirmation (display only).
+		med, _ := b.meds.GetMedication(medID)
 		medName := "Medication"
 		if med != nil {
 			medName = med.Name
 		}
 
+		now := time.Now()
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, fmt.Sprintf("✅ Logged %s at %s", medName, now.Format("15:04")))); err != nil {
 			log.Printf("[bot] send failed: %v", err)
 		}
@@ -559,34 +530,21 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 		target := time.Unix(ts, 0)
 
-		// Clean up reminders for all related intakes
-		pending, err := b.meds.GetPendingIntakesBySchedule(b.allowedUserID, target)
-		if err == nil {
-			for _, p := range pending {
-				reminders, _ := b.meds.GetIntakeReminders(p.ID)
-				for _, msgID := range reminders {
-					if msgID != cb.Message.MessageID {
-						if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
-							log.Printf("[bot] send failed: %v", err)
-						}
-					}
+		reminders, err := b.medSvc.ConfirmScheduleWithCleanup(context.Background(), b.allowedUserID, target)
+		if err != nil {
+			log.Printf("Error confirming batch schedule: %v", err)
+			return
+		}
+
+		for _, msgID := range reminders {
+			if msgID != cb.Message.MessageID {
+				if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
+					log.Printf("[bot] send failed: %v", err)
 				}
 			}
 		}
 
-		if err := b.meds.ConfirmIntakesBySchedule(b.allowedUserID, target, time.Now()); err != nil {
-			log.Printf("Error confirming batch: %v", err)
-			return
-		}
-
-		// Decrement inventory for all medications in this schedule
-		for _, p := range pending {
-			if err := b.meds.DecrementInventory(p.MedicationID, 1); err != nil {
-				log.Printf("Error decrementing inventory for med %d: %v", p.MedicationID, err)
-			}
-		}
-
-		// Update message to remove buttons
+		// Update message to remove buttons.
 		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})

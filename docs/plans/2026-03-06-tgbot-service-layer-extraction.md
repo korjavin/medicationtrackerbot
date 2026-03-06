@@ -86,16 +86,16 @@ Steps:
 
 ### Task 3: Refactor `internal/bot/bot.go` medication callbacks to use domain service
 
-- [ ] Add `medSvc domain.MedicationService` field to `Bot` struct in `bot.go`
-- [ ] Update `New()` constructor to accept and inject `domain.MedicationService`
-- [ ] Refactor `confirm_intake` callback: call `medSvc.ConfirmIntakeWithCleanup()`, delete returned reminders, send Telegram response
-- [ ] Refactor `skip_intake` callback: call `medSvc.SkipSupplementIntake()`, same cleanup pattern
-- [ ] Refactor `confirm` (legacy) callback: call `medSvc.ConfirmIntakeWithCleanup()`
-- [ ] Refactor `log` callback: call `medSvc.LogMedicationNow()`
-- [ ] Refactor `confirm_schedule` callback: call `medSvc.ConfirmScheduleWithCleanup()`
-- [ ] Update `cmd/bot/main.go` to construct and inject `MedicationService`
-- [ ] Update `internal/bot/bot_commands_test.go` and `commands_test.go` if they test these callbacks
-- [ ] Run `go test ./internal/bot/...` and `go build ./...` — must pass before task 4
+- [x] Add `medSvc domain.MedicationService` field to `Bot` struct in `bot.go`
+- [x] Update `New()` constructor to accept and inject `domain.MedicationService`
+- [x] Refactor `confirm_intake` callback: call `medSvc.ConfirmIntakeWithCleanup()`, delete returned reminders, send Telegram response
+- [x] Refactor `skip_intake` callback: call `medSvc.SkipSupplementIntake()`, same cleanup pattern
+- [x] Refactor `confirm` (legacy) callback: call `medSvc.ConfirmIntakeWithCleanup()`
+- [x] Refactor `log` callback: call `medSvc.LogMedicationNow()`
+- [x] Refactor `confirm_schedule` callback: call `medSvc.ConfirmScheduleWithCleanup()`
+- [x] Update `cmd/bot/main.go` to construct and inject `MedicationService`
+- [x] Update `internal/bot/bot_commands_test.go` and `commands_test.go` if they test these callbacks
+- [x] Run `go test ./internal/bot/...` and `go build ./...` — must pass before task 4
 
 ---
 
