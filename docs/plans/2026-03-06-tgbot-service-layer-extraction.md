@@ -107,13 +107,13 @@ Extract exercise logging logic from `internal/bot/workout_callbacks.go`:
 - `exercise_edit` (log with defaults, mark for full edit in web)
 
 Steps:
-- [ ] Create `internal/domain/exercise.go` with `ExerciseService` interface and struct
-- [ ] Implement `LogExercise(ctx, sessionID, exerciseID, status string) error` — idempotent upsert: if log exists update status, else create with target defaults
-- [ ] Implement `CheckSessionCompletion(ctx, sessionID, variantID) (done bool, completedCount, totalCount int, err error)` — determine if all planned exercises handled
-- [ ] Create `internal/domain/exercise_test.go` with tests using mock store
-- [ ] Write tests for `LogExercise`: new log, existing skipped→completed transition, existing completed (no-op)
-- [ ] Write tests for `CheckSessionCompletion`: all done, partial, none done
-- [ ] Run `go test ./internal/domain/...` — must pass before task 5
+- [x] Create `internal/domain/exercise.go` with `ExerciseService` interface and struct
+- [x] Implement `LogExercise(ctx, sessionID, exerciseID, status string) error` — idempotent upsert: if log exists update status, else create with target defaults
+- [x] Implement `CheckSessionCompletion(ctx, sessionID, variantID) (done bool, completedCount, totalCount int, err error)` — determine if all planned exercises handled
+- [x] Create `internal/domain/exercise_test.go` with tests using mock store
+- [x] Write tests for `LogExercise`: new log, existing skipped→completed transition, existing completed (no-op)
+- [x] Write tests for `CheckSessionCompletion`: all done, partial, none done
+- [x] Run `go test ./internal/domain/...` — must pass before task 5
 
 ---
 
