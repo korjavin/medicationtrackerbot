@@ -69,6 +69,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		if _, err := b.api.Send(edit); err != nil {
 			log.Printf("[bot] send failed: %v", err)
 		}
+		b.trackWorkoutMessage(sessionID, cb.Message.MessageID)
 
 		// Start exercise-by-exercise prompts
 		b.startExerciseLoop(sessionID, session.VariantID, cb.Message.Chat.ID)
@@ -112,6 +113,9 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
 			log.Printf("[bot] send failed: %v", err)
 		}
+		if err := b.CleanupWorkoutSessionMessages(sessionID); err != nil {
+			log.Printf("Failed to cleanup workout messages: %v", err)
+		}
 
 	case "finish":
 		// User explicitly finished the workout; service handles complete + rotation advancement
@@ -136,6 +140,9 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "👍 Workout saved.")); err != nil {
 			log.Printf("[bot] send failed: %v", err)
 		}
+		if err := b.CleanupWorkoutSessionMessages(sessionID); err != nil {
+			log.Printf("Failed to cleanup workout messages: %v", err)
+		}
 	}
 }
 
@@ -149,8 +156,11 @@ func (b *Bot) startExerciseLoop(sessionID, variantID int64, chatID int64) {
 		return
 	}
 
-	if _, err := b.api.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("🏋️ **Workout Started**\n\n%d exercises to complete:", len(exercises)))); err != nil {
+	startMsg, err := b.api.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("🏋️ **Workout Started**\n\n%d exercises to complete:", len(exercises))))
+	if err != nil {
 		log.Printf("[bot] send failed: %v", err)
+	} else {
+		b.trackWorkoutMessage(sessionID, startMsg.MessageID)
 	}
 
 	for i, ex := range exercises {

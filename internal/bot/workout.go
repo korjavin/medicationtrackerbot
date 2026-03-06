@@ -46,6 +46,7 @@ func (b *Bot) SendWorkoutNotification(text string, sessionID int64) (int, error)
 	if err != nil {
 		return 0, fmt.Errorf("failed to send workout notification: %w", err)
 	}
+	b.trackWorkoutMessage(sessionID, sentMsg.MessageID)
 
 	log.Printf("Sent workout notification (session %d): %s", sessionID, text)
 	return sentMsg.MessageID, nil
@@ -81,6 +82,7 @@ func (b *Bot) SendExercisePrompt(sessionID int64, exerciseID int64, exerciseName
 	if err != nil {
 		return 0, fmt.Errorf("failed to send exercise prompt: %w", err)
 	}
+	b.trackWorkoutMessage(sessionID, sentMsg.MessageID)
 
 	return sentMsg.MessageID, nil
 }
@@ -101,6 +103,11 @@ func (b *Bot) SendWorkoutComplete(chatID, sessionID int64, completedExercises, t
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
 
-	_, err := b.api.Send(msg)
-	return err
+	sentMsg, err := b.api.Send(msg)
+	if err != nil {
+		return err
+	}
+	// Track completion cards too, so web-side completion can clean them up.
+	b.trackWorkoutMessage(sessionID, sentMsg.MessageID)
+	return nil
 }
