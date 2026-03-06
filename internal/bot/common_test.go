@@ -53,6 +53,7 @@ func setupBotTest(t *testing.T) *botTestEnv {
 		weight:        s,
 		workouts:      s,
 		workoutSvc:    workoutsvc.New(s),
+		exerciseSvc:   domain.NewExerciseService(s),
 		food:          s,
 		imports:       s,
 		allowedUserID: 123456,

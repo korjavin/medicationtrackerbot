@@ -119,14 +119,14 @@ Steps:
 
 ### Task 5: Refactor `internal/bot/workout_callbacks.go` to use domain service
 
-- [ ] Add `exerciseSvc domain.ExerciseService` field to `Bot` struct
-- [ ] Update constructor to inject `ExerciseService`
-- [ ] Refactor `exercise_done` callback: call `exerciseSvc.LogExercise(..., "completed")`, use `CheckSessionCompletion` to decide if session is done
-- [ ] Refactor `exercise_skip` callback: call `exerciseSvc.LogExercise(..., "skipped")`
-- [ ] Refactor `exercise_edit` callback: call `exerciseSvc.LogExercise(..., "completed")` then show web edit link
-- [ ] Remove now-dead inline logic from workout_callbacks.go
-- [ ] Update `internal/bot/workout_new_test.go` and `workout_test.go` to match refactored bot
-- [ ] Run `go test ./internal/bot/...` — must pass before task 6
+- [x] Add `exerciseSvc domain.ExerciseService` field to `Bot` struct
+- [x] Update constructor to inject `ExerciseService`
+- [x] Refactor `exercise_done` callback: call `exerciseSvc.LogExercise(..., "completed")`, use `CheckSessionCompletion` to decide if session is done
+- [x] Refactor `exercise_skip` callback: call `exerciseSvc.LogExercise(..., "skipped")`
+- [x] Refactor `exercise_edit` callback: call `exerciseSvc.LogExercise(..., "completed")` then show web edit link
+- [x] Remove now-dead inline logic from workout_callbacks.go
+- [x] Update `internal/bot/workout_new_test.go` and `workout_test.go` to match refactored bot
+- [x] Run `go test ./internal/bot/...` — must pass before task 6
 
 ---
 
