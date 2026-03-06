@@ -21,6 +21,7 @@ type MedicationStore interface {
 	GetIntake(id int64) (*store.IntakeLog, error)
 	GetMedication(id int64) (*store.Medication, error)
 	GetIntakeReminders(intakeID int64) ([]int, error)
+	GetPendingIntakes() ([]store.IntakeLog, error)
 	GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
 	ConfirmIntake(id int64, takenAt time.Time) error
 	ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) error
@@ -52,6 +53,11 @@ type MedicationService interface {
 	// time slot and collects all reminder message IDs across those intakes.
 	// Returns the reminder message IDs so the caller can delete them.
 	ConfirmScheduleWithCleanup(ctx context.Context, userID int64, scheduledAt time.Time) (reminderMsgIDs []int, err error)
+
+	// ConfirmMedicationByMedID finds the first pending intake for a medication and confirms it.
+	// Used by the legacy confirm: callback which only carries a medication ID, not an intake ID.
+	// Returns ErrNotPending if no pending intake exists for the medication.
+	ConfirmMedicationByMedID(ctx context.Context, medID int64, takenAt time.Time) (reminderMsgIDs []int, isSupplement bool, err error)
 }
 
 type medicationService struct {
@@ -158,8 +164,31 @@ func (s *medicationService) ConfirmScheduleWithCleanup(_ context.Context, userID
 	}
 
 	for _, p := range pending {
-		_ = s.store.DecrementInventory(p.MedicationID, 1)
+		if err := s.store.DecrementInventory(p.MedicationID, 1); err != nil {
+			log.Printf("[domain] DecrementInventory for intake %d: %v", p.ID, err)
+		}
 	}
 
 	return allReminders, nil
+}
+
+func (s *medicationService) ConfirmMedicationByMedID(ctx context.Context, medID int64, takenAt time.Time) ([]int, bool, error) {
+	pending, err := s.store.GetPendingIntakes()
+	if err != nil {
+		return nil, false, fmt.Errorf("get pending intakes: %w", err)
+	}
+
+	var logID int64
+	for _, p := range pending {
+		if p.MedicationID == medID {
+			logID = p.ID
+			break
+		}
+	}
+
+	if logID == 0 {
+		return nil, false, ErrNotPending
+	}
+
+	return s.ConfirmIntakeWithCleanup(ctx, logID, takenAt)
 }
