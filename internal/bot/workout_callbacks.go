@@ -204,6 +204,9 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 	case "skip":
 		if err := b.exerciseSvc.LogExercise(ctx, sessionID, exerciseID, "skipped"); err != nil {
 			log.Printf("Failed to log skipped exercise: %v", err)
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise.")); err != nil {
+				log.Printf("[bot] send failed: %v", err)
+			}
 			return
 		}
 

@@ -538,7 +538,7 @@ func (s *Store) UpdateIntake(id int64, takenAt time.Time, status string) error {
 }
 
 func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status FROM intake_log WHERE status = 'PENDING'")
+	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status FROM intake_log WHERE status = 'PENDING' ORDER BY scheduled_at ASC")
 	if err != nil {
 		return nil, err
 	}

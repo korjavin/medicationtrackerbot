@@ -96,7 +96,9 @@ func (s *medicationService) ConfirmIntakeWithCleanup(_ context.Context, intakeID
 	}
 
 	// Inventory decrement is best-effort; a confirmed intake is the source of truth.
-	_ = s.store.DecrementInventory(intake.MedicationID, 1)
+	if err := s.store.DecrementInventory(intake.MedicationID, 1); err != nil {
+		log.Printf("[domain] DecrementInventory for intake %d: %v", intakeID, err)
+	}
 
 	return reminders, isSupplement, nil
 }
@@ -140,7 +142,9 @@ func (s *medicationService) LogMedicationNow(_ context.Context, userID, medID in
 		return fmt.Errorf("confirm new intake %d: %w", logID, err)
 	}
 	// Inventory decrement is best-effort.
-	_ = s.store.DecrementInventory(medID, 1)
+	if err := s.store.DecrementInventory(medID, 1); err != nil {
+		log.Printf("[domain] DecrementInventory for med %d: %v", medID, err)
+	}
 	return nil
 }
 
