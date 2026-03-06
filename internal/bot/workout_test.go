@@ -303,11 +303,10 @@ loop2:
 	// P2: Verify completion message sent again via channel
 	select {
 	case msg := <-messageChan:
-		// HERE IS THE REPRODUCTION:
-		// Current code likely sends "1/1" again because it ignores the added exercise.
-		// We expect "2/1" or similar to show extra work was done.
-		if strings.Contains(msg, "1/1") {
-			t.Errorf("FAIL: Stats did not update after added exercise. Still says 1/1. Expected 2/1.")
+		// After adding ex2 (from variant2) to a variant1 session, both exercises
+		// appear in allRelatedExerciseIDs → TotalCount=2, CompletedCount=2 → "2/2".
+		if !strings.Contains(msg, "2/2") {
+			t.Errorf("Expected stats to update after added exercise, want 2/2, got: %s", msg)
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatalf("timeout: Expected completion message to be sent again after adding extra exercise")

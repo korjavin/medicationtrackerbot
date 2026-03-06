@@ -36,8 +36,6 @@ type BloodPressureStore interface {
 	GetBloodPressureReadings(ctx context.Context, userID int64, since time.Time) ([]store.BloodPressure, error)
 	GetBPGoal() (*store.BPGoal, error)
 	SetBPGoal(targetSystolic, targetDiastolic int) error
-	SnoozeBPReminder(userID int64) error
-	DontBugMeBPReminder(userID int64) error
 }
 
 // WeightStore is the subset of store operations needed for weight bot commands.
@@ -48,8 +46,6 @@ type WeightStore interface {
 	GetWeightLogs(ctx context.Context, userID int64, since time.Time) ([]store.WeightLog, error)
 	GetWeightGoal() (*store.WeightGoal, error)
 	SetWeightGoal(weight float64, targetDate time.Time) error
-	SnoozeWeightReminder(userID int64) error
-	DontBugMeWeightReminder(userID int64) error
 }
 
 // WorkoutStore is the read-only subset of store operations needed for workout bot commands.
@@ -64,10 +60,6 @@ type WorkoutStore interface {
 	GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error)
 	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
 	GetWorkoutExercise(id int64) (*store.WorkoutExercise, error)
-	GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) (*store.WorkoutExerciseLog, error)
-	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error
-	UpdateExerciseLogStatus(id int64, status string) error
-	LogExercise(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes string) (int64, error)
 	GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
 	GetAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error)
 }

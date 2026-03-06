@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,7 +177,7 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 				return
 			}
 			if tt.wantErrContains != "" {
-				if err == nil || !containsStr(err.Error(), tt.wantErrContains) {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
 					t.Errorf("want error containing %q, got %v", tt.wantErrContains, err)
 				}
 				return
@@ -249,6 +250,26 @@ func TestSkipSupplementIntake(t *testing.T) {
 			intakeID: 7,
 			wantErr:  ErrNotPending,
 		},
+		{
+			name: "GetMedication error propagates",
+			store: &mockMedicationStore{
+				getIntakeFn:     func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+				getMedicationFn: func(id int64) (*store.Medication, error) { return nil, errors.New("db error") },
+			},
+			intakeID:        7,
+			wantErrContains: "get medication",
+		},
+		{
+			name: "SkipIntake error propagates",
+			store: &mockMedicationStore{
+				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+				getMedicationFn:      func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Supplement: true}, nil },
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return nil, nil },
+				skipIntakeFn:         func(id int64) error { return errors.New("db error") },
+			},
+			intakeID:        7,
+			wantErrContains: "skip intake",
+		},
 	}
 
 	for _, tt := range tests {
@@ -263,7 +284,7 @@ func TestSkipSupplementIntake(t *testing.T) {
 				return
 			}
 			if tt.wantErrContains != "" {
-				if err == nil || !containsStr(err.Error(), tt.wantErrContains) {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
 					t.Errorf("want error containing %q, got %v", tt.wantErrContains, err)
 				}
 				return
@@ -327,7 +348,7 @@ func TestLogMedicationNow(t *testing.T) {
 			err := svc.LogMedicationNow(ctx, 1, 10)
 
 			if tt.wantErrContains != "" {
-				if err == nil || !containsStr(err.Error(), tt.wantErrContains) {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
 					t.Errorf("want error containing %q, got %v", tt.wantErrContains, err)
 				}
 				return
@@ -409,7 +430,7 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 			ids, err := svc.ConfirmScheduleWithCleanup(ctx, 1, scheduledAt)
 
 			if tt.wantErrContains != "" {
-				if err == nil || !containsStr(err.Error(), tt.wantErrContains) {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
 					t.Errorf("want error containing %q, got %v", tt.wantErrContains, err)
 				}
 				return
@@ -437,16 +458,3 @@ func equalIntSlice(a, b []int) bool {
 	return true
 }
 
-// containsStr reports whether s contains substr.
-func containsStr(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstr(s, substr))
-}
-
-func containsSubstr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
