@@ -146,13 +146,13 @@ Extract BP/weight reminder management from `internal/bot/bp_callbacks.go` and `i
 
 ### Task 7: Refactor `internal/bot/bp_callbacks.go` and `internal/bot/weight_callbacks.go`
 
-- [ ] Add `reminderSvc domain.ReminderService` field to `Bot` struct
-- [ ] Update constructor to inject `ReminderService`
-- [ ] Refactor `bp_snooze` callback: call `reminderSvc.SnoozeBPReminder()`
-- [ ] Refactor `bp_dontbug` callback: call `reminderSvc.BlockBPReminders()`
-- [ ] Refactor `weight_snooze` callback: call `reminderSvc.SnoozeWeightReminder()`
-- [ ] Refactor `weight_dontbug` callback: call `reminderSvc.BlockWeightReminders()`
-- [ ] Run `go test ./internal/bot/...` — must pass before task 8
+- [x] Add `reminderSvc domain.ReminderService` field to `Bot` struct
+- [x] Update constructor to inject `ReminderService`
+- [x] Refactor `bp_snooze` callback: call `reminderSvc.SnoozeBPReminder()`
+- [x] Refactor `bp_dontbug` callback: call `reminderSvc.BlockBPReminders()`
+- [x] Refactor `weight_snooze` callback: call `reminderSvc.SnoozeWeightReminder()`
+- [x] Refactor `weight_dontbug` callback: call `reminderSvc.BlockWeightReminders()`
+- [x] Run `go test ./internal/bot/...` — must pass before task 8
 
 ---
 
