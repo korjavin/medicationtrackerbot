@@ -28,6 +28,7 @@ type MedicationStore interface {
 type MedicationChecker struct {
 	NotifyHelper
 	store MedicationStore
+	now   func() time.Time // injectable clock; defaults to time.Now
 }
 
 func (c *MedicationChecker) Check(ctx context.Context) error {
@@ -39,7 +40,10 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		return nil
 	}
 
-	now := time.Now()
+	if c.now == nil {
+		c.now = time.Now
+	}
+	now := c.now()
 
 	meds, err := c.store.ListMedications(false)
 	if err != nil {
