@@ -264,16 +264,18 @@ MCP_MAX_QUERY_DAYS=90
 - Server tests use httptest for HTTP handlers
 - BP reminders tests validate scheduling logic
 - Workout tests cover rotation advancement and session state
+- Domain service tests use mock store structs (implement the narrow `FooStore` interface inline) with table-driven cases — no Telegram API dependency required
 
 ## Common Tasks
 
 ### Adding a New Health Metric
 1. Create migration in `internal/store/migrations/`
 2. Add table methods to `internal/store/store.go`
-3. Create HTTP handlers in `internal/server/`
-4. Add bot commands in `internal/bot/`
-5. Add frontend UI in `web/static/`
-6. Add scheduler logic if reminders needed in `internal/scheduler/`
+3. Create a domain service in `internal/domain/` following the Domain Service Pattern (see above)
+4. Create HTTP handlers in `internal/server/`
+5. Add bot commands in `internal/bot/` — use the domain service; no direct store calls for business logic
+6. Add frontend UI in `web/static/`
+7. Add scheduler logic if reminders needed in `internal/scheduler/`
 
 ### Adding MCP Tools
 1. Add tool definition in `internal/mcp/tools.go`

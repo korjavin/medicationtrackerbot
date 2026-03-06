@@ -133,8 +133,10 @@ func (m *mockExerciseStore) GetExerciseLogs(sessionID int64) ([]store.WorkoutExe
 // errExerciseStore wraps a mock store to inject errors.
 type errExerciseStore struct {
 	*mockExerciseStore
-	errGetExercise bool
-	errGetLog      bool
+	errGetExercise    bool
+	errGetLog         bool
+	errListExercises  bool
+	errGetLogs        bool
 }
 
 func (e *errExerciseStore) GetWorkoutExercise(id int64) (*store.WorkoutExercise, error) {
@@ -149,6 +151,20 @@ func (e *errExerciseStore) GetExerciseLogBySessionAndExercise(sessionID, exercis
 		return nil, errors.New("store error")
 	}
 	return e.mockExerciseStore.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
+}
+
+func (e *errExerciseStore) ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error) {
+	if e.errListExercises {
+		return nil, errors.New("store error")
+	}
+	return e.mockExerciseStore.ListExercisesByVariant(variantID)
+}
+
+func (e *errExerciseStore) GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error) {
+	if e.errGetLogs {
+		return nil, errors.New("store error")
+	}
+	return e.mockExerciseStore.GetExerciseLogs(sessionID)
 }
 
 // --- LogExercise tests ---
@@ -276,6 +292,18 @@ func TestLogExercise_StoreError(t *testing.T) {
 	}
 }
 
+func TestLogExercise_GetLogError(t *testing.T) {
+	ms := newMockExerciseStore()
+	ms.addExercise(10, "Curl", 3, 12, nil)
+	es := &errExerciseStore{mockExerciseStore: ms, errGetLog: true}
+	svc := NewExerciseService(es)
+
+	err := svc.LogExercise(context.Background(), 1, 10, "completed")
+	if err == nil {
+		t.Fatal("expected error when GetExerciseLogBySessionAndExercise fails")
+	}
+}
+
 // --- CheckSessionCompletion tests ---
 
 func TestCheckSessionCompletion_AllDone(t *testing.T) {
@@ -334,5 +362,29 @@ func TestCheckSessionCompletion_NoneDone(t *testing.T) {
 	}
 	if completed != 0 {
 		t.Errorf("expected 0 completed, got %d", completed)
+	}
+}
+
+func TestCheckSessionCompletion_ListExercisesError(t *testing.T) {
+	ms := newMockExerciseStore()
+	ms.addExercise(1, "A", 3, 10, nil)
+	es := &errExerciseStore{mockExerciseStore: ms, errListExercises: true}
+	svc := NewExerciseService(es)
+
+	_, _, _, err := svc.CheckSessionCompletion(context.Background(), 100, 1)
+	if err == nil {
+		t.Fatal("expected error when ListExercisesByVariant fails")
+	}
+}
+
+func TestCheckSessionCompletion_GetLogsError(t *testing.T) {
+	ms := newMockExerciseStore()
+	ms.addExercise(1, "A", 3, 10, nil)
+	es := &errExerciseStore{mockExerciseStore: ms, errGetLogs: true}
+	svc := NewExerciseService(es)
+
+	_, _, _, err := svc.CheckSessionCompletion(context.Background(), 100, 1)
+	if err == nil {
+		t.Fatal("expected error when GetExerciseLogs fails")
 	}
 }

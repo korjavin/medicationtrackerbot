@@ -18,25 +18,33 @@ type mockReminderStore struct {
 	dontBugBPCalled     bool
 	snoozeWeightCalled  bool
 	dontBugWeightCalled bool
+	snoozeBPUserID      int64
+	dontBugBPUserID     int64
+	snoozeWeightUserID  int64
+	dontBugWeightUserID int64
 }
 
-func (m *mockReminderStore) SnoozeBPReminder(_ int64) error {
+func (m *mockReminderStore) SnoozeBPReminder(userID int64) error {
 	m.snoozeBPCalled = true
+	m.snoozeBPUserID = userID
 	return m.snoozeBPErr
 }
 
-func (m *mockReminderStore) DontBugMeBPReminder(_ int64) error {
+func (m *mockReminderStore) DontBugMeBPReminder(userID int64) error {
 	m.dontBugBPCalled = true
+	m.dontBugBPUserID = userID
 	return m.dontBugBPErr
 }
 
-func (m *mockReminderStore) SnoozeWeightReminder(_ int64) error {
+func (m *mockReminderStore) SnoozeWeightReminder(userID int64) error {
 	m.snoozeWeightCalled = true
+	m.snoozeWeightUserID = userID
 	return m.snoozeWeightErr
 }
 
-func (m *mockReminderStore) DontBugMeWeightReminder(_ int64) error {
+func (m *mockReminderStore) DontBugMeWeightReminder(userID int64) error {
 	m.dontBugWeightCalled = true
+	m.dontBugWeightUserID = userID
 	return m.dontBugWeightErr
 }
 
@@ -61,6 +69,9 @@ func TestReminderService_SnoozeBPReminder(t *testing.T) {
 			}
 			if mock.snoozeBPCalled != tc.wantCalled {
 				t.Errorf("SnoozeBPReminder() store called = %v, want %v", mock.snoozeBPCalled, tc.wantCalled)
+			}
+			if mock.snoozeBPCalled && mock.snoozeBPUserID != 42 {
+				t.Errorf("SnoozeBPReminder() userID = %d, want 42", mock.snoozeBPUserID)
 			}
 			if tc.wantErr && err != nil && !errors.Is(err, storeErr) {
 				t.Errorf("expected wrapped store error, got %v", err)
@@ -90,6 +101,9 @@ func TestReminderService_BlockBPReminders(t *testing.T) {
 			if !mock.dontBugBPCalled {
 				t.Error("BlockBPReminders() did not call store")
 			}
+			if mock.dontBugBPUserID != 42 {
+				t.Errorf("BlockBPReminders() userID = %d, want 42", mock.dontBugBPUserID)
+			}
 		})
 	}
 }
@@ -115,6 +129,9 @@ func TestReminderService_SnoozeWeightReminder(t *testing.T) {
 			if !mock.snoozeWeightCalled {
 				t.Error("SnoozeWeightReminder() did not call store")
 			}
+			if mock.snoozeWeightUserID != 99 {
+				t.Errorf("SnoozeWeightReminder() userID = %d, want 99", mock.snoozeWeightUserID)
+			}
 		})
 	}
 }
@@ -139,6 +156,9 @@ func TestReminderService_BlockWeightReminders(t *testing.T) {
 			}
 			if !mock.dontBugWeightCalled {
 				t.Error("BlockWeightReminders() did not call store")
+			}
+			if mock.dontBugWeightUserID != 99 {
+				t.Errorf("BlockWeightReminders() userID = %d, want 99", mock.dontBugWeightUserID)
 			}
 		})
 	}

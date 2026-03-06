@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -70,7 +71,10 @@ func (s *medicationService) ConfirmIntakeWithCleanup(_ context.Context, intakeID
 		return nil, ErrNotPending
 	}
 
-	reminders, _ := s.store.GetIntakeReminders(intakeID)
+	reminders, err := s.store.GetIntakeReminders(intakeID)
+	if err != nil {
+		log.Printf("[domain] GetIntakeReminders for intake %d: %v", intakeID, err)
+	}
 
 	if err := s.store.ConfirmIntake(intakeID, takenAt); err != nil {
 		return nil, fmt.Errorf("confirm intake %d: %w", intakeID, err)
@@ -99,7 +103,10 @@ func (s *medicationService) SkipSupplementIntake(_ context.Context, intakeID int
 		return nil, ErrNotSupplement
 	}
 
-	reminders, _ := s.store.GetIntakeReminders(intakeID)
+	reminders, err := s.store.GetIntakeReminders(intakeID)
+	if err != nil {
+		log.Printf("[domain] GetIntakeReminders for intake %d: %v", intakeID, err)
+	}
 
 	if err := s.store.SkipIntake(intakeID); err != nil {
 		return nil, fmt.Errorf("skip intake %d: %w", intakeID, err)
@@ -130,7 +137,10 @@ func (s *medicationService) ConfirmScheduleWithCleanup(_ context.Context, userID
 
 	var allReminders []int
 	for _, p := range pending {
-		reminders, _ := s.store.GetIntakeReminders(p.ID)
+		reminders, err := s.store.GetIntakeReminders(p.ID)
+		if err != nil {
+			log.Printf("[domain] GetIntakeReminders for intake %d: %v", p.ID, err)
+		}
 		allReminders = append(allReminders, reminders...)
 	}
 
