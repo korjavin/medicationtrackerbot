@@ -538,7 +538,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	} else if strings.HasPrefix(data, "workout_start_") || strings.HasPrefix(data, "workout_snooze1") || strings.HasPrefix(data, "workout_snooze2") || strings.HasPrefix(data, "workout_skip_") || strings.HasPrefix(data, "workout_finish_") {
 		// Workout callbacks
 		b.handleWorkoutCallback(cb, data)
-	} else if len(data) > 13 && (data[:14] == "exercise_done_" || data[:14] == "exercise_edit_" || data[:14] == "exercise_skip_") {
+	} else if strings.HasPrefix(data, "exercise_done_") || strings.HasPrefix(data, "exercise_edit_") || strings.HasPrefix(data, "exercise_skip_") {
 		// Exercise callbacks
 		b.handleExerciseCallback(cb, data)
 	} else if strings.HasPrefix(data, "add_exercise_") {

@@ -133,10 +133,13 @@ func (m *mockExerciseStore) GetExerciseLogs(sessionID int64) ([]store.WorkoutExe
 // errExerciseStore wraps a mock store to inject errors.
 type errExerciseStore struct {
 	*mockExerciseStore
-	errGetExercise    bool
-	errGetLog         bool
-	errListExercises  bool
-	errGetLogs        bool
+	errGetExercise          bool
+	errGetLog               bool
+	errListExercises        bool
+	errGetLogs              bool
+	errLogExercise          bool
+	errUpdateExerciseLog    bool
+	errUpdateExerciseStatus bool
 }
 
 func (e *errExerciseStore) GetWorkoutExercise(id int64) (*store.WorkoutExercise, error) {
@@ -165,6 +168,27 @@ func (e *errExerciseStore) GetExerciseLogs(sessionID int64) ([]store.WorkoutExer
 		return nil, errors.New("store error")
 	}
 	return e.mockExerciseStore.GetExerciseLogs(sessionID)
+}
+
+func (e *errExerciseStore) LogExercise(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes string) (int64, error) {
+	if e.errLogExercise {
+		return 0, errors.New("store error")
+	}
+	return e.mockExerciseStore.LogExercise(sessionID, exerciseID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes)
+}
+
+func (e *errExerciseStore) UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error {
+	if e.errUpdateExerciseLog {
+		return errors.New("store error")
+	}
+	return e.mockExerciseStore.UpdateExerciseLog(id, setsCompleted, repsCompleted, weightKg, notes)
+}
+
+func (e *errExerciseStore) UpdateExerciseLogStatus(id int64, status string) error {
+	if e.errUpdateExerciseStatus {
+		return errors.New("store error")
+	}
+	return e.mockExerciseStore.UpdateExerciseLogStatus(id, status)
 }
 
 // --- LogExercise tests ---
@@ -301,6 +325,45 @@ func TestLogExercise_GetLogError(t *testing.T) {
 	err := svc.LogExercise(context.Background(), 1, 10, "completed")
 	if err == nil {
 		t.Fatal("expected error when GetExerciseLogBySessionAndExercise fails")
+	}
+}
+
+func TestLogExercise_LogExerciseStoreError(t *testing.T) {
+	ms := newMockExerciseStore()
+	ms.addExercise(10, "Curl", 3, 12, nil)
+	es := &errExerciseStore{mockExerciseStore: ms, errLogExercise: true}
+	svc := NewExerciseService(es)
+
+	err := svc.LogExercise(context.Background(), 1, 10, "completed")
+	if err == nil {
+		t.Fatal("expected error when LogExercise store call fails")
+	}
+}
+
+func TestLogExercise_UpdateExerciseLogError(t *testing.T) {
+	ms := newMockExerciseStore()
+	weight := 80.0
+	ms.addExercise(10, "Curl", 3, 12, &weight)
+	ms.addLog(1, 10, "skipped")
+	es := &errExerciseStore{mockExerciseStore: ms, errUpdateExerciseLog: true}
+	svc := NewExerciseService(es)
+
+	err := svc.LogExercise(context.Background(), 1, 10, "completed")
+	if err == nil {
+		t.Fatal("expected error when UpdateExerciseLog store call fails")
+	}
+}
+
+func TestLogExercise_UpdateExerciseLogStatusError(t *testing.T) {
+	ms := newMockExerciseStore()
+	ms.addExercise(10, "Curl", 3, 12, nil)
+	ms.addLog(1, 10, "skipped")
+	es := &errExerciseStore{mockExerciseStore: ms, errUpdateExerciseStatus: true}
+	svc := NewExerciseService(es)
+
+	err := svc.LogExercise(context.Background(), 1, 10, "completed")
+	if err == nil {
+		t.Fatal("expected error when UpdateExerciseLogStatus store call fails")
 	}
 }
 
