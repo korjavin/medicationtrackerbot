@@ -74,7 +74,9 @@ func (s *medicationService) ConfirmIntakeWithCleanup(_ context.Context, intakeID
 
 	// Determine supplement status for the caller's UI needs (best-effort).
 	isSupplement := false
-	if med, err := s.store.GetMedication(intake.MedicationID); err == nil && med != nil {
+	if med, err := s.store.GetMedication(intake.MedicationID); err != nil {
+		log.Printf("[domain] GetMedication for intake %d: %v", intakeID, err)
+	} else if med != nil {
 		isSupplement = med.Supplement
 	}
 
