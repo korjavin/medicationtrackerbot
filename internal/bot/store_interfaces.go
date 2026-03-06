@@ -13,6 +13,7 @@ type MedicationStore interface {
 	ListMedications(showArchived bool) ([]store.Medication, error)
 	GetMedication(id int64) (*store.Medication, error)
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
+	AddIntakeReminder(intakeID int64, msgID int) error
 	GetIntake(id int64) (*store.IntakeLog, error)
 	GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error)
 	GetMedicationsLowOnStock(daysThreshold int) ([]store.Medication, error)
