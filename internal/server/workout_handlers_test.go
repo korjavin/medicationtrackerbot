@@ -23,8 +23,8 @@ func TestHandleUpdateSessionStatus(t *testing.T) {
 
 	// Create test server
 	srv := &Server{
-		workouts:   db,
-		workoutSvc: workoutsvc.New(db),
+		workouts:      db,
+		workoutSvc:    workoutsvc.New(db),
 		allowedUserID: 123456,
 	}
 
@@ -143,6 +143,67 @@ func TestHandleUpdateSessionStatus(t *testing.T) {
 	}
 }
 
+type workoutInteractorSpy struct {
+	cleaned []int64
+}
+
+func (w *workoutInteractorSpy) UpdateWorkoutMessage(_ int, _ string) error {
+	return nil
+}
+
+func (w *workoutInteractorSpy) StartWorkoutFlowFromWeb(_ int64) error {
+	return nil
+}
+
+func (w *workoutInteractorSpy) CleanupWorkoutSessionMessages(sessionID int64) error {
+	w.cleaned = append(w.cleaned, sessionID)
+	return nil
+}
+
+func TestHandleUpdateSessionStatus_CleansUpWorkoutChatOnTerminalState(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	defer db.Close()
+
+	spy := &workoutInteractorSpy{}
+	srv := &Server{
+		workouts:      db,
+		workoutSvc:    workoutsvc.New(db),
+		workout:       spy,
+		allowedUserID: 123456,
+	}
+
+	userID := int64(123456)
+	group, err := db.CreateWorkoutGroup("Test Group", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	if err != nil {
+		t.Fatalf("Failed to create workout group: %v", err)
+	}
+	variant, err := db.CreateWorkoutVariant(group.ID, "Test Variant", nil, "")
+	if err != nil {
+		t.Fatalf("Failed to create workout variant: %v", err)
+	}
+	session, err := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	if err != nil {
+		t.Fatalf("Failed to create workout session: %v", err)
+	}
+
+	bodyBytes, _ := json.Marshal(map[string]string{"status": "completed"})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/workout/sessions/status?id=%d", session.ID), bytes.NewReader(bodyBytes))
+	w := httptest.NewRecorder()
+
+	srv.handleUpdateSessionStatus(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	if len(spy.cleaned) != 1 || spy.cleaned[0] != session.ID {
+		t.Fatalf("expected workout chat cleanup for session %d, got %v", session.ID, spy.cleaned)
+	}
+}
+
 func TestHandleGetNextWorkout_LazyCreation(t *testing.T) {
 	// Create test database
 	db, err := store.New(":memory:")
@@ -154,7 +215,7 @@ func TestHandleGetNextWorkout_LazyCreation(t *testing.T) {
 	// Create test server
 	userID := int64(123456)
 	srv := &Server{
-		workouts: db,
+		workouts:      db,
 		allowedUserID: userID,
 	}
 
