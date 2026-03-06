@@ -9,7 +9,6 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/korjavin/medicationtrackerbot/internal/domain"
 )
 
 // handleWorkoutCallback handles workout session actions (start, snooze, skip)
@@ -174,57 +173,18 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 	sessionID, _ := strconv.ParseInt(parts[2], 10, 64)
 	exerciseID, _ := strconv.ParseInt(parts[3], 10, 64)
 
-	exercise, err := b.workouts.GetWorkoutExercise(exerciseID)
-	if err != nil || exercise == nil {
-		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Exercise not found.")); err != nil {
-			log.Printf("[bot] send failed: %v", err)
-		}
-		return
-	}
+	ctx := context.Background()
 
 	switch action {
 	case "done":
-		// Check if a log already exists for this session+exercise (idempotent)
-		existingLog, err := b.workouts.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
-		if err != nil {
-			log.Printf("Failed to load existing log: %v", err)
+		if err := b.exerciseSvc.LogExercise(ctx, sessionID, exerciseID, "completed"); err != nil {
+			log.Printf("Failed to log exercise: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)
 			}
 			return
 		}
-		if existingLog != nil {
-			// Already logged — update it with default values instead of creating duplicate
-			if err := b.workouts.UpdateExerciseLog(existingLog.ID, &exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, ""); err != nil {
-				log.Printf("Failed to update exercise log: %v", err)
-				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise.")); err != nil {
-					log.Printf("[bot] send failed: %v", err)
-				}
-				return
-			}
-			if existingLog.Status != "completed" {
-				if err := b.workouts.UpdateExerciseLogStatus(existingLog.ID, "completed"); err != nil {
-					log.Printf("Failed to update exercise log status: %v", err)
-					if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise.")); err != nil {
-						log.Printf("[bot] send failed: %v", err)
-					}
-					return
-				}
-			}
-		} else {
-			// Log exercise with default values
-			_, err := b.workouts.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
-				&exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "completed", "")
-			if err != nil {
-				log.Printf("Failed to log exercise: %v", err)
-				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise.")); err != nil {
-					log.Printf("[bot] send failed: %v", err)
-				}
-				return
-			}
-		}
 
-		// Update message
 		editText := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
 			cb.Message.Text+"\n\n✅ Completed")
 		editText.ParseMode = "Markdown"
@@ -232,7 +192,6 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			log.Printf("[bot] send failed: %v", err)
 		}
 
-		// Remove buttons
 		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})
@@ -240,34 +199,14 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			log.Printf("[bot] send failed: %v", err)
 		}
 
-		// Check if all exercises are done
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
 
 	case "skip":
-		// Check if a log already exists for this session+exercise (idempotent)
-		existingLog, err := b.workouts.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
-		if err != nil {
-			log.Printf("Failed to load existing log: %v", err)
+		if err := b.exerciseSvc.LogExercise(ctx, sessionID, exerciseID, "skipped"); err != nil {
+			log.Printf("Failed to log skipped exercise: %v", err)
 			return
 		}
-		if existingLog != nil {
-			if existingLog.Status != "skipped" {
-				if err := b.workouts.UpdateExerciseLogStatus(existingLog.ID, "skipped"); err != nil {
-					log.Printf("Failed to update exercise log status to skipped: %v", err)
-					return
-				}
-			}
-		} else {
-			// Log exercise as skipped
-			_, err := b.workouts.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
-				nil, nil, nil, "skipped", "")
-			if err != nil {
-				log.Printf("Failed to log skipped exercise: %v", err)
-				return
-			}
-		}
 
-		// Update message
 		editText := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
 			cb.Message.Text+"\n\n⏭ Skipped")
 		editText.ParseMode = "Markdown"
@@ -275,7 +214,6 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			log.Printf("[bot] send failed: %v", err)
 		}
 
-		// Remove buttons
 		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})
@@ -283,46 +221,20 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			log.Printf("[bot] send failed: %v", err)
 		}
 
-		// Check if all exercises are done
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
 
 	case "edit":
-		// For now, send a simple message asking for input
-		// In a more complete implementation, you'd enter an input mode
 		_, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID,
 			"To edit, please use the web interface for now. Click 'Menu' to open the app."))
 		if err != nil {
 			log.Printf("Failed to send edit message: %v", err)
 		}
 
-		// Check if a log already exists for this session+exercise (idempotent)
-		existingLog, err := b.workouts.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
-		if err != nil {
-			log.Printf("Failed to load existing log: %v", err)
+		if err := b.exerciseSvc.LogExercise(ctx, sessionID, exerciseID, "completed"); err != nil {
+			log.Printf("Failed to log exercise (edit): %v", err)
 			return
 		}
-		if existingLog != nil {
-			// Already logged — update it
-			if err := b.workouts.UpdateExerciseLog(existingLog.ID, &exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, ""); err != nil {
-				log.Printf("Failed to update exercise log: %v", err)
-				return
-			}
-			if existingLog.Status != "completed" {
-				if err := b.workouts.UpdateExerciseLogStatus(existingLog.ID, "completed"); err != nil {
-					log.Printf("Failed to update exercise log status: %v", err)
-					return
-				}
-			}
-		} else {
-			// Log with default values for now
-			_, err = b.workouts.LogExercise(sessionID, exerciseID, exercise.ExerciseName,
-				&exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, "completed", "")
-			if err != nil {
-				log.Printf("Failed to log exercise: %v", err)
-			}
-		}
 
-		// Update original message
 		editText := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
 			cb.Message.Text+"\n\n✅ Logged (edit in web app)")
 		editText.ParseMode = "Markdown"
@@ -330,7 +242,6 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			log.Printf("[bot] send failed: %v", err)
 		}
 
-		// Remove buttons
 		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})
@@ -338,44 +249,26 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			log.Printf("[bot] send failed: %v", err)
 		}
 
-		// Check completion
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
 	}
 }
 
-// checkWorkoutCompletion checks if all exercises are done and completes the session
+// checkWorkoutCompletion checks if all exercises are done and prompts the user to finish.
 func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
 	session, err := b.workouts.GetWorkoutSession(sessionID)
 	if err != nil || session == nil {
 		return
 	}
 
-	// Get all exercises for this variant
-	exercises, err := b.workouts.ListExercisesByVariant(session.VariantID)
+	ctx := context.Background()
+	done, completedCount, totalCount, err := b.exerciseSvc.CheckSessionCompletion(ctx, sessionID, session.VariantID)
 	if err != nil {
+		log.Printf("[bot] checkWorkoutCompletion: %v", err)
 		return
 	}
 
-	// Get logged exercises
-	logs, err := b.workouts.GetExerciseLogs(sessionID)
-	if err != nil {
-		return
-	}
-
-	// Check if all planned exercises are handled
-	plannedIDs := make([]int64, len(exercises))
-	for i, ex := range exercises {
-		plannedIDs[i] = ex.ID
-	}
-	logStatuses := make([]domain.ExerciseLogStatus, len(logs))
-	for i, l := range logs {
-		logStatuses[i] = domain.ExerciseLogStatus{ExerciseID: l.ExerciseID, Status: l.Status}
-	}
-	result := domain.CheckCompletion(plannedIDs, logStatuses)
-
-	if result.AllDone {
-		// Planned exercises are done, but we keep session in_progress until user explicitly finishes.
-		if err := b.SendWorkoutComplete(chatID, sessionID, result.CompletedCount, result.TotalCount); err != nil {
+	if done {
+		if err := b.SendWorkoutComplete(chatID, sessionID, completedCount, totalCount); err != nil {
 			log.Printf("[bot] send failed: %v", err)
 		}
 	}
