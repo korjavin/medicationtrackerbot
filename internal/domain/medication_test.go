@@ -100,6 +100,7 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 		store             *mockMedicationStore
 		intakeID          int64
 		wantReminderIDs   []int
+		wantIsSupplement  bool
 		wantErr           error
 		wantErrContains   string
 	}{
@@ -107,12 +108,26 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 			name: "pending intake returns reminder IDs",
 			store: &mockMedicationStore{
 				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+				getMedicationFn:      func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Supplement: false}, nil },
 				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return []int{101, 102}, nil },
 				confirmIntakeFn:      func(id int64, takenAt time.Time) error { return nil },
 				decrementInventoryFn: func(medID int64, qty int) error { return nil },
 			},
 			intakeID:        42,
 			wantReminderIDs: []int{101, 102},
+		},
+		{
+			name: "supplement intake sets isSupplement true",
+			store: &mockMedicationStore{
+				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+				getMedicationFn:      func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Supplement: true}, nil },
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return []int{55}, nil },
+				confirmIntakeFn:      func(id int64, takenAt time.Time) error { return nil },
+				decrementInventoryFn: func(medID int64, qty int) error { return nil },
+			},
+			intakeID:         42,
+			wantReminderIDs:  []int{55},
+			wantIsSupplement: true,
 		},
 		{
 			name: "nil intake returns ErrNotPending",
@@ -168,7 +183,7 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, err := svc.ConfirmIntakeWithCleanup(ctx, tt.intakeID, takenAt)
+			ids, isSupp, err := svc.ConfirmIntakeWithCleanup(ctx, tt.intakeID, takenAt)
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
@@ -187,6 +202,9 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 			}
 			if !equalIntSlice(ids, tt.wantReminderIDs) {
 				t.Errorf("reminder IDs: got %v, want %v", ids, tt.wantReminderIDs)
+			}
+			if isSupp != tt.wantIsSupplement {
+				t.Errorf("isSupplement: got %v, want %v", isSupp, tt.wantIsSupplement)
 			}
 		})
 	}

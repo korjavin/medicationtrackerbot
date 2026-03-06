@@ -368,15 +368,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		// Pre-fetch to determine supplement status for button removal (presentation concern).
-		isSupp := false
-		if intake, err := b.meds.GetIntake(intakeID); err == nil && intake != nil {
-			if med, err := b.meds.GetMedication(intake.MedicationID); err == nil && med != nil {
-				isSupp = med.Supplement
-			}
-		}
-
-		reminders, err := b.medSvc.ConfirmIntakeWithCleanup(context.Background(), intakeID, time.Now())
+		reminders, isSupp, err := b.medSvc.ConfirmIntakeWithCleanup(context.Background(), intakeID, time.Now())
 		if err != nil {
 			if errors.Is(err, domain.ErrNotPending) {
 				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
@@ -466,7 +458,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 
 		if logID != 0 {
-			reminders, err := b.medSvc.ConfirmIntakeWithCleanup(context.Background(), logID, time.Now())
+			reminders, _, err := b.medSvc.ConfirmIntakeWithCleanup(context.Background(), logID, time.Now())
 			if err != nil {
 				if errors.Is(err, domain.ErrNotPending) {
 					if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
