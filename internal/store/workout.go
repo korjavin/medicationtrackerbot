@@ -949,6 +949,15 @@ func (s *Store) UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, w
 	return err
 }
 
+func (s *Store) UpdateExerciseLogStatus(id int64, status string) error {
+	_, err := s.db.Exec(`
+		UPDATE workout_exercise_logs
+		SET status = ?
+		WHERE id = ?`,
+		status, id)
+	return err
+}
+
 // DeleteExerciseLog removes an exercise log entry by its ID
 func (s *Store) DeleteExerciseLog(id int64) error {
 	_, err := s.db.Exec("DELETE FROM workout_exercise_logs WHERE id = ?", id)
