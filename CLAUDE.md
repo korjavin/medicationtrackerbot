@@ -40,6 +40,7 @@ go test ./...
 # Run tests for a specific package
 go test ./internal/store
 go test ./internal/server
+go test ./internal/domain
 
 # Run tests with verbose output
 go test -v ./internal/store

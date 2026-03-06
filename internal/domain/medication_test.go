@@ -545,8 +545,10 @@ func TestConfirmMedicationByMedID(t *testing.T) {
 				getIntakeRemindersFn: func(intakeID int64) ([]int, error) {
 					return []int{200}, nil
 				},
+				confirmIntakeFn: func(id int64, takenAt time.Time) error { return nil },
 			},
 			wantReminderIDs: []int{200},
+			wantConfirmedID: 5,
 		},
 	}
 
