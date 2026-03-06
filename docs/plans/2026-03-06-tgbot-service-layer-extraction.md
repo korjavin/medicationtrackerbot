@@ -166,12 +166,12 @@ Extract BP/weight reminder management from `internal/bot/bp_callbacks.go` and `i
 
 ### Task 9: Verify acceptance criteria
 
-- [ ] Audit `internal/bot/bot.go` — no direct store calls for business decisions (only allowed: auth check, fetching data needed for Telegram display)
-- [ ] Audit `internal/bot/workout_callbacks.go` — delegates to workout service and exercise service
-- [ ] Audit `internal/bot/bp_callbacks.go` and `weight_callbacks.go` — delegates to reminder service
-- [ ] Run full test suite: `go test ./...` — all tests pass
-- [ ] Run `go build ./...` — clean build
-- [ ] Run linter: `golangci-lint run` — no new issues
+- [x] Audit `internal/bot/bot.go` — no direct store calls for business decisions (only allowed: auth check, fetching data needed for Telegram display)
+- [x] Audit `internal/bot/workout_callbacks.go` — delegates to workout service and exercise service
+- [x] Audit `internal/bot/bp_callbacks.go` and `weight_callbacks.go` — delegates to reminder service
+- [x] Run full test suite: `go test ./...` — all tests pass
+- [x] Run `go build ./...` — clean build
+- [x] Run linter: `golangci-lint run` — no new issues (pre-existing golangci-lint/Go version incompatibility unrelated to our changes)
 
 ---
 
