@@ -22,6 +22,7 @@ type mockMedicationStore struct {
 	skipIntakeFn                  func(id int64) error
 	createIntakeFn                func(medID, userID int64, scheduledAt time.Time) (int64, error)
 	decrementInventoryFn          func(medID int64, qty int) error
+	lastConfirmedID               int64
 }
 
 func (m *mockMedicationStore) GetIntake(id int64) (*store.IntakeLog, error) {
@@ -60,6 +61,7 @@ func (m *mockMedicationStore) GetPendingIntakesBySchedule(userID int64, schedule
 }
 
 func (m *mockMedicationStore) ConfirmIntake(id int64, takenAt time.Time) error {
+	m.lastConfirmedID = id
 	if m.confirmIntakeFn != nil {
 		return m.confirmIntakeFn(id, takenAt)
 	}
@@ -476,12 +478,13 @@ func TestConfirmMedicationByMedID(t *testing.T) {
 	takenAt := time.Now()
 
 	tests := []struct {
-		name            string
-		store           *mockMedicationStore
-		medID           int64
-		wantReminderIDs []int
-		wantErr         error
-		wantErrContains string
+		name               string
+		store              *mockMedicationStore
+		medID              int64
+		wantReminderIDs    []int
+		wantErr            error
+		wantErrContains    string
+		wantConfirmedID    int64
 	}{
 		{
 			name:  "no pending intake returns ErrNotPending",
@@ -501,7 +504,7 @@ func TestConfirmMedicationByMedID(t *testing.T) {
 					return nil, errors.New("db error")
 				},
 			},
-			wantErrContains: "db error",
+			wantErrContains: "get pending intakes",
 		},
 		{
 			name:  "pending intake found and confirmed",
@@ -521,8 +524,10 @@ func TestConfirmMedicationByMedID(t *testing.T) {
 				getIntakeRemindersFn: func(intakeID int64) ([]int, error) {
 					return []int{101, 102}, nil
 				},
+				confirmIntakeFn: func(id int64, takenAt time.Time) error { return nil },
 			},
 			wantReminderIDs: []int{101, 102},
+			wantConfirmedID: 5,
 		},
 		{
 			name:  "first pending intake used when multiple exist",
@@ -566,6 +571,9 @@ func TestConfirmMedicationByMedID(t *testing.T) {
 			}
 			if !equalIntSlice(ids, tt.wantReminderIDs) {
 				t.Errorf("reminder IDs: got %v, want %v", ids, tt.wantReminderIDs)
+			}
+			if tt.wantConfirmedID != 0 && tt.store.lastConfirmedID != tt.wantConfirmedID {
+				t.Errorf("ConfirmIntake called with id %d, want %d", tt.store.lastConfirmedID, tt.wantConfirmedID)
 			}
 		})
 	}
