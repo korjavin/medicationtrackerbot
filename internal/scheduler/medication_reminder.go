@@ -18,6 +18,14 @@ type MedicationReminderChecker struct {
 }
 
 func (c *MedicationReminderChecker) Check(ctx context.Context) error {
+	enabled, err := c.store.GetMedicationEnabled(ctx)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return nil
+	}
+
 	if c.now == nil {
 		c.now = time.Now
 	}

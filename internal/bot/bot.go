@@ -1453,8 +1453,15 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 
-	if _, err := b.api.Send(msg); err != nil {
+	sent, err := b.api.Send(msg)
+	if err != nil {
 		log.Printf("[bot] send failed: %v", err)
+	} else {
+		for _, intakeID := range intakeByMedication {
+			if err := b.meds.AddIntakeReminder(intakeID, sent.MessageID); err != nil {
+				log.Printf("[bot] AddIntakeReminder for intake %d: %v", intakeID, err)
+			}
+		}
 	}
 	msgConfig.Text = "" // Don't send the original message config
 }
