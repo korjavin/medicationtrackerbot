@@ -64,7 +64,7 @@ func CheckCompletion(plannedExerciseIDs []int64, logs []ExerciseLogStatus) Compl
 
 	return CompletionResult{
 		CompletedCount: len(uniqueCompletedIDs),
-		TotalCount:     len(plannedExerciseIDs),
+		TotalCount:     len(allRelatedExerciseIDs),
 		AllDone:        allPlannedCompleted,
 	}
 }

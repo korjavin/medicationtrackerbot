@@ -71,7 +71,7 @@ func (b *Bot) handleWeightReminderCallback(cb *tgbotapi.CallbackQuery, data stri
 
 	case "weight_snooze":
 		// Snooze for 2 hours
-		if err := b.weight.SnoozeWeightReminder(cb.From.ID); err != nil {
+		if err := b.reminderSvc.SnoozeWeightReminder(cb.From.ID); err != nil {
 			log.Printf("Error snoozing weight reminder: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing reminder.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)
@@ -92,7 +92,7 @@ func (b *Bot) handleWeightReminderCallback(cb *tgbotapi.CallbackQuery, data stri
 
 	case "weight_dontbug":
 		// Block for 24 hours
-		if err := b.weight.DontBugMeWeightReminder(cb.From.ID); err != nil {
+		if err := b.reminderSvc.BlockWeightReminders(cb.From.ID); err != nil {
 			log.Printf("Error setting don't bug me for weight reminder: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error blocking reminders.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)

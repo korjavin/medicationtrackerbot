@@ -69,11 +69,13 @@ We built this because health data was everywhere—and nowhere. Medications, blo
   - Example: `/bp 130 80 72` (130/80 mmHg, 72 bpm pulse)
 - `/bphistory` - View blood pressure history.
 - `/bpstats` - View blood pressure statistics (averages, trends).
+- **Reminder Management**: When you receive a BP reminder, you can snooze it for 2 hours or block reminders for 24 hours via Telegram callback buttons.
 
 ### Weight Commands
 - `/weight <kg>` - Log weight in kilograms.
   - Example: `/weight 75.5`
 - `/weighthistory` - View recent weight history (last 10 entries).
+- **Reminder Management**: When you receive a weight reminder, you can snooze it for 2 hours or block reminders for 24 hours via Telegram callback buttons.
 
 ## Configuration
 

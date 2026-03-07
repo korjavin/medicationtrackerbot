@@ -30,8 +30,16 @@ func setupBotTest(t *testing.T) *botTestEnv {
 	messageChan := make(chan string, 100)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "sendMessage") {
-			bodyBytes, _ := io.ReadAll(r.Body)
-			bodyStr, _ := url.QueryUnescape(string(bodyBytes))
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("Failed to read request body: %v", err)
+				return
+			}
+			bodyStr, err := url.QueryUnescape(string(bodyBytes))
+			if err != nil {
+				t.Errorf("Failed to unescape URL: %v", err)
+				return
+			}
 			messageChan <- bodyStr
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -54,6 +62,7 @@ func setupBotTest(t *testing.T) *botTestEnv {
 		workouts:      s,
 		workoutSvc:    workoutsvc.New(s),
 		exerciseSvc:   domain.NewExerciseService(s),
+		reminderSvc:   domain.NewReminderService(s),
 		food:          s,
 		imports:       s,
 		allowedUserID: 123456,

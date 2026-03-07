@@ -75,3 +75,11 @@ type ImportStore interface {
 	ImportDayStats(ctx context.Context, userID int64, stats []store.DayStat) (int, int, error)
 	ImportMiBandWorkouts(ctx context.Context, workouts []store.MiBandWorkout, gpsTracks map[int64][]store.MiBandGPSPoint) (int, int, error)
 }
+
+// ReminderStore is the subset of store operations needed for reminder operations.
+type ReminderStore interface {
+	SnoozeBPReminder(userID int64) error
+	DontBugMeBPReminder(userID int64) error
+	SnoozeWeightReminder(userID int64) error
+	DontBugMeWeightReminder(userID int64) error
+}
