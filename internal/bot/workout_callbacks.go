@@ -175,8 +175,16 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 	}
 
 	action := parts[1] // done, edit, skip
-	sessionID, _ := strconv.ParseInt(parts[2], 10, 64)
-	exerciseID, _ := strconv.ParseInt(parts[3], 10, 64)
+	sessionID, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		log.Printf("[bot] Failed to parse session ID from callback data: %v", err)
+		return
+	}
+	exerciseID, err := strconv.ParseInt(parts[3], 10, 64)
+	if err != nil {
+		log.Printf("[bot] Failed to parse exercise ID from callback data: %v", err)
+		return
+	}
 
 	// Verify the user owns this session
 	session, err := b.workouts.GetWorkoutSession(sessionID)

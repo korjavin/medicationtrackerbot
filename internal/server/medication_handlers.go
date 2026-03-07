@@ -247,7 +247,13 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 			takenAt = time.Now()
 		}
 
-		// Reverting to PENDING logic
+		// First update the intake status, then adjust inventory
+		if err := s.meds.UpdateIntake(up.ID, takenAt, up.Status); err != nil {
+			log.Printf("Error updating intake %d: %v", up.ID, err)
+			continue
+		}
+
+		// Adjust inventory after successful update
 		switch up.Status {
 		case "PENDING":
 			// If it was TAKEN, we are reverting.
@@ -270,10 +276,6 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 					s.deleteNotification(r.Context(), msgID)
 				}
 			}
-		}
-
-		if err := s.meds.UpdateIntake(up.ID, takenAt, up.Status); err != nil {
-			log.Printf("Error updating intake %d: %v", up.ID, err)
 		}
 	}
 
