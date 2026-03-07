@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -12,6 +13,10 @@ import (
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // Pure Go SQLite driver
 )
+
+// ErrIntakeNotPending is returned by ConfirmIntake when the target row is not in PENDING state
+// (already confirmed, skipped, or not found). This guards against double-confirmation races.
+var ErrIntakeNotPending = errors.New("intake is not in PENDING state")
 
 //go:embed migrations/*.sql
 var embedMigrations embed.FS
@@ -517,8 +522,18 @@ func (s *Store) CreateManualIntake(medID, userID int64, takenAt time.Time) (int6
 }
 
 func (s *Store) ConfirmIntake(id int64, takenAt time.Time) error {
-	_, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at = ? WHERE id = ?", takenAt, id)
-	return err
+	res, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at = ? WHERE id = ? AND status = 'PENDING'", takenAt, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrIntakeNotPending
+	}
+	return nil
 }
 
 func (s *Store) SkipIntake(id int64) error {

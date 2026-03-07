@@ -362,15 +362,20 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 	b.handleExerciseCallback(cb, cb.Data)
 
 	// Should NOT complete because Ex2 is not done
+	// Note: This uses a timeout to verify no message was sent. The timeout is generous
+	// to avoid flakiness on slow systems while still catching premature completion bugs.
 	select {
-	case <-messageChan:
-		t.Fatalf("Premature completion! Session completed despite Exam 2 remaining")
-	case <-time.After(100 * time.Millisecond):
-		// OK
+	case msg := <-messageChan:
+		t.Fatalf("Premature completion! Session completed despite Ex2 remaining. Got message: %v", msg)
+	case <-time.After(500 * time.Millisecond):
+		// OK - no completion message sent
 	}
 
 	// Verify status
-	session, _ = s.GetWorkoutSession(session.ID)
+	session, err = s.GetWorkoutSession(session.ID)
+	if err != nil {
+		t.Fatalf("Failed to get session: %v", err)
+	}
 	if session.Status == "completed" {
 		t.Error("Session marked completed prematurely")
 	}
@@ -391,7 +396,10 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 		t.Fatal("Timeout waiting for completion message")
 	}
 
-	session, _ = s.GetWorkoutSession(session.ID)
+	session, err = s.GetWorkoutSession(session.ID)
+	if err != nil {
+		t.Fatalf("Failed to get session: %v", err)
+	}
 	if session.Status != "in_progress" {
 		t.Error("Session should stay in_progress until explicit finish")
 	}
