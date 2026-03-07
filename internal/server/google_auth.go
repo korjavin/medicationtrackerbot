@@ -310,7 +310,8 @@ func verifySessionToken(token, secret string) (string, bool) {
 				email := string(emailBytes)
 				h := hmac.New(sha256.New, []byte(secret))
 				h.Write([]byte(email))
-				if sig == hex.EncodeToString(h.Sum(nil)) {
+				expectedSig, err := hex.DecodeString(sig)
+				if err == nil && hmac.Equal(h.Sum(nil), expectedSig) {
 					return email, true
 				}
 			}
@@ -331,9 +332,14 @@ func verifySessionToken(token, secret string) (string, bool) {
 
 	h := hmac.New(sha256.New, []byte(secret))
 	h.Write([]byte(email))
-	expectedSig := hex.EncodeToString(h.Sum(nil))
+	calculatedSig := h.Sum(nil)
 
-	if parts[1] != expectedSig {
+	expectedSig, err := hex.DecodeString(parts[1])
+	if err != nil {
+		return "", false
+	}
+
+	if !hmac.Equal(calculatedSig, expectedSig) {
 		return "", false
 	}
 
