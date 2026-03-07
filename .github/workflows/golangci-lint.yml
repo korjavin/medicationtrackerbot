@@ -32,6 +32,7 @@ jobs:
         with:
           version: v2.10.1
           args: --timeout=5m --output.text.path=stdout --output.sarif.path=golangci-lint-result.sarif
+          skip-cache: true
 
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v4
