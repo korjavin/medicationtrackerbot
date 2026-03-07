@@ -77,6 +77,35 @@ describe('workout.js session and stats flows', () => {
     }
   });
 
+  it('saveWorkoutSessionDetails intercepts API failure and displays an error message', async () => {
+    const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
+
+    try {
+      const apiCallSpy = vi.fn(async (endpoint) => {
+        if (endpoint.startsWith('/api/workout/sessions/details')) return sessionDetailsFixture();
+        if (endpoint.startsWith('/api/workout/exercises?variant_id=')) return plannedExercisesFixture();
+
+        throw new Error('Fake API Error for tests');
+      });
+      window.apiCall = apiCallSpy;
+      const safeAlertSpy = vi.fn();
+      window.safeAlert = safeAlertSpy;
+
+      await window.showWorkoutSessionModal(77);
+      document.getElementById('session-status-select').value = 'completed';
+      window.updateLocalLog(1, 'sets_completed', '6');
+      window.updateLocalLog(1, 'reps_completed', '10');
+
+      await window.saveWorkoutSessionDetails();
+
+      expect(safeAlertSpy).toHaveBeenCalledTimes(1);
+      expect(safeAlertSpy.mock.calls[0][0]).toContain('❌ Fake API Error for tests');
+      expect(document.getElementById('workout-session-modal').classList.contains('hidden')).toBe(false); // Modal stays open
+    } finally {
+      cleanup();
+    }
+  });
+
   it('saveWorkoutSessionDetails updates status and persists existing and dirty new logs', async () => {
     const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
 

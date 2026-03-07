@@ -356,7 +356,10 @@ function _renderWorkoutGroups(container, groups) {
         let daysArray = [];
         try {
             daysArray = JSON.parse(group.days_of_week || '[]');
-        } catch (e) { }
+        } catch (e) {
+            console.error('Error parsing days_of_week:', e);
+            daysArray = [];
+        }
         const daysMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         const daysText = daysArray.map((day) => daysMap[day]).join(', ');
 
