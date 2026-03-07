@@ -53,6 +53,24 @@ const ALLOWED_GLOBALS = new Set([
 
     // Features
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js
+
+    // features/hub.js — weekly summary widget
+    'window.loadWeeklyHub',             // features/hub.js — fetches and renders weekly hub card
+    'window.renderWeeklyHub',           // features/hub.js — renders data into weekly-hub-container
+
+    // features/settings.js — feature toggles, food targets, reminder settings
+    'window.applyFeatureSettings',      // features/settings.js — applies feature toggles to DOM and state
+    'window.featureSettings',           // features/settings.js — ephemeral cache of current feature flags
+    'window.featureSettingsLoaded',     // features/settings.js — flag: settings have been fetched at least once
+    'window.switchTab',                 // features/settings.js — re-exported tab switcher used by applyFeatureSettings
+    'window.loadFeatureSettings',       // features/settings.js — SWR loader for /api/settings/features
+    'window.foodTargets',               // features/settings.js — ephemeral cache of food macro targets
+    'window.loadFoodTargets',           // features/settings.js — SWR loader for /api/food/settings/targets
+    'window.saveFoodTargets',           // features/settings.js — POSTs updated food targets to backend
+    'window.safeAlert',                 // features/settings.js — wrapped alert used after save actions
+    'window.loadFoodLogs',              // features/settings.js — triggers food log reload after target save
+    'window.toggleFeatureSetting',      // features/settings.js — toggles a single feature flag via API
+    'window.loadSettings',              // features/settings.js — loads all settings subsections in parallel
 ]);
 
 /**
