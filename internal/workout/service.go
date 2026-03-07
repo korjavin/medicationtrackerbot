@@ -22,7 +22,7 @@ type WorkoutStore interface {
 }
 
 // WorkoutService defines compound workout operations — the single source of truth
-// for operations that span multiple store calls.
+// handling operations that span multiple store calls.
 type WorkoutService interface {
 	// StartSession marks a session as in-progress and clears any active snooze.
 	StartSession(ctx context.Context, sessionID int64) error
