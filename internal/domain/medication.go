@@ -26,7 +26,7 @@ type MedicationStore interface {
 	GetPendingIntakes() ([]store.IntakeLog, error)
 	GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
 	ConfirmIntake(id int64, takenAt time.Time) error
-	ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) error
+	ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error)
 	SkipIntake(id int64) error
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
 	CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error)
@@ -132,6 +132,9 @@ func (s *medicationService) SkipSupplementIntake(intakeID int64) ([]int, error) 
 	}
 
 	if err := s.store.SkipIntake(intakeID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotPending
+		}
 		return nil, fmt.Errorf("skip intake %d: %w", intakeID, err)
 	}
 
@@ -167,13 +170,22 @@ func (s *medicationService) ConfirmScheduleWithCleanup(userID int64, scheduledAt
 		allReminders = append(allReminders, reminders...)
 	}
 
-	if err := s.store.ConfirmIntakesBySchedule(userID, scheduledAt, time.Now()); err != nil {
+	confirmedIDs, err := s.store.ConfirmIntakesBySchedule(userID, scheduledAt, time.Now())
+	if err != nil {
 		return nil, fmt.Errorf("confirm intakes by schedule: %w", err)
 	}
 
+	// Only decrement inventory for intakes that were actually confirmed by this call
+	confirmedIDSet := make(map[int64]bool)
+	for _, id := range confirmedIDs {
+		confirmedIDSet[id] = true
+	}
+
 	for _, p := range pending {
-		if err := s.store.DecrementInventory(p.MedicationID, 1); err != nil {
-			log.Printf("[domain] DecrementInventory for intake %d: %v", p.ID, err)
+		if confirmedIDSet[p.ID] {
+			if err := s.store.DecrementInventory(p.MedicationID, 1); err != nil {
+				log.Printf("[domain] DecrementInventory for intake %d: %v", p.ID, err)
+			}
 		}
 	}
 

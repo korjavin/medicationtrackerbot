@@ -1274,7 +1274,6 @@ function getNextScheduledDate(schedule, now = new Date()) {
     return null;
 }
 
-<<<<<<< Updated upstream
 function getMedicationScheduleText(med, schedule) {
     if (!schedule) {
         return escapeHtml(med.schedule);
@@ -2303,71 +2302,6 @@ async function sendTestMedicationNotification() {
         console.error(e);
         safeAlert("Error sending test notification: " + e.message);
     }
-=======
-// Global initialization
-document.addEventListener('DOMContentLoaded', async () => {
-    console.log('[App] Starting initialization...');
-
-    // Bind tab groups via custom tabchange events as early as possible.
-    document.getElementById('tabs')?.addEventListener('tabchange', (e) => {
-        if (typeof window.switchTab === 'function') window.switchTab(e.detail.tabId);
-    });
-    document.querySelector('.med-tabs')?.addEventListener('tabchange', (e) => {
-        if (typeof window.switchMedTab === 'function') window.switchMedTab(e.detail.tabId);
-    });
-
-    // BP & Weight Submit
-    const bpForm = document.getElementById('bp-form');
-    if (bpForm) bpForm.onsubmit = window.handleBPSubmit;
-    const weightForm = document.getElementById('weight-form');
-    if (weightForm) weightForm.onsubmit = window.handleWeightSubmit;
-    const foodForm = document.getElementById('food-form');
-    if (foodForm) foodForm.onsubmit = window.saveFoodLog;
-
-    // Try OIDC or Cookie auth
-    const cached = getCachedAuthState();
-    if (cached) {
-        console.log('[Auth] Using cached session');
-        await onAuth();
-    } else {
-        try {
-            const auth = await window.apiCallDirect('/api/auth/session', 'GET');
-            if (auth.authenticated) {
-                saveAuthState('cookie');
-                await onAuth();
-                return;
-            }
-        } catch (e) { console.warn('[Auth] Session check failed'); }
-
-        // Show login options
-        document.getElementById('login-view')?.classList.add('active');
-    }
-});
-
-async function onAuth() {
-    document.getElementById('login-view')?.classList.remove('active');
-    document.getElementById('main-view')?.classList.remove('hidden');
-
-    // Initial data load
-    window.initialAuthLoad = true;
-    await Promise.allSettled([
-        typeof window.loadMeds === 'function' ? window.loadMeds() : Promise.resolve(),
-        typeof window.loadFeatureSettings === 'function' ? window.loadFeatureSettings() : Promise.resolve(),
-        typeof window.loadWeeklyHub === 'function' ? window.loadWeeklyHub() : Promise.resolve()
-    ]);
-
-    if (window.SyncManager && typeof window.SyncManager.init === 'function') {
-        window.SyncManager.init();
-    }
-    if (window.MedTrackerPush && typeof window.MedTrackerPush.initialize === 'function') {
-        window.MedTrackerPush.initialize().catch(() => { /* non-fatal */ });
-    }
-    if (window.DataStore && typeof window.DataStore.startChangePolling === 'function') {
-        window.DataStore.startChangePolling();
-    }
-
-    if (typeof window.switchTab === 'function') window.switchTab('meds');
->>>>>>> Stashed changes
 }
 
 // Swipe gesture navigation between tabs
@@ -2418,7 +2352,6 @@ async function onAuth() {
 function renderHealthOverviewContent(content, data) {
     content.replaceChildren();
 
-<<<<<<< Updated upstream
     const renderVitalGroup = (id, title, history, color, min, max, stat7d, stat30d, unit) => {
         if (history && history.length > 0) {
             const wrapper = document.createElement('div');
@@ -2694,14 +2627,6 @@ function renderVitalsLineChart(containerId, data, color, yMin, yMax) {
         pathObj.setAttribute("stroke-linecap", "round");
         pathObj.setAttribute("stroke-linejoin", "round");
         svg.appendChild(pathObj);
-=======
-    window.addEventListener('popstate', () => {
-        if (!modalPushed) return;
-        popping = true; window.ModalManager.closeTopMostVisibleModal(); popping = false; modalPushed = false;
-        const overlay = document.getElementById('modal-overlay');
-        if (overlay && !overlay.classList.contains('hidden')) { modalPushed = true; history.pushState({ modal: true }, ''); }
-        else if (isBackSupported) backButton.hide();
->>>>>>> Stashed changes
     });
 
     // X-Axis Date Labels 
@@ -2712,7 +2637,6 @@ function renderVitalsLineChart(containerId, data, color, yMin, yMax) {
         const dt = new Date(ts);
         const txt = `${dt.getMonth() + 1}/${dt.getDate()}`;
 
-<<<<<<< Updated upstream
         const x = getX(ts);
         const y = topPadding + chartHeight + 15;
 
@@ -2724,52 +2648,9 @@ function renderVitalsLineChart(containerId, data, color, yMin, yMax) {
         xLbl.setAttribute("font-size", "11px");
         xLbl.textContent = txt;
         svg.appendChild(xLbl);
-=======
-    const observer = new MutationObserver(() => {
-        const overlay = document.getElementById('modal-overlay');
-        if (!overlay) return;
-        overlay.classList.contains('hidden') ? onHide() : onShow();
-    });
-    const ov = document.getElementById('modal-overlay'); if (ov) observer.observe(ov, { attributes: true, attributeFilter: ['class'] });
-})();
-
-window.switchMedTab = function (tab) {
-    document.querySelector('.med-tabs')?.setActiveTab?.(tab);
-    document.querySelectorAll('.med-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-
-    document.getElementById('med-history-tab')?.classList.toggle('active', tab === 'history');
-    document.getElementById('med-schedule-tab')?.classList.toggle('active', tab === 'schedule');
-
-    if (tab === 'history') window.loadHistory();
-    else if (tab === 'schedule') window.loadMeds();
-};
-
-window.loadHistory = async function () {
-    const medId = document.getElementById('history-filter-med')?.value || '0';
-    const days = document.getElementById('history-filter-days')?.value || '7';
-    const key = `history_${days}_${medId}`;
-
-    if (window.DataStore) {
-        await window.DataStore.loadSWR({
-            key, tags: ['history'],
-            fetcher: async () => await window.apiCall(`/api/history?days=${days}&med_id=${medId}`),
-            onCached: (cached) => window.renderHistory(cached),
-            onFresh: (fresh) => window.renderHistory(fresh)
-        });
->>>>>>> Stashed changes
     }
 
-<<<<<<< Updated upstream
     container.appendChild(svg);
-=======
-if (typeof window.loadSettings !== 'function') {
-    window.loadSettings = async function () {
-        await Promise.allSettled([
-            typeof window.loadFeatureSettings === 'function' ? window.loadFeatureSettings() : Promise.resolve(),
-            typeof window.loadFoodTargets === 'function' ? window.loadFoodTargets() : Promise.resolve()
-        ]);
-    };
->>>>>>> Stashed changes
 }
 
 // Render stacked bar chart for sleep
