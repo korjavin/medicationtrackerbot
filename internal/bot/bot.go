@@ -805,17 +805,17 @@ func (b *Bot) CleanupWorkoutSessionMessages(sessionID int64) error {
 }
 
 func (b *Bot) SendGroupNotification(meds []store.Medication, intakeByMedication map[int64]int64, target time.Time) (int, error) {
-	var sb string
-	sb = fmt.Sprintf("💊 Time to take your medications (%s):\n\n", target.Format("15:04"))
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "💊 Time to take your medications (%s):\n\n", target.Format("15:04"))
 	for _, m := range meds {
 		if m.Dosage != "" {
-			sb += fmt.Sprintf("- %s (%s)\n", m.Name, m.Dosage)
+			fmt.Fprintf(&sb, "- %s (%s)\n", m.Name, m.Dosage)
 		} else {
-			sb += fmt.Sprintf("- %s\n", m.Name)
+			fmt.Fprintf(&sb, "- %s\n", m.Name)
 		}
 	}
 
-	msg := tgbotapi.NewMessage(b.allowedUserID, sb)
+	msg := tgbotapi.NewMessage(b.allowedUserID, sb.String())
 
 	var rows [][]tgbotapi.InlineKeyboardButton
 
@@ -1563,17 +1563,17 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 	}
 
 	// Send a group notification with confirm buttons
-	var sb string
-	sb = fmt.Sprintf("💊 Your next scheduled medications (%s):\n\n", nextTime.Format("15:04"))
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "💊 Your next scheduled medications (%s):\n\n", nextTime.Format("15:04"))
 	for _, m := range nextMeds {
 		if m.Dosage != "" {
-			sb += fmt.Sprintf("- %s (%s)\n", m.Name, m.Dosage)
+			fmt.Fprintf(&sb, "- %s (%s)\n", m.Name, m.Dosage)
 		} else {
-			sb += fmt.Sprintf("- %s\n", m.Name)
+			fmt.Fprintf(&sb, "- %s\n", m.Name)
 		}
 	}
 
-	msg := tgbotapi.NewMessage(b.allowedUserID, sb)
+	msg := tgbotapi.NewMessage(b.allowedUserID, sb.String())
 
 	var rows [][]tgbotapi.InlineKeyboardButton
 
