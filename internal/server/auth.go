@@ -66,9 +66,14 @@ func ValidateWebAppData(token, initData string) (bool, *TelegramUser, error) {
 
 	h := hmac.New(sha256.New, secret)
 	h.Write([]byte(dataCheckString))
-	calculatedHash := hex.EncodeToString(h.Sum(nil))
+	calculatedHash := h.Sum(nil)
 
-	if calculatedHash != hash {
+	expectedHash, err := hex.DecodeString(hash)
+	if err != nil {
+		return false, nil, fmt.Errorf("invalid hash hex")
+	}
+
+	if !hmac.Equal(calculatedHash, expectedHash) {
 		return false, nil, fmt.Errorf("hash mismatch")
 	}
 
@@ -138,9 +143,14 @@ func ValidateTelegramLoginWidget(token string, data TelegramLoginData) (bool, *T
 	// HMAC-SHA256(data_check_string, secret_key)
 	h := hmac.New(sha256.New, secretHash[:])
 	h.Write([]byte(dataCheckString))
-	calculatedHash := hex.EncodeToString(h.Sum(nil))
+	calculatedHash := h.Sum(nil)
 
-	if calculatedHash != data.Hash {
+	expectedHash, err := hex.DecodeString(data.Hash)
+	if err != nil {
+		return false, nil, fmt.Errorf("invalid hash hex")
+	}
+
+	if !hmac.Equal(calculatedHash, expectedHash) {
 		return false, nil, fmt.Errorf("hash mismatch")
 	}
 
