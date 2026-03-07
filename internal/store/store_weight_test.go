@@ -29,15 +29,15 @@ func TestCreateWeightLogAllFields(t *testing.T) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	w := &WeightLog{
-		UserID:     123,
-		MeasuredAt: now,
-		Weight:     85.5,
-		WeightTrend:    float64Ptr(85.0),
-		BodyFat:        float64Ptr(18.5),
-		BodyFatTrend:   float64Ptr(18.3),
-		MuscleMass:     float64Ptr(40.2),
+		UserID:          123,
+		MeasuredAt:      now,
+		Weight:          85.5,
+		WeightTrend:     float64Ptr(85.0),
+		BodyFat:         float64Ptr(18.5),
+		BodyFatTrend:    float64Ptr(18.3),
+		MuscleMass:      float64Ptr(40.2),
 		MuscleMassTrend: float64Ptr(40.0),
-		Notes:          "Morning measurement",
+		Notes:           "Morning measurement",
 	}
 
 	id, err := db.CreateWeightLog(ctx, w)
