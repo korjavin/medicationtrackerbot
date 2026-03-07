@@ -1,7 +1,5 @@
 package domain
 
-import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -113,7 +111,6 @@ func pendingIntake(id, medID int64) *store.IntakeLog {
 }
 
 func TestConfirmIntakeWithCleanup(t *testing.T) {
-	ctx := context.Background()
 	takenAt := time.Now()
 
 	tests := []struct {
@@ -204,7 +201,7 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, isSupp, err := svc.ConfirmIntakeWithCleanup(ctx, tt.intakeID, takenAt)
+			ids, isSupp, err := svc.ConfirmIntakeWithCleanup( tt.intakeID, takenAt)
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
@@ -232,7 +229,6 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 }
 
 func TestSkipSupplementIntake(t *testing.T) {
-	ctx := context.Background()
 
 	tests := []struct {
 		name            string
@@ -314,7 +310,7 @@ func TestSkipSupplementIntake(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, err := svc.SkipSupplementIntake(ctx, tt.intakeID)
+			ids, err := svc.SkipSupplementIntake( tt.intakeID)
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
@@ -339,7 +335,6 @@ func TestSkipSupplementIntake(t *testing.T) {
 }
 
 func TestLogMedicationNow(t *testing.T) {
-	ctx := context.Background()
 
 	tests := []struct {
 		name            string
@@ -374,7 +369,7 @@ func TestLogMedicationNow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			err := svc.LogMedicationNow(ctx, 1, 10)
+			err := svc.LogMedicationNow( 1, 10)
 
 			if tt.wantErrContains != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
@@ -390,7 +385,6 @@ func TestLogMedicationNow(t *testing.T) {
 }
 
 func TestConfirmScheduleWithCleanup(t *testing.T) {
-	ctx := context.Background()
 	scheduledAt := time.Now().Truncate(time.Minute)
 
 	tests := []struct {
@@ -456,7 +450,7 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, err := svc.ConfirmScheduleWithCleanup(ctx, 1, scheduledAt)
+			ids, err := svc.ConfirmScheduleWithCleanup( 1, scheduledAt)
 
 			if tt.wantErrContains != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
@@ -475,7 +469,6 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 }
 
 func TestConfirmMedicationByMedID(t *testing.T) {
-	ctx := context.Background()
 	takenAt := time.Now()
 
 	tests := []struct {
@@ -556,7 +549,7 @@ func TestConfirmMedicationByMedID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, _, err := svc.ConfirmMedicationByMedID(ctx, tt.medID, takenAt)
+			ids, _, err := svc.ConfirmMedicationByMedID( tt.medID, takenAt)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Errorf("want error %v, got %v", tt.wantErr, err)

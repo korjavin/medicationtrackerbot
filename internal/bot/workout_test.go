@@ -36,7 +36,7 @@ func TestWorkoutCallbackRouting_PanicRegression(t *testing.T) {
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
 
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), reminderSvc: domain.NewReminderService(s), food: s, imports: s, allowedUserID: 123}
+	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), food: s, imports: s, allowedUserID: 123}
 
 	// Create a dummy session so it doesn't fail on "session not found" before routing
 	// Actually routing happens before session lookup in handleCallback,
@@ -105,7 +105,6 @@ func TestWorkoutFinish_StateUpdate(t *testing.T) {
 		workouts:      s,
 		workoutSvc:    workoutsvc.New(s),
 		exerciseSvc:   domain.NewExerciseService(s),
-		reminderSvc:   domain.NewReminderService(s),
 		food:          s,
 		imports:       s,
 		allowedUserID: 123456,
@@ -187,7 +186,6 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 		workouts:      s,
 		workoutSvc:    workoutsvc.New(s),
 		exerciseSvc:   domain.NewExerciseService(s),
-		reminderSvc:   domain.NewReminderService(s),
 		food:          s,
 		imports:       s,
 		allowedUserID: 123456,
@@ -307,10 +305,12 @@ loop2:
 	// P2: Verify completion message sent again via channel
 	select {
 	case msg := <-messageChan:
-		// After adding ex2 (from variant2) to a variant1 session, both exercises
-		// appear in allRelatedExerciseIDs → TotalCount=2, CompletedCount=2 → "2/2".
-		if !strings.Contains(msg, "2/2") {
-			t.Errorf("Expected stats to update after added exercise, want 2/2, got: %s", msg)
+		// After adding ex2 (from variant2) to a variant1 session, the planned
+		// exercises from variant1 (2 exercises) should count toward completion.
+		// TotalCount=2, CompletedCount=1 → "1/2".
+		// The added exercise from variant2 should not affect the planned exercise completion count.
+		if !strings.Contains(msg, "1/2") {
+			t.Errorf("Expected stats to show planned exercises from variant1 only, want 1/2, got: %s", msg)
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatalf("timeout: Expected completion message to be sent again after adding extra exercise")
@@ -340,7 +340,7 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 
 	api := &tgbotapi.BotAPI{Token: "TEST", Client: &http.Client{}}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), reminderSvc: domain.NewReminderService(s), food: s, imports: s, allowedUserID: 1}
+	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), food: s, imports: s, allowedUserID: 1}
 
 	// Create group/variant with 2 exercises
 	group, _ := s.CreateWorkoutGroup("G", "", false, 1, "[1]", "09:00", 15)
@@ -430,7 +430,7 @@ func TestDismissNotification(t *testing.T) {
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
 
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), reminderSvc: domain.NewReminderService(s), food: s, imports: s, allowedUserID: 123}
+	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), food: s, imports: s, allowedUserID: 123}
 
 	cb := &tgbotapi.CallbackQuery{
 		ID:   "1",

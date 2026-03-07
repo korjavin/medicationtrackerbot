@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
@@ -31,11 +30,11 @@ type ExerciseService interface {
 	//   - existing skipped → completed: upgrade values and status
 	//   - existing completed → any: no-op (don't overwrite manual web edits)
 	//   - existing skipped → skipped: no-op
-	LogExercise(ctx context.Context, sessionID, exerciseID int64, status string) error
+	LogExercise(sessionID, exerciseID int64, status string) error
 
 	// CheckSessionCompletion determines whether all planned exercises for a
 	// variant have been handled (completed or skipped).
-	CheckSessionCompletion(ctx context.Context, sessionID, variantID int64) (done bool, completedCount, totalCount int, err error)
+	CheckSessionCompletion(sessionID, variantID int64) (done bool, completedCount, totalCount int, err error)
 }
 
 type exerciseService struct {
@@ -47,7 +46,32 @@ func NewExerciseService(s ExerciseStore) ExerciseService {
 	return &exerciseService{store: s}
 }
 
-func (s *exerciseService) LogExercise(_ context.Context, sessionID, exerciseID int64, status string) error {
+// applyUpgradeRules applies status upgrade rules for an existing exercise log.
+// Returns true if the upgrade was applied, false if no changes were needed.
+// The exercise parameter provides target values for upgrades from skipped to completed.
+func (s *exerciseService) applyUpgradeRules(existing *store.WorkoutExerciseLog, exercise *store.WorkoutExercise, status string) (bool, error) {
+	if existing.Status == "completed" {
+		// No-op: don't overwrite manual edits from web app.
+		return false, nil
+	}
+	if existing.Status == status {
+		// No-op: same status.
+		return false, nil
+	}
+	// skipped → completed: update values and status.
+	if status == "completed" {
+		if err := s.store.UpdateExerciseLog(existing.ID, &exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, ""); err != nil {
+			return false, fmt.Errorf("update exercise log %d: %w", existing.ID, err)
+		}
+		if err := s.store.UpdateExerciseLogStatus(existing.ID, "completed"); err != nil {
+			return false, fmt.Errorf("update exercise log status %d: %w", existing.ID, err)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string) error {
 	exercise, err := s.store.GetWorkoutExercise(exerciseID)
 	if err != nil {
 		return fmt.Errorf("get exercise %d: %w", exerciseID, err)
@@ -63,22 +87,12 @@ func (s *exerciseService) LogExercise(_ context.Context, sessionID, exerciseID i
 
 	if existing != nil {
 		// Already logged — apply upgrade rules.
-		if existing.Status == "completed" {
-			// No-op: don't overwrite manual edits from web app.
-			return nil
+		applied, err := s.applyUpgradeRules(existing, exercise, status)
+		if err != nil {
+			return err
 		}
-		if existing.Status == status {
-			// No-op: same status.
+		if !applied {
 			return nil
-		}
-		// skipped → completed: update values and status.
-		if status == "completed" {
-			if err := s.store.UpdateExerciseLog(existing.ID, &exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, ""); err != nil {
-				return fmt.Errorf("update exercise log %d: %w", existing.ID, err)
-			}
-			if err := s.store.UpdateExerciseLogStatus(existing.ID, "completed"); err != nil {
-				return fmt.Errorf("update exercise log status %d: %w", existing.ID, err)
-			}
 		}
 		return nil
 	}
@@ -103,22 +117,12 @@ func (s *exerciseService) LogExercise(_ context.Context, sessionID, exerciseID i
 			}
 			if existing != nil {
 				// Row now exists - apply upgrade rules.
-				if existing.Status == "completed" {
-					// No-op: already in desired state.
-					return nil
+				applied, err := s.applyUpgradeRules(existing, exercise, status)
+				if err != nil {
+					return err
 				}
-				if existing.Status == status {
-					// No-op: same status.
+				if !applied {
 					return nil
-				}
-				// skipped → completed: update values and status.
-				if status == "completed" {
-					if err := s.store.UpdateExerciseLog(existing.ID, &exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, ""); err != nil {
-						return fmt.Errorf("update exercise log %d after race: %w", existing.ID, err)
-					}
-					if err := s.store.UpdateExerciseLogStatus(existing.ID, "completed"); err != nil {
-						return fmt.Errorf("update exercise log status %d after race: %w", existing.ID, err)
-					}
 				}
 				return nil
 			}
@@ -128,7 +132,7 @@ func (s *exerciseService) LogExercise(_ context.Context, sessionID, exerciseID i
 	return nil
 }
 
-func (s *exerciseService) CheckSessionCompletion(_ context.Context, sessionID, variantID int64) (bool, int, int, error) {
+func (s *exerciseService) CheckSessionCompletion(sessionID, variantID int64) (bool, int, int, error) {
 	exercises, err := s.store.ListExercisesByVariant(variantID)
 	if err != nil {
 		return false, 0, 0, fmt.Errorf("list exercises for variant %d: %w", variantID, err)
