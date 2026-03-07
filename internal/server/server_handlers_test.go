@@ -791,11 +791,11 @@ func TestHandleWorkoutExerciseCRUD(t *testing.T) {
 
 	// Create exercise
 	reqBody := map[string]interface{}{
-		"variant_id":    variant.ID,
-		"exercise_name": "Bench Press",
-		"target_sets":   3,
+		"variant_id":      variant.ID,
+		"exercise_name":   "Bench Press",
+		"target_sets":     3,
 		"target_reps_min": 8,
-		"order_index":   0,
+		"order_index":     0,
 	}
 	body, _ := json.Marshal(reqBody)
 

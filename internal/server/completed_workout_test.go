@@ -21,7 +21,7 @@ func TestHandleGetNextWorkout_CompletedSession(t *testing.T) {
 	// Create test server
 	userID := int64(123456)
 	srv := &Server{
-		workouts: db,
+		workouts:      db,
 		allowedUserID: userID,
 	}
 
@@ -93,7 +93,7 @@ func TestHandleGetNextWorkout_SnoozedThenCompleted(t *testing.T) {
 	// Create test server
 	userID := int64(123456)
 	srv := &Server{
-		workouts: db,
+		workouts:      db,
 		allowedUserID: userID,
 	}
 
