@@ -615,7 +615,7 @@ func TestConfirmIntakesByScheduleSkipsArchived(t *testing.T) {
 	}
 
 	takenAt := time.Date(2026, 2, 28, 9, 5, 0, 0, time.UTC)
-	err = db.ConfirmIntakesBySchedule(12345, scheduled, takenAt)
+	_, err = db.ConfirmIntakesBySchedule(12345, scheduled, takenAt)
 	if err != nil {
 		t.Fatalf("ConfirmIntakesBySchedule failed: %v", err)
 	}

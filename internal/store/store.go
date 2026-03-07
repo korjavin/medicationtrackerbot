@@ -517,13 +517,33 @@ func (s *Store) CreateManualIntake(medID, userID int64, takenAt time.Time) (int6
 }
 
 func (s *Store) ConfirmIntake(id int64, takenAt time.Time) error {
-	_, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at = ? WHERE id = ?", takenAt, id)
-	return err
+	res, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at = ? WHERE id = ? AND status = 'PENDING'", takenAt, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) SkipIntake(id int64) error {
-	_, err := s.db.Exec("UPDATE intake_log SET status = 'SKIPPED', taken_at = NULL WHERE id = ?", id)
-	return err
+	res, err := s.db.Exec("UPDATE intake_log SET status = 'SKIPPED', taken_at = NULL WHERE id = ? AND status = 'PENDING'", id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) UpdateIntake(id int64, takenAt time.Time, status string) error {
@@ -624,17 +644,37 @@ func (s *Store) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*Intake
 	return &l, nil
 }
 
-func (s *Store) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) error {
+func (s *Store) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
 	// Only confirm intakes for medications that are NOT archived (archived = 0)
-	_, err := s.db.Exec(`
-		UPDATE intake_log 
-		SET status = 'TAKEN', taken_at = ? 
-		WHERE user_id = ? 
-		  AND scheduled_at = ? 
+	// Use RETURNING clause to get the IDs that were actually updated, avoiding race conditions
+	// with concurrent calls that might use the same takenAt timestamp.
+	rows, err := s.db.Query(`
+		UPDATE intake_log
+		SET status = 'TAKEN', taken_at = ?
+		WHERE user_id = ?
+		  AND scheduled_at = ?
 		  AND status = 'PENDING'
 		  AND medication_id IN (SELECT id FROM medications WHERE archived = 0)
+		RETURNING id
 	`, takenAt, userID, scheduledAt)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return ids, nil
 }
 
 func (s *Store) AddIntakeReminder(intakeID int64, messageID int) error {

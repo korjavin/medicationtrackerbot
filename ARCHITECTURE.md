@@ -42,7 +42,7 @@ User
 
 ### Database
 
-SQLite with 27 goose migrations in `internal/store/migrations/`. Key tables:
+SQLite with 34 goose migrations in `internal/store/migrations/`. Key tables:
 
 - `medications`, `intake_log` — medication management and dose history
 - `blood_pressure_readings` — BP tracking
@@ -79,8 +79,12 @@ The `internal/domain/` package contains pure business logic extracted from the b
 | `export.go` | CSV generation for medications, blood pressure, and weight (Libra format) |
 | `workout.go` | Workout streak calculation (`CalculateStreak`), exercise completion checking (`CheckCompletion`) |
 | `sleepimport.go` | NXK file validation, ZIP extraction, SQLite parsing for sleep/heart/SpO2/stress/day-stats data |
+| `medication.go` | MedicationService: confirm/skip/log medication intakes, batch confirm a time slot |
+| `exercise.go` | ExerciseService: idempotent exercise log upsert, session completion check |
 
 The bot package acts as a thin Telegram adapter: it parses Telegram messages, delegates to domain functions for validation and calculation, calls the store for persistence, and formats responses back as Telegram messages. The domain package defines its own mirror types (e.g., `domain.SleepLog`) to avoid importing store, preventing import cycles.
+
+The domain package also follows a service layer pattern for complex business logic that requires coordination with the store. Services like `MedicationService` and `ExerciseService` provide narrow interfaces for business operations, with the bot layer handling only Telegram-specific concerns (parsing callbacks, sending messages). This separation makes domain logic testable without Telegram dependencies and allows reuse across different communication channels.
 
 `store.CalculateBPCategory` and `store.CalculateWeightTrend` are kept as deprecated wrappers with their original logic for backward compatibility with existing store and server callers.
 

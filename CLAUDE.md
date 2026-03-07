@@ -40,6 +40,7 @@ go test ./...
 # Run tests for a specific package
 go test ./internal/store
 go test ./internal/server
+go test ./internal/domain
 
 # Run tests with verbose output
 go test -v ./internal/store
@@ -95,7 +96,9 @@ User
 **Core Packages** (`internal/`):
 - `store/` - Database layer (SQLite repository, migrations)
 - `server/` - HTTP handlers for REST API
-- `bot/` - Telegram bot logic (commands, callbacks, notifications)
+- `bot/` - Telegram bot logic (commands, callbacks, notifications) — thin channel layer only
+- `domain/` - Business logic services: `medication.go`, `exercise.go`, `reminder.go`, `food.go`
+- `workout/` - Workout session management service (`service.go`)
 - `scheduler/` - Notification scheduling (medications, workouts, BP/weight reminders)
 - `mcp/` - Model Context Protocol server implementation
 - `rxnorm/` - Drug interaction checking via NLM API
@@ -111,7 +114,7 @@ User
 
 ### Database Schema
 
-SQLite with 27 goose migrations tracking schema evolution:
+SQLite with 34 goose migrations tracking schema evolution:
 - `medications`, `intake_log` - Medication management and history
 - `blood_pressure_readings` - BP tracking
 - `weight_logs` - Weight tracking with trend calculation
@@ -138,6 +141,27 @@ SQLite with 27 goose migrations tracking schema evolution:
 **Optional Google OIDC**:
 - For browser access outside Telegram
 - Configured via `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ADMIN_EMAIL`
+
+## Domain Service Pattern
+
+The bot (`internal/bot/`) is a thin communication channel — it parses Telegram-specific data and sends/deletes messages. All business decisions live in `internal/domain/`:
+
+- `domain/medication.go` — `MedicationService`: confirm/skip/log medication intakes, batch confirm a time slot
+- `domain/exercise.go` — `ExerciseService`: idempotent exercise log upsert, session completion check
+- `domain/reminder.go` — `ReminderService`: snooze/block BP and weight reminders
+- `domain/food.go` — food intake argument parsing and macro calculation
+
+Each service follows the pattern from `internal/workout/service.go`:
+```go
+type FooStore interface { /* minimal store methods needed */ }
+type FooService interface { /* domain operations */ }
+type fooService struct { store FooStore }
+func NewFooService(s FooStore) FooService { return &fooService{store: s} }
+```
+
+Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.ExerciseService`, `reminderSvc domain.ReminderService`, `workoutSvc workoutsvc.WorkoutService`.
+
+**Rule**: bot callbacks may only call domain service methods and Telegram API methods. No direct store calls for business decisions.
 
 ## Feature Implementation Patterns
 
@@ -241,16 +265,18 @@ MCP_MAX_QUERY_DAYS=90
 - Server tests use httptest for HTTP handlers
 - BP reminders tests validate scheduling logic
 - Workout tests cover rotation advancement and session state
+- Domain service tests use mock store structs (implement the narrow `FooStore` interface inline) with table-driven cases — no Telegram API dependency required
 
 ## Common Tasks
 
 ### Adding a New Health Metric
 1. Create migration in `internal/store/migrations/`
 2. Add table methods to `internal/store/store.go`
-3. Create HTTP handlers in `internal/server/`
-4. Add bot commands in `internal/bot/`
-5. Add frontend UI in `web/static/`
-6. Add scheduler logic if reminders needed in `internal/scheduler/`
+3. Create a domain service in `internal/domain/` following the Domain Service Pattern (see above)
+4. Create HTTP handlers in `internal/server/`
+5. Add bot commands in `internal/bot/` — use the domain service; no direct store calls for business logic
+6. Add frontend UI in `web/static/`
+7. Add scheduler logic if reminders needed in `internal/scheduler/`
 
 ### Adding MCP Tools
 1. Add tool definition in `internal/mcp/tools.go`

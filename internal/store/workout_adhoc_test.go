@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -140,6 +141,64 @@ func TestAdHocWorkoutWithExercises(t *testing.T) {
 	}
 	if completedSession.CompletedAt == nil {
 		t.Error("Expected CompletedAt to be set")
+	}
+}
+
+func TestAdHocWorkoutWithMultipleCustomExercises(t *testing.T) {
+	s := setupTestDB(t)
+	defer s.Close()
+
+	userID := int64(1)
+	now := time.Now()
+	scheduledTime := now.Format("15:04")
+
+	// Create an ad-hoc workout session
+	session, err := s.CreateAdHocWorkoutSession(userID, now, scheduledTime)
+	if err != nil {
+		t.Fatalf("Failed to create ad-hoc workout session: %v", err)
+	}
+
+	// Log multiple custom exercises (all with exercise_id=0)
+	exercises := []struct {
+		name   string
+		sets   int
+		reps   int
+		weight float64
+	}{
+		{"Push-ups", 3, 10, 0},
+		{"Squats", 3, 12, 50.0},
+		{"Planks", 1, 30, 0},
+	}
+
+	for i, ex := range exercises {
+		logID, err := s.LogExercise(session.ID, 0, ex.name, &ex.sets, &ex.reps, &ex.weight, "completed", fmt.Sprintf("Set %d", i+1))
+		if err != nil {
+			t.Fatalf("Failed to log exercise %d: %v", i, err)
+		}
+		if logID == 0 {
+			t.Errorf("Expected log ID to be set for exercise %d", i)
+		}
+	}
+
+	// Retrieve exercise logs
+	logs, err := s.GetExerciseLogs(session.ID)
+	if err != nil {
+		t.Fatalf("Failed to get exercise logs: %v", err)
+	}
+	if len(logs) != 3 {
+		t.Errorf("Expected 3 log entries, got %d", len(logs))
+	}
+
+	// Verify all exercises were logged
+	exerciseNames := make(map[string]bool)
+	for _, log := range logs {
+		exerciseNames[log.ExerciseName] = true
+	}
+
+	for _, ex := range exercises {
+		if !exerciseNames[ex.name] {
+			t.Errorf("Expected to find exercise '%s' in logs", ex.name)
+		}
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 )
@@ -35,7 +36,7 @@ func TestWorkoutCallbackRouting_PanicRegression(t *testing.T) {
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
 
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), food: s, imports: s, allowedUserID: 123}
+	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), food: s, imports: s, allowedUserID: 123}
 
 	// Create a dummy session so it doesn't fail on "session not found" before routing
 	// Actually routing happens before session lookup in handleCallback,
@@ -98,10 +99,12 @@ func TestWorkoutFinish_StateUpdate(t *testing.T) {
 	b := &Bot{
 		api:           api,
 		meds:          s,
+		medSvc:        domain.NewMedicationService(s),
 		bp:            s,
 		weight:        s,
 		workouts:      s,
 		workoutSvc:    workoutsvc.New(s),
+		exerciseSvc:   domain.NewExerciseService(s),
 		food:          s,
 		imports:       s,
 		allowedUserID: 123456,
@@ -177,10 +180,12 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 	b := &Bot{
 		api:           api,
 		meds:          s,
+		medSvc:        domain.NewMedicationService(s),
 		bp:            s,
 		weight:        s,
 		workouts:      s,
 		workoutSvc:    workoutsvc.New(s),
+		exerciseSvc:   domain.NewExerciseService(s),
 		food:          s,
 		imports:       s,
 		allowedUserID: 123456,
@@ -300,11 +305,11 @@ loop2:
 	// P2: Verify completion message sent again via channel
 	select {
 	case msg := <-messageChan:
-		// HERE IS THE REPRODUCTION:
-		// Current code likely sends "1/1" again because it ignores the added exercise.
-		// We expect "2/1" or similar to show extra work was done.
-		if strings.Contains(msg, "1/1") {
-			t.Errorf("FAIL: Stats did not update after added exercise. Still says 1/1. Expected 2/1.")
+		// After adding ex2 (from variant2) to a variant1 session and completing it,
+		// both exercises should be counted toward completion.
+		// TotalCount=2, CompletedCount=2 → "2/2".
+		if !strings.Contains(msg, "2/2") {
+			t.Errorf("Expected 2/2 completed exercises after adding exercise from variant2, got: %s", msg)
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatalf("timeout: Expected completion message to be sent again after adding extra exercise")
@@ -334,7 +339,7 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 
 	api := &tgbotapi.BotAPI{Token: "TEST", Client: &http.Client{}}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), food: s, imports: s, allowedUserID: 1}
+	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), food: s, imports: s, allowedUserID: 1}
 
 	// Create group/variant with 2 exercises
 	group, _ := s.CreateWorkoutGroup("G", "", false, 1, "[1]", "09:00", 15)
@@ -356,15 +361,20 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 	b.handleExerciseCallback(cb, cb.Data)
 
 	// Should NOT complete because Ex2 is not done
+	// Note: This uses a timeout to verify no message was sent. The timeout is generous
+	// to avoid flakiness on slow systems while still catching premature completion bugs.
 	select {
-	case <-messageChan:
-		t.Fatalf("Premature completion! Session completed despite Exam 2 remaining")
-	case <-time.After(100 * time.Millisecond):
-		// OK
+	case msg := <-messageChan:
+		t.Fatalf("Premature completion! Session completed despite Ex2 remaining. Got message: %v", msg)
+	case <-time.After(500 * time.Millisecond):
+		// OK - no completion message sent
 	}
 
 	// Verify status
-	session, _ = s.GetWorkoutSession(session.ID)
+	session, err = s.GetWorkoutSession(session.ID)
+	if err != nil {
+		t.Fatalf("Failed to get session: %v", err)
+	}
 	if session.Status == "completed" {
 		t.Error("Session marked completed prematurely")
 	}
@@ -385,7 +395,10 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 		t.Fatal("Timeout waiting for completion message")
 	}
 
-	session, _ = s.GetWorkoutSession(session.ID)
+	session, err = s.GetWorkoutSession(session.ID)
+	if err != nil {
+		t.Fatalf("Failed to get session: %v", err)
+	}
 	if session.Status != "in_progress" {
 		t.Error("Session should stay in_progress until explicit finish")
 	}
@@ -416,7 +429,7 @@ func TestDismissNotification(t *testing.T) {
 	}
 	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
 
-	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), food: s, imports: s, allowedUserID: 123}
+	b := &Bot{api: api, meds: s, bp: s, weight: s, workouts: s, workoutSvc: workoutsvc.New(s), exerciseSvc: domain.NewExerciseService(s), medSvc: domain.NewMedicationService(s), food: s, imports: s, allowedUserID: 123}
 
 	cb := &tgbotapi.CallbackQuery{
 		ID:   "1",

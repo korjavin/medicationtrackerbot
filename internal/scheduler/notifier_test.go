@@ -206,8 +206,11 @@ func TestNotify_SendError_DoesNotCallStoreMsgID(t *testing.T) {
 func TestCheckSchedule_SendsNotificationViaMock(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 
-	pastTime := time.Now().Add(-1 * time.Hour).Format("15:04")
-	schedule := `{"type":"daily","times":["` + pastTime + `"]}`
+	// Use a fixed noon clock to avoid midnight-boundary failures.
+	fakeNow := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Now().Location())
+	sched.MedicationChecker.now = func() time.Time { return fakeNow }
+
+	schedule := `{"type":"daily","times":["10:00"]}` // 2 hours before noon
 	_, err := db.CreateMedication("TestMed", "10mg", schedule, nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
@@ -270,8 +273,10 @@ func TestCheckSchedule_SendsNotificationViaMock(t *testing.T) {
 func TestCheckSchedule_MultipleMeds_GroupedNotification(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 
-	pastTime := time.Now().Add(-1 * time.Hour).Format("15:04")
-	schedule := `{"type":"daily","times":["` + pastTime + `"]}`
+	fakeNow := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Now().Location())
+	sched.MedicationChecker.now = func() time.Time { return fakeNow }
+
+	schedule := `{"type":"daily","times":["10:00"]}`
 	_, err := db.CreateMedication("MedA", "5mg", schedule, nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication A: %v", err)
@@ -308,8 +313,10 @@ func TestCheckSchedule_MultipleMeds_GroupedNotification(t *testing.T) {
 func TestCheckSchedule_SupplementHasSkipAction(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 
-	pastTime := time.Now().Add(-1 * time.Hour).Format("15:04")
-	schedule := `{"type":"daily","times":["` + pastTime + `"]}`
+	fakeNow := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Now().Location())
+	sched.MedicationChecker.now = func() time.Time { return fakeNow }
+
+	schedule := `{"type":"daily","times":["10:00"]}`
 	medID, err := db.CreateMedication("Magnesium", "200mg", schedule, nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
@@ -356,17 +363,18 @@ func TestCheckSchedule_SupplementHasSkipAction(t *testing.T) {
 func TestCheckReminders_SendsReminderForOldPending(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 
-	pastTime := time.Now().Add(-2 * time.Hour)
-	timeStr := pastTime.Format("15:04")
-	schedule := `{"type":"daily","times":["` + timeStr + `"]}`
+	// Use a fixed noon clock to avoid midnight-boundary failures.
+	fakeNow := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Now().Location())
+	sched.MedicationReminderChecker.now = func() time.Time { return fakeNow }
+
+	schedule := `{"type":"daily","times":["09:00"]}`
 	medID, err := db.CreateMedication("ReminderMed", "5mg", schedule, nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
 
-	now := time.Now()
-	target := time.Date(now.Year(), now.Month(), now.Day(),
-		pastTime.Hour(), pastTime.Minute(), 0, 0, now.Location())
+	// Target is 09:00 today — 3 hours before fakeNow (noon), satisfying the >1h threshold.
+	target := time.Date(fakeNow.Year(), fakeNow.Month(), fakeNow.Day(), 9, 0, 0, 0, fakeNow.Location())
 	_, err = db.CreateIntake(medID, 123456, target)
 	if err != nil {
 		t.Fatalf("CreateIntake: %v", err)
@@ -404,9 +412,10 @@ func TestCheckReminders_SendsReminderForOldPending(t *testing.T) {
 func TestCheckReminders_SupplementHasSkipAction(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 
-	pastTime := time.Now().Add(-2 * time.Hour)
-	timeStr := pastTime.Format("15:04")
-	schedule := `{"type":"daily","times":["` + timeStr + `"]}`
+	fakeNow := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Now().Location())
+	sched.MedicationReminderChecker.now = func() time.Time { return fakeNow }
+
+	schedule := `{"type":"daily","times":["09:00"]}`
 	medID, err := db.CreateMedication("Vitamin D", "1000IU", schedule, nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
@@ -415,9 +424,7 @@ func TestCheckReminders_SupplementHasSkipAction(t *testing.T) {
 		t.Fatalf("SetMedicationSupplement: %v", err)
 	}
 
-	now := time.Now()
-	target := time.Date(now.Year(), now.Month(), now.Day(),
-		pastTime.Hour(), pastTime.Minute(), 0, 0, now.Location())
+	target := time.Date(fakeNow.Year(), fakeNow.Month(), fakeNow.Day(), 9, 0, 0, 0, fakeNow.Location())
 	_, err = db.CreateIntake(medID, 123456, target)
 	if err != nil {
 		t.Fatalf("CreateIntake: %v", err)
@@ -874,8 +881,10 @@ func TestCheckSchedule_StoresIntakeReminderMsgID(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 	mock.sendMsgID = 321
 
-	pastTime := time.Now().Add(-1 * time.Hour).Format("15:04")
-	schedule := `{"type":"daily","times":["` + pastTime + `"]}`
+	fakeNow := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Now().Location())
+	sched.MedicationChecker.now = func() time.Time { return fakeNow }
+
+	schedule := `{"type":"daily","times":["10:00"]}`
 	_, err := db.CreateMedication("MsgIDMed", "1mg", schedule, nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
