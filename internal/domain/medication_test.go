@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -20,12 +21,13 @@ type mockMedicationStore struct {
 	getPendingIntakesFn           func() ([]store.IntakeLog, error)
 	getPendingIntakesByScheduleFn func(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
 	confirmIntakeFn               func(id int64, takenAt time.Time) error
-	confirmIntakesByScheduleFn    func(userID int64, scheduledAt time.Time, takenAt time.Time) error
+	confirmIntakesByScheduleFn    func(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error)
 	skipIntakeFn                  func(id int64) error
 	createIntakeFn                func(medID, userID int64, scheduledAt time.Time) (int64, error)
 	createManualIntakeFn          func(medID, userID int64, takenAt time.Time) (int64, error)
 	decrementInventoryFn          func(medID int64, qty int) error
 	lastConfirmedID               int64
+	decrementedMedIDs             []int64
 }
 
 func (m *mockMedicationStore) GetIntake(id int64) (*store.IntakeLog, error) {
@@ -71,11 +73,11 @@ func (m *mockMedicationStore) ConfirmIntake(id int64, takenAt time.Time) error {
 	return nil
 }
 
-func (m *mockMedicationStore) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) error {
+func (m *mockMedicationStore) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
 	if m.confirmIntakesByScheduleFn != nil {
 		return m.confirmIntakesByScheduleFn(userID, scheduledAt, takenAt)
 	}
-	return nil
+	return nil, nil
 }
 
 func (m *mockMedicationStore) SkipIntake(id int64) error {
@@ -100,6 +102,7 @@ func (m *mockMedicationStore) CreateManualIntake(medID, userID int64, takenAt ti
 }
 
 func (m *mockMedicationStore) DecrementInventory(medID int64, qty int) error {
+	m.decrementedMedIDs = append(m.decrementedMedIDs, medID)
 	if m.decrementInventoryFn != nil {
 		return m.decrementInventoryFn(medID, qty)
 	}
@@ -306,6 +309,17 @@ func TestSkipSupplementIntake(t *testing.T) {
 			intakeID:        7,
 			wantErrContains: "skip intake",
 		},
+		{
+			name: "SkipIntake sql.ErrNoRows maps to ErrNotPending",
+			store: &mockMedicationStore{
+				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+				getMedicationFn:      func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Supplement: true}, nil },
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return nil, nil },
+				skipIntakeFn:         func(id int64) error { return sql.ErrNoRows },
+			},
+			intakeID: 7,
+			wantErr:  ErrNotPending,
+		},
 	}
 
 	for _, tt := range tests {
@@ -389,10 +403,11 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 	scheduledAt := time.Now().Truncate(time.Minute)
 
 	tests := []struct {
-		name            string
-		store           *mockMedicationStore
-		wantReminderIDs []int
-		wantErrContains string
+		name                  string
+		store                 *mockMedicationStore
+		wantReminderIDs       []int
+		wantErrContains       string
+		wantDecrementedMedIDs []int64
 	}{
 		{
 			name: "multiple intakes collects all reminder IDs",
@@ -409,7 +424,7 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 					}
 					return []int{200}, nil
 				},
-				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) error { return nil },
+				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) { return []int64{1, 2}, nil },
 				decrementInventoryFn:       func(medID int64, qty int) error { return nil },
 			},
 			wantReminderIDs: []int{100, 101, 200},
@@ -420,9 +435,33 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 				getPendingIntakesByScheduleFn: func(userID int64, _ time.Time) ([]store.IntakeLog, error) {
 					return nil, nil
 				},
-				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) error { return nil },
+				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) { return nil, nil },
 			},
 			wantReminderIDs: nil,
+		},
+		{
+			name: "partial confirmation only decrements inventory for confirmed intakes",
+			store: &mockMedicationStore{
+				getPendingIntakesByScheduleFn: func(userID int64, _ time.Time) ([]store.IntakeLog, error) {
+					// 3 pending intakes for medications 10, 11, 12
+					return []store.IntakeLog{
+						{ID: 1, MedicationID: 10, Status: "PENDING"},
+						{ID: 2, MedicationID: 11, Status: "PENDING"},
+						{ID: 3, MedicationID: 12, Status: "PENDING"},
+					}, nil
+				},
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) {
+					return []int{100}, nil
+				},
+				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
+					// Simulate partial confirmation: only IDs 1 and 2 were confirmed
+					// (ID 3 might have been confirmed by another concurrent call)
+					return []int64{1, 2}, nil
+				},
+				decrementInventoryFn: func(medID int64, qty int) error { return nil },
+			},
+			wantReminderIDs:       []int{100, 100, 100},
+			wantDecrementedMedIDs: []int64{10, 11}, // Only medications 10 and 11 should have inventory decremented
 		},
 		{
 			name: "GetPendingIntakesBySchedule error propagates",
@@ -440,8 +479,8 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 					return []store.IntakeLog{{ID: 1, MedicationID: 10, Status: "PENDING"}}, nil
 				},
 				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return nil, nil },
-				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) error {
-					return errors.New("confirm failed")
+				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
+					return nil, errors.New("confirm failed")
 				},
 			},
 			wantErrContains: "confirm intakes by schedule",
@@ -464,6 +503,11 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 			}
 			if !equalIntSlice(ids, tt.wantReminderIDs) {
 				t.Errorf("reminder IDs: got %v, want %v", ids, tt.wantReminderIDs)
+			}
+			if tt.wantDecrementedMedIDs != nil {
+				if !equalInt64Slice(tt.store.decrementedMedIDs, tt.wantDecrementedMedIDs) {
+					t.Errorf("decremented med IDs: got %v, want %v", tt.store.decrementedMedIDs, tt.wantDecrementedMedIDs)
+				}
 			}
 		})
 	}
@@ -588,4 +632,18 @@ func equalIntSlice(a, b []int) bool {
 	}
 	return true
 }
+
+// equalInt64Slice returns true if both slices have the same elements in the same order.
+func equalInt64Slice(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 

@@ -1,19 +1,4 @@
-<<<<<<< Updated upstream
 let foodControlsBound = false;
-=======
-(function () {
-    let foodScannerStream = null, foodScannerRunning = false, foodScanLoopTimer = null, foodBarcodeDetector = null;
-    const FOOD_SCAN_THROTTLE_MS = 250, FOOD_NUMERIC_BARCODE_MIN_LEN = 8;
-    let foodAutoCompleteSuggestions = [], foodProductsCache = [], currentFoodLogs = {};
-    window.currentFoodStatsPeriod = window.currentFoodStatsPeriod || 'day';
-
-    function toISODateLocal(date) {
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, '0');
-        const d = String(date.getDate()).padStart(2, '0');
-        return `${y}-${m}-${d}`;
-    }
->>>>>>> Stashed changes
 
 function bindFoodControls() {
     if (foodControlsBound) return;
@@ -123,80 +108,10 @@ async function onFoodNameChange() {
     const query = foodNameInput.value;
     const normalizedQuery = normalizeFoodSearchQuery(query);
 
-<<<<<<< Updated upstream
     if (normalizedQuery.length >= 2 && normalizedQuery === lastFoodSearchQueryNormalized) {
         const list = document.getElementById('food-autocomplete-list');
         if (list && foodAutoCompleteSuggestions.length > 0) {
             list.classList.remove('hidden');
-=======
-    window.calculateFoodCalories = function () {
-        const w = parseFloat(document.getElementById('food-weight').value) || 0;
-        const c = parseFloat(document.getElementById('food-carbs').value) || 0;
-        const p = parseFloat(document.getElementById('food-protein').value) || 0;
-        const f = parseFloat(document.getElementById('food-fat').value) || 0;
-        const per100 = document.getElementById('food-per-100g').checked;
-        const mult = per100 ? w / 100 : 1;
-        const total = Math.round((4 * c * mult) + (4 * p * mult) + (9 * f * mult));
-        document.getElementById('food-calories').value = total;
-    };
-
-    window.setFoodStatsPeriod = function (period) {
-        window.currentFoodStatsPeriod = period === 'week' ? 'week' : 'day';
-        document.querySelectorAll('#food-stats-period-container .period-link').forEach((el) => {
-            el.classList.toggle('active', el.dataset.period === window.currentFoodStatsPeriod);
-        });
-        window.loadFoodLogs();
-    };
-
-    window.shiftFoodDate = function (deltaDays) {
-        const input = document.getElementById('food-date-filter');
-        if (!input) return;
-        const step = (window.currentFoodStatsPeriod === 'week' ? 7 : 1) * deltaDays;
-        const base = input.value ? new Date(`${input.value}T00:00:00`) : new Date();
-        base.setDate(base.getDate() + step);
-        input.value = toISODateLocal(base);
-        window.loadFoodLogs();
-    };
-
-    window.loadFoodLogs = async function () {
-        const dateInput = document.getElementById('food-date-filter');
-        if (dateInput && !dateInput.value) dateInput.value = toISODateLocal(new Date());
-        const date = dateInput?.value || toISODateLocal(new Date());
-        const period = window.currentFoodStatsPeriod || 'day';
-        const key = `food_${date}_${period}`;
-        const weekDisplay = document.getElementById('food-week-display');
-
-        if (weekDisplay) {
-            if (period === 'week') {
-                const end = new Date(`${date}T00:00:00`);
-                const start = new Date(end);
-                start.setDate(end.getDate() - 6);
-                const fmt = { month: 'short', day: 'numeric' };
-                weekDisplay.textContent = `${start.toLocaleDateString(undefined, fmt)} - ${end.toLocaleDateString(undefined, fmt)}`;
-                weekDisplay.classList.remove('hidden');
-            } else {
-                weekDisplay.classList.add('hidden');
-            }
-        }
-
-        if (typeof window.loadFoodTargets === 'function') {
-            await window.loadFoodTargets();
-        }
-
-        if (window.DataStore) {
-            await window.DataStore.loadSWR({
-                key, tags: ['food'],
-                fetcher: async () => {
-                    const days = period === 'week' ? '&days=7' : '';
-                    const logs = await window.apiCall(`/api/food/log?date=${date}${days}`, 'GET');
-                    let stats = null;
-                    if (period === 'week') stats = await window.apiCall(`/api/food/stats?date=${date}&days=7`, 'GET');
-                    return { logs, stats };
-                },
-                onCached: (cached) => window.renderFoodData(cached.logs, cached.stats, period, date),
-                onFresh: (fresh) => window.renderFoodData(fresh.logs, fresh.stats, period, date)
-            });
->>>>>>> Stashed changes
         }
         return;
     }
@@ -209,35 +124,12 @@ async function onFoodNameChange() {
         return;
     }
 
-<<<<<<< Updated upstream
     if (query.length < 2) {
         renderFoodAutocomplete(foodProductsCache);
         lastFoodSearchQueryNormalized = '';
         setFoodSearchStatus();
         return;
     }
-=======
-        currentFoodLogs = {};
-        window.currentFoodLogs = currentFoodLogs;
-
-        groups.forEach(g => {
-            const card = document.createElement('div'); card.className = 'history-group';
-            card.innerHTML = `<div class="history-header"><strong>${g.name}</strong> <span style="font-weight:normal;color:var(--hint-color);">(${g.time})</span> <span style="margin-left:auto;font-size:0.9em;">${g.calories} kcal (C:${g.carbs} P:${g.protein} F:${g.fat})</span></div>`;
-            const items = document.createElement('div');
-            g.logs.forEach(l => {
-                currentFoodLogs[l.id] = l;
-                const item = document.createElement('div'); item.className = 'history-item';
-                item.style.cssText = 'padding:8px 0;border-bottom:1px solid rgba(0,0,0,0.05);cursor:pointer;display:flex;justify-content:space-between;align-items:center;';
-                item.onclick = () => window.editFoodLog(l.id);
-                item.innerHTML = `<div><div style="font-weight:500;">${l.name || 'Food'}</div><div style="font-size:0.85em;color:var(--hint-color);">${l.weight}g • ${l.calories} kcal</div></div>`;
-                const del = document.createElement('button'); del.className = 'delete-btn'; del.textContent = '×';
-                del.onclick = (e) => { e.stopPropagation(); window.deleteFoodLog(l.id); };
-                item.appendChild(del); items.appendChild(item);
-            });
-            card.appendChild(items); list.appendChild(card);
-        });
-    };
->>>>>>> Stashed changes
 
     // Debounce search
     clearTimeout(foodSearchTimeout);
@@ -808,7 +700,6 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
         e.stopPropagation(); // prevent document click listener
         list.classList.add('hidden');
     };
-<<<<<<< Updated upstream
     list.appendChild(closeBtn);
 
     // Limit datalist options so browser doesn't choke
@@ -1536,45 +1427,3 @@ async function deleteFoodLog(id) {
     if (ok) loadFoodLogs();
 }
 
-=======
-
-    let foodControlsBound = false;
-    function bindFoodControls() {
-        if (foodControlsBound) return;
-        foodControlsBound = true;
-
-        const bindClick = (id, handler) => {
-            const el = document.getElementById(id);
-            if (el) el.addEventListener('click', handler);
-        };
-        const bindInput = (id, handler) => {
-            const el = document.getElementById(id);
-            if (el) el.addEventListener('input', handler);
-        };
-        const bindChange = (id, handler) => {
-            const el = document.getElementById(id);
-            if (el) el.addEventListener('change', handler);
-        };
-
-        bindClick('food-period-day-link', () => window.setFoodStatsPeriod('day'));
-        bindClick('food-period-week-link', () => window.setFoodStatsPeriod('week'));
-        bindClick('add-food-btn', () => window.showAddFoodModal());
-        bindClick('food-date-prev-btn', () => window.shiftFoodDate(-1));
-        bindClick('food-date-next-btn', () => window.shiftFoodDate(1));
-        bindChange('food-date-filter', () => window.loadFoodLogs());
-
-        bindClick('food-modal-cancel-btn', () => window.ModalManager?.food?.close?.());
-        bindClick('food-modal-save-btn', () => window.saveFoodLog());
-        bindInput('food-weight', () => window.calculateFoodCalories());
-        bindInput('food-carbs', () => window.calculateFoodCalories());
-        bindInput('food-protein', () => window.calculateFoodCalories());
-        bindInput('food-fat', () => window.calculateFoodCalories());
-        bindChange('food-per-100g', () => window.calculateFoodCalories());
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', bindFoodControls, { once: true });
-    }
-    bindFoodControls();
-})();
->>>>>>> Stashed changes
