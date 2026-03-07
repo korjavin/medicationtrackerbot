@@ -65,11 +65,13 @@ func (s *Server) initOAUTH() {
 }
 
 // Generate random state
-func generateStateOauthCookie(w http.ResponseWriter) string {
+func generateStateOauthCookie(w http.ResponseWriter) (string, error) {
 	var expiration = time.Now().Add(20 * time.Minute)
 
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
 	state := base64.URLEncoding.EncodeToString(b)
 	cookie := http.Cookie{
 		Name:     "oauthstate",
@@ -82,7 +84,7 @@ func generateStateOauthCookie(w http.ResponseWriter) string {
 	}
 	http.SetCookie(w, &cookie)
 
-	return state
+	return state, nil
 }
 
 // Handler: Start Login
@@ -91,7 +93,11 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "OIDC not configured", http.StatusInternalServerError)
 		return
 	}
-	oauthState := generateStateOauthCookie(w)
+	oauthState, err := generateStateOauthCookie(w)
+	if err != nil {
+		http.Error(w, "failed to generate oauth state", http.StatusInternalServerError)
+		return
+	}
 	u := s.oauthConfig.AuthCodeURL(oauthState)
 	http.Redirect(w, r, u, http.StatusTemporaryRedirect)
 }
@@ -104,7 +110,11 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify State
-	oauthState, _ := r.Cookie("oauthstate")
+	oauthState, err := r.Cookie("oauthstate")
+	if err != nil || oauthState == nil {
+		http.Error(w, "missing oauth state", http.StatusBadRequest)
+		return
+	}
 	if r.FormValue("state") != oauthState.Value {
 		http.Error(w, "invalid oauth state", http.StatusUnauthorized)
 		return
