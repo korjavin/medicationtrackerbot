@@ -28,55 +28,50 @@ const EXTERNAL_ASSETS = [
 // Install event - cache static assets
 self.addEventListener('install', (event) => {
     console.log('[SW] Installing...');
-    event.waitUntil(
-        caches.open(STATIC_CACHE)
-            .then((cache) => {
-                console.log('[SW] Caching static assets');
-                // Cache static assets first
-                return cache.addAll(STATIC_ASSETS)
-                    .then(() => {
-                        // Seed canonical app shell key from root document.
-                        return cache.match('/').then((rootResponse) => {
-                            if (rootResponse) {
-                                return cache.put(APP_SHELL_CACHE_KEY, rootResponse);
-                            }
-                        });
+    event.waitUntil((async () => {
+        try {
+            const cache = await caches.open(STATIC_CACHE);
+            console.log('[SW] Caching static assets');
+
+            // Cache static assets first
+            await cache.addAll(STATIC_ASSETS);
+
+            // Seed canonical app shell key from root document.
+            const rootResponse = await cache.match('/');
+            if (rootResponse) {
+                await cache.put(APP_SHELL_CACHE_KEY, rootResponse);
+            }
+
+            // Then try to cache external resources (don't fail if unavailable)
+            console.log('[SW] Attempting to cache external resources');
+            await Promise.allSettled(
+                EXTERNAL_ASSETS.map(url =>
+                    cache.add(url).catch(err => {
+                        console.warn('[SW] Failed to cache external asset:', url, err);
                     })
-                    .then(() => {
-                        // Then try to cache external resources (don't fail if unavailable)
-                        console.log('[SW] Attempting to cache external resources');
-                        return Promise.allSettled(
-                            EXTERNAL_ASSETS.map(url =>
-                                cache.add(url).catch(err => {
-                                    console.warn('[SW] Failed to cache external asset:', url, err);
-                                })
-                            )
-                        );
-                    });
-            })
-            .catch((err) => {
-                console.error('[SW] Failed to cache static assets:', err);
-            })
-    );
+                )
+            );
+        } catch (err) {
+            console.error('[SW] Failed to cache static assets:', err);
+        }
+    })());
 });
 
 // Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
     console.log('[SW] Activating...');
-    event.waitUntil(
-        caches.keys()
-            .then((keys) => {
-                return Promise.all(
-                    keys
-                        .filter((key) => key !== STATIC_CACHE && key !== DYNAMIC_CACHE)
-                        .map((key) => {
-                            console.log('[SW] Removing old cache:', key);
-                            return caches.delete(key);
-                        })
-                );
-            })
-            .then(() => self.clients.claim())
-    );
+    event.waitUntil((async () => {
+        const keys = await caches.keys();
+        await Promise.all(
+            keys
+                .filter((key) => key !== STATIC_CACHE && key !== DYNAMIC_CACHE)
+                .map((key) => {
+                    console.log('[SW] Removing old cache:', key);
+                    return caches.delete(key);
+                })
+        );
+        await self.clients.claim();
+    })());
 });
 
 // Fetch event - network-first for API, stale-while-revalidate for navigations, cache-first for static assets
