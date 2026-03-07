@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -94,9 +95,6 @@ func (s *medicationService) ConfirmIntakeWithCleanup(_ context.Context, intakeID
 	}
 
 	if err := s.store.ConfirmIntake(intakeID, takenAt); err != nil {
-		if errors.Is(err, store.ErrIntakeNotPending) {
-			return nil, false, ErrNotPending
-		}
 		return nil, false, fmt.Errorf("confirm intake %d: %w", intakeID, err)
 	}
 
@@ -185,17 +183,22 @@ func (s *medicationService) ConfirmMedicationByMedID(ctx context.Context, medID 
 		return nil, false, fmt.Errorf("get pending intakes: %w", err)
 	}
 
-	var logID int64
+	// Find all pending intakes for this medication
+	var matching []store.IntakeLog
 	for _, p := range pending {
 		if p.MedicationID == medID {
-			logID = p.ID
-			break
+			matching = append(matching, p)
 		}
 	}
 
-	if logID == 0 {
+	if len(matching) == 0 {
 		return nil, false, ErrNotPending
 	}
 
-	return s.ConfirmIntakeWithCleanup(ctx, logID, takenAt)
+	// Sort by ScheduledAt descending to confirm the most recent pending intake
+	sort.Slice(matching, func(i, j int) bool {
+		return matching[i].ScheduledAt.After(matching[j].ScheduledAt)
+	})
+
+	return s.ConfirmIntakeWithCleanup(ctx, matching[0].ID, takenAt)
 }

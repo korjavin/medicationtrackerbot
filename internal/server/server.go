@@ -30,6 +30,8 @@ type WorkoutInteractor interface {
 	UpdateWorkoutMessage(msgID int, text string) error
 	// StartWorkoutFlowFromWeb initiates the exercise-by-exercise flow in the chat.
 	StartWorkoutFlowFromWeb(sessionID int64) error
+	// CleanupWorkoutSessionMessages removes tracked chat messages related to this workout session.
+	CleanupWorkoutSessionMessages(sessionID int64) error
 }
 
 type Server struct {
