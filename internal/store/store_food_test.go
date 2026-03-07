@@ -444,7 +444,7 @@ func TestGetFoodProductsOrderedByUsage(t *testing.T) {
 
 	// Create products with different usage counts
 	products := []struct {
-		name   string
+		name    string
 		upserts int
 	}{
 		{"Banana", 1},

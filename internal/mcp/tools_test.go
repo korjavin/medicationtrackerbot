@@ -506,10 +506,10 @@ func TestHandleGetSleepLogs_WithData(t *testing.T) {
 	total := 480
 	deep := 90
 	log := store.SleepLog{
-		UserID:    123456,
-		StartTime: time.Date(2026, 2, 18, 22, 30, 0, 0, time.UTC),
-		EndTime:   time.Date(2026, 2, 19, 6, 30, 0, 0, time.UTC),
-		Day:       "2026-02-18",
+		UserID:       123456,
+		StartTime:    time.Date(2026, 2, 18, 22, 30, 0, 0, time.UTC),
+		EndTime:      time.Date(2026, 2, 19, 6, 30, 0, 0, time.UTC),
+		Day:          "2026-02-18",
 		TotalMinutes: &total,
 		DeepMinutes:  &deep,
 	}
