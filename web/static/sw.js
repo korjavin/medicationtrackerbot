@@ -37,7 +37,10 @@ self.addEventListener('install', (event) => {
             await cache.addAll(STATIC_ASSETS);
 
             // Seed canonical app shell key from root document.
-            await cache.put(APP_SHELL_CACHE_KEY, await cache.match('/'));
+            const rootResponse = await cache.match('/');
+            if (rootResponse) {
+                await cache.put(APP_SHELL_CACHE_KEY, rootResponse);
+            }
 
             // Then try to cache external resources (don't fail if unavailable)
             console.log('[SW] Attempting to cache external resources');
