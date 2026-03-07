@@ -25,6 +25,7 @@ type Bot struct {
 	workouts      WorkoutStore
 	workoutSvc    workoutsvc.WorkoutService
 	exerciseSvc   domain.ExerciseService
+	reminderSvc   domain.ReminderService
 	food          FoodStore
 	imports       ImportStore
 	allowedUserID int64
@@ -65,6 +66,7 @@ func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 		workouts:      s,
 		workoutSvc:    workoutsvc.New(s),
 		exerciseSvc:   domain.NewExerciseService(s),
+		reminderSvc:   domain.NewReminderService(s),
 		food:          s,
 		imports:       s,
 		allowedUserID: allowedUserID,

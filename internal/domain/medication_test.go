@@ -1,5 +1,6 @@
 package domain
 
+import (
 	"errors"
 	"strings"
 	"testing"

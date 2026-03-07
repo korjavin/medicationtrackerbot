@@ -305,12 +305,11 @@ loop2:
 	// P2: Verify completion message sent again via channel
 	select {
 	case msg := <-messageChan:
-		// After adding ex2 (from variant2) to a variant1 session, the planned
-		// exercises from variant1 (2 exercises) should count toward completion.
-		// TotalCount=2, CompletedCount=1 → "1/2".
-		// The added exercise from variant2 should not affect the planned exercise completion count.
-		if !strings.Contains(msg, "1/2") {
-			t.Errorf("Expected stats to show planned exercises from variant1 only, want 1/2, got: %s", msg)
+		// After adding ex2 (from variant2) to a variant1 session and completing it,
+		// both exercises should be counted toward completion.
+		// TotalCount=2, CompletedCount=2 → "2/2".
+		if !strings.Contains(msg, "2/2") {
+			t.Errorf("Expected 2/2 completed exercises after adding exercise from variant2, got: %s", msg)
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatalf("timeout: Expected completion message to be sent again after adding extra exercise")
