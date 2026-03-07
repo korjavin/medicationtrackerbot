@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"sync"
+
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
@@ -38,6 +40,9 @@ type WorkoutChecker struct {
 	NotifyHelper
 	store      WorkoutStore
 	workoutSvc workoutsvc.WorkoutService
+
+	daysCache   map[string][]int
+	daysCacheMu sync.RWMutex
 }
 
 func (c *WorkoutChecker) Check(ctx context.Context) error {
@@ -110,10 +115,21 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		// 4. Check if today matches one of the scheduled days
 		todayIdx := int(now.Weekday())
 
-		var daysOfWeek []int
-		if err := json.Unmarshal([]byte(group.DaysOfWeek), &daysOfWeek); err != nil {
-			log.Printf("Failed to parse days_of_week for group %d: %v", group.ID, err)
-			continue
+		c.daysCacheMu.RLock()
+		daysOfWeek, cached := c.daysCache[group.DaysOfWeek]
+		c.daysCacheMu.RUnlock()
+
+		if !cached {
+			if err := json.Unmarshal([]byte(group.DaysOfWeek), &daysOfWeek); err != nil {
+				log.Printf("Failed to parse days_of_week for group %d: %v", group.ID, err)
+				continue
+			}
+			c.daysCacheMu.Lock()
+			if c.daysCache == nil {
+				c.daysCache = make(map[string][]int)
+			}
+			c.daysCache[group.DaysOfWeek] = daysOfWeek
+			c.daysCacheMu.Unlock()
 		}
 
 		if !contains(daysOfWeek, todayIdx) {
