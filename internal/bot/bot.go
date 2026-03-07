@@ -438,10 +438,11 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⏭ Marked as skipped.")); err != nil {
 			log.Printf("[bot] send failed: %v", err)
 		}
-	} else if len(data) > 8 && data[:8] == "confirm:" {
+	} else if strings.HasPrefix(data, "confirm:") {
 		medIDStr := data[8:]
-		medID, _ := strconv.ParseInt(medIDStr, 10, 64)
-		if medID == 0 {
+		medID, err := strconv.ParseInt(medIDStr, 10, 64)
+		if err != nil || medID == 0 {
+			log.Printf("Invalid medication ID in callback: %v", err)
 			return
 		}
 
