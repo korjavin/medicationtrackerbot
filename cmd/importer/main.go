@@ -44,6 +44,7 @@ type AggregatedMed struct {
 func main() {
 	inputPath := flag.String("input", "", "Path to JSON export file")
 	outputPath := flag.String("output", "import.sql", "Path to output SQL file")
+	userID := flag.Int64("user", 1, "User ID for intake logs")
 	flag.Parse()
 
 	if *inputPath == "" {
@@ -229,11 +230,11 @@ func main() {
 				status = "MISSED"
 			}
 
-			// user_id = 1 (Assuming default admin)
+			// user_id from flag
 
 			intakeStmt := fmt.Sprintf("INSERT INTO intake_log (medication_id, user_id, scheduled_at, taken_at, status) VALUES (%d, %d, '%s', '%s', '%s');\n",
 				medIDCounter,
-				1, // TODO: Make configurable?
+				*userID,
 				schedTime.Format(time.RFC3339),
 				takenTime.Format(time.RFC3339),
 				status,
