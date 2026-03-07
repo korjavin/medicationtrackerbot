@@ -1,6 +1,47 @@
 package mcp
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestNewOAuthHandler(t *testing.T) {
+	cfg := &Config{
+		AllowedSubject: "test-user",
+		MCPServerURL:   "https://mcp.example.com",
+		ClientID:       "test-client",
+	}
+
+	handler := NewOAuthHandler(cfg)
+
+	if handler == nil {
+		t.Fatal("NewOAuthHandler returned nil")
+	}
+
+	if handler.config != cfg {
+		t.Errorf("expected config to be %p, got %p", cfg, handler.config)
+	}
+
+	if handler.jwksCache == nil {
+		t.Fatal("expected jwksCache to be initialized")
+	}
+
+	if handler.jwksCache.keys == nil {
+		t.Error("expected jwksCache.keys map to be initialized")
+	}
+
+	if handler.jwksCache.ttl != 1*time.Hour {
+		t.Errorf("expected jwksCache.ttl to be 1 hour, got %v", handler.jwksCache.ttl)
+	}
+
+	if handler.httpClient == nil {
+		t.Fatal("expected httpClient to be initialized")
+	}
+
+	if handler.httpClient.Timeout != 30*time.Second {
+		t.Errorf("expected httpClient.Timeout to be 30 seconds, got %v", handler.httpClient.Timeout)
+	}
+}
 
 func TestIsSubjectAllowed(t *testing.T) {
 	tests := []struct {
