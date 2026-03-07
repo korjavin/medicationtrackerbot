@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -95,6 +96,9 @@ func (s *medicationService) ConfirmIntakeWithCleanup(_ context.Context, intakeID
 	}
 
 	if err := s.store.ConfirmIntake(intakeID, takenAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, ErrNotPending
+		}
 		return nil, false, fmt.Errorf("confirm intake %d: %w", intakeID, err)
 	}
 

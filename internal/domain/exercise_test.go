@@ -451,3 +451,4 @@ func TestCheckSessionCompletion_GetLogsError(t *testing.T) {
 		t.Fatal("expected error when GetExerciseLogs fails")
 	}
 }
+
