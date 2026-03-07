@@ -45,7 +45,7 @@ func New(s *store.Store, allowedUserID int64, notifiers []notifier.Notifier) *Sc
 	medChecker := &MedicationChecker{NotifyHelper: helper, store: s}
 	medReminderChecker := &MedicationReminderChecker{NotifyHelper: helper, store: s}
 	lowStockChecker := &LowStockChecker{NotifyHelper: helper, store: s}
-	workoutChecker := &WorkoutChecker{NotifyHelper: helper, store: s, workoutSvc: workoutsvc.New(s)}
+	workoutChecker := &WorkoutChecker{NotifyHelper: helper, store: s, workoutSvc: workoutsvc.New(s), daysCache: make(map[string][]int)}
 	bpChecker := &BPReminderChecker{store: s, notifiers: notifiers}
 	weightChecker := &WeightReminderChecker{store: s, notifiers: notifiers}
 
