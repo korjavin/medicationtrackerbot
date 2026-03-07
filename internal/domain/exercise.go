@@ -2,9 +2,12 @@ package domain
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // ExerciseStore is the narrow store interface required by ExerciseService.
@@ -90,6 +93,36 @@ func (s *exerciseService) LogExercise(_ context.Context, sessionID, exerciseID i
 		weight = exercise.TargetWeightKg
 	}
 	if _, err := s.store.LogExercise(sessionID, exerciseID, exercise.ExerciseName, sets, reps, weight, status, ""); err != nil {
+		// Handle race condition: another concurrent insert may have beaten us.
+		// If it's a unique constraint error, re-check if row now exists.
+		var sqlErr *sqlite.Error
+		if errors.As(err, &sqlErr) && (sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT || sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE) {
+			existing, err := s.store.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
+			if err != nil {
+				return fmt.Errorf("get existing log after race for session %d exercise %d: %w", sessionID, exerciseID, err)
+			}
+			if existing != nil {
+				// Row now exists - apply upgrade rules.
+				if existing.Status == "completed" {
+					// No-op: already in desired state.
+					return nil
+				}
+				if existing.Status == status {
+					// No-op: same status.
+					return nil
+				}
+				// skipped → completed: update values and status.
+				if status == "completed" {
+					if err := s.store.UpdateExerciseLog(existing.ID, &exercise.TargetSets, &exercise.TargetRepsMin, exercise.TargetWeightKg, ""); err != nil {
+						return fmt.Errorf("update exercise log %d after race: %w", existing.ID, err)
+					}
+					if err := s.store.UpdateExerciseLogStatus(existing.ID, "completed"); err != nil {
+						return fmt.Errorf("update exercise log status %d after race: %w", existing.ID, err)
+					}
+				}
+				return nil
+			}
+		}
 		return fmt.Errorf("log exercise %d for session %d: %w", exerciseID, sessionID, err)
 	}
 	return nil

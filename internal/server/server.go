@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -836,11 +838,19 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 					s.deleteNotification(r.Context(), msgID)
 				}
 
+				// Confirm intake. If it returns sql.ErrNoRows, the intake was already
+				// confirmed by another concurrent request - skip inventory decrement to avoid
+				// double-decrementing stock.
 				if err := s.meds.ConfirmIntake(id, now); err != nil {
-					log.Printf("Error confirming intake %d: %v", intake.ID, err)
+					if errors.Is(err, sql.ErrNoRows) {
+						log.Printf("Intake %d already confirmed by another request (race condition)", intake.ID)
+					} else {
+						log.Printf("Error confirming intake %d: %v", intake.ID, err)
+					}
+					continue
 				}
 
-				// Decrement inventory
+				// Decrement inventory only if confirmation succeeded
 				if err := s.meds.DecrementInventory(intake.MedicationID, 1); err != nil {
 					log.Printf("Error decrementing inventory: %v", err)
 				}
@@ -874,11 +884,19 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 				s.deleteNotification(r.Context(), msgID)
 			}
 
+			// Confirm intake. If it returns sql.ErrNoRows, the intake was already
+			// confirmed by another concurrent request - skip inventory decrement to avoid
+			// double-decrementing stock.
 			if err := s.meds.ConfirmIntake(intake.ID, now); err != nil {
-				log.Printf("Error confirming intake %d: %v", intake.ID, err)
+				if errors.Is(err, sql.ErrNoRows) {
+					log.Printf("Intake %d already confirmed by another request (race condition)", intake.ID)
+				} else {
+					log.Printf("Error confirming intake %d: %v", intake.ID, err)
+				}
+				continue
 			}
 
-			// Decrement inventory
+			// Decrement inventory only if confirmation succeeded
 			if err := s.meds.DecrementInventory(medID, 1); err != nil {
 				log.Printf("Error decrementing inventory: %v", err)
 			}

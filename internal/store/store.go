@@ -517,8 +517,18 @@ func (s *Store) CreateManualIntake(medID, userID int64, takenAt time.Time) (int6
 }
 
 func (s *Store) ConfirmIntake(id int64, takenAt time.Time) error {
-	_, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at = ? WHERE id = ?", takenAt, id)
-	return err
+	res, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at = ? WHERE id = ? AND status = 'PENDING'", takenAt, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) SkipIntake(id int64) error {
