@@ -85,6 +85,12 @@ func (b *Bot) SendExercisePrompt(sessionID int64, exerciseID int64, exerciseName
 	return sentMsg.MessageID, nil
 }
 
+// CleanupWorkoutSessionMessages removes tracked chat messages related to this workout session.
+// Currently a no-op since the Bot doesn't track session messages.
+func (b *Bot) CleanupWorkoutSessionMessages(sessionID int64) error {
+	return nil
+}
+
 // SendWorkoutComplete sends a completion message
 func (b *Bot) SendWorkoutComplete(chatID, sessionID int64, completedExercises, totalExercises int) error {
 	text := fmt.Sprintf("✅ **Planned exercises done**\n\nCompleted %d/%d exercises", completedExercises, totalExercises)

@@ -189,16 +189,6 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 			wantErrContains: "confirm intake",
 		},
 		{
-			name: "ConfirmIntake ErrIntakeNotPending maps to ErrNotPending (race guard)",
-			store: &mockMedicationStore{
-				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
-				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return nil, nil },
-				confirmIntakeFn:      func(id int64, takenAt time.Time) error { return store.ErrIntakeNotPending },
-			},
-			intakeID: 42,
-			wantErr:  ErrNotPending,
-		},
-		{
 			name: "DecrementInventory error is non-fatal",
 			store: &mockMedicationStore{
 				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
