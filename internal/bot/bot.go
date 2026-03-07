@@ -22,7 +22,6 @@ type Bot struct {
 	medSvc        domain.MedicationService
 	bp            BloodPressureStore
 	weight        WeightStore
-	reminderSvc   domain.ReminderService
 	workouts      WorkoutStore
 	workoutSvc    workoutsvc.WorkoutService
 	exerciseSvc   domain.ExerciseService
@@ -63,7 +62,6 @@ func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 		medSvc:        domain.NewMedicationService(s),
 		bp:            s,
 		weight:        s,
-		reminderSvc:   domain.NewReminderService(s),
 		workouts:      s,
 		workoutSvc:    workoutsvc.New(s),
 		exerciseSvc:   domain.NewExerciseService(s),
@@ -368,7 +366,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		reminders, isSupp, err := b.medSvc.ConfirmIntakeWithCleanup(context.Background(), intakeID, time.Now())
+		reminders, isSupp, err := b.medSvc.ConfirmIntakeWithCleanup(intakeID, time.Now())
 		if err != nil {
 			if errors.Is(err, domain.ErrNotPending) {
 				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
@@ -404,7 +402,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		reminders, err := b.medSvc.SkipSupplementIntake(context.Background(), intakeID)
+		reminders, err := b.medSvc.SkipSupplementIntake(intakeID)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotPending) {
 				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already processed).")); err != nil {
@@ -445,7 +443,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		reminders, _, err := b.medSvc.ConfirmMedicationByMedID(context.Background(), medID, time.Now())
+		reminders, _, err := b.medSvc.ConfirmMedicationByMedID(medID, time.Now())
 		if err != nil {
 			if errors.Is(err, domain.ErrNotPending) {
 				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
@@ -478,7 +476,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		if err := b.medSvc.LogMedicationNow(context.Background(), b.allowedUserID, medID); err != nil {
+		if err := b.medSvc.LogMedicationNow(b.allowedUserID, medID); err != nil {
 			log.Printf("Error logging medication now: %v", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging medication.")); err != nil {
 				log.Printf("[bot] send failed: %v", err)
@@ -510,7 +508,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 		target := time.Unix(ts, 0)
 
-		reminders, err := b.medSvc.ConfirmScheduleWithCleanup(context.Background(), b.allowedUserID, target)
+		reminders, err := b.medSvc.ConfirmScheduleWithCleanup(b.allowedUserID, target)
 		if err != nil {
 			log.Printf("Error confirming batch schedule: %v", err)
 			return

@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -42,26 +41,26 @@ type MedicationService interface {
 	// message IDs, confirms the intake, and decrements inventory.
 	// Returns the reminder message IDs so the caller can delete them, and whether
 	// the confirmed medication is a supplement (for UI purposes).
-	ConfirmIntakeWithCleanup(ctx context.Context, intakeID int64, takenAt time.Time) (reminderMsgIDs []int, isSupplement bool, err error)
+	ConfirmIntakeWithCleanup(intakeID int64, takenAt time.Time) (reminderMsgIDs []int, isSupplement bool, err error)
 
 	// SkipSupplementIntake validates the intake is PENDING and the medication is a
 	// supplement, collects reminder message IDs, and marks the intake as skipped.
 	// Returns ErrNotSupplement for non-supplement medications.
-	SkipSupplementIntake(ctx context.Context, intakeID int64) (reminderMsgIDs []int, err error)
+	SkipSupplementIntake(intakeID int64) (reminderMsgIDs []int, err error)
 
 	// LogMedicationNow creates a new intake and immediately confirms it.
 	// Used for ad-hoc "log now" without a pre-existing pending record.
-	LogMedicationNow(ctx context.Context, userID, medID int64) error
+	LogMedicationNow(userID, medID int64) error
 
 	// ConfirmScheduleWithCleanup batch-confirms all pending intakes for a scheduled
 	// time slot and collects all reminder message IDs across those intakes.
 	// Returns the reminder message IDs so the caller can delete them.
-	ConfirmScheduleWithCleanup(ctx context.Context, userID int64, scheduledAt time.Time) (reminderMsgIDs []int, err error)
+	ConfirmScheduleWithCleanup(userID int64, scheduledAt time.Time) (reminderMsgIDs []int, err error)
 
 	// ConfirmMedicationByMedID finds the first pending intake for a medication and confirms it.
 	// Used by the legacy confirm: callback which only carries a medication ID, not an intake ID.
 	// Returns ErrNotPending if no pending intake exists for the medication.
-	ConfirmMedicationByMedID(ctx context.Context, medID int64, takenAt time.Time) (reminderMsgIDs []int, isSupplement bool, err error)
+	ConfirmMedicationByMedID(medID int64, takenAt time.Time) (reminderMsgIDs []int, isSupplement bool, err error)
 }
 
 type medicationService struct {
@@ -73,7 +72,7 @@ func NewMedicationService(s MedicationStore) MedicationService {
 	return &medicationService{store: s}
 }
 
-func (s *medicationService) ConfirmIntakeWithCleanup(_ context.Context, intakeID int64, takenAt time.Time) ([]int, bool, error) {
+func (s *medicationService) ConfirmIntakeWithCleanup(intakeID int64, takenAt time.Time) ([]int, bool, error) {
 	intake, err := s.store.GetIntake(intakeID)
 	if err != nil {
 		return nil, false, fmt.Errorf("get intake %d: %w", intakeID, err)
@@ -110,7 +109,7 @@ func (s *medicationService) ConfirmIntakeWithCleanup(_ context.Context, intakeID
 	return reminders, isSupplement, nil
 }
 
-func (s *medicationService) SkipSupplementIntake(_ context.Context, intakeID int64) ([]int, error) {
+func (s *medicationService) SkipSupplementIntake(intakeID int64) ([]int, error) {
 	intake, err := s.store.GetIntake(intakeID)
 	if err != nil {
 		return nil, fmt.Errorf("get intake %d: %w", intakeID, err)
@@ -139,7 +138,7 @@ func (s *medicationService) SkipSupplementIntake(_ context.Context, intakeID int
 	return reminders, nil
 }
 
-func (s *medicationService) LogMedicationNow(_ context.Context, userID, medID int64) error {
+func (s *medicationService) LogMedicationNow(userID, medID int64) error {
 	now := time.Now()
 	// CreateManualIntake inserts directly with status='TAKEN', avoiding a separate ConfirmIntake
 	// call that could leave a dangling PENDING record on partial failure.
@@ -153,7 +152,7 @@ func (s *medicationService) LogMedicationNow(_ context.Context, userID, medID in
 	return nil
 }
 
-func (s *medicationService) ConfirmScheduleWithCleanup(_ context.Context, userID int64, scheduledAt time.Time) ([]int, error) {
+func (s *medicationService) ConfirmScheduleWithCleanup(userID int64, scheduledAt time.Time) ([]int, error) {
 	pending, err := s.store.GetPendingIntakesBySchedule(userID, scheduledAt)
 	if err != nil {
 		return nil, fmt.Errorf("get pending intakes by schedule: %w", err)
@@ -181,7 +180,7 @@ func (s *medicationService) ConfirmScheduleWithCleanup(_ context.Context, userID
 	return allReminders, nil
 }
 
-func (s *medicationService) ConfirmMedicationByMedID(ctx context.Context, medID int64, takenAt time.Time) ([]int, bool, error) {
+func (s *medicationService) ConfirmMedicationByMedID(medID int64, takenAt time.Time) ([]int, bool, error) {
 	pending, err := s.store.GetPendingIntakes()
 	if err != nil {
 		return nil, false, fmt.Errorf("get pending intakes: %w", err)
@@ -204,5 +203,5 @@ func (s *medicationService) ConfirmMedicationByMedID(ctx context.Context, medID 
 		return matching[i].ScheduledAt.After(matching[j].ScheduledAt)
 	})
 
-	return s.ConfirmIntakeWithCleanup(ctx, matching[0].ID, takenAt)
+	return s.ConfirmIntakeWithCleanup(matching[0].ID, takenAt)
 }

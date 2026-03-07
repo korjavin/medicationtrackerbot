@@ -1179,7 +1179,7 @@ func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Reque
 		req.Minutes = 60 // Default
 	}
 
-	if err := s.workoutSvc.SnoozeSession(r.Context(), id, time.Duration(req.Minutes)*time.Minute); err != nil {
+	if err := s.workoutSvc.SnoozeSession(id, time.Duration(req.Minutes)*time.Minute); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1311,7 +1311,7 @@ func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request
 	}
 
 	// Service handles skip + rotation advancement for rotating groups
-	if err := s.workoutSvc.SkipSession(r.Context(), id); err != nil {
+	if err := s.workoutSvc.SkipSession(id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1332,7 +1332,7 @@ func (s *Server) handleStartWorkoutSession(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Mark session as in_progress, set started_at, and clear any snooze
-	if err := s.workoutSvc.StartSession(r.Context(), id); err != nil {
+	if err := s.workoutSvc.StartSession(id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1413,13 +1413,13 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 	switch req.Status {
 	case "skipped":
 		// Service handles skip + rotation advancement for rotating groups
-		if err := s.workoutSvc.SkipSession(r.Context(), id); err != nil {
+		if err := s.workoutSvc.SkipSession(id); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 	case "completed":
 		// Service handles complete + rotation advancement for rotating groups
-		if err := s.workoutSvc.CompleteSession(r.Context(), id); err != nil {
+		if err := s.workoutSvc.CompleteSession(id); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

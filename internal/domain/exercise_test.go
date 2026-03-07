@@ -199,7 +199,7 @@ func TestLogExercise_NewLog(t *testing.T) {
 	ms.addExercise(10, "Squat", 4, 8, &weight)
 	svc := NewExerciseService(ms)
 
-	if err := svc.LogExercise(context.Background(), 1, 10, "completed"); err != nil {
+	if err := svc.LogExercise(1, 10, "completed"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -216,7 +216,7 @@ func TestLogExercise_NewLogSkipped(t *testing.T) {
 	ms.addExercise(10, "Squat", 4, 8, nil)
 	svc := NewExerciseService(ms)
 
-	if err := svc.LogExercise(context.Background(), 1, 10, "skipped"); err != nil {
+	if err := svc.LogExercise(1, 10, "skipped"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -235,7 +235,7 @@ func TestLogExercise_SkippedToCompleted(t *testing.T) {
 	logID := ms.addLog(1, 10, "skipped")
 	svc := NewExerciseService(ms)
 
-	if err := svc.LogExercise(context.Background(), 1, 10, "completed"); err != nil {
+	if err := svc.LogExercise(1, 10, "completed"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -257,11 +257,11 @@ func TestLogExercise_ExistingCompletedNoOp(t *testing.T) {
 	svc := NewExerciseService(ms)
 
 	// Try to log as completed again
-	if err := svc.LogExercise(context.Background(), 1, 10, "completed"); err != nil {
+	if err := svc.LogExercise(1, 10, "completed"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// Also try to skip a completed exercise
-	if err := svc.LogExercise(context.Background(), 1, 10, "skipped"); err != nil {
+	if err := svc.LogExercise(1, 10, "skipped"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -282,7 +282,7 @@ func TestLogExercise_ExistingSkippedNoOp(t *testing.T) {
 	ms.addLog(1, 10, "skipped")
 	svc := NewExerciseService(ms)
 
-	if err := svc.LogExercise(context.Background(), 1, 10, "skipped"); err != nil {
+	if err := svc.LogExercise(1, 10, "skipped"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -298,7 +298,7 @@ func TestLogExercise_ExerciseNotFound(t *testing.T) {
 	ms := newMockExerciseStore()
 	svc := NewExerciseService(ms)
 
-	err := svc.LogExercise(context.Background(), 1, 999, "completed")
+	err := svc.LogExercise(1, 999, "completed")
 	if err == nil {
 		t.Fatal("expected error for missing exercise")
 	}
@@ -310,7 +310,7 @@ func TestLogExercise_StoreError(t *testing.T) {
 	ms.addExercise(10, "Curl", 3, 12, nil)
 	svc := NewExerciseService(es)
 
-	err := svc.LogExercise(context.Background(), 1, 10, "completed")
+	err := svc.LogExercise(1, 10, "completed")
 	if err == nil {
 		t.Fatal("expected error from store")
 	}
@@ -322,7 +322,7 @@ func TestLogExercise_GetLogError(t *testing.T) {
 	es := &errExerciseStore{mockExerciseStore: ms, errGetLog: true}
 	svc := NewExerciseService(es)
 
-	err := svc.LogExercise(context.Background(), 1, 10, "completed")
+	err := svc.LogExercise(1, 10, "completed")
 	if err == nil {
 		t.Fatal("expected error when GetExerciseLogBySessionAndExercise fails")
 	}
@@ -334,7 +334,7 @@ func TestLogExercise_LogExerciseStoreError(t *testing.T) {
 	es := &errExerciseStore{mockExerciseStore: ms, errLogExercise: true}
 	svc := NewExerciseService(es)
 
-	err := svc.LogExercise(context.Background(), 1, 10, "completed")
+	err := svc.LogExercise(1, 10, "completed")
 	if err == nil {
 		t.Fatal("expected error when LogExercise store call fails")
 	}
@@ -348,7 +348,7 @@ func TestLogExercise_UpdateExerciseLogError(t *testing.T) {
 	es := &errExerciseStore{mockExerciseStore: ms, errUpdateExerciseLog: true}
 	svc := NewExerciseService(es)
 
-	err := svc.LogExercise(context.Background(), 1, 10, "completed")
+	err := svc.LogExercise(1, 10, "completed")
 	if err == nil {
 		t.Fatal("expected error when UpdateExerciseLog store call fails")
 	}
@@ -361,7 +361,7 @@ func TestLogExercise_UpdateExerciseLogStatusError(t *testing.T) {
 	es := &errExerciseStore{mockExerciseStore: ms, errUpdateExerciseStatus: true}
 	svc := NewExerciseService(es)
 
-	err := svc.LogExercise(context.Background(), 1, 10, "completed")
+	err := svc.LogExercise(1, 10, "completed")
 	if err == nil {
 		t.Fatal("expected error when UpdateExerciseLogStatus store call fails")
 	}
@@ -377,7 +377,7 @@ func TestCheckSessionCompletion_AllDone(t *testing.T) {
 	ms.addLog(100, 2, "skipped")
 	svc := NewExerciseService(ms)
 
-	done, completed, total, err := svc.CheckSessionCompletion(context.Background(), 100, 1)
+	done, completed, total, err := svc.CheckSessionCompletion(100, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestCheckSessionCompletion_Partial(t *testing.T) {
 	// exercises 2 and 3 not logged yet
 	svc := NewExerciseService(ms)
 
-	done, _, _, err := svc.CheckSessionCompletion(context.Background(), 100, 1)
+	done, _, _, err := svc.CheckSessionCompletion(100, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -416,7 +416,7 @@ func TestCheckSessionCompletion_NoneDone(t *testing.T) {
 	ms.addExercise(2, "B", 3, 10, nil)
 	svc := NewExerciseService(ms)
 
-	done, completed, _, err := svc.CheckSessionCompletion(context.Background(), 100, 1)
+	done, completed, _, err := svc.CheckSessionCompletion(100, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -434,7 +434,7 @@ func TestCheckSessionCompletion_ListExercisesError(t *testing.T) {
 	es := &errExerciseStore{mockExerciseStore: ms, errListExercises: true}
 	svc := NewExerciseService(es)
 
-	_, _, _, err := svc.CheckSessionCompletion(context.Background(), 100, 1)
+	_, _, _, err := svc.CheckSessionCompletion(100, 1)
 	if err == nil {
 		t.Fatal("expected error when ListExercisesByVariant fails")
 	}
@@ -446,7 +446,7 @@ func TestCheckSessionCompletion_GetLogsError(t *testing.T) {
 	es := &errExerciseStore{mockExerciseStore: ms, errGetLogs: true}
 	svc := NewExerciseService(es)
 
-	_, _, _, err := svc.CheckSessionCompletion(context.Background(), 100, 1)
+	_, _, _, err := svc.CheckSessionCompletion(100, 1)
 	if err == nil {
 		t.Fatal("expected error when GetExerciseLogs fails")
 	}

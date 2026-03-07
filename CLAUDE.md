@@ -114,7 +114,7 @@ User
 
 ### Database Schema
 
-SQLite with 27 goose migrations tracking schema evolution:
+SQLite with 34 goose migrations tracking schema evolution:
 - `medications`, `intake_log` - Medication management and history
 - `blood_pressure_readings` - BP tracking
 - `weight_logs` - Weight tracking with trend calculation
