@@ -14,9 +14,22 @@ import (
 type MedicationReminderChecker struct {
 	NotifyHelper
 	store MedicationStore
+	now   func() time.Time // injectable clock; defaults to time.Now
 }
 
 func (c *MedicationReminderChecker) Check(ctx context.Context) error {
+	enabled, err := c.store.GetMedicationEnabled(ctx)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return nil
+	}
+
+	if c.now == nil {
+		c.now = time.Now
+	}
+
 	pending, err := c.store.GetPendingIntakes()
 	if err != nil {
 		return err
@@ -24,7 +37,7 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 
 	for _, p := range pending {
 		scheduledAt := p.ScheduledAt
-		if time.Since(scheduledAt) > 1*time.Hour {
+		if c.now().Sub(scheduledAt) > 1*time.Hour {
 			med, err := c.store.GetMedication(p.MedicationID)
 			if err != nil {
 				continue

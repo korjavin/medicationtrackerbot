@@ -1,7 +1,6 @@
 package workout
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
@@ -84,7 +83,7 @@ func TestSkipSession_IgnoresRotationAdvanceError(t *testing.T) {
 	}
 	svc := New(m)
 
-	err := svc.SkipSession(context.Background(), 42)
+	err := svc.SkipSession(42)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -104,7 +103,7 @@ func TestSkipSession_ReturnsSkipError(t *testing.T) {
 	}
 	svc := New(m)
 
-	err := svc.SkipSession(context.Background(), 42)
+	err := svc.SkipSession(42)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -124,7 +123,7 @@ func TestCompleteSession_IgnoresGroupLookupError(t *testing.T) {
 	}
 	svc := New(m)
 
-	err := svc.CompleteSession(context.Background(), 42)
+	err := svc.CompleteSession(42)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -144,7 +143,7 @@ func TestCompleteSession_ReturnsCompleteError(t *testing.T) {
 	}
 	svc := New(m)
 
-	err := svc.CompleteSession(context.Background(), 42)
+	err := svc.CompleteSession(42)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

@@ -1,7 +1,9 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -245,7 +247,13 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 			takenAt = time.Now()
 		}
 
-		// Reverting to PENDING logic
+		// First update the intake status, then adjust inventory
+		if err := s.meds.UpdateIntake(up.ID, takenAt, up.Status); err != nil {
+			log.Printf("Error updating intake %d: %v", up.ID, err)
+			continue
+		}
+
+		// Adjust inventory after successful update
 		switch up.Status {
 		case "PENDING":
 			// If it was TAKEN, we are reverting.
@@ -268,10 +276,6 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 					s.deleteNotification(r.Context(), msgID)
 				}
 			}
-		}
-
-		if err := s.meds.UpdateIntake(up.ID, takenAt, up.Status); err != nil {
-			log.Printf("Error updating intake %d: %v", up.ID, err)
 		}
 	}
 
@@ -388,13 +392,18 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 				s.deleteNotification(r.Context(), msgID)
 			}
 
-			// Confirm the intake with current time
+			// Confirm the intake with current time. If it returns sql.ErrNoRows,
+			// the intake was already confirmed by another concurrent request.
 			if err := s.meds.ConfirmIntake(intake.ID, now); err != nil {
-				log.Printf("Error confirming intake %d: %v", intake.ID, err)
+				if errors.Is(err, sql.ErrNoRows) {
+					log.Printf("Intake %d already confirmed by another request (race condition)", intake.ID)
+				} else {
+					log.Printf("Error confirming intake %d: %v", intake.ID, err)
+				}
 				continue
 			}
 
-			// Decrement inventory
+			// Decrement inventory only if confirmation succeeded
 			if err := s.meds.DecrementInventory(medID, 1); err != nil {
 				log.Printf("Error decrementing inventory: %v", err)
 			}
@@ -409,13 +418,18 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 				continue
 			}
 
-			// Immediately confirm it
+			// Immediately confirm it. If it returns sql.ErrNoRows,
+			// the intake was already confirmed by another concurrent request.
 			if err := s.meds.ConfirmIntake(intakeID, now); err != nil {
-				log.Printf("Error confirming new intake %d: %v", intakeID, err)
+				if errors.Is(err, sql.ErrNoRows) {
+					log.Printf("Intake %d already confirmed by another request (race condition)", intakeID)
+				} else {
+					log.Printf("Error confirming new intake %d: %v", intakeID, err)
+				}
 				continue
 			}
 
-			// Decrement inventory
+			// Decrement inventory only if confirmation succeeded
 			if err := s.meds.DecrementInventory(medID, 1); err != nil {
 				log.Printf("Error decrementing inventory: %v", err)
 			}

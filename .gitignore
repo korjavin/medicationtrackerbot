@@ -13,3 +13,6 @@ import.sql
 frontendplan.markdown
 node_modules/
 coverage/
+
+# ralphex progress logs
+.ralphex/progress/

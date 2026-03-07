@@ -94,7 +94,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 
 		// Clear blocked state after 4 hours of inactivity
 		if duration > 4*time.Hour {
-			if err := c.workoutSvc.SkipSession(ctx, activeSession.ID); err != nil {
+			if err := c.workoutSvc.SkipSession(activeSession.ID); err != nil {
 				log.Printf("Failed to skip stale session: %v", err)
 			} else {
 				if activeSession.NotificationMessageID != nil {
@@ -208,7 +208,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		// 8. Handle pre_skipped sessions
 		if existing.Status == "pre_skipped" {
 			if now.After(scheduledTime) {
-				if err := c.workoutSvc.SkipSession(ctx, existing.ID); err != nil {
+				if err := c.workoutSvc.SkipSession(existing.ID); err != nil {
 					log.Printf("Failed to auto-skip pre_skipped session %d: %v", existing.ID, err)
 				}
 			}
@@ -247,7 +247,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 					}
 				} else if now.After(scheduledTime.Add(6 * time.Hour)) {
 					// Service handles skip + rotation advancement for rotating groups
-					if err := c.workoutSvc.SkipSession(ctx, existing.ID); err != nil {
+					if err := c.workoutSvc.SkipSession(existing.ID); err != nil {
 						log.Printf("Failed to skip session: %v", err)
 					}
 					if existing.NotificationMessageID != nil {
