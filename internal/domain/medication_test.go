@@ -10,6 +10,9 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
+// Ensure mockMedicationStore satisfies the MedicationStore interface at compile time.
+var _ MedicationStore = (*mockMedicationStore)(nil)
+
 // mockMedicationStore implements MedicationStore for testing.
 type mockMedicationStore struct {
 	getIntakeFn                   func(id int64) (*store.IntakeLog, error)
@@ -21,6 +24,7 @@ type mockMedicationStore struct {
 	confirmIntakesByScheduleFn    func(userID int64, scheduledAt time.Time, takenAt time.Time) error
 	skipIntakeFn                  func(id int64) error
 	createIntakeFn                func(medID, userID int64, scheduledAt time.Time) (int64, error)
+	createManualIntakeFn          func(medID, userID int64, takenAt time.Time) (int64, error)
 	decrementInventoryFn          func(medID int64, qty int) error
 	lastConfirmedID               int64
 }
@@ -85,6 +89,13 @@ func (m *mockMedicationStore) SkipIntake(id int64) error {
 func (m *mockMedicationStore) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
 	if m.createIntakeFn != nil {
 		return m.createIntakeFn(medID, userID, scheduledAt)
+	}
+	return 1, nil
+}
+
+func (m *mockMedicationStore) CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error) {
+	if m.createManualIntakeFn != nil {
+		return m.createManualIntakeFn(medID, userID, takenAt)
 	}
 	return 1, nil
 }
@@ -176,6 +187,16 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 			},
 			intakeID:        42,
 			wantErrContains: "confirm intake",
+		},
+		{
+			name: "ConfirmIntake ErrIntakeNotPending maps to ErrNotPending (race guard)",
+			store: &mockMedicationStore{
+				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return nil, nil },
+				confirmIntakeFn:      func(id int64, takenAt time.Time) error { return store.ErrIntakeNotPending },
+			},
+			intakeID: 42,
+			wantErr:  ErrNotPending,
 		},
 		{
 			name: "DecrementInventory error is non-fatal",
@@ -336,35 +357,25 @@ func TestLogMedicationNow(t *testing.T) {
 		wantErrContains string
 	}{
 		{
-			name: "creates and confirms intake",
+			name: "creates manual intake and decrements inventory",
 			store: &mockMedicationStore{
-				createIntakeFn:       func(medID, userID int64, _ time.Time) (int64, error) { return 99, nil },
-				confirmIntakeFn:      func(id int64, takenAt time.Time) error { return nil },
+				createManualIntakeFn: func(medID, userID int64, _ time.Time) (int64, error) { return 99, nil },
 				decrementInventoryFn: func(medID int64, qty int) error { return nil },
 			},
 		},
 		{
-			name: "CreateIntake error propagates",
+			name: "CreateManualIntake error propagates",
 			store: &mockMedicationStore{
-				createIntakeFn: func(medID, userID int64, _ time.Time) (int64, error) {
+				createManualIntakeFn: func(medID, userID int64, _ time.Time) (int64, error) {
 					return 0, errors.New("insert failed")
 				},
 			},
-			wantErrContains: "create intake",
-		},
-		{
-			name: "ConfirmIntake error propagates",
-			store: &mockMedicationStore{
-				createIntakeFn:  func(medID, userID int64, _ time.Time) (int64, error) { return 99, nil },
-				confirmIntakeFn: func(id int64, takenAt time.Time) error { return errors.New("confirm failed") },
-			},
-			wantErrContains: "confirm new intake",
+			wantErrContains: "create manual intake",
 		},
 		{
 			name: "DecrementInventory error is non-fatal",
 			store: &mockMedicationStore{
-				createIntakeFn:       func(medID, userID int64, _ time.Time) (int64, error) { return 99, nil },
-				confirmIntakeFn:      func(id int64, takenAt time.Time) error { return nil },
+				createManualIntakeFn: func(medID, userID int64, _ time.Time) (int64, error) { return 99, nil },
 				decrementInventoryFn: func(medID int64, qty int) error { return errors.New("decrement failed") },
 			},
 		},

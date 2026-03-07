@@ -10,6 +10,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
+
 // ErrNotPending is returned when an intake is not in PENDING state.
 var ErrNotPending = errors.New("intake is not pending")
 
@@ -27,6 +28,7 @@ type MedicationStore interface {
 	ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) error
 	SkipIntake(id int64) error
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
+	CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error)
 	DecrementInventory(medID int64, qty int) error
 }
 
@@ -92,6 +94,9 @@ func (s *medicationService) ConfirmIntakeWithCleanup(_ context.Context, intakeID
 	}
 
 	if err := s.store.ConfirmIntake(intakeID, takenAt); err != nil {
+		if errors.Is(err, store.ErrIntakeNotPending) {
+			return nil, false, ErrNotPending
+		}
 		return nil, false, fmt.Errorf("confirm intake %d: %w", intakeID, err)
 	}
 
@@ -134,12 +139,10 @@ func (s *medicationService) SkipSupplementIntake(_ context.Context, intakeID int
 
 func (s *medicationService) LogMedicationNow(_ context.Context, userID, medID int64) error {
 	now := time.Now()
-	logID, err := s.store.CreateIntake(medID, userID, now)
-	if err != nil {
-		return fmt.Errorf("create intake for med %d: %w", medID, err)
-	}
-	if err := s.store.ConfirmIntake(logID, now); err != nil {
-		return fmt.Errorf("confirm new intake %d: %w", logID, err)
+	// CreateManualIntake inserts directly with status='TAKEN', avoiding a separate ConfirmIntake
+	// call that could leave a dangling PENDING record on partial failure.
+	if _, err := s.store.CreateManualIntake(medID, userID, now); err != nil {
+		return fmt.Errorf("create manual intake for med %d: %w", medID, err)
 	}
 	// Inventory decrement is best-effort.
 	if err := s.store.DecrementInventory(medID, 1); err != nil {
