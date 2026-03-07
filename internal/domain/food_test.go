@@ -13,9 +13,9 @@ func TestCalculateMacros(t *testing.T) {
 		{"100g serving", 23, 12, 10, 100, 23, 12, 10, 230},
 		{"150g serving", 23, 12, 10, 150, 34, 18, 15, 343},
 		{"zero weight", 23, 12, 10, 0, 0, 0, 0, 0},
-		{"calorie formula", 100, 0, 0, 100, 100, 0, 0, 400},        // 4 * 100
-		{"fat calories", 0, 0, 100, 100, 0, 0, 100, 900},           // 9 * 100
-		{"protein calories", 0, 100, 0, 100, 0, 100, 0, 400},       // 4 * 100
+		{"calorie formula", 100, 0, 0, 100, 100, 0, 0, 400},  // 4 * 100
+		{"fat calories", 0, 0, 100, 100, 0, 0, 100, 900},     // 9 * 100
+		{"protein calories", 0, 100, 0, 100, 0, 100, 0, 400}, // 4 * 100
 	}
 
 	for _, tt := range tests {

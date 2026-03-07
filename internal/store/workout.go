@@ -181,26 +181,23 @@ func (s *Store) UpdateWorkoutGroup(id int64, name, description string, isRotatin
 }
 
 func (s *Store) DeleteWorkoutGroup(id int64) error {
-	// Check if any variant still has exercises
-	var exerciseCount int
+	var exerciseCount, activeSessionCount int
+
+	// Use single query to fetch both exercise count and active session count
 	err := s.db.QueryRow(`
-		SELECT COUNT(*) FROM workout_exercises we
-		JOIN workout_variants wv ON we.variant_id = wv.id
-		WHERE wv.group_id = ?`, id).Scan(&exerciseCount)
+		SELECT
+			(SELECT COUNT(*) FROM workout_exercises we
+			 JOIN workout_variants wv ON we.variant_id = wv.id
+			 WHERE wv.group_id = ?),
+			(SELECT COUNT(*) FROM workout_sessions
+			 WHERE group_id = ? AND status NOT IN ('completed', 'skipped'))
+	`, id, id).Scan(&exerciseCount, &activeSessionCount)
 	if err != nil {
 		return err
-	}
-	if exerciseCount > 0 {
-		return fmt.Errorf("cannot delete group: remove all exercises from its variants first (%d remaining)", exerciseCount)
 	}
 
-	// Check for active (non-completed, non-skipped) sessions
-	var activeSessionCount int
-	err = s.db.QueryRow(`
-		SELECT COUNT(*) FROM workout_sessions
-		WHERE group_id = ? AND status NOT IN ('completed', 'skipped')`, id).Scan(&activeSessionCount)
-	if err != nil {
-		return err
+	if exerciseCount > 0 {
+		return fmt.Errorf("cannot delete group: remove all exercises from its variants first (%d remaining)", exerciseCount)
 	}
 	if activeSessionCount > 0 {
 		return fmt.Errorf("cannot delete group: it has %d pending/active sessions", activeSessionCount)

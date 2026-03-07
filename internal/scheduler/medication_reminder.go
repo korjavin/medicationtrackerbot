@@ -50,7 +50,7 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 			n := notifier.Notification{
 				Text:    text,
 				Actions: actions,
-				Tag: fmt.Sprintf("medication-reminder-%d", p.ID),
+				Tag:     fmt.Sprintf("medication-reminder-%d", p.ID),
 				Metadata: map[string]interface{}{
 					"type":      "medication_reminder",
 					"intake_id": p.ID,

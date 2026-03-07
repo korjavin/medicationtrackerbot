@@ -105,10 +105,9 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 			return
 		} else if strings.TrimSpace(h.config.AllowedSubject) == "" {
 			log.Printf("[MCP/OAuth] Any subject allowed (no restriction configured). User: %s", subject) // #nosec G706
-					} else {
-						log.Printf("[MCP/OAuth] Authorized request from subject: %s", subject) // #nosec G706
-					}
-
+		} else {
+			log.Printf("[MCP/OAuth] Authorized request from subject: %s", subject) // #nosec G706
+		}
 
 		// Add subject to context
 		ctx := context.WithValue(r.Context(), UserSubjectCtxKey, subject)

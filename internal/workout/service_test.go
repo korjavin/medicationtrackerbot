@@ -13,15 +13,15 @@ type mockWorkoutStore struct {
 	session *store.WorkoutSession
 	group   *store.WorkoutGroup
 
-	getSessionErr error
-	getGroupErr   error
-	startErr      error
+	getSessionErr  error
+	getGroupErr    error
+	startErr       error
 	clearSnoozeErr error
-	snoozeErr     error
-	skipErr       error
-	completeErr   error
-	advanceErr    error
-	createErr     error
+	snoozeErr      error
+	skipErr        error
+	completeErr    error
+	advanceErr     error
+	createErr      error
 
 	skipCalled     bool
 	completeCalled bool
