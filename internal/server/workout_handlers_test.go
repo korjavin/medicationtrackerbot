@@ -112,7 +112,7 @@ func TestHandleUpdateSessionStatus(t *testing.T) {
 			// Prepare request body
 			bodyBytes, _ := json.Marshal(tt.reqBody)
 			url := fmt.Sprintf("/api/workout/sessions/status?id=%d", tt.sessionID)
-			req := httptest.NewRequest(http.MethodPut, url, bytes.NewReader(bodyBytes))
+			req := withUser(httptest.NewRequest(http.MethodPut, url, bytes.NewReader(bodyBytes)), userID)
 
 			w := httptest.NewRecorder()
 
@@ -190,7 +190,7 @@ func TestHandleUpdateSessionStatus_CleansUpWorkoutChatOnTerminalState(t *testing
 	}
 
 	bodyBytes, _ := json.Marshal(map[string]string{"status": "completed"})
-	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/workout/sessions/status?id=%d", session.ID), bytes.NewReader(bodyBytes))
+	req := withUser(httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/workout/sessions/status?id=%d", session.ID), bytes.NewReader(bodyBytes)), userID)
 	w := httptest.NewRecorder()
 
 	srv.handleUpdateSessionStatus(w, req)
@@ -244,7 +244,7 @@ func TestHandleGetNextWorkout_LazyCreation(t *testing.T) {
 	}
 
 	// Call handleGetNextWorkout
-	req := httptest.NewRequest(http.MethodGet, "/api/workout/sessions/next", nil)
+	req := withUser(httptest.NewRequest(http.MethodGet, "/api/workout/sessions/next", nil), userID)
 	w := httptest.NewRecorder()
 
 	srv.handleGetNextWorkout(w, req)

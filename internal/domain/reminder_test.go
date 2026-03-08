@@ -10,10 +10,10 @@ var _ ReminderStore = (*mockReminderStore)(nil)
 
 // mockReminderStore implements ReminderStore for testing.
 type mockReminderStore struct {
-	snoozeBPFn           func(userID int64) error
-	dontBugMeBPFn        func(userID int64) error
-	snoozeWeightFn        func(userID int64) error
-	dontBugMeWeightFn    func(userID int64) error
+	snoozeBPFn        func(userID int64) error
+	dontBugMeBPFn     func(userID int64) error
+	snoozeWeightFn    func(userID int64) error
+	dontBugMeWeightFn func(userID int64) error
 }
 
 func (m *mockReminderStore) SnoozeBPReminder(userID int64) error {
