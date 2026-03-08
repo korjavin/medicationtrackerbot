@@ -280,4 +280,38 @@ describe('app.js food CRUD, targets and period helpers', () => {
       cleanup();
     }
   });
+
+  it('loadFoodLogs does not throw ReferenceError: currentSort is not defined (regression)', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      // Mock minimum required DOM
+      const foodList = document.createElement('div');
+      foodList.id = 'food-list';
+      document.body.appendChild(foodList);
+
+      const dateFilter = document.createElement('input');
+      dateFilter.id = 'food-date-filter';
+      dateFilter.value = '2026-03-09';
+      document.body.appendChild(dateFilter);
+
+      const sortBtn = document.createElement('button');
+      sortBtn.className = 'fooddb-sort-btn';
+      sortBtn.dataset.sort = 'usage';
+      document.body.appendChild(sortBtn);
+
+      // Mock dependencies
+      window.loadFoodTargets = vi.fn().mockResolvedValue(undefined);
+      window.loadMyMeals = vi.fn();
+      window.DataStore.getCached = vi.fn().mockResolvedValue(null);
+      window.apiCall = vi.fn().mockResolvedValue([]);
+      window.DataStore.setCached = vi.fn().mockResolvedValue(undefined);
+      window._renderFoodData = vi.fn();
+
+      // This should NOT throw
+      await expect(window.loadFoodLogs()).resolves.not.toThrow();
+    } finally {
+      cleanup();
+    }
+  });
 });
