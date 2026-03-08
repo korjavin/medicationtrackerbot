@@ -244,7 +244,7 @@ func TestHandleGetNextWorkout_LazyCreation(t *testing.T) {
 	}
 
 	// Call handleGetNextWorkout
-	req := httptest.NewRequest(http.MethodGet, "/api/workout/sessions/next", nil)
+	req := withUser(httptest.NewRequest(http.MethodGet, "/api/workout/sessions/next", nil), userID)
 	w := httptest.NewRecorder()
 
 	srv.handleGetNextWorkout(w, req)

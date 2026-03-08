@@ -57,7 +57,7 @@ func TestHandleGetNextWorkout_CompletedSession(t *testing.T) {
 
 	// Call handleGetNextWorkout
 	// We expect to see TOMORROW'S workout (or nothing if outside window), not today's completed one.
-	req := httptest.NewRequest(http.MethodGet, "/api/workout/sessions/next", nil)
+	req := withUser(httptest.NewRequest(http.MethodGet, "/api/workout/sessions/next", nil), userID)
 	w := httptest.NewRecorder()
 
 	srv.handleGetNextWorkout(w, req)
@@ -139,7 +139,7 @@ func TestHandleGetNextWorkout_SnoozedThenCompleted(t *testing.T) {
 	// Call handleGetNextWorkout
 	// The snooze logic might pick it up because it has a snoozed_until time <= now
 	// We expect it to NOT be returned as next workout if it is completed.
-	req := httptest.NewRequest(http.MethodGet, "/api/workout/sessions/next", nil)
+	req := withUser(httptest.NewRequest(http.MethodGet, "/api/workout/sessions/next", nil), userID)
 	w := httptest.NewRecorder()
 
 	srv.handleGetNextWorkout(w, req)
