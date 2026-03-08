@@ -271,6 +271,9 @@ func (s *Server) Routes() http.Handler {
 	// Static Files with no-cache headers
 	fs := http.FileServer(http.Dir("./web/static"))
 	mux.Handle("/static/", noCacheMiddleware(http.StripPrefix("/static/", fs)))
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/static/icons/favicon.ico")
+	})
 
 	// Pitch Deck Presentation
 	mux.HandleFunc("/pitch", func(w http.ResponseWriter, r *http.Request) {

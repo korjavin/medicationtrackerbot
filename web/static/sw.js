@@ -16,6 +16,9 @@ const STATIC_ASSETS = [
     '/static/js/push.js',
     '/static/icons/icon-192.png',
     '/static/icons/icon-512.png',
+    '/static/icons/favicon.ico',
+    '/static/icons/favicon-16x16.png',
+    '/static/icons/favicon-32x32.png',
     '/static/manifest.json'
 ];
 
