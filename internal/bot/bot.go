@@ -1417,8 +1417,9 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 			continue
 		}
 
-		// Check today and tomorrow
-		for daysAhead := 0; daysAhead < 1; daysAhead++ {
+		// Check today and tomorrow.
+		// Tomorrow is required to catch near-midnight schedules that are still within the next 12h window.
+		for daysAhead := 0; daysAhead < 2; daysAhead++ {
 			checkDay := now.AddDate(0, 0, daysAhead)
 
 			// If "weekly", check day
