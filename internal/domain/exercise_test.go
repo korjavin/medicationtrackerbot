@@ -9,15 +9,15 @@ import (
 
 // mockExerciseStore implements ExerciseStore for tests.
 type mockExerciseStore struct {
-	exercises   map[int64]*store.WorkoutExercise
-	logs        map[int64]*store.WorkoutExerciseLog // keyed by logID
-	sessionLogs map[int64][]int64                   // sessionID → []logID
-	nextLogID   int64
+	exercises    map[int64]*store.WorkoutExercise
+	logs         map[int64]*store.WorkoutExerciseLog // keyed by logID
+	sessionLogs  map[int64][]int64                   // sessionID → []logID
+	nextLogID    int64
 
 	// call tracking
-	logExerciseCalls       []logExerciseCall
-	updateExerciseLogCalls []updateExerciseLogCall
-	updateStatusCalls      []updateStatusCall
+	logExerciseCalls         []logExerciseCall
+	updateExerciseLogCalls   []updateExerciseLogCall
+	updateStatusCalls        []updateStatusCall
 }
 
 type logExerciseCall struct {

@@ -112,7 +112,7 @@ func TestHandleUpdateSessionStatus(t *testing.T) {
 			// Prepare request body
 			bodyBytes, _ := json.Marshal(tt.reqBody)
 			url := fmt.Sprintf("/api/workout/sessions/status?id=%d", tt.sessionID)
-			req := withUser(httptest.NewRequest(http.MethodPut, url, bytes.NewReader(bodyBytes)), userID)
+			req := httptest.NewRequest(http.MethodPut, url, bytes.NewReader(bodyBytes))
 
 			w := httptest.NewRecorder()
 
@@ -190,7 +190,7 @@ func TestHandleUpdateSessionStatus_CleansUpWorkoutChatOnTerminalState(t *testing
 	}
 
 	bodyBytes, _ := json.Marshal(map[string]string{"status": "completed"})
-	req := withUser(httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/workout/sessions/status?id=%d", session.ID), bytes.NewReader(bodyBytes)), userID)
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/workout/sessions/status?id=%d", session.ID), bytes.NewReader(bodyBytes))
 	w := httptest.NewRecorder()
 
 	srv.handleUpdateSessionStatus(w, req)

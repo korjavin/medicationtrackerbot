@@ -118,13 +118,13 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 	takenAt := time.Now()
 
 	tests := []struct {
-		name             string
-		store            *mockMedicationStore
-		intakeID         int64
-		wantReminderIDs  []int
-		wantIsSupplement bool
-		wantErr          error
-		wantErrContains  string
+		name              string
+		store             *mockMedicationStore
+		intakeID          int64
+		wantReminderIDs   []int
+		wantIsSupplement  bool
+		wantErr           error
+		wantErrContains   string
 	}{
 		{
 			name: "pending intake returns reminder IDs",
@@ -205,7 +205,7 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, isSupp, err := svc.ConfirmIntakeWithCleanup(tt.intakeID, takenAt)
+			ids, isSupp, err := svc.ConfirmIntakeWithCleanup( tt.intakeID, takenAt)
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
@@ -325,7 +325,7 @@ func TestSkipSupplementIntake(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, err := svc.SkipSupplementIntake(tt.intakeID)
+			ids, err := svc.SkipSupplementIntake( tt.intakeID)
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
@@ -384,7 +384,7 @@ func TestLogMedicationNow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			err := svc.LogMedicationNow(1, 10)
+			err := svc.LogMedicationNow( 1, 10)
 
 			if tt.wantErrContains != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
@@ -424,10 +424,8 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 					}
 					return []int{200}, nil
 				},
-				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
-					return []int64{1, 2}, nil
-				},
-				decrementInventoryFn: func(medID int64, qty int) error { return nil },
+				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) { return []int64{1, 2}, nil },
+				decrementInventoryFn:       func(medID int64, qty int) error { return nil },
 			},
 			wantReminderIDs: []int{100, 101, 200},
 		},
@@ -492,7 +490,7 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, err := svc.ConfirmScheduleWithCleanup(1, scheduledAt)
+			ids, err := svc.ConfirmScheduleWithCleanup( 1, scheduledAt)
 
 			if tt.wantErrContains != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
@@ -519,13 +517,13 @@ func TestConfirmMedicationByMedID(t *testing.T) {
 	takenAt := time.Now()
 
 	tests := []struct {
-		name            string
-		store           *mockMedicationStore
-		medID           int64
-		wantReminderIDs []int
-		wantErr         error
-		wantErrContains string
-		wantConfirmedID int64
+		name               string
+		store              *mockMedicationStore
+		medID              int64
+		wantReminderIDs    []int
+		wantErr            error
+		wantErrContains    string
+		wantConfirmedID    int64
 	}{
 		{
 			name:  "no pending intake returns ErrNotPending",
@@ -596,7 +594,7 @@ func TestConfirmMedicationByMedID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, _, err := svc.ConfirmMedicationByMedID(tt.medID, takenAt)
+			ids, _, err := svc.ConfirmMedicationByMedID( tt.medID, takenAt)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Errorf("want error %v, got %v", tt.wantErr, err)

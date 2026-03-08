@@ -11,11 +11,18 @@ import (
 
 // handleCreateAdHocWorkoutSession creates an unscheduled workout session
 func (s *Server) handleCreateAdHocWorkoutSession(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
 	now := time.Now()
 	scheduledTime := now.Format("15:04")
 
 	// Create ad-hoc workout session
-	session, err := s.workouts.CreateAdHocWorkoutSession(r.Context().Value(UserCtxKey).(*TelegramUser).ID, now, scheduledTime)
+	session, err := s.workouts.CreateAdHocWorkoutSession(userID, now, scheduledTime)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

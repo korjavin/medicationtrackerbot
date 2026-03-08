@@ -17,7 +17,14 @@ import (
 // -- Workout Group Handlers --
 
 func (s *Server) handleListWorkoutGroups(w http.ResponseWriter, r *http.Request) {
-	groups, err := s.workouts.ListWorkoutGroups(r.Context().Value(UserCtxKey).(*TelegramUser).ID, false)
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
+	groups, err := s.workouts.ListWorkoutGroups(userID, false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -30,6 +37,13 @@ func (s *Server) handleListWorkoutGroups(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleCreateWorkoutGroup(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
 	var req struct {
 		Name                       string `json:"name"`
 		Description                string `json:"description"`
@@ -48,7 +62,7 @@ func (s *Server) handleCreateWorkoutGroup(w http.ResponseWriter, r *http.Request
 		req.Name,
 		req.Description,
 		req.IsRotating,
-		r.Context().Value(UserCtxKey).(*TelegramUser).ID,
+		userID,
 		req.DaysOfWeek,
 		req.ScheduledTime,
 		req.NotificationAdvanceMinutes,
@@ -358,6 +372,13 @@ func (s *Server) handleDeleteExercise(w http.ResponseWriter, r *http.Request) {
 // -- Session Handlers --
 
 func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
 	limitStr := r.URL.Query().Get("limit")
 	limit := 30 // default
 	if limitStr != "" {
@@ -366,7 +387,7 @@ func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	sessions, err := s.workouts.GetWorkoutHistory(r.Context().Value(UserCtxKey).(*TelegramUser).ID, limit)
+	sessions, err := s.workouts.GetWorkoutHistory(userID, limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -462,13 +483,20 @@ func (s *Server) handleGetSessionDetails(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
 	now := time.Now()
 
 	// PRIORITY 0: Check for active sessions today (notified or in_progress)
 	// This ensures that workouts that have been notified but not yet started/completed
 	// are still visible in the UI even if their scheduled time has passed
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	activeSessions, err := s.workouts.GetActiveSessions(r.Context().Value(UserCtxKey).(*TelegramUser).ID, today)
+	activeSessions, err := s.workouts.GetActiveSessions(userID, today)
 	if err == nil && len(activeSessions) > 0 {
 		// Return the earliest active session
 		session := &activeSessions[0] // Already ordered by scheduled_time ASC
@@ -520,7 +548,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// FIRST: Check for snoozed sessions that are ready to start
-	snoozedSessions, err := s.workouts.GetSnoozedSessions(r.Context().Value(UserCtxKey).(*TelegramUser).ID)
+	snoozedSessions, err := s.workouts.GetSnoozedSessions(userID)
 	if err == nil && len(snoozedSessions) > 0 {
 		// Find the earliest snoozed session
 		var earliestSnoozed *store.WorkoutSession
@@ -584,7 +612,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 
 	// SECOND: Fall back to scheduled workouts
 	// Get all active workout groups
-	groups, err := s.workouts.ListWorkoutGroups(r.Context().Value(UserCtxKey).(*TelegramUser).ID, true)
+	groups, err := s.workouts.ListWorkoutGroups(userID, true)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -731,7 +759,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 		newSession, err := s.workouts.CreateWorkoutSession(
 			nextWorkout.GroupID,
 			nextWorkout.VariantID,
-			r.Context().Value(UserCtxKey).(*TelegramUser).ID,
+			userID,
 			dateOnly,
 			nextWorkout.ScheduledTime,
 		)
@@ -789,8 +817,15 @@ func contains(slice []int, val int) bool {
 // -- Stats Handlers --
 
 func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
 	// Fetch enough sessions for streak + 30-day stats
-	sessions, err := s.workouts.GetWorkoutHistory(r.Context().Value(UserCtxKey).(*TelegramUser).ID, 500)
+	sessions, err := s.workouts.GetWorkoutHistory(userID, 500)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -892,7 +927,7 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Exercise stats from DB
-	exerciseStats, _ := s.workouts.GetExerciseStats(r.Context().Value(UserCtxKey).(*TelegramUser).ID)
+	exerciseStats, _ := s.workouts.GetExerciseStats(userID)
 
 	// Total volume = sum across all exercises
 	totalVolumeKg := 0.0
@@ -1034,7 +1069,14 @@ func (s *Server) handleDeleteExerciseLog(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleGetUniqueExercises(w http.ResponseWriter, r *http.Request) {
-	exercises, err := s.workouts.GetAllUniqueExercises(r.Context().Value(UserCtxKey).(*TelegramUser).ID)
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
+	exercises, err := s.workouts.GetAllUniqueExercises(userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1047,6 +1089,13 @@ func (s *Server) handleGetUniqueExercises(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
 	var req struct {
 		SessionID      int64    `json:"session_id"`
 		ExerciseID     int64    `json:"exercise_id"`
@@ -1079,7 +1128,7 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
-	if session.UserID != r.Context().Value(UserCtxKey).(*TelegramUser).ID {
+	if session.UserID != userID {
 		http.Error(w, "Unauthorized", http.StatusForbidden)
 		return
 	}
@@ -1146,6 +1195,13 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -1162,7 +1218,7 @@ func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
-	if session.UserID != r.Context().Value(UserCtxKey).(*TelegramUser).ID {
+	if session.UserID != userID {
 		http.Error(w, "Unauthorized", http.StatusForbidden)
 		return
 	}
@@ -1192,6 +1248,13 @@ func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handlePreSkipWorkoutSession(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -1204,7 +1267,7 @@ func (s *Server) handlePreSkipWorkoutSession(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
-	if session.UserID != r.Context().Value(UserCtxKey).(*TelegramUser).ID {
+	if session.UserID != userID {
 		http.Error(w, "Unauthorized", http.StatusForbidden)
 		return
 	}
@@ -1218,6 +1281,13 @@ func (s *Server) handlePreSkipWorkoutSession(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) handleCancelPreSkipWorkoutSession(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -1230,7 +1300,7 @@ func (s *Server) handleCancelPreSkipWorkoutSession(w http.ResponseWriter, r *htt
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
-	if session.UserID != r.Context().Value(UserCtxKey).(*TelegramUser).ID {
+	if session.UserID != userID {
 		http.Error(w, "Unauthorized", http.StatusForbidden)
 		return
 	}
@@ -1244,6 +1314,13 @@ func (s *Server) handleCancelPreSkipWorkoutSession(w http.ResponseWriter, r *htt
 }
 
 func (s *Server) handleNextVariantWorkoutSession(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -1256,7 +1333,7 @@ func (s *Server) handleNextVariantWorkoutSession(w http.ResponseWriter, r *http.
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
-	if session.UserID != r.Context().Value(UserCtxKey).(*TelegramUser).ID {
+	if session.UserID != userID {
 		http.Error(w, "Unauthorized", http.StatusForbidden)
 		return
 	}
@@ -1289,6 +1366,13 @@ func (s *Server) handleNextVariantWorkoutSession(w http.ResponseWriter, r *http.
 }
 
 func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -1305,7 +1389,7 @@ func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
-	if session.UserID != r.Context().Value(UserCtxKey).(*TelegramUser).ID {
+	if session.UserID != userID {
 		http.Error(w, "Unauthorized", http.StatusForbidden)
 		return
 	}
@@ -1458,7 +1542,14 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 // -- Exercise Library Handlers --
 
 func (s *Server) handleListExerciseLibrary(w http.ResponseWriter, r *http.Request) {
-	items, err := s.workouts.ListExerciseLibrary(r.Context().Value(UserCtxKey).(*TelegramUser).ID)
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
+	items, err := s.workouts.ListExerciseLibrary(userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1471,6 +1562,13 @@ func (s *Server) handleListExerciseLibrary(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleCreateExerciseLibraryItem(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID := user.ID
+
 	var req struct {
 		Name            string   `json:"name"`
 		DefaultSets     int      `json:"default_sets"`
@@ -1490,7 +1588,7 @@ func (s *Server) handleCreateExerciseLibraryItem(w http.ResponseWriter, r *http.
 		return
 	}
 
-	item, err := s.workouts.CreateExerciseLibraryItem(r.Context().Value(UserCtxKey).(*TelegramUser).ID, req.Name, req.DefaultSets, req.DefaultRepsMin, req.DefaultRepsMax, req.DefaultWeightKg, req.Notes)
+	item, err := s.workouts.CreateExerciseLibraryItem(userID, req.Name, req.DefaultSets, req.DefaultRepsMin, req.DefaultRepsMax, req.DefaultWeightKg, req.Notes)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
