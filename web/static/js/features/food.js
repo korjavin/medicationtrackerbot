@@ -1254,7 +1254,7 @@ async function loadFoodLogs() {
     // Highlight active sort button
     const sortButtons = document.querySelectorAll('.fooddb-sort-btn');
     sortButtons.forEach(btn => {
-        if (btn.dataset.sort === currentSort) {
+        if (btn.dataset.sort === foodDBSort) {
             btn.classList.add('active');
         } else {
             btn.classList.remove('active');
