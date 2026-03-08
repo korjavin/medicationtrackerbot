@@ -78,7 +78,6 @@ describe('app.js food CRUD, targets and period helpers', () => {
       const setCachedSpy = vi.fn().mockResolvedValue(undefined);
       const invalidateSpy = vi.fn().mockResolvedValue(undefined);
       window.DataStore.getCached = vi.fn().mockResolvedValue({ calories: 1500, carbs: 160, protein: 110, fat: 55 });
-      window.DataStore.getSWR = vi.fn().mockResolvedValue({ calories: 1700, carbs: 180, protein: 120, fat: 60 });
       window.DataStore.setCached = setCachedSpy;
       window.DataStore.invalidateTags = invalidateSpy;
 
@@ -94,7 +93,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
       expect(document.getElementById('food-target-carbs').value).toBe('180');
       expect(document.getElementById('food-target-protein').value).toBe('120');
       expect(document.getElementById('food-target-fat').value).toBe('60');
-      expect(window.DataStore.getSWR).toHaveBeenCalledWith('food_targets');
+      expect(setCachedSpy).toHaveBeenCalledWith('food_targets', expect.any(Object));
 
       window.safeAlert = vi.fn();
       window.loadFoodLogs = vi.fn();
@@ -132,7 +131,6 @@ describe('app.js food CRUD, targets and period helpers', () => {
     try {
       window.DataStore.getCached = vi.fn().mockResolvedValue(null);
       window.DataStore.setCached = vi.fn().mockResolvedValue(undefined);
-      window.DataStore.getSWR = vi.fn().mockResolvedValue({ calories: 100, carbs: 20, protein: 10, fat: 5 });
       window.apiCall = vi.fn().mockResolvedValue({ calories: 100, carbs: 20, protein: 10, fat: 5 });
 
       await window.loadFoodTargets();
@@ -150,7 +148,6 @@ describe('app.js food CRUD, targets and period helpers', () => {
       expect(container.textContent).toContain('700 / 700 kcal');
 
       window.apiCall = vi.fn().mockResolvedValue({ calories: 0, carbs: 0, protein: 0, fat: 0 });
-      window.DataStore.getSWR = vi.fn().mockResolvedValue({ calories: 0, carbs: 0, protein: 0, fat: 0 });
       await window.loadFoodTargets();
       window.renderFoodTargetProgress(10, 1, 1, 1, 'day');
       expect(container.classList.contains('hidden')).toBe(true);

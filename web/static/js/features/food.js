@@ -1432,7 +1432,9 @@ async function confirmSaveMeal() {
     await withSubmit(btn, async () => {
         try {
             await apiCall('/api/food/products/from-logs', 'POST', payload);
-            safeAlert('Meal saved successfully!');
+            if (window.SyncManager && window.SyncManager.showToast) {
+                window.SyncManager.showToast('Meal saved successfully!', 'success');
+            }
             closeFoodSaveMealModal();
             toggleFoodSelectMode();
 
@@ -1712,25 +1714,6 @@ async function saveFoodTargets() {
     }
 }
 
-async function loadFoodTargets() {
-    try {
-        const targets = await window.DataStore.getSWR('food_targets');
-        if (targets) {
-            foodTargets = { ...foodTargets, ...targets };
-            updateFoodTargetsVisibility();
-            const calsInput = document.getElementById('food-target-calories');
-            const carbsInput = document.getElementById('food-target-carbs');
-            const protInput = document.getElementById('food-target-protein');
-            const fatInput = document.getElementById('food-target-fat');
-            if (calsInput) calsInput.value = foodTargets.calories || '';
-            if (carbsInput) carbsInput.value = foodTargets.carbs || '';
-            if (protInput) protInput.value = foodTargets.protein || '';
-            if (fatInput) fatInput.value = foodTargets.fat || '';
-        }
-    } catch (e) {
-        console.error("Failed to load food targets:", e);
-    }
-}
 
 function switchFoodTab(tab) {
     const activated = activateTabGroup(tab, {
