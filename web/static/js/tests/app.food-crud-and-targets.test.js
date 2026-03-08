@@ -218,6 +218,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
 
       window._renderFoodData([], null, 'day', '2026-03-01');
       expect(document.getElementById('food-list').innerHTML).toContain('No food logs for this day');
+      expect(document.getElementById('food-stats-period-container').classList.contains('hidden')).toBe(false);
 
       const groups = [
         {
