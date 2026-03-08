@@ -1568,10 +1568,10 @@ func (s *Store) UpsertFoodProduct(ctx context.Context, p *FoodProduct) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, ?, ?)
 		ON CONFLICT(user_id, name) DO UPDATE SET
 			barcode = COALESCE(excluded.barcode, food_products.barcode),
-			carbs_100g = excluded.carbs_100g,
-			protein_100g = excluded.protein_100g,
-			fat_100g = excluded.fat_100g,
-			energy_kcal_100g = excluded.energy_kcal_100g,
+			carbs_100g = COALESCE(NULLIF(excluded.carbs_100g, 0), food_products.carbs_100g),
+			protein_100g = COALESCE(NULLIF(excluded.protein_100g, 0), food_products.protein_100g),
+			fat_100g = COALESCE(NULLIF(excluded.fat_100g, 0), food_products.fat_100g),
+			energy_kcal_100g = COALESCE(NULLIF(excluded.energy_kcal_100g, 0), food_products.energy_kcal_100g),
 			usage_count = food_products.usage_count + 1,
 			is_meal = CASE WHEN excluded.is_meal THEN 1 ELSE food_products.is_meal END,
 			total_weight_g = CASE WHEN excluded.is_meal THEN excluded.total_weight_g ELSE food_products.total_weight_g END,
