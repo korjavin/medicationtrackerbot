@@ -491,8 +491,10 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		// Remove only the pressed button.
-		b.removeButtonFromCallbackMessage(cb, data)
+		// Delete the entire "Select medication to log:" message.
+		if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+			log.Printf("[bot] send delete msg failed: %v", err)
+		}
 
 		// Fetch med name for confirmation (display only).
 		med, _ := b.meds.GetMedication(medID)
