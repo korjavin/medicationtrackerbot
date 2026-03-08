@@ -39,7 +39,7 @@ func TestHandleDeleteExerciseLog(t *testing.T) {
 	}
 
 	// Test: Delete the log
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/workout/sessions/logs/delete?id=%d", logID), nil)
+	req := withUser(httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/workout/sessions/logs/delete?id=%d", logID), nil), userID)
 	w := httptest.NewRecorder()
 	srv.handleDeleteExerciseLog(w, req)
 
@@ -54,7 +54,7 @@ func TestHandleDeleteExerciseLog(t *testing.T) {
 	}
 
 	// Test: Delete non-existent log (should still return 200 — idempotent)
-	req2 := httptest.NewRequest(http.MethodDelete, "/api/workout/sessions/logs/delete?id=99999", nil)
+	req2 := withUser(httptest.NewRequest(http.MethodDelete, "/api/workout/sessions/logs/delete?id=99999", nil), userID)
 	w2 := httptest.NewRecorder()
 	srv.handleDeleteExerciseLog(w2, req2)
 	if w2.Code != http.StatusOK {
@@ -62,7 +62,7 @@ func TestHandleDeleteExerciseLog(t *testing.T) {
 	}
 
 	// Test: Invalid ID
-	req3 := httptest.NewRequest(http.MethodDelete, "/api/workout/sessions/logs/delete?id=abc", nil)
+	req3 := withUser(httptest.NewRequest(http.MethodDelete, "/api/workout/sessions/logs/delete?id=abc", nil), userID)
 	w3 := httptest.NewRecorder()
 	srv.handleDeleteExerciseLog(w3, req3)
 	if w3.Code != http.StatusBadRequest {

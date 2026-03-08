@@ -28,7 +28,7 @@ func TestHandleGetUniqueExercises(t *testing.T) {
 	db.AddExerciseToVariant(variant.ID, "Pushups", 3, 10, nil, nil, 0)
 	db.AddExerciseToVariant(variant.ID, "Squats", 3, 10, nil, nil, 1)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/workout/exercises/unique", nil)
+	req := withUser(httptest.NewRequest(http.MethodGet, "/api/workout/exercises/unique", nil), userID)
 	w := httptest.NewRecorder()
 	srv.handleGetUniqueExercises(w, req)
 
@@ -71,7 +71,7 @@ func TestHandleAddExerciseToSession(t *testing.T) {
 		"notes":            "Extra hard",
 	}
 	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/logs/create", bytes.NewReader(body))
+	req := withUser(httptest.NewRequest(http.MethodPost, "/api/workout/sessions/logs/create", bytes.NewReader(body)), userID)
 	w := httptest.NewRecorder()
 
 	srv.handleAddExerciseToSession(w, req)
@@ -90,7 +90,7 @@ func TestHandleAddExerciseToSession(t *testing.T) {
 		"status":          "completed",
 	}
 	bodyForbidden, _ := json.Marshal(payloadForbidden)
-	reqForbidden := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/logs/create", bytes.NewReader(bodyForbidden))
+	reqForbidden := withUser(httptest.NewRequest(http.MethodPost, "/api/workout/sessions/logs/create", bytes.NewReader(bodyForbidden)), userID)
 	wForbidden := httptest.NewRecorder()
 
 	srv.handleAddExerciseToSession(wForbidden, reqForbidden)

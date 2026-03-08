@@ -29,6 +29,14 @@ type TelegramUser struct {
 	Username  string `json:"username"`
 }
 
+func getUserID(r *http.Request) (int64, error) {
+	user, ok := r.Context().Value(UserCtxKey).(*TelegramUser)
+	if !ok || user == nil {
+		return 0, fmt.Errorf("unauthorized")
+	}
+	return user.ID, nil
+}
+
 func ValidateWebAppData(token, initData string) (bool, *TelegramUser, error) {
 	if initData == "" {
 		return false, nil, fmt.Errorf("empty init data")
