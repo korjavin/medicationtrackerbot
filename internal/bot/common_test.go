@@ -19,6 +19,7 @@ type botTestEnv struct {
 	s           *store.Store
 	server      *httptest.Server
 	messageChan chan string
+	requestChan chan string
 }
 
 func setupBotTest(t *testing.T) *botTestEnv {
@@ -28,18 +29,22 @@ func setupBotTest(t *testing.T) *botTestEnv {
 	}
 
 	messageChan := make(chan string, 100)
+	requestChan := make(chan string, 100)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("Failed to read request body: %v", err)
+			return
+		}
+		bodyStr, err := url.QueryUnescape(string(bodyBytes))
+		if err != nil {
+			t.Errorf("Failed to unescape URL: %v", err)
+			return
+		}
+
+		requestChan <- r.URL.Path + "|" + bodyStr
+
 		if strings.Contains(r.URL.Path, "sendMessage") {
-			bodyBytes, err := io.ReadAll(r.Body)
-			if err != nil {
-				t.Errorf("Failed to read request body: %v", err)
-				return
-			}
-			bodyStr, err := url.QueryUnescape(string(bodyBytes))
-			if err != nil {
-				t.Errorf("Failed to unescape URL: %v", err)
-				return
-			}
 			messageChan <- bodyStr
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -73,6 +78,7 @@ func setupBotTest(t *testing.T) *botTestEnv {
 		s:           s,
 		server:      server,
 		messageChan: messageChan,
+		requestChan: requestChan,
 	}
 }
 
