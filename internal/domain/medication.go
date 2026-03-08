@@ -11,6 +11,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
+
 // ErrNotPending is returned when an intake is not in PENDING state.
 var ErrNotPending = errors.New("intake is not pending")
 
