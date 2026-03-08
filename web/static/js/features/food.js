@@ -1916,7 +1916,7 @@ function renderFoodDBList(products, total) {
         delBtn.textContent = 'Del';
         delBtn.onclick = (e) => {
             e.stopPropagation();
-            if (confirm(`Delete ${decodeFoodDisplayText(p.name)}?`)) deleteFoodProduct(p.id);
+            deleteFoodProduct(p.id, decodeFoodDisplayText(p.name));
         };
         actions.appendChild(delBtn);
         topRow.appendChild(actions);

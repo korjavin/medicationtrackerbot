@@ -314,4 +314,47 @@ describe('app.js food CRUD, targets and period helpers', () => {
       cleanup();
     }
   });
+
+  it('deleteFoodProduct prompts once with correct name and renderFoodDBList attaches correct handler (regression)', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      // Setup DOM for renderFoodDBList
+      document.body.innerHTML = `
+        <div id="fooddb-list"></div>
+        <div id="fooddb-pagination"></div>
+        <div id="fooddb-page-info"></div>
+        <div id="food-autocomplete-list"></div>
+        <button id="fooddb-prev-btn"></button>
+        <button id="fooddb-next-btn"></button>
+      `;
+
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      window.safeAlert = vi.fn();
+      window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+      window.initFoodProductsCache = vi.fn().mockResolvedValue([]);
+      window.loadFoodDB = vi.fn();
+      window.renderFoodAutocomplete = vi.fn();
+      
+      // Test direct function call
+      await window.deleteFoodProduct(123, 'Del Kim');
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(confirmSpy).toHaveBeenCalledWith('Delete "Del Kim" from your food database?');
+      confirmSpy.mockClear();
+
+      // Test UI handler via renderFoodDBList
+      const products = [{ id: 456, name: 'Burger', carbs_100g: 20, protein_100g: 15, fat_100g: 10, energy_kcal_100g: 250 }];
+      window.renderFoodDBList(products, 1);
+      
+      const delBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Del');
+      delBtn.click();
+      
+      // Should be called EXACTLY ONCE with correct name
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(confirmSpy).toHaveBeenCalledWith('Delete "Burger" from your food database?');
+      expect(window.safeAlert).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
 });
