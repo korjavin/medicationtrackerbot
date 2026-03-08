@@ -1396,7 +1396,7 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
     const hasTargets = foodTargets.calories > 0 || foodTargets.protein > 0 || foodTargets.carbs > 0 || foodTargets.fat > 0;
     const periodContainer = document.getElementById('food-stats-period-container');
     if (periodContainer) {
-        hasTargets ? periodContainer.classList.remove('hidden') : periodContainer.classList.add('hidden');
+        periodContainer.classList.remove('hidden');
     }
 
     if (period === 'week' || period === '2weeks') {
