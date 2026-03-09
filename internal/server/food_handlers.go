@@ -450,6 +450,8 @@ func (s *Server) handleUpdateFoodProduct(w http.ResponseWriter, r *http.Request)
 		Protein100g    float64 `json:"protein_100g"`
 		Fat100g        float64 `json:"fat_100g"`
 		EnergyKcal100g float64 `json:"energy_kcal_100g"`
+		IsMeal         bool    `json:"is_meal"`
+		TotalWeightG   int     `json:"total_weight_g"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -474,6 +476,8 @@ func (s *Server) handleUpdateFoodProduct(w http.ResponseWriter, r *http.Request)
 		Protein100g:    req.Protein100g,
 		Fat100g:        req.Fat100g,
 		EnergyKcal100g: req.EnergyKcal100g,
+		IsMeal:         req.IsMeal,
+		TotalWeightG:   req.TotalWeightG,
 	}
 
 	if err := s.food.UpdateFoodProduct(context.Background(), p); err != nil {
@@ -718,4 +722,40 @@ func isBarcodeQuery(query string) bool {
 		}
 	}
 	return true
+}
+
+func (s *Server) handleCreateMealFromLogs(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	var req struct {
+		Name   string  `json:"name"`
+		LogIDs []int64 `json:"log_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+	if len(req.LogIDs) == 0 {
+		http.Error(w, "At least one log_id is required", http.StatusBadRequest)
+		return
+	}
+
+	product, err := s.food.CreateMealFromLogs(r.Context(), userID, name, req.LogIDs)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.clearFoodSearchCache()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(product); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }

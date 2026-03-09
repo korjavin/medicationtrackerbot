@@ -131,6 +131,8 @@ describe('food product edit/delete in autocomplete', () => {
         protein_100g: 12,
         fat_100g: 1,
         energy_kcal_100g: 77,
+        is_meal: false,
+        total_weight_g: 0,
       });
       expect(document.getElementById('food-product-modal').classList.contains('hidden')).toBe(true);
       expect(window.MedTrackerDB.FoodProductsStore.clearCache).toHaveBeenCalled();
@@ -236,10 +238,16 @@ describe('food product edit/delete in autocomplete', () => {
       expect(document.getElementById('food-carbs').value).toBe('23');
       expect(document.getElementById('food-protein').value).toBe('1.1');
       expect(document.getElementById('food-fat').value).toBe('0.3');
+
+      // per-100g mode: the autofill function triggers calculateFoodCalories
+      // However, autofill clears weight if it's not a meal product, so we must set weight again
+      // after click and manually trigger calculate.
+      document.getElementById('food-weight').value = '100';
+      window.calculateFoodCalories();
+
       // per-100g mode with 100g weight: calories = (23*4 + 1.1*4 + 0.3*9) * 100/100 = 99.1
-      // calculateFoodCalories recalculates from macros, so check it's reasonable
-      const cal = parseFloat(document.getElementById('food-calories').value);
-      expect(cal).toBeGreaterThan(0);
+      const cal = document.getElementById('food-calories').value;
+      expect(parseFloat(cal)).toBeGreaterThan(0);
       expect(list.classList.contains('hidden')).toBe(true);
     } finally {
       cleanup();

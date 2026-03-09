@@ -134,6 +134,7 @@ type FoodStore interface {
 	GetFoodProducts(ctx context.Context, userID int64, limit int) ([]store.FoodProduct, error)
 	SearchFoodProducts(ctx context.Context, userID int64, queryStr string) ([]store.FoodProduct, error)
 	SearchRemoteFoodAPI(ctx context.Context, query string) ([]store.FoodProduct, error)
+	CreateMealFromLogs(ctx context.Context, userID int64, name string, logIDs []int64) (*store.FoodProduct, error)
 }
 
 // SettingsStore is the subset of store operations needed for feature toggles.
