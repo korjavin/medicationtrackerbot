@@ -122,7 +122,7 @@ SQLite with 34 goose migrations tracking schema evolution:
 - `workout_sessions`, `workout_exercise_logs` - Workout history
 - `workout_rotation_state` - Rotating workout schedules
 - `sleep_logs` - Sleep tracking
-- `food_log`, `food_products`, `food_targets` - Food intake and nutrition tracking
+- `food_log`, `food_products`, `food_targets` - Food intake and nutrition tracking. Supports creating multi-item "Meals" (templates with aggregated macros and serving size) under the Food tab.
 - `push_subscriptions` - Web push notification subscriptions
 - `bp_reminders`, `weight_reminders` - Reminder configuration
 - `change_events` - Server-side change tracking for frontend cache invalidation

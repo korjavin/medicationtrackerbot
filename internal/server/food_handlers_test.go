@@ -218,3 +218,57 @@ func TestMergeFoodProducts_Limit50(t *testing.T) {
 		t.Fatalf("expected last kept item to be Food 49, got %q", merged[49].Name)
 	}
 }
+
+func TestHandleCreateMealFromLogs(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	ctx := ctxWithUser(123456)
+	id1, _ := db.CreateFoodLog(ctx, &store.FoodLog{
+		UserID:   123456,
+		EatenAt:  time.Now(),
+		Name:     "Apple",
+		Weight:   100,
+		Carbs:    14,
+		Calories: 52,
+	})
+	id2, _ := db.CreateFoodLog(ctx, &store.FoodLog{
+		UserID:   123456,
+		EatenAt:  time.Now(),
+		Name:     "Banana",
+		Weight:   100,
+		Carbs:    23,
+		Calories: 89,
+	})
+
+	reqBody := map[string]interface{}{
+		"name":    "Fruit Salad",
+		"log_ids": []int64{id1, id2},
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("POST", "/api/food/products/from-logs", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateMealFromLogs(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var product store.FoodProduct
+	if err := json.NewDecoder(w.Body).Decode(&product); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if product.Name != "Fruit Salad" {
+		t.Errorf("Expected name 'Fruit Salad', got %s", product.Name)
+	}
+	if !product.IsMeal {
+		t.Errorf("Expected is_meal to be true")
+	}
+	if product.TotalWeightG != 200 {
+		t.Errorf("Expected total_weight_g to be 200, got %d", product.TotalWeightG)
+	}
+}
