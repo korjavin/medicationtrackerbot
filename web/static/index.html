@@ -434,6 +434,50 @@
         </div>
     </mt-modal>
 
+    <!-- Modal for Mi Band Workout Details -->
+    <mt-modal id="miband-workout-modal" class="hidden">
+        <div class="modal-header">
+            <h3 id="miband-workout-modal-title">Mi Band Workout</h3>
+            <div class="actions">
+                <button id="miband-workout-delete-btn" class="secondary"
+                    style="color: #d32f2f; border-color: #ffcccb;">Delete</button>
+                <button id="miband-workout-cancel-btn" class="secondary">Cancel</button>
+                <button id="miband-workout-save-btn" class="primary">Save Changes</button>
+            </div>
+        </div>
+        <input type="hidden" id="miband-workout-id">
+
+        <div class="form-row">
+            <label for="miband-workout-steps">Steps:</label>
+            <input type="number" id="miband-workout-steps" min="0" placeholder="0">
+        </div>
+
+        <div class="form-row">
+            <label for="miband-workout-distance">Distance (m):</label>
+            <input type="number" id="miband-workout-distance" step="0.1" min="0" placeholder="0">
+        </div>
+
+        <div class="form-row">
+            <label for="miband-workout-duration">Duration (sec):</label>
+            <input type="number" id="miband-workout-duration" min="0" placeholder="0">
+        </div>
+
+        <div class="form-row">
+            <label for="miband-workout-calories">Calories (kcal):</label>
+            <input type="number" id="miband-workout-calories" min="0" placeholder="0">
+        </div>
+
+        <div class="form-row">
+            <label for="miband-workout-hr">Heart Rate (Avg):</label>
+            <input type="number" id="miband-workout-hr" min="0" max="250" placeholder="0">
+        </div>
+
+        <div class="form-row">
+            <label for="miband-workout-spo2">SpO2 (Avg):</label>
+            <input type="number" id="miband-workout-spo2" min="0" max="100" placeholder="0">
+        </div>
+    </mt-modal>
+
     <!-- Modal for Workout Session Details -->
     <mt-modal id="workout-session-modal" class="hidden">
         <div class="modal-header">
