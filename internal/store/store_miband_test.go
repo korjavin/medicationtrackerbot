@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+
 	"context"
 	"testing"
 	"time"
@@ -248,5 +250,147 @@ func TestGetMiBandWorkout_NotFound(t *testing.T) {
 	}
 	if result != nil {
 		t.Errorf("expected nil for non-existent workout, got %+v", result)
+	}
+}
+
+func TestDeleteMiBandWorkout(t *testing.T) {
+	db := setupMiBandTestStore(t)
+	ctx := context.Background()
+	userID := int64(42)
+	otherUserID := int64(43)
+
+	startMs := recentMs(2)
+	workouts := []MiBandWorkout{
+		{
+			UserID: userID, SourceStartMs: startMs, SourceEndMs: startMs + 1000000,
+			ActivityType: 12, ActivityName: "cycling", DurationSec: 1000, DistanceM: 8000,
+		},
+	}
+	gps := map[int64][]MiBandGPSPoint{
+		startMs: {
+			{TsMs: startMs + 100, Latitude: 51.0, Longitude: 12.0, Altitude: 40.0},
+		},
+	}
+
+	if _, _, err := db.ImportMiBandWorkouts(ctx, workouts, gps); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	result, _ := db.ListMiBandWorkouts(ctx, userID, 1)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workout, got %d", len(result))
+	}
+	workoutID := result[0].ID
+
+	// Try deleting with wrong user ID
+	err := db.DeleteMiBandWorkout(ctx, workoutID, otherUserID)
+	if err != sql.ErrNoRows {
+		t.Errorf("expected ErrNoRows when deleting with wrong user ID, got %v", err)
+	}
+
+	// Delete with correct user ID
+	err = db.DeleteMiBandWorkout(ctx, workoutID, userID)
+	if err != nil {
+		t.Errorf("expected nil error on successful delete, got %v", err)
+	}
+
+	// Verify workout is gone
+	w, err := db.GetMiBandWorkout(ctx, workoutID)
+	if err != nil {
+		t.Fatalf("unexpected error fetching deleted workout: %v", err)
+	}
+	if w != nil {
+		t.Errorf("expected nil workout, got %+v", w)
+	}
+
+	// Verify GPS track is also gone (cascade)
+	pts, err := db.GetMiBandWorkoutGPS(ctx, workoutID)
+	if err != nil {
+		t.Fatalf("unexpected error fetching GPS for deleted workout: %v", err)
+	}
+	if len(pts) != 0 {
+		t.Errorf("expected 0 GPS points after cascade delete, got %d", len(pts))
+	}
+}
+
+func TestUpdateMiBandWorkout(t *testing.T) {
+	db := setupMiBandTestStore(t)
+	ctx := context.Background()
+	userID := int64(42)
+
+	startMs := recentMs(2)
+	workouts := []MiBandWorkout{
+		{
+			UserID: userID, SourceStartMs: startMs, SourceEndMs: startMs + 1000000,
+			ActivityType: 12, ActivityName: "cycling", DurationSec: 1000, DistanceM: 8000,
+			Steps: 0, Calories: 500, HeartRateAvg: 120, SpO2Avg: 95,
+		},
+	}
+
+	if _, _, err := db.ImportMiBandWorkouts(ctx, workouts, nil); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	result, _ := db.ListMiBandWorkouts(ctx, userID, 1)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workout, got %d", len(result))
+	}
+	workoutID := result[0].ID
+
+	// Update single field
+	newSteps := 5000
+	err := db.UpdateMiBandWorkout(ctx, workoutID, userID, UpdateMiBandWorkoutFields{
+		Steps: &newSteps,
+	})
+	if err != nil {
+		t.Errorf("unexpected error updating single field: %v", err)
+	}
+
+	w, _ := db.GetMiBandWorkout(ctx, workoutID)
+	if w.Steps != newSteps {
+		t.Errorf("expected %d steps, got %d", newSteps, w.Steps)
+	}
+	// Verify other fields didn't change
+	if w.DistanceM != 8000 {
+		t.Errorf("expected distance to remain 8000, got %v", w.DistanceM)
+	}
+
+	// Update multiple fields
+	newDist := 8500.5
+	newDur := 1100
+	newCal := 600
+	newHR := 125
+	newSpO2 := 96
+
+	err = db.UpdateMiBandWorkout(ctx, workoutID, userID, UpdateMiBandWorkoutFields{
+		DistanceM:    &newDist,
+		DurationSec:  &newDur,
+		Calories:     &newCal,
+		HeartRateAvg: &newHR,
+		SpO2Avg:      &newSpO2,
+	})
+	if err != nil {
+		t.Errorf("unexpected error updating multiple fields: %v", err)
+	}
+
+	w, _ = db.GetMiBandWorkout(ctx, workoutID)
+	if w.DistanceM != newDist || w.DurationSec != newDur || w.Calories != newCal || w.HeartRateAvg != newHR || w.SpO2Avg != newSpO2 {
+		t.Errorf("multiple field update failed. got: %+v", w)
+	}
+	// Verify steps wasn't overwritten by nil pointer
+	if w.Steps != newSteps {
+		t.Errorf("expected steps to remain %d, got %d", newSteps, w.Steps)
+	}
+
+	// Update non-existent
+	err = db.UpdateMiBandWorkout(ctx, 99999, userID, UpdateMiBandWorkoutFields{Steps: &newSteps})
+	if err != sql.ErrNoRows {
+		t.Errorf("expected ErrNoRows updating non-existent workout, got %v", err)
+	}
+
+	// Update wrong user
+	err = db.UpdateMiBandWorkout(ctx, workoutID, 99, UpdateMiBandWorkoutFields{Steps: &newSteps})
+	if err != sql.ErrNoRows {
+		t.Errorf("expected ErrNoRows updating with wrong user ID, got %v", err)
 	}
 }

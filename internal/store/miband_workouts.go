@@ -1,6 +1,8 @@
 package store
 
 import (
+	"strings"
+
 	"context"
 	"database/sql"
 	"time"
@@ -198,4 +200,103 @@ func (s *Store) GetMiBandWorkout(ctx context.Context, id int64) (*MiBandWorkout,
 		return nil, err
 	}
 	return &w, nil
+}
+
+// UpdateMiBandWorkoutFields holds pointer fields for updating a Mi Band workout.
+// A nil pointer means the field should not be updated.
+type UpdateMiBandWorkoutFields struct {
+	Steps        *int     `json:"steps"`
+	DistanceM    *float64 `json:"distance_m"`
+	DurationSec  *int     `json:"duration_sec"`
+	Calories     *int     `json:"calories"`
+	HeartRateAvg *int     `json:"heart_rate_avg"`
+	SpO2Avg      *int     `json:"spo2_avg"`
+}
+
+// DeleteMiBandWorkout deletes a Mi Band workout by ID and user ID.
+// Note: PRAGMA foreign_keys is not enabled by default in modernc.org/sqlite,
+// so we manually cascade the deletion of GPS tracks first.
+func (s *Store) DeleteMiBandWorkout(ctx context.Context, id, userID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	// Verify ownership and delete workout
+	res, err := tx.ExecContext(ctx, `DELETE FROM miband_workouts WHERE id = ? AND user_id = ?`, id, userID)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if rowsAffected == 0 {
+		_ = tx.Rollback()
+		return sql.ErrNoRows
+	}
+
+	// Delete associated GPS tracks
+	if _, err := tx.ExecContext(ctx, `DELETE FROM miband_gps_tracks WHERE workout_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// UpdateMiBandWorkout updates the specified fields of a Mi Band workout.
+func (s *Store) UpdateMiBandWorkout(ctx context.Context, id, userID int64, fields UpdateMiBandWorkoutFields) error {
+	query := "UPDATE miband_workouts SET "
+	var args []interface{}
+	var updates []string
+
+	if fields.Steps != nil {
+		updates = append(updates, "steps = ?")
+		args = append(args, *fields.Steps)
+	}
+	if fields.DistanceM != nil {
+		updates = append(updates, "distance_m = ?")
+		args = append(args, *fields.DistanceM)
+	}
+	if fields.DurationSec != nil {
+		updates = append(updates, "duration_sec = ?")
+		args = append(args, *fields.DurationSec)
+	}
+	if fields.Calories != nil {
+		updates = append(updates, "calories = ?")
+		args = append(args, *fields.Calories)
+	}
+	if fields.HeartRateAvg != nil {
+		updates = append(updates, "heart_rate_avg = ?")
+		args = append(args, *fields.HeartRateAvg)
+	}
+	if fields.SpO2Avg != nil {
+		updates = append(updates, "spo2_avg = ?")
+		args = append(args, *fields.SpO2Avg)
+	}
+
+	if len(updates) == 0 {
+		return nil // Nothing to update
+	}
+
+	query += strings.Join(updates, ", ") + " WHERE id = ? AND user_id = ?"
+	args = append(args, id, userID)
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }
