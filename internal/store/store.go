@@ -1692,12 +1692,18 @@ func (s *Store) CreateMealFromLogs(ctx context.Context, userID int64, name strin
 		return nil, fmt.Errorf("no log IDs provided")
 	}
 
+	// Dedup logIDs to know exactly how many unique IDs we expect
+	uniqueIDs := make(map[int64]struct{})
+	for _, id := range logIDs {
+		uniqueIDs[id] = struct{}{}
+	}
+
 	// Prepare IN clause placeholders
-	placeholders := make([]string, len(logIDs))
-	args := make([]interface{}, 0, len(logIDs)+1)
+	placeholders := make([]string, 0, len(uniqueIDs))
+	args := make([]interface{}, 0, len(uniqueIDs)+1)
 	args = append(args, userID)
-	for i, id := range logIDs {
-		placeholders[i] = "?"
+	for id := range uniqueIDs {
+		placeholders = append(placeholders, "?")
 		args = append(args, id)
 	}
 
@@ -1736,6 +1742,10 @@ func (s *Store) CreateMealFromLogs(ctx context.Context, userID int64, name strin
 
 	if count == 0 {
 		return nil, fmt.Errorf("no valid food logs found for the given IDs")
+	}
+
+	if count != len(uniqueIDs) {
+		return nil, fmt.Errorf("could not find all requested food logs; some may be deleted or belong to another user")
 	}
 
 	if totalWeight <= 0 {

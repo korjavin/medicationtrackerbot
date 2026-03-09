@@ -669,6 +669,12 @@ func TestCreateMealFromLogs(t *testing.T) {
 		t.Errorf("expected error for invalid IDs")
 	}
 
+	// Partial Valid IDs test
+	_, err = s.CreateMealFromLogs(ctx, 1, "Partial Meal", []int64{id1, 999})
+	if err == nil || err.Error() != "could not find all requested food logs; some may be deleted or belong to another user" {
+		t.Errorf("expected partial IDs error, got %v", err)
+	}
+
 	// Wrong User test
 	_, err = s.CreateMealFromLogs(ctx, 2, "Stolen Meal", []int64{id1, id2})
 	if err == nil {

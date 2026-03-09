@@ -1392,7 +1392,14 @@ function updateFoodSelectUI() {
             actionBtn.className = 'primary shadow';
             actionBtn.style.cssText = 'position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 1000; border-radius: 20px; padding: 10px 20px;';
             actionBtn.addEventListener('click', openFoodSaveMealModal);
-            document.body.appendChild(actionBtn);
+
+            // Append to food-view instead of document.body so it is automatically hidden when switching tabs
+            const foodView = document.getElementById('food-view');
+            if (foodView) {
+                foodView.appendChild(actionBtn);
+            } else {
+                document.body.appendChild(actionBtn); // fallback
+            }
         }
         actionBtn.textContent = `Save as Meal (${foodSelectedLogIds.size})`;
         actionBtn.style.display = 'block';
