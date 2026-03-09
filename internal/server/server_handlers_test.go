@@ -547,11 +547,17 @@ func TestHandleGetFoodProducts(t *testing.T) {
 		t.Fatalf("Expected 200, got %d", w.Code)
 	}
 
-	var products []store.FoodProduct
-	json.NewDecoder(w.Body).Decode(&products)
+	var response struct {
+		Products []store.FoodProduct `json:"products"`
+		Total    int                 `json:"total"`
+	}
+	json.NewDecoder(w.Body).Decode(&response)
 
-	if len(products) == 0 {
+	if len(response.Products) == 0 {
 		t.Error("Expected at least 1 product")
+	}
+	if response.Total == 0 {
+		t.Error("Expected total > 0")
 	}
 }
 
@@ -569,7 +575,7 @@ func TestHandleUpdateFoodProduct(t *testing.T) {
 		EnergyKcal100g: 52,
 	})
 
-	products, _ := db.GetFoodProducts(ctx, 123456, 10)
+	products, _, _ := db.GetFoodProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
 	if len(products) == 0 {
 		t.Fatal("Expected at least 1 product")
 	}
@@ -610,7 +616,7 @@ func TestHandleDeleteFoodProduct(t *testing.T) {
 		EnergyKcal100g: 40,
 	})
 
-	products, _ := db.GetFoodProducts(ctx, 123456, 10)
+	products, _, _ := db.GetFoodProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
 	productID := products[0].ID
 
 	req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/food/products/%d", productID), nil)
@@ -624,7 +630,7 @@ func TestHandleDeleteFoodProduct(t *testing.T) {
 		t.Fatalf("Expected 200, got %d", w.Code)
 	}
 
-	products, _ = db.GetFoodProducts(ctx, 123456, 10)
+	products, _, _ = db.GetFoodProducts(ctx, 123456, store.FoodProductsFilter{Limit: 10})
 	if len(products) != 0 {
 		t.Errorf("Expected 0 products after delete, got %d", len(products))
 	}

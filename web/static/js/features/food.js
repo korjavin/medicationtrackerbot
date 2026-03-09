@@ -21,6 +21,42 @@ function bindFoodControls() {
         if (element) element.addEventListener('focus', handler);
     };
 
+    let foodDBSearchTimeout;
+    bindInput('fooddb-search', (e) => {
+        clearTimeout(foodDBSearchTimeout);
+        foodDBSearchTimeout = setTimeout(() => {
+            foodDBQuery = e.target.value.trim();
+            foodDBPage = 0;
+            loadFoodDB();
+        }, 300);
+    });
+
+    const sortBtns = document.querySelectorAll('.fooddb-sort-btn');
+    sortBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            sortBtns.forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            foodDBSort = e.target.dataset.sort;
+            foodDBPage = 0;
+            loadFoodDB();
+        });
+    });
+
+    bindClick('fooddb-prev-btn', () => {
+        if (foodDBPage > 0) {
+            foodDBPage--;
+            loadFoodDB();
+        }
+    });
+
+    bindClick('fooddb-next-btn', () => {
+        const limit = 20;
+        if ((foodDBPage + 1) * limit < foodDBTotal) {
+            foodDBPage++;
+            loadFoodDB();
+        }
+    });
+
     bindClick('food-period-day-link', () => setFoodStatsPeriod('day'));
     bindClick('food-period-week-link', () => setFoodStatsPeriod('week'));
     bindClick('add-food-btn', () => showAddFoodModal());
@@ -63,6 +99,11 @@ bindFoodControls();
 
 // -- Food Intake Autocomplete & Logic --
 
+let foodDBPage = 0;
+let foodDBSort = "usage";
+let foodDBQuery = "";
+let foodDBTotal = 0;
+
 let foodAutoCompleteSuggestions = [];
 let foodProductsCache = [];
 let foodSearchTimeout;
@@ -104,7 +145,8 @@ async function initFoodProductsCache() {
     }
     if (!foodProductsCache) {
         try {
-            foodProductsCache = await apiCall('/api/food/products', 'GET') || [];
+            const resp = await apiCall('/api/food/products', 'GET');
+            foodProductsCache = resp ? (resp.products || []) : [];
             if (window.MedTrackerDB && foodProductsCache.length > 0) {
                 await window.MedTrackerDB.FoodProductsStore.saveCache(foodProductsCache);
             }
@@ -920,7 +962,14 @@ async function deleteFoodProduct(id, displayName) {
             await window.MedTrackerDB.FoodProductsStore.clearCache();
         }
         await initFoodProductsCache();
-        renderFoodAutocomplete(foodProductsCache);
+
+        // Refresh UI based on context
+        const fooddbTab = document.getElementById('food-fooddb-tab');
+        if (fooddbTab && fooddbTab.classList.contains('active')) {
+            loadFoodDB();
+        } else {
+            renderFoodAutocomplete(foodProductsCache);
+        }
     } catch (e) {
         console.error('Failed to delete food product', e);
         safeAlert('Failed to delete product.');
@@ -1725,6 +1774,7 @@ function switchFoodTab(tab) {
 
     if (tab === 'log') { loadFoodLogs(); }
     else if (tab === 'meals') { loadMyMeals(); }
+    else if (tab === 'fooddb') { loadFoodDB(); }
 }
 
 async function deleteFoodLog(id) {
@@ -1733,3 +1783,120 @@ async function deleteFoodLog(id) {
     if (ok) loadFoodLogs();
 }
 
+
+// -- Food DB --
+
+async function loadFoodDB() {
+    const list = document.getElementById('fooddb-list');
+    list.innerHTML = '<p class="hint">Loading products...</p>';
+
+    const limit = 20;
+    const offset = foodDBPage * limit;
+
+    try {
+        const queryParams = new URLSearchParams({
+            is_meal: 'false',
+            limit: limit.toString(),
+            offset: offset.toString(),
+            sort: foodDBSort,
+        });
+        if (foodDBQuery) {
+            queryParams.append('q', foodDBQuery);
+        }
+
+        const resp = await apiCall(`/api/food/products?${queryParams.toString()}`, 'GET');
+        if (!resp) return;
+
+        foodDBTotal = resp.total || 0;
+
+        // If we are on a page > 0 and the total results dropped below what would be on this page, clamp page and reload
+        if (foodDBPage > 0 && foodDBPage * limit >= foodDBTotal) {
+            foodDBPage = Math.max(0, Math.ceil(foodDBTotal / limit) - 1);
+            loadFoodDB();
+            return;
+        }
+
+        renderFoodDBList(resp.products || [], foodDBTotal);
+    } catch (e) {
+        console.error('Failed to load food db products', e);
+        list.innerHTML = '<p class="error">Failed to load products</p>';
+    }
+}
+
+function renderFoodDBList(products, total) {
+    const list = document.getElementById('fooddb-list');
+    const pagination = document.getElementById('fooddb-pagination');
+    const pageInfo = document.getElementById('fooddb-page-info');
+    const prevBtn = document.getElementById('fooddb-prev-btn');
+    const nextBtn = document.getElementById('fooddb-next-btn');
+
+    list.innerHTML = '';
+
+    if (products.length === 0) {
+        list.innerHTML = '<p class="hint">No products found.</p>';
+        pagination.style.display = 'none';
+        return;
+    }
+
+    products.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'card food-meal-card';
+
+        const info = document.createElement('div');
+        info.className = 'food-meal-info';
+
+        const name = document.createElement('div');
+        name.className = 'food-meal-name';
+        name.textContent = decodeFoodDisplayText(p.name);
+        info.appendChild(name);
+
+        const macros = document.createElement('div');
+        macros.className = 'food-meal-macros';
+        macros.textContent = `${p.energy_kcal_100g} kcal | C: ${p.carbs_100g}g | P: ${p.protein_100g}g | F: ${p.fat_100g}g per 100g`;
+        info.appendChild(macros);
+
+        const meta = document.createElement('div');
+        meta.className = 'food-db-meta';
+        meta.style.fontSize = '0.8em';
+        meta.style.color = 'var(--hint-color)';
+        meta.style.marginTop = '4px';
+        const lastUsedStr = p.last_used_at && !p.last_used_at.startsWith('0001') ? new Date(p.last_used_at).toLocaleDateString() : 'Never';
+        meta.textContent = `Used ${p.usage_count} times • Last used: ${lastUsedStr}`;
+        info.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.className = 'food-meal-actions';
+
+        const editBtn = document.createElement('button');
+        editBtn.className = 'btn small-btn';
+        editBtn.textContent = 'Edit';
+        editBtn.style.marginRight = '8px';
+        editBtn.onclick = () => showEditFoodProductModal(p);
+        actions.appendChild(editBtn);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'danger small-btn';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.style.margin = '0';
+        deleteBtn.onclick = async () => {
+            await deleteFoodProduct(p.id, decodeFoodDisplayText(p.name));
+            // Reload list instead of calling autocomplete refresh, handled by deleteFoodProduct
+        };
+        actions.appendChild(deleteBtn);
+
+        card.appendChild(info);
+        card.appendChild(actions);
+        list.appendChild(card);
+    });
+
+    // Pagination
+    const limit = 20;
+    const start = foodDBPage * limit + 1;
+    const end = Math.min((foodDBPage + 1) * limit, total);
+
+    pagination.style.display = total > 0 ? 'flex' : 'none';
+    pageInfo.textContent = `Showing ${start}-${end} of ${total}`;
+
+    prevBtn.disabled = foodDBPage === 0;
+    nextBtn.disabled = (foodDBPage + 1) * limit >= total;
+}

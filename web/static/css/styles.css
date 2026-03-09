@@ -1803,3 +1803,52 @@ input:checked+.toggle-slider:before {
     margin-bottom: 12px;
     object-fit: cover;
 }
+
+/* Food DB specific styles */
+.fooddb-sort-controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 15px;
+}
+
+.fooddb-sort-btn {
+    flex: 1;
+    padding: 6px 10px;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-color);
+    font-size: 13px;
+    cursor: pointer;
+    text-align: center;
+}
+
+.fooddb-sort-btn.active {
+    background: var(--button-bg);
+    color: var(--button-text);
+    border-color: var(--button-bg);
+}
+
+.fooddb-pagination-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid var(--border-color);
+}
+
+#fooddb-page-info {
+    font-size: 13px;
+    color: var(--hint-color);
+}
+
+.pagination-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.pagination-buttons button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
