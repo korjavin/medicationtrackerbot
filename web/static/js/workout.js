@@ -398,11 +398,7 @@ function _renderWorkoutGroups(container, groups) {
         info.appendChild(description);
         info.appendChild(schedule);
 
-        const deleteBtn = doc.createElement('button');
-        deleteBtn.type = 'button';
-        deleteBtn.className = 'delete-btn';
-        deleteBtn.textContent = '×';
-        deleteBtn.addEventListener('click', (event) => {
+        const deleteBtn = createDeleteButton((event) => {
             deleteWorkoutGroup(group.id, event);
         });
 
@@ -665,15 +661,11 @@ async function loadVariantsForGroup(groupId) {
                 info.appendChild(description);
             }
 
-            const deleteBtn = document.createElement('button');
-            deleteBtn.type = 'button';
-            deleteBtn.className = 'delete-btn';
-            deleteBtn.style.position = 'static';
-            deleteBtn.style.marginLeft = '10px';
-            deleteBtn.textContent = '×';
-            deleteBtn.addEventListener('click', (event) => {
+            const deleteBtn = createDeleteButton((event) => {
                 deleteVariant(variant.id, event);
             });
+            deleteBtn.style.position = 'static';
+            deleteBtn.style.marginLeft = '10px';
 
             card.appendChild(info);
             card.appendChild(deleteBtn);
@@ -847,15 +839,11 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
             info.appendChild(title);
             info.appendChild(meta);
 
-            const deleteBtn = document.createElement('button');
-            deleteBtn.type = 'button';
-            deleteBtn.className = 'delete-btn';
-            deleteBtn.style.position = 'static';
-            deleteBtn.style.marginLeft = '10px';
-            deleteBtn.textContent = '×';
-            deleteBtn.addEventListener('click', (event) => {
+            const deleteBtn = createDeleteButton((event) => {
                 deleteExercise(ex.id, event);
             });
+            deleteBtn.style.position = 'static';
+            deleteBtn.style.marginLeft = '10px';
 
             card.appendChild(info);
             card.appendChild(deleteBtn);

@@ -2,7 +2,7 @@
 // No dependencies.
 
 /**
- * Create a standard delete button (×) for list items.
+ * Create a standard delete button (🗑️) for list items.
  *
  * @param {function} onDelete - Called when the button is clicked.
  * @returns {HTMLButtonElement}
@@ -10,10 +10,58 @@
 function createDeleteButton(onDelete) {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'delete-btn';
+    btn.className = 'icon-action-btn delete';
     btn.title = 'Delete';
-    btn.textContent = '×';
+    btn.textContent = '🗑️';
     btn.addEventListener('click', onDelete);
+    return btn;
+}
+
+/**
+ * Create a standard edit button (✏️) for list items.
+ *
+ * @param {function} onClick - Called when the button is clicked.
+ * @returns {HTMLButtonElement}
+ */
+function createEditButton(onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'icon-action-btn';
+    btn.title = 'Edit';
+    btn.textContent = '✏️';
+    btn.addEventListener('click', onClick);
+    return btn;
+}
+
+/**
+ * Create a modal-styled delete button (🗑️) for use inside modals.
+ *
+ * @param {function} onClick - Called when the button is clicked.
+ * @returns {HTMLButtonElement}
+ */
+function createModalDeleteButton(onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'modal-action-btn delete';
+    btn.title = 'Delete';
+    btn.textContent = '🗑️';
+    btn.addEventListener('click', onClick);
+    return btn;
+}
+
+/**
+ * Create a modal-styled edit button (✏️) for use inside modals.
+ *
+ * @param {function} onClick - Called when the button is clicked.
+ * @returns {HTMLButtonElement}
+ */
+function createModalEditButton(onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'modal-action-btn';
+    btn.title = 'Edit';
+    btn.textContent = '✏️';
+    btn.addEventListener('click', onClick);
     return btn;
 }
 
