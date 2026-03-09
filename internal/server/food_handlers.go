@@ -450,6 +450,8 @@ func (s *Server) handleUpdateFoodProduct(w http.ResponseWriter, r *http.Request)
 		Protein100g    float64 `json:"protein_100g"`
 		Fat100g        float64 `json:"fat_100g"`
 		EnergyKcal100g float64 `json:"energy_kcal_100g"`
+		IsMeal         bool    `json:"is_meal"`
+		TotalWeightG   int     `json:"total_weight_g"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -474,6 +476,8 @@ func (s *Server) handleUpdateFoodProduct(w http.ResponseWriter, r *http.Request)
 		Protein100g:    req.Protein100g,
 		Fat100g:        req.Fat100g,
 		EnergyKcal100g: req.EnergyKcal100g,
+		IsMeal:         req.IsMeal,
+		TotalWeightG:   req.TotalWeightG,
 	}
 
 	if err := s.food.UpdateFoodProduct(context.Background(), p); err != nil {
