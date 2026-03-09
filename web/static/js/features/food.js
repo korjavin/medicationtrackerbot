@@ -46,7 +46,12 @@ function bindFoodControls() {
     bindClick('food-product-cancel-btn', () => closeFoodProductModal());
     bindClick('food-product-save-btn', () => saveFoodProduct());
 
-    bindClick('food-select-toggle-btn', () => toggleFoodSelectMode());
+    bindTabGroup({
+        container: document.querySelector('.food-tabs'),
+        buttonSelector: '.food-tab',
+        onTabSelect: switchFoodTab
+    });
+
     bindClick('food-save-meal-cancel-btn', () => closeFoodSaveMealModal());
     bindClick('food-save-meal-confirm-btn', () => confirmSaveMeal());
 }
@@ -1367,18 +1372,8 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
 
 function toggleFoodSelectMode() {
     foodMultiSelectMode = !foodMultiSelectMode;
-    const btn = document.getElementById('food-select-toggle-btn');
-    if (btn) {
-        if (foodMultiSelectMode) {
-            btn.classList.add('active', 'primary');
-            btn.classList.remove('secondary');
-            btn.textContent = 'Cancel Select';
-        } else {
-            btn.classList.remove('active', 'primary');
-            btn.classList.add('secondary');
-            btn.textContent = 'Select';
-            foodSelectedLogIds.clear();
-        }
+    if (!foodMultiSelectMode) {
+        foodSelectedLogIds.clear();
     }
     loadFoodLogs();
 }
@@ -1562,13 +1557,40 @@ async function loadMyMeals() {
 function renderFoodSummary(summaryEl, label, calories, carbs, protein, fat) {
     summaryEl.replaceChildren();
 
+    const wrapper = document.createElement('div');
+    wrapper.style.display = 'flex';
+    wrapper.style.justifyContent = 'space-between';
+    wrapper.style.alignItems = 'center';
+
+    const textGroup = document.createElement('div');
     const text = document.createTextNode(`${label}: ${calories} kcal `);
     const details = document.createElement('span');
     details.style.cssText = 'font-weight:normal; font-size:0.9em; margin-left:10px;';
     details.textContent = `(C:${carbs} P:${protein} F:${fat})`;
+    textGroup.appendChild(text);
+    textGroup.appendChild(details);
+    
+    wrapper.appendChild(textGroup);
 
-    summaryEl.appendChild(text);
-    summaryEl.appendChild(details);
+    if (label === 'Daily Total') {
+        const selectBtn = document.createElement('button');
+        selectBtn.className = 'secondary small-btn';
+        selectBtn.style.margin = '0';
+        selectBtn.style.padding = '4px 8px';
+        selectBtn.style.border = '1px solid var(--border-color, #ccc)';
+        
+        if (foodMultiSelectMode) {
+            selectBtn.classList.replace('secondary', 'primary');
+            selectBtn.textContent = 'Cancel';
+        } else {
+            selectBtn.innerHTML = '&#9745; Select';
+        }
+        
+        selectBtn.addEventListener('click', toggleFoodSelectMode);
+        wrapper.appendChild(selectBtn);
+    }
+
+    summaryEl.appendChild(wrapper);
 }
 
 function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = 'day') {
@@ -1688,6 +1710,38 @@ async function saveFoodTargets() {
         console.error('Failed to save food targets:', e);
         safeAlert('Failed to save food targets');
     }
+}
+
+async function loadFoodTargets() {
+    try {
+        const targets = await window.DataStore.getSWR('food_targets');
+        if (targets) {
+            foodTargets = { ...foodTargets, ...targets };
+            updateFoodTargetsVisibility();
+            const calsInput = document.getElementById('food-target-calories');
+            const carbsInput = document.getElementById('food-target-carbs');
+            const protInput = document.getElementById('food-target-protein');
+            const fatInput = document.getElementById('food-target-fat');
+            if (calsInput) calsInput.value = foodTargets.calories || '';
+            if (carbsInput) carbsInput.value = foodTargets.carbs || '';
+            if (protInput) protInput.value = foodTargets.protein || '';
+            if (fatInput) fatInput.value = foodTargets.fat || '';
+        }
+    } catch (e) {
+        console.error("Failed to load food targets:", e);
+    }
+}
+
+function switchFoodTab(tab) {
+    const activated = activateTabGroup(tab, {
+        buttonSelector: '.food-tab',
+        contentSelector: '.food-tab-content',
+        contentIdFromTab: (tabName) => `food-${tabName}-tab`
+    });
+    if (!activated) return;
+
+    if (tab === 'log') { loadFoodLogs(); }
+    else if (tab === 'meals') { loadMyMeals(); }
 }
 
 async function deleteFoodLog(id) {
