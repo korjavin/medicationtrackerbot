@@ -927,10 +927,10 @@ async function saveFoodProduct() {
     const payload = {
         name: name,
         barcode: document.getElementById('food-product-barcode').value.trim(),
-        carbs_100g: parseFloat(document.getElementById('food-product-carbs').value) || 0,
-        protein_100g: parseFloat(document.getElementById('food-product-protein').value) || 0,
-        fat_100g: parseFloat(document.getElementById('food-product-fat').value) || 0,
-        energy_kcal_100g: parseFloat(document.getElementById('food-product-calories').value) || 0,
+        carbs_100g: Math.round((parseFloat(document.getElementById('food-product-carbs').value) || 0) * 10) / 10,
+        protein_100g: Math.round((parseFloat(document.getElementById('food-product-protein').value) || 0) * 10) / 10,
+        fat_100g: Math.round((parseFloat(document.getElementById('food-product-fat').value) || 0) * 10) / 10,
+        energy_kcal_100g: Math.round(parseFloat(document.getElementById('food-product-calories').value) || 0),
         is_meal: isMeal,
         total_weight_g: totalWeight,
     };
@@ -1072,10 +1072,10 @@ function computeFoodTotals() {
 
     return {
         weight: Math.round(weight),
-        carbs: Math.round(Math.max(0, totalCarbs || 0)),
-        protein: Math.round(Math.max(0, totalProtein || 0)),
-        fat: Math.round(Math.max(0, totalFat || 0)),
-        calories: Math.round(Math.max(0, totalCalories || 0)),
+        carbs: Math.round(totalCarbs || 0),
+        protein: Math.round(totalProtein || 0),
+        fat: Math.round(totalFat || 0),
+        calories: Math.round(totalCalories || 0),
         per100g
     };
 }
@@ -1251,6 +1251,16 @@ async function loadFoodLogs() {
         if (weekDisplay) weekDisplay.classList.add('hidden');
     }
 
+    // Highlight active sort button
+    const sortButtons = document.querySelectorAll('.fooddb-sort-btn');
+    sortButtons.forEach(btn => {
+        if (btn.dataset.sort === currentSort) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
     // Show cached data immediately (stale-while-revalidate)
     const cacheKey = `food_${dateStr}_${period}`;
     const cached = await window.DataStore.getCached(cacheKey);
@@ -1323,7 +1333,7 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
             time.textContent = `(${group.time})`;
             const totals = document.createElement('span');
             totals.style.cssText = 'margin-left:auto; font-size:0.9em;';
-            totals.textContent = `${group.calories} kcal (C:${group.carbs} P:${group.protein} F:${group.fat})`;
+            totals.textContent = `${Math.round(group.calories)} kcal (C:${Math.round(group.carbs)} P:${Math.round(group.protein)} F:${Math.round(group.fat)})`;
             header.appendChild(title);
             header.appendChild(time);
             header.appendChild(totals);
@@ -1370,7 +1380,7 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
                 name.textContent = log.name || 'Food';
                 const meta = document.createElement('div');
                 meta.style.cssText = 'font-size:0.85em; color:var(--hint-color);';
-                meta.textContent = `${log.weight}g • ${log.calories} kcal`;
+                meta.textContent = `${Math.round(log.weight)}g • ${Math.round(log.calories)} kcal`;
                 itemBody.appendChild(name);
                 itemBody.appendChild(meta);
 
@@ -1403,13 +1413,13 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
         const stats = weekStats;
         summary.style.display = 'block';
         const label = period === 'week' ? '7-Day Total' : '14-Day Total';
-        renderFoodSummary(summary, label, stats?.calories || 0, stats?.carbs || 0, stats?.protein || 0, stats?.fat || 0);
-        renderFoodTargetProgress(stats?.calories || 0, stats?.carbs || 0, stats?.protein || 0, stats?.fat || 0, period);
+        renderFoodSummary(summary, label, Math.round(stats?.calories || 0), Math.round(stats?.carbs || 0), Math.round(stats?.protein || 0), Math.round(stats?.fat || 0));
+        renderFoodTargetProgress(Math.round(stats?.calories || 0), Math.round(stats?.carbs || 0), Math.round(stats?.protein || 0), Math.round(stats?.fat || 0), period);
     } else {
         if (groups && groups.length > 0) {
             summary.style.display = 'block';
-            renderFoodSummary(summary, 'Daily Total', dayCals, dayCarbs, dayProt, dayFat);
-            renderFoodTargetProgress(dayCals, dayCarbs, dayProt, dayFat, period);
+            renderFoodSummary(summary, 'Daily Total', Math.round(dayCals), Math.round(dayCarbs), Math.round(dayProt), Math.round(dayFat));
+            renderFoodTargetProgress(Math.round(dayCals), Math.round(dayCarbs), Math.round(dayProt), Math.round(dayFat), period);
         } else {
             summary.style.display = 'none';
             renderFoodTargetProgress(0, 0, 0, 0, period);
@@ -1525,62 +1535,33 @@ async function loadMyMeals() {
 
     meals.forEach(meal => {
         const card = document.createElement('div');
-        card.className = 'history-item';
-        card.style.cssText = 'padding: 15px; margin-bottom: 10px; border-radius: 8px; background: var(--secondary-bg-color); border: 1px solid var(--border-color);';
+        card.className = 'food-db-card';
+        
+        const mainRow = document.createElement('div');
+        mainRow.style.cssText = 'display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;';
 
-        const titleRow = document.createElement('div');
-        titleRow.style.cssText = 'display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px;';
+        const info = document.createElement('div');
+        info.style.flex = '1';
+        info.style.minWidth = '0';
+        info.className = 'food-meal-info';
 
-        const title = document.createElement('h4');
-        title.style.margin = '0';
-        title.textContent = decodeFoodDisplayText(meal.name);
-        titleRow.appendChild(title);
+        const name = document.createElement('div');
+        name.className = 'food-meal-name';
+        name.style.fontWeight = '600';
+        name.style.fontSize = '1.1em';
+        name.textContent = decodeFoodDisplayText(meal.name);
+        info.appendChild(name);
+        mainRow.appendChild(info);
 
-        const weightStr = meal.total_weight_g ? `(${meal.total_weight_g}g)` : '';
-        const weightSpan = document.createElement('span');
-        weightSpan.style.cssText = 'color: var(--hint-color); font-size: 0.9em;';
-        weightSpan.textContent = weightStr;
-        titleRow.appendChild(weightSpan);
-
-        card.appendChild(titleRow);
-
-        let totalCals = 0, totalCarbs = 0, totalProt = 0, totalFat = 0;
-        if (meal.total_weight_g && meal.total_weight_g > 0) {
-            const mult = meal.total_weight_g / 100.0;
-            totalCals = Math.round((meal.energy_kcal_100g || 0) * mult);
-            totalCarbs = Math.round((meal.carbs_100g || 0) * mult);
-            totalProt = Math.round((meal.protein_100g || 0) * mult);
-            totalFat = Math.round((meal.fat_100g || 0) * mult);
-        } else {
-            totalCals = Math.round(meal.energy_kcal_100g || 0);
-            totalCarbs = Math.round(meal.carbs_100g || 0);
-            totalProt = Math.round(meal.protein_100g || 0);
-            totalFat = Math.round(meal.fat_100g || 0);
-        }
-
-        const nutritionRow = document.createElement('div');
-        nutritionRow.style.cssText = 'font-size: 0.9em; margin-bottom: 10px; display: flex; gap: 15px; color: var(--text-color);';
-        nutritionRow.innerHTML = `
-            <span><strong>${totalCals}</strong> kcal</span>
-            <span>C: <strong>${totalCarbs}</strong>g</span>
-            <span>P: <strong>${totalProt}</strong>g</span>
-            <span>F: <strong>${totalFat}</strong>g</span>
-        `;
-        card.appendChild(nutritionRow);
-
-        const actionsRow = document.createElement('div');
-        actionsRow.style.cssText = 'display: flex; gap: 10px; margin-top: 10px; justify-content: flex-end;';
-
-        const editBtn = document.createElement('button');
-        editBtn.className = 'secondary small-btn';
-        editBtn.textContent = 'Edit';
-        editBtn.style.margin = '0';
-        editBtn.onclick = () => showEditFoodProductModal(meal);
+        const actions = document.createElement('div');
+        actions.className = 'food-meal-actions';
+        actions.style.cssText = 'display: flex; gap: 8px; flex-shrink: 0;';
 
         const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'danger small-btn';
-        deleteBtn.textContent = 'Delete';
-        deleteBtn.style.margin = '0';
+        deleteBtn.className = 'btn-small secondary';
+        deleteBtn.style.padding = '4px 8px';
+        deleteBtn.style.color = '#ff3b30';
+        deleteBtn.textContent = 'Del';
         deleteBtn.onclick = async () => {
             if (confirm(`Delete the meal "${decodeFoodDisplayText(meal.name)}"?`)) {
                 try {
@@ -1596,9 +1577,45 @@ async function loadMyMeals() {
                 }
             }
         };
+        actions.appendChild(deleteBtn);
+        mainRow.appendChild(actions);
+
+        card.appendChild(mainRow);
+
+        let totalCals = 0, totalCarbs = 0, totalProt = 0, totalFat = 0;
+        if (meal.total_weight_g && meal.total_weight_g > 0) {
+            const mult = meal.total_weight_g / 100.0;
+            totalCals = Math.round((meal.energy_kcal_100g || 0) * mult);
+            totalCarbs = Math.round((meal.carbs_100g || 0) * mult * 10) / 10;
+            totalProt = Math.round((meal.protein_100g || 0) * mult * 10) / 10;
+            totalFat = Math.round((meal.fat_100g || 0) * mult * 10) / 10;
+        } else {
+            totalCals = Math.round(meal.energy_kcal_100g || 0);
+            totalCarbs = Math.round((meal.carbs_100g || 0) * 10) / 10;
+            totalProt = Math.round((meal.protein_100g || 0) * 10) / 10;
+            totalFat = Math.round((meal.fat_100g || 0) * 10) / 10;
+        }
+
+        const nutritionRow = document.createElement('div');
+        nutritionRow.style.cssText = 'font-size: 0.9em; margin-bottom: 10px; display: flex; gap: 15px; color: var(--text-color);';
+        nutritionRow.innerHTML = `
+            <span><strong>${Math.round(totalCals)}</strong> kcal</span>
+            <span>C: <strong>${totalCarbs}</strong>g</span>
+            <span>P: <strong>${totalProt}</strong>g</span>
+            <span>F: <strong>${totalFat}</strong>g</span>
+        `;
+        card.appendChild(nutritionRow);
+
+        const actionsRow = document.createElement('div');
+        actionsRow.style.cssText = 'display: flex; gap: 10px; margin-top: 10px; justify-content: flex-end;';
+
+        const editBtn = document.createElement('button');
+        editBtn.className = 'secondary small-btn';
+        editBtn.textContent = 'Edit';
+        editBtn.style.margin = '0';
+        editBtn.onclick = () => showEditFoodProductModal(meal);
 
         actionsRow.appendChild(editBtn);
-        actionsRow.appendChild(deleteBtn);
         card.appendChild(actionsRow);
 
         list.appendChild(card);
@@ -1614,10 +1631,10 @@ function renderFoodSummary(summaryEl, label, calories, carbs, protein, fat) {
     wrapper.style.alignItems = 'center';
 
     const textGroup = document.createElement('div');
-    const text = document.createTextNode(`${label}: ${calories} kcal `);
+    const text = document.createTextNode(`${label}: ${Math.round(calories)} kcal `);
     const details = document.createElement('span');
     details.style.cssText = 'font-weight:normal; font-size:0.9em; margin-left:10px;';
-    details.textContent = `(C:${carbs} P:${protein} F:${fat})`;
+    details.textContent = `(C:${Math.round(carbs * 10) / 10} P:${Math.round(protein)} F:${Math.round(fat * 10) / 10})`;
     textGroup.appendChild(text);
     textGroup.appendChild(details);
     
@@ -1691,7 +1708,8 @@ function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = '
 
         const values = document.createElement('span');
         values.className = `food-target-values${isExcess ? ' excess-text' : ''}`;
-        values.textContent = `${t.value} / ${targetValue} ${t.unit}`;
+        const displayValue = (t.key === 'calories' || t.key === 'protein') ? Math.round(t.value) : Math.round(t.value * 10) / 10;
+        values.textContent = `${displayValue} / ${targetValue} ${t.unit}`;
 
         topline.appendChild(name);
         topline.appendChild(values);
@@ -1834,58 +1852,100 @@ function renderFoodDBList(products, total) {
 
     if (products.length === 0) {
         list.innerHTML = '<p class="hint">No products found.</p>';
-        pagination.style.display = 'none';
+        pagination.style.display = total > 0 ? 'flex' : 'none';
+        pageInfo.textContent = `Showing 0 of ${total}`;
+        prevBtn.disabled = foodDBPage === 0;
+        nextBtn.disabled = true;
         return;
     }
 
     products.forEach(p => {
         const card = document.createElement('div');
-        card.className = 'card food-meal-card';
+        card.className = 'food-db-card';
+        card.onclick = (e) => {
+            if (e.target.tagName !== 'BUTTON') {
+                autofillFoodProduct(p);
+            }
+        };
+
+        const topRow = document.createElement('div');
+        topRow.className = 'food-db-actions-row';
+        topRow.style.cssText = 'display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;';
 
         const info = document.createElement('div');
-        info.className = 'food-meal-info';
+        info.className = 'food-db-info';
+        info.style.flex = '1';
+        info.style.minWidth = '0';
 
         const name = document.createElement('div');
-        name.className = 'food-meal-name';
+        name.className = 'food-db-name';
+        name.style.cssText = 'font-weight: 600; font-size: 1.1em; margin-bottom: 4px; color: var(--text-color);';
         name.textContent = decodeFoodDisplayText(p.name);
         info.appendChild(name);
 
         const macros = document.createElement('div');
-        macros.className = 'food-meal-macros';
-        macros.textContent = `${p.energy_kcal_100g} kcal | C: ${p.carbs_100g}g | P: ${p.protein_100g}g | F: ${p.fat_100g}g per 100g`;
+        macros.className = 'food-db-macros';
+        macros.style.cssText = 'font-size: 0.9em; color: var(--hint-color);';
+        const c100 = Math.round(p.carbs_100g * 10) / 10;
+        const p100 = Math.round(p.protein_100g); // Rounded to integer
+        const f100 = Math.round(p.fat_100g * 10) / 10;
+        const e100 = Math.round(p.energy_kcal_100g); // Rounded to integer
+        macros.textContent = `${e100} kcal | C: ${c100}g | P: ${p100}g | F: ${f100}g per 100g`;
         info.appendChild(macros);
+        topRow.appendChild(info);
+
+        const actions = document.createElement('div');
+        actions.className = 'food-db-actions';
+        actions.style.flexShrink = '0';
+        actions.style.marginLeft = '12px';
+
+        const editBtn = document.createElement('button');
+        editBtn.className = 'btn-small secondary';
+        editBtn.style.padding = '4px 10px';
+        editBtn.textContent = 'Edit';
+        editBtn.onclick = (e) => {
+            e.stopPropagation();
+            showEditFoodProductModal(p);
+        };
+        actions.appendChild(editBtn);
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn-small secondary';
+        delBtn.style.padding = '4px 10px';
+        delBtn.style.color = '#ff3b30';
+        delBtn.textContent = 'Del';
+        delBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (confirm(`Delete ${decodeFoodDisplayText(p.name)}?`)) deleteFoodProduct(p.id);
+        };
+        actions.appendChild(delBtn);
+        topRow.appendChild(actions);
+
+        card.appendChild(topRow);
 
         const meta = document.createElement('div');
         meta.className = 'food-db-meta';
-        meta.style.fontSize = '0.8em';
-        meta.style.color = 'var(--hint-color)';
-        meta.style.marginTop = '4px';
-        const lastUsedStr = p.last_used_at && !p.last_used_at.startsWith('0001') ? new Date(p.last_used_at).toLocaleDateString() : 'Never';
-        meta.textContent = `Used ${p.usage_count} times • Last used: ${lastUsedStr}`;
-        info.appendChild(meta);
+        meta.style.cssText = 'font-size: 0.8em; color: var(--hint-color); border-top: 1px solid rgba(0,0,0,0.03); padding-top: 8px; display: flex; gap: 12px;';
+        
+        const usage = document.createElement('span');
+        usage.textContent = `Used: ${p.usage_count || 1}x`;
+        meta.appendChild(usage);
 
-        const actions = document.createElement('div');
-        actions.className = 'food-meal-actions';
+        if (p.last_used_at && !p.last_used_at.startsWith('0001')) {
+            const lastUsed = document.createElement('span');
+            const date = new Date(p.last_used_at);
+            lastUsed.textContent = `Last: ${date.toLocaleDateString()}`;
+            meta.appendChild(lastUsed);
+        }
 
-        const editBtn = document.createElement('button');
-        editBtn.className = 'btn small-btn';
-        editBtn.textContent = 'Edit';
-        editBtn.style.marginRight = '8px';
-        editBtn.onclick = () => showEditFoodProductModal(p);
-        actions.appendChild(editBtn);
+        if (p.is_meal) {
+            const label = document.createElement('span');
+            label.style.cssText = 'background: rgba(36, 129, 204, 0.1); color: var(--link-color); padding: 1px 6px; border-radius: 4px; font-weight: 600; font-size: 0.9em; margin-left: auto;';
+            label.textContent = 'MEAL';
+            meta.appendChild(label);
+        }
 
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'danger small-btn';
-        deleteBtn.textContent = 'Delete';
-        deleteBtn.style.margin = '0';
-        deleteBtn.onclick = async () => {
-            await deleteFoodProduct(p.id, decodeFoodDisplayText(p.name));
-            // Reload list instead of calling autocomplete refresh, handled by deleteFoodProduct
-        };
-        actions.appendChild(deleteBtn);
-
-        card.appendChild(info);
-        card.appendChild(actions);
+        card.appendChild(meta);
         list.appendChild(card);
     });
 
