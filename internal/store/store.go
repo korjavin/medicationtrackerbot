@@ -1974,7 +1974,29 @@ func (s *Store) SetHealthEnabled(ctx context.Context, enabled bool) error {
 	return s.setSettingsBool(ctx, "health_enabled", enabled)
 }
 
+
+func (s *Store) GetTabOrder(ctx context.Context) (string, error) {
+	var tabOrder sql.NullString
+	err := s.db.QueryRowContext(ctx, "SELECT tab_order FROM settings WHERE id = 1").Scan(&tabOrder)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if tabOrder.Valid {
+		return tabOrder.String, nil
+	}
+	return "", nil
+}
+
+func (s *Store) SetTabOrder(ctx context.Context, order string) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE settings SET tab_order = ? WHERE id = 1", order)
+	return err
+}
+
 // allowedSettingsBoolColumns is the allowlist of valid boolean column names in the settings table.
+
 var allowedSettingsBoolColumns = map[string]bool{
 	"food_intake_enabled":    true,
 	"blood_pressure_enabled": true,
