@@ -142,7 +142,10 @@
                     <span id="food-period-week-link" class="period-link" data-period="week">Week</span>
                 </div>
             </div>
-            <button id="add-food-btn" class="btn-add">+ Log Food</button>
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <button id="add-food-btn" class="btn-add" style="margin-bottom: 0; flex: 1;">+ Log Food</button>
+                <button id="food-select-toggle-btn" class="secondary" style="margin-bottom: 0; white-space: nowrap;">Select</button>
+            </div>
 
             <div class="food-date-nav">
                 <button id="food-date-prev-btn" class="secondary food-date-shift-btn"
@@ -162,6 +165,16 @@
                 style="margin-bottom: 16px; font-weight: bold; padding: 10px; background: var(--secondary-bg-color); border-radius: 8px;">
             </div>
             <div id="food-list"></div>
+
+            <div id="food-meals-section" style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px;">
+                <h3>My Meals</h3>
+                <p style="font-size: 0.9em; color: var(--hint-color); margin-bottom: 15px;">
+                    Select items from your food log above to create a meal template.
+                </p>
+                <div id="food-meals-list">
+                    <!-- Meals injected here -->
+                </div>
+            </div>
         </div>
 
         <div id="health-view" class="view">
@@ -625,6 +638,24 @@
         <div class="form-row">
             <label for="food-product-calories">Calories per 100g:</label>
             <input type="number" id="food-product-calories" placeholder="Kcal" step="0.1">
+        </div>
+    </mt-modal>
+
+    <!-- Modal for Saving a Meal -->
+    <mt-modal id="food-save-meal-modal" class="hidden">
+        <div class="modal-header">
+            <h3>Save as Meal</h3>
+            <div class="actions">
+                <button id="food-save-meal-cancel-btn" class="secondary">Cancel</button>
+                <button id="food-save-meal-confirm-btn" class="primary">Save</button>
+            </div>
+        </div>
+        <p style="margin-bottom: 10px; font-size: 0.9em; color: var(--hint-color);">
+            Combine the selected logs into a reusable meal template. It will appear first in your food searches.
+        </p>
+        <div class="form-row">
+            <label for="food-save-meal-name">Meal Name:</label>
+            <input type="text" id="food-save-meal-name" placeholder="e.g. My Favorite Breakfast">
         </div>
     </mt-modal>
 

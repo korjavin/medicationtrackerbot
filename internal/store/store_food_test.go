@@ -591,6 +591,91 @@ func TestFoodStatsEmpty(t *testing.T) {
 	}
 }
 
+func TestCreateMealFromLogs(t *testing.T) {
+	s := setupFoodTestStore(t)
+	ctx := context.Background()
+
+	now := time.Now().Truncate(time.Second)
+
+	log1 := &FoodLog{
+		UserID:   1,
+		EatenAt:  now,
+		Weight:   200,
+		Carbs:    30,
+		Protein:  25,
+		Fat:      10,
+		Calories: 310,
+		Name:     "Chicken",
+	}
+
+	log2 := &FoodLog{
+		UserID:   1,
+		EatenAt:  now,
+		Weight:   100,
+		Carbs:    20,
+		Protein:  5,
+		Fat:      2,
+		Calories: 110,
+		Name:     "Rice",
+	}
+
+	id1, _ := s.CreateFoodLog(ctx, log1)
+	id2, _ := s.CreateFoodLog(ctx, log2)
+
+	// Happy path
+	product, err := s.CreateMealFromLogs(ctx, 1, "Chicken & Rice Meal", []int64{id1, id2})
+	if err != nil {
+		t.Fatalf("CreateMealFromLogs: %v", err)
+	}
+
+	if product.Name != "Chicken & Rice Meal" {
+		t.Errorf("expected meal name 'Chicken & Rice Meal', got %s", product.Name)
+	}
+
+	if !product.IsMeal {
+		t.Errorf("expected is_meal to be true")
+	}
+
+	if product.TotalWeightG != 300 {
+		t.Errorf("expected total_weight_g to be 300, got %d", product.TotalWeightG)
+	}
+
+	// 100g equivalent verification:
+	// Total Weight: 300g
+	// Total Carbs: 50 -> Per 100g: 16.666...
+	// Total Protein: 30 -> Per 100g: 10
+	// Total Fat: 12 -> Per 100g: 4
+	// Total Kcal: 420 -> Per 100g: 140
+
+	if product.Protein100g != 10.0 {
+		t.Errorf("expected 10g protein per 100g, got %f", product.Protein100g)
+	}
+	if product.Fat100g != 4.0 {
+		t.Errorf("expected 4g fat per 100g, got %f", product.Fat100g)
+	}
+	if product.EnergyKcal100g != 140.0 {
+		t.Errorf("expected 140kcal per 100g, got %f", product.EnergyKcal100g)
+	}
+
+	// Empty IDs test
+	_, err = s.CreateMealFromLogs(ctx, 1, "Empty Meal", []int64{})
+	if err == nil {
+		t.Errorf("expected error for empty IDs list")
+	}
+
+	// Invalid IDs test
+	_, err = s.CreateMealFromLogs(ctx, 1, "Invalid Meal", []int64{999, 1000})
+	if err == nil {
+		t.Errorf("expected error for invalid IDs")
+	}
+
+	// Wrong User test
+	_, err = s.CreateMealFromLogs(ctx, 2, "Stolen Meal", []int64{id1, id2})
+	if err == nil {
+		t.Errorf("expected error for wrong user")
+	}
+}
+
 func TestFoodTargetsSetAndGet(t *testing.T) {
 	s := setupFoodTestStore(t)
 	ctx := context.Background()

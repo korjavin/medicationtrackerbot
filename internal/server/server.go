@@ -404,6 +404,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("PUT /api/food/products/{id}", s.handleUpdateFoodProduct)
 	apiMux.HandleFunc("DELETE /api/food/products/{id}", s.handleDeleteFoodProduct)
 	apiMux.HandleFunc("GET /api/food/products/search", s.handleSearchFoodProducts)
+	apiMux.HandleFunc("POST /api/food/products/from-logs", s.handleCreateMealFromLogs)
 
 	// Init endpoint (returns all data needed for first render)
 	apiMux.HandleFunc("GET /api/init", s.handleInit)
