@@ -109,6 +109,9 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Limit request body size to 1MB to prevent memory exhaustion when parsing form data
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
 	// Verify State
 	oauthState, err := r.Cookie("oauthstate")
 	if err != nil || oauthState == nil {
