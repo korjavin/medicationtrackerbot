@@ -690,6 +690,9 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Limit request body size to 1MB to prevent memory exhaustion
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
 	var data TelegramLoginData
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 		log.Printf("[TG-LOGIN] Invalid JSON from %s: %v", r.RemoteAddr, err)
