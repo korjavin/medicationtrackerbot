@@ -236,3 +236,33 @@ func TestPushSubscriptionDifferentUsers(t *testing.T) {
 		t.Errorf("Expected 1 subscription for user2, got %d", len(subs2))
 	}
 }
+
+func TestStore_TabOrder(t *testing.T) {
+	s := setupSettingsTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	// Initial value should be empty
+	order, err := s.GetTabOrder(ctx)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if order != "" {
+		t.Fatalf("expected empty string, got %s", order)
+	}
+
+	// Update the order
+	err = s.SetTabOrder(ctx, `["tab1", "tab2"]`)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Verify the update
+	order, err = s.GetTabOrder(ctx)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if order != `["tab1", "tab2"]` {
+		t.Fatalf("expected '[\"tab1\", \"tab2\"]', got %s", order)
+	}
+}
