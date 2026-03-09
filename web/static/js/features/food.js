@@ -1825,6 +1825,14 @@ async function loadFoodDB() {
         if (!resp) return;
 
         foodDBTotal = resp.total || 0;
+
+        // If we are on a page > 0 and the total results dropped below what would be on this page, clamp page and reload
+        if (foodDBPage > 0 && foodDBPage * limit >= foodDBTotal) {
+            foodDBPage = Math.max(0, Math.ceil(foodDBTotal / limit) - 1);
+            loadFoodDB();
+            return;
+        }
+
         renderFoodDBList(resp.products || [], foodDBTotal);
     } catch (e) {
         console.error('Failed to load food db products', e);
