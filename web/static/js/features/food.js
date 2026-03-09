@@ -849,6 +849,13 @@ function showEditFoodProductModal(product) {
     document.getElementById('food-product-protein').value = product.protein_100g || '';
     document.getElementById('food-product-fat').value = product.fat_100g || '';
     document.getElementById('food-product-calories').value = product.energy_kcal_100g || '';
+
+    const isMealInput = document.getElementById('food-product-is-meal');
+    if (isMealInput) isMealInput.value = product.is_meal ? 'true' : 'false';
+
+    const weightInput = document.getElementById('food-product-total-weight');
+    if (weightInput) weightInput.value = product.total_weight_g || 0;
+
     window.ModalManager.foodProduct.open();
 }
 
@@ -864,8 +871,11 @@ async function saveFoodProduct() {
         return;
     }
 
-    const isMeal = document.getElementById('food-product-is-meal').value === 'true';
-    const totalWeight = parseInt(document.getElementById('food-product-total-weight').value, 10) || 0;
+    const isMealInput = document.getElementById('food-product-is-meal');
+    const isMeal = isMealInput ? isMealInput.value === 'true' : false;
+
+    const weightInput = document.getElementById('food-product-total-weight');
+    const totalWeight = weightInput ? (parseInt(weightInput.value, 10) || 0) : 0;
 
     const payload = {
         name: name,
