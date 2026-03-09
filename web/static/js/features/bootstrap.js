@@ -29,7 +29,13 @@ checkAuth().then(authorized => {
         initOIDCSetupBanner();
 
         // Default start tab
-        switchTab('bp');
+        // Default start tab - use the first visible one from the left
+        const firstVisible = document.querySelector('#tabs .tab:not([style*="display: none"])');
+        if (firstVisible) {
+            switchTab(firstVisible.dataset.tab);
+        } else {
+            switchTab('bp');
+        }
 
         // Handle deep links and push actions from URL
         handleDeepLinks();
