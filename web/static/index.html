@@ -142,34 +142,41 @@
                     <span id="food-period-week-link" class="period-link" data-period="week">Week</span>
                 </div>
             </div>
-            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                <button id="add-food-btn" class="btn-add" style="margin-bottom: 0; flex: 1;">+ Log Food</button>
-                <button id="food-select-toggle-btn" class="secondary" style="margin-bottom: 0; white-space: nowrap;">Select</button>
+
+            <!-- Food Tabs -->
+            <div class="food-tabs">
+                <button class="food-tab active" data-tab="log">Daily Log</button>
+                <button class="food-tab" data-tab="meals">My Meals</button>
             </div>
 
-            <div class="food-date-nav">
-                <button id="food-date-prev-btn" class="secondary food-date-shift-btn"
-                    aria-label="Previous day">←</button>
-                <div style="position: relative; flex: 1;">
-                    <input type="date" id="food-date-filter" style="width: 100%; box-sizing: border-box;">
-                    <div id="food-week-display" class="hidden"
-                        style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--secondary-bg-color); color: var(--text-color); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 14px; pointer-events: none; border: 1px solid var(--border-color); border-radius: 8px;">
-                    </div>
+            <div id="food-log-tab" class="food-tab-content active">
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <button id="add-food-btn" class="btn-add" style="margin-bottom: 0; flex: 1;">+ Log Food</button>
                 </div>
-                <button id="food-date-next-btn" class="secondary food-date-shift-btn" aria-label="Next day">→</button>
+
+                <div class="food-date-nav">
+                    <button id="food-date-prev-btn" class="secondary food-date-shift-btn"
+                        aria-label="Previous day">←</button>
+                    <div style="position: relative; flex: 1;">
+                        <input type="date" id="food-date-filter" style="width: 100%; box-sizing: border-box;">
+                        <div id="food-week-display" class="hidden"
+                            style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--secondary-bg-color); color: var(--text-color); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 14px; pointer-events: none; border: 1px solid var(--border-color); border-radius: 8px;">
+                        </div>
+                    </div>
+                    <button id="food-date-next-btn" class="secondary food-date-shift-btn" aria-label="Next day">→</button>
+                </div>
+
+                <div id="food-target-progress" class="food-target-progress hidden"></div>
+
+                <div id="food-summary"
+                    style="margin-bottom: 16px; font-weight: bold; padding: 10px; background: var(--secondary-bg-color); border-radius: 8px;">
+                </div>
+                <div id="food-list"></div>
             </div>
 
-            <div id="food-target-progress" class="food-target-progress hidden"></div>
-
-            <div id="food-summary"
-                style="margin-bottom: 16px; font-weight: bold; padding: 10px; background: var(--secondary-bg-color); border-radius: 8px;">
-            </div>
-            <div id="food-list"></div>
-
-            <div id="food-meals-section" style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px;">
-                <h3>My Meals</h3>
+            <div id="food-meals-tab" class="food-tab-content">
                 <p style="font-size: 0.9em; color: var(--hint-color); margin-bottom: 15px;">
-                    Select items from your food log above to create a meal template.
+                    Select items from your log to create a meal template. Use the Select button on the daily total.
                 </p>
                 <div id="food-meals-list">
                     <!-- Meals injected here -->

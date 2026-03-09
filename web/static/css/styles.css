@@ -50,9 +50,10 @@ h1 {
     border-bottom: 2px solid var(--link-color);
 }
 
-/* Sub-tabs (medications, workouts) */
+/* Sub-tabs (medications, workouts, food) */
 .med-tabs,
-.workout-tabs {
+.workout-tabs,
+.food-tabs {
     display: flex;
     gap: 10px;
     margin-bottom: 20px;
@@ -60,7 +61,8 @@ h1 {
 }
 
 .med-tab,
-.workout-tab {
+.workout-tab,
+.food-tab {
     padding: 10px 20px;
     border: none;
     background: none;
@@ -71,19 +73,22 @@ h1 {
 }
 
 .med-tab.active,
-.workout-tab.active {
+.workout-tab.active,
+.food-tab.active {
     color: var(--link-color);
     border-bottom: 3px solid var(--link-color);
 }
 
 /* Sub-tab content visibility */
 .med-tab-content,
-.workout-tab-content {
+.workout-tab-content,
+.food-tab-content {
     display: none;
 }
 
 .med-tab-content.active,
-.workout-tab-content.active {
+.workout-tab-content.active,
+.food-tab-content.active {
     display: block;
 }
 
@@ -1534,7 +1539,8 @@ input:checked+.toggle-slider:before {
 }
 
 #food-modal,
-#food-product-modal {
+#food-product-modal,
+#food-save-meal-modal {
     position: fixed;
     top: 50%;
     left: 50%;
@@ -1556,7 +1562,8 @@ input:checked+.toggle-slider:before {
 }
 
 #food-modal.hidden,
-#food-product-modal.hidden {
+#food-product-modal.hidden,
+#food-save-meal-modal.hidden {
     display: none;
 }
 
