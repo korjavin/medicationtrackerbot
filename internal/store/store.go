@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -1546,6 +1547,8 @@ type FoodProduct struct {
 	Fat100g        float64   `json:"fat_100g"`
 	EnergyKcal100g float64   `json:"energy_kcal_100g"`
 	UsageCount     int       `json:"usage_count"`
+	IsMeal         bool      `json:"is_meal"`
+	TotalWeightG   int       `json:"total_weight_g"`
 	CreatedAt      time.Time `json:"created_at"`
 	LastUsedAt     time.Time `json:"last_used_at"`
 }
@@ -1561,8 +1564,8 @@ type OpenFoodFact struct {
 
 func (s *Store) UpsertFoodProduct(ctx context.Context, p *FoodProduct) error {
 	query := `
-		INSERT INTO food_products (user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, last_used_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+		INSERT INTO food_products (user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, last_used_at, is_meal, total_weight_g)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, ?, ?)
 		ON CONFLICT(user_id, name) DO UPDATE SET
 			barcode = COALESCE(excluded.barcode, food_products.barcode),
 			carbs_100g = excluded.carbs_100g,
@@ -1570,13 +1573,15 @@ func (s *Store) UpsertFoodProduct(ctx context.Context, p *FoodProduct) error {
 			fat_100g = excluded.fat_100g,
 			energy_kcal_100g = excluded.energy_kcal_100g,
 			usage_count = food_products.usage_count + 1,
+			is_meal = excluded.is_meal,
+			total_weight_g = excluded.total_weight_g,
 			last_used_at = CURRENT_TIMESTAMP
 	`
 	var barcode interface{}
 	if p.Barcode != nil && *p.Barcode != "" {
 		barcode = *p.Barcode
 	}
-	_, err := s.db.ExecContext(ctx, query, p.UserID, p.Name, barcode, p.Carbs100g, p.Protein100g, p.Fat100g, p.EnergyKcal100g)
+	_, err := s.db.ExecContext(ctx, query, p.UserID, p.Name, barcode, p.Carbs100g, p.Protein100g, p.Fat100g, p.EnergyKcal100g, p.IsMeal, p.TotalWeightG)
 	return err
 }
 
@@ -1586,8 +1591,8 @@ func (s *Store) UpdateFoodProduct(ctx context.Context, p *FoodProduct) error {
 		barcode = *p.Barcode
 	}
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE food_products SET name = ?, barcode = ?, carbs_100g = ?, protein_100g = ?, fat_100g = ?, energy_kcal_100g = ? WHERE id = ? AND user_id = ?",
-		p.Name, barcode, p.Carbs100g, p.Protein100g, p.Fat100g, p.EnergyKcal100g, p.ID, p.UserID)
+		"UPDATE food_products SET name = ?, barcode = ?, carbs_100g = ?, protein_100g = ?, fat_100g = ?, energy_kcal_100g = ?, is_meal = ?, total_weight_g = ? WHERE id = ? AND user_id = ?",
+		p.Name, barcode, p.Carbs100g, p.Protein100g, p.Fat100g, p.EnergyKcal100g, p.IsMeal, p.TotalWeightG, p.ID, p.UserID)
 	if err != nil {
 		return err
 	}
@@ -1612,7 +1617,7 @@ func (s *Store) DeleteFoodProduct(ctx context.Context, id, userID int64) error {
 
 func (s *Store) GetFoodProducts(ctx context.Context, userID int64, limit int) ([]FoodProduct, error) {
 	query := `
-		SELECT id, user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, created_at, last_used_at
+		SELECT id, user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal, total_weight_g, created_at, last_used_at
 		FROM food_products
 		WHERE user_id = ?
 		ORDER BY usage_count DESC, last_used_at DESC
@@ -1628,7 +1633,7 @@ func (s *Store) GetFoodProducts(ctx context.Context, userID int64, limit int) ([
 	for rows.Next() {
 		var p FoodProduct
 		var barcode sql.NullString
-		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &barcode, &p.Carbs100g, &p.Protein100g, &p.Fat100g, &p.EnergyKcal100g, &p.UsageCount, &p.CreatedAt, &p.LastUsedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &barcode, &p.Carbs100g, &p.Protein100g, &p.Fat100g, &p.EnergyKcal100g, &p.UsageCount, &p.IsMeal, &p.TotalWeightG, &p.CreatedAt, &p.LastUsedAt); err != nil {
 			return nil, err
 		}
 		if barcode.Valid {
@@ -1647,17 +1652,17 @@ func (s *Store) SearchFoodProducts(ctx context.Context, userID int64, queryStr s
 	likeQuery := "%" + queryStr + "%"
 
 	query := `
-		SELECT id, user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, created_at, last_used_at
+		SELECT id, user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal, total_weight_g, created_at, last_used_at
 		FROM food_products
 		WHERE user_id = ? AND (name LIKE ? OR barcode LIKE ?)
 		
 		UNION ALL
 		
-		SELECT 0 as id, 0 as user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, 0 as usage_count, CURRENT_TIMESTAMP as created_at, CURRENT_TIMESTAMP as last_used_at
+		SELECT 0 as id, 0 as user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, 0 as usage_count, 0 as is_meal, 0 as total_weight_g, CURRENT_TIMESTAMP as created_at, CURRENT_TIMESTAMP as last_used_at
 		FROM open_food_facts
 		WHERE name LIKE ? OR barcode LIKE ?
 		
-		ORDER BY usage_count DESC, name COLLATE NOCASE ASC
+		ORDER BY is_meal DESC, usage_count DESC, name COLLATE NOCASE ASC
 		LIMIT 50
 	`
 	rows, err := s.db.QueryContext(ctx, query, userID, likeQuery, likeQuery, likeQuery, likeQuery)
@@ -1670,7 +1675,7 @@ func (s *Store) SearchFoodProducts(ctx context.Context, userID int64, queryStr s
 	for rows.Next() {
 		var p FoodProduct
 		var barcode sql.NullString
-		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &barcode, &p.Carbs100g, &p.Protein100g, &p.Fat100g, &p.EnergyKcal100g, &p.UsageCount, &p.CreatedAt, &p.LastUsedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &barcode, &p.Carbs100g, &p.Protein100g, &p.Fat100g, &p.EnergyKcal100g, &p.UsageCount, &p.IsMeal, &p.TotalWeightG, &p.CreatedAt, &p.LastUsedAt); err != nil {
 			return nil, err
 		}
 		if barcode.Valid {
@@ -1680,6 +1685,94 @@ func (s *Store) SearchFoodProducts(ctx context.Context, userID int64, queryStr s
 		products = append(products, p)
 	}
 	return products, nil
+}
+
+func (s *Store) CreateMealFromLogs(ctx context.Context, userID int64, name string, logIDs []int64) (*FoodProduct, error) {
+	if len(logIDs) == 0 {
+		return nil, fmt.Errorf("no log IDs provided")
+	}
+
+	// Prepare IN clause placeholders
+	placeholders := make([]string, len(logIDs))
+	args := make([]interface{}, 0, len(logIDs)+1)
+	args = append(args, userID)
+	for i, id := range logIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, user_id, eaten_at, weight, carbs, protein, fat, calories, name
+		FROM food_log
+		WHERE user_id = ? AND id IN (%s)
+	`, strings.Join(placeholders, ","))
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var totalWeight, totalCarbs, totalProtein, totalFat, totalCalories int
+	var count int
+
+	for rows.Next() {
+		var l FoodLog
+		var lname sql.NullString
+		if err := rows.Scan(&l.ID, &l.UserID, &l.EatenAt, &l.Weight, &l.Carbs, &l.Protein, &l.Fat, &l.Calories, &lname); err != nil {
+			return nil, err
+		}
+		totalWeight += l.Weight
+		totalCarbs += l.Carbs
+		totalProtein += l.Protein
+		totalFat += l.Fat
+		totalCalories += l.Calories
+		count++
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if count == 0 {
+		return nil, fmt.Errorf("no valid food logs found for the given IDs")
+	}
+
+	if totalWeight <= 0 {
+		return nil, fmt.Errorf("total weight must be greater than 0")
+	}
+
+	// Calculate per 100g values
+	mult := 100.0 / float64(totalWeight)
+	c100 := float64(totalCarbs) * mult
+	p100 := float64(totalProtein) * mult
+	f100 := float64(totalFat) * mult
+	k100 := float64(totalCalories) * mult
+
+	product := &FoodProduct{
+		UserID:         userID,
+		Name:           name,
+		Carbs100g:      c100,
+		Protein100g:    p100,
+		Fat100g:        f100,
+		EnergyKcal100g: k100,
+		IsMeal:         true,
+		TotalWeightG:   totalWeight,
+	}
+
+	if err := s.UpsertFoodProduct(ctx, product); err != nil {
+		return nil, err
+	}
+
+	// Get the generated ID
+	var createdProduct FoodProduct
+	err = s.db.QueryRowContext(ctx, "SELECT id, user_id, name, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal, total_weight_g, created_at, last_used_at FROM food_products WHERE user_id = ? AND name = ?", userID, name).Scan(
+		&createdProduct.ID, &createdProduct.UserID, &createdProduct.Name, &createdProduct.Carbs100g, &createdProduct.Protein100g, &createdProduct.Fat100g, &createdProduct.EnergyKcal100g, &createdProduct.UsageCount, &createdProduct.IsMeal, &createdProduct.TotalWeightG, &createdProduct.CreatedAt, &createdProduct.LastUsedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createdProduct, nil
 }
 
 func (s *Store) CreateFoodLog(ctx context.Context, f *FoodLog) (int64, error) {

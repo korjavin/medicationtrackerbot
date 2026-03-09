@@ -218,6 +218,7 @@ const ModalManager = {
             { id: 'workout-add-exercise-to-session-modal', fn: () => typeof closeAddExerciseToSessionModal === 'function' ? closeAddExerciseToSessionModal() : ModalManager.workoutAddExerciseToSession.close() },
             { id: 'food-scanner-modal', fn: () => ModalManager.foodScanner.close() },
             { id: 'food-product-modal', fn: () => ModalManager.foodProduct.close() },
+            { id: 'food-save-meal-modal', fn: () => typeof closeFoodSaveMealModal === 'function' ? closeFoodSaveMealModal() : ModalManager.close('food-save-meal-modal') },
         ];
     },
 
