@@ -561,6 +561,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			exerciseID, _ := strconv.ParseInt(parts[3], 10, 64)
 			b.handleSelectExerciseCallback(cb, sessionID, exerciseID)
 		}
+	} else if strings.HasPrefix(data, "cancel_add_exercise_") {
+		// Cancel exercise selection — just delete the list message
+		b.handleCancelAddExerciseCallback(cb)
 	} else if strings.HasPrefix(data, "exercise_page_") {
 		// Exercise pagination callback
 		parts := strings.Split(data, "_")

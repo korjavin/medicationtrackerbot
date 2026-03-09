@@ -58,6 +58,7 @@ type WorkoutStore interface {
 	GetWorkoutHistory(userID int64, limit int) ([]store.WorkoutSession, error)
 	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
 	GetWorkoutExercise(id int64) (*store.WorkoutExercise, error)
+	GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error)
 	GetExerciseLogs(sessionID int64) ([]store.WorkoutExerciseLog, error)
 	GetAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error)
 }

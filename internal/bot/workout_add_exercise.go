@@ -118,6 +118,12 @@ func (b *Bot) sendExerciseListPage(sessionID int64, chatID int64, page int) (int
 		rows = append(rows, paginationRow)
 	}
 
+	// Always add a Cancel button so the user can back out without being forced to select
+	cancelCallback := fmt.Sprintf("cancel_add_exercise_%d", sessionID)
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("❌ Cancel", cancelCallback),
+	))
+
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
 	text := "**Select exercise to add:**"
 	if totalPages > 1 {
@@ -236,37 +242,33 @@ func (b *Bot) handleSelectExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID
 		return
 	}
 
-	// Get exercise details
-	exercise, err := b.workouts.GetWorkoutExercise(exerciseID)
-	if err != nil || exercise == nil {
+	// Get exercise details from the library (GetAllUniqueExercises returns library IDs when
+	// the library is non-empty, so we must look up in exercise_library, not workout_exercises).
+	libItem, err := b.workouts.GetExerciseLibraryItem(exerciseID)
+	if err != nil || libItem == nil {
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Exercise not found.")); err != nil {
 			slog.Error("send failed", "error", err)
 		}
 		return
 	}
-
-	// Validation: Verify exercise belongs to user's active workout groups
-	// Get all unique exercises for this user to ensure the selected one is valid
-	allowedExercises, err := b.workouts.GetAllUniqueExercises(session.UserID)
-	if err != nil {
-		slog.Error("Failed to validate exercise ownership", "error", err)
-		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Validation error.")); err != nil {
-			slog.Error("send failed", "error", err)
-		}
-		return
+	// Wrap library item as a WorkoutExercise so downstream code stays the same
+	exercise := &struct {
+		ExerciseName   string
+		TargetSets     int
+		TargetRepsMin  int
+		TargetRepsMax  *int
+		TargetWeightKg *float64
+	}{
+		ExerciseName:   libItem.Name,
+		TargetSets:     libItem.DefaultSets,
+		TargetRepsMin:  libItem.DefaultRepsMin,
+		TargetRepsMax:  libItem.DefaultRepsMax,
+		TargetWeightKg: libItem.DefaultWeightKg,
 	}
 
-	// Check if the selected exercise is in the allowed list
-	isAllowed := false
-	for _, allowed := range allowedExercises {
-		if allowed.ID == exerciseID {
-			isAllowed = true
-			break
-		}
-	}
-
-	if !isAllowed {
-		slog.Warn("Security: Unauthorized exercise access", "userID", session.UserID, "exerciseID", exerciseID)
+	// Validation: Verify the library item belongs to the session owner.
+	if libItem.UserID != session.UserID {
+		slog.Warn("Security: Unauthorized exercise access", "userID", session.UserID, "exerciseID", exerciseID, "libOwner", libItem.UserID)
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ This exercise is not available.")); err != nil {
 			slog.Error("send failed", "error", err)
 		}
@@ -278,7 +280,7 @@ func (b *Bot) handleSelectExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID
 		slog.Error("send failed", "error", err)
 	}
 
-	// Send exercise prompt for the selected exercise
+	// Send exercise prompt for the selected exercise (use exerciseID as the exercise identifier)
 	_, err = b.SendExercisePrompt(sessionID, exerciseID, exercise.ExerciseName,
 		exercise.TargetSets, exercise.TargetRepsMin, exercise.TargetRepsMax, exercise.TargetWeightKg)
 	if err != nil {
@@ -286,5 +288,12 @@ func (b *Bot) handleSelectExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error adding exercise.")); err != nil {
 			slog.Error("send failed", "error", err)
 		}
+	}
+}
+
+// handleCancelAddExerciseCallback deletes the exercise selection message without adding anything.
+func (b *Bot) handleCancelAddExerciseCallback(cb *tgbotapi.CallbackQuery) {
+	if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+		slog.Error("send failed", "error", err)
 	}
 }
