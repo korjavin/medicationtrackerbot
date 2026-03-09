@@ -24,9 +24,23 @@ function initTabsDragAndDrop(container, onOrderChange) {
 
         // Start long-press timer
         startX = e.clientX;
+
+        // Listen globally to cancel drag if pointer leaves container before timeout
+        window.addEventListener('pointerup', cancelGlobalDragStart, { once: true });
+        window.addEventListener('pointercancel', cancelGlobalDragStart, { once: true });
+
         dragTimeout = setTimeout(() => {
+            window.removeEventListener('pointerup', cancelGlobalDragStart);
+            window.removeEventListener('pointercancel', cancelGlobalDragStart);
             startDrag(e, target);
         }, 300); // 300ms long press to start drag
+    }
+
+    function cancelGlobalDragStart() {
+        if (dragTimeout) {
+            clearTimeout(dragTimeout);
+            dragTimeout = null;
+        }
     }
 
     function handlePointerMove(e) {
@@ -123,9 +137,18 @@ function initTabsDragAndDrop(container, onOrderChange) {
     }
 
     function startDrag(e, element) {
+        // Ensure the pointer is still active.
+        // If it was lifted outside, the global listener should have cleared the timeout,
+        // but adding this check ensures we don't try to capture a dead pointer.
+        try {
+            container.setPointerCapture(e.pointerId);
+        } catch (err) {
+            console.warn("Failed to capture pointer:", err);
+            return; // Abort drag if pointer is no longer valid
+        }
+
         isDragging = true;
         draggedElement = element;
-        container.setPointerCapture(e.pointerId);
 
         // Visual cues
         draggedElement.style.transition = 'none';
