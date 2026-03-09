@@ -864,6 +864,9 @@ async function saveFoodProduct() {
         return;
     }
 
+    const isMeal = document.getElementById('food-product-is-meal').value === 'true';
+    const totalWeight = parseInt(document.getElementById('food-product-total-weight').value, 10) || 0;
+
     const payload = {
         name: name,
         barcode: document.getElementById('food-product-barcode').value.trim(),
@@ -871,6 +874,8 @@ async function saveFoodProduct() {
         protein_100g: parseFloat(document.getElementById('food-product-protein').value) || 0,
         fat_100g: parseFloat(document.getElementById('food-product-fat').value) || 0,
         energy_kcal_100g: parseFloat(document.getElementById('food-product-calories').value) || 0,
+        is_meal: isMeal,
+        total_weight_g: totalWeight,
     };
 
     const btn = document.getElementById('food-product-save-btn');

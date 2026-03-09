@@ -1573,8 +1573,8 @@ func (s *Store) UpsertFoodProduct(ctx context.Context, p *FoodProduct) error {
 			fat_100g = excluded.fat_100g,
 			energy_kcal_100g = excluded.energy_kcal_100g,
 			usage_count = food_products.usage_count + 1,
-			is_meal = excluded.is_meal,
-			total_weight_g = excluded.total_weight_g,
+			is_meal = CASE WHEN excluded.is_meal THEN 1 ELSE food_products.is_meal END,
+			total_weight_g = CASE WHEN excluded.is_meal THEN excluded.total_weight_g ELSE food_products.total_weight_g END,
 			last_used_at = CURRENT_TIMESTAMP
 	`
 	var barcode interface{}
