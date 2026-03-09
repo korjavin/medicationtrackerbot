@@ -1414,16 +1414,22 @@ function renderMeds() {
             logMedicationPast(med.id, med.name);
         });
 
-        const deleteBtn = document.createElement('button');
-        deleteBtn.type = 'button';
-        deleteBtn.className = 'delete-btn';
-        deleteBtn.textContent = '×';
-        deleteBtn.addEventListener('click', () => {
+        const editBtn = createEditButton(() => {
+            showEditModal(med.id);
+        });
+
+        const deleteBtn = createDeleteButton(() => {
             deleteMed(med.id);
         });
 
+        const actionIcons = document.createElement('div');
+        actionIcons.style.display = 'flex';
+        actionIcons.style.gap = '8px';
+        actionIcons.appendChild(editBtn);
+        actionIcons.appendChild(deleteBtn);
+
         actions.appendChild(logBtn);
-        actions.appendChild(deleteBtn);
+        actions.appendChild(actionIcons);
         div.appendChild(info);
         div.appendChild(actions);
         list.appendChild(div);

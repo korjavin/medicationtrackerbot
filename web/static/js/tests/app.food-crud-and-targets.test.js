@@ -346,7 +346,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
       const products = [{ id: 456, name: 'Burger', carbs_100g: 20, protein_100g: 15, fat_100g: 10, energy_kcal_100g: 250 }];
       window.renderFoodDBList(products, 1);
       
-      const delBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Del');
+      const delBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent === '🗑️');
       delBtn.click();
       
       // Should be called EXACTLY ONCE with correct name
