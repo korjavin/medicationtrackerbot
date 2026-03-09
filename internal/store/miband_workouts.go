@@ -214,8 +214,8 @@ type UpdateMiBandWorkoutFields struct {
 }
 
 // DeleteMiBandWorkout deletes a Mi Band workout by ID and user ID.
-// Note: PRAGMA foreign_keys is not enabled by default in modernc.org/sqlite,
-// so we manually cascade the deletion of GPS tracks first.
+// PRAGMA foreign_keys is not enabled in modernc.org/sqlite,
+// so we delete the workout first (to verify ownership), then cascade-delete GPS tracks manually.
 func (s *Store) DeleteMiBandWorkout(ctx context.Context, id, userID int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
