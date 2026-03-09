@@ -1851,7 +1851,10 @@ function renderFoodDBList(products, total) {
 
     if (products.length === 0) {
         list.innerHTML = '<p class="hint">No products found.</p>';
-        pagination.style.display = 'none';
+        pagination.style.display = total > 0 ? 'flex' : 'none';
+        pageInfo.textContent = `Showing 0 of ${total}`;
+        prevBtn.disabled = foodDBPage === 0;
+        nextBtn.disabled = true;
         return;
     }
 
