@@ -120,9 +120,9 @@ describe('createDeleteButton', () => {
             const btn = window.createDeleteButton(() => {});
             expect(btn.tagName).toBe('BUTTON');
             expect(btn.type).toBe('button');
-            expect(btn.className).toBe('delete-btn');
+            expect(btn.className).toBe('icon-action-btn delete');
             expect(btn.title).toBe('Delete');
-            expect(btn.textContent).toBe('×');
+            expect(btn.textContent).toBe('🗑️');
         } finally {
             cleanup();
         }
