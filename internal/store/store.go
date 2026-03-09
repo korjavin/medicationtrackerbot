@@ -1615,17 +1615,56 @@ func (s *Store) DeleteFoodProduct(ctx context.Context, id, userID int64) error {
 	return nil
 }
 
-func (s *Store) GetFoodProducts(ctx context.Context, userID int64, limit int) ([]FoodProduct, error) {
-	query := `
-		SELECT id, user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal, total_weight_g, created_at, last_used_at
-		FROM food_products
-		WHERE user_id = ?
-		ORDER BY usage_count DESC, last_used_at DESC
-		LIMIT ?
-	`
-	rows, err := s.db.QueryContext(ctx, query, userID, limit)
+type FoodProductsFilter struct {
+	IsMeal *bool
+	Query  string
+	Offset int
+	Limit  int
+	Sort   string // "usage", "last_used", "name"
+}
+
+func (s *Store) GetFoodProducts(ctx context.Context, userID int64, filter FoodProductsFilter) ([]FoodProduct, int, error) {
+	var countQuery strings.Builder
+	var selectQuery strings.Builder
+	var args []interface{}
+
+	countQuery.WriteString("SELECT COUNT(*) FROM food_products WHERE user_id = ?")
+	selectQuery.WriteString("SELECT id, user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal, total_weight_g, created_at, last_used_at FROM food_products WHERE user_id = ?")
+	args = append(args, userID)
+
+	if filter.IsMeal != nil {
+		countQuery.WriteString(" AND is_meal = ?")
+		selectQuery.WriteString(" AND is_meal = ?")
+		args = append(args, *filter.IsMeal)
+	}
+
+	if filter.Query != "" {
+		countQuery.WriteString(" AND name LIKE ?")
+		selectQuery.WriteString(" AND name LIKE ?")
+		args = append(args, "%"+filter.Query+"%")
+	}
+
+	var total int
+	err := s.db.QueryRowContext(ctx, countQuery.String(), args...).Scan(&total)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+
+	switch filter.Sort {
+	case "last_used":
+		selectQuery.WriteString(" ORDER BY last_used_at DESC")
+	case "name":
+		selectQuery.WriteString(" ORDER BY name ASC")
+	default: // "usage" or empty
+		selectQuery.WriteString(" ORDER BY usage_count DESC, last_used_at DESC")
+	}
+
+	selectQuery.WriteString(" LIMIT ? OFFSET ?")
+	args = append(args, filter.Limit, filter.Offset)
+
+	rows, err := s.db.QueryContext(ctx, selectQuery.String(), args...)
+	if err != nil {
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -1634,7 +1673,7 @@ func (s *Store) GetFoodProducts(ctx context.Context, userID int64, limit int) ([
 		var p FoodProduct
 		var barcode sql.NullString
 		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &barcode, &p.Carbs100g, &p.Protein100g, &p.Fat100g, &p.EnergyKcal100g, &p.UsageCount, &p.IsMeal, &p.TotalWeightG, &p.CreatedAt, &p.LastUsedAt); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if barcode.Valid {
 			b := barcode.String
@@ -1642,7 +1681,7 @@ func (s *Store) GetFoodProducts(ctx context.Context, userID int64, limit int) ([
 		}
 		products = append(products, p)
 	}
-	return products, nil
+	return products, total, nil
 }
 
 func (s *Store) SearchFoodProducts(ctx context.Context, userID int64, queryStr string) ([]FoodProduct, error) {

@@ -280,7 +280,7 @@ func TestUpsertFoodProduct(t *testing.T) {
 		t.Fatalf("UpsertFoodProduct (create): %v", err)
 	}
 
-	products, err := s.GetFoodProducts(ctx, 1, 10)
+	products, _, err := s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("GetFoodProducts: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestUpsertFoodProduct(t *testing.T) {
 		t.Fatalf("UpsertFoodProduct (increment): %v", err)
 	}
 
-	products, err = s.GetFoodProducts(ctx, 1, 10)
+	products, _, err = s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("GetFoodProducts: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestUpdateFoodProduct(t *testing.T) {
 		t.Fatalf("UpsertFoodProduct: %v", err)
 	}
 
-	products, err := s.GetFoodProducts(ctx, 1, 10)
+	products, _, err := s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("GetFoodProducts: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestUpdateFoodProduct(t *testing.T) {
 		t.Fatalf("UpdateFoodProduct: %v", err)
 	}
 
-	products, err = s.GetFoodProducts(ctx, 1, 10)
+	products, _, err = s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("GetFoodProducts after update: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestUpdateFoodProductWrongUser(t *testing.T) {
 		t.Fatalf("UpsertFoodProduct: %v", err)
 	}
 
-	products, err := s.GetFoodProducts(ctx, 1, 10)
+	products, _, err := s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("GetFoodProducts: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestDeleteFoodProduct(t *testing.T) {
 		t.Fatalf("UpsertFoodProduct: %v", err)
 	}
 
-	products, err := s.GetFoodProducts(ctx, 1, 10)
+	products, _, err := s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("GetFoodProducts: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestDeleteFoodProduct(t *testing.T) {
 		t.Fatalf("DeleteFoodProduct: %v", err)
 	}
 
-	products, err = s.GetFoodProducts(ctx, 1, 10)
+	products, _, err = s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("GetFoodProducts after delete: %v", err)
 	}
@@ -467,7 +467,7 @@ func TestGetFoodProductsOrderedByUsage(t *testing.T) {
 		}
 	}
 
-	got, err := s.GetFoodProducts(ctx, 1, 10)
+	got, _, err := s.GetFoodProducts(ctx, 1, FoodProductsFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("GetFoodProducts: %v", err)
 	}

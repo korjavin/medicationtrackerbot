@@ -516,7 +516,37 @@ func (s *Server) handleDeleteFoodProduct(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleGetFoodProducts(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	products, err := s.food.GetFoodProducts(context.Background(), userID, 100)
+	query := r.URL.Query()
+
+	limit := 100
+	if l := query.Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	offset := 0
+	if o := query.Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	var isMeal *bool
+	if m := query.Get("is_meal"); m != "" {
+		parsed := m == "true"
+		isMeal = &parsed
+	}
+
+	filter := store.FoodProductsFilter{
+		IsMeal: isMeal,
+		Query:  query.Get("q"),
+		Offset: offset,
+		Limit:  limit,
+		Sort:   query.Get("sort"),
+	}
+
+	products, total, err := s.food.GetFoodProducts(context.Background(), userID, filter)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -525,8 +555,16 @@ func (s *Server) handleGetFoodProducts(w http.ResponseWriter, r *http.Request) {
 		products = []store.FoodProduct{}
 	}
 
+	response := struct {
+		Products []store.FoodProduct `json:"products"`
+		Total    int                 `json:"total"`
+	}{
+		Products: products,
+		Total:    total,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(products); err != nil {
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("encode response: %v", err)
 	}
 }
