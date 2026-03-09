@@ -1384,18 +1384,25 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
                 itemBody.appendChild(name);
                 itemBody.appendChild(meta);
 
-                const deleteButton = document.createElement('button');
-                deleteButton.type = 'button';
-                deleteButton.className = 'delete-btn';
-                deleteButton.style.fontSize = '16px';
-                deleteButton.textContent = '×';
-                deleteButton.addEventListener('click', (event) => {
+                const actionIcons = document.createElement('div');
+                actionIcons.style.display = 'flex';
+                actionIcons.style.gap = '8px';
+
+                const editButton = createEditButton((event) => {
+                    event.stopPropagation();
+                    editFoodLog(log.id);
+                });
+
+                const deleteButton = createDeleteButton((event) => {
                     event.stopPropagation();
                     deleteFoodLog(log.id);
                 });
 
+                actionIcons.appendChild(editButton);
+                actionIcons.appendChild(deleteButton);
+
                 item.appendChild(itemBody);
-                item.appendChild(deleteButton);
+                item.appendChild(actionIcons);
                 groupDiv.appendChild(item);
             });
 
@@ -1557,12 +1564,9 @@ async function loadMyMeals() {
         actions.className = 'food-meal-actions';
         actions.style.cssText = 'display: flex; gap: 8px; flex-shrink: 0;';
 
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'btn-small secondary';
-        deleteBtn.style.padding = '4px 8px';
-        deleteBtn.style.color = '#ff3b30';
-        deleteBtn.textContent = 'Del';
-        deleteBtn.onclick = async () => {
+        const editBtn = createEditButton(() => showEditFoodProductModal(meal));
+
+        const deleteBtn = createDeleteButton(async () => {
             if (confirm(`Delete the meal "${decodeFoodDisplayText(meal.name)}"?`)) {
                 try {
                     await apiCall(`/api/food/products/${meal.id}`, 'DELETE');
@@ -1576,7 +1580,8 @@ async function loadMyMeals() {
                     safeAlert('Failed to delete meal');
                 }
             }
-        };
+        });
+        actions.appendChild(editBtn);
         actions.appendChild(deleteBtn);
         mainRow.appendChild(actions);
 
@@ -1606,17 +1611,8 @@ async function loadMyMeals() {
         `;
         card.appendChild(nutritionRow);
 
-        const actionsRow = document.createElement('div');
-        actionsRow.style.cssText = 'display: flex; gap: 10px; margin-top: 10px; justify-content: flex-end;';
-
-        const editBtn = document.createElement('button');
-        editBtn.className = 'secondary small-btn';
-        editBtn.textContent = 'Edit';
-        editBtn.style.margin = '0';
-        editBtn.onclick = () => showEditFoodProductModal(meal);
-
-        actionsRow.appendChild(editBtn);
-        card.appendChild(actionsRow);
+        // Intentionally removing the duplicate actionsRow with Edit button
+        // because we moved both Edit and Delete to the top row.
 
         list.appendChild(card);
     });
@@ -1899,25 +1895,16 @@ function renderFoodDBList(products, total) {
         actions.style.flexShrink = '0';
         actions.style.marginLeft = '12px';
 
-        const editBtn = document.createElement('button');
-        editBtn.className = 'btn-small secondary';
-        editBtn.style.padding = '4px 10px';
-        editBtn.textContent = 'Edit';
-        editBtn.onclick = (e) => {
+        const editBtn = createEditButton((e) => {
             e.stopPropagation();
             showEditFoodProductModal(p);
-        };
+        });
         actions.appendChild(editBtn);
 
-        const delBtn = document.createElement('button');
-        delBtn.className = 'btn-small secondary';
-        delBtn.style.padding = '4px 10px';
-        delBtn.style.color = '#ff3b30';
-        delBtn.textContent = 'Del';
-        delBtn.onclick = (e) => {
+        const delBtn = createDeleteButton((e) => {
             e.stopPropagation();
             deleteFoodProduct(p.id, decodeFoodDisplayText(p.name));
-        };
+        });
         actions.appendChild(delBtn);
         topRow.appendChild(actions);
 

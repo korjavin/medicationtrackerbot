@@ -130,15 +130,6 @@ h1 {
     gap: 4px;
 }
 
-.delete-btn {
-    color: #ff3b30;
-    background: none;
-    border: none;
-    font-size: 20px;
-    padding: 8px;
-    cursor: pointer;
-}
-
 .small-btn.secondary {
     padding: 4px 8px;
     border-radius: 6px;
@@ -147,6 +138,56 @@ h1 {
     color: var(--text-color);
 }
 
+.icon-action-btn {
+    width: 24px;
+    height: 24px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    margin: 0;
+    transition: opacity 0.2s ease, background-color 0.2s ease;
+    border-radius: 4px;
+}
+
+.icon-action-btn:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.icon-action-btn.delete:hover {
+    background-color: rgba(255, 59, 48, 0.1);
+}
+
+.modal-action-btn {
+    height: 32px;
+    padding: 0 16px;
+    border-radius: 16px;
+    border: none;
+    background-color: var(--secondary-bg-color);
+    color: var(--text-color);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.modal-action-btn:hover {
+    background-color: rgba(0, 0, 0, 0.08);
+}
+
+.modal-action-btn:active {
+    transform: scale(0.96);
+}
+
+.modal-action-btn.delete:hover {
+    background-color: rgba(255, 59, 48, 0.1);
+}
 
 /* FAB & pill buttons */
 #add-btn,
