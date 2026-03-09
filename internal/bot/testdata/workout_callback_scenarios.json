@@ -1,0 +1,38 @@
+[
+  {
+    "name": "Start Workout",
+    "description": "User clicks the Start Now button for a workout",
+    "input": {
+      "callback_data": "workout_start_1"
+    },
+    "expected": {
+      "message_contains": "No exercises found for this workout",
+      "snoozed": false,
+      "status": "in_progress"
+    }
+  },
+  {
+    "name": "Snooze Workout",
+    "description": "User clicks the Snooze button",
+    "input": {
+      "callback_data": "workout_snooze1_1"
+    },
+    "expected": {
+      "message_contains": "",
+      "snoozed": true,
+      "status": "pending"
+    }
+  },
+  {
+    "name": "Skip Workout",
+    "description": "User clicks the Skip button",
+    "input": {
+      "callback_data": "workout_skip_1"
+    },
+    "expected": {
+      "message_contains": "",
+      "snoozed": false,
+      "status": "skipped"
+    }
+  }
+]
