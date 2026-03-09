@@ -1,0 +1,35 @@
+[
+  {
+    "name": "Confirm BP Reminder",
+    "description": "User clicks the Confirm button on a BP Reminder notification",
+    "input": {
+      "callback_data": "bp_confirm"
+    },
+    "expected": {
+      "message_contains": "Please open the app to record your blood pressure",
+      "removed_buttons": true
+    }
+  },
+  {
+    "name": "Snooze BP Reminder",
+    "description": "User clicks the Snooze button",
+    "input": {
+      "callback_data": "bp_snooze"
+    },
+    "expected": {
+      "message_contains": "BP reminder snoozed",
+      "snoozed": true
+    }
+  },
+  {
+    "name": "Don't Bug Me BP Reminder",
+    "description": "User clicks the Don't Bug Me button",
+    "input": {
+      "callback_data": "bp_dontbug"
+    },
+    "expected": {
+      "message_contains": "BP reminders disabled for 24 hours",
+      "dont_bug_me": true
+    }
+  }
+]
