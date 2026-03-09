@@ -188,6 +188,7 @@ h1 {
 #workout-variant-modal,
 #workout-exercise-modal,
 #exercise-library-modal,
+#miband-workout-modal,
 #bp-modal,
 #weight-modal,
 #workout-session-modal,
@@ -210,7 +211,8 @@ h1 {
     box-shadow: 0 6px 28px rgba(0, 0, 0, 0.25);
 }
 
-#workout-session-modal {
+#workout-session-modal,
+#miband-workout-modal {
     max-width: 500px;
 }
 
@@ -220,6 +222,7 @@ h1 {
 #workout-variant-modal.hidden,
 #workout-exercise-modal.hidden,
 #exercise-library-modal.hidden,
+#miband-workout-modal.hidden,
 #bp-modal.hidden,
 #weight-modal.hidden,
 #workout-session-modal.hidden,
