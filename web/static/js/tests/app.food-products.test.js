@@ -131,6 +131,8 @@ describe('food product edit/delete in autocomplete', () => {
         protein_100g: 12,
         fat_100g: 1,
         energy_kcal_100g: 77,
+        is_meal: false,
+        total_weight_g: 0,
       });
       expect(document.getElementById('food-product-modal').classList.contains('hidden')).toBe(true);
       expect(window.MedTrackerDB.FoodProductsStore.clearCache).toHaveBeenCalled();
