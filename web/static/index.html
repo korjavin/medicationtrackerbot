@@ -147,6 +147,7 @@
             <div class="food-tabs">
                 <button class="food-tab active" data-tab="log">Daily Log</button>
                 <button class="food-tab" data-tab="meals">My Meals</button>
+                <button class="food-tab" data-tab="fooddb">Food DB</button>
             </div>
 
             <div id="food-log-tab" class="food-tab-content active">
@@ -180,6 +181,25 @@
                 </p>
                 <div id="food-meals-list">
                     <!-- Meals injected here -->
+                </div>
+            </div>
+
+            <div id="food-fooddb-tab" class="food-tab-content">
+                <input type="text" id="fooddb-search" class="input-field" placeholder="Search products..." style="margin-bottom: 10px;">
+                <div class="fooddb-sort-controls" style="margin-bottom: 15px;">
+                    <button class="btn btn-small fooddb-sort-btn active" data-sort="usage">Most Used</button>
+                    <button class="btn btn-small fooddb-sort-btn" data-sort="last_used">Recently Used</button>
+                    <button class="btn btn-small fooddb-sort-btn" data-sort="name">A-Z</button>
+                </div>
+                <div id="fooddb-list">
+                    <!-- Products injected here -->
+                </div>
+                <div id="fooddb-pagination" class="fooddb-pagination-controls" style="display: none;">
+                    <span id="fooddb-page-info">Showing 0-0 of 0</span>
+                    <div class="pagination-buttons">
+                        <button id="fooddb-prev-btn" class="btn btn-small">Prev</button>
+                        <button id="fooddb-next-btn" class="btn btn-small">Next</button>
+                    </div>
                 </div>
             </div>
         </div>
