@@ -78,6 +78,10 @@ function bindWorkoutControls() {
     bindClick('session-add-exercise-cancel-btn', () => closeAddExerciseToSessionModal());
     bindClick('session-add-exercise-save-btn', () => saveNewSessionExercise());
 
+    bindClick('miband-workout-cancel-btn', () => closeMiBandWorkoutModal());
+    bindClick('miband-workout-save-btn', () => saveMiBandWorkout());
+    bindClick('miband-workout-delete-btn', () => deleteMiBandWorkout());
+
     const rotatingCheckbox = document.getElementById('workout-group-rotating');
     if (rotatingCheckbox) {
         rotatingCheckbox.addEventListener('change', () => {
@@ -1470,7 +1474,94 @@ function _buildMiBandCard(w) {
     });
     card.appendChild(chipsEl);
 
+    card.style.cursor = 'pointer';
+    card.style.transition = 'background 0.2s';
+    card.addEventListener('mouseover', () => { card.style.background = '#e8f5e9'; });
+    card.addEventListener('mouseout', () => { card.style.background = '#f0f7f0'; });
+    card.addEventListener('click', () => showMiBandWorkoutModal(w));
+
     return card;
+}
+
+// ====================================
+// MI BAND WORKOUT EDIT/DELETE
+// ====================================
+
+let currentMiBandWorkout = null;
+
+function showMiBandWorkoutModal(w) {
+    currentMiBandWorkout = w;
+    document.getElementById('miband-workout-id').value = w.id;
+    document.getElementById('miband-workout-steps').value = w.steps || 0;
+    document.getElementById('miband-workout-distance').value = w.distance_m || 0;
+    document.getElementById('miband-workout-duration').value = w.duration_sec || 0;
+    document.getElementById('miband-workout-calories').value = w.calories || 0;
+    document.getElementById('miband-workout-hr').value = w.heart_rate_avg || 0;
+    document.getElementById('miband-workout-spo2').value = w.spo2_avg || 0;
+
+    window.ModalManager.mibandWorkout.open();
+}
+
+function closeMiBandWorkoutModal() {
+    currentMiBandWorkout = null;
+    window.ModalManager.mibandWorkout.close();
+}
+
+async function saveMiBandWorkout() {
+    if (!currentMiBandWorkout) return;
+
+    const id = currentMiBandWorkout.id;
+    const payload = {};
+
+    const steps = parseInt(document.getElementById('miband-workout-steps').value) || 0;
+    const distance = parseFloat(document.getElementById('miband-workout-distance').value) || 0;
+    const duration = parseInt(document.getElementById('miband-workout-duration').value) || 0;
+    const calories = parseInt(document.getElementById('miband-workout-calories').value) || 0;
+    const hr = parseInt(document.getElementById('miband-workout-hr').value) || 0;
+    const spo2 = parseInt(document.getElementById('miband-workout-spo2').value) || 0;
+
+    if (steps !== currentMiBandWorkout.steps) payload.steps = steps;
+    if (distance !== currentMiBandWorkout.distance_m) payload.distance_m = distance;
+    if (duration !== currentMiBandWorkout.duration_sec) payload.duration_sec = duration;
+    if (calories !== currentMiBandWorkout.calories) payload.calories = calories;
+    if (hr !== currentMiBandWorkout.heart_rate_avg) payload.heart_rate_avg = hr;
+    if (spo2 !== currentMiBandWorkout.spo2_avg) payload.spo2_avg = spo2;
+
+    if (Object.keys(payload).length === 0) {
+        closeMiBandWorkoutModal();
+        return;
+    }
+
+    try {
+        const result = await apiCall(`/api/workout/miband/${id}`, 'PATCH', payload);
+        if (result || result === true) {
+            closeMiBandWorkoutModal();
+            loadWorkoutHistoryTab();
+        } else {
+            throw new Error('API returned false/null');
+        }
+    } catch (err) {
+        console.error('Error updating Mi Band workout:', err);
+        safeAlert('Failed to update workout. Please try again.');
+    }
+}
+
+async function deleteMiBandWorkout() {
+    if (!currentMiBandWorkout) return;
+    if (!confirm('Delete this workout?')) return;
+
+    try {
+        const result = await apiCall(`/api/workout/miband/${currentMiBandWorkout.id}`, 'DELETE');
+        if (result || result === true) {
+            closeMiBandWorkoutModal();
+            loadWorkoutHistoryTab();
+        } else {
+            throw new Error('API returned false/null');
+        }
+    } catch (err) {
+        console.error('Error deleting Mi Band workout:', err);
+        safeAlert('Failed to delete workout. Please try again.');
+    }
 }
 
 let currentSessionLogs = [];
