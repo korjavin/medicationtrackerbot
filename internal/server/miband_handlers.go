@@ -1,7 +1,9 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -115,4 +117,66 @@ func (s *Server) handleGetMiBandWorkoutGPS(w http.ResponseWriter, r *http.Reques
 	if err := json.NewEncoder(w).Encode(pts); err != nil {
 		log.Printf("encode miband gps: %v", err)
 	}
+}
+
+// handleDeleteMiBandWorkout deletes a Mi Band workout.
+func (s *Server) handleDeleteMiBandWorkout(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserID(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid workout ID", http.StatusBadRequest)
+		return
+	}
+
+	err = s.miband.DeleteMiBandWorkout(r.Context(), id, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "Workout not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleUpdateMiBandWorkout updates specific fields of a Mi Band workout.
+func (s *Server) handleUpdateMiBandWorkout(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserID(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid workout ID", http.StatusBadRequest)
+		return
+	}
+
+	var fields store.UpdateMiBandWorkoutFields
+	if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
+		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	err = s.miband.UpdateMiBandWorkout(r.Context(), id, userID, fields)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "Workout not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

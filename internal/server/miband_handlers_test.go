@@ -1,6 +1,9 @@
 package server
 
 import (
+	"bytes"
+	"strconv"
+
 	"context"
 	"encoding/json"
 	"fmt"
@@ -213,5 +216,107 @@ func TestHandleGetMiBandWorkoutGPS_EmptyGPS(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&pts)
 	if len(pts) != 0 {
 		t.Errorf("Expected empty GPS track, got %d points", len(pts))
+	}
+}
+
+func TestDeleteMiBandWorkoutHandler(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+	userID := srv.allowedUserID
+
+	// Setup a workout
+	startMs := time.Now().UnixMilli()
+	workouts := []store.MiBandWorkout{
+		{
+			UserID: userID, SourceStartMs: startMs, SourceEndMs: startMs + 1000,
+			ActivityType: 1, ActivityName: "test", DurationSec: 1, DistanceM: 10,
+		},
+	}
+	_, _, err := db.ImportMiBandWorkouts(context.Background(), workouts, nil)
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	result, _ := db.ListMiBandWorkouts(context.Background(), userID, 1)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workout")
+	}
+	workoutID := result[0].ID
+
+	// Test deleting non-existent workout (404)
+	req := httptest.NewRequest("DELETE", "/api/workout/miband/99999", nil)
+	req.SetPathValue("id", "99999")
+	w := httptest.NewRecorder()
+	srv.handleDeleteMiBandWorkout(w, withUser(req, userID))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for non-existent workout, got %d", w.Code)
+	}
+
+	// Test deleting real workout (204)
+	req = httptest.NewRequest("DELETE", "/api/workout/miband/"+strconv.FormatInt(workoutID, 10), nil)
+	req.SetPathValue("id", strconv.FormatInt(workoutID, 10))
+	w = httptest.NewRecorder()
+	srv.handleDeleteMiBandWorkout(w, withUser(req, userID))
+	if w.Code != http.StatusNoContent {
+		t.Errorf("expected 204 for successful delete, got %d", w.Code)
+	}
+
+	// Verify it's gone
+	w2, _ := db.GetMiBandWorkout(context.Background(), workoutID)
+	if w2 != nil {
+		t.Errorf("expected workout to be deleted")
+	}
+}
+
+func TestUpdateMiBandWorkoutHandler(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+	userID := srv.allowedUserID
+
+	// Setup a workout
+	startMs := time.Now().UnixMilli()
+	workouts := []store.MiBandWorkout{
+		{
+			UserID: userID, SourceStartMs: startMs, SourceEndMs: startMs + 1000,
+			ActivityType: 1, ActivityName: "test", DurationSec: 1, DistanceM: 10,
+			Steps: 0, Calories: 0,
+		},
+	}
+	_, _, err := db.ImportMiBandWorkouts(context.Background(), workouts, nil)
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	result, _ := db.ListMiBandWorkouts(context.Background(), userID, 1)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workout")
+	}
+	workoutID := result[0].ID
+
+	// Update the workout
+	newSteps := 1000
+	newDist := 5000.0
+	payload := map[string]interface{}{
+		"steps":      newSteps,
+		"distance_m": newDist,
+	}
+	body, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest("PATCH", "/api/workout/miband/"+strconv.FormatInt(workoutID, 10), bytes.NewReader(body))
+	req.SetPathValue("id", strconv.FormatInt(workoutID, 10))
+	w := httptest.NewRecorder()
+	srv.handleUpdateMiBandWorkout(w, withUser(req, userID))
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 OK, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify changes
+	updated, _ := db.GetMiBandWorkout(context.Background(), workoutID)
+	if updated.Steps != newSteps {
+		t.Errorf("expected %d steps, got %d", newSteps, updated.Steps)
+	}
+	if updated.DistanceM != newDist {
+		t.Errorf("expected %f dist, got %f", newDist, updated.DistanceM)
 	}
 }

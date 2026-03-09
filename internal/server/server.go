@@ -384,6 +384,8 @@ func (s *Server) Routes() http.Handler {
 	// Mi Band outdoor workout endpoints
 	apiMux.HandleFunc("GET /api/workout/miband", s.handleListMiBandWorkouts)
 	apiMux.HandleFunc("GET /api/workout/miband/{id}/gps", s.handleGetMiBandWorkoutGPS)
+	apiMux.HandleFunc("DELETE /api/workout/miband/{id}", s.handleDeleteMiBandWorkout)
+	apiMux.HandleFunc("PATCH /api/workout/miband/{id}", s.handleUpdateMiBandWorkout)
 
 	// Web Push endpoints
 	apiMux.HandleFunc("GET /api/webpush/vapid-public-key", s.handleGetVAPIDPublicKey)
