@@ -1533,9 +1533,13 @@ async function saveMiBandWorkout() {
     }
 
     try {
-        await apiCall(`/api/workout/miband/${id}`, 'PATCH', payload);
-        closeMiBandWorkoutModal();
-        loadWorkoutHistoryTab();
+        const result = await apiCall(`/api/workout/miband/${id}`, 'PATCH', payload);
+        if (result || result === true) {
+            closeMiBandWorkoutModal();
+            loadWorkoutHistoryTab();
+        } else {
+            throw new Error('API returned false/null');
+        }
     } catch (err) {
         console.error('Error updating Mi Band workout:', err);
         safeAlert('Failed to update workout. Please try again.');
@@ -1547,9 +1551,13 @@ async function deleteMiBandWorkout() {
     if (!confirm('Delete this workout?')) return;
 
     try {
-        await apiCall(`/api/workout/miband/${currentMiBandWorkout.id}`, 'DELETE');
-        closeMiBandWorkoutModal();
-        loadWorkoutHistoryTab();
+        const result = await apiCall(`/api/workout/miband/${currentMiBandWorkout.id}`, 'DELETE');
+        if (result || result === true) {
+            closeMiBandWorkoutModal();
+            loadWorkoutHistoryTab();
+        } else {
+            throw new Error('API returned false/null');
+        }
     } catch (err) {
         console.error('Error deleting Mi Band workout:', err);
         safeAlert('Failed to delete workout. Please try again.');
