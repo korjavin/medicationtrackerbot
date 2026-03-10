@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -64,27 +64,27 @@ func (s *Server) handleExternalWorkout(w http.ResponseWriter, r *http.Request) {
 
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("[external-workout] error reading body: %v", err)
+		slog.Error("[external-workout] error reading body", "error", err)
 		http.Error(w, "Error reading request", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("[external-workout] raw body: %s", string(bodyBytes))
+	slog.Info("[external-workout] raw body", "body", string(bodyBytes))
 
 	var payload miNotifyPayload
 	if err := json.NewDecoder(bytes.NewReader(bodyBytes)).Decode(&payload); err != nil {
-		log.Printf("[external-workout] error parsing JSON: %v, body: %s", err, string(bodyBytes))
+		slog.Error("[external-workout] error parsing JSON", "error", err, "body", string(bodyBytes))
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	if payload.WorkoutType == "" {
-		log.Printf("[external-workout] missing WorkoutType. body: %s", string(bodyBytes))
+		slog.Warn("[external-workout] missing WorkoutType", "body", string(bodyBytes))
 		http.Error(w, "Missing required field: workout_type", http.StatusBadRequest)
 		return
 	}
 	if payload.StartTime <= 0 {
-		log.Printf("[external-workout] missing or invalid StartTime. body: %s", string(bodyBytes))
+		slog.Warn("[external-workout] missing or invalid StartTime", "body", string(bodyBytes))
 		http.Error(w, "Missing required field: start_time", http.StatusBadRequest)
 		return
 	}
@@ -105,12 +105,12 @@ func (s *Server) handleExternalWorkout(w http.ResponseWriter, r *http.Request) {
 	if isSecondsPrecision {
 		isDuplicate, err := s.miband.CheckDuplicateMiBandWorkout(r.Context(), s.allowedUserID, startMs, startMs+999)
 		if err != nil {
-			log.Printf("[external-workout] db error checking duplicate: %v", err)
+			slog.Error("[external-workout] db error checking duplicate", "error", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		if isDuplicate {
-			log.Printf("[external-workout] skipped duplicate workout (fuzzy check): %s at %d", payload.WorkoutType, startMs)
+			slog.Info("[external-workout] skipped duplicate workout (fuzzy check)", "workoutType", payload.WorkoutType, "startMs", startMs)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -140,14 +140,14 @@ func (s *Server) handleExternalWorkout(w http.ResponseWriter, r *http.Request) {
 
 	inserted, err := s.miband.InsertMiBandWorkout(r.Context(), workout)
 	if err != nil {
-		log.Printf("[external-workout] db insert error: %v", err)
+		slog.Error("[external-workout] db insert error", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if !inserted {
-		log.Printf("[external-workout] skipped duplicate workout: %s at %d", workout.ActivityName, workout.SourceStartMs)
+		slog.Info("[external-workout] skipped duplicate workout", "activityName", workout.ActivityName, "startMs", workout.SourceStartMs)
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"status": "duplicate",
