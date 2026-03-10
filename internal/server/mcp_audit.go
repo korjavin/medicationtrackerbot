@@ -71,15 +71,17 @@ func (s *Server) handleMCPAudit(w http.ResponseWriter, r *http.Request) {
 
 	s.mcpAuditMutex.Lock()
 	lastSent := s.lastMCPNotification
-	s.lastMCPNotification = time.Now()
-	s.mcpAuditMutex.Unlock()
 
 	// 2-hour snooze
 	if time.Since(lastSent) < 2*time.Hour {
+		s.mcpAuditMutex.Unlock()
 		log.Printf("[Server] Suppressing MCP audit notification (snooze active)")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+
+	s.lastMCPNotification = time.Now()
+	s.mcpAuditMutex.Unlock()
 
 	// Format notification message
 	var parts []string

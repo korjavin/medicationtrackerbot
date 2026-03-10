@@ -36,10 +36,12 @@ func main() {
 
 	// Initialize audit buffer if configured
 	var auditBuffer *mcp.AuditBuffer
-	if cfg.AuditEndpoint != "" {
+	if cfg.AuditEndpoint != "" && cfg.AuditSecret != "" {
 		auditBuffer = mcp.NewAuditBuffer(cfg.AuditEndpoint, cfg.AuditSecret)
 		auditBuffer.Start(context.Background())
 		log.Printf("[MCP] Audit logging enabled: endpoint=%s", cfg.AuditEndpoint)
+	} else if cfg.AuditEndpoint != "" && cfg.AuditSecret == "" {
+		log.Printf("[MCP] WARNING: Audit logging is disabled because MCP_AUDIT_SECRET is empty")
 	}
 
 	// Create and start MCP server
