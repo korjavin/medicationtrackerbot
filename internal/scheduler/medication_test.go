@@ -17,11 +17,17 @@ type MockNotifier struct {
 }
 
 func (m *MockNotifier) Send(ctx context.Context, userID int64, n notifier.Notification) (int, error) {
-	m.Notifications = append(m.Notifications, n)
+	if n.Metadata["type"] != "medication_batch" {
+		m.Notifications = append(m.Notifications, n)
+	}
 	return 1, nil
 }
 
 func (m *MockNotifier) Delete(ctx context.Context, userID int64, msgID int) error {
+	return nil
+}
+
+func (m *MockNotifier) CloseNotification(ctx context.Context, userID int64, tag string) error {
 	return nil
 }
 
