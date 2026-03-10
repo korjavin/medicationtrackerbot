@@ -5,6 +5,52 @@ import (
 	"testing"
 )
 
+// mockTelegramSender records SendMarkdownNotification calls.
+type mockTelegramSender struct {
+	sent []string
+}
+
+func (m *mockTelegramSender) SendMarkdownNotification(text string, actions []struct{ ID, Label string }) (int, error) {
+	m.sent = append(m.sent, text)
+	return 1, nil
+}
+
+func (m *mockTelegramSender) DeleteMessage(_ int) error { return nil }
+
+// TestTelegram_SkipsMedicationIndividual verifies that medication_individual
+// notifications (WebPush-only) are NOT forwarded to Telegram, to prevent
+// duplicate notifications alongside the batched medication_batch message.
+func TestTelegram_SkipsMedicationIndividual(t *testing.T) {
+	sender := &mockTelegramSender{}
+	tg := NewTelegram(sender)
+
+	n := Notification{
+		Text: "💊 Time to take: Creatine",
+		Actions: []Action{
+			{ID: "confirm_1", Label: "Confirm"},
+			{ID: "skip_1", Label: "Skip"},
+		},
+		Tag: "medication-1",
+		Metadata: map[string]interface{}{
+			"type":          "medication_individual",
+			"scheduled_at":  "2026-03-10T19:00:00+01:00",
+			"medication_id": int64(42),
+			"intake_id":     int64(1),
+		},
+	}
+
+	msgID, err := tg.Send(context.Background(), 123, n)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if msgID != 0 {
+		t.Errorf("expected msgID=0 (skipped), got %d", msgID)
+	}
+	if len(sender.sent) != 0 {
+		t.Errorf("Telegram should NOT send medication_individual notifications, but got %d send(s): %v", len(sender.sent), sender.sent)
+	}
+}
+
 func TestStripMarkdown_Bold(t *testing.T) {
 	input := "**Hello** world"
 	want := "Hello world"

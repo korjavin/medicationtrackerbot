@@ -19,6 +19,12 @@ func NewTelegram(b TelegramSender) *Telegram {
 }
 
 func (t *Telegram) Send(_ context.Context, _ int64, n Notification) (int, error) {
+	// Skip WebPush-only individual medication notifications to avoid duplicates.
+	// The batched medication_batch message already covers Telegram users.
+	if n.Metadata != nil && n.Metadata["type"] == "medication_individual" {
+		return 0, nil
+	}
+
 	actions := make([]struct{ ID, Label string }, len(n.Actions))
 	for i, a := range n.Actions {
 		actions[i] = struct{ ID, Label string }{ID: a.ID, Label: a.Label}
