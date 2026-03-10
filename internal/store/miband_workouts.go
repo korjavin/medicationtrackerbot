@@ -38,6 +38,54 @@ type MiBandGPSPoint struct {
 	IsPause    bool    `json:"is_pause"`
 }
 
+// CheckDuplicateMiBandWorkout checks if a workout exists for a user within a given start timestamp range.
+func (s *Store) CheckDuplicateMiBandWorkout(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM miband_workouts
+		WHERE user_id = ? AND source_start_ms >= ? AND source_start_ms <= ?
+	`, userID, startMsMin, startMsMax).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// InsertMiBandWorkout inserts a single workout (dedup by user_id + source_start_ms).
+// Returns inserted=true if a new row was created, inserted=false if deduplicated.
+func (s *Store) InsertMiBandWorkout(ctx context.Context, w *MiBandWorkout) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO miband_workouts
+			(user_id, source_start_ms, source_end_ms, activity_type, activity_name,
+			 duration_sec, distance_m, steps, calories, heart_rate_avg, spo2_avg,
+			 pause_ms, tz_offset)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(user_id, source_start_ms) DO NOTHING`,
+		w.UserID, w.SourceStartMs, w.SourceEndMs, w.ActivityType, w.ActivityName,
+		w.DurationSec, w.DistanceM, w.Steps, w.Calories, w.HeartRateAvg, w.SpO2Avg,
+		w.PauseMs, w.TzOffset,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+
+	if rowsAffected == 0 {
+		return false, nil
+	}
+
+	lastID, err := res.LastInsertId()
+	if err == nil {
+		w.ID = lastID
+	}
+
+	return true, nil
+}
+
 // ImportMiBandWorkouts inserts workouts that don't already exist (dedup by user_id + source_start_ms).
 // GPS tracks are inserted inside the same transaction.
 // Returns (imported, skipped, error).
