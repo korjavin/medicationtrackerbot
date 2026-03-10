@@ -38,6 +38,19 @@ type MiBandGPSPoint struct {
 	IsPause    bool    `json:"is_pause"`
 }
 
+// CheckDuplicateMiBandWorkout checks if a workout exists for a user within a given start timestamp range.
+func (s *Store) CheckDuplicateMiBandWorkout(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM miband_workouts
+		WHERE user_id = ? AND source_start_ms >= ? AND source_start_ms <= ?
+	`, userID, startMsMin, startMsMax).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // InsertMiBandWorkout inserts a single workout (dedup by user_id + source_start_ms).
 // Returns inserted=true if a new row was created, inserted=false if deduplicated.
 func (s *Store) InsertMiBandWorkout(ctx context.Context, w *MiBandWorkout) (bool, error) {

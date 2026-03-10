@@ -188,4 +188,5 @@ type MiBandStore interface {
 	DeleteMiBandWorkout(ctx context.Context, id, userID int64) error
 	UpdateMiBandWorkout(ctx context.Context, id, userID int64, fields store.UpdateMiBandWorkoutFields) error
 	InsertMiBandWorkout(ctx context.Context, w *store.MiBandWorkout) (bool, error)
+	CheckDuplicateMiBandWorkout(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error)
 }
