@@ -3,7 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -62,7 +62,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 	for _, med := range meds {
 		cfg, err := med.ValidSchedule()
 		if err != nil {
-			log.Printf("Invalid schedule for med %d: %v", med.ID, err)
+			slog.Warn("Invalid schedule for medication", "medID", med.ID, "error", err)
 			continue
 		}
 
@@ -106,7 +106,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 
 			existing, err := c.store.GetIntakeBySchedule(med.ID, target)
 			if err != nil {
-				log.Printf("Error checking intake existence: %v", err)
+				slog.Error("Error checking intake existence", "error", err)
 				continue
 			}
 
@@ -131,10 +131,10 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		var intakeIDs []int64
 		intakeByMedication := make(map[int64]int64, len(group.Meds))
 		for _, med := range group.Meds {
-			log.Printf("Triggering medication %s (%s) scheduled for %s", med.Name, med.Dosage, med.Schedule)
+			slog.Info("Triggering medication", "name", med.Name, "dosage", med.Dosage, "schedule", med.Schedule, "target", group.Target)
 			id, err := c.store.CreateIntake(med.ID, c.allowedUserID, group.Target)
 			if err != nil {
-				log.Printf("Failed to create intake log: %v", err)
+				slog.Error("Failed to create intake log", "error", err)
 			} else {
 				intakeIDs = append(intakeIDs, id)
 				intakeByMedication[med.ID] = id
@@ -203,7 +203,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		c.Notify(ctx, n, func(msgID int) {
 			for _, iID := range iIDs {
 				if err := c.store.AddIntakeReminder(iID, msgID); err != nil {
-					log.Printf("Failed to add intake reminder for int %d msg %d: %v", iID, msgID, err)
+					slog.Error("Failed to add intake reminder", "intakeID", iID, "msgID", msgID, "error", err)
 				}
 			}
 		})

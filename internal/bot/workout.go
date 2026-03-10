@@ -2,7 +2,7 @@ package bot
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -48,7 +48,7 @@ func (b *Bot) SendWorkoutNotification(text string, sessionID int64) (int, error)
 	}
 	b.trackWorkoutMessage(sessionID, sentMsg.MessageID)
 
-	log.Printf("Sent workout notification (session %d): %s", sessionID, text)
+	slog.Info("Sent workout notification", "sessionID", sessionID, "text", text)
 	return sentMsg.MessageID, nil
 }
 

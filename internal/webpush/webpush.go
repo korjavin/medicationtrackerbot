@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -130,14 +130,14 @@ func (s *Service) SendLowStockNotification(ctx context.Context, userID int64, me
 
 func (s *Service) SendWorkoutNotification(ctx context.Context, userID int64, session *store.WorkoutSession, group *store.WorkoutGroup, variant *store.WorkoutVariant) error {
 	if s.vapidPublicKey == "" || s.vapidPrivateKey == "" {
-		log.Printf("WebPush: Skipping workout notification (VAPID not configured) for user %d, session %d", userID, session.ID)
+		slog.Debug("WebPush: Skipping workout notification (VAPID not configured)", "userID", userID, "sessionID", session.ID)
 		return nil
 	}
 
 	title := "Time to Workout!"
 	body := fmt.Sprintf("%s - %s", group.Name, variant.Name)
 
-	log.Printf("WebPush: Preparing workout notification for user %d, session %d: %s", userID, session.ID, body)
+	slog.Info("WebPush: Preparing workout notification", "userID", userID, "sessionID", session.ID, "body", body)
 
 	payload := NotificationPayload{
 		Title: title,
@@ -159,11 +159,11 @@ func (s *Service) SendWorkoutNotification(ctx context.Context, userID int64, ses
 
 	err := s.sendToUser(userID, payload)
 	if err != nil {
-		log.Printf("WebPush: Error sending workout notification for user %d, session %d: %v", userID, session.ID, err)
+		slog.Error("WebPush: Error sending workout notification", "userID", userID, "sessionID", session.ID, "error", err)
 		return err
 	}
 
-	log.Printf("WebPush: Successfully sent workout notification for user %d, session %d", userID, session.ID)
+	slog.Info("WebPush: Successfully sent workout notification", "userID", userID, "sessionID", session.ID)
 	return nil
 }
 
@@ -300,7 +300,7 @@ func (s *Service) sendToSubscription(sub store.PushSubscription, payload []byte)
 	if u, err := url.Parse(sub.Endpoint); err == nil {
 		host = u.Host
 	}
-	log.Printf("WebPush: Sending to %s (Apple=%v) using Subject: %s", host, isApple, subject)
+	slog.Info("WebPush: Sending notification", "host", host, "isApple", isApple, "subject", subject)
 
 	resp, err := webpush.SendNotification(payload, wpSub, &webpush.Options{
 		Subscriber:      subject,
@@ -309,24 +309,24 @@ func (s *Service) sendToSubscription(sub store.PushSubscription, payload []byte)
 		TTL:             3600 * 12, // 12 hours
 	})
 	if err != nil {
-		log.Printf("WebPush error for %s: %v", sub.Endpoint, err)
+		slog.Error("WebPush error", "endpoint", sub.Endpoint, "error", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusGone {
 		// Subscription is no longer valid
-		log.Printf("WebPush subscription gone: %s", sub.Endpoint)
+		slog.Info("WebPush subscription gone", "endpoint", sub.Endpoint)
 		if err := s.store.DisablePushSubscription(sub.Endpoint); err != nil {
-			log.Printf("Failed to disable subscription: %v", err)
+			slog.Error("Failed to disable subscription", "error", err)
 		}
 	} else if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		// Read response body for error details
 		bodyBytes, readErr := io.ReadAll(resp.Body)
 		if readErr == nil && len(bodyBytes) > 0 {
-			log.Printf("WebPush unexpected status %d for %s: %s", resp.StatusCode, sub.Endpoint, string(bodyBytes))
+			slog.Warn("WebPush unexpected status", "statusCode", resp.StatusCode, "endpoint", sub.Endpoint, "response", string(bodyBytes))
 		} else {
-			log.Printf("WebPush unexpected status %d for %s", resp.StatusCode, sub.Endpoint)
+			slog.Warn("WebPush unexpected status", "statusCode", resp.StatusCode, "endpoint", sub.Endpoint)
 		}
 	}
 }
