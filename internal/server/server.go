@@ -442,6 +442,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/food/settings/targets", s.handleSetFoodTargets)
 	apiMux.HandleFunc("GET /api/settings/features", s.handleGetFeatureSettings)
 	apiMux.HandleFunc("POST /api/settings/features/{feature}", s.handleSetFeatureEnabled)
+	apiMux.HandleFunc("POST /api/settings/tab-order", s.handleSetTabOrder)
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
 
 	// Apply Middleware to API

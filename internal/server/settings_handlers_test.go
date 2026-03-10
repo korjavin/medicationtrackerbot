@@ -97,6 +97,34 @@ func TestHandleBootstrap(t *testing.T) {
 	if _, ok := payload["cursor"].(float64); !ok {
 		t.Fatalf("Expected numeric cursor in bootstrap payload")
 	}
+
+	// Set a tab order and test again
+	ctx := context.Background()
+	_ = db.SetTabOrder(ctx, `["food","bp","workouts"]`)
+
+	req2 := httptest.NewRequest("GET", "/api/bootstrap", nil)
+	req2 = withUser(req2, 123456)
+	w2 := httptest.NewRecorder()
+	srv.handleBootstrap(w2, req2)
+
+	if w2.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w2.Code)
+	}
+
+	var payload2 map[string]any
+	if err := json.NewDecoder(w2.Body).Decode(&payload2); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	settingsObj2, ok := payload2["settings"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected settings object in bootstrap payload2")
+	}
+
+	tabOrder, ok := settingsObj2["tab_order"].([]any)
+	if !ok || len(tabOrder) != 3 {
+		t.Fatalf("Expected tab_order array with 3 items")
+	}
 }
 
 func TestHandleChanges(t *testing.T) {
@@ -159,5 +187,47 @@ func TestHandleChanges(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("Expected changed_tags to include bp, got %v", second.ChangedTags)
+	}
+}
+
+func TestHandleSetTabOrder(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// Initial value should be empty
+	order, _ := db.GetTabOrder(ctx)
+	if order != "" {
+		t.Fatalf("expected empty tab order")
+	}
+
+	// Set valid tab order
+	reqBody := map[string]interface{}{"order": []string{"food", "bp", "weight"}}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "/api/settings/tab-order", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleSetTabOrder(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+
+	order, _ = db.GetTabOrder(ctx)
+	if order != `["food","bp","weight"]` {
+		t.Fatalf("Expected '[\"food\",\"bp\",\"weight\"]', got '%s'", order)
+	}
+
+	// Try setting invalid tab order
+	reqBodyInvalid := map[string]interface{}{"order": []string{"invalid_tab"}}
+	bodyInvalid, _ := json.Marshal(reqBodyInvalid)
+	reqInvalid := httptest.NewRequest("POST", "/api/settings/tab-order", bytes.NewReader(bodyInvalid))
+	reqInvalid = withUser(reqInvalid, 123456)
+	wInvalid := httptest.NewRecorder()
+	srv.handleSetTabOrder(wInvalid, reqInvalid)
+
+	if wInvalid.Code != http.StatusBadRequest {
+		t.Fatalf("Expected status 400, got %d", wInvalid.Code)
 	}
 }

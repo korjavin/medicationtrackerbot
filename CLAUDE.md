@@ -259,6 +259,7 @@ MCP_MAX_QUERY_DAYS=90
 - Change detection: polls `/api/changes?since=` every 30s (SSE disabled due to HTTP/2 proxy issues)
 - IndexedDB (`db.js`): write-ahead queue for offline writes + generic `api_cache` for SWR
 - Treat HTTP 502/503/504 as "offline" — `navigator.onLine` stays true behind reverse proxies
+- **Tab Reordering:** Drag-and-drop functionality in `tabs-dnd.js` allows custom tab layouts, persisted via `tab_order` in the bootstrap payload and cached in `settings_bundle`.
 
 ### Testing Patterns
 - Store tests use in-memory SQLite (`:memory:`)
