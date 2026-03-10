@@ -74,7 +74,6 @@ describe('app.js food helpers', () => {
 
       // Toggle off
       per100gCheckbox.checked = false;
-      document.getElementById('food-calories').value = ''; // clear it to simulate normal recalculation since per100g is false now
       window.onFoodPer100gChange();
 
       // 50 * 4 = 200

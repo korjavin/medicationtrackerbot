@@ -978,7 +978,7 @@ async function deleteFoodProduct(id, displayName) {
 
 // -- Food Intake Functions --
 
-function calculateFoodCalories() {
+function calculateFoodCalories(force = false) {
     const weight = parseFloat(document.getElementById('food-weight').value) || 0;
     const carbs = parseFloat(document.getElementById('food-carbs').value) || 0;
     const protein = parseFloat(document.getElementById('food-protein').value) || 0;
@@ -996,13 +996,13 @@ function calculateFoodCalories() {
     }
 
     const totalCals = Math.round((4 * totalCarbs) + (4 * totalProt) + (9 * totalFat));
-    if (per100g || caloriesInput.value === '') {
+    if (force || per100g || caloriesInput.value === '') {
         caloriesInput.value = totalCals;
     }
 }
 
 function onFoodPer100gChange() {
-    calculateFoodCalories();
+    calculateFoodCalories(true);
 }
 
 function onFoodCaloriesFocus() {
