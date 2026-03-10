@@ -73,7 +73,11 @@ func (s *Server) handleExternalWorkout(w http.ResponseWriter, r *http.Request) {
 
 	var payload miNotifyPayload
 	if err := json.NewDecoder(bytes.NewReader(bodyBytes)).Decode(&payload); err != nil {
-		slog.Error("[external-workout] error parsing JSON", "error", err, "body", string(bodyBytes))
+		truncated := string(bodyBytes)
+		if len(truncated) > 200 {
+			truncated = truncated[:200] + "…"
+		}
+		slog.Error("[external-workout] error parsing JSON", "error", err, "body", truncated)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
