@@ -61,6 +61,40 @@ describe('app.js checkAuth behavior', () => {
     }
   });
 
+  it('applies tab order from cache during offline fallback', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      window.localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({
+        authenticated: true,
+        authMethod: 'cookie',
+        timestamp: Date.now(),
+        ttl: 30 * 24 * 60 * 60 * 1000
+      }));
+      window.fetch = vi.fn().mockResolvedValue(createMockResponse({ status: 502, text: 'Bad Gateway' }));
+
+      window.MedTrackerDB = { MedicationStore: { getCache: vi.fn().mockResolvedValue([]) } };
+
+      const getCachedSpy = vi.fn().mockImplementation(async (key) => {
+        if (key === 'settings_bundle') {
+          return { tabOrder: ['weight', 'bp', 'food'] };
+        }
+        return null;
+      });
+      window.DataStore.getCached = getCachedSpy;
+
+      const applyTabOrderSpy = vi.fn();
+      window.applyTabOrder = applyTabOrderSpy;
+
+      const authorized = await window.checkAuth();
+
+      expect(authorized).toBe(true);
+      expect(getCachedSpy).toHaveBeenCalledWith('settings_bundle');
+      expect(applyTabOrderSpy).toHaveBeenCalledWith(['weight', 'bp', 'food']);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('shows login screen when unauthorized and no cache is available', async () => {
     const { window, cleanup } = loadFrontendEnv();
 
