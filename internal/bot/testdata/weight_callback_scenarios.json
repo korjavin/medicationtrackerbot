@@ -1,0 +1,35 @@
+[
+  {
+    "name": "Confirm Weight Reminder",
+    "description": "User clicks Confirm button on a weight reminder",
+    "input": {
+      "callback_data": "weight_confirm"
+    },
+    "expected": {
+      "message_contains": "Please open the app to log your weight",
+      "removed_buttons": true
+    }
+  },
+  {
+    "name": "Snooze Weight Reminder",
+    "description": "User clicks the Snooze button",
+    "input": {
+      "callback_data": "weight_snooze"
+    },
+    "expected": {
+      "message_contains": "Weight reminder snoozed for 2 hours",
+      "snoozed": true
+    }
+  },
+  {
+    "name": "Don't Bug Me Weight Reminder",
+    "description": "User clicks the Don't Bug Me button",
+    "input": {
+      "callback_data": "weight_dontbug"
+    },
+    "expected": {
+      "message_contains": "Weight reminders disabled for 24 hours",
+      "dont_bug_me": true
+    }
+  }
+]
