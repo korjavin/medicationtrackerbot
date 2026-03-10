@@ -35,7 +35,7 @@ describe('app.js food helpers', () => {
     }
   });
 
-  it('onFoodPer100gChange converts macro values to absolute when disabling per100g', () => {
+  it('onFoodPer100gChange does not mutate macro values when disabling per100g', () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
@@ -47,9 +47,108 @@ describe('app.js food helpers', () => {
 
       window.onFoodPer100gChange();
 
-      expect(document.getElementById('food-carbs').value).toBe('20');
-      expect(document.getElementById('food-protein').value).toBe('40');
-      expect(document.getElementById('food-fat').value).toBe('60');
+      expect(document.getElementById('food-carbs').value).toBe('10');
+      expect(document.getElementById('food-protein').value).toBe('20');
+      expect(document.getElementById('food-fat').value).toBe('30');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('TC1: toggling per100g recalculates calories without changing macro values', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      document.getElementById('food-weight').value = '200';
+      document.getElementById('food-carbs').value = '50';
+      document.getElementById('food-protein').value = '0';
+      document.getElementById('food-fat').value = '0';
+
+      const per100gCheckbox = document.getElementById('food-per-100g');
+      per100gCheckbox.checked = true;
+      window.calculateFoodCalories();
+
+      // 50 * 200 / 100 * 4 = 400
+      expect(document.getElementById('food-calories').value).toBe('400');
+      expect(document.getElementById('food-carbs').value).toBe('50');
+
+      // Toggle off
+      per100gCheckbox.checked = false;
+      window.onFoodPer100gChange();
+
+      // 50 * 4 = 200
+      expect(document.getElementById('food-calories').value).toBe('200');
+      expect(document.getElementById('food-carbs').value).toBe('50');
+
+      // Toggle back on
+      per100gCheckbox.checked = true;
+      window.onFoodPer100gChange();
+
+      expect(document.getElementById('food-calories').value).toBe('400');
+      expect(document.getElementById('food-carbs').value).toBe('50');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('TC2: focusing calories field while per-100g is checked leaves checkbox checked and macros unchanged', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      document.getElementById('food-weight').value = '200';
+      document.getElementById('food-carbs').value = '50';
+      const per100gCheckbox = document.getElementById('food-per-100g');
+      per100gCheckbox.checked = true;
+
+      window.onFoodCaloriesFocus();
+
+      expect(per100gCheckbox.checked).toBe(true);
+      expect(document.getElementById('food-carbs').value).toBe('50');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('TC3: manual entry in per-100g=false mode calculates correctly and no recalc on toggle to same state', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      document.getElementById('food-carbs').value = '30';
+      document.getElementById('food-protein').value = '20';
+      document.getElementById('food-fat').value = '10';
+      document.getElementById('food-weight').value = '';
+
+      const per100gCheckbox = document.getElementById('food-per-100g');
+      per100gCheckbox.checked = false;
+
+      window.calculateFoodCalories();
+
+      // 30*4 + 20*4 + 10*9 = 120 + 80 + 90 = 290
+      expect(document.getElementById('food-calories').value).toBe('290');
+      expect(per100gCheckbox.checked).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('TC4: toggling checkbox multiple times never changes macro values', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      document.getElementById('food-weight').value = '150';
+      document.getElementById('food-carbs').value = '10';
+      document.getElementById('food-protein').value = '20';
+      document.getElementById('food-fat').value = '30';
+      const per100gCheckbox = document.getElementById('food-per-100g');
+
+      for (let i = 0; i < 5; i++) {
+        per100gCheckbox.checked = !per100gCheckbox.checked;
+        window.onFoodPer100gChange();
+
+        expect(document.getElementById('food-carbs').value).toBe('10');
+        expect(document.getElementById('food-protein').value).toBe('20');
+        expect(document.getElementById('food-fat').value).toBe('30');
+      }
     } finally {
       cleanup();
     }
