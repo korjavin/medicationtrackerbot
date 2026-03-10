@@ -232,6 +232,13 @@ async function checkAuth() {
             }
         }
 
+        if (window.DataStore) {
+            const cachedBundle = await window.DataStore.getCached('settings_bundle');
+            if (cachedBundle && Array.isArray(cachedBundle.tabOrder)) {
+                applyTabOrder(cachedBundle.tabOrder);
+            }
+        }
+
         return true; // Trust cached state when server is down
     }
 
@@ -2348,6 +2355,19 @@ async function sendTestMedicationNotification() {
         safeAlert("Error sending test notification: " + e.message);
     }
 }
+
+window.saveTabOrder = async function(order) {
+    if (!Array.isArray(order)) return;
+
+    const res = await apiCall('/api/settings/tab-order', 'POST', { order });
+    if (res && window.DataStore) {
+        const cached = await window.DataStore.getCached('settings_bundle');
+        if (cached) {
+            cached.tabOrder = order;
+            await window.DataStore.setCached('settings_bundle', cached);
+        }
+    }
+};
 
 // Initialize drag and drop for tabs if loaded
 if (document.readyState === 'loading') {
