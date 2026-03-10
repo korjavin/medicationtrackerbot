@@ -37,7 +37,40 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 
 	for _, p := range pending {
 		scheduledAt := p.ScheduledAt
-		if c.now().Sub(scheduledAt) > 1*time.Hour {
+		now := c.now()
+
+		shouldRemind := false
+		if p.SnoozedUntil != nil {
+			// If snoozed_until is in the past, it means the snooze expired, remind immediately
+			if now.After(*p.SnoozedUntil) {
+				shouldRemind = true
+			}
+		} else {
+			// Original logic: remind if > 1 hour after scheduled
+			if now.Sub(scheduledAt) > 1*time.Hour {
+				shouldRemind = true
+			}
+		}
+
+		if shouldRemind {
+			// If we just reminded them because snooze expired, we should update snoozed_until
+			// or clear it so we don't spam them on every tick?
+			// Actually, if we don't update anything, the checker will keep reminding them on every tick!
+			// We can clear SnoozedUntil or push it another hour so it acts like a re-reminder.
+			// Let's advance it by 1 hour automatically after firing so they get another reminder in an hour if still pending.
+			if p.SnoozedUntil != nil && now.After(*p.SnoozedUntil) {
+				newSnooze := now.Add(1 * time.Hour)
+				if err := c.store.SnoozeIntake(p.ID, newSnooze); err != nil {
+					log.Printf("Failed to update snooze_until after reminding: %v", err)
+				}
+			} else if p.SnoozedUntil == nil {
+				// Also advance snoozed_until so the 1-hour regular reminder doesn't fire every minute
+				newSnooze := now.Add(1 * time.Hour)
+				if err := c.store.SnoozeIntake(p.ID, newSnooze); err != nil {
+					log.Printf("Failed to update snooze_until after reminding: %v", err)
+				}
+			}
+
 			med, err := c.store.GetMedication(p.MedicationID)
 			if err != nil {
 				continue
