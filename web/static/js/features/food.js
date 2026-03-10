@@ -65,8 +65,13 @@ function bindFoodControls() {
     bindClick('food-today-btn', () => goFoodToday());
     bindClick('food-date-label', () => {
         const dateFilter = document.getElementById('food-date-filter');
-        if (dateFilter && typeof dateFilter.showPicker === 'function') {
-            dateFilter.showPicker();
+        if (dateFilter) {
+            if (typeof dateFilter.showPicker === 'function') {
+                dateFilter.showPicker();
+            } else {
+                dateFilter.focus();
+                dateFilter.click();
+            }
         }
     });
     bindChange('food-date-filter', () => loadFoodLogs());
