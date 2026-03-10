@@ -24,6 +24,61 @@ func recentMs(daysAgo int) int64 {
 	return time.Now().AddDate(0, 0, -daysAgo).UnixMilli()
 }
 
+func TestInsertMiBandWorkout(t *testing.T) {
+	db := setupMiBandTestStore(t)
+	ctx := context.Background()
+	userID := int64(42)
+
+	w := &MiBandWorkout{
+		UserID:        userID,
+		SourceStartMs: recentMs(5),
+		SourceEndMs:   recentMs(5) + 3600000,
+		ActivityType:  12,
+		ActivityName:  "running",
+		DurationSec:   3600,
+		DistanceM:     5000,
+		Steps:         6000,
+		Calories:      350,
+		HeartRateAvg:  145,
+	}
+
+	// First insert should succeed
+	inserted, err := db.InsertMiBandWorkout(ctx, w)
+	if err != nil {
+		t.Fatalf("InsertMiBandWorkout: %v", err)
+	}
+	if !inserted {
+		t.Error("expected first insert to return true")
+	}
+	if w.ID == 0 {
+		t.Error("expected ID to be set")
+	}
+
+	// Second insert of same data should be deduplicated
+	inserted, err = db.InsertMiBandWorkout(ctx, w)
+	if err != nil {
+		t.Fatalf("InsertMiBandWorkout (duplicate): %v", err)
+	}
+	if inserted {
+		t.Error("expected second insert to return false (dedup)")
+	}
+
+	// Verify retrieval
+	result, err := db.ListMiBandWorkouts(ctx, userID, 10)
+	if err != nil {
+		t.Fatalf("ListMiBandWorkouts: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workout, got %d", len(result))
+	}
+	if result[0].ActivityName != "running" {
+		t.Errorf("expected running, got %s", result[0].ActivityName)
+	}
+	if result[0].DistanceM != 5000 {
+		t.Errorf("expected distance 5000, got %f", result[0].DistanceM)
+	}
+}
+
 func TestImportMiBandWorkouts_Basic(t *testing.T) {
 	db := setupMiBandTestStore(t)
 	ctx := context.Background()
