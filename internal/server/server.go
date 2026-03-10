@@ -63,6 +63,7 @@ type Server struct {
 	foodSearchCache *fastcache.Cache
 	changeStreamSem chan struct{}
 	changePruning   atomic.Bool
+	externalAPIKey  string
 }
 
 type rateLimiter struct {
@@ -211,6 +212,11 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		foodSearchTTL:   30 * time.Minute,
 		foodSearchCache: fastcache.New(foodSearchCacheSizeMB * 1024 * 1024),
 		changeStreamSem: make(chan struct{}, changeStreamMaxConn),
+		externalAPIKey:  os.Getenv("EXTERNAL_WORKOUT_API_KEY"),
+	}
+
+	if srv.externalAPIKey == "" {
+		log.Printf("[WARNING] EXTERNAL_WORKOUT_API_KEY is not set. The external workout endpoint will reject all requests.")
 	}
 
 	srv.initOAUTH()
@@ -444,6 +450,9 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/settings/features/{feature}", s.handleSetFeatureEnabled)
 	apiMux.HandleFunc("POST /api/settings/tab-order", s.handleSetTabOrder)
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
+
+	// Register external API routes (without standard AuthMiddleware)
+	mux.HandleFunc("POST /api/workout/external", s.externalAPIKeyMiddleware(s.handleExternalWorkout))
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)

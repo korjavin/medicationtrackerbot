@@ -187,4 +187,5 @@ type MiBandStore interface {
 	GetMiBandWorkoutGPS(ctx context.Context, workoutID int64) ([]store.MiBandGPSPoint, error)
 	DeleteMiBandWorkout(ctx context.Context, id, userID int64) error
 	UpdateMiBandWorkout(ctx context.Context, id, userID int64, fields store.UpdateMiBandWorkoutFields) error
+	InsertMiBandWorkout(ctx context.Context, w *store.MiBandWorkout) (bool, error)
 }
