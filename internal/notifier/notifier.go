@@ -27,6 +27,9 @@ type Notifier interface {
 
 	// Delete removes a previously sent notification. No-op if msgID is 0 or channel doesn't support it.
 	Delete(ctx context.Context, userID int64, msgID int) error
+
+	// CloseNotification closes a previously sent notification based on tag (e.g. WebPush).
+	CloseNotification(ctx context.Context, userID int64, tag string) error
 }
 
 var boldRegexp = regexp.MustCompile(`\*\*(.+?)\*\*`)

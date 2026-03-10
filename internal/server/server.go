@@ -241,6 +241,20 @@ func (s *Server) deleteNotification(ctx context.Context, msgID int) {
 	}
 }
 
+// closeNotification closes a notification by tag (e.g. WebPush) across all notifiers.
+func (s *Server) closeNotification(ctx context.Context, tag string) {
+	if tag == "" {
+		return
+	}
+	for _, nr := range s.notifiers {
+		go func(nr notifier.Notifier) {
+			if err := nr.CloseNotification(ctx, s.allowedUserID, tag); err != nil {
+				log.Printf("[server] notification close failed (%T): %v", nr, err)
+			}
+		}(nr)
+	}
+}
+
 // notify sends a notification through all configured notifiers.
 func (s *Server) notify(ctx context.Context, n notifier.Notification) {
 	for _, nr := range s.notifiers {
@@ -312,6 +326,8 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/medications/next-intake", s.handleGetNextIntake)
 	apiMux.HandleFunc("POST /api/medications/log-past", s.handleLogPastIntake)
 	apiMux.HandleFunc("POST /api/medications/cancel-intake", s.handleCancelIntake)
+	apiMux.HandleFunc("POST /api/medications/snooze", s.handleSnoozeMedication)
+	apiMux.HandleFunc("POST /api/medications/skip", s.handleSkipMedication)
 
 	// Blood Pressure endpoints
 	apiMux.HandleFunc("POST /api/bp", s.handleCreateBloodPressure)
@@ -370,6 +386,8 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/workout/rotation/initialize", s.handleInitializeRotation)
 	apiMux.HandleFunc("POST /api/workout/sessions/logs/update", s.handleUpdateExerciseLog)
 	apiMux.HandleFunc("DELETE /api/workout/sessions/logs/delete", s.handleDeleteExerciseLog)
+	apiMux.HandleFunc("POST /api/workout/session/snooze", s.handleSnoozeWorkoutSessionCompat)
+	apiMux.HandleFunc("POST /api/workout/session/skip", s.handleSkipWorkoutSessionCompat)
 	apiMux.HandleFunc("POST /api/workout/sessions/{id}/snooze", s.handleSnoozeWorkoutSession)
 	apiMux.HandleFunc("POST /api/workout/sessions/{id}/skip", s.handleSkipWorkoutSession)
 	apiMux.HandleFunc("POST /api/workout/sessions/{id}/preskip", s.handlePreSkipWorkoutSession)

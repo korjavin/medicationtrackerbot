@@ -17,21 +17,19 @@ func TestSendMedicationNotification(t *testing.T) {
 
 	ctx := context.Background()
 	userID := int64(123)
-	meds := []store.Medication{
-		{ID: 1, Name: "Med 1", Dosage: "10mg"},
-	}
+	med := store.Medication{ID: 1, Name: "Med 1", Dosage: "10mg"}
 	scheduledTime := time.Now()
-	intakeIDs := []int64{1}
+	intakeID := int64(1)
 
 	// Should return nil even if no subscriptions (just doesn't send)
-	err = svc.SendMedicationNotification(ctx, userID, meds, scheduledTime, intakeIDs)
+	err = svc.SendMedicationNotification(ctx, userID, med, scheduledTime, intakeID)
 	if err != nil {
 		t.Errorf("Expected nil error, got %v", err)
 	}
 
 	// Test with no VAPID keys
 	svcNoKeys := New(s, "", "", "", "", "")
-	err = svcNoKeys.SendMedicationNotification(ctx, userID, meds, scheduledTime, intakeIDs)
+	err = svcNoKeys.SendMedicationNotification(ctx, userID, med, scheduledTime, intakeID)
 	if err != nil {
 		t.Errorf("Expected nil error when keys missing, got %v", err)
 	}

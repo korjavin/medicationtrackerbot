@@ -205,6 +205,67 @@ func TestHandleDeleteMedication(t *testing.T) {
 	}
 }
 
+func TestHandleSnoozeMedication(t *testing.T) {
+	srv, db := createTestServer(t)
+	defer db.Close()
+
+	userID := int64(123456)
+	medID, _ := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "")
+	intakeID, _ := db.CreateIntake(medID, userID, time.Now())
+
+	reqBody := map[string]interface{}{
+		"intake_id":        intakeID,
+		"duration_minutes": 15,
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("POST", "/api/medications/snooze", bytes.NewReader(body))
+	ctx := context.WithValue(req.Context(), UserCtxKey, &TelegramUser{ID: userID})
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	srv.handleSnoozeMedication(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	intake, _ := db.GetIntake(intakeID)
+	if intake.SnoozedUntil == nil {
+		t.Error("Expected SnoozedUntil to be set")
+	}
+}
+
+func TestHandleSkipMedication(t *testing.T) {
+	srv, db := createTestServer(t)
+	defer db.Close()
+
+	userID := int64(123456)
+	medID, _ := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "")
+	intakeID, _ := db.CreateIntake(medID, userID, time.Now())
+
+	reqBody := map[string]interface{}{
+		"intake_id": intakeID,
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("POST", "/api/medications/skip", bytes.NewReader(body))
+	ctx := context.WithValue(req.Context(), UserCtxKey, &TelegramUser{ID: userID})
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	srv.handleSkipMedication(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	intake, _ := db.GetIntake(intakeID)
+	if intake.Status != "SKIPPED" {
+		t.Errorf("Expected status SKIPPED, got %s", intake.Status)
+	}
+}
+
 func TestHandleDeleteMedication_InvalidID(t *testing.T) {
 	srv, db := createTestServer(t)
 	defer db.Close()

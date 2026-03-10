@@ -147,6 +147,8 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			}
 		}
 
+		// We still send one batched notification for Telegram to avoid spamming the user.
+		// However, for WebPush we will construct individual notifications per medication.
 		intakeByMedication := make(map[int64]int64, len(group.Meds))
 		for i := 0; i < len(group.Meds) && i < len(intakeIDs); i++ {
 			intakeByMedication[group.Meds[i].ID] = intakeIDs[i]
@@ -184,12 +186,13 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			medIDs[i] = m.ID
 		}
 
+		// Batched payload logic remains for Telegram compatibility
 		n := notifier.Notification{
 			Text:    text,
 			Actions: actions,
 			Tag:     fmt.Sprintf("medication-%s", group.Target.Format(time.RFC3339)),
 			Metadata: map[string]interface{}{
-				"type":             "medication",
+				"type":             "medication_batch", // Changed to medication_batch so WebPush notifier ignores it if we decide to
 				"scheduled_at":     group.Target.Format(time.RFC3339),
 				"medication_ids":   medIDs,
 				"medication_names": medNames,
@@ -205,6 +208,27 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 				}
 			}
 		})
+
+		// Send individual notifications for WebPush
+		for i, m := range group.Meds {
+			intakeID := intakeIDs[i]
+			indivN := notifier.Notification{
+				Text: fmt.Sprintf("💊 Time to take: %s", m.Name),
+				Actions: []notifier.Action{
+					{ID: fmt.Sprintf("confirm_%d", intakeID), Label: "Confirm"},
+					{ID: fmt.Sprintf("skip_%d", intakeID), Label: "Skip"},
+				},
+				Tag: fmt.Sprintf("medication-%d", intakeID),
+				Metadata: map[string]interface{}{
+					"type":          "medication_individual",
+					"scheduled_at":  group.Target.Format(time.RFC3339),
+					"medication_id": m.ID,
+					"intake_id":     intakeID,
+				},
+			}
+			// Notify but we don't care about msgIDs for these individual ones since they are webpush specific
+			c.Notify(ctx, indivN, func(msgID int) {})
+		}
 	}
 
 	return nil

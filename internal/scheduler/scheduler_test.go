@@ -210,6 +210,44 @@ func TestCheckSchedule_ExistingIntakeNotDuplicated(t *testing.T) {
 	}
 }
 
+func TestCheckSchedule_MultipleMedicationsCreatesMultipleNotifications(t *testing.T) {
+	sched, db, mockNotif := setupTestSchedulerWithMock(t)
+
+	now := time.Now()
+	pastTime := now.Add(-1 * time.Hour)
+	if pastTime.Day() != now.Day() {
+		t.Skip("Skipping: past time crosses into previous day")
+	}
+	timeStr := pastTime.Format("15:04")
+	schedule := `{"type":"daily","times":["` + timeStr + `"]}`
+
+	_, err := db.CreateMedication("Med1", "5mg", schedule, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+
+	_, err = db.CreateMedication("Med2", "10mg", schedule, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+
+	err = sched.MedicationChecker.Check(context.Background())
+	if err != nil {
+		t.Errorf("Check: %v", err)
+	}
+
+	// Wait for async sends
+	if !mockNotif.waitForSendCalls(3, 2*time.Second) {
+		t.Fatal("timed out waiting for send calls")
+	}
+
+	calls := mockNotif.getSendCalls()
+	// 1 batched notification for Telegram + 2 individual notifications for WebPush
+	if len(calls) != 3 {
+		t.Errorf("Expected 3 notifications to be sent (1 batched + 2 individual), got %d", len(calls))
+	}
+}
+
 // --- MedicationReminderChecker tests ---
 
 func TestCheckReminders_NoPending(t *testing.T) {

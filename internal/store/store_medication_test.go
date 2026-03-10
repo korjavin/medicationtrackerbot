@@ -325,6 +325,41 @@ func TestSkipIntake(t *testing.T) {
 	}
 }
 
+func TestSnoozeIntake(t *testing.T) {
+	db := setupTestStore(t)
+
+	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication failed: %v", err)
+	}
+
+	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
+	intakeID, err := db.CreateIntake(medID, 12345, scheduled)
+	if err != nil {
+		t.Fatalf("CreateIntake failed: %v", err)
+	}
+
+	snoozeUntil := scheduled.Add(1 * time.Hour)
+	err = db.SnoozeIntake(intakeID, snoozeUntil)
+	if err != nil {
+		t.Fatalf("SnoozeIntake failed: %v", err)
+	}
+
+	intake, err := db.GetIntake(intakeID)
+	if err != nil {
+		t.Fatalf("GetIntake failed: %v", err)
+	}
+	if intake == nil {
+		t.Fatal("expected intake, got nil")
+	}
+	if intake.SnoozedUntil == nil {
+		t.Fatal("expected SnoozedUntil to be set")
+	}
+	if !intake.SnoozedUntil.Equal(snoozeUntil) {
+		t.Errorf("expected SnoozedUntil %v, got %v", snoozeUntil, intake.SnoozedUntil)
+	}
+}
+
 func TestCreateManualIntake(t *testing.T) {
 	db := setupTestStore(t)
 

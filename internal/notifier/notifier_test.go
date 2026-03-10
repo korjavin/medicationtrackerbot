@@ -131,6 +131,10 @@ func (m *MockNotifier) Delete(_ context.Context, userID int64, msgID int) error 
 	return m.DeleteErr
 }
 
+func (m *MockNotifier) CloseNotification(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+
 func TestMockNotifier_ImplementsInterface(t *testing.T) {
 	// Compile-time check that MockNotifier satisfies Notifier
 	var _ Notifier = &MockNotifier{}
