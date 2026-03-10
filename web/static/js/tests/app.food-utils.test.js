@@ -117,4 +117,75 @@ describe('app.js food helpers', () => {
       cleanup();
     }
   });
+
+  it('formatFoodDateLabel returns correct string depending on offset from today', () => {
+    const { window, cleanup } = loadFrontendEnv();
+
+    try {
+      const today = new Date();
+
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+
+      const twoDaysAgo = new Date(today);
+      twoDaysAgo.setDate(today.getDate() - 2);
+
+      const tomorrow = new Date(today);
+      tomorrow.setDate(today.getDate() + 1);
+
+      expect(window.formatFoodDateLabel(window.toISODateLocal(today))).toBe('Today');
+      expect(window.formatFoodDateLabel(window.toISODateLocal(yesterday))).toBe('Yesterday');
+      expect(window.formatFoodDateLabel(window.toISODateLocal(tomorrow))).toBe('Tomorrow');
+
+      const twoDaysAgoStr = window.formatFoodDateLabel(window.toISODateLocal(twoDaysAgo));
+      expect(twoDaysAgoStr).not.toBe('Yesterday');
+      expect(twoDaysAgoStr).not.toBe('Today');
+      // Should be something like "Mon, Feb 23"
+      expect(twoDaysAgoStr.length).toBeGreaterThan(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('updateFoodDateNav updates label, chip visibility, and button state correctly', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      // Setup DOM. The app creates the HTML before `loadFrontendEnv` but we overwrite it
+      document.body.innerHTML = `
+        <input id="food-date-filter" />
+        <span id="food-date-label"></span>
+        <button id="food-date-next-btn"></button>
+        <button id="food-today-btn" style="display: none;"></button>
+      `;
+
+      const filter = document.getElementById('food-date-filter');
+      const label = document.getElementById('food-date-label');
+      const nextBtn = document.getElementById('food-date-next-btn');
+      const todayBtn = document.getElementById('food-today-btn');
+
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+
+      // Test "Today"
+      filter.value = window.toISODateLocal(today);
+      window.updateFoodDateNav();
+
+      expect(label.textContent).toBe('Today');
+      expect(nextBtn.disabled).toBe(true);
+      expect(todayBtn.style.display).toBe('none');
+
+      // Test "Yesterday"
+      filter.value = window.toISODateLocal(yesterday);
+      window.updateFoodDateNav();
+
+      expect(label.textContent).toBe('Yesterday');
+      expect(nextBtn.disabled).toBe(false);
+      expect(todayBtn.style.display).toBe('inline-flex');
+
+    } finally {
+      cleanup();
+    }
+  });
 });
