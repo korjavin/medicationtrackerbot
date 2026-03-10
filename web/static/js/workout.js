@@ -1287,10 +1287,11 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts) {
 
     // Match sessions with Mi Band workouts
     items.forEach(item => {
-        if (item.type === 'session') {
+        if (item.type === 'session' && item.data.session.started_at) {
+            const sessionStartTs = new Date(item.data.session.started_at).getTime();
             const match = (mibandWorkouts || []).find(w => {
                 const mbTs = new Date(w.start_time).getTime();
-                return Math.abs(mbTs - item.ts) <= 2 * 3600 * 1000;
+                return Math.abs(mbTs - sessionStartTs) <= 2 * 3600 * 1000;
             });
             if (match) item.mibandMatch = match;
         }
