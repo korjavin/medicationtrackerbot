@@ -15,6 +15,7 @@ type mockMiBandStore struct {
 	MiBandStore // embed interface to satisfy unspecified methods
 
 	insertFunc func(ctx context.Context, w *store.MiBandWorkout) (bool, error)
+	checkFunc  func(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error)
 }
 
 func (m *mockMiBandStore) InsertMiBandWorkout(ctx context.Context, w *store.MiBandWorkout) (bool, error) {
@@ -22,6 +23,13 @@ func (m *mockMiBandStore) InsertMiBandWorkout(ctx context.Context, w *store.MiBa
 		return m.insertFunc(ctx, w)
 	}
 	return true, nil
+}
+
+func (m *mockMiBandStore) CheckDuplicateMiBandWorkout(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error) {
+	if m.checkFunc != nil {
+		return m.checkFunc(ctx, userID, startMsMin, startMsMax)
+	}
+	return false, nil
 }
 
 func TestHandleExternalWorkout(t *testing.T) {
@@ -41,6 +49,7 @@ func TestHandleExternalWorkout(t *testing.T) {
 		authHeader     string
 		body           map[string]interface{}
 		mockInsertFunc func(ctx context.Context, w *store.MiBandWorkout) (bool, error)
+		mockCheckFunc  func(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error)
 		wantStatus     int
 		wantRespKey    string
 		wantRespValue  string
@@ -110,7 +119,7 @@ func TestHandleExternalWorkout(t *testing.T) {
 			wantRespValue: "ok",
 		},
 		{
-			name:       "valid request - deduplicated workout",
+			name:       "valid request - deduplicated workout (exact)",
 			authHeader: "Bearer testkey",
 			body: map[string]interface{}{
 				"workout_type": "running",
@@ -118,6 +127,26 @@ func TestHandleExternalWorkout(t *testing.T) {
 			},
 			mockInsertFunc: func(ctx context.Context, w *store.MiBandWorkout) (bool, error) {
 				return false, nil // deduplicated
+			},
+			mockCheckFunc: func(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error) {
+				return false, nil
+			},
+			wantStatus:    http.StatusOK,
+			wantRespKey:   "status",
+			wantRespValue: "duplicate",
+		},
+		{
+			name:       "valid request - deduplicated workout (fuzzy seconds)",
+			authHeader: "Bearer testkey",
+			body: map[string]interface{}{
+				"workout_type": "running",
+				"start_time":   1700000000, // seconds
+			},
+			mockCheckFunc: func(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error) {
+				if startMsMin != 1700000000000 || startMsMax != 1700000000999 {
+					t.Errorf("expected fuzzy range 1700000000000-1700000000999, got %v-%v", startMsMin, startMsMax)
+				}
+				return true, nil // duplicate found
 			},
 			wantStatus:    http.StatusOK,
 			wantRespKey:   "status",
@@ -145,6 +174,7 @@ func TestHandleExternalWorkout(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockStore.insertFunc = tc.mockInsertFunc
+			mockStore.checkFunc = tc.mockCheckFunc
 
 			var reqBody []byte
 			if tc.name == "malformed json" {

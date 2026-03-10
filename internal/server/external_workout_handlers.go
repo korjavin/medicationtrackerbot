@@ -92,10 +92,31 @@ func (s *Server) handleExternalWorkout(w http.ResponseWriter, r *http.Request) {
 	// Detect timestamp unit
 	startMs := payload.StartTime
 	endMs := payload.EndTime
+	isSecondsPrecision := false
 	if startMs < 1e12 {
+		isSecondsPrecision = true
 		startMs *= 1000
 		if endMs > 0 {
 			endMs *= 1000
+		}
+	}
+
+	// Perform fuzzy deduplication if the timestamp was in seconds
+	if isSecondsPrecision {
+		isDuplicate, err := s.miband.CheckDuplicateMiBandWorkout(r.Context(), s.allowedUserID, startMs, startMs+999)
+		if err != nil {
+			log.Printf("[external-workout] db error checking duplicate: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		if isDuplicate {
+			log.Printf("[external-workout] skipped duplicate workout (fuzzy check): %s at %d", payload.WorkoutType, startMs)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": "duplicate",
+			})
+			return
 		}
 	}
 
