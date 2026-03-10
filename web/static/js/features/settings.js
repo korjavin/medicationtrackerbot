@@ -135,7 +135,7 @@
         const res = await window.apiCall('/api/settings/tab-order', 'POST', { order });
         if (res && window.DataStore) {
             // Update local settings_bundle cache so it survives reload
-            const cached = await window.DataStore.getCache('settings_bundle');
+            const cached = await window.DataStore.getCached('settings_bundle');
             if (cached) {
                 cached.tabOrder = order;
                 await window.DataStore.setCached('settings_bundle', cached);
