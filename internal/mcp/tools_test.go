@@ -471,9 +471,10 @@ func TestHandleGetWorkoutHistory_WithData(t *testing.T) {
 	var mibandSession WorkoutSessionResult
 
 	for _, s := range resp.Sessions {
-		if s.Type == "manual" {
+		switch s.Type {
+		case "manual":
 			manualSession = s
-		} else if s.Type == "miband" {
+		case "miband":
 			mibandSession = s
 		}
 	}
