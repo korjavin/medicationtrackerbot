@@ -209,6 +209,7 @@ TZ=Europe/Berlin              # Critical for correct scheduling
 # Optional
 DB_PATH=meds.db               # SQLite database path (default: meds.db)
 PORT=8080                     # HTTP port (default: 8080)
+EXTERNAL_WORKOUT_API_KEY=...  # Required for external workout endpoint (e.g. Mi Notify)
 
 # Google Auth (optional, for browser access)
 GOOGLE_CLIENT_ID=...
@@ -270,9 +271,8 @@ MCP_MAX_QUERY_DAYS=90
 ### Testing Patterns
 - Store tests use in-memory SQLite (`:memory:`)
 - Server tests use httptest for HTTP handlers
-- BP reminders tests validate scheduling logic
-- Workout tests cover rotation advancement and session state
 - Domain service tests use mock store structs (implement the narrow `FooStore` interface inline) with table-driven cases — no Telegram API dependency required
+- **JSON Golden-File Testing**: Scheduler notifications and Bot callbacks use a data-driven pattern where scenarios are defined in `testdata/*.json` and run by `internal/testharness`. See `docs/TESTING_PATTERNS.md` for details.
 
 ## Common Tasks
 

@@ -90,6 +90,7 @@ The application is configured via Environment Variables:
 | `TZ` | Timezone (e.g., `Europe/Berlin`). Critical for correct scheduling. |
 | `SESSION_SECRET` | Secret used to sign web auth sessions |
 | `AUTH_TRUST_PROXY` | (Optional) Trust `X-Forwarded-For` / `X-Real-IP` headers for rate limiting (default: `true`) |
+| `EXTERNAL_WORKOUT_API_KEY` | (Optional) Required to use the `/api/workout/external` webhook (e.g. from Mi Notify) |
 | `GOOGLE_CLIENT_ID` | (Optional, legacy) For Google Login in browser |
 | `GOOGLE_CLIENT_SECRET` | (Optional, legacy) For Google Login in browser |
 | `GOOGLE_REDIRECT_URL` | (Optional, legacy) Callback URL (e.g., `https://your-domain.com/auth/google/callback`) |

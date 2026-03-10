@@ -43,6 +43,7 @@ type WorkoutChecker struct {
 
 	daysCache   map[string][]int
 	daysCacheMu sync.RWMutex
+	now         func() time.Time // mock clock
 }
 
 func (c *WorkoutChecker) Check(ctx context.Context) error {
@@ -54,7 +55,10 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		return nil
 	}
 
-	now := time.Now()
+	if c.now == nil {
+		c.now = time.Now
+	}
+	now := c.now()
 
 	// 1. Get history to check for InProgress and Stale sessions
 	history, err := c.store.GetWorkoutHistory(c.allowedUserID, 20)
@@ -219,6 +223,8 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		advanceMinutes := group.NotificationAdvanceMinutes
 		notifyTime := scheduledTime.Add(-time.Duration(advanceMinutes) * time.Minute)
 
+		notifiedThisLoop := false
+
 		if existing.Status == "pending" {
 			if activeSession != nil {
 				continue
@@ -228,6 +234,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 				if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
 					slog.Error("Failed to send workout notification", "error", err)
 				} else {
+					notifiedThisLoop = true
 					if err := c.store.UpdateSessionStatus(existing.ID, "notified"); err != nil {
 						slog.Error("Failed to update session status", "error", err)
 					}
@@ -236,14 +243,20 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		}
 
 		// Handle re-notification for ignored sessions (3h logic)
-		if existing.Status == "notified" {
+		// Only check if we didn't just notify them
+		if existing.Status == "notified" && !notifiedThisLoop {
 			if now.After(scheduledTime.Add(3 * time.Hour)) {
 				if !strings.Contains(existing.Notes, "resent_3h") {
-					if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
-						slog.Error("Failed to re-send 3h notification", "error", err)
-					}
-					if err := c.store.UpdateWorkoutSessionNotes(existing.ID, existing.Notes+" resent_3h"); err != nil {
-						slog.Error("Failed to update session notes", "error", err)
+					// If they are snoozed, we don't want to re-notify them as "ignored" while snoozing!
+					if existing.SnoozedUntil == nil || now.After(*existing.SnoozedUntil) {
+						if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
+							slog.Error("Failed to re-send 3h notification", "error", err)
+						} else {
+							notifiedThisLoop = true
+						}
+						if err := c.store.UpdateWorkoutSessionNotes(existing.ID, existing.Notes+" resent_3h"); err != nil {
+							slog.Error("Failed to update session notes", "error", err)
+						}
 					}
 				} else if now.After(scheduledTime.Add(6 * time.Hour)) {
 					// Service handles skip + rotation advancement for rotating groups
@@ -258,11 +271,12 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		}
 
 		// 10. Check snoozed sessions for this group
-		if existing.SnoozedUntil != nil && now.After(*existing.SnoozedUntil) {
+		if existing.SnoozedUntil != nil && now.After(*existing.SnoozedUntil) && !notifiedThisLoop {
 			if activeSession == nil {
 				if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
 					slog.Error("Failed to re-send snoozed notification", "error", err)
 				} else {
+					notifiedThisLoop = true
 					if err := c.store.ClearSnooze(existing.ID); err != nil {
 						slog.Error("Failed to clear snooze state", "error", err)
 					}

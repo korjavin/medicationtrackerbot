@@ -43,6 +43,7 @@ services:
       - FOOD_DOMAIN=${FOOD_DOMAIN}
       - FOOD_API_URL=${FOOD_API_URL}
       - FOOD_API_KEY=${FOOD_API_KEY}
+      - EXTERNAL_WORKOUT_API_KEY=${EXTERNAL_WORKOUT_API_KEY}     
     networks:
       - default
       - traefik_net
