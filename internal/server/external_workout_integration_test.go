@@ -25,10 +25,8 @@ func TestExternalWorkoutIntegration_FuzzyDedup(t *testing.T) {
 
 	// 1. Import a workout with exact ms precision (simulating a backup import)
 	// Use a recent timestamp to bypass the 90-day cutoff filter in ListMiBandWorkouts
-	backupStartMs := int64(1700000000123) // For deduplication test
-	// Actually let's use a dynamic one to pass the filter
 	importTime := time.Now().Unix()
-	backupStartMs = importTime*1000 + 123
+	backupStartMs := importTime*1000 + 123
 
 	workouts := []store.MiBandWorkout{
 		{
