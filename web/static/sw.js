@@ -391,10 +391,15 @@ self.addEventListener('notificationclick', (event) => {
             event.waitUntil(clients.openWindow(url));
         }
     } else if (data.type === 'workout') {
-        if (action.startsWith('workout_snooze') || action === 'snooze_1h') {
-            event.waitUntil(handleWorkoutSnooze(data.session_id, 1));
-        } else if (action === 'workout_skip' || action === 'skip') {
-            event.waitUntil(handleWorkoutSkip(data.session_id));
+        if (action.startsWith('workout_snooze1_') || action === 'snooze_1h') {
+            event.waitUntil(handleWorkoutSnooze(data.session_id || parseInt(action.split('_')[2], 10), 1));
+        } else if (action.startsWith('workout_snooze2_')) {
+            event.waitUntil(handleWorkoutSnooze(data.session_id || parseInt(action.split('_')[2], 10), 2));
+
+        } else if (action.startsWith('workout_skip_') || action === 'workout_skip' || action === 'skip') {
+            const parsedId = action.startsWith('workout_skip_') ? parseInt(action.split('_')[2], 10) : data.session_id;
+            event.waitUntil(handleWorkoutSkip(parsedId));
+
         } else {
             const params = new URLSearchParams();
             params.set('action', 'workout_start');
