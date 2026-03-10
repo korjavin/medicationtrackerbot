@@ -3,7 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -61,13 +61,13 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 			if p.SnoozedUntil != nil && now.After(*p.SnoozedUntil) {
 				newSnooze := now.Add(1 * time.Hour)
 				if err := c.store.SnoozeIntake(p.ID, newSnooze); err != nil {
-					log.Printf("Failed to update snooze_until after reminding: %v", err)
+					slog.Error("Failed to update snooze_until after reminding", "error", err)
 				}
 			} else if p.SnoozedUntil == nil {
 				// Also advance snoozed_until so the 1-hour regular reminder doesn't fire every minute
 				newSnooze := now.Add(1 * time.Hour)
 				if err := c.store.SnoozeIntake(p.ID, newSnooze); err != nil {
-					log.Printf("Failed to update snooze_until after reminding: %v", err)
+					slog.Error("Failed to update snooze_until after reminding", "error", err)
 				}
 			}
 
@@ -105,7 +105,7 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 
 			c.Notify(ctx, n, func(msgID int) {
 				if err := c.store.AddIntakeReminder(intakeID, msgID); err != nil {
-					log.Printf("Failed to store intake reminder: %v", err)
+					slog.Error("Failed to store intake reminder", "error", err)
 				}
 			})
 		}

@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -97,7 +97,7 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 		"status": "created",
 		"id":     id,
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -142,7 +142,7 @@ func (s *Server) handleGetFoodLogs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(groups); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -251,7 +251,7 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "updated",
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -372,7 +372,7 @@ func (s *Server) handleGetFoodStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(stats); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -383,7 +383,7 @@ func (s *Server) handleGetFoodIntakeEnabled(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := json.NewEncoder(w).Encode(map[string]bool{"enabled": enabled}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -411,7 +411,7 @@ func (s *Server) handleGetFoodTargets(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(targets); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -489,7 +489,7 @@ func (s *Server) handleUpdateFoodProduct(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "updated"}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -565,7 +565,7 @@ func (s *Server) handleGetFoodProducts(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -585,7 +585,7 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 
 	if len(query) < 2 {
 		if err := json.NewEncoder(w).Encode([]store.FoodProduct{}); err != nil {
-			log.Printf("encode response: %v", err)
+			slog.Error("encode response", "error", err)
 		}
 		flusher.Flush()
 		return
@@ -595,7 +595,7 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 	cacheKey := s.foodSearchCacheKey(userID, query, remoteReq == "true")
 	if cached, ok := s.getFoodSearchCache(cacheKey); ok {
 		if err := json.NewEncoder(w).Encode(cached); err != nil {
-			log.Printf("encode response: %v", err)
+			slog.Error("encode response", "error", err)
 		}
 		flusher.Flush()
 		return
@@ -603,7 +603,7 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 
 	products, err := s.food.SearchFoodProducts(context.Background(), userID, query)
 	if err != nil {
-		log.Printf("Debug: Local food search failed for query %q: %v", query, err)
+		slog.Debug("Local food search failed", "query", query, "error", err)
 		products = []store.FoodProduct{}
 	}
 	if products == nil {
@@ -612,7 +612,7 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 
 	// Send local results instantly
 	if err := json.NewEncoder(w).Encode(products); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 	flusher.Flush()
 
@@ -632,14 +632,14 @@ func (s *Server) handleSearchFoodProducts(w http.ResponseWriter, r *http.Request
 
 	apiProducts, err := s.food.SearchRemoteFoodAPI(ctx, query)
 	if err != nil {
-		log.Printf("Debug: Remote food API fallback failed for query %q: %v", query, err)
+		slog.Debug("Remote food API fallback failed", "query", query, "error", err)
 		return // Just stop streaming if remote fetch fails
 	}
 
 	if len(apiProducts) > 0 {
 		merged := mergeFoodProducts(products, apiProducts)
 		if err := json.NewEncoder(w).Encode(merged); err != nil {
-			log.Printf("encode response: %v", err)
+			slog.Error("encode response", "error", err)
 		}
 		flusher.Flush()
 		s.setFoodSearchCache(cacheKey, merged)
@@ -794,6 +794,6 @@ func (s *Server) handleCreateMealFromLogs(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(product); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }

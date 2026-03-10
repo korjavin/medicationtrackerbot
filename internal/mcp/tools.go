@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -61,7 +61,7 @@ func (s *Server) resolveDateRangeArgs(req *mcp.CallToolRequest, startDate, endDa
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	log.Printf("[MCP] Tool %q argument keys: %s", req.Params.Name, strings.Join(keys, ","))
+	slog.Info("[MCP] Tool called", "name", req.Params.Name, "argumentKeys", strings.Join(keys, ","))
 
 	var notes []string
 	if startDate == "" {
@@ -147,21 +147,21 @@ func (s *Server) handleGetBloodPressure(ctx context.Context, req *mcp.CallToolRe
 	}
 	startDate, endDate, warning, err := s.parseDateRange(startStr, endStr)
 	if err != nil {
-		log.Printf("[MCP] Date parsing failed for BP: %v", err)
+		slog.Warn("[MCP] Date parsing failed for BP", "error", err)
 		return nil, BloodPressureResponse{}, err
 	}
 	warning = appendWarnings(argsWarning, warning)
-	log.Printf("[MCP] Fetching BP for date range: %s to %s", startDate, endDate)
+	slog.Info("[MCP] Fetching BP for date range", "start", startDate, "end", endDate)
 
 	// Get the user ID from config
 	userID := s.config.UserID
 
 	readings, err := s.data.GetBloodPressureReadings(ctx, userID, startDate)
 	if err != nil {
-		log.Printf("[MCP] Failed to fetch BP readings: %v", err)
+		slog.Error("[MCP] Failed to fetch BP readings", "error", err)
 		return nil, BloodPressureResponse{}, err
 	}
-	log.Printf("[MCP] Found %d BP readings", len(readings))
+	slog.Info("[MCP] Found BP readings", "count", len(readings))
 
 	// Filter readings by end date and convert to response format
 	var results []BloodPressureResult
@@ -184,13 +184,18 @@ func (s *Server) handleGetBloodPressure(ctx context.Context, req *mcp.CallToolRe
 			Notes:      r.Notes,
 		})
 	}
-	log.Printf("[MCP] BP query result: store_count=%d, returned_count=%d, period=%s",
-		len(readings), len(results), formatPeriod(startDate, endDate))
+	slog.Info("[MCP] BP query result",
+		"store_count", len(readings),
+		"returned_count", len(results),
+		"period", formatPeriod(startDate, endDate))
 	if len(results) == 0 {
 		reason := noDataWarning("blood pressure readings", startDate, endDate, len(readings), len(results))
 		warning = appendWarnings(warning, reason)
-		log.Printf("[MCP][WARN] BP query returned zero rows. user_id=%d, start=%s, end=%s, warning=%q",
-			userID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), warning)
+		slog.Warn("[MCP] BP query returned zero rows",
+			"user_id", userID,
+			"start", startDate.Format(time.RFC3339),
+			"end", endDate.Format(time.RFC3339),
+			"warning", warning)
 	}
 
 	response := BloodPressureResponse{
@@ -232,20 +237,20 @@ func (s *Server) handleGetWeight(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 	startDate, endDate, warning, err := s.parseDateRange(startStr, endStr)
 	if err != nil {
-		log.Printf("[MCP] Date parsing failed for Weight: %v", err)
+		slog.Warn("[MCP] Date parsing failed for Weight", "error", err)
 		return nil, WeightResponse{}, err
 	}
 	warning = appendWarnings(argsWarning, warning)
-	log.Printf("[MCP] Fetching Weight for date range: %s to %s", startDate, endDate)
+	slog.Info("[MCP] Fetching Weight for date range", "start", startDate, "end", endDate)
 
 	userID := s.config.UserID
 
 	logs, err := s.data.GetWeightLogs(ctx, userID, startDate)
 	if err != nil {
-		log.Printf("[MCP] Failed to fetch Weight logs: %v", err)
+		slog.Error("[MCP] Failed to fetch Weight logs", "error", err)
 		return nil, WeightResponse{}, err
 	}
-	log.Printf("[MCP] Found %d weight logs", len(logs))
+	slog.Info("[MCP] Found weight logs", "count", len(logs))
 
 	// Filter and convert
 	var results []WeightResult
@@ -261,13 +266,18 @@ func (s *Server) handleGetWeight(ctx context.Context, req *mcp.CallToolRequest, 
 			Notes:      l.Notes,
 		})
 	}
-	log.Printf("[MCP] Weight query result: store_count=%d, returned_count=%d, period=%s",
-		len(logs), len(results), formatPeriod(startDate, endDate))
+	slog.Info("[MCP] Weight query result",
+		"store_count", len(logs),
+		"returned_count", len(results),
+		"period", formatPeriod(startDate, endDate))
 	if len(results) == 0 {
 		reason := noDataWarning("weight logs", startDate, endDate, len(logs), len(results))
 		warning = appendWarnings(warning, reason)
-		log.Printf("[MCP][WARN] Weight query returned zero rows. user_id=%d, start=%s, end=%s, warning=%q",
-			userID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), warning)
+		slog.Warn("[MCP] Weight query returned zero rows",
+			"user_id", userID,
+			"start", startDate.Format(time.RFC3339),
+			"end", endDate.Format(time.RFC3339),
+			"warning", warning)
 	}
 
 	response := WeightResponse{
@@ -355,16 +365,22 @@ func (s *Server) handleGetMedicationIntake(ctx context.Context, req *mcp.CallToo
 			Status:         intake.Status,
 		})
 	}
-	log.Printf("[MCP] Medication query result: store_count=%d, returned_count=%d, period=%s, medication_filter=%q",
-		len(intakes), len(results), formatPeriod(startDate, endDate), input.MedicationName)
+	slog.Info("[MCP] Medication query result",
+		"store_count", len(intakes),
+		"returned_count", len(results),
+		"period", formatPeriod(startDate, endDate),
+		"medication_filter", input.MedicationName)
 	if len(results) == 0 {
 		reason := noDataWarning("medication intake records", startDate, endDate, len(intakes), len(results))
 		if strings.TrimSpace(input.MedicationName) != "" {
 			reason = reason + fmt.Sprintf(" Applied medication_name filter: %q.", input.MedicationName)
 		}
 		warning = appendWarnings(warning, reason)
-		log.Printf("[MCP][WARN] Medication query returned zero rows. start=%s, end=%s, medication_filter=%q, warning=%q",
-			startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), input.MedicationName, warning)
+		slog.Warn("[MCP] Medication query returned zero rows",
+			"start", startDate.Format(time.RFC3339),
+			"end", endDate.Format(time.RFC3339),
+			"medication_filter", input.MedicationName,
+			"warning", warning)
 	}
 
 	response := MedicationIntakeResponse{
@@ -576,13 +592,19 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 		return t1 > t2
 	})
 
-	log.Printf("[MCP] Workout query result: store_count=%d, returned_count=%d, period=%s, include_exercises=%t",
-		len(sessions), len(results), formatPeriod(startDate, endDate), input.IncludeExercises)
+	slog.Info("[MCP] Workout query result",
+		"store_count", len(sessions),
+		"returned_count", len(results),
+		"period", formatPeriod(startDate, endDate),
+		"include_exercises", input.IncludeExercises)
 	if len(results) == 0 {
 		reason := noDataWarning("workout sessions", startDate, endDate, len(sessions), len(results))
 		warning = appendWarnings(warning, reason)
-		log.Printf("[MCP][WARN] Workout query returned zero rows. user_id=%d, start=%s, end=%s, warning=%q",
-			userID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), warning)
+		slog.Warn("[MCP] Workout query returned zero rows",
+			"user_id", userID,
+			"start", startDate.Format(time.RFC3339),
+			"end", endDate.Format(time.RFC3339),
+			"warning", warning)
 	}
 
 	// Check for likely year hallucination if no results found
@@ -645,15 +667,15 @@ func (s *Server) handleGetSleepLogs(ctx context.Context, req *mcp.CallToolReques
 	}
 	warning = appendWarnings(argsWarning, warning)
 
-	log.Printf("[MCP] Fetching Sleep Logs for date range: %s to %s", startDate, endDate)
+	slog.Info("[MCP] Fetching Sleep Logs for date range", "start", startDate, "end", endDate)
 
 	userID := s.config.UserID
 	logs, err := s.data.GetSleepLogs(ctx, userID, startDate)
 	if err != nil {
-		log.Printf("[MCP] Failed to fetch sleep logs: %v", err)
+		slog.Error("[MCP] Failed to fetch sleep logs", "error", err)
 		return nil, SleepLogResponse{}, err
 	}
-	log.Printf("[MCP] Found %d sleep logs", len(logs))
+	slog.Info("[MCP] Found sleep logs", "count", len(logs))
 
 	var results []SleepLogResult
 	for _, l := range logs {
@@ -677,13 +699,18 @@ func (s *Server) handleGetSleepLogs(ctx context.Context, req *mcp.CallToolReques
 		results = append(results, res)
 	}
 
-	log.Printf("[MCP] Sleep logs query result: store_count=%d, returned_count=%d, period=%s",
-		len(logs), len(results), formatPeriod(startDate, endDate))
+	slog.Info("[MCP] Sleep logs query result",
+		"store_count", len(logs),
+		"returned_count", len(results),
+		"period", formatPeriod(startDate, endDate))
 	if len(results) == 0 {
 		emptyReason := noDataWarning("sleep logs", startDate, endDate, len(logs), len(results))
 		warning = appendWarnings(warning, emptyReason)
-		log.Printf("[MCP][WARN] Sleep logs query returned zero rows. user_id=%d, start=%s, end=%s, warning=%q",
-			userID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), warning)
+		slog.Warn("[MCP] Sleep logs query returned zero rows",
+			"user_id", userID,
+			"start", startDate.Format(time.RFC3339),
+			"end", endDate.Format(time.RFC3339),
+			"warning", warning)
 	}
 
 	response := SleepLogResponse{
@@ -741,7 +768,7 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 	}
 	warning = appendWarnings(argsWarning, warning)
 
-	log.Printf("[MCP] Fetching Food Logs for date range: %s to %s", startDate, endDate)
+	slog.Info("[MCP] Fetching Food Logs for date range", "start", startDate, "end", endDate)
 
 	userID := s.config.UserID
 
@@ -785,13 +812,18 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 
 		current = current.Add(24 * time.Hour)
 	}
-	log.Printf("[MCP] Food intake query result: store_count=%d, returned_count=%d, period=%s",
-		storeCount, len(results), formatPeriod(startDate, endDate))
+	slog.Info("[MCP] Food intake query result",
+		"store_count", storeCount,
+		"returned_count", len(results),
+		"period", formatPeriod(startDate, endDate))
 	if len(results) == 0 {
 		reason := noDataWarning("food intake logs", startDate, endDate, storeCount, len(results))
 		warning = appendWarnings(warning, reason)
-		log.Printf("[MCP][WARN] Food intake query returned zero rows. user_id=%d, start=%s, end=%s, warning=%q",
-			userID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), warning)
+		slog.Warn("[MCP] Food intake query returned zero rows",
+			"user_id", userID,
+			"start", startDate.Format(time.RFC3339),
+			"end", endDate.Format(time.RFC3339),
+			"warning", warning)
 	}
 
 	targets, err := s.data.GetFoodTargets(ctx)
@@ -847,15 +879,15 @@ func (s *Server) handleGetStepHistory(ctx context.Context, req *mcp.CallToolRequ
 	}
 	warning = appendWarnings(argsWarning, warning)
 
-	log.Printf("[MCP] Fetching Step History for date range: %s to %s", startDate, endDate)
+	slog.Info("[MCP] Fetching Step History for date range", "start", startDate, "end", endDate)
 
 	userID := s.config.UserID
 	logs, err := s.data.GetDayStats(ctx, userID, startDate)
 	if err != nil {
-		log.Printf("[MCP] Failed to fetch step history: %v", err)
+		slog.Error("[MCP] Failed to fetch step history", "error", err)
 		return nil, StepHistoryResponse{}, err
 	}
-	log.Printf("[MCP] Found %d step history logs", len(logs))
+	slog.Info("[MCP] Found step history logs", "count", len(logs))
 
 	var results []StepHistoryResult
 	for _, l := range logs {
@@ -874,13 +906,18 @@ func (s *Server) handleGetStepHistory(ctx context.Context, req *mcp.CallToolRequ
 		results = append(results, res)
 	}
 
-	log.Printf("[MCP] Step history query result: store_count=%d, returned_count=%d, period=%s",
-		len(logs), len(results), formatPeriod(startDate, endDate))
+	slog.Info("[MCP] Step history query result",
+		"store_count", len(logs),
+		"returned_count", len(results),
+		"period", formatPeriod(startDate, endDate))
 	if len(results) == 0 {
 		emptyReason := noDataWarning("step history logs", startDate, endDate, len(logs), len(results))
 		warning = appendWarnings(warning, emptyReason)
-		log.Printf("[MCP][WARN] Step history query returned zero rows. user_id=%d, start=%s, end=%s, warning=%q",
-			userID, startDate.Format(time.RFC3339), endDate.Format(time.RFC3339), warning)
+		slog.Warn("[MCP] Step history query returned zero rows",
+			"user_id", userID,
+			"start", startDate.Format(time.RFC3339),
+			"end", endDate.Format(time.RFC3339),
+			"warning", warning)
 	}
 
 	response := StepHistoryResponse{

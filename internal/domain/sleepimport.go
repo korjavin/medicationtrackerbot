@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -103,10 +103,10 @@ func ExtractBackupDB(nxkPath string) (string, func(), error) {
 	rc, err := dbFile.Open()
 	if err != nil {
 		if closeErr := tempDB.Close(); closeErr != nil {
-			log.Printf("failed to close temp db: %v", closeErr)
+			slog.Error("failed to close temp db", "error", closeErr)
 		}
 		if rmErr := os.Remove(tempDB.Name()); rmErr != nil { // #nosec G304
-			log.Printf("failed to remove temp db: %v", rmErr)
+			slog.Error("failed to remove temp db", "error", rmErr)
 		}
 		return "", nil, err
 	}
@@ -116,21 +116,21 @@ func ExtractBackupDB(nxkPath string) (string, func(), error) {
 	_, err = io.Copy(tempDB, io.LimitReader(rc, maxSleepDBSize))
 	if err != nil {
 		if closeErr := tempDB.Close(); closeErr != nil {
-			log.Printf("failed to close temp db: %v", closeErr)
+			slog.Error("failed to close temp db", "error", closeErr)
 		}
 		if rmErr := os.Remove(tempDB.Name()); rmErr != nil { // #nosec G304
-			log.Printf("failed to remove temp db: %v", rmErr)
+			slog.Error("failed to remove temp db", "error", rmErr)
 		}
 		return "", nil, err
 	}
 	if closeErr := tempDB.Close(); closeErr != nil {
-		log.Printf("failed to close temp db on success: %v", closeErr)
+		slog.Error("failed to close temp db on success", "error", closeErr)
 	}
 
 	path := tempDB.Name()
 	cleanup := func() {
 		if rmErr := os.Remove(path); rmErr != nil {
-			log.Printf("failed to remove temp db during cleanup: %v", rmErr)
+			slog.Error("failed to remove temp db during cleanup", "error", rmErr)
 		}
 	}
 	return path, cleanup, nil
@@ -138,7 +138,7 @@ func ExtractBackupDB(nxkPath string) (string, func(), error) {
 
 // ParseSleepDatabase reads sleep records from an NXK backup SQLite database.
 func ParseSleepDatabase(dbPath string) ([]SleepLog, error) {
-	log.Printf("Parsing sleep database: %s", dbPath)
+	slog.Info("Parsing sleep database", "path", dbPath)
 
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -224,7 +224,7 @@ func ParseSleepDatabase(dbPath string) ([]SleepLog, error) {
 		return nil, fmt.Errorf("error reading sleep records: %w", err)
 	}
 
-	log.Printf("Successfully parsed %d sleep records", len(logs))
+	slog.Info("Successfully parsed sleep records", "count", len(logs))
 	return logs, nil
 }
 
@@ -404,7 +404,7 @@ type GPSPoint struct {
 //   - workouts: ordered list of outdoor workouts (types 1, 3, 12, 17, 80) with distance > 0
 //   - gpsTracks: map keyed by SourceStartMs → ordered list of GPS points for that workout
 func ParseOutdoorWorkouts(dbPath string) ([]OutdoorWorkout, map[int64][]GPSPoint, error) {
-	log.Printf("Parsing outdoor workouts from: %s", dbPath)
+	slog.Info("Parsing outdoor workouts", "path", dbPath)
 
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -478,7 +478,7 @@ func ParseOutdoorWorkouts(dbPath string) ([]OutdoorWorkout, map[int64][]GPSPoint
 		return nil, nil, err
 	}
 
-	log.Printf("Parsed %d outdoor workout records", len(workouts))
+	slog.Info("Parsed outdoor workout records", "count", len(workouts))
 
 	if len(workouts) == 0 {
 		return workouts, nil, nil
@@ -505,7 +505,7 @@ func ParseOutdoorWorkouts(dbPath string) ([]OutdoorWorkout, map[int64][]GPSPoint
 		ORDER BY dateTime ASC`, minStart, maxEnd)
 	if err != nil {
 		// GPS is optional — log and continue without tracks.
-		log.Printf("Warning: failed to query gps table: %v", err)
+		slog.Warn("Failed to query gps table", "error", err)
 		return workouts, nil, nil
 	}
 	defer gpsRows.Close()
@@ -529,7 +529,7 @@ func ParseOutdoorWorkouts(dbPath string) ([]OutdoorWorkout, map[int64][]GPSPoint
 		var lat, lon, alt float64
 		var pauseVal int
 		if err := gpsRows.Scan(&tsMs, &lat, &lon, &alt, &pauseVal); err != nil {
-			log.Printf("Warning: failed to scan GPS row: %v", err)
+			slog.Warn("Failed to scan GPS row", "error", err)
 			continue
 		}
 
@@ -554,6 +554,6 @@ func ParseOutdoorWorkouts(dbPath string) ([]OutdoorWorkout, map[int64][]GPSPoint
 		})
 	}
 
-	log.Printf("Loaded GPS tracks for %d workouts", len(gpsTracks))
+	slog.Info("Loaded GPS tracks", "workoutsCount", len(gpsTracks))
 	return workouts, gpsTracks, nil
 }

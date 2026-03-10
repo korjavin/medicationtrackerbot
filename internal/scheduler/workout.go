@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -92,14 +92,14 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 			}
 			c.Notify(ctx, n, nil)
 			if err := c.store.UpdateWorkoutSessionNotes(activeSession.ID, activeSession.Notes+" stale_reminded"); err != nil {
-				log.Printf("Failed to update session notes: %v", err)
+				slog.Error("Failed to update session notes", "error", err)
 			}
 		}
 
 		// Clear blocked state after 4 hours of inactivity
 		if duration > 4*time.Hour {
 			if err := c.workoutSvc.SkipSession(activeSession.ID); err != nil {
-				log.Printf("Failed to skip stale session: %v", err)
+				slog.Error("Failed to skip stale session", "error", err)
 			} else {
 				if activeSession.NotificationMessageID != nil {
 					c.DeleteNotification(ctx, *activeSession.NotificationMessageID)
@@ -125,7 +125,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 
 		if !cached {
 			if err := json.Unmarshal([]byte(group.DaysOfWeek), &daysOfWeek); err != nil {
-				log.Printf("Failed to parse days_of_week for group %d: %v", group.ID, err)
+				slog.Error("Failed to parse days_of_week", "group", group.ID, "error", err)
 				continue
 			}
 			c.daysCacheMu.Lock()
@@ -142,7 +142,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 
 		// 5. Parse scheduled time
 		if len(group.ScheduledTime) != 5 {
-			log.Printf("Invalid scheduled_time format for group %d: %s", group.ID, group.ScheduledTime)
+			slog.Warn("Invalid scheduled_time format", "group", group.ID, "time", group.ScheduledTime)
 			continue
 		}
 
@@ -155,17 +155,17 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		if group.IsRotating {
 			rotationState, err := c.store.GetRotationState(group.ID)
 			if err != nil {
-				log.Printf("Error getting rotation state for group %d: %v", group.ID, err)
+				slog.Error("Error getting rotation state", "group", group.ID, "error", err)
 				continue
 			}
 			if rotationState == nil {
 				variants, err := c.store.ListVariantsByGroup(group.ID)
 				if err != nil || len(variants) == 0 {
-					log.Printf("No variants found for rotating group %d", group.ID)
+					slog.Info("No variants found for rotating group", "group", group.ID)
 					continue
 				}
 				if err := c.store.InitializeRotation(group.ID, variants[0].ID); err != nil {
-					log.Printf("Failed to auto-initialize rotation for group %d: %v", group.ID, err)
+					slog.Error("Failed to auto-initialize rotation", "group", group.ID, "error", err)
 					continue
 				}
 				variantID = variants[0].ID
@@ -175,7 +175,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		} else {
 			variants, err := c.store.ListVariantsByGroup(group.ID)
 			if err != nil || len(variants) == 0 {
-				log.Printf("No variants found for group %d", group.ID)
+				slog.Info("No variants found for group", "group", group.ID)
 				continue
 			}
 			variantID = variants[0].ID
@@ -185,14 +185,14 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 		existing, err := c.store.GetSessionByGroupAndDate(group.ID, today)
 		if err != nil {
-			log.Printf("Error checking for existing session: %v", err)
+			slog.Error("Error checking for existing session", "error", err)
 			continue
 		}
 
 		if existing == nil {
 			session, err := c.store.CreateWorkoutSession(group.ID, variantID, c.allowedUserID, today, group.ScheduledTime)
 			if err != nil {
-				log.Printf("Failed to create workout session: %v", err)
+				slog.Error("Failed to create workout session", "error", err)
 				continue
 			}
 			existing = session
@@ -200,10 +200,10 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 			// The session was pre-created with a stale variant (e.g., group was converted from
 			// non-rotating to rotating after the session was already created). Update it now
 			// so the notification and the actual workout exercise list are consistent.
-			log.Printf("Updating session %d variant from %d to %d (rotation changed)",
-				existing.ID, existing.VariantID, variantID)
+			slog.Info("Updating session variant (rotation changed)",
+				"session", existing.ID, "oldVariant", existing.VariantID, "newVariant", variantID)
 			if err := c.store.UpdateSessionVariant(existing.ID, variantID); err != nil {
-				log.Printf("Failed to update session variant: %v", err)
+				slog.Error("Failed to update session variant", "error", err)
 			} else {
 				existing.VariantID = variantID
 			}
@@ -213,7 +213,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		if existing.Status == "pre_skipped" {
 			if now.After(scheduledTime) {
 				if err := c.workoutSvc.SkipSession(existing.ID); err != nil {
-					log.Printf("Failed to auto-skip pre_skipped session %d: %v", existing.ID, err)
+					slog.Error("Failed to auto-skip pre_skipped session", "session", existing.ID, "error", err)
 				}
 			}
 			continue
@@ -232,11 +232,11 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 
 			if now.After(notifyTime) {
 				if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
-					log.Printf("Failed to send workout notification: %v", err)
+					slog.Error("Failed to send workout notification", "error", err)
 				} else {
 					notifiedThisLoop = true
 					if err := c.store.UpdateSessionStatus(existing.ID, "notified"); err != nil {
-						log.Printf("Failed to update session status: %v", err)
+						slog.Error("Failed to update session status", "error", err)
 					}
 				}
 			}
@@ -250,18 +250,18 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 					// If they are snoozed, we don't want to re-notify them as "ignored" while snoozing!
 					if existing.SnoozedUntil == nil || now.After(*existing.SnoozedUntil) {
 						if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
-							log.Printf("Failed to re-send 3h notification: %v", err)
+							slog.Error("Failed to re-send 3h notification", "error", err)
 						} else {
 							notifiedThisLoop = true
 						}
 						if err := c.store.UpdateWorkoutSessionNotes(existing.ID, existing.Notes+" resent_3h"); err != nil {
-							log.Printf("Failed to update session notes: %v", err)
+							slog.Error("Failed to update session notes", "error", err)
 						}
 					}
 				} else if now.After(scheduledTime.Add(6 * time.Hour)) {
 					// Service handles skip + rotation advancement for rotating groups
 					if err := c.workoutSvc.SkipSession(existing.ID); err != nil {
-						log.Printf("Failed to skip session: %v", err)
+						slog.Error("Failed to skip session", "error", err)
 					}
 					if existing.NotificationMessageID != nil {
 						c.DeleteNotification(ctx, *existing.NotificationMessageID)
@@ -274,11 +274,11 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		if existing.SnoozedUntil != nil && now.After(*existing.SnoozedUntil) && !notifiedThisLoop {
 			if activeSession == nil {
 				if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
-					log.Printf("Failed to re-send snoozed notification: %v", err)
+					slog.Error("Failed to re-send snoozed notification", "error", err)
 				} else {
 					notifiedThisLoop = true
 					if err := c.store.ClearSnooze(existing.ID); err != nil {
-						log.Printf("Failed to clear snooze state: %v", err)
+						slog.Error("Failed to clear snooze state", "error", err)
 					}
 				}
 			}
@@ -344,7 +344,7 @@ func (c *WorkoutChecker) sendWorkoutNotification(session *store.WorkoutSession, 
 	sessionID := session.ID
 	c.Notify(context.Background(), n, func(msgID int) {
 		if err := c.store.SetSessionNotificationMessageID(sessionID, msgID); err != nil {
-			log.Printf("Failed to store notification message ID: %v", err)
+			slog.Error("Failed to store notification message ID", "error", err)
 		}
 	})
 

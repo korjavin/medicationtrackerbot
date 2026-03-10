@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -48,21 +48,24 @@ func main() {
 	flag.Parse()
 
 	if *inputPath == "" {
-		log.Fatal("Please provide -input <path>")
+		slog.Error("Please provide -input <path>")
+		os.Exit(1)
 	}
 
 	// 1. Read JSON
 	data, err := os.ReadFile(*inputPath)
 	if err != nil {
-		log.Fatalf("Failed to read file: %v", err)
+		slog.Error("Failed to read file", "error", err)
+		os.Exit(1)
 	}
 
 	var export ExportData
 	if err := json.Unmarshal(data, &export); err != nil {
-		log.Fatalf("Failed to parse JSON: %v", err)
+		slog.Error("Failed to parse JSON", "error", err)
+		os.Exit(1)
 	}
 
-	log.Printf("Found %d intake logs", len(export.Data.Medications))
+	slog.Info("Intake logs loaded", "count", len(export.Data.Medications))
 
 	// 2. Aggregate
 	medMap := make(map[string]*AggregatedMed)
@@ -99,7 +102,8 @@ func main() {
 
 	sqlFile, err := os.Create(*outputPath)
 	if err != nil {
-		log.Fatalf("Failed to create output file: %v", err)
+		slog.Error("Failed to create output file", "error", err)
+		os.Exit(1)
 	}
 	defer sqlFile.Close()
 
@@ -147,7 +151,7 @@ func main() {
 		tFirst := getLogTime(firstLog)
 		tLast := getLogTime(latestLog)
 		if tFirst.IsZero() {
-			log.Printf("Warning: Could not determine start date for %s", agg.Name)
+			slog.Warn("Could not determine start date", "medication", agg.Name)
 		}
 
 		agg.FirstLog = tFirst
@@ -174,7 +178,7 @@ func main() {
 			}
 		}
 
-		log.Printf("Med: %s, TimeCounts: %v", agg.Name, timeCounts)
+		slog.Info("Medication processing", "medication", agg.Name, "timeCounts", timeCounts)
 
 		// Threshold: 1 occurrence is enough if it's the dominant one?
 		// Let's take all times that appear in > 20% of the recent logs
@@ -247,7 +251,7 @@ func main() {
 	}
 
 	_, _ = writer.WriteString("COMMIT;\n")
-	log.Printf("Successfully generated import.sql with %d medications", medIDCounter-1)
+	slog.Info("Successfully generated import.sql", "medications", medIDCounter-1)
 }
 
 func escapeSQL(s string) string {

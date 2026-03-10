@@ -3,7 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
@@ -50,7 +50,7 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 	for _, userID := range userIDs {
 		state, err := c.store.GetWeightReminderState(userID)
 		if err != nil {
-			log.Printf("Error getting weight reminder state for user %d: %v", userID, err)
+			slog.Error("Error getting weight reminder state", "userID", userID, "error", err)
 			continue
 		}
 
@@ -68,7 +68,7 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 
 		lastLog, err := c.store.GetLastWeightLog(ctx, userID)
 		if err != nil {
-			log.Printf("Error getting last weight log for user %d: %v", userID, err)
+			slog.Error("Error getting last weight log", "userID", userID, "error", err)
 			continue
 		}
 
@@ -84,13 +84,13 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 		if preferredHour == 0 {
 			preferredHour, err = c.store.CalculatePreferredWeightReminderHour(ctx, userID)
 			if err != nil {
-				log.Printf("Error calculating preferred hour for user %d: %v", userID, err)
+				slog.Warn("Error calculating preferred hour", "userID", userID, "error", err)
 				preferredHour = 9
 			}
 
 			if preferredHour != state.PreferredReminderHour {
 				if err := c.store.UpdatePreferredWeightReminderHour(userID, preferredHour); err != nil {
-					log.Printf("Error updating preferred hour for user %d: %v", userID, err)
+					slog.Error("Error updating preferred hour", "userID", userID, "error", err)
 				}
 			}
 		}
@@ -107,11 +107,11 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 		}
 
 		if err := c.sendWeightReminder(ctx, userID); err != nil {
-			log.Printf("Error sending weight reminder to user %d: %v", userID, err)
+			slog.Error("Error sending weight reminder", "userID", userID, "error", err)
 			continue
 		}
 
-		log.Printf("Sent weight reminder to user %d", userID)
+		slog.Info("Sent weight reminder", "userID", userID)
 	}
 
 	return nil
@@ -142,7 +142,7 @@ func (c *WeightReminderChecker) sendWeightReminder(ctx context.Context, userID i
 	for _, nr := range c.notifiers {
 		msgID, err := nr.Send(ctx, userID, n)
 		if err != nil {
-			log.Printf("Failed to send weight reminder via %T: %v", nr, err)
+			slog.Error("Failed to send weight reminder", "notifier", nr, "error", err)
 			continue
 		}
 		anySuccess = true

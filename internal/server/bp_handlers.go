@@ -5,7 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -62,7 +62,7 @@ func (s *Server) handleCreateBloodPressure(w http.ResponseWriter, r *http.Reques
 	bp.ID = id
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(bp); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -101,7 +101,7 @@ func (s *Server) handleListBloodPressure(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(readings); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -170,7 +170,7 @@ func (s *Server) handleImportBloodPressure(w http.ResponseWriter, r *http.Reques
 		"imported": len(readings),
 		"status":   "success",
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -241,7 +241,7 @@ func (s *Server) handleGetBPGoal(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(goal); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -256,7 +256,7 @@ func (s *Server) handleGetBPStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(stats); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -273,7 +273,7 @@ func (s *Server) handleGetBPReminderStatus(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(state); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -298,7 +298,7 @@ func (s *Server) handleToggleBPReminder(w http.ResponseWriter, r *http.Request) 
 		"enabled": req.Enabled,
 		"status":  "success",
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -323,7 +323,7 @@ func (s *Server) handleSnoozeBPReminder(w http.ResponseWriter, r *http.Request) 
 		"status":  "success",
 		"message": "BP reminder snoozed for 2 hours",
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -348,7 +348,7 @@ func (s *Server) handleDontBugMeBPReminder(w http.ResponseWriter, r *http.Reques
 		"status":  "success",
 		"message": "BP reminders disabled for 24 hours",
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -381,6 +381,6 @@ func (s *Server) handleSendTestBPNotification(w http.ResponseWriter, r *http.Req
 	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status": "sent",
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }

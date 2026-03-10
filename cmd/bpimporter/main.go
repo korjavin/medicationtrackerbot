@@ -5,7 +5,7 @@ import (
 	"encoding/csv"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -21,13 +21,15 @@ func main() {
 	flag.Parse()
 
 	if *csvPath == "" {
-		log.Fatal("Please provide -csv <path>")
+		slog.Error("Please provide -csv <path>")
+		os.Exit(1)
 	}
 
 	// Open database
 	s, err := store.New(*dbPath)
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		slog.Error("Failed to open database", "error", err)
+		os.Exit(1)
 	}
 	defer s.Close()
 
@@ -35,20 +37,23 @@ func main() {
 	if *userID == 0 {
 		meds, err := s.ListMedications(false)
 		if err != nil {
-			log.Fatalf("Failed to list medications: %v", err)
+			slog.Error("Failed to list medications", "error", err)
+			os.Exit(1)
 		}
 		if len(meds) == 0 {
-			log.Fatal("No users found in database. Please provide -user <id>")
+			slog.Error("No users found in database. Please provide -user <id>")
+			os.Exit(1)
 		}
 		// Use user ID 1 as default (the system is designed for single-user)
 		*userID = 1
-		log.Printf("Using default user ID: %d", *userID)
+		slog.Info("Using default user ID", "userID", *userID)
 	}
 
 	// Read CSV file
 	file, err := os.Open(*csvPath)
 	if err != nil {
-		log.Fatalf("Failed to open CSV file: %v", err)
+		slog.Error("Failed to open CSV file", "error", err)
+		os.Exit(1)
 	}
 	defer file.Close()
 
@@ -58,7 +63,8 @@ func main() {
 	// Read header
 	header, err := reader.Read()
 	if err != nil {
-		log.Fatalf("Failed to read CSV header: %v", err)
+		slog.Error("Failed to read CSV header", "error", err)
+		os.Exit(1)
 	}
 
 	// Parse header to column indices
@@ -71,7 +77,8 @@ func main() {
 	requiredCols := []string{"date", "systolic", "diastolic"}
 	for _, col := range requiredCols {
 		if _, ok := colMap[col]; !ok {
-			log.Fatalf("Missing required column: %s", col)
+			slog.Error("Missing required column", "column", col)
+			os.Exit(1)
 		}
 	}
 
@@ -101,7 +108,7 @@ func main() {
 		if dateStr != "" {
 			parsedTime, err := time.Parse(dateLayout, strings.TrimSpace(dateStr))
 			if err != nil {
-				log.Printf("Warning: Row %d - Invalid date format '%s': %v", rowNum, dateStr, err) // #nosec G706
+				slog.Warn("Invalid date format", "row", rowNum, "date", dateStr, "error", err) // #nosec G706
 				skippedRows++
 				continue
 			}
@@ -113,7 +120,7 @@ func main() {
 		if systolicStr != "" {
 			systolic, err := strconv.Atoi(strings.TrimSpace(systolicStr))
 			if err != nil {
-				log.Printf("Warning: Row %d - Invalid systolic value '%s': %v", rowNum, systolicStr, err) // #nosec G706
+				slog.Warn("Invalid systolic value", "row", rowNum, "value", systolicStr, "error", err) // #nosec G706
 				skippedRows++
 				continue
 			}
@@ -125,7 +132,7 @@ func main() {
 		if diastolicStr != "" {
 			diastolic, err := strconv.Atoi(strings.TrimSpace(diastolicStr))
 			if err != nil {
-				log.Printf("Warning: Row %d - Invalid diastolic value '%s': %v", rowNum, diastolicStr, err) // #nosec G706
+				slog.Warn("Invalid diastolic value", "row", rowNum, "value", diastolicStr, "error", err) // #nosec G706
 				skippedRows++
 				continue
 			}
@@ -177,21 +184,23 @@ func main() {
 
 		// Print progress every 10 records
 		if len(readings)%10 == 0 {
-			log.Printf("Parsed %d records...", len(readings))
+			slog.Info("Parsing records", "count", len(readings))
 		}
 	}
 
-	log.Printf("Parsed %d records from CSV, %d rows skipped due to errors", len(readings), skippedRows)
+	slog.Info("CSV parsing complete", "parsed", len(readings), "skipped", skippedRows)
 
 	if len(readings) == 0 {
-		log.Fatal("No valid records to import")
+		slog.Error("No valid records to import")
+		os.Exit(1)
 	}
 
 	// Import readings
 	ctx := context.Background()
 	err = s.ImportBloodPressureReadings(ctx, *userID, readings)
 	if err != nil {
-		log.Fatalf("Failed to import blood pressure readings: %v", err)
+		slog.Error("Failed to import blood pressure readings", "error", err)
+		os.Exit(1)
 	}
 
 	fmt.Printf("Imported %d blood pressure records for user %d\n", len(readings), *userID)
