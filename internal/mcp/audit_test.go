@@ -130,3 +130,23 @@ func TestAuditBufferStart(t *testing.T) {
 		t.Error("Buffer should be empty after Start cancelled")
 	}
 }
+
+func TestAuditBuffer_Disabled(t *testing.T) {
+	// If secret is missing, it should handle graceful flush failure (or be disabled higher up)
+	// But let's verify empty secret doesn't crash on flush
+	buffer := NewAuditBuffer("http://localhost:1234", "")
+	buffer.Record(AuditEvent{
+		DataType:  "Test",
+		StartDate: time.Now(),
+		EndDate:   time.Now(),
+	})
+
+	// Should log error but not crash
+	buffer.Flush()
+
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	if len(buffer.events) != 0 {
+		t.Error("Buffer should still be cleared even if HTTP POST fails")
+	}
+}

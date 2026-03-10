@@ -138,4 +138,11 @@ func TestHandleMCPAudit_Snooze(t *testing.T) {
 	if len(mockNotif.sent) != 0 {
 		t.Error("Expected notification to be snoozed")
 	}
+
+	// Make sure the snooze period wasn't extended by the suppressed request
+	srv.mcpAuditMutex.Lock()
+	if time.Since(srv.lastMCPNotification) < 1*time.Hour {
+		t.Error("Suppressed request extended the snooze window")
+	}
+	srv.mcpAuditMutex.Unlock()
 }
