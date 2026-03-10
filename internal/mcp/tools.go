@@ -200,6 +200,14 @@ func (s *Server) handleGetBloodPressure(ctx context.Context, req *mcp.CallToolRe
 		Warning:  warning,
 	}
 
+	if s.audit != nil {
+		s.audit.Record(AuditEvent{
+			DataType:  "Blood Pressure",
+			StartDate: startDate,
+			EndDate:   endDate,
+		})
+	}
+
 	return nil, response, nil
 }
 
@@ -275,6 +283,14 @@ func (s *Server) handleGetWeight(ctx context.Context, req *mcp.CallToolRequest, 
 		Count:   len(results),
 		Period:  formatPeriod(startDate, endDate),
 		Warning: warning,
+	}
+
+	if s.audit != nil {
+		s.audit.Record(AuditEvent{
+			DataType:  "Weight",
+			StartDate: startDate,
+			EndDate:   endDate,
+		})
 	}
 
 	return nil, response, nil
@@ -372,6 +388,14 @@ func (s *Server) handleGetMedicationIntake(ctx context.Context, req *mcp.CallToo
 		Count:   len(results),
 		Period:  formatPeriod(startDate, endDate),
 		Warning: warning,
+	}
+
+	if s.audit != nil {
+		s.audit.Record(AuditEvent{
+			DataType:  "Medications",
+			StartDate: startDate,
+			EndDate:   endDate,
+		})
 	}
 
 	return nil, response, nil
@@ -603,6 +627,14 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 		Warning:  strings.TrimSpace(warning),
 	}
 
+	if s.audit != nil {
+		s.audit.Record(AuditEvent{
+			DataType:  "Workouts",
+			StartDate: startDate,
+			EndDate:   endDate,
+		})
+	}
+
 	return nil, response, nil
 }
 
@@ -691,6 +723,14 @@ func (s *Server) handleGetSleepLogs(ctx context.Context, req *mcp.CallToolReques
 		Count:   len(results),
 		Period:  formatPeriod(startDate, endDate),
 		Warning: warning,
+	}
+
+	if s.audit != nil {
+		s.audit.Record(AuditEvent{
+			DataType:  "Sleep",
+			StartDate: startDate,
+			EndDate:   endDate,
+		})
 	}
 
 	return nil, response, nil
@@ -816,6 +856,14 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 		Warning: warning,
 	}
 
+	if s.audit != nil {
+		s.audit.Record(AuditEvent{
+			DataType:  "Food",
+			StartDate: startDate,
+			EndDate:   endDate,
+		})
+	}
+
 	return nil, response, nil
 }
 
@@ -888,6 +936,14 @@ func (s *Server) handleGetStepHistory(ctx context.Context, req *mcp.CallToolRequ
 		Count:   len(results),
 		Period:  formatPeriod(startDate, endDate),
 		Warning: warning,
+	}
+
+	if s.audit != nil {
+		s.audit.Record(AuditEvent{
+			DataType:  "Steps",
+			StartDate: startDate,
+			EndDate:   endDate,
+		})
 	}
 
 	return nil, response, nil

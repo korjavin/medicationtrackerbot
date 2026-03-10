@@ -11,6 +11,7 @@ services:
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - ALLOWED_USER_ID=${ALLOWED_USER_ID}
+      - MCP_AUDIT_SECRET=${MCP_AUDIT_SECRET}
       - DB_PATH=${DB_PATH:-/app/data/meds.db}
       - PORT=${PORT:-8080}
       - TZ=${TZ:-Europe/Berlin}
@@ -67,6 +68,8 @@ services:
       - MCP_SERVER_URL=${MCP_SERVER_URL}
       - MCP_ALLOWED_SUBJECT=${MCP_ALLOWED_SUBJECT}
       - ALLOWED_USER_ID=${ALLOWED_USER_ID}
+      - MCP_AUDIT_ENDPOINT=${MCP_AUDIT_ENDPOINT:-http://medtracker:8080/api/mcp-audit}
+      - MCP_AUDIT_SECRET=${MCP_AUDIT_SECRET}
       # Pocket-ID
       - POCKET_ID_URL=${POCKET_ID_URL}
       - POCKET_ID_CLIENT_ID=${POCKET_ID_CLIENT_ID}
