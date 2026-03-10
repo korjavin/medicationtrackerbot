@@ -22,6 +22,7 @@ type MedicationStore interface {
 	GetMedication(id int64) (*store.Medication, error)
 	GetMedicationsLowOnStock(days int) ([]store.Medication, error)
 	GetDaysOfStockRemaining(med *store.Medication) *float64
+	SnoozeIntake(id int64, snoozeUntil time.Time) error
 }
 
 // MedicationChecker checks for due medications and sends notifications.
@@ -128,6 +129,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		}
 
 		var intakeIDs []int64
+		intakeByMedication := make(map[int64]int64, len(group.Meds))
 		for _, med := range group.Meds {
 			log.Printf("Triggering medication %s (%s) scheduled for %s", med.Name, med.Dosage, med.Schedule)
 			id, err := c.store.CreateIntake(med.ID, c.allowedUserID, group.Target)
@@ -135,6 +137,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 				log.Printf("Failed to create intake log: %v", err)
 			} else {
 				intakeIDs = append(intakeIDs, id)
+				intakeByMedication[med.ID] = id
 			}
 		}
 
@@ -147,10 +150,8 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			}
 		}
 
-		intakeByMedication := make(map[int64]int64, len(group.Meds))
-		for i := 0; i < len(group.Meds) && i < len(intakeIDs); i++ {
-			intakeByMedication[group.Meds[i].ID] = intakeIDs[i]
-		}
+		// We still send one batched notification for Telegram to avoid spamming the user.
+		// However, for WebPush we will construct individual notifications per medication.
 
 		var actions []notifier.Action
 		for _, m := range group.Meds {
@@ -184,12 +185,13 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			medIDs[i] = m.ID
 		}
 
+		// Batched payload logic remains for Telegram compatibility
 		n := notifier.Notification{
 			Text:    text,
 			Actions: actions,
 			Tag:     fmt.Sprintf("medication-%s", group.Target.Format(time.RFC3339)),
 			Metadata: map[string]interface{}{
-				"type":             "medication",
+				"type":             "medication_batch", // Changed to medication_batch so WebPush notifier ignores it if we decide to
 				"scheduled_at":     group.Target.Format(time.RFC3339),
 				"medication_ids":   medIDs,
 				"medication_names": medNames,
@@ -205,6 +207,30 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 				}
 			}
 		})
+
+		// Send individual notifications for WebPush
+		for _, m := range group.Meds {
+			intakeID := intakeByMedication[m.ID]
+			if intakeID == 0 {
+				continue // Skip if intake creation failed
+			}
+			indivN := notifier.Notification{
+				Text: fmt.Sprintf("💊 Time to take: %s", m.Name),
+				Actions: []notifier.Action{
+					{ID: fmt.Sprintf("confirm_%d", intakeID), Label: "Confirm"},
+					{ID: fmt.Sprintf("skip_%d", intakeID), Label: "Skip"},
+				},
+				Tag: fmt.Sprintf("medication-%d", intakeID),
+				Metadata: map[string]interface{}{
+					"type":          "medication_individual",
+					"scheduled_at":  group.Target.Format(time.RFC3339),
+					"medication_id": m.ID,
+					"intake_id":     intakeID,
+				},
+			}
+			// Notify but we don't care about msgIDs for these individual ones since they are webpush specific
+			c.Notify(ctx, indivN, func(msgID int) {})
+		}
 	}
 
 	return nil

@@ -20,6 +20,7 @@ func (s *stubNotifier) Send(_ context.Context, _ int64, _ notifier.Notification)
 	return 0, nil
 }
 func (s *stubNotifier) Delete(_ context.Context, _ int64, _ int) error { return nil }
+func (s *stubNotifier) CloseNotification(ctx context.Context, userID int64, tag string) error { return nil }
 
 // newTestDB creates an in-memory store for tests that need to call store.New directly.
 func newTestDB(t *testing.T) (*store.Store, error) {

@@ -46,6 +46,10 @@ func (m *mockNotifier) Delete(_ context.Context, userID int64, msgID int) error 
 	return m.deleteErr
 }
 
+func (m *mockNotifier) CloseNotification(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+
 func (m *mockNotifier) getSendCalls() []mockSendCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -221,16 +225,30 @@ func TestCheckSchedule_SendsNotificationViaMock(t *testing.T) {
 		t.Fatalf("Check: %v", err)
 	}
 
-	if !mock.waitForSendCalls(1, 2*time.Second) {
+	if !mock.waitForSendCalls(2, 2*time.Second) {
 		t.Fatal("timed out waiting for send call")
 	}
 
 	calls := mock.getSendCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 send call, got %d", len(calls))
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 send calls, got %d", len(calls))
 	}
 
-	n := calls[0].Notification
+	var batchedNotifierCall mockSendCall
+	var foundBatched bool
+	for _, call := range calls {
+		if call.Notification.Metadata["type"] == "medication_batch" {
+			batchedNotifierCall = call
+			foundBatched = true
+			break
+		}
+	}
+
+	if !foundBatched {
+		t.Fatal("expected batched notification to be sent")
+	}
+
+	n := batchedNotifierCall.Notification
 
 	if !strings.Contains(n.Text, "TestMed") {
 		t.Errorf("notification text should contain med name, got: %s", n.Text)
@@ -257,8 +275,8 @@ func TestCheckSchedule_SendsNotificationViaMock(t *testing.T) {
 		t.Errorf("tag should start with medication-, got %s", n.Tag)
 	}
 
-	if n.Metadata["type"] != "medication" {
-		t.Errorf("metadata type = %v, want medication", n.Metadata["type"])
+	if n.Metadata["type"] != "medication_batch" {
+		t.Errorf("metadata type = %v, want medication_batch", n.Metadata["type"])
 	}
 
 	pending, err := db.GetPendingIntakes()
@@ -291,16 +309,32 @@ func TestCheckSchedule_MultipleMeds_GroupedNotification(t *testing.T) {
 		t.Fatalf("Check: %v", err)
 	}
 
-	if !mock.waitForSendCalls(1, 2*time.Second) {
-		t.Fatal("timed out waiting for send call")
+	// Expecting 1 batched (Telegram) + 2 individual (WebPush)
+	if !mock.waitForSendCalls(3, 2*time.Second) {
+		t.Fatal("timed out waiting for send calls")
 	}
 
 	calls := mock.getSendCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 grouped notification, got %d", len(calls))
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 notifications, got %d", len(calls))
 	}
 
-	n := calls[0].Notification
+	// We'll check the batched notification
+	var batchedNotifierCall mockSendCall
+	var foundBatched bool
+	for _, call := range calls {
+		if call.Notification.Metadata["type"] == "medication_batch" {
+			batchedNotifierCall = call
+			foundBatched = true
+			break
+		}
+	}
+
+	if !foundBatched {
+		t.Fatal("expected batched notification to be sent")
+	}
+
+	n := batchedNotifierCall.Notification
 	if !strings.Contains(n.Text, "MedA") || !strings.Contains(n.Text, "MedB") {
 		t.Errorf("notification should contain both med names, got: %s", n.Text)
 	}
@@ -330,16 +364,31 @@ func TestCheckSchedule_SupplementHasSkipAction(t *testing.T) {
 		t.Fatalf("Check: %v", err)
 	}
 
-	if !mock.waitForSendCalls(1, 2*time.Second) {
+	// Wait for 1 batched and 1 individual
+	if !mock.waitForSendCalls(2, 2*time.Second) {
 		t.Fatal("timed out waiting for send call")
 	}
 
 	calls := mock.getSendCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 notification, got %d", len(calls))
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 notifications, got %d", len(calls))
 	}
 
-	n := calls[0].Notification
+	var batchedNotifierCall mockSendCall
+	var foundBatched bool
+	for _, call := range calls {
+		if call.Notification.Metadata["type"] == "medication_batch" {
+			batchedNotifierCall = call
+			foundBatched = true
+			break
+		}
+	}
+
+	if !foundBatched {
+		t.Fatal("expected batched notification to be sent")
+	}
+
+	n := batchedNotifierCall.Notification
 	hasTake := false
 	hasSkip := false
 	for _, action := range n.Actions {

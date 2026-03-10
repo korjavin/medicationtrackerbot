@@ -15,6 +15,70 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
+func (s *Server) handleSnoozeMedication(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	var req struct {
+		IntakeID        int64 `json:"intake_id"`
+		DurationMinutes int   `json:"duration_minutes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.DurationMinutes <= 0 {
+		req.DurationMinutes = 10
+	}
+
+	intake, err := s.meds.GetIntake(req.IntakeID)
+	if err != nil {
+		http.Error(w, "Intake not found", http.StatusNotFound)
+		return
+	}
+	if intake == nil || intake.UserID != userID {
+		http.Error(w, "Unauthorized or intake not found", http.StatusForbidden)
+		return
+	}
+
+	snoozeUntil := time.Now().Add(time.Duration(req.DurationMinutes) * time.Minute)
+	if err := s.meds.SnoozeIntake(req.IntakeID, snoozeUntil); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleSkipMedication(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
+
+	var req struct {
+		IntakeID int64 `json:"intake_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	intake, err := s.meds.GetIntake(req.IntakeID)
+	if err != nil {
+		http.Error(w, "Intake not found", http.StatusNotFound)
+		return
+	}
+	if intake == nil || intake.UserID != userID {
+		http.Error(w, "Unauthorized or intake not found", http.StatusForbidden)
+		return
+	}
+
+	if err := s.meds.SkipIntake(req.IntakeID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *Server) handleListMedications(w http.ResponseWriter, r *http.Request) {
 	showArchived := r.URL.Query().Get("archived") == "true"
 	meds, err := s.meds.ListMedications(showArchived)
@@ -275,6 +339,8 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 				for _, msgID := range reminders {
 					s.deleteNotification(r.Context(), msgID)
 				}
+				// Close webpush notification
+				s.closeNotification(r.Context(), fmt.Sprintf("medication-%d", intake.ID))
 			}
 		}
 	}
@@ -403,8 +469,11 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 				continue
 			}
 
+			// Close the notification
+			s.closeNotification(r.Context(), fmt.Sprintf("medication-%d", intake.ID))
+
 			// Decrement inventory only if confirmation succeeded
-			if err := s.meds.DecrementInventory(medID, 1); err != nil {
+			if err := s.meds.DecrementInventory(intake.MedicationID, 1); err != nil {
 				log.Printf("Error decrementing inventory: %v", err)
 			}
 
@@ -428,6 +497,9 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 				}
 				continue
 			}
+
+			// Close the notification
+			s.closeNotification(r.Context(), fmt.Sprintf("medication-%d", intakeID))
 
 			// Decrement inventory only if confirmation succeeded
 			if err := s.meds.DecrementInventory(medID, 1); err != nil {

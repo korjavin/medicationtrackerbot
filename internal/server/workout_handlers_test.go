@@ -204,6 +204,85 @@ func TestHandleUpdateSessionStatus_CleansUpWorkoutChatOnTerminalState(t *testing
 	}
 }
 
+func TestHandleSnoozeWorkoutSessionCompat(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	defer db.Close()
+
+	srv := &Server{
+		workouts:      db,
+		workoutSvc:    workoutsvc.New(db),
+		allowedUserID: 123456,
+	}
+
+	userID := int64(123456)
+	group, _ := db.CreateWorkoutGroup("Test", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	variant, _ := db.CreateWorkoutVariant(group.ID, "A", nil, "")
+	session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+
+	reqBody := map[string]interface{}{
+		"session_id":     session.ID,
+		"duration_hours": 1,
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/session/snooze", bytes.NewReader(bodyBytes))
+	req = withUser(req, userID)
+	w := httptest.NewRecorder()
+
+	srv.handleSnoozeWorkoutSessionCompat(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	updated, _ := db.GetWorkoutSession(session.ID)
+	if updated.SnoozedUntil == nil {
+		t.Errorf("Expected session to be snoozed")
+	}
+}
+
+func TestHandleSkipWorkoutSessionCompat(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	defer db.Close()
+
+	srv := &Server{
+		workouts:      db,
+		workoutSvc:    workoutsvc.New(db),
+		allowedUserID: 123456,
+	}
+
+	userID := int64(123456)
+	group, _ := db.CreateWorkoutGroup("Test", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	variant, _ := db.CreateWorkoutVariant(group.ID, "A", nil, "")
+	session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+
+	reqBody := map[string]interface{}{
+		"session_id": session.ID,
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/session/skip", bytes.NewReader(bodyBytes))
+	req = withUser(req, userID)
+	w := httptest.NewRecorder()
+
+	srv.handleSkipWorkoutSessionCompat(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	updated, _ := db.GetWorkoutSession(session.ID)
+	if updated.Status != "skipped" {
+		t.Errorf("Expected session status to be 'skipped', got %s", updated.Status)
+	}
+}
+
 func TestHandleGetNextWorkout_LazyCreation(t *testing.T) {
 	// Create test database
 	db, err := store.New(":memory:")
