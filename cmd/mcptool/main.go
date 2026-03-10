@@ -34,8 +34,16 @@ func main() {
 
 	log.Println("[MCP] Database connection established")
 
+	// Initialize audit buffer if configured
+	var auditBuffer *mcp.AuditBuffer
+	if cfg.AuditEndpoint != "" {
+		auditBuffer = mcp.NewAuditBuffer(cfg.AuditEndpoint, cfg.AuditSecret)
+		auditBuffer.Start(context.Background())
+		log.Printf("[MCP] Audit logging enabled: endpoint=%s", cfg.AuditEndpoint)
+	}
+
 	// Create and start MCP server
-	server, err := mcp.NewServer(cfg, st)
+	server, err := mcp.NewServer(cfg, st, auditBuffer)
 	if err != nil {
 		log.Fatalf("[MCP] Failed to create server: %v", err)
 	}

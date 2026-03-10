@@ -68,12 +68,22 @@ func (s *Server) handleGetVitalsHeart(ctx context.Context, req *mcp.CallToolRequ
 		})
 	}
 
-	return nil, VitalsResponse{
+	response := VitalsResponse{
 		Logs:    results,
 		Count:   len(results),
 		Period:  formatPeriod(startDate, endDate),
 		Warning: warning,
-	}, nil
+	}
+
+	if s.audit != nil {
+		s.audit.Record(AuditEvent{
+			DataType:  "Vitals",
+			StartDate: startDate,
+			EndDate:   endDate,
+		})
+	}
+
+	return nil, response, nil
 }
 
 // handleGetVitalsSpO2 handles the get_vitals_spo2 tool
@@ -108,12 +118,22 @@ func (s *Server) handleGetVitalsSpO2(ctx context.Context, req *mcp.CallToolReque
 		})
 	}
 
-	return nil, VitalsResponse{
+	response := VitalsResponse{
 		Logs:    results,
 		Count:   len(results),
 		Period:  formatPeriod(startDate, endDate),
 		Warning: warning,
-	}, nil
+	}
+
+	if s.audit != nil {
+		s.audit.Record(AuditEvent{
+			DataType:  "Vitals",
+			StartDate: startDate,
+			EndDate:   endDate,
+		})
+	}
+
+	return nil, response, nil
 }
 
 // handleGetVitalsStress handles the get_vitals_stress tool
@@ -149,12 +169,22 @@ func (s *Server) handleGetVitalsStress(ctx context.Context, req *mcp.CallToolReq
 		})
 	}
 
-	return nil, VitalsResponse{
+	response := VitalsResponse{
 		Logs:    results,
 		Count:   len(results),
 		Period:  formatPeriod(startDate, endDate),
 		Warning: warning,
-	}, nil
+	}
+
+	if s.audit != nil {
+		s.audit.Record(AuditEvent{
+			DataType:  "Vitals",
+			StartDate: startDate,
+			EndDate:   endDate,
+		})
+	}
+
+	return nil, response, nil
 }
 
 // handleGetHealthOverview handles the get_health_overview tool
@@ -208,7 +238,7 @@ func (s *Server) handleGetHealthOverview(ctx context.Context, req *mcp.CallToolR
 		sAvg = sSum / len(stressLogs)
 	}
 
-	return nil, HealthOverviewResponse{
+	response := HealthOverviewResponse{
 		AverageHeartRate: hAvg,
 		AverageSpO2:      oAvg,
 		AverageStress:    sAvg,
@@ -217,7 +247,17 @@ func (s *Server) handleGetHealthOverview(ctx context.Context, req *mcp.CallToolR
 		CountStress:      len(stressLogs),
 		Period:           formatPeriod(startDate, endDate),
 		Warning:          warning,
-	}, nil
+	}
+
+	if s.audit != nil {
+		s.audit.Record(AuditEvent{
+			DataType:  "Vitals",
+			StartDate: startDate,
+			EndDate:   endDate,
+		})
+	}
+
+	return nil, response, nil
 }
 
 func registerVitalsTools(mcpServer *mcp.Server, s *Server) {
