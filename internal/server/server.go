@@ -59,11 +59,14 @@ type Server struct {
 	oidcUserInfo    string
 	botUsername     string
 	vapidPublicKey  string
-	foodSearchTTL   time.Duration
-	foodSearchCache *fastcache.Cache
-	changeStreamSem chan struct{}
-	changePruning   atomic.Bool
-	externalAPIKey  string
+	foodSearchTTL       time.Duration
+	foodSearchCache     *fastcache.Cache
+	changeStreamSem     chan struct{}
+	changePruning       atomic.Bool
+	externalAPIKey      string
+	mcpAuditSecret      string
+	lastMCPNotification time.Time
+	mcpAuditMutex       sync.Mutex
 }
 
 type rateLimiter struct {
@@ -226,6 +229,11 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 // SetWorkoutInteractor configures the chat interaction for web-started workouts.
 func (s *Server) SetWorkoutInteractor(w WorkoutInteractor) {
 	s.workout = w
+}
+
+// SetMCPAuditSecret sets the secret used to authenticate MCP audit payloads.
+func (s *Server) SetMCPAuditSecret(secret string) {
+	s.mcpAuditSecret = secret
 }
 
 // SetNotifiers configures the notification channels after construction.
@@ -451,8 +459,9 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/settings/tab-order", s.handleSetTabOrder)
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
 
-	// Register external API routes (without standard AuthMiddleware)
+	// External routes (bypass AuthMiddleware)
 	mux.HandleFunc("POST /api/workout/external", s.externalAPIKeyMiddleware(s.handleExternalWorkout))
+	mux.HandleFunc("POST /api/mcp-audit", s.handleMCPAudit)
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)

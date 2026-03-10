@@ -38,8 +38,18 @@ func main() {
 
 	slog.Info("[MCP] Database connection established")
 
+	// Initialize audit buffer if configured
+	var auditBuffer *mcp.AuditBuffer
+	if cfg.AuditEndpoint != "" && cfg.AuditSecret != "" {
+		auditBuffer = mcp.NewAuditBuffer(cfg.AuditEndpoint, cfg.AuditSecret)
+		auditBuffer.Start(context.Background())
+		slog.Info("[MCP] Audit logging enabled", "endpoint", cfg.AuditEndpoint)
+	} else if cfg.AuditEndpoint != "" && cfg.AuditSecret == "" {
+		slog.Warn("[MCP] Audit logging is disabled because MCP_AUDIT_SECRET is empty")
+	}
+
 	// Create and start MCP server
-	server, err := mcp.NewServer(cfg, st)
+	server, err := mcp.NewServer(cfg, st, auditBuffer)
 	if err != nil {
 		slog.Error("[MCP] Failed to create server", "error", err)
 		os.Exit(1)

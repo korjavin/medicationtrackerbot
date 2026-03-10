@@ -142,6 +142,10 @@ func main() {
 
 	srv := server.New(s, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidPublicKey)
 
+	if mcpAuditSecret := os.Getenv("MCP_AUDIT_SECRET"); mcpAuditSecret != "" {
+		srv.SetMCPAuditSecret(mcpAuditSecret)
+	}
+
 	// Set workout interactor (only if bot is available)
 	if tgBot != nil {
 		srv.SetWorkoutInteractor(tgBot)
