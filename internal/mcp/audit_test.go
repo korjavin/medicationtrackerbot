@@ -78,7 +78,8 @@ func TestAuditBufferFlush(t *testing.T) {
 	}
 
 	for _, dt := range receivedPayload.DataTypes {
-		if dt.Label == "Vitals" {
+		switch dt.Label {
+		case "Vitals":
 			expectedStart := now.Add(-10 * 24 * time.Hour)
 			expectedEnd := now.Add(-1 * 24 * time.Hour)
 			if !dt.From.Equal(expectedStart) {
@@ -87,7 +88,7 @@ func TestAuditBufferFlush(t *testing.T) {
 			if !dt.To.Equal(expectedEnd) {
 				t.Errorf("Expected Vitals To %v, got %v", expectedEnd, dt.To)
 			}
-		} else if dt.Label == "Weight" {
+		case "Weight":
 			expectedStart := now.Add(-15 * 24 * time.Hour)
 			expectedEnd := now.Add(-2 * 24 * time.Hour)
 			if !dt.From.Equal(expectedStart) {
@@ -96,7 +97,7 @@ func TestAuditBufferFlush(t *testing.T) {
 			if !dt.To.Equal(expectedEnd) {
 				t.Errorf("Expected Weight To %v, got %v", expectedEnd, dt.To)
 			}
-		} else {
+		default:
 			t.Errorf("Unexpected data type label: %s", dt.Label)
 		}
 	}
