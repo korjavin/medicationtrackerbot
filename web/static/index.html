@@ -163,11 +163,13 @@
                         aria-label="Previous day">←</button>
                     <div style="position: relative; flex: 1;">
                         <input type="date" id="food-date-filter" style="width: 100%; box-sizing: border-box;">
+                        <span id="food-date-label"></span>
                         <div id="food-week-display" class="hidden"
                             style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--secondary-bg-color); color: var(--text-color); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 14px; pointer-events: none; border: 1px solid var(--border-color); border-radius: 8px;">
                         </div>
                     </div>
                     <button id="food-date-next-btn" class="secondary food-date-shift-btn" aria-label="Next day">→</button>
+                    <button id="food-today-btn" class="food-today-chip" style="display: none;">Today</button>
                 </div>
 
                 <div id="food-target-progress" class="food-target-progress hidden"></div>
