@@ -74,6 +74,7 @@ describe('app.js food helpers', () => {
 
       // Toggle off
       per100gCheckbox.checked = false;
+      document.getElementById('food-calories').value = ''; // clear it to simulate normal recalculation since per100g is false now
       window.onFoodPer100gChange();
 
       // 50 * 4 = 200
@@ -109,22 +110,34 @@ describe('app.js food helpers', () => {
     }
   });
 
-  it('TC3: manual entry in per-100g=false mode calculates correctly and no recalc on toggle to same state', () => {
+  it('TC3: manual entry in per-100g=false mode calculates correctly and preserves manually entered calories', () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
+      // Setup initial manual entry with an empty calorie field
       document.getElementById('food-carbs').value = '30';
       document.getElementById('food-protein').value = '20';
       document.getElementById('food-fat').value = '10';
       document.getElementById('food-weight').value = '';
+      document.getElementById('food-calories').value = '';
 
       const per100gCheckbox = document.getElementById('food-per-100g');
       per100gCheckbox.checked = false;
 
       window.calculateFoodCalories();
 
-      // 30*4 + 20*4 + 10*9 = 120 + 80 + 90 = 290
+      // Since calories was empty, it should auto-calculate: 30*4 + 20*4 + 10*9 = 120 + 80 + 90 = 290
       expect(document.getElementById('food-calories').value).toBe('290');
+
+      // Now set a manual custom calorie value to simulate a user overriding
+      document.getElementById('food-calories').value = '500';
+
+      // Trigger macro changes while per100g is false
+      document.getElementById('food-carbs').value = '10';
+      window.calculateFoodCalories();
+
+      // Assert the custom value of 500 is preserved and not overwritten to 40
+      expect(document.getElementById('food-calories').value).toBe('500');
       expect(per100gCheckbox.checked).toBe(false);
     } finally {
       cleanup();

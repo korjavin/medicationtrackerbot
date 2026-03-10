@@ -996,7 +996,9 @@ function calculateFoodCalories() {
     }
 
     const totalCals = Math.round((4 * totalCarbs) + (4 * totalProt) + (9 * totalFat));
-    caloriesInput.value = totalCals;
+    if (per100g || caloriesInput.value === '') {
+        caloriesInput.value = totalCals;
+    }
 }
 
 function onFoodPer100gChange() {
