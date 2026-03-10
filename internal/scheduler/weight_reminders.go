@@ -25,6 +25,7 @@ type WeightReminderStore interface {
 type WeightReminderChecker struct {
 	store     WeightReminderStore
 	notifiers []notifier.Notifier
+	now       func() time.Time
 }
 
 func (c *WeightReminderChecker) Check(ctx context.Context) error {
@@ -41,7 +42,10 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 		return err
 	}
 
-	now := time.Now()
+	if c.now == nil {
+		c.now = time.Now
+	}
+	now := c.now()
 
 	for _, userID := range userIDs {
 		state, err := c.store.GetWeightReminderState(userID)
@@ -68,23 +72,26 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 			continue
 		}
 
-		if lastLog != nil && time.Since(lastLog.MeasuredAt) < 7*24*time.Hour {
+		if lastLog != nil && now.Sub(lastLog.MeasuredAt) < 7*24*time.Hour {
 			continue
 		}
 
-		if lastLog != nil && time.Since(lastLog.MeasuredAt) < 5*24*time.Hour {
+		if lastLog != nil && now.Sub(lastLog.MeasuredAt) < 5*24*time.Hour {
 			continue
 		}
 
-		preferredHour, err := c.store.CalculatePreferredWeightReminderHour(ctx, userID)
-		if err != nil {
-			log.Printf("Error calculating preferred hour for user %d: %v", userID, err)
-			preferredHour = 9
-		}
+		preferredHour := state.PreferredReminderHour
+		if preferredHour == 0 {
+			preferredHour, err = c.store.CalculatePreferredWeightReminderHour(ctx, userID)
+			if err != nil {
+				log.Printf("Error calculating preferred hour for user %d: %v", userID, err)
+				preferredHour = 9
+			}
 
-		if preferredHour != state.PreferredReminderHour {
-			if err := c.store.UpdatePreferredWeightReminderHour(userID, preferredHour); err != nil {
-				log.Printf("Error updating preferred hour for user %d: %v", userID, err)
+			if preferredHour != state.PreferredReminderHour {
+				if err := c.store.UpdatePreferredWeightReminderHour(userID, preferredHour); err != nil {
+					log.Printf("Error updating preferred hour for user %d: %v", userID, err)
+				}
 			}
 		}
 
@@ -94,7 +101,7 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 		}
 
 		if state.LastNotificationSentAt != nil {
-			if time.Since(*state.LastNotificationSentAt) < 7*24*time.Hour {
+			if now.Sub(*state.LastNotificationSentAt) < 7*24*time.Hour {
 				continue
 			}
 		}

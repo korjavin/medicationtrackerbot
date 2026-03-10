@@ -1,0 +1,19 @@
+[
+  {
+    "name": "basic comparison",
+    "description": "checks simple equality",
+    "input": {
+      "key": "value"
+    },
+    "state": {},
+    "expected": {
+      "key": "value"
+    }
+  },
+  {
+    "name": "array comparison",
+    "description": "checks array equality",
+    "input": [1, 2, 3],
+    "expected": [1, 2, 3]
+  }
+]
