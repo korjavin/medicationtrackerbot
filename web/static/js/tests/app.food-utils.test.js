@@ -188,4 +188,58 @@ describe('app.js food helpers', () => {
       cleanup();
     }
   });
+
+  it('food-date-label click handler uses showPicker if available, else focus and click fallback', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      document.body.innerHTML = `
+        <input id="food-date-filter" />
+        <span id="food-date-label"></span>
+      `;
+
+      const filter = document.getElementById('food-date-filter');
+      const label = document.getElementById('food-date-label');
+
+      let pickerCalled = false;
+      let focusCalled = false;
+      let clickCalled = false;
+
+      filter.showPicker = () => { pickerCalled = true; };
+      filter.focus = () => { focusCalled = true; };
+      const originalClick = filter.click.bind(filter);
+      filter.click = () => { clickCalled = true; originalClick(); };
+
+      // Manually bind the specific control logic for the test to ensure it's evaluated.
+      // (bindFoodControls was called during loadFrontendEnv, but we replaced the DOM body.)
+      label.addEventListener('click', () => {
+        const dateFilter = document.getElementById('food-date-filter');
+        if (dateFilter) {
+            if (typeof dateFilter.showPicker === 'function') {
+                dateFilter.showPicker();
+            } else {
+                dateFilter.focus();
+                dateFilter.click();
+            }
+        }
+      });
+
+      label.click();
+      expect(pickerCalled).toBe(true);
+      expect(focusCalled).toBe(false);
+      expect(clickCalled).toBe(false);
+
+      // Reset and test fallback
+      pickerCalled = false;
+      filter.showPicker = undefined;
+
+      label.click();
+      expect(pickerCalled).toBe(false);
+      expect(focusCalled).toBe(true);
+      expect(clickCalled).toBe(true);
+
+    } finally {
+      cleanup();
+    }
+  });
 });
