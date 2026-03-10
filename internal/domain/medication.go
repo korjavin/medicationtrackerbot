@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -84,14 +84,14 @@ func (s *medicationService) ConfirmIntakeWithCleanup(intakeID int64, takenAt tim
 	// Determine supplement status for the caller's UI needs (best-effort).
 	isSupplement := false
 	if med, err := s.store.GetMedication(intake.MedicationID); err != nil {
-		log.Printf("[domain] GetMedication for intake %d: %v", intakeID, err)
+		slog.Error("GetMedication for intake failed", "intakeID", intakeID, "error", err)
 	} else if med != nil {
 		isSupplement = med.Supplement
 	}
 
 	reminders, err := s.store.GetIntakeReminders(intakeID)
 	if err != nil {
-		log.Printf("[domain] GetIntakeReminders for intake %d: %v", intakeID, err)
+		slog.Error("GetIntakeReminders failed", "intakeID", intakeID, "error", err)
 	}
 
 	if err := s.store.ConfirmIntake(intakeID, takenAt); err != nil {
@@ -103,7 +103,7 @@ func (s *medicationService) ConfirmIntakeWithCleanup(intakeID int64, takenAt tim
 
 	// Inventory decrement is best-effort; a confirmed intake is the source of truth.
 	if err := s.store.DecrementInventory(intake.MedicationID, 1); err != nil {
-		log.Printf("[domain] DecrementInventory for intake %d: %v", intakeID, err)
+		slog.Error("DecrementInventory failed", "intakeID", intakeID, "error", err)
 	}
 
 	return reminders, isSupplement, nil
@@ -128,7 +128,7 @@ func (s *medicationService) SkipSupplementIntake(intakeID int64) ([]int, error) 
 
 	reminders, err := s.store.GetIntakeReminders(intakeID)
 	if err != nil {
-		log.Printf("[domain] GetIntakeReminders for intake %d: %v", intakeID, err)
+		slog.Error("GetIntakeReminders failed", "intakeID", intakeID, "error", err)
 	}
 
 	if err := s.store.SkipIntake(intakeID); err != nil {
@@ -150,7 +150,7 @@ func (s *medicationService) LogMedicationNow(userID, medID int64) error {
 	}
 	// Inventory decrement is best-effort.
 	if err := s.store.DecrementInventory(medID, 1); err != nil {
-		log.Printf("[domain] DecrementInventory for med %d: %v", medID, err)
+		slog.Error("DecrementInventory failed", "medID", medID, "error", err)
 	}
 	return nil
 }
@@ -165,7 +165,7 @@ func (s *medicationService) ConfirmScheduleWithCleanup(userID int64, scheduledAt
 	for _, p := range pending {
 		reminders, err := s.store.GetIntakeReminders(p.ID)
 		if err != nil {
-			log.Printf("[domain] GetIntakeReminders for intake %d: %v", p.ID, err)
+			slog.Error("GetIntakeReminders failed", "intakeID", p.ID, "error", err)
 		}
 		allReminders = append(allReminders, reminders...)
 	}
@@ -184,7 +184,7 @@ func (s *medicationService) ConfirmScheduleWithCleanup(userID int64, scheduledAt
 	for _, p := range pending {
 		if confirmedIDSet[p.ID] {
 			if err := s.store.DecrementInventory(p.MedicationID, 1); err != nil {
-				log.Printf("[domain] DecrementInventory for intake %d: %v", p.ID, err)
+				slog.Error("DecrementInventory failed", "intakeID", p.ID, "error", err)
 			}
 		}
 	}

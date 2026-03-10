@@ -2,7 +2,7 @@ package bot
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -48,7 +48,7 @@ func (b *Bot) handleBPReminderCallback(cb *tgbotapi.CallbackQuery, data string) 
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})
 		if _, err := b.api.Send(edit); err != nil {
-			log.Printf("[bot] send failed: %v", err)
+			slog.Error("send failed", "error", err)
 		}
 
 		// Send instruction message
@@ -68,15 +68,15 @@ func (b *Bot) handleBPReminderCallback(cb *tgbotapi.CallbackQuery, data string) 
 				"[Open App to Add BP Reading]("+webAppURL+")")
 		msg.ParseMode = "Markdown"
 		if _, err := b.api.Send(msg); err != nil {
-			log.Printf("[bot] send failed: %v", err)
+			slog.Error("send failed", "error", err)
 		}
 
 	case "bp_snooze":
 		// Snooze for 2 hours
 		if err := b.reminderSvc.SnoozeBPReminder(cb.From.ID); err != nil {
-			log.Printf("Error snoozing BP reminder: %v", err)
+			slog.Error("Error snoozing BP reminder", "error", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing reminder.")); err != nil {
-				log.Printf("[bot] send failed: %v", err)
+				slog.Error("send failed", "error", err)
 			}
 			return
 		}
@@ -84,20 +84,20 @@ func (b *Bot) handleBPReminderCallback(cb *tgbotapi.CallbackQuery, data string) 
 		// Delete the notification
 		deleteMsg := tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)
 		if _, err := b.api.Send(deleteMsg); err != nil {
-			log.Printf("[bot] send failed: %v", err)
+			slog.Error("send failed", "error", err)
 		}
 
 		// Send confirmation
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⏰ BP reminder snoozed for 2 hours.")); err != nil {
-			log.Printf("[bot] send failed: %v", err)
+			slog.Error("send failed", "error", err)
 		}
 
 	case "bp_dontbug":
 		// Block for 24 hours
 		if err := b.reminderSvc.BlockBPReminders(cb.From.ID); err != nil {
-			log.Printf("Error setting don't bug me for BP reminder: %v", err)
+			slog.Error("Error setting don't bug me for BP reminder", "error", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error blocking reminders.")); err != nil {
-				log.Printf("[bot] send failed: %v", err)
+				slog.Error("send failed", "error", err)
 			}
 			return
 		}
@@ -105,12 +105,12 @@ func (b *Bot) handleBPReminderCallback(cb *tgbotapi.CallbackQuery, data string) 
 		// Delete the notification
 		deleteMsg := tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)
 		if _, err := b.api.Send(deleteMsg); err != nil {
-			log.Printf("[bot] send failed: %v", err)
+			slog.Error("send failed", "error", err)
 		}
 
 		// Send confirmation
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "🔇 BP reminders disabled for 24 hours.")); err != nil {
-			log.Printf("[bot] send failed: %v", err)
+			slog.Error("send failed", "error", err)
 		}
 	}
 }

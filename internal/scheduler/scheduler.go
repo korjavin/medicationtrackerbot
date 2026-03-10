@@ -2,7 +2,7 @@ package scheduler
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
@@ -80,14 +80,14 @@ func (s *Scheduler) runEntry(e tickerEntry) {
 	if e.initialDelay > 0 {
 		time.Sleep(e.initialDelay)
 		if err := e.checker.Check(context.Background()); err != nil {
-			log.Printf("Error in %s checker: %v", e.name, err)
+			slog.Error("Error in checker", "name", e.name, "error", err)
 		}
 	}
 
 	ticker := time.NewTicker(e.interval)
 	for range ticker.C {
 		if err := e.checker.Check(context.Background()); err != nil {
-			log.Printf("Error in %s checker: %v", e.name, err)
+			slog.Error("Error in checker", "name", e.name, "error", err)
 		}
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -67,7 +67,7 @@ func (s *Server) handleCreateWeight(w http.ResponseWriter, r *http.Request) {
 	wLog.ID = id
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(wLog); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -106,7 +106,7 @@ func (s *Server) handleListWeight(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(logs); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -237,7 +237,7 @@ func (s *Server) handleGetWeightGoal(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -252,7 +252,7 @@ func (s *Server) handleGetWeightReminderStatus(w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(state); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -274,7 +274,7 @@ func (s *Server) handleToggleWeightReminder(w http.ResponseWriter, r *http.Reque
 		"enabled": req.Enabled,
 		"status":  "success",
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -297,7 +297,7 @@ func (s *Server) handleSnoozeWeightReminder(w http.ResponseWriter, r *http.Reque
 		"status":  "success",
 		"message": "Weight reminder snoozed for 2 hours",
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -320,6 +320,6 @@ func (s *Server) handleDontBugMeWeightReminder(w http.ResponseWriter, r *http.Re
 		"status":  "success",
 		"message": "Weight reminders disabled for 24 hours",
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }

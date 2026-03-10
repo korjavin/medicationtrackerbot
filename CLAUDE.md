@@ -261,6 +261,12 @@ MCP_MAX_QUERY_DAYS=90
 - Treat HTTP 502/503/504 as "offline" — `navigator.onLine` stays true behind reverse proxies
 - **Tab Reordering:** Drag-and-drop functionality in `tabs-dnd.js` allows custom tab layouts, persisted via `tab_order` in the bootstrap payload and cached in `settings_bundle`.
 
+### Logging Pattern
+- We use the standard library structured logger (`log/slog`).
+- Configure the default logger in entry points: `slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))`
+- Use contextual arguments `slog.Error("msg", "error", err)` instead of formatting `log.Printf("msg: %v", err)`.
+- Replaced `log.Fatal` with `slog.Error` + `os.Exit(1)` for cleaner deferred cleanup (where applicable).
+
 ### Testing Patterns
 - Store tests use in-memory SQLite (`:memory:`)
 - Server tests use httptest for HTTP handlers

@@ -6,14 +6,16 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
-	"log"
+	"log/slog"
+	"os"
 )
 
 func main() {
 	// Generate a new private key
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		log.Fatalf("Failed to generate private key: %v", err)
+		slog.Error("Failed to generate private key", "error", err)
+		os.Exit(1)
 	}
 
 	// Get the public key
@@ -22,7 +24,8 @@ func main() {
 	// Encode keys to base64url (without padding)
 	privBytes, err := x509PrivateKeyToBytes(privateKey)
 	if err != nil {
-		log.Fatalf("Failed to marshal private key: %v", err)
+		slog.Error("Failed to marshal private key", "error", err)
+		os.Exit(1)
 	}
 
 	pubBytes := append([]byte{0x04}, publicKey.X.Bytes()...)

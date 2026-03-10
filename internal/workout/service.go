@@ -1,7 +1,7 @@
 package workout
 
 import (
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -98,7 +98,7 @@ func (s *Service) tryAdvanceRotation(session *store.WorkoutSession) {
 
 	group, err := s.store.GetWorkoutGroup(session.GroupID)
 	if err != nil {
-		log.Printf("workout service: failed to load group %d for session %d: %v", session.GroupID, session.ID, err)
+		slog.Error("workout service: failed to load group for session", "groupID", session.GroupID, "sessionID", session.ID, "error", err)
 		return
 	}
 	if group == nil || !group.IsRotating {
@@ -106,6 +106,6 @@ func (s *Service) tryAdvanceRotation(session *store.WorkoutSession) {
 	}
 
 	if err := s.store.AdvanceRotation(group.ID); err != nil {
-		log.Printf("workout service: failed to advance rotation for group %d: %v", group.ID, err)
+		slog.Error("workout service: failed to advance rotation", "groupID", group.ID, "error", err)
 	}
 }
