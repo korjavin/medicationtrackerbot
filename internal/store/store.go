@@ -75,6 +75,7 @@ type IntakeLog struct {
 	ScheduledAt  time.Time  `json:"scheduled_at"`
 	TakenAt      *time.Time `json:"taken_at,omitempty"`
 	Status       string     `json:"status"` // PENDING, TAKEN, SKIPPED, MISSED
+	SnoozedUntil *time.Time `json:"snoozed_until,omitempty"`
 }
 
 type IntakeWithMedication struct {
@@ -558,8 +559,23 @@ func (s *Store) UpdateIntake(id int64, takenAt time.Time, status string) error {
 	return err
 }
 
+func (s *Store) SnoozeIntake(id int64, snoozeUntil time.Time) error {
+	res, err := s.db.Exec("UPDATE intake_log SET snoozed_until = ? WHERE id = ?", snoozeUntil, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status FROM intake_log WHERE status = 'PENDING'")
+	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status, snoozed_until FROM intake_log WHERE status = 'PENDING'")
 	if err != nil {
 		return nil, err
 	}
@@ -568,7 +584,7 @@ func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
 	var logs []IntakeLog
 	for rows.Next() {
 		var l IntakeLog
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status); err != nil {
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status, &l.SnoozedUntil); err != nil {
 			return nil, err
 		}
 		logs = append(logs, l)
@@ -577,7 +593,7 @@ func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
 }
 
 func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
-	query := "SELECT id, medication_id, user_id, scheduled_at, taken_at, status FROM intake_log WHERE 1=1"
+	query := "SELECT id, medication_id, user_id, scheduled_at, taken_at, status, snoozed_until FROM intake_log WHERE 1=1"
 	args := []interface{}{}
 
 	if medID > 0 {
@@ -602,7 +618,7 @@ func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
 	var logs []IntakeLog
 	for rows.Next() {
 		var l IntakeLog
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status); err != nil {
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status, &l.SnoozedUntil); err != nil {
 			return nil, err
 		}
 		logs = append(logs, l)
@@ -612,8 +628,8 @@ func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
 
 func (s *Store) GetIntake(id int64) (*IntakeLog, error) {
 	var l IntakeLog
-	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at, taken_at, status FROM intake_log WHERE id = ?", id).Scan(
-		&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status,
+	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at, taken_at, status, snoozed_until FROM intake_log WHERE id = ?", id).Scan(
+		&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status, &l.SnoozedUntil,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil // Not found
@@ -633,8 +649,8 @@ func (s *Store) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*Intake
 	// Let's rely on driver.
 
 	var l IntakeLog
-	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at, taken_at, status FROM intake_log WHERE medication_id = ? AND scheduled_at = ?", medID, scheduledAt).Scan(
-		&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status,
+	err := s.db.QueryRow("SELECT id, medication_id, user_id, scheduled_at, taken_at, status, snoozed_until FROM intake_log WHERE medication_id = ? AND scheduled_at = ?", medID, scheduledAt).Scan(
+		&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status, &l.SnoozedUntil,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -701,7 +717,7 @@ func (s *Store) GetIntakeReminders(intakeID int64) ([]int, error) {
 }
 
 func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status FROM intake_log WHERE user_id = ? AND scheduled_at = ? AND status = 'PENDING'", userID, scheduledAt)
+	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status, snoozed_until FROM intake_log WHERE user_id = ? AND scheduled_at = ? AND status = 'PENDING'", userID, scheduledAt)
 	if err != nil {
 		return nil, err
 	}
@@ -709,7 +725,7 @@ func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time)
 	var logs []IntakeLog
 	for rows.Next() {
 		var l IntakeLog
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status); err != nil {
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status, &l.SnoozedUntil); err != nil {
 			return nil, err
 		}
 		logs = append(logs, l)
@@ -718,7 +734,7 @@ func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time)
 }
 
 func (s *Store) GetPendingIntakesForMedication(medID int64) ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status FROM intake_log WHERE medication_id = ? AND status = 'PENDING'", medID)
+	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status, snoozed_until FROM intake_log WHERE medication_id = ? AND status = 'PENDING'", medID)
 	if err != nil {
 		return nil, err
 	}
@@ -726,7 +742,7 @@ func (s *Store) GetPendingIntakesForMedication(medID int64) ([]IntakeLog, error)
 	var logs []IntakeLog
 	for rows.Next() {
 		var l IntakeLog
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status); err != nil {
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status, &l.SnoozedUntil); err != nil {
 			return nil, err
 		}
 		logs = append(logs, l)
@@ -834,7 +850,7 @@ func (s *Store) SetBPGoal(targetSystolic, targetDiastolic int) error {
 func (s *Store) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error) {
 	query := `
 		SELECT
-			il.id, il.medication_id, il.user_id, il.scheduled_at, il.taken_at, il.status,
+			il.id, il.medication_id, il.user_id, il.scheduled_at, il.taken_at, il.status, il.snoozed_until,
 			m.name AS medication_name, m.dosage AS medication_dosage
 		FROM intake_log il
 		JOIN medications m ON il.medication_id = m.id
@@ -850,7 +866,7 @@ func (s *Store) GetIntakesSince(since time.Time) ([]IntakeWithMedication, error)
 	var logs []IntakeWithMedication
 	for rows.Next() {
 		var l IntakeWithMedication
-		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status, &l.MedicationName, &l.MedicationDosage); err != nil {
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status, &l.SnoozedUntil, &l.MedicationName, &l.MedicationDosage); err != nil {
 			return nil, err
 		}
 		logs = append(logs, l)

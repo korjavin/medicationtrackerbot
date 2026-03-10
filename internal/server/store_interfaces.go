@@ -36,6 +36,8 @@ type MedicationStore interface {
 	GetLastDownload() (time.Time, error)
 	UpdateLastDownload(t time.Time) error
 	GetPendingIntakes() ([]store.IntakeLog, error)
+	SnoozeIntake(id int64, snoozeUntil time.Time) error
+	SkipIntake(id int64) error
 }
 
 // BloodPressureStore is the subset of store operations needed for BP handlers.
