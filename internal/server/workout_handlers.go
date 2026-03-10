@@ -132,6 +132,93 @@ func (s *Server) handleUpdateWorkoutGroup(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *Server) handleSkipWorkoutSessionCompat(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserID(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		SessionID int64 `json:"session_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	session, err := s.workouts.GetWorkoutSession(req.SessionID)
+	if err != nil || session == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+	if session.UserID != userID {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
+	if err := s.workoutSvc.SkipSession(req.SessionID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if s.workout != nil {
+		if err := s.workout.CleanupWorkoutSessionMessages(req.SessionID); err != nil {
+			log.Printf("Failed to cleanup workout messages for session %d: %v", req.SessionID, err)
+		}
+	}
+
+	if session.NotificationMessageID != nil {
+		s.deleteNotification(r.Context(), *session.NotificationMessageID)
+	}
+	s.closeNotification(r.Context(), fmt.Sprintf("workout-%d", req.SessionID))
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleSnoozeWorkoutSessionCompat(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserID(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		SessionID     int64 `json:"session_id"`
+		DurationHours int   `json:"duration_hours"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	session, err := s.workouts.GetWorkoutSession(req.SessionID)
+	if err != nil || session == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+	if session.UserID != userID {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
+	minutes := req.DurationHours * 60
+	if minutes <= 0 {
+		minutes = 60
+	}
+
+	if err := s.workoutSvc.SnoozeSession(req.SessionID, time.Duration(minutes)*time.Minute); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if session.NotificationMessageID != nil {
+		s.deleteNotification(r.Context(), *session.NotificationMessageID)
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *Server) handleDeleteWorkoutGroup(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -1235,6 +1322,7 @@ func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Reque
 	if session.NotificationMessageID != nil {
 		s.deleteNotification(r.Context(), *session.NotificationMessageID)
 	}
+	s.closeNotification(r.Context(), fmt.Sprintf("workout-%d", id))
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -1522,6 +1610,7 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 		if session.NotificationMessageID != nil {
 			s.deleteNotification(r.Context(), *session.NotificationMessageID)
 		}
+		s.closeNotification(r.Context(), fmt.Sprintf("workout-%d", id))
 	}
 
 	w.WriteHeader(http.StatusOK)

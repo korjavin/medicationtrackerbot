@@ -51,40 +51,50 @@ type NotificationAction struct {
 	Title  string `json:"title"`
 }
 
-func (s *Service) SendMedicationNotification(ctx context.Context, userID int64, meds []store.Medication, scheduledTime time.Time, intakeIDs []int64) error {
+func (s *Service) SendCloseNotification(ctx context.Context, userID int64, tag string) error {
+	if s.vapidPublicKey == "" || s.vapidPrivateKey == "" {
+		return nil
+	}
+
+	payload := NotificationPayload{
+		Tag: tag,
+		Data: map[string]interface{}{
+			"type": "close",
+			"tag":  tag,
+		},
+	}
+
+	return s.sendToUser(userID, payload)
+}
+
+func (s *Service) SendMedicationNotification(ctx context.Context, userID int64, med store.Medication, scheduledTime time.Time, intakeID int64) error {
 	if s.vapidPublicKey == "" || s.vapidPrivateKey == "" {
 		return nil // Web push disabled
 	}
 
-	medNames := make([]string, len(meds))
-	medIDs := make([]int64, len(meds))
-	for i, m := range meds {
-		name := m.Name
-		if m.Dosage != "" {
-			name += " " + m.Dosage
-		}
-		medNames[i] = name
-		medIDs[i] = m.ID
+	name := med.Name
+	if med.Dosage != "" {
+		name += " " + med.Dosage
 	}
 
 	title := "Time to take medication"
-	body := strings.Join(medNames, ", ")
+	body := name
 
 	payload := NotificationPayload{
 		Title: title,
 		Body:  body,
 		Icon:  "/static/icons/icon-192.png",
 		Badge: "/static/icons/icon-192.png", // Monochrome badge preferred, but using icon for now
-		Tag:   fmt.Sprintf("medication-%s", scheduledTime.Format(time.RFC3339)),
+		Tag:   fmt.Sprintf("medication-%d", intakeID),
 		Data: map[string]interface{}{
-			"type":             "medication",
-			"scheduled_at":     scheduledTime.Format(time.RFC3339),
-			"medication_ids":   medIDs,
-			"medication_names": medNames,
-			"intake_ids":       intakeIDs,
+			"type":          "medication_individual",
+			"scheduled_at":  scheduledTime.Format(time.RFC3339),
+			"medication_id": med.ID,
+			"intake_id":     intakeID,
 		},
 		Actions: []NotificationAction{
-			{Action: "confirm_all", Title: "Confirm All"},
+			{Action: fmt.Sprintf("confirm_%d", intakeID), Title: "Confirm"},
+			{Action: fmt.Sprintf("skip_%d", intakeID), Title: "Skip"},
 			{Action: "snooze", Title: "Snooze 10m"},
 		},
 	}

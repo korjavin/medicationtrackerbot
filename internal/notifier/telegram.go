@@ -32,3 +32,8 @@ func (t *Telegram) Delete(_ context.Context, _ int64, msgID int) error {
 	}
 	return t.bot.DeleteMessage(msgID)
 }
+
+func (t *Telegram) CloseNotification(_ context.Context, _ int64, _ string) error {
+	// Telegram doesn't support tag-based closing via this method
+	return nil
+}

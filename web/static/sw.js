@@ -303,6 +303,16 @@ self.addEventListener('push', (event) => {
         data = event.data.json();
     }
 
+    // Handle silent close notifications
+    if (data.data && data.data.type === 'close' && data.tag) {
+        event.waitUntil(
+            self.registration.getNotifications({ tag: data.tag }).then(notifications => {
+                notifications.forEach(notification => notification.close());
+            })
+        );
+        return;
+    }
+
     event.waitUntil(
         self.registration.showNotification(data.title, {
             body: data.body,
@@ -355,15 +365,44 @@ self.addEventListener('notificationclick', (event) => {
             const url = '/?' + params.toString();
             event.waitUntil(clients.openWindow(url));
         }
-    } else if (data.type === 'workout') {
-        // For workout, open the app for all actions for now to show the modal options
-        // We could implement background handlers later
-        const params = new URLSearchParams();
-        params.set('action', 'workout_start');
-        if (data.session_id) params.set('session_id', data.session_id);
+    } else if (data.type === 'medication_individual') {
+        if (action.startsWith('confirm_')) {
+            const id = action.split('_')[1];
+            event.waitUntil(handleMedicationConfirm({
+                scheduled_at: data.scheduled_at,
+                medication_ids: [data.medication_id],
+                intake_ids: [parseInt(id, 10)]
+            }));
+        } else if (action.startsWith('skip_')) {
+            const id = action.split('_')[1];
+            event.waitUntil(handleMedicationSkip(parseInt(id, 10)));
+        } else if (action === 'snooze') {
+            event.waitUntil(handleMedicationServerSnooze(data.intake_id, 10));
+        } else {
+            // Body click -> Open App with Modal
+            const params = new URLSearchParams();
+            params.set('action', 'medication_confirm');
+            params.set('ids', data.medication_id);
+            params.set('intake_ids', data.intake_id);
+            params.set('scheduled', data.scheduled_at);
+            params.set('names', event.notification.body);
 
-        const url = '/?' + params.toString();
-        event.waitUntil(clients.openWindow(url));
+            const url = '/?' + params.toString();
+            event.waitUntil(clients.openWindow(url));
+        }
+    } else if (data.type === 'workout') {
+        if (action.startsWith('workout_snooze') || action === 'snooze_1h') {
+            event.waitUntil(handleWorkoutSnooze(data.session_id, 1));
+        } else if (action === 'workout_skip' || action === 'skip') {
+            event.waitUntil(handleWorkoutSkip(data.session_id));
+        } else {
+            const params = new URLSearchParams();
+            params.set('action', 'workout_start');
+            if (data.session_id) params.set('session_id', data.session_id);
+
+            const url = '/?' + params.toString();
+            event.waitUntil(clients.openWindow(url));
+        }
     } else if (data.type === 'bp_reminder') {
         if (action === 'bp_confirm') {
             // Open app to BP add page
@@ -522,5 +561,72 @@ async function handleWeightDontBug() {
         }
     } catch (e) {
         console.error('[SW] Failed to disable weight reminder', e);
+    }
+}
+
+async function handleWorkoutSnooze(sessionId, hours) {
+    try {
+        const response = await fetch(`/api/workout/sessions/${sessionId}/snooze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ minutes: hours * 60 })
+        });
+        if (response.ok) {
+            console.log('[SW] Workout snoozed');
+            const clients = await self.clients.matchAll();
+            clients.forEach(client => client.postMessage({ type: 'WORKOUT_SNOOZED' }));
+        }
+    } catch (e) {
+        console.error('[SW] Failed to snooze workout', e);
+    }
+}
+
+async function handleWorkoutSkip(sessionId) {
+    try {
+        const response = await fetch(`/api/workout/sessions/${sessionId}/skip`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        if (response.ok) {
+            console.log('[SW] Workout skipped');
+            const clients = await self.clients.matchAll();
+            clients.forEach(client => client.postMessage({ type: 'WORKOUT_SKIPPED' }));
+        }
+    } catch (e) {
+        console.error('[SW] Failed to skip workout', e);
+    }
+}
+
+async function handleMedicationSkip(intakeId) {
+    try {
+        const response = await fetch('/api/medications/skip', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ intake_id: intakeId })
+        });
+        if (response.ok) {
+            console.log('[SW] Medication skipped');
+            const clients = await self.clients.matchAll();
+            clients.forEach(client => client.postMessage({ type: 'MEDICATION_SKIPPED' }));
+        }
+    } catch (e) {
+        console.error('[SW] Failed to skip medication', e);
+    }
+}
+
+async function handleMedicationServerSnooze(intakeId, minutes) {
+    try {
+        const response = await fetch('/api/medications/snooze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ intake_id: intakeId, duration_minutes: minutes })
+        });
+        if (response.ok) {
+            console.log('[SW] Medication snoozed');
+            const clients = await self.clients.matchAll();
+            clients.forEach(client => client.postMessage({ type: 'MEDICATION_SNOOZED' }));
+        }
+    } catch (e) {
+        console.error('[SW] Failed to snooze medication', e);
     }
 }
