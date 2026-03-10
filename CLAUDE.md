@@ -209,6 +209,7 @@ TZ=Europe/Berlin              # Critical for correct scheduling
 # Optional
 DB_PATH=meds.db               # SQLite database path (default: meds.db)
 PORT=8080                     # HTTP port (default: 8080)
+EXTERNAL_WORKOUT_API_KEY=...  # Required for external workout endpoint (e.g. Mi Notify)
 
 # Google Auth (optional, for browser access)
 GOOGLE_CLIENT_ID=...
