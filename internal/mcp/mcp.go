@@ -53,6 +53,8 @@ type Config struct {
 	MCPServerURL   string // The public URL of this MCP server (for OAuth audience validation)
 	JWKSJSON       string // Optional fallback JWKS JSON content
 	UserID         int64  // The database user ID to query data for
+	AuditEndpoint  string
+	AuditSecret    string
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
@@ -83,6 +85,8 @@ func LoadConfigFromEnv() (*Config, error) {
 		MCPServerURL:   os.Getenv("MCP_SERVER_URL"),
 		JWKSJSON:       os.Getenv("POCKET_ID_JWKS_JSON"),
 		UserID:         userID,
+		AuditEndpoint:  os.Getenv("MCP_AUDIT_ENDPOINT"),
+		AuditSecret:    os.Getenv("MCP_AUDIT_SECRET"),
 	}
 
 	if cfg.DatabasePath == "" {
@@ -108,13 +112,15 @@ type Server struct {
 	data      HealthDataReader
 	mcpServer *mcp.Server
 	oauth     *OAuthHandler
+	audit     *AuditBuffer
 }
 
 // NewServer creates a new MCP server
-func NewServer(cfg *Config, st *store.Store) (*Server, error) {
+func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error) {
 	s := &Server{
 		config: cfg,
 		data:   st,
+		audit:  audit,
 	}
 
 	// Create MCP server instance
