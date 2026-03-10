@@ -62,6 +62,13 @@ function bindFoodControls() {
     bindClick('add-food-btn', () => showAddFoodModal());
     bindClick('food-date-prev-btn', () => shiftFoodDate(-1));
     bindClick('food-date-next-btn', () => shiftFoodDate(1));
+    bindClick('food-today-btn', () => goFoodToday());
+    bindClick('food-date-label', () => {
+        const dateFilter = document.getElementById('food-date-filter');
+        if (dateFilter && typeof dateFilter.showPicker === 'function') {
+            dateFilter.showPicker();
+        }
+    });
     bindChange('food-date-filter', () => loadFoodLogs());
 
     bindClick('food-modal-cancel-btn', () => closeFoodModal());
@@ -1087,6 +1094,51 @@ function toISODateLocal(date) {
     return `${year}-${month}-${day}`;
 }
 
+function formatFoodDateLabel(dateStr) {
+    if (!dateStr) return '';
+    const date = new Date(`${dateStr}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const diffTime = date.getTime() - today.getTime();
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'Today';
+    if (diffDays === -1) return 'Yesterday';
+    if (diffDays === 1) return 'Tomorrow';
+
+    return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function updateFoodDateNav() {
+    const dateFilter = document.getElementById('food-date-filter');
+    const label = document.getElementById('food-date-label');
+    const nextBtn = document.getElementById('food-date-next-btn');
+    const todayBtn = document.getElementById('food-today-btn');
+    if (!dateFilter || !label || !nextBtn || !todayBtn) return;
+
+    const dateStr = dateFilter.value;
+    if (!dateStr) return;
+
+    label.textContent = formatFoodDateLabel(dateStr);
+
+    const date = new Date(`${dateStr}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const isTodayOrFuture = date.getTime() >= today.getTime();
+    nextBtn.disabled = isTodayOrFuture;
+    todayBtn.style.display = isTodayOrFuture ? 'none' : 'inline-flex';
+}
+
+function goFoodToday() {
+    const dateFilter = document.getElementById('food-date-filter');
+    if (!dateFilter) return;
+    dateFilter.value = toISODateLocal(new Date());
+    loadFoodLogs();
+    updateFoodDateNav();
+}
+
 function shiftFoodDate(deltaDays) {
     const dateFilter = document.getElementById('food-date-filter');
     if (!dateFilter) return;
@@ -1098,6 +1150,7 @@ function shiftFoodDate(deltaDays) {
     baseDate.setDate(baseDate.getDate() + (deltaDays * multiplier));
     dateFilter.value = toISODateLocal(baseDate);
     loadFoodLogs();
+    updateFoodDateNav();
 }
 
 function showAddFoodModal() {
@@ -1270,6 +1323,8 @@ async function loadFoodLogs() {
         const loadingStr = document.createTextNode('Loading...');
         list.replaceChildren(loadingStr);
     }
+
+    updateFoodDateNav();
 
     // Always fetch fresh data
     try {

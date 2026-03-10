@@ -1446,9 +1446,9 @@ svg.chart-svg {
 
 .food-date-nav {
     display: flex;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
 }
 
 .food-date-nav input {
@@ -1456,13 +1456,43 @@ svg.chart-svg {
 }
 
 .food-date-shift-btn {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
     padding: 0;
     border-radius: 8px;
     border: 1px solid var(--hint-color);
-    font-size: 20px;
+    font-size: 16px;
+}
+
+#food-date-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-color, #ffffff);
+    color: var(--text-color);
+    font-size: 16px;
+    font-weight: 500;
+    border-radius: 8px;
+}
+
+.food-today-chip {
+    font-size: 12px;
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 12px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--secondary-bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    white-space: nowrap;
 }
 
 .food-target-progress {
