@@ -59,7 +59,7 @@ func New(s *store.Store, allowedUserID int64, notifiers []notifier.Notifier) *Sc
 
 		entries: []tickerEntry{
 			{name: "medication", checker: medChecker, interval: 1 * time.Minute},
-			{name: "medication_reminder", checker: medReminderChecker, interval: 60 * time.Minute},
+			{name: "medication_reminder", checker: medReminderChecker, interval: 1 * time.Minute},
 			{name: "low_stock", checker: lowStockChecker, interval: 1 * time.Hour, initialDelay: 1 * time.Minute},
 			{name: "workout", checker: workoutChecker, interval: 1 * time.Minute},
 			{name: "bp_reminder", checker: bpChecker, interval: 15 * time.Minute, initialDelay: 2 * time.Minute},
