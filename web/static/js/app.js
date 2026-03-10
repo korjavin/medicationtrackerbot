@@ -40,9 +40,11 @@ function normalizeSettingsBundle(raw) {
     const foodTargetsRaw = raw?.foodTargets || raw?.food_targets || raw?.settings?.food_targets || {};
     const bpReminderRaw = raw?.bpReminderStatus || raw?.bp_reminder_status || raw?.settings?.bp_reminder_status || {};
     const weightReminderRaw = raw?.weightReminderStatus || raw?.weight_reminder_status || raw?.settings?.weight_reminder_status || {};
+    const tabOrderRaw = raw?.tabOrder || raw?.tab_order || raw?.settings?.tab_order || null;
 
     return {
         featureSettings: raw?.featureSettings || raw?.features || {},
+        tabOrder: tabOrderRaw,
         foodTargets: {
             calories: Number(foodTargetsRaw.calories) || 0,
             carbs: Number(foodTargetsRaw.carbs) || 0,
@@ -60,6 +62,28 @@ function normalizeSettingsBundle(raw) {
     };
 }
 
+function applyTabOrder(orderArray) {
+    const container = document.getElementById('tabs');
+    if (!container || !Array.isArray(orderArray)) return;
+
+    // Keep track of existing tabs to append any unlisted ones at the end
+    const existingTabs = Array.from(container.querySelectorAll('.tab'));
+    const unlistedTabs = new Set(existingTabs);
+
+    orderArray.forEach(tabId => {
+        const tabEl = existingTabs.find(t => t.dataset.tab === tabId);
+        if (tabEl) {
+            container.appendChild(tabEl);
+            unlistedTabs.delete(tabEl);
+        }
+    });
+
+    // Append any remaining tabs that weren't in the saved order
+    unlistedTabs.forEach(tabEl => {
+        container.appendChild(tabEl);
+    });
+}
+
 // Apply bootstrap payload and warm caches so first tab render can use local data.
 async function applyBootstrapPayload(res) {
     if (!res) return false;
@@ -73,6 +97,21 @@ async function applyBootstrapPayload(res) {
         featureSettingsLoaded = true;
         window.AppStore && window.AppStore.set('featureSettings', featureSettings);
         updateFeatureTabVisibility();
+    }
+
+    if (res.settings && res.settings.tab_order) {
+        let order = res.settings.tab_order;
+        if (typeof order === 'string') {
+            try {
+                order = JSON.parse(order);
+            } catch (e) {
+                console.error("Failed to parse tab_order", e);
+                order = null;
+            }
+        }
+        if (Array.isArray(order)) {
+            applyTabOrder(order);
+        }
     }
 
     if (Array.isArray(res.medications)) {
@@ -2307,6 +2346,27 @@ async function sendTestMedicationNotification() {
     } catch (e) {
         console.error(e);
         safeAlert("Error sending test notification: " + e.message);
+    }
+}
+
+// Initialize drag and drop for tabs if loaded
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        if (typeof window.initTabsDragAndDrop === 'function') {
+            window.initTabsDragAndDrop(document.getElementById('tabs'), async (order) => {
+                if (typeof window.saveTabOrder === 'function') {
+                    await window.saveTabOrder(order);
+                }
+            });
+        }
+    }, { once: true });
+} else {
+    if (typeof window.initTabsDragAndDrop === 'function') {
+        window.initTabsDragAndDrop(document.getElementById('tabs'), async (order) => {
+            if (typeof window.saveTabOrder === 'function') {
+                await window.saveTabOrder(order);
+            }
+        });
     }
 }
 

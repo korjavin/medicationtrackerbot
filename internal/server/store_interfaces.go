@@ -153,6 +153,8 @@ type SettingsStore interface {
 	SetWorkoutEnabled(ctx context.Context, enabled bool) error
 	GetHealthEnabled(ctx context.Context) (bool, error)
 	SetHealthEnabled(ctx context.Context, enabled bool) error
+	GetTabOrder(ctx context.Context) (string, error)
+	SetTabOrder(ctx context.Context, order string) error
 }
 
 // HealthStore is the subset of store operations needed for health/vitals handlers.

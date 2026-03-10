@@ -256,6 +256,16 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		weightReminderStatus = nil
 	}
 
+	var tabOrder any
+	tabOrderStr, err := s.settings.GetTabOrder(ctx)
+	if err != nil {
+		log.Printf("[bootstrap] tab order query failed: %v", err)
+	} else if tabOrderStr != "" {
+		if err := json.Unmarshal([]byte(tabOrderStr), &tabOrder); err != nil {
+			log.Printf("[bootstrap] invalid tab order json: %v", err)
+		}
+	}
+
 	response := map[string]any{
 		"cursor":          bootstrapCursor,
 		"features":        features,
@@ -275,6 +285,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 			"food_targets":           foodTargets,
 			"bp_reminder_status":     bpReminderStatus,
 			"weight_reminder_status": weightReminderStatus,
+			"tab_order":              tabOrder,
 		},
 	}
 
@@ -318,5 +329,47 @@ func (s *Server) handleSetFeatureEnabled(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleSetTabOrder(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Order []string `json:"order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Validate tab IDs
+	validTabs := map[string]bool{
+		"bp":       true,
+		"weight":   true,
+		"workouts": true,
+		"food":     true,
+		"health":   true,
+		"meds":     true,
+		"settings": true,
+	}
+
+	for _, tab := range req.Order {
+		if !validTabs[tab] {
+			http.Error(w, "Unknown tab ID: "+tab, http.StatusBadRequest)
+			return
+		}
+	}
+
+	ctx := context.Background()
+	orderJSON, err := json.Marshal(req.Order)
+	if err != nil {
+		http.Error(w, "Failed to marshal order", http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.settings.SetTabOrder(ctx, string(orderJSON)); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
