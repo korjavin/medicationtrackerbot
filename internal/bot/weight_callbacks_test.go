@@ -54,12 +54,12 @@ func TestWeightCallbackScenarios(t *testing.T) {
 		for {
 			select {
 			case msg := <-env.messageChan:
-				if strings.Contains(msg, expected.MessageContains) {
+				if expected.MessageContains == "" {
+					sentMessage = msg
+				} else if strings.Contains(msg, expected.MessageContains) {
 					sentMessage = expected.MessageContains
-				} else {
-					if sentMessage == "" {
-						sentMessage = msg // keep something to show it sent wrong message
-					}
+				} else if sentMessage == "" {
+					sentMessage = msg
 				}
 			case req := <-env.requestChan:
 				if strings.Contains(req, "editMessageReplyMarkup") {
@@ -70,13 +70,6 @@ func TestWeightCallbackScenarios(t *testing.T) {
 			}
 		}
 
-		if sentMessage != "" && expected.MessageContains != "" && strings.Contains(sentMessage, expected.MessageContains) {
-			sentMessage = expected.MessageContains // normalize to expected to avoid noisy exact matches if it contains it
-		} else if sentMessage == "" {
-			// This happens if messageChan got no messages but we expect one, which means our sleep wasn't long enough or we drained it wrongly
-			// Do nothing special, it's just empty
-		}
-
 		state, err := env.s.GetWeightReminderState(userID)
 		if err != nil {
 			t.Fatalf("Failed to get state: %v", err)
@@ -84,16 +77,9 @@ func TestWeightCallbackScenarios(t *testing.T) {
 
 		actual := callbackScenarioExpected{
 			MessageContains: sentMessage,
-		}
-
-		if expected.RemovedButtons {
-			actual.RemovedButtons = removedButtons
-		}
-		if expected.Snoozed {
-			actual.Snoozed = state.SnoozedUntil != nil
-		}
-		if expected.DontBugMe {
-			actual.DontBugMe = state.DontRemindUntil != nil
+			RemovedButtons:  removedButtons,
+			Snoozed:         state.SnoozedUntil != nil,
+			DontBugMe:       state.DontRemindUntil != nil,
 		}
 
 		testharness.CompareJSON(t, expected, actual)

@@ -26,6 +26,7 @@ type BPReminderStore interface {
 type BPReminderChecker struct {
 	store     BPReminderStore
 	notifiers []notifier.Notifier
+	now       func() time.Time // injectable clock; defaults to time.Now
 }
 
 func (c *BPReminderChecker) Check(ctx context.Context) error {
@@ -42,7 +43,10 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		return err
 	}
 
-	now := time.Now()
+	if c.now == nil {
+		c.now = time.Now
+	}
+	now := c.now()
 
 	for _, userID := range userIDs {
 		state, err := c.store.GetBPReminderState(userID)
@@ -74,19 +78,22 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 			continue
 		}
 
-		if lastReading != nil && time.Since(lastReading.MeasuredAt) < 12*time.Hour {
+		if lastReading != nil && now.Sub(lastReading.MeasuredAt) < 12*time.Hour {
 			continue
 		}
 
-		preferredHour, err := c.store.CalculatePreferredReminderHour(ctx, userID)
-		if err != nil {
-			log.Printf("Error calculating preferred hour for user %d: %v", userID, err)
-			preferredHour = 20
-		}
+		preferredHour := state.PreferredReminderHour
+		if preferredHour == 0 {
+			preferredHour, err = c.store.CalculatePreferredReminderHour(ctx, userID)
+			if err != nil {
+				log.Printf("Error calculating preferred hour for user %d: %v", userID, err)
+				preferredHour = 20
+			}
 
-		if preferredHour != state.PreferredReminderHour {
-			if err := c.store.UpdatePreferredReminderHour(userID, preferredHour); err != nil {
-				log.Printf("Error updating preferred hour for user %d: %v", userID, err)
+			if preferredHour != state.PreferredReminderHour {
+				if err := c.store.UpdatePreferredReminderHour(userID, preferredHour); err != nil {
+					log.Printf("Error updating preferred hour for user %d: %v", userID, err)
+				}
 			}
 		}
 
@@ -96,7 +103,7 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		}
 
 		if state.LastNotificationSentAt != nil {
-			lastSentDay := time.Date(state.LastNotificationSentAt.Year(), state.LastNotificationSentAt.Month(), state.LastNotificationSentAt.Day(), 0, 0, 0, 0, state.LastNotificationSentAt.Location())
+			lastSentDay := time.Date(state.LastNotificationSentAt.Year(), state.LastNotificationSentAt.Month(), state.LastNotificationSentAt.Day(), 0, 0, 0, 0, now.Location())
 			if !lastSentDay.Before(todayStart) {
 				continue
 			}

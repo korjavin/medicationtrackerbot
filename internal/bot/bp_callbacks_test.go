@@ -66,12 +66,12 @@ func TestBPCallbackScenarios(t *testing.T) {
 		for {
 			select {
 			case msg := <-env.messageChan:
-				if strings.Contains(msg, expected.MessageContains) {
+				if expected.MessageContains == "" {
+					sentMessage = msg
+				} else if strings.Contains(msg, expected.MessageContains) {
 					sentMessage = expected.MessageContains
-				} else {
-					if sentMessage == "" {
-						sentMessage = msg // keep something to show it sent wrong message
-					}
+				} else if sentMessage == "" {
+					sentMessage = msg
 				}
 			case req := <-env.requestChan:
 				if strings.Contains(req, "editMessageReplyMarkup") {
@@ -82,10 +82,6 @@ func TestBPCallbackScenarios(t *testing.T) {
 			}
 		}
 
-		if sentMessage != "" && expected.MessageContains != "" && strings.Contains(sentMessage, expected.MessageContains) {
-			sentMessage = expected.MessageContains // normalize to expected to avoid noisy exact matches if it contains it
-		}
-
 		state, err := env.s.GetBPReminderState(userID)
 		if err != nil {
 			t.Fatalf("Failed to get state: %v", err)
@@ -93,16 +89,9 @@ func TestBPCallbackScenarios(t *testing.T) {
 
 		actual := callbackScenarioExpected{
 			MessageContains: sentMessage,
-		}
-
-		if expected.RemovedButtons {
-			actual.RemovedButtons = removedButtons
-		}
-		if expected.Snoozed {
-			actual.Snoozed = state.SnoozedUntil != nil
-		}
-		if expected.DontBugMe {
-			actual.DontBugMe = state.DontRemindUntil != nil
+			RemovedButtons:  removedButtons,
+			Snoozed:         state.SnoozedUntil != nil,
+			DontBugMe:       state.DontRemindUntil != nil,
 		}
 
 		testharness.CompareJSON(t, expected, actual)

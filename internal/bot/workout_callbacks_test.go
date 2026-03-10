@@ -77,22 +77,16 @@ func TestWorkoutCallbackScenarios(t *testing.T) {
 		for {
 			select {
 			case msg := <-env.messageChan:
-				if strings.Contains(msg, expected.MessageContains) {
+				if expected.MessageContains == "" {
+					sentMessage = msg
+				} else if strings.Contains(msg, expected.MessageContains) {
 					sentMessage = expected.MessageContains
-				} else {
-					if sentMessage == "" {
-						sentMessage = msg // keep something to show it sent wrong message
-					}
+				} else if sentMessage == "" {
+					sentMessage = msg
 				}
 			case <-time.After(10 * time.Millisecond):
 				break drainLoop
 			}
-		}
-
-		if sentMessage != "" && expected.MessageContains != "" && strings.Contains(sentMessage, expected.MessageContains) {
-			sentMessage = expected.MessageContains // normalize to expected to avoid noisy exact matches if it contains it
-		} else if sentMessage == "" {
-			// fallback
 		}
 
 		updatedSession, err := env.s.GetWorkoutSession(session.ID)
@@ -103,11 +97,9 @@ func TestWorkoutCallbackScenarios(t *testing.T) {
 		actual := workoutCallbackScenarioExpected{
 			MessageContains: sentMessage,
 			Status:          updatedSession.Status,
+			Snoozed:         updatedSession.SnoozedUntil != nil,
 		}
 
-		if expected.Snoozed {
-			actual.Snoozed = updatedSession.SnoozedUntil != nil
-		}
 		testharness.CompareJSON(t, expected, actual)
 	})
 }
