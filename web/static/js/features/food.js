@@ -996,36 +996,16 @@ function calculateFoodCalories() {
     }
 
     const totalCals = Math.round((4 * totalCarbs) + (4 * totalProt) + (9 * totalFat));
-    if (per100g || caloriesInput.value === '') {
-        caloriesInput.value = totalCals;
-    }
+    caloriesInput.value = totalCals;
 }
 
 function onFoodPer100gChange() {
-    const per100gCheckbox = document.getElementById('food-per-100g');
-    if (!per100gCheckbox.checked) {
-        const weight = parseFloat(document.getElementById('food-weight').value) || 0;
-        if (weight > 0) {
-            const carbsInput = document.getElementById('food-carbs');
-            const proteinInput = document.getElementById('food-protein');
-            const fatInput = document.getElementById('food-fat');
-            const carbsPer100 = parseFloat(carbsInput.value);
-            const proteinPer100 = parseFloat(proteinInput.value);
-            const fatPer100 = parseFloat(fatInput.value);
-            if (!Number.isNaN(carbsPer100)) carbsInput.value = +((carbsPer100 * weight) / 100).toFixed(1);
-            if (!Number.isNaN(proteinPer100)) proteinInput.value = +((proteinPer100 * weight) / 100).toFixed(1);
-            if (!Number.isNaN(fatPer100)) fatInput.value = +((fatPer100 * weight) / 100).toFixed(1);
-        }
-    }
     calculateFoodCalories();
 }
 
 function onFoodCaloriesFocus() {
-    const per100gCheckbox = document.getElementById('food-per-100g');
-    if (per100gCheckbox.checked) {
-        per100gCheckbox.checked = false;
-        onFoodPer100gChange();
-    }
+    // No-op: focusing the calories field should not auto-uncheck the per-100g mode
+    // or mutate macro values. Users can manually edit calories without losing mode context.
 }
 
 function parseOptionalNumber(rawValue) {
