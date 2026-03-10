@@ -423,34 +423,82 @@ func TestHandleGetWorkoutHistory_WithData(t *testing.T) {
 		t.Fatalf("CreateWorkoutVariant: %v", err)
 	}
 
-	scheduledDate := time.Date(2026, 2, 18, 0, 0, 0, 0, time.UTC)
+	now := time.Now()
+	scheduledDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	session, err := st.CreateWorkoutSession(group.ID, variant.ID, 123456, scheduledDate, "08:00")
 	if err != nil {
 		t.Fatalf("CreateWorkoutSession: %v", err)
+	}
+
+	// Start the session (sets started_at to now) and then complete it
+	if err := st.StartSession(session.ID); err != nil {
+		t.Fatalf("StartSession: %v", err)
 	}
 	if err := st.CompleteSession(session.ID); err != nil {
 		t.Fatalf("CompleteSession: %v", err)
 	}
 
+	// Create an overlapping Mi Band workout precisely at `now`
+	_, err = st.InsertMiBandWorkout(ctx, &store.MiBandWorkout{
+		UserID:        123456,
+		SourceStartMs: now.UnixMilli(),
+		SourceEndMs:   now.Add(1 * time.Hour).UnixMilli(),
+		ActivityName:  "strength",
+		HeartRateAvg:  140,
+		SpO2Avg:       98,
+		ImportedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("InsertMiBandWorkout: %v", err)
+	}
+
+	todayStr := scheduledDate.Format("2006-01-02")
+	tomorrowStr := scheduledDate.Add(24 * time.Hour).Format("2006-01-02")
+
 	_, resp, err := s.handleGetWorkoutHistory(ctx, nil, WorkoutHistoryInput{
-		StartDate: "2026-02-17",
-		EndDate:   "2026-02-19",
+		StartDate: todayStr,
+		EndDate:   tomorrowStr,
 	})
 	if err != nil {
 		t.Fatalf("handleGetWorkoutHistory error: %v", err)
 	}
 
-	if resp.Count != 1 {
-		t.Fatalf("expected 1 session, got %d", resp.Count)
+	if resp.Count != 2 {
+		t.Fatalf("expected 2 sessions, got %d", resp.Count)
 	}
-	if resp.Sessions[0].GroupName != "Push Day" {
-		t.Errorf("expected GroupName 'Push Day', got %q", resp.Sessions[0].GroupName)
+
+	var manualSession WorkoutSessionResult
+	var mibandSession WorkoutSessionResult
+
+	for _, s := range resp.Sessions {
+		if s.Type == "manual" {
+			manualSession = s
+		} else if s.Type == "miband" {
+			mibandSession = s
+		}
 	}
-	if resp.Sessions[0].VariantName != "Heavy" {
-		t.Errorf("expected VariantName 'Heavy', got %q", resp.Sessions[0].VariantName)
+
+	if manualSession.GroupName != "Push Day" {
+		t.Errorf("expected GroupName 'Push Day', got %q", manualSession.GroupName)
 	}
-	if resp.Sessions[0].Status != "completed" {
-		t.Errorf("expected status 'completed', got %q", resp.Sessions[0].Status)
+	if manualSession.VariantName != "Heavy" {
+		t.Errorf("expected VariantName 'Heavy', got %q", manualSession.VariantName)
+	}
+	if manualSession.Status != "completed" {
+		t.Errorf("expected status 'completed', got %q", manualSession.Status)
+	}
+	if manualSession.HeartRateAvg == nil || *manualSession.HeartRateAvg != 140 {
+		t.Errorf("expected manual matched HR 140, got %v", manualSession.HeartRateAvg)
+	}
+	if manualSession.SpO2Avg == nil || *manualSession.SpO2Avg != 98 {
+		t.Errorf("expected manual matched SpO2 98, got %v", manualSession.SpO2Avg)
+	}
+
+	if mibandSession.HeartRateAvg == nil || *mibandSession.HeartRateAvg != 140 {
+		t.Errorf("expected miband HR 140, got %v", mibandSession.HeartRateAvg)
+	}
+	if mibandSession.SpO2Avg == nil || *mibandSession.SpO2Avg != 98 {
+		t.Errorf("expected miband SpO2 98, got %v", mibandSession.SpO2Avg)
 	}
 }
 

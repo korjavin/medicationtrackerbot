@@ -21,6 +21,7 @@ type miNotifyPayload struct {
 	Calories    int     `json:"calories"`
 	Distance    float64 `json:"distance"`
 	HeartRate   int     `json:"heart_rate"`
+	SpO2        int     `json:"spo2"`
 	Steps       int     `json:"steps"`
 }
 
@@ -140,6 +141,7 @@ func (s *Server) handleExternalWorkout(w http.ResponseWriter, r *http.Request) {
 		Steps:         payload.Steps,
 		Calories:      payload.Calories,
 		HeartRateAvg:  payload.HeartRate,
+		SpO2Avg:       payload.SpO2,
 	}
 
 	inserted, err := s.miband.InsertMiBandWorkout(r.Context(), workout)
@@ -169,5 +171,103 @@ func (s *Server) handleExternalWorkout(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "ok",
 		"id":     workout.ID,
+	})
+}
+
+// handleBulkImportWorkouts processes an array of external workout data.
+func (s *Server) handleBulkImportWorkouts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Limit request body size to 10MB for bulk imports
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		slog.Error("[bulk-workout-import] error reading body", "error", err)
+		http.Error(w, "Error reading request", http.StatusBadRequest)
+		return
+	}
+
+	var payloads []miNotifyPayload
+	if err := json.NewDecoder(bytes.NewReader(bodyBytes)).Decode(&payloads); err != nil {
+		slog.Error("[bulk-workout-import] error parsing JSON array", "error", err)
+		http.Error(w, "Invalid JSON array", http.StatusBadRequest)
+		return
+	}
+
+	imported := 0
+	duplicates := 0
+	errors := 0
+
+	for _, payload := range payloads {
+		if payload.WorkoutType == "" || payload.StartTime <= 0 {
+			errors++
+			continue
+		}
+
+		startMs := payload.StartTime
+		endMs := payload.EndTime
+		isSecondsPrecision := false
+		if startMs < 1e12 {
+			isSecondsPrecision = true
+			startMs *= 1000
+			if endMs > 0 {
+				endMs *= 1000
+			}
+		}
+
+		if isSecondsPrecision {
+			isDup, err := s.miband.CheckDuplicateMiBandWorkout(r.Context(), s.allowedUserID, startMs, startMs+999)
+			if err != nil {
+				errors++
+				continue
+			}
+			if isDup {
+				duplicates++
+				continue
+			}
+		}
+
+		durationSec := 0
+		if endMs > startMs {
+			durationSec = int((endMs - startMs) / 1000)
+		}
+
+		workout := &store.MiBandWorkout{
+			UserID:        s.allowedUserID,
+			SourceStartMs: startMs,
+			SourceEndMs:   endMs,
+			ActivityType:  0, // unknown
+			ActivityName:  payload.WorkoutType,
+			DurationSec:   durationSec,
+			DistanceM:     payload.Distance,
+			Steps:         payload.Steps,
+			Calories:      payload.Calories,
+			HeartRateAvg:  payload.HeartRate,
+			SpO2Avg:       payload.SpO2,
+		}
+
+		inserted, err := s.miband.InsertMiBandWorkout(r.Context(), workout)
+		if err != nil {
+			errors++
+			continue
+		}
+
+		if !inserted {
+			duplicates++
+		} else {
+			imported++
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"imported":   imported,
+		"duplicates": duplicates,
+		"errors":     errors,
 	})
 }

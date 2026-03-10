@@ -105,7 +105,10 @@
                 <!-- Next Workout Card -->
                 <div id="next-workout-card"></div>
 
-                <button id="start-adhoc-workout-btn" class="btn-add">💪 Start Ad-hoc Workout</button>
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <button id="start-adhoc-workout-btn" class="btn-add" style="margin-bottom: 0;">💪 Start Ad-hoc Workout</button>
+                    <button id="open-miband-import-btn" class="btn-add" style="margin-bottom: 0; background-color: #4caf50;">📥 Import</button>
+                </div>
                 <div id="workout-history-display">
                     Loading...
                 </div>
@@ -546,6 +549,21 @@
                 style="width: 100%; border: 1px dashed #667eea; color: #667eea;">+ Add Exercise</button>
         </div>
 
+    </mt-modal>
+
+    <!-- Modal for Mi Band Import -->
+    <mt-modal id="miband-import-modal" class="hidden">
+        <div class="modal-header">
+            <h3>Import Mi Band Workouts</h3>
+            <div class="actions">
+                <button id="miband-import-cancel-btn" class="secondary">Cancel</button>
+                <button id="miband-import-submit-btn" class="primary">Import</button>
+            </div>
+        </div>
+        <div class="form-row">
+            <label for="miband-import-json">Paste JSON backup data:</label>
+            <textarea id="miband-import-json" style="width: 100%; height: 200px; padding: 10px; font-family: monospace;" placeholder="[{&quot;workout_type&quot;:&quot;running&quot;,...}]"></textarea>
+        </div>
     </mt-modal>
 
     <!-- Modal for Adding Exercise to Session -->
