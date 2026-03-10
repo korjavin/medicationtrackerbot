@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -17,6 +17,8 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
 	// 1. Config
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
@@ -25,17 +27,18 @@ func main() {
 
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if botToken == "" {
-		log.Println("TELEGRAM_BOT_TOKEN not set. Running in web-only mode.")
+		slog.Info("TELEGRAM_BOT_TOKEN not set. Running in web-only mode.")
 	}
 
 	sessionSecret := os.Getenv("SESSION_SECRET")
 	if sessionSecret == "" {
-		log.Fatal("SESSION_SECRET is required. Generate one with: openssl rand -base64 32")
+		slog.Error("SESSION_SECRET is required. Generate one with: openssl rand -base64 32")
+		os.Exit(1)
 	}
 
 	userIDStr := os.Getenv("ALLOWED_USER_ID")
 	if userIDStr == "" {
-		log.Println("ALLOWED_USER_ID is required for notifications.")
+		slog.Info("ALLOWED_USER_ID is required for notifications.")
 	}
 	allowedUserID, _ := strconv.ParseInt(userIDStr, 10, 64)
 
@@ -47,22 +50,24 @@ func main() {
 	// 2. Store
 	s, err := store.New(dbPath)
 	if err != nil {
-		log.Fatalf("Failed to initialize store: %v", err)
+		slog.Error("Failed to initialize store", "error", err)
+		os.Exit(1)
 	}
 	defer s.Close()
-	log.Println("Database initialized at", dbPath)
+	slog.Info("Database initialized", "path", dbPath)
 
 	// 3. Bot
 	var tgBot *bot.Bot
 	if botToken != "" {
 		tgBot, err = bot.New(botToken, allowedUserID, s)
 		if err != nil {
-			log.Fatalf("Failed to start bot: %v", err)
+			slog.Error("Failed to start bot", "error", err)
+			os.Exit(1)
 		}
 
 		// Start Bot Listener
 		go tgBot.Start()
-		log.Println("Bot started")
+		slog.Info("Bot started")
 	}
 
 	// 4. VAPID config for Web Push
@@ -90,7 +95,7 @@ func main() {
 		if clientID == "" && os.Getenv("POCKET_ID_CLIENT_ID") != "" {
 			clientID = os.Getenv("POCKET_ID_CLIENT_ID")
 			clientSecret = os.Getenv("POCKET_ID_CLIENT_SECRET")
-			log.Println("Using POCKET_ID credentials for OIDC web login")
+			slog.Info("Using POCKET_ID credentials for OIDC web login")
 		}
 
 		issuerURL := os.Getenv("OIDC_ISSUER_URL")
@@ -98,7 +103,7 @@ func main() {
 		if pocketDomain := os.Getenv("POCKET_ID_DOMAIN"); pocketDomain != "" && strings.Contains(issuerURL, pocketDomain) {
 			// Use internal container URL for OIDC discovery to avoid Traefik/DNS issues
 			issuerURL = "http://medtracker-pocket-id:1411"
-			log.Printf("Using internal Pocket-ID URL for OIDC discovery: %s", issuerURL)
+			slog.Info("Using internal Pocket-ID URL for OIDC discovery", "issuerURL", issuerURL)
 		}
 
 		oidcConfig = server.OIDCConfig{
@@ -132,7 +137,7 @@ func main() {
 	var botUsername string
 	if tgBot != nil {
 		botUsername = tgBot.Username()
-		log.Println("Bot username:", botUsername)
+		slog.Info("Bot username", "username", botUsername)
 	}
 
 	srv := server.New(s, botToken, sessionSecret, allowedUserID, oidcConfig, botUsername, vapidPublicKey)
@@ -160,14 +165,14 @@ func main() {
 	sch := scheduler.New(s, allowedUserID, notifiers)
 	sch.Start()
 	if tgBot != nil {
-		log.Println("Scheduler started")
+		slog.Info("Scheduler started")
 	} else {
-		log.Println("Scheduler started (web push only, no Telegram notifications)")
+		slog.Info("Scheduler started (web push only, no Telegram notifications)")
 	}
 
 	// Start Server
 	serverAddr := ":" + port
-	log.Printf("Server starting on %s", serverAddr)
+	slog.Info("Server starting", "addr", serverAddr)
 	srvHandler := srv.Routes()
 
 	server := &http.Server{
@@ -178,7 +183,8 @@ func main() {
 	}
 
 	if err := server.ListenAndServe(); err != nil {
-		log.Fatal(err)
+		slog.Error("Server failed", "error", err)
+		os.Exit(1)
 	}
 }
 

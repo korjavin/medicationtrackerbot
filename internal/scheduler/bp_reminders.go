@@ -3,7 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
@@ -26,6 +26,7 @@ type BPReminderStore interface {
 type BPReminderChecker struct {
 	store     BPReminderStore
 	notifiers []notifier.Notifier
+	now       func() time.Time // injectable clock; defaults to time.Now
 }
 
 func (c *BPReminderChecker) Check(ctx context.Context) error {
@@ -42,12 +43,15 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		return err
 	}
 
-	now := time.Now()
+	if c.now == nil {
+		c.now = time.Now
+	}
+	now := c.now()
 
 	for _, userID := range userIDs {
 		state, err := c.store.GetBPReminderState(userID)
 		if err != nil {
-			log.Printf("Error getting BP reminder state for user %d: %v", userID, err)
+			slog.Error("Error getting BP reminder state", "userID", userID, "error", err)
 			continue
 		}
 
@@ -65,7 +69,7 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 
 		lastReading, err := c.store.GetLastBPReading(ctx, userID)
 		if err != nil {
-			log.Printf("Error getting last BP reading for user %d: %v", userID, err)
+			slog.Error("Error getting last BP reading", "userID", userID, "error", err)
 			continue
 		}
 
@@ -74,19 +78,22 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 			continue
 		}
 
-		if lastReading != nil && time.Since(lastReading.MeasuredAt) < 12*time.Hour {
+		if lastReading != nil && now.Sub(lastReading.MeasuredAt) < 12*time.Hour {
 			continue
 		}
 
-		preferredHour, err := c.store.CalculatePreferredReminderHour(ctx, userID)
-		if err != nil {
-			log.Printf("Error calculating preferred hour for user %d: %v", userID, err)
-			preferredHour = 20
-		}
+		preferredHour := state.PreferredReminderHour
+		if preferredHour == 0 {
+			preferredHour, err = c.store.CalculatePreferredReminderHour(ctx, userID)
+			if err != nil {
+				slog.Warn("Error calculating preferred hour", "userID", userID, "error", err)
+				preferredHour = 20
+			}
 
-		if preferredHour != state.PreferredReminderHour {
-			if err := c.store.UpdatePreferredReminderHour(userID, preferredHour); err != nil {
-				log.Printf("Error updating preferred hour for user %d: %v", userID, err)
+			if preferredHour != state.PreferredReminderHour {
+				if err := c.store.UpdatePreferredReminderHour(userID, preferredHour); err != nil {
+					slog.Error("Error updating preferred hour", "userID", userID, "error", err)
+				}
 			}
 		}
 
@@ -96,7 +103,7 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		}
 
 		if state.LastNotificationSentAt != nil {
-			lastSentDay := time.Date(state.LastNotificationSentAt.Year(), state.LastNotificationSentAt.Month(), state.LastNotificationSentAt.Day(), 0, 0, 0, 0, state.LastNotificationSentAt.Location())
+			lastSentDay := time.Date(state.LastNotificationSentAt.Year(), state.LastNotificationSentAt.Month(), state.LastNotificationSentAt.Day(), 0, 0, 0, 0, now.Location())
 			if !lastSentDay.Before(todayStart) {
 				continue
 			}
@@ -105,7 +112,7 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		shouldSendEnhanced := false
 		dominantCategory, err := c.store.GetDominantBPCategory(ctx, userID)
 		if err != nil {
-			log.Printf("Error getting dominant BP category for user %d: %v", userID, err)
+			slog.Warn("Error getting dominant BP category", "userID", userID, "error", err)
 		} else if lastReading != nil {
 			lastSeverity := store.CategorySeverity(lastReading.Category)
 			dominantSeverity := store.CategorySeverity(dominantCategory)
@@ -116,11 +123,11 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		}
 
 		if err := c.sendBPReminder(ctx, userID, shouldSendEnhanced); err != nil {
-			log.Printf("Error sending BP reminder to user %d: %v", userID, err)
+			slog.Error("Error sending BP reminder", "userID", userID, "error", err)
 			continue
 		}
 
-		log.Printf("Sent BP reminder to user %d (enhanced: %v)", userID, shouldSendEnhanced)
+		slog.Info("Sent BP reminder", "userID", userID, "enhanced", shouldSendEnhanced)
 	}
 
 	return nil
@@ -154,7 +161,7 @@ func (c *BPReminderChecker) sendBPReminder(ctx context.Context, userID int64, en
 	for _, nr := range c.notifiers {
 		msgID, err := nr.Send(ctx, userID, n)
 		if err != nil {
-			log.Printf("Failed to send BP reminder via %T: %v", nr, err)
+			slog.Error("Failed to send BP reminder", "notifier", nr, "error", err)
 			continue
 		}
 		anySuccess = true

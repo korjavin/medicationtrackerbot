@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -79,7 +79,7 @@ func (s *Server) handleListMiBandWorkouts(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(result); err != nil {
-		log.Printf("encode miband workouts: %v", err)
+		slog.Error("encode miband workouts", "error", err)
 	}
 }
 
@@ -115,7 +115,7 @@ func (s *Server) handleGetMiBandWorkoutGPS(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(pts); err != nil {
-		log.Printf("encode miband gps: %v", err)
+		slog.Error("encode miband gps", "error", err)
 	}
 }
 

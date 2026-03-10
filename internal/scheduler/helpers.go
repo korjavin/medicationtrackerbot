@@ -2,7 +2,7 @@ package scheduler
 
 import (
 	"context"
-	"log"
+	"log/slog"
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 )
@@ -21,7 +21,7 @@ func (h *NotifyHelper) Notify(ctx context.Context, n notifier.Notification, stor
 		go func(nr notifier.Notifier) {
 			msgID, err := nr.Send(ctx, h.allowedUserID, n)
 			if err != nil {
-				log.Printf("Notification send failed (%T): %v", nr, err)
+				slog.Error("Notification send failed", "notifier", nr, "error", err)
 				return
 			}
 			if msgID != 0 && storeMsgID != nil {
@@ -39,7 +39,7 @@ func (h *NotifyHelper) DeleteNotification(ctx context.Context, msgID int) {
 	for _, nr := range h.notifiers {
 		go func(nr notifier.Notifier) {
 			if err := nr.Delete(ctx, h.allowedUserID, msgID); err != nil {
-				log.Printf("Notification delete failed (%T): %v", nr, err)
+				slog.Error("Notification delete failed", "notifier", nr, "error", err)
 			}
 		}(nr)
 	}

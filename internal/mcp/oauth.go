@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"strings"
@@ -69,7 +69,7 @@ func (h *OAuthHandler) HandleProtectedResourceMetadata(w http.ResponseWriter, r 
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(metadata); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -93,20 +93,20 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 		// Validate the token
 		subject, err := h.validateToken(r.Context(), tokenString)
 		if err != nil {
-			log.Printf("[MCP/OAuth] Token validation failed: %v", err)
+			slog.Warn("[MCP/OAuth] Token validation failed", "error", err)
 			h.sendUnauthorized(w, "invalid token")
 			return
 		}
 
 		// Check if the subject matches the allowed subject(s)
 		if !h.isSubjectAllowed(subject) {
-			log.Printf("[MCP/OAuth] Subject %s not allowed (expected one of: %s)", subject, h.config.AllowedSubject) // #nosec G706
+			slog.Warn("[MCP/OAuth] Subject not allowed", "subject", subject, "expected", h.config.AllowedSubject) // #nosec G706
 			h.sendForbidden(w, "user not authorized")
 			return
 		} else if strings.TrimSpace(h.config.AllowedSubject) == "" {
-			log.Printf("[MCP/OAuth] Any subject allowed (no restriction configured). User: %s", subject) // #nosec G706
+			slog.Info("[MCP/OAuth] Any subject allowed (no restriction configured)", "user", subject) // #nosec G706
 		} else {
-			log.Printf("[MCP/OAuth] Authorized request from subject: %s", subject) // #nosec G706
+			slog.Info("[MCP/OAuth] Authorized request", "subject", subject) // #nosec G706
 		}
 
 		// Add subject to context
@@ -163,14 +163,14 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 	if err != nil {
 		// Debug logging for claims comparison
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			log.Printf("[MCP/OAuth] Configured Audience (MCP_SERVER_URL): %s", h.config.MCPServerURL)
+			slog.Debug("[MCP/OAuth] Configured Audience", "expected_aud", h.config.MCPServerURL)
 			if aud, ok := claims["aud"]; ok {
-				log.Printf("[MCP/OAuth] Token Audience (aud): %v", aud)
+				slog.Debug("[MCP/OAuth] Token Audience", "aud", aud)
 			} else {
-				log.Printf("[MCP/OAuth] Token Audience (aud) claim missing")
+				slog.Debug("[MCP/OAuth] Token Audience (aud) claim missing")
 			}
 			if sub, ok := claims["sub"]; ok {
-				log.Printf("[MCP/OAuth] Token Subject (sub): %v", sub)
+				slog.Debug("[MCP/OAuth] Token Subject", "sub", sub)
 			}
 		}
 		return "", fmt.Errorf("token validation failed: %w", err)
@@ -199,8 +199,10 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 
 	if !validAudience {
 		// Log actual audiences for debugging
-		log.Printf("[MCP/OAuth] Audience Validation Failed. Expected '%s' or '%s'. Got: %v",
-			h.config.MCPServerURL, h.config.ClientID, audClaim)
+		slog.Warn("[MCP/OAuth] Audience Validation Failed",
+			"expected_mcp", h.config.MCPServerURL,
+			"expected_client", h.config.ClientID,
+			"got", audClaim)
 		return "", fmt.Errorf("token audience mismatch")
 	}
 
@@ -281,17 +283,17 @@ func (h *OAuthHandler) refreshJWKS(ctx context.Context) error {
 			if resp.StatusCode == http.StatusOK {
 				jwksData, _ = io.ReadAll(resp.Body)
 			} else {
-				log.Printf("[MCP/OAuth] JWKS fetch returned %d", resp.StatusCode)
+				slog.Warn("[MCP/OAuth] JWKS fetch returned unexpected status", "status", resp.StatusCode)
 			}
 		} else {
-			log.Printf("[MCP/OAuth] JWKS fetch failed: %v", err)
+			slog.Warn("[MCP/OAuth] JWKS fetch failed", "error", err)
 		}
 	}
 
 	// Fallback to static JSON if fetch failed
 	if len(jwksData) == 0 {
 		if h.config.JWKSJSON != "" {
-			log.Println("[MCP/OAuth] Using static JWKS fallback")
+			slog.Info("[MCP/OAuth] Using static JWKS fallback")
 			jwksData = []byte(h.config.JWKSJSON)
 		} else {
 			return fmt.Errorf("failed to fetch JWKS and no fallback provided")
@@ -314,7 +316,7 @@ func (h *OAuthHandler) refreshJWKS(ctx context.Context) error {
 
 		publicKey, err := parseRSAPublicKey(jwk.N, jwk.E)
 		if err != nil {
-			log.Printf("[MCP/OAuth] Failed to parse key %s: %v", jwk.Kid, err)
+			slog.Warn("[MCP/OAuth] Failed to parse key", "kid", jwk.Kid, "error", err)
 			continue
 		}
 
@@ -322,7 +324,7 @@ func (h *OAuthHandler) refreshJWKS(ctx context.Context) error {
 	}
 
 	h.jwksCache.lastUpdate = time.Now()
-	log.Printf("[MCP/OAuth] Refreshed JWKS, cached %d keys", len(h.jwksCache.keys))
+	slog.Info("[MCP/OAuth] Refreshed JWKS", "cached_keys", len(h.jwksCache.keys))
 
 	return nil
 }

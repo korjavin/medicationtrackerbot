@@ -1,0 +1,68 @@
+[
+  {
+    "name": "Time to measure BP window",
+    "description": "Checks if time is inside the random notification window",
+    "input": {
+      "time_now": "2023-10-27T10:00:00Z",
+      "snoozed": false,
+      "dont_bug_me": false,
+      "readings_today": 0
+    },
+    "expected": {
+      "notifications": 1
+    }
+  },
+  {
+    "name": "Snooze state",
+    "description": "Checks if snooze prevents notification",
+    "input": {
+      "time_now": "2023-10-27T10:00:00Z",
+      "snoozed": true,
+      "dont_bug_me": false,
+      "readings_today": 0
+    },
+    "expected": {
+      "notifications": 0
+    }
+  },
+  {
+    "name": "Blocked state",
+    "description": "Checks if block prevents notification",
+    "input": {
+      "time_now": "2023-10-27T10:00:00Z",
+      "snoozed": false,
+      "dont_bug_me": true,
+      "readings_today": 0
+    },
+    "expected": {
+      "notifications": 0
+    }
+  },
+  {
+    "name": "Already measured today",
+    "description": "Checks if a reading today prevents notification",
+    "input": {
+      "time_now": "2023-10-27T10:00:00Z",
+      "snoozed": false,
+      "dont_bug_me": false,
+      "readings_today": 1
+    },
+    "expected": {
+      "notifications": 0
+    }
+  },
+  {
+    "name": "Already notified recently",
+    "description": "Checks if a recent notification prevents duplicate",
+    "input": {
+      "time_now": "2023-10-27T10:00:00Z",
+      "snoozed": false,
+      "dont_bug_me": false,
+      "readings_today": 0,
+      "notified_today": true
+    },
+    "expected": {
+      "notifications": 0
+    }
+  }
+]
