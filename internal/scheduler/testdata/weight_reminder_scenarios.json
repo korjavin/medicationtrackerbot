@@ -1,0 +1,72 @@
+[
+  {
+    "name": "Weekly check",
+    "description": "Trigger weight reminder randomly once a week",
+    "input": {
+      "time_now": "2023-10-27T09:00:00Z",
+      "snoozed": false,
+      "dont_bug_me": false,
+      "readings_recent": 0,
+      "notified_recently": false
+    },
+    "expected": {
+      "notifications": 1
+    }
+  },
+  {
+    "name": "Already reminded",
+    "description": "Don't send reminder if snooze is active",
+    "input": {
+      "time_now": "2023-10-27T09:00:00Z",
+      "snoozed": true,
+      "dont_bug_me": false,
+      "readings_recent": 0,
+      "notified_recently": false
+    },
+    "expected": {
+      "notifications": 0
+    }
+  },
+  {
+    "name": "Don't bug me active",
+    "description": "Don't send reminder if block is active",
+    "input": {
+      "time_now": "2023-10-27T09:00:00Z",
+      "snoozed": false,
+      "dont_bug_me": true,
+      "readings_recent": 0,
+      "notified_recently": false
+    },
+    "expected": {
+      "notifications": 0
+    }
+  },
+  {
+    "name": "Weight already logged",
+    "description": "Don't send reminder if weight was logged recently",
+    "input": {
+      "time_now": "2023-10-27T09:00:00Z",
+      "snoozed": false,
+      "dont_bug_me": false,
+      "readings_recent": 1,
+      "notified_recently": false
+    },
+    "expected": {
+      "notifications": 0
+    }
+  },
+  {
+    "name": "Already notified recently",
+    "description": "Don't send reminder if notified within 7 days",
+    "input": {
+      "time_now": "2023-10-27T09:00:00Z",
+      "snoozed": false,
+      "dont_bug_me": false,
+      "readings_recent": 0,
+      "notified_recently": true
+    },
+    "expected": {
+      "notifications": 0
+    }
+  }
+]
