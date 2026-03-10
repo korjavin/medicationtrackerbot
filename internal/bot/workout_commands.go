@@ -2,7 +2,7 @@ package bot
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -19,7 +19,7 @@ func (b *Bot) handleStartNextCommand(msgConfig *tgbotapi.MessageConfig) {
 	// Get all active groups
 	groups, err := b.workouts.ListWorkoutGroups(b.allowedUserID, true)
 	if err != nil {
-		log.Printf("Error listing workout groups: %v", err)
+		slog.Error("Error listing workout groups", "error", err)
 		msgConfig.Text = "❌ Error retrieving workout groups."
 		return
 	}
@@ -99,7 +99,7 @@ func (b *Bot) handleWorkoutStatusCommand(msgConfig *tgbotapi.MessageConfig) {
 	// Get all active groups
 	groups, err := b.workouts.ListWorkoutGroups(b.allowedUserID, true)
 	if err != nil {
-		log.Printf("Error listing workout groups: %v", err)
+		slog.Error("Error listing workout groups", "error", err)
 		msgConfig.Text = "❌ Error retrieving workout status."
 		return
 	}
@@ -183,7 +183,7 @@ func (b *Bot) handleWorkoutStatusCommand(msgConfig *tgbotapi.MessageConfig) {
 func (b *Bot) handleWorkoutHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 	sessions, err := b.workouts.GetWorkoutHistory(b.allowedUserID, 10)
 	if err != nil {
-		log.Printf("Error getting workout history: %v", err)
+		slog.Error("Error getting workout history", "error", err)
 		msgConfig.Text = "❌ Error retrieving workout history."
 		return
 	}

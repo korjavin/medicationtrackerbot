@@ -3,7 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
@@ -25,6 +25,7 @@ type WeightReminderStore interface {
 type WeightReminderChecker struct {
 	store     WeightReminderStore
 	notifiers []notifier.Notifier
+	now       func() time.Time
 }
 
 func (c *WeightReminderChecker) Check(ctx context.Context) error {
@@ -41,12 +42,15 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 		return err
 	}
 
-	now := time.Now()
+	if c.now == nil {
+		c.now = time.Now
+	}
+	now := c.now()
 
 	for _, userID := range userIDs {
 		state, err := c.store.GetWeightReminderState(userID)
 		if err != nil {
-			log.Printf("Error getting weight reminder state for user %d: %v", userID, err)
+			slog.Error("Error getting weight reminder state", "userID", userID, "error", err)
 			continue
 		}
 
@@ -64,27 +68,30 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 
 		lastLog, err := c.store.GetLastWeightLog(ctx, userID)
 		if err != nil {
-			log.Printf("Error getting last weight log for user %d: %v", userID, err)
+			slog.Error("Error getting last weight log", "userID", userID, "error", err)
 			continue
 		}
 
-		if lastLog != nil && time.Since(lastLog.MeasuredAt) < 7*24*time.Hour {
+		if lastLog != nil && now.Sub(lastLog.MeasuredAt) < 7*24*time.Hour {
 			continue
 		}
 
-		if lastLog != nil && time.Since(lastLog.MeasuredAt) < 5*24*time.Hour {
+		if lastLog != nil && now.Sub(lastLog.MeasuredAt) < 5*24*time.Hour {
 			continue
 		}
 
-		preferredHour, err := c.store.CalculatePreferredWeightReminderHour(ctx, userID)
-		if err != nil {
-			log.Printf("Error calculating preferred hour for user %d: %v", userID, err)
-			preferredHour = 9
-		}
+		preferredHour := state.PreferredReminderHour
+		if preferredHour == 0 {
+			preferredHour, err = c.store.CalculatePreferredWeightReminderHour(ctx, userID)
+			if err != nil {
+				slog.Warn("Error calculating preferred hour", "userID", userID, "error", err)
+				preferredHour = 9
+			}
 
-		if preferredHour != state.PreferredReminderHour {
-			if err := c.store.UpdatePreferredWeightReminderHour(userID, preferredHour); err != nil {
-				log.Printf("Error updating preferred hour for user %d: %v", userID, err)
+			if preferredHour != state.PreferredReminderHour {
+				if err := c.store.UpdatePreferredWeightReminderHour(userID, preferredHour); err != nil {
+					slog.Error("Error updating preferred hour", "userID", userID, "error", err)
+				}
 			}
 		}
 
@@ -94,17 +101,17 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 		}
 
 		if state.LastNotificationSentAt != nil {
-			if time.Since(*state.LastNotificationSentAt) < 7*24*time.Hour {
+			if now.Sub(*state.LastNotificationSentAt) < 7*24*time.Hour {
 				continue
 			}
 		}
 
 		if err := c.sendWeightReminder(ctx, userID); err != nil {
-			log.Printf("Error sending weight reminder to user %d: %v", userID, err)
+			slog.Error("Error sending weight reminder", "userID", userID, "error", err)
 			continue
 		}
 
-		log.Printf("Sent weight reminder to user %d", userID)
+		slog.Info("Sent weight reminder", "userID", userID)
 	}
 
 	return nil
@@ -135,7 +142,7 @@ func (c *WeightReminderChecker) sendWeightReminder(ctx context.Context, userID i
 	for _, nr := range c.notifiers {
 		msgID, err := nr.Send(ctx, userID, n)
 		if err != nil {
-			log.Printf("Failed to send weight reminder via %T: %v", nr, err)
+			slog.Error("Failed to send weight reminder", "notifier", nr, "error", err)
 			continue
 		}
 		anySuccess = true

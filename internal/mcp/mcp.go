@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -319,7 +319,7 @@ func (s *Server) parseDateRange(startStr, endStr string) (time.Time, time.Time, 
 	endStr = strings.TrimSpace(endStr)
 	loc := now.Location()
 
-	log.Printf("[MCP] parseDateRange Input: start=%q, end=%q", startStr, endStr)
+	slog.Info("parseDateRange Input", "start", startStr, "end", endStr)
 
 	// Parse end date (defaults to now)
 	if endStr == "" {
@@ -368,10 +368,10 @@ func (s *Server) parseDateRange(startStr, endStr string) (time.Time, time.Time, 
 		startDate = maxStart
 	}
 
-	log.Printf("[MCP] parseDateRange Output: start=%s, end=%s, max_days=%d",
-		startDate.Format(time.RFC3339),
-		endDate.Format(time.RFC3339),
-		s.config.MaxQueryDays)
+	slog.Info("parseDateRange Output",
+		"start", startDate.Format(time.RFC3339),
+		"end", endDate.Format(time.RFC3339),
+		"max_days", s.config.MaxQueryDays)
 	return startDate, endDate, strings.Join(warningParts, " "), nil
 }
 
@@ -406,7 +406,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if _, err := w.Write([]byte("ok")); err != nil {
-			log.Printf("health write: %v", err)
+			slog.Error("health write", "error", err)
 		}
 	})
 
@@ -422,15 +422,15 @@ func (s *Server) Run(ctx context.Context) error {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
-		log.Println("[MCP] Shutting down...")
+		slog.Info("[MCP] Shutting down...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("[MCP] shutdown error: %v", err)
+			slog.Error("[MCP] shutdown error", "error", err)
 		}
 	}()
 
-	log.Printf("[MCP] Server starting on %s", addr)
+	slog.Info("[MCP] Server starting", "addr", addr)
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		return err
 	}

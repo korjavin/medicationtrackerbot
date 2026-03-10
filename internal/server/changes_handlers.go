@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -39,7 +39,7 @@ func (s *Server) maybePruneChangeEvents(cursor int64) {
 	go func() {
 		defer s.changePruning.Store(false)
 		if err := s.changes.PruneChangeEvents(context.Background(), changeEventsKeepLast, changeEventsMaxAge); err != nil {
-			log.Printf("[changes] prune failed: %v", err)
+			slog.Error("changes prune failed", "error", err)
 		}
 	}()
 }

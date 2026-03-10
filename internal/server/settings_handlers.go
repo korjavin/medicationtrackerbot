@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -182,14 +182,14 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 
 	historyDefault, err := s.meds.GetIntakeHistory(0, 3)
 	if err != nil {
-		log.Printf("[bootstrap] history query failed: %v", err)
+		slog.Error("bootstrap history query failed", "error", err)
 		historyDefault = []store.IntakeLog{}
 	}
 
 	var nextIntake any
 	nextTime, nextNames, err := s.computeNextIntakeData(now)
 	if err != nil {
-		log.Printf("[bootstrap] next intake query failed: %v", err)
+		slog.Error("bootstrap next intake query failed", "error", err)
 	} else if !nextTime.IsZero() {
 		nextIntake = map[string]any{
 			"scheduled_at":     nextTime.Format(time.RFC3339),
@@ -200,34 +200,34 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	bpSince := now.AddDate(0, 0, -60)
 	bpReadings, err := s.bp.GetBloodPressureReadings(ctx, userID, bpSince)
 	if err != nil {
-		log.Printf("[bootstrap] bp readings query failed: %v", err)
+		slog.Error("bootstrap bp readings query failed", "error", err)
 		bpReadings = []store.BloodPressure{}
 	}
 	bpGoal, err := s.bp.GetBPGoal()
 	if err != nil {
-		log.Printf("[bootstrap] bp goal query failed: %v", err)
+		slog.Error("bootstrap bp goal query failed", "error", err)
 		bpGoal = nil
 	}
 	bpStats, err := s.bp.GetBPDailyWeightedStats(ctx, userID)
 	if err != nil {
-		log.Printf("[bootstrap] bp stats query failed: %v", err)
+		slog.Error("bootstrap bp stats query failed", "error", err)
 		bpStats = nil
 	}
 
 	weightSince := now.AddDate(0, 0, -35)
 	weightLogs, err := s.weight.GetWeightLogs(ctx, userID, weightSince)
 	if err != nil {
-		log.Printf("[bootstrap] weight logs query failed: %v", err)
+		slog.Error("bootstrap weight logs query failed", "error", err)
 		weightLogs = []store.WeightLog{}
 	}
 	weightGoal, err := s.weight.GetWeightGoal()
 	if err != nil {
-		log.Printf("[bootstrap] weight goal query failed: %v", err)
+		slog.Error("bootstrap weight goal query failed", "error", err)
 		weightGoal = nil
 	}
 	highestRecord, err := s.weight.GetHighestWeightRecord(ctx, userID)
 	if err != nil {
-		log.Printf("[bootstrap] highest weight query failed: %v", err)
+		slog.Error("bootstrap highest weight query failed", "error", err)
 		highestRecord = nil
 	}
 	weightGoalResponse := &weightGoalBootstrapResponse{}
@@ -242,27 +242,27 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 
 	foodTargets, err := s.food.GetFoodTargets(ctx)
 	if err != nil {
-		log.Printf("[bootstrap] food targets query failed: %v", err)
+		slog.Error("bootstrap food targets query failed", "error", err)
 		foodTargets = store.FoodTargets{}
 	}
 	bpReminderStatus, err := s.bp.GetBPReminderState(userID)
 	if err != nil {
-		log.Printf("[bootstrap] bp reminder state query failed: %v", err)
+		slog.Error("bootstrap bp reminder state query failed", "error", err)
 		bpReminderStatus = nil
 	}
 	weightReminderStatus, err := s.weight.GetWeightReminderState(userID)
 	if err != nil {
-		log.Printf("[bootstrap] weight reminder state query failed: %v", err)
+		slog.Error("bootstrap weight reminder state query failed", "error", err)
 		weightReminderStatus = nil
 	}
 
 	var tabOrder any
 	tabOrderStr, err := s.settings.GetTabOrder(ctx)
 	if err != nil {
-		log.Printf("[bootstrap] tab order query failed: %v", err)
+		slog.Error("bootstrap tab order query failed", "error", err)
 	} else if tabOrderStr != "" {
 		if err := json.Unmarshal([]byte(tabOrderStr), &tabOrder); err != nil {
-			log.Printf("[bootstrap] invalid tab order json: %v", err)
+			slog.Error("bootstrap invalid tab order json", "error", err)
 		}
 	}
 
@@ -291,7 +291,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 

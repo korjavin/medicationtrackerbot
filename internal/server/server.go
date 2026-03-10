@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -63,6 +63,7 @@ type Server struct {
 	foodSearchCache     *fastcache.Cache
 	changeStreamSem     chan struct{}
 	changePruning       atomic.Bool
+	externalAPIKey      string
 	mcpAuditSecret      string
 	lastMCPNotification time.Time
 	mcpAuditMutex       sync.Mutex
@@ -214,6 +215,11 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		foodSearchTTL:   30 * time.Minute,
 		foodSearchCache: fastcache.New(foodSearchCacheSizeMB * 1024 * 1024),
 		changeStreamSem: make(chan struct{}, changeStreamMaxConn),
+		externalAPIKey:  os.Getenv("EXTERNAL_WORKOUT_API_KEY"),
+	}
+
+	if srv.externalAPIKey == "" {
+		slog.Warn("EXTERNAL_WORKOUT_API_KEY is not set. The external workout endpoint will reject all requests.")
 	}
 
 	srv.initOAUTH()
@@ -243,7 +249,7 @@ func (s *Server) deleteNotification(ctx context.Context, msgID int) {
 	for _, nr := range s.notifiers {
 		go func(nr notifier.Notifier) {
 			if err := nr.Delete(ctx, s.allowedUserID, msgID); err != nil {
-				log.Printf("[server] notification delete failed (%T): %v", nr, err)
+				slog.Error("notification delete failed", "notifier", nr, "error", err)
 			}
 		}(nr)
 	}
@@ -257,7 +263,7 @@ func (s *Server) closeNotification(ctx context.Context, tag string) {
 	for _, nr := range s.notifiers {
 		go func(nr notifier.Notifier) {
 			if err := nr.CloseNotification(ctx, s.allowedUserID, tag); err != nil {
-				log.Printf("[server] notification close failed (%T): %v", nr, err)
+				slog.Error("notification close failed", "notifier", nr, "error", err)
 			}
 		}(nr)
 	}
@@ -268,7 +274,7 @@ func (s *Server) notify(ctx context.Context, n notifier.Notification) {
 	for _, nr := range s.notifiers {
 		go func(nr notifier.Notifier) {
 			if _, err := nr.Send(ctx, s.allowedUserID, n); err != nil {
-				log.Printf("[server] notification send failed (%T): %v", nr, err)
+				slog.Error("notification send failed", "notifier", nr, "error", err)
 			}
 		}(nr)
 	}
@@ -453,7 +459,8 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/settings/tab-order", s.handleSetTabOrder)
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
 
-	// External/MCP Routes (bypasses AuthMiddleware)
+	// External routes (bypass AuthMiddleware)
+	mux.HandleFunc("POST /api/workout/external", s.externalAPIKeyMiddleware(s.handleExternalWorkout))
 	mux.HandleFunc("POST /api/mcp-audit", s.handleMCPAudit)
 
 	// Apply Middleware to API
@@ -489,7 +496,7 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := json.NewEncoder(w).Encode(logs); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -535,7 +542,7 @@ func (s *Server) handleRestock(w http.ResponseWriter, r *http.Request) {
 		"quantity_added":  req.Quantity,
 		"inventory_count": med.InventoryCount,
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -555,7 +562,7 @@ func (s *Server) handleGetRestockHistory(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(restocks); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -591,7 +598,7 @@ func (s *Server) handleGetLowStock(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(result); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -651,7 +658,7 @@ func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if _, err := w.Write([]byte(html)); err != nil { // #nosec G203
-		log.Printf("write response: %v", err)
+		slog.Error("write response", "error", err)
 	}
 }
 
@@ -712,7 +719,7 @@ func (s *Server) serveOIDCSetup(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if _, err := w.Write([]byte(html)); err != nil { // #nosec G203
-		log.Printf("write response: %v", err)
+		slog.Error("write response", "error", err)
 	}
 }
 
@@ -728,25 +735,23 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 
 	var data TelegramLoginData
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		log.Printf("[TG-LOGIN] Invalid JSON from %s: %v", r.RemoteAddr, err)
+		slog.Error("Invalid JSON from TG-LOGIN", "remoteAddr", r.RemoteAddr, "error", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("[TG-LOGIN] Attempt from %s: user_id=%d username=%s first_name=%s auth_date=%d",
-		r.RemoteAddr, data.ID, data.Username, data.FirstName, data.AuthDate)
+	slog.Info("TG-LOGIN Attempt", "remoteAddr", r.RemoteAddr, "userID", data.ID, "username", data.Username, "firstName", data.FirstName, "authDate", data.AuthDate)
 
 	valid, user, err := ValidateTelegramLoginWidget(s.botToken, data)
 	if !valid || err != nil {
-		log.Printf("[TG-LOGIN] Validation failed for user_id=%d from %s: %v", data.ID, r.RemoteAddr, err)
+		slog.Error("TG-LOGIN Validation failed", "userID", data.ID, "remoteAddr", r.RemoteAddr, "error", err)
 		http.Error(w, "Invalid Telegram login data: "+err.Error(), http.StatusUnauthorized)
 		return
 	}
 
 	// Check if user is allowed
 	if user.ID != s.allowedUserID {
-		log.Printf("[TG-LOGIN] Unauthorized user_id=%d (username=%s) from %s - allowed is %d",
-			user.ID, user.Username, r.RemoteAddr, s.allowedUserID)
+		slog.Warn("TG-LOGIN Unauthorized user", "userID", user.ID, "username", user.Username, "remoteAddr", r.RemoteAddr, "allowedUserID", s.allowedUserID)
 		http.Error(w, "Forbidden: User not allowed", http.StatusForbidden)
 		return
 	}
@@ -763,11 +768,11 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 		Path:     "/",
 	})
 
-	log.Printf("[TG-LOGIN] Success for user_id=%d username=%s from %s", user.ID, user.Username, r.RemoteAddr)
+	slog.Info("TG-LOGIN Success", "userID", user.ID, "username", user.Username, "remoteAddr", r.RemoteAddr)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -783,7 +788,7 @@ func (s *Server) handleGetVAPIDPublicKey(w http.ResponseWriter, r *http.Request)
 	if err := json.NewEncoder(w).Encode(map[string]string{
 		"public_key": s.vapidPublicKey,
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -821,7 +826,7 @@ func (s *Server) handleUnsubscribePush(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.push.DeletePushSubscription(req.Endpoint); err != nil {
 		// Log but don't fail hard
-		log.Printf("Error deleting subscription: %v", err)
+		slog.Warn("Error deleting subscription", "error", err)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -838,7 +843,7 @@ func (s *Server) handleListPushSubscriptions(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(subs); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -863,7 +868,7 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 			// Verify ownership and status
 			intake, err := s.meds.GetIntake(id)
 			if err != nil {
-				log.Printf("Error getting intake %d: %v", id, err)
+				slog.Error("Error getting intake", "intakeID", id, "error", err)
 				continue
 			}
 			if intake == nil || intake.UserID != userID {
@@ -882,16 +887,16 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 				// double-decrementing stock.
 				if err := s.meds.ConfirmIntake(id, now); err != nil {
 					if errors.Is(err, sql.ErrNoRows) {
-						log.Printf("Intake %d already confirmed by another request (race condition)", intake.ID)
+						slog.Info("Intake already confirmed by another request (race condition)", "intakeID", intake.ID)
 					} else {
-						log.Printf("Error confirming intake %d: %v", intake.ID, err)
+						slog.Error("Error confirming intake", "intakeID", intake.ID, "error", err)
 					}
 					continue
 				}
 
 				// Decrement inventory only if confirmation succeeded
 				if err := s.meds.DecrementInventory(intake.MedicationID, 1); err != nil {
-					log.Printf("Error decrementing inventory: %v", err)
+					slog.Error("Error decrementing inventory", "error", err)
 				}
 			}
 		}
@@ -904,7 +909,7 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 	parsedTime, err := time.Parse(time.RFC3339, req.ScheduledAt)
 	if err != nil {
 		// Try other formats if needed, or just fail
-		log.Printf("Error parsing time %s: %v", req.ScheduledAt, err)
+		slog.Error("Error parsing time", "scheduledAt", req.ScheduledAt, "error", err)
 		http.Error(w, "Invalid time format", http.StatusBadRequest)
 		return
 	}
@@ -912,7 +917,7 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 	for _, medID := range req.MedicationIDs {
 		intake, err := s.meds.GetIntakeBySchedule(medID, parsedTime)
 		if err != nil {
-			log.Printf("Error finding intake for med %d at %s: %v", medID, req.ScheduledAt, err)
+			slog.Error("Error finding intake for med by schedule", "medID", medID, "scheduledAt", req.ScheduledAt, "error", err)
 			continue
 		}
 
@@ -928,19 +933,19 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 			// double-decrementing stock.
 			if err := s.meds.ConfirmIntake(intake.ID, now); err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
-					log.Printf("Intake %d already confirmed by another request (race condition)", intake.ID)
+					slog.Info("Intake already confirmed by another request (race condition)", "intakeID", intake.ID)
 				} else {
-					log.Printf("Error confirming intake %d: %v", intake.ID, err)
+					slog.Error("Error confirming intake", "intakeID", intake.ID, "error", err)
 				}
 				continue
 			}
 
 			// Decrement inventory only if confirmation succeeded
 			if err := s.meds.DecrementInventory(medID, 1); err != nil {
-				log.Printf("Error decrementing inventory: %v", err)
+				slog.Error("Error decrementing inventory", "error", err)
 			}
 		} else if intake == nil {
-			log.Printf("Intake not found or not pending for med %d at %s", medID, req.ScheduledAt)
+			slog.Info("Intake not found or not pending for med", "medID", medID, "scheduledAt", req.ScheduledAt)
 		}
 	}
 

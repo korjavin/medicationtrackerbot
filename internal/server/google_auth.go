@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -50,7 +50,7 @@ func (s *Server) initOAUTH() {
 
 	endpoint, userInfoURL, err := resolveOIDCEndpoints(s.oidcConfig)
 	if err != nil {
-		log.Printf("[OIDC] Failed to resolve OIDC endpoints: %v", err)
+		slog.Error("Failed to resolve OIDC endpoints", "error", err)
 		return
 	}
 
@@ -176,7 +176,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	// If both AdminEmail and AllowedSubject are empty, trust the OIDC provider (allow all authenticated users)
 	if s.oidcConfig.AllowedSubject == "" && s.oidcConfig.AdminEmail == "" {
 		// Allow all authenticated users from this OIDC provider
-		log.Printf("[OIDC] Allowing authenticated user (allow-all mode): %s", firstNonEmpty(userInfo.Email, subject, userInfo.PreferredUsername))
+		slog.Info("Allowing authenticated user (allow-all mode)", "user", firstNonEmpty(userInfo.Email, subject, userInfo.PreferredUsername))
 	} else {
 		// Strict mode: check subject and/or email
 		if s.oidcConfig.AllowedSubject != "" {

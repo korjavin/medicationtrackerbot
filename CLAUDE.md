@@ -209,6 +209,7 @@ TZ=Europe/Berlin              # Critical for correct scheduling
 # Optional
 DB_PATH=meds.db               # SQLite database path (default: meds.db)
 PORT=8080                     # HTTP port (default: 8080)
+EXTERNAL_WORKOUT_API_KEY=...  # Required for external workout endpoint (e.g. Mi Notify)
 
 # Google Auth (optional, for browser access)
 GOOGLE_CLIENT_ID=...
@@ -263,12 +264,17 @@ MCP_AUDIT_SECRET=secure-shared-secret
 - Treat HTTP 502/503/504 as "offline" — `navigator.onLine` stays true behind reverse proxies
 - **Tab Reordering:** Drag-and-drop functionality in `tabs-dnd.js` allows custom tab layouts, persisted via `tab_order` in the bootstrap payload and cached in `settings_bundle`.
 
+### Logging Pattern
+- We use the standard library structured logger (`log/slog`).
+- Configure the default logger in entry points: `slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))`
+- Use contextual arguments `slog.Error("msg", "error", err)` instead of formatting `log.Printf("msg: %v", err)`.
+- Replaced `log.Fatal` with `slog.Error` + `os.Exit(1)` for cleaner deferred cleanup (where applicable).
+
 ### Testing Patterns
 - Store tests use in-memory SQLite (`:memory:`)
 - Server tests use httptest for HTTP handlers
-- BP reminders tests validate scheduling logic
-- Workout tests cover rotation advancement and session state
 - Domain service tests use mock store structs (implement the narrow `FooStore` interface inline) with table-driven cases — no Telegram API dependency required
+- **JSON Golden-File Testing**: Scheduler notifications and Bot callbacks use a data-driven pattern where scenarios are defined in `testdata/*.json` and run by `internal/testharness`. See `docs/TESTING_PATTERNS.md` for details.
 
 ## Common Tasks
 

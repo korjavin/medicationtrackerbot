@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -31,7 +31,7 @@ func (s *Server) handleListWorkoutGroups(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(groups); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -74,13 +74,13 @@ func (s *Server) handleCreateWorkoutGroup(w http.ResponseWriter, r *http.Request
 	snapshotData := fmt.Sprintf(`{"name":"%s","days_of_week":%s,"scheduled_time":"%s","notification_advance_minutes":%d}`,
 		req.Name, req.DaysOfWeek, req.ScheduledTime, req.NotificationAdvanceMinutes)
 	if err := s.workouts.CreateGroupSnapshot(group.ID, snapshotData, "Initial setup"); err != nil {
-		log.Printf("create group snapshot: %v", err)
+		slog.Error("create group snapshot", "error", err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(group); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -126,7 +126,7 @@ func (s *Server) handleUpdateWorkoutGroup(w http.ResponseWriter, r *http.Request
 	snapshotData := fmt.Sprintf(`{"name":"%s","days_of_week":%s,"scheduled_time":"%s","notification_advance_minutes":%d}`,
 		req.Name, req.DaysOfWeek, req.ScheduledTime, req.NotificationAdvanceMinutes)
 	if err := s.workouts.CreateGroupSnapshot(id, snapshotData, "Settings updated"); err != nil {
-		log.Printf("create group snapshot: %v", err)
+		slog.Error("create group snapshot", "error", err)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -164,7 +164,7 @@ func (s *Server) handleSkipWorkoutSessionCompat(w http.ResponseWriter, r *http.R
 
 	if s.workout != nil {
 		if err := s.workout.CleanupWorkoutSessionMessages(req.SessionID); err != nil {
-			log.Printf("Failed to cleanup workout messages for session %d: %v", req.SessionID, err)
+			slog.Error("Failed to cleanup workout messages for session", "sessionID", req.SessionID, "error", err)
 		}
 	}
 
@@ -259,7 +259,7 @@ func (s *Server) handleListVariantsByGroup(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(variants); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -290,7 +290,7 @@ func (s *Server) handleCreateWorkoutVariant(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(variant); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -357,7 +357,7 @@ func (s *Server) handleListExercisesByVariant(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(exercises); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -394,7 +394,7 @@ func (s *Server) handleCreateExercise(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(exercise); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -528,7 +528,7 @@ func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(enriched); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -562,7 +562,7 @@ func (s *Server) handleGetSessionDetails(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -625,7 +625,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
-			log.Printf("encode response: %v", err)
+			slog.Error("encode response", "error", err)
 		}
 		return
 	}
@@ -687,7 +687,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(response); err != nil {
-				log.Printf("encode response: %v", err)
+				slog.Error("encode response", "error", err)
 			}
 			return
 		}
@@ -824,7 +824,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 	if nextWorkout == nil {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(nil); err != nil {
-			log.Printf("encode response: %v", err)
+			slog.Error("encode response", "error", err)
 		}
 		return
 	}
@@ -883,7 +883,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -1046,7 +1046,7 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(stats); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -1068,7 +1068,7 @@ func (s *Server) handleGetRotationState(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(state); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -1165,7 +1165,7 @@ func (s *Server) handleGetUniqueExercises(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(exercises); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -1270,7 +1270,7 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(map[string]int64{"id": id}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -1478,7 +1478,7 @@ func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request
 
 	if s.workout != nil {
 		if err := s.workout.CleanupWorkoutSessionMessages(id); err != nil {
-			log.Printf("Failed to cleanup workout messages for session %d: %v", id, err)
+			slog.Error("Failed to cleanup workout messages for session", "sessionID", id, "error", err)
 		}
 	}
 
@@ -1522,17 +1522,17 @@ func (s *Server) handleStartWorkoutSession(w http.ResponseWriter, r *http.Reques
 
 			if session.NotificationMessageID != nil {
 				if err := s.workout.UpdateWorkoutMessage(*session.NotificationMessageID, text); err != nil {
-					log.Printf("Failed to update workout message: %v", err)
+					slog.Error("Failed to update workout message", "error", err)
 				}
 				// Keep UX consistent with Telegram-start flow: remove original notification card.
 				s.deleteNotification(context.Background(), *session.NotificationMessageID)
 			}
 			if err := s.workout.CleanupWorkoutSessionMessages(id); err != nil {
-				log.Printf("Failed to cleanup stale workout messages for session %d: %v", id, err)
+				slog.Error("Failed to cleanup stale workout messages for session", "sessionID", id, "error", err)
 			}
 
 			if err := s.workout.StartWorkoutFlowFromWeb(id); err != nil {
-				log.Printf("Failed to start workout Telegram flow from web: %v", err)
+				slog.Error("Failed to start workout Telegram flow from web", "error", err)
 			}
 		}()
 	}
@@ -1604,7 +1604,7 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 	if req.Status == "skipped" || req.Status == "completed" {
 		if s.workout != nil {
 			if err := s.workout.CleanupWorkoutSessionMessages(id); err != nil {
-				log.Printf("Failed to cleanup workout messages for session %d: %v", id, err)
+				slog.Error("Failed to cleanup workout messages for session", "sessionID", id, "error", err)
 			}
 		}
 		if session.NotificationMessageID != nil {
@@ -1633,7 +1633,7 @@ func (s *Server) handleListExerciseLibrary(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(items); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -1672,7 +1672,7 @@ func (s *Server) handleCreateExerciseLibraryItem(w http.ResponseWriter, r *http.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(item); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 

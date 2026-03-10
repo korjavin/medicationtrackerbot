@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -196,9 +196,9 @@ func AuthMiddleware(botToken string, sessionSecret string, allowedUserID int64) 
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
 				}
-				log.Printf("[AUTH] Invalid session cookie from %s (cookie len=%d, value prefix=%.20q)", r.RemoteAddr, len(cookie.Value), cookie.Value)
+				slog.Warn("AUTH Invalid session cookie", "remoteAddr", r.RemoteAddr, "cookieLen", len(cookie.Value))
 			} else {
-				log.Printf("[AUTH] No auth_session cookie from %s (%v)", r.RemoteAddr, err)
+				slog.Debug("AUTH No auth_session cookie", "remoteAddr", r.RemoteAddr, "error", err)
 			}
 
 			// 2. Check for Telegram InitData (Authorization header or query param)
@@ -208,20 +208,20 @@ func AuthMiddleware(botToken string, sessionSecret string, allowedUserID int64) 
 			}
 
 			if initData == "" {
-				log.Printf("[AUTH] No auth data from %s for %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+				slog.Warn("AUTH No auth data", "remoteAddr", r.RemoteAddr, "method", r.Method, "path", r.URL.Path)
 				http.Error(w, "Unauthorized: No init data", http.StatusUnauthorized)
 				return
 			}
 
 			valid, user, err := ValidateWebAppData(botToken, initData)
 			if !valid || err != nil {
-				log.Printf("[AUTH] Invalid WebApp hash from %s: %v", r.RemoteAddr, err)
+				slog.Warn("AUTH Invalid WebApp hash", "remoteAddr", r.RemoteAddr, "error", err)
 				http.Error(w, "Unauthorized: Invalid hash", http.StatusForbidden)
 				return
 			}
 
 			if user.ID != allowedUserID {
-				log.Printf("[AUTH] Unauthorized user ID %d (username: %s) from %s", user.ID, user.Username, r.RemoteAddr)
+				slog.Warn("AUTH Unauthorized user", "userID", user.ID, "username", user.Username, "remoteAddr", r.RemoteAddr)
 				http.Error(w, "Forbidden: User not allowed", http.StatusForbidden)
 				return
 			}

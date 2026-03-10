@@ -1,0 +1,125 @@
+[
+  {
+    "name": "Time to workout",
+    "description": "Checks if time aligns with workout group schedule",
+    "input": {
+      "time_now": "2023-10-27T09:00:00Z",
+      "already_notified": false,
+      "schedule_time": "09:00",
+      "rotation_state": "normal"
+    },
+    "expected": {
+      "notifications": 1
+    }
+  },
+  {
+    "name": "Already notified",
+    "description": "Checks if already notified session skips notification",
+    "input": {
+      "time_now": "2023-10-27T09:00:00Z",
+      "already_notified": true,
+      "schedule_time": "09:00",
+      "rotation_state": "normal"
+    },
+    "expected": {
+      "notifications": 0
+    }
+  },
+  {
+    "name": "In progress session",
+    "description": "Checks if in progress session prevents notification",
+    "input": {
+      "time_now": "2023-10-27T09:00:00Z",
+      "already_notified": false,
+      "schedule_time": "09:00",
+      "rotation_state": "normal",
+      "in_progress": true
+    },
+    "expected": {
+      "notifications": 0
+    }
+  },
+  {
+    "name": "Stale session notification",
+    "description": "Checks if a stale session triggers a notification",
+    "input": {
+      "time_now": "2023-10-27T09:00:00Z",
+      "already_notified": false,
+      "schedule_time": "09:00",
+      "rotation_state": "normal",
+      "in_progress": true,
+      "stale_duration_hours": 2
+    },
+    "expected": {
+      "notifications": 1
+    }
+  },
+  {
+    "name": "Pre skipped session",
+    "description": "Checks if a pre-skipped session is auto-skipped",
+    "input": {
+      "time_now": "2023-10-27T09:05:00Z",
+      "already_notified": false,
+      "schedule_time": "09:00",
+      "rotation_state": "normal",
+      "stale_duration_hours": -1
+    },
+    "expected": {
+      "notifications": 0
+    }
+  },
+  {
+    "name": "Wrong day of week",
+    "description": "Does not notify on a non-scheduled day",
+    "input": {
+      "time_now": "2023-10-28T09:00:00Z",
+      "already_notified": false,
+      "schedule_time": "09:00",
+      "rotation_state": "normal"
+    },
+    "expected": {
+      "notifications": 0
+    }
+  },
+  {
+    "name": "Re-notify unignored session",
+    "description": "Re-notifies if 3 hours have passed without action",
+    "input": {
+      "time_now": "2023-10-27T12:05:00Z",
+      "already_notified": true,
+      "schedule_time": "09:00",
+      "rotation_state": "normal"
+    },
+    "expected": {
+      "notifications": 1
+    }
+  },
+  {
+    "name": "Auto skip 6h unignored session",
+    "description": "Auto skips if 6 hours have passed without action",
+    "input": {
+      "time_now": "2023-10-27T15:05:00Z",
+      "already_notified": true,
+      "schedule_time": "09:00",
+      "rotation_state": "normal",
+      "snooze_duration_hours": 0
+    },
+    "expected": {
+      "notifications": 0
+    }
+  },
+  {
+    "name": "Snoozed session wake up",
+    "description": "Re-notifies a snoozed session",
+    "input": {
+      "time_now": "2023-10-27T10:05:00Z",
+      "already_notified": true,
+      "schedule_time": "09:00",
+      "rotation_state": "normal",
+      "snooze_duration_hours": 1
+    },
+    "expected": {
+      "notifications": 1
+    }
+  }
+]
