@@ -453,6 +453,7 @@ type WorkoutSessionResult struct {
 	Steps        *int     `json:"steps,omitempty"`
 	Calories     *int     `json:"calories,omitempty"`
 	HeartRateAvg *int     `json:"heart_rate_avg,omitempty"`
+	SpO2Avg      *int     `json:"spo2_avg,omitempty"`
 }
 
 // WorkoutHistoryResponse is the response for the get_workout_history tool
@@ -599,7 +600,41 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 				hr := wo.HeartRateAvg
 				result.HeartRateAvg = &hr
 			}
+			if wo.SpO2Avg > 0 {
+				spo2 := wo.SpO2Avg
+				result.SpO2Avg = &spo2
+			}
 			results = append(results, result)
+		}
+	}
+
+	// Add HR/SpO2 from MiBand to matched manual sessions
+	for i := range results {
+		if results[i].Type == "manual" && results[i].StartedAt != nil {
+			startedAtTime, err := time.Parse("2006-01-02 15:04", *results[i].StartedAt)
+			if err != nil {
+				continue
+			}
+
+			// Find matching miband session within +/- 2 hours
+			for j := range results {
+				if results[j].Type == "miband" && results[j].StartedAt != nil {
+					mbStart, err := time.Parse("2006-01-02 15:04", *results[j].StartedAt)
+					if err != nil {
+						continue
+					}
+
+					diff := mbStart.Sub(startedAtTime)
+					if diff >= -2*time.Hour && diff <= 2*time.Hour {
+						if results[j].HeartRateAvg != nil && results[i].HeartRateAvg == nil {
+							results[i].HeartRateAvg = results[j].HeartRateAvg
+						}
+						if results[j].SpO2Avg != nil && results[i].SpO2Avg == nil {
+							results[i].SpO2Avg = results[j].SpO2Avg
+						}
+					}
+				}
+			}
 		}
 	}
 

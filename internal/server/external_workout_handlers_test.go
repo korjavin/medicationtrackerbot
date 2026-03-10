@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -100,6 +101,7 @@ func TestHandleExternalWorkout(t *testing.T) {
 			body: map[string]interface{}{
 				"workout_type": "running",
 				"start_time":   1700000000,
+				"spo2":         97,
 			},
 			mockInsertFunc: func(ctx context.Context, w *store.MiBandWorkout) (bool, error) {
 				w.ID = 123
@@ -111,6 +113,9 @@ func TestHandleExternalWorkout(t *testing.T) {
 				}
 				if w.UserID != 42 {
 					t.Errorf("expected user id 42, got %v", w.UserID)
+				}
+				if w.SpO2Avg != 97 {
+					t.Errorf("expected spo2_avg 97, got %v", w.SpO2Avg)
 				}
 				return true, nil
 			},
@@ -202,6 +207,109 @@ func TestHandleExternalWorkout(t *testing.T) {
 				}
 				if resp[tc.wantRespKey] != tc.wantRespValue {
 					t.Errorf("expected %s=%v, got %v", tc.wantRespKey, tc.wantRespValue, resp[tc.wantRespKey])
+				}
+			}
+		})
+	}
+}
+
+func TestHandleBulkImportWorkouts(t *testing.T) {
+	mockStore := &mockMiBandStore{}
+
+	s := &Server{
+		externalAPIKey: "testkey",
+		miband:         mockStore,
+		allowedUserID:  42,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/workout/miband/import", s.handleBulkImportWorkouts)
+
+	cases := []struct {
+		name           string
+		body           string
+		mockInsertFunc func(ctx context.Context, w *store.MiBandWorkout) (bool, error)
+		mockCheckFunc  func(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error)
+		wantStatus     int
+		wantImported   int
+		wantDuplicates int
+		wantErrors     int
+	}{
+		{
+			name:       "invalid json format",
+			body:       `{"not": "an array"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "valid import with new and duplicate",
+			body: `[
+				{"workout_type": "running", "start_time": 1700000000, "spo2": 95},
+				{"workout_type": "cycling", "start_time": 1700000000, "spo2": 97}
+			]`,
+			mockInsertFunc: func(ctx context.Context, w *store.MiBandWorkout) (bool, error) {
+				if w.ActivityName == "running" {
+					if w.SpO2Avg != 95 {
+						t.Errorf("expected spo2 95, got %v", w.SpO2Avg)
+					}
+					return true, nil // inserted
+				}
+				if w.ActivityName == "cycling" {
+					return false, nil // duplicate on insert
+				}
+				return true, nil
+			},
+			mockCheckFunc: func(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error) {
+				return false, nil
+			},
+			wantStatus:     http.StatusOK,
+			wantImported:   1,
+			wantDuplicates: 1,
+			wantErrors:     0,
+		},
+		{
+			name: "error case with missing required fields",
+			body: `[
+				{"start_time": 1700000000},
+				{"workout_type": "running"}
+			]`,
+			mockInsertFunc: func(ctx context.Context, w *store.MiBandWorkout) (bool, error) {
+				return true, nil
+			},
+			wantStatus:     http.StatusOK,
+			wantImported:   0,
+			wantDuplicates: 0,
+			wantErrors:     2,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockStore.insertFunc = tc.mockInsertFunc
+			mockStore.checkFunc = tc.mockCheckFunc
+
+			req := httptest.NewRequest(http.MethodPost, "/api/workout/miband/import", strings.NewReader(tc.body))
+
+			rr := httptest.NewRecorder()
+			mux.ServeHTTP(rr, req)
+
+			if rr.Code != tc.wantStatus {
+				t.Errorf("expected status %v, got %v", tc.wantStatus, rr.Code)
+			}
+
+			if rr.Code == http.StatusOK {
+				var resp map[string]interface{}
+				if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+					t.Fatalf("failed to parse response: %v", err)
+				}
+
+				if int(resp["imported"].(float64)) != tc.wantImported {
+					t.Errorf("expected imported %v, got %v", tc.wantImported, resp["imported"])
+				}
+				if int(resp["duplicates"].(float64)) != tc.wantDuplicates {
+					t.Errorf("expected duplicates %v, got %v", tc.wantDuplicates, resp["duplicates"])
+				}
+				if int(resp["errors"].(float64)) != tc.wantErrors {
+					t.Errorf("expected errors %v, got %v", tc.wantErrors, resp["errors"])
 				}
 			}
 		})

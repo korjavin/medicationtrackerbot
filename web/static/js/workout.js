@@ -82,6 +82,10 @@ function bindWorkoutControls() {
     bindClick('miband-workout-save-btn', () => saveMiBandWorkout());
     bindClick('miband-workout-delete-btn', () => deleteMiBandWorkout());
 
+    bindClick('open-miband-import-btn', () => openMiBandImportModal());
+    bindClick('miband-import-submit-btn', () => submitMiBandImport());
+    bindClick('miband-import-cancel-btn', () => closeMiBandImportModal());
+
     const rotatingCheckbox = document.getElementById('workout-group-rotating');
     if (rotatingCheckbox) {
         rotatingCheckbox.addEventListener('change', () => {
@@ -1281,6 +1285,17 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts) {
         items.push({ type: 'miband', ts: new Date(w.start_time).getTime(), data: w });
     });
 
+    // Match sessions with Mi Band workouts
+    items.forEach(item => {
+        if (item.type === 'session') {
+            const match = (mibandWorkouts || []).find(w => {
+                const mbTs = new Date(w.start_time).getTime();
+                return Math.abs(mbTs - item.ts) <= 2 * 3600 * 1000;
+            });
+            if (match) item.mibandMatch = match;
+        }
+    });
+
     // Sort newest first
     items.sort((a, b) => b.ts - a.ts);
 
@@ -1301,7 +1316,7 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts) {
 
     items.forEach(item => {
         if (item.type === 'session') {
-            root.appendChild(_buildSessionCard(item.data));
+            root.appendChild(_buildSessionCard(item.data, item.mibandMatch));
         } else {
             root.appendChild(_buildMiBandCard(item.data));
         }
@@ -1310,7 +1325,7 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts) {
     container.replaceChildren(root);
 }
 
-function _buildSessionCard(s) {
+function _buildSessionCard(s, mibandMatch) {
     const statusEmoji = {
         'completed': '✅',
         'skipped': '⏭'
@@ -1364,6 +1379,13 @@ function _buildSessionCard(s) {
         volume.style.color = '#667eea';
         volume.textContent = volumeText;
         details.appendChild(volume);
+    }
+    if (mibandMatch && (mibandMatch.heart_rate_avg > 0 || mibandMatch.spo2_avg > 0)) {
+        details.appendChild(document.createElement('br'));
+        const matchText = [];
+        if (mibandMatch.heart_rate_avg > 0) matchText.push(`❤️ ${mibandMatch.heart_rate_avg} bpm`);
+        if (mibandMatch.spo2_avg > 0) matchText.push(`🩸 ${mibandMatch.spo2_avg}%`);
+        details.appendChild(document.createTextNode(matchText.join(' ')));
     }
     left.appendChild(details);
 
@@ -1531,6 +1553,57 @@ async function saveMiBandWorkout() {
     } catch (err) {
         console.error('Error updating Mi Band workout:', err);
         safeAlert('Failed to update workout. Please try again.');
+    }
+}
+
+function openMiBandImportModal() {
+    document.getElementById('miband-import-json').value = '';
+    window.ModalManager.open('miband-import-modal');
+}
+
+function closeMiBandImportModal() {
+    window.ModalManager.close('miband-import-modal');
+}
+
+async function submitMiBandImport() {
+    const jsonStr = document.getElementById('miband-import-json').value.trim();
+    if (!jsonStr) {
+        safeAlert('Please paste JSON data first.');
+        return;
+    }
+
+    let payloads;
+    try {
+        payloads = JSON.parse(jsonStr);
+        if (!Array.isArray(payloads)) {
+            throw new Error('Expected a JSON array');
+        }
+    } catch (err) {
+        console.error('JSON parse error:', err);
+        safeAlert('Invalid JSON. Please ensure it is a valid array of workout objects.');
+        return;
+    }
+
+    const btn = document.getElementById('miband-import-submit-btn');
+    const origText = btn.textContent;
+    btn.textContent = 'Importing...';
+    btn.disabled = true;
+
+    try {
+        const result = await apiCall('/api/workout/miband/import', 'POST', payloads);
+        if (result && typeof result.imported === 'number') {
+            safeAlert(`Import complete! Imported: ${result.imported}, Duplicates skipped: ${result.duplicates}, Errors: ${result.errors}`);
+            closeMiBandImportModal();
+            loadWorkoutHistoryTab();
+        } else {
+            throw new Error('Invalid API response');
+        }
+    } catch (err) {
+        console.error('Error importing Mi Band workouts:', err);
+        safeAlert('Failed to import workouts. Please check the logs.');
+    } finally {
+        btn.textContent = origText;
+        btn.disabled = false;
     }
 }
 
