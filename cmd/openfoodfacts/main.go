@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -27,14 +27,15 @@ func main() {
 
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		log.Fatal("Error opening database:", err)
+		slog.Error("Error opening database", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 
 	// Ensure pragmas for fast inserts
 	_, err = db.Exec("PRAGMA synchronous = OFF; PRAGMA journal_mode = MEMORY;")
 	if err != nil {
-		log.Printf("Warning: failed to set pragmas: %v\n", err)
+		slog.Warn("Failed to set pragmas", "error", err)
 	}
 
 	var reader io.Reader
@@ -43,7 +44,8 @@ func main() {
 	} else {
 		file, err := os.Open(csvPath) // #nosec G304
 		if err != nil {
-			log.Fatal("Error opening CSV:", err)
+			slog.Error("Error opening CSV", "error", err)
+			os.Exit(1)
 		}
 		defer file.Close()
 		reader = file
@@ -57,7 +59,8 @@ func main() {
 	// Read header
 	header, err := csvReader.Read()
 	if err != nil {
-		log.Fatal("Error reading header:", err)
+		slog.Error("Error reading header", "error", err)
+		os.Exit(1)
 	}
 
 	// Map columns
@@ -69,7 +72,8 @@ func main() {
 	reqCols := []string{"code", "product_name", "carbohydrates_100g", "proteins_100g", "fat_100g", "energy-kcal_100g"}
 	for _, c := range reqCols {
 		if _, ok := colIdx[c]; !ok {
-			log.Fatalf("Required column %s not found in CSV", c)
+			slog.Error("Required column not found in CSV", "column", c)
+			os.Exit(1)
 		}
 	}
 
@@ -77,7 +81,8 @@ func main() {
 
 	tx, err := db.Begin()
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("Error starting transaction", "error", err)
+		os.Exit(1)
 	}
 
 	stmt, err := tx.Prepare(`
@@ -85,7 +90,8 @@ func main() {
 		VALUES (?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("Error preparing statement", "error", err)
+		os.Exit(1)
 	}
 	defer stmt.Close()
 
@@ -121,32 +127,36 @@ func main() {
 
 		_, err = stmt.Exec(code, name, carbs, protein, fat, kcal)
 		if err != nil {
-			log.Printf("Error inserting %s: %v", code, err)
+			slog.Warn("Error inserting record", "code", code, "error", err)
 			continue
 		}
 
 		count++
 		if count%batchSize == 0 {
 			if err := tx.Commit(); err != nil {
-				log.Fatal(err)
+				slog.Error("Error committing transaction", "error", err)
+				os.Exit(1)
 			}
 			fmt.Printf("Imported %d records\n", count)
 			tx, err = db.Begin()
 			if err != nil {
-				log.Fatal(err)
+				slog.Error("Error starting transaction", "error", err)
+				os.Exit(1)
 			}
 			stmt, err = tx.Prepare(`
 				INSERT OR REPLACE INTO open_food_facts (barcode, name, carbs_100g, protein_100g, fat_100g, energy_kcal_100g)
 				VALUES (?, ?, ?, ?, ?, ?)
 			`)
 			if err != nil {
-				log.Fatal(err)
+				slog.Error("Error preparing statement", "error", err)
+				os.Exit(1)
 			}
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		log.Fatal(err)
+		slog.Error("Error committing transaction", "error", err)
+		os.Exit(1)
 	}
 
 	fmt.Printf("Finished! Imported %d records.\n", count)

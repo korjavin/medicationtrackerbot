@@ -2,7 +2,7 @@ package bot
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -16,7 +16,7 @@ func (b *Bot) handleAdHocWorkoutCommand(msgConfig *tgbotapi.MessageConfig) {
 
 	session, err := b.workoutSvc.CreateAdHocSession(b.allowedUserID, now, scheduledTime)
 	if err != nil {
-		log.Printf("Error creating ad-hoc workout session: %v", err)
+		slog.Error("Error creating ad-hoc workout session", "error", err)
 		msgConfig.Text = "❌ Error creating ad-hoc workout session."
 		return
 	}
@@ -34,11 +34,11 @@ func (b *Bot) handleAdHocWorkoutCommand(msgConfig *tgbotapi.MessageConfig) {
 		// Use existing SendExerciseList method
 		_, err := b.SendExerciseList(session.ID, b.allowedUserID)
 		if err != nil {
-			log.Printf("Failed to send exercise list for ad-hoc workout: %v", err)
+			slog.Error("Failed to send exercise list for ad-hoc workout", "error", err)
 			// Send fallback message
 			msg := tgbotapi.NewMessage(b.allowedUserID, "⚠️ Exercise list unavailable. Use the web app to add exercises.")
 			if _, err := b.api.Send(msg); err != nil {
-				log.Printf("[bot] send failed: %v", err)
+				slog.Error("send failed", "error", err)
 			}
 		}
 	}()

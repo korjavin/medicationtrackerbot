@@ -3,7 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
@@ -39,7 +39,7 @@ func (c *LowStockChecker) Check(_ context.Context) error {
 
 	meds, err := c.store.GetMedicationsLowOnStock(7)
 	if err != nil {
-		log.Printf("Error checking low stock: %v", err)
+		slog.Error("Error checking low stock", "error", err)
 		return nil
 	}
 

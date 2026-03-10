@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -15,12 +15,12 @@ import (
 )
 
 func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
-	log.Printf("Document upload received: %s (size: %d bytes)", msg.Document.FileName, msg.Document.FileSize)
+	slog.Info("Document upload received", "fileName", msg.Document.FileName, "size", msg.Document.FileSize)
 
 	if err := domain.ValidateImportFile(msg.Document.FileName, int64(msg.Document.FileSize)); err != nil {
-		log.Printf("Import file validation failed: %v", err)
+		slog.Warn("Import file validation failed", "error", err)
 		if _, err := b.api.Send(tgbotapi.NewMessage(msg.Chat.ID, "⚠️ "+err.Error())); err != nil {
-			log.Printf("[bot] send failed: %v", err)
+			slog.Error("send failed", "error", err)
 		}
 		return
 	}
@@ -31,14 +31,14 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 	// Get file info from Telegram
 	file, err := b.api.GetFile(tgbotapi.FileConfig{FileID: msg.Document.FileID})
 	if err != nil {
-		log.Printf("Error getting file from Telegram API: %v", err)
+		slog.Error("Error getting file from Telegram API", "error", err)
 		b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error downloading file.")
 		return
 	}
 
 	tempFile, err := os.CreateTemp("", "sleep-import-*.nxk")
 	if err != nil {
-		log.Printf("Error creating temp file: %v", err)
+		slog.Error("Error creating temp file", "error", err)
 		b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error processing file.")
 		return
 	}
@@ -48,10 +48,10 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 	// Check if using local Bot API (file path starts with /)
 	if strings.HasPrefix(file.FilePath, "/") {
 		// Local mode - file is already on shared volume, copy it directly
-		log.Printf("Using local file: %s", file.FilePath)
+		slog.Info("Using local file", "filePath", file.FilePath)
 		sourceFile, err := os.Open(file.FilePath)
 		if err != nil {
-			log.Printf("Error opening local file %s: %v", file.FilePath, err)
+			slog.Error("Error opening local file", "filePath", file.FilePath, "error", err)
 			b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error accessing file.")
 			return
 		}
@@ -59,37 +59,37 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 
 		written, err := io.Copy(tempFile, sourceFile)
 		if err != nil {
-			log.Printf("Error copying local file: %v", err)
+			slog.Error("Error copying local file", "error", err)
 			b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error reading file.")
 			return
 		}
-		log.Printf("File copied from local storage: %d bytes written to %s", written, tempFile.Name())
+		slog.Info("File copied from local storage", "bytesWritten", written, "destPath", tempFile.Name())
 	} else {
 		// Remote mode - download via HTTP
 		fileURL := file.Link(b.api.Token)
-		log.Printf("Downloading file from: %s", fileURL)
+		slog.Info("Downloading file", "url", fileURL)
 
 		resp, err := http.Get(fileURL) // #nosec G107 -- fileURL is from Telegram Bot API (file.Link), not user-controlled
 		if err != nil {
-			log.Printf("Error downloading file from URL %s: %v", fileURL, err)
+			slog.Error("Error downloading file", "url", fileURL, "error", err)
 			b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error downloading file.")
 			return
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			log.Printf("Bad HTTP status downloading file: %d %s", resp.StatusCode, resp.Status)
+			slog.Error("Bad HTTP status downloading file", "statusCode", resp.StatusCode, "status", resp.Status)
 			b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error downloading file.")
 			return
 		}
 
 		written, err := io.Copy(tempFile, resp.Body)
 		if err != nil {
-			log.Printf("Error saving file to disk: %v", err)
+			slog.Error("Error saving file to disk", "error", err)
 			b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error saving file.")
 			return
 		}
-		log.Printf("File downloaded successfully: %d bytes written to %s", written, tempFile.Name())
+		slog.Info("File downloaded successfully", "bytesWritten", written, "destPath", tempFile.Name())
 	}
 	_ = tempFile.Close()
 
@@ -97,24 +97,24 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 	b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "📦 Extracting and importing...")
 	imported, skipped, err := b.importSleepFromNXK(tempFile.Name())
 	if err != nil {
-		log.Printf("Sleep import failed: %v", err)
+		slog.Error("Sleep import failed", "error", err)
 		b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, fmt.Sprintf("❌ Import failed: %v", err))
 		return
 	}
 
 	// Success
-	log.Printf("Sleep/Vitals import successful: %d imported, %d skipped", imported, skipped)
+	slog.Info("Sleep/Vitals import successful", "imported", imported, "skipped", skipped)
 	successMsg := fmt.Sprintf("✅ Import complete!\n\n📊 Imported: %d new records\n⏭ Skipped: %d existing records",
 		imported, skipped)
 	b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, successMsg)
 }
 
 func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
-	log.Printf("Starting sleep import from NXK file: %s", nxkPath)
+	slog.Info("Starting sleep import from NXK file", "path", nxkPath)
 
 	dbPath, cleanup, err := domain.ExtractBackupDB(nxkPath)
 	if err != nil {
-		log.Printf("Failed to extract backup.db: %v", err)
+		slog.Error("Failed to extract backup.db", "error", err)
 		return 0, 0, err
 	}
 	defer cleanup()
@@ -122,16 +122,16 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 	// Parse SQLite database
 	domainSleepLogs, err := domain.ParseSleepDatabase(dbPath)
 	if err != nil {
-		log.Printf("Failed to parse sleep database: %v", err)
+		slog.Error("Failed to parse sleep database", "error", err)
 		return 0, 0, err
 	}
 
 	if len(domainSleepLogs) == 0 {
-		log.Printf("No sleep records found in database")
+		slog.Info("No sleep records found in database")
 		return 0, 0, fmt.Errorf("no sleep records found")
 	}
 
-	log.Printf("Parsed %d sleep records from database", len(domainSleepLogs))
+	slog.Info("Parsed sleep records from database", "count", len(domainSleepLogs))
 
 	// Convert domain types to store types
 	sleepLogs := make([]store.SleepLog, len(domainSleepLogs))
@@ -151,14 +151,14 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 	ctx := context.Background()
 	imported, skipped, err := b.imports.ImportSleepLogs(ctx, b.allowedUserID, sleepLogs)
 	if err != nil {
-		log.Printf("Failed to import sleep logs to database: %v", err)
+		slog.Error("Failed to import sleep logs to database", "error", err)
 		return 0, 0, err
 	}
 
 	// Parse and import vitals
 	domainHeartLogs, err := domain.ParseHeartDatabase(dbPath)
 	if err != nil {
-		log.Printf("Failed to parse heart database: %v", err)
+		slog.Warn("Failed to parse heart database", "error", err)
 	}
 	heartLogs := make([]store.VitalsHeartLog, len(domainHeartLogs))
 	for i, h := range domainHeartLogs {
@@ -167,7 +167,7 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 
 	domainSpo2Logs, err := domain.ParseSpO2Database(dbPath)
 	if err != nil {
-		log.Printf("Failed to parse spo2 database: %v", err)
+		slog.Warn("Failed to parse spo2 database", "error", err)
 	}
 	spo2Logs := make([]store.VitalsSpO2Log, len(domainSpo2Logs))
 	for i, s := range domainSpo2Logs {
@@ -176,7 +176,7 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 
 	domainStressLogs, err := domain.ParseStressDatabase(dbPath)
 	if err != nil {
-		log.Printf("Failed to parse stress database: %v", err)
+		slog.Warn("Failed to parse stress database", "error", err)
 	}
 	stressLogs := make([]store.VitalsStressLog, len(domainStressLogs))
 	for i, s := range domainStressLogs {
@@ -185,15 +185,15 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 
 	vitalsImported, vitalsSkipped, err := b.imports.ImportVitals(ctx, b.allowedUserID, heartLogs, spo2Logs, stressLogs)
 	if err != nil {
-		log.Printf("Failed to import vitals logs to database: %v", err)
+		slog.Error("Failed to import vitals logs to database", "error", err)
 	} else {
-		log.Printf("Successfully imported %d vitals records, skipped %d", vitalsImported, vitalsSkipped)
+		slog.Info("Successfully imported vitals records", "imported", vitalsImported, "skipped", vitalsSkipped)
 	}
 
 	// Parse and import day stats
 	domainDayStats, err := domain.ParseDayDatabase(dbPath)
 	if err != nil {
-		log.Printf("Failed to parse day database: %v", err)
+		slog.Warn("Failed to parse day database", "error", err)
 	}
 	dayStats := make([]store.DayStat, len(domainDayStats))
 	for i, d := range domainDayStats {
@@ -202,15 +202,15 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 
 	statsImported, statsSkipped, err := b.imports.ImportDayStats(ctx, b.allowedUserID, dayStats)
 	if err != nil {
-		log.Printf("Failed to import day stats to database: %v", err)
+		slog.Error("Failed to import day stats to database", "error", err)
 	} else {
-		log.Printf("Successfully imported %d day stats, skipped %d", statsImported, statsSkipped)
+		slog.Info("Successfully imported day stats", "imported", statsImported, "skipped", statsSkipped)
 	}
 
 	// Parse and import Mi Band outdoor workouts
 	domainWorkouts, domainGPS, err := domain.ParseOutdoorWorkouts(dbPath)
 	if err != nil {
-		log.Printf("Failed to parse outdoor workouts: %v", err)
+		slog.Warn("Failed to parse outdoor workouts", "error", err)
 	}
 	wImported, wSkipped := 0, 0
 	if len(domainWorkouts) > 0 {
@@ -249,9 +249,9 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 		}
 		wImported, wSkipped, err = b.imports.ImportMiBandWorkouts(ctx, storeWorkouts, storeGPS)
 		if err != nil {
-			log.Printf("Failed to import Mi Band workouts: %v", err)
+			slog.Error("Failed to import Mi Band workouts", "error", err)
 		} else {
-			log.Printf("Successfully imported %d Mi Band workouts, skipped %d", wImported, wSkipped)
+			slog.Info("Successfully imported Mi Band workouts", "imported", wImported, "skipped", wSkipped)
 		}
 	}
 
@@ -262,6 +262,6 @@ func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
 func (b *Bot) updateStatusMessage(chatID int64, messageID int, text string) {
 	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
 	if _, err := b.api.Send(edit); err != nil {
-		log.Printf("[bot] send failed: %v", err)
+		slog.Error("send failed", "error", err)
 	}
 }

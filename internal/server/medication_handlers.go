@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -88,7 +88,7 @@ func (s *Server) handleListMedications(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewEncoder(w).Encode(meds); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -153,7 +153,7 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 		"status":  "created",
 		"warning": warning,
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -197,11 +197,11 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 				}
 				// 2. Delete the pending intake
 				if err := s.meds.DeleteIntake(p.ID); err != nil {
-					log.Printf("[server] delete intake failed: %v", err)
+					slog.Error("delete intake failed", "intakeID", p.ID, "error", err)
 				}
 			}
 		} else {
-			log.Printf("Error getting pending intakes for cleanup: %v", err)
+			slog.Error("Error getting pending intakes for cleanup", "medID", id, "error", err)
 		}
 	}
 
@@ -252,7 +252,7 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 		"status":  "updated",
 		"warning": warning,
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -292,7 +292,7 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 		// Verify ownership
 		intake, err := s.meds.GetIntake(up.ID)
 		if err != nil {
-			log.Printf("Error getting intake %d: %v", up.ID, err)
+			slog.Error("Error getting intake", "intakeID", up.ID, "error", err)
 			continue
 		}
 		if intake == nil || intake.UserID != userId {
@@ -313,7 +313,7 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 
 		// First update the intake status, then adjust inventory
 		if err := s.meds.UpdateIntake(up.ID, takenAt, up.Status); err != nil {
-			log.Printf("Error updating intake %d: %v", up.ID, err)
+			slog.Error("Error updating intake", "intakeID", up.ID, "error", err)
 			continue
 		}
 
@@ -325,14 +325,14 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 			if intake.Status == "TAKEN" {
 				// Reverting a taken status, so add back to inventory
 				if err := s.meds.DecrementInventory(intake.MedicationID, -1); err != nil {
-					log.Printf("Error incrementing inventory on revert: %v", err)
+					slog.Error("Error incrementing inventory on revert", "medicationID", intake.MedicationID, "error", err)
 				}
 			}
 		case "TAKEN":
 			// If it was PENDING, we are confirming.
 			if intake.Status == "PENDING" {
 				if err := s.meds.DecrementInventory(intake.MedicationID, 1); err != nil {
-					log.Printf("Error decrementing inventory: %v", err)
+					slog.Error("Error decrementing inventory", "medicationID", intake.MedicationID, "error", err)
 				}
 				// Clear reminders
 				reminders, _ := s.meds.GetIntakeReminders(intake.ID)
@@ -462,9 +462,9 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			// the intake was already confirmed by another concurrent request.
 			if err := s.meds.ConfirmIntake(intake.ID, now); err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
-					log.Printf("Intake %d already confirmed by another request (race condition)", intake.ID)
+					slog.Info("Intake already confirmed by another request (race condition)", "intakeID", intake.ID)
 				} else {
-					log.Printf("Error confirming intake %d: %v", intake.ID, err)
+					slog.Error("Error confirming intake", "intakeID", intake.ID, "error", err)
 				}
 				continue
 			}
@@ -474,7 +474,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 
 			// Decrement inventory only if confirmation succeeded
 			if err := s.meds.DecrementInventory(intake.MedicationID, 1); err != nil {
-				log.Printf("Error decrementing inventory: %v", err)
+				slog.Error("Error decrementing inventory", "error", err)
 			}
 
 			confirmedIntakeIDs = append(confirmedIntakeIDs, intake.ID)
@@ -483,7 +483,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			// Create a new intake log and mark it as taken immediately
 			intakeID, err := s.meds.CreateIntake(medID, userID, nextTime)
 			if err != nil {
-				log.Printf("Error creating intake for med %d: %v", medID, err)
+				slog.Error("Error creating intake for med", "medID", medID, "error", err)
 				continue
 			}
 
@@ -491,9 +491,9 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			// the intake was already confirmed by another concurrent request.
 			if err := s.meds.ConfirmIntake(intakeID, now); err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
-					log.Printf("Intake %d already confirmed by another request (race condition)", intakeID)
+					slog.Info("Intake already confirmed by another request (race condition)", "intakeID", intakeID)
 				} else {
-					log.Printf("Error confirming new intake %d: %v", intakeID, err)
+					slog.Error("Error confirming new intake", "intakeID", intakeID, "error", err)
 				}
 				continue
 			}
@@ -503,7 +503,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 
 			// Decrement inventory only if confirmation succeeded
 			if err := s.meds.DecrementInventory(medID, 1); err != nil {
-				log.Printf("Error decrementing inventory: %v", err)
+				slog.Error("Error decrementing inventory", "error", err)
 			}
 
 			confirmedIntakeIDs = append(confirmedIntakeIDs, intakeID)
@@ -552,7 +552,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 		"medication_count": confirmedCount,
 		"medication_names": medNames,
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -656,7 +656,7 @@ func (s *Server) handleGetNextIntake(w http.ResponseWriter, r *http.Request) {
 		"scheduled_at":     nextTime.Format(time.RFC3339),
 		"medication_names": medNames,
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }
 
@@ -694,7 +694,7 @@ func (s *Server) handleLogPastIntake(w http.ResponseWriter, r *http.Request) {
 
 	// Decrement inventory
 	if err := s.meds.DecrementInventory(req.MedicationID, 1); err != nil {
-		log.Printf("Error decrementing inventory: %v", err)
+		slog.Error("Error decrementing inventory", "error", err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -702,6 +702,6 @@ func (s *Server) handleLogPastIntake(w http.ResponseWriter, r *http.Request) {
 		"id":     id,
 		"status": "created",
 	}); err != nil {
-		log.Printf("encode response: %v", err)
+		slog.Error("encode response", "error", err)
 	}
 }

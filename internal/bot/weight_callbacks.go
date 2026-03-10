@@ -2,7 +2,7 @@ package bot
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -46,7 +46,7 @@ func (b *Bot) handleWeightReminderCallback(cb *tgbotapi.CallbackQuery, data stri
 			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
 		})
 		if _, err := b.api.Send(edit); err != nil {
-			log.Printf("[bot] send failed: %v", err)
+			slog.Error("send failed", "error", err)
 		}
 
 		// Send instruction message
@@ -66,15 +66,15 @@ func (b *Bot) handleWeightReminderCallback(cb *tgbotapi.CallbackQuery, data stri
 				"[Open App to Add Weight]("+webAppURL+")")
 		msg.ParseMode = "Markdown"
 		if _, err := b.api.Send(msg); err != nil {
-			log.Printf("[bot] send failed: %v", err)
+			slog.Error("send failed", "error", err)
 		}
 
 	case "weight_snooze":
 		// Snooze for 2 hours
 		if err := b.reminderSvc.SnoozeWeightReminder(cb.From.ID); err != nil {
-			log.Printf("Error snoozing weight reminder: %v", err)
+			slog.Error("Error snoozing weight reminder", "error", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error snoozing reminder.")); err != nil {
-				log.Printf("[bot] send failed: %v", err)
+				slog.Error("send failed", "error", err)
 			}
 			return
 		}
@@ -82,20 +82,20 @@ func (b *Bot) handleWeightReminderCallback(cb *tgbotapi.CallbackQuery, data stri
 		// Delete the notification
 		deleteMsg := tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)
 		if _, err := b.api.Send(deleteMsg); err != nil {
-			log.Printf("[bot] send failed: %v", err)
+			slog.Error("send failed", "error", err)
 		}
 
 		// Send confirmation
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⏰ Weight reminder snoozed for 2 hours.")); err != nil {
-			log.Printf("[bot] send failed: %v", err)
+			slog.Error("send failed", "error", err)
 		}
 
 	case "weight_dontbug":
 		// Block for 24 hours
 		if err := b.reminderSvc.BlockWeightReminders(cb.From.ID); err != nil {
-			log.Printf("Error setting don't bug me for weight reminder: %v", err)
+			slog.Error("Error setting don't bug me for weight reminder", "error", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error blocking reminders.")); err != nil {
-				log.Printf("[bot] send failed: %v", err)
+				slog.Error("send failed", "error", err)
 			}
 			return
 		}
@@ -103,12 +103,12 @@ func (b *Bot) handleWeightReminderCallback(cb *tgbotapi.CallbackQuery, data stri
 		// Delete the notification
 		deleteMsg := tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)
 		if _, err := b.api.Send(deleteMsg); err != nil {
-			log.Printf("[bot] send failed: %v", err)
+			slog.Error("send failed", "error", err)
 		}
 
 		// Send confirmation
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "🔇 Weight reminders disabled for 24 hours.")); err != nil {
-			log.Printf("[bot] send failed: %v", err)
+			slog.Error("send failed", "error", err)
 		}
 	}
 }
