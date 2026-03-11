@@ -56,6 +56,16 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 			t.Fatalf("Failed to parse TimeNow: %v", err)
 		}
 
+		baseTime := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Now().Location())
+
+		if input.SnoozeDurationHours > 0 || input.TimeNow == "2023-10-27T15:05:00Z" || input.StaleDurationHours > 0 || input.InProgress {
+			// Tests involving time progression must stay on same day to avoid `Check` looking at next day.
+			nowTime = baseTime
+			if input.TimeNow == "2023-10-27T15:05:00Z" {
+				nowTime = baseTime.Add(6 * time.Hour) // 18:00
+			}
+		}
+
 		// Configure group
 		todayIdx := int(nowTime.Weekday())
 		scheduledDayIdx := todayIdx
@@ -69,7 +79,13 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 			daysOfWeek = "[0,1,2,3,4,5,6]"
 		}
 
-		group, err := db.CreateWorkoutGroup("TestGroup", "desc", input.RotationState != "normal", 123456, daysOfWeek, input.ScheduleTime, 15)
+		// Use dynamic 12:00 for the schedule to ensure we have a solid baseline.
+		scheduleTimeString := input.ScheduleTime
+		if input.SnoozeDurationHours > 0 || input.TimeNow == "2023-10-27T15:05:00Z" || input.StaleDurationHours > 0 || input.InProgress {
+			scheduleTimeString = "12:00"
+		}
+
+		group, err := db.CreateWorkoutGroup("TestGroup", "desc", input.RotationState != "normal", 123456, daysOfWeek, scheduleTimeString, 15)
 		if err != nil {
 			t.Fatalf("CreateWorkoutGroup: %v", err)
 		}
@@ -81,29 +97,12 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 		}
 
 		if input.AlreadyNotified || input.InProgress {
-			// To avoid time-of-day dependence in tests, we must map `TimeNow` strictly to `today`.
-			// For tests using time.Now() advancement (like snooze, auto-skip, stale), we'll do this:
-			// `today` is real today's midnight.
-			// The `group` schedule needs to match today's weekday.
-			// `ScheduleTime` (e.g. 09:00) is relative to today.
-			// Then `time.Now()` is replaced with a custom clock that returns exact relative times!
-			// Actually, if we use time.Now() inside `SnoozeSession` and `StartSession`, we have NO CONTROL over real time.
-			// But we have full control over `c.now()`.
-			// The bug is that `today` is set to `time.Now().Day()` but `ScheduleTime` is fixed to 09:00.
-			// So `scheduledTime` becomes today at 09:00.
-			// If real time is 11:53, and `c.now()` returns `real time + 1h2m` = `12:55`.
-			// Then `12:55` > `09:00` + 3h!
-
-			// To fix this, we should change `ScheduleTime` dynamically in the test, OR we should manipulate `c.now()` better.
-			// Wait, we can mock `time.Now()` globally? No.
-			// Let's modify the DB row for SnoozedUntil instead of calling SnoozeSession. Wait, we tried that and it failed because db.DB() doesn't exist.
-
 			today := time.Date(nowTime.Year(), nowTime.Month(), nowTime.Day(), 0, 0, 0, 0, nowTime.Location())
-			if input.SnoozeDurationHours > 0 || input.TimeNow == "2023-10-27T15:05:00Z" {
+			if input.SnoozeDurationHours > 0 || input.TimeNow == "2023-10-27T15:05:00Z" || input.StaleDurationHours > 0 || input.InProgress {
 				today = time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.Now().Location())
 			}
 
-			session, err := db.CreateWorkoutSession(group.ID, variant.ID, 123456, today, input.ScheduleTime)
+			session, err := db.CreateWorkoutSession(group.ID, variant.ID, 123456, today, scheduleTimeString)
 			if err != nil {
 				t.Fatalf("CreateWorkoutSession: %v", err)
 			}
