@@ -14,16 +14,29 @@ import (
 
 type MockNotifier struct {
 	Notifications []notifier.Notification
+	msgIDCounter  int
+	msgIDMap      map[int]int // maps message ID to index in Notifications slice
 }
 
 func (m *MockNotifier) Send(ctx context.Context, userID int64, n notifier.Notification) (int, error) {
+	if m.msgIDMap == nil {
+		m.msgIDMap = make(map[int]int)
+	}
+	m.msgIDCounter++
 	if n.Metadata["type"] != "medication_batch" {
 		m.Notifications = append(m.Notifications, n)
+		m.msgIDMap[m.msgIDCounter] = len(m.Notifications) - 1
 	}
-	return 1, nil
+	return m.msgIDCounter, nil
 }
 
 func (m *MockNotifier) Delete(ctx context.Context, userID int64, msgID int) error {
+	if idx, ok := m.msgIDMap[msgID]; ok {
+		// Just zero it out to mark as deleted but keep indices stable
+		if idx >= 0 && idx < len(m.Notifications) {
+			m.Notifications[idx] = notifier.Notification{Text: "DELETED"}
+		}
+	}
 	return nil
 }
 
