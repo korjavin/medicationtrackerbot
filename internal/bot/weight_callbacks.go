@@ -81,8 +81,8 @@ func (b *Bot) handleWeightReminderCallback(cb *tgbotapi.CallbackQuery, data stri
 
 		// Delete the notification
 		deleteMsg := tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)
-		if _, err := b.api.Send(deleteMsg); err != nil {
-			slog.Error("send failed", "error", err)
+		if _, err := b.api.Request(deleteMsg); err != nil {
+			slog.Error("delete message failed", "error", err)
 		}
 
 		// Send confirmation
@@ -102,8 +102,8 @@ func (b *Bot) handleWeightReminderCallback(cb *tgbotapi.CallbackQuery, data stri
 
 		// Delete the notification
 		deleteMsg := tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)
-		if _, err := b.api.Send(deleteMsg); err != nil {
-			slog.Error("send failed", "error", err)
+		if _, err := b.api.Request(deleteMsg); err != nil {
+			slog.Error("delete message failed", "error", err)
 		}
 
 		// Send confirmation

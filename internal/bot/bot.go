@@ -386,8 +386,8 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 		for _, msgID := range reminders {
 			if msgID != cb.Message.MessageID {
-				if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
-					slog.Error("send failed", "error", err)
+				if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
+					slog.Error("delete message failed", "error", err)
 				}
 			}
 		}
@@ -428,8 +428,8 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 		for _, msgID := range reminders {
 			if msgID != cb.Message.MessageID {
-				if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
-					slog.Error("send failed", "error", err)
+				if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
+					slog.Error("delete message failed", "error", err)
 				}
 			}
 		}
@@ -464,8 +464,8 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 		for _, msgID := range reminders {
 			if msgID != cb.Message.MessageID {
-				if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
-					slog.Error("send failed", "error", err)
+				if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
+					slog.Error("delete message failed", "error", err)
 				}
 			}
 		}
@@ -492,8 +492,8 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 
 		// Delete the entire "Select medication to log:" message.
-		if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
-			slog.Error("send delete msg failed", "error", err)
+		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+			slog.Error("delete message failed", "error", err)
 		}
 
 		// Fetch med name for confirmation (display only).
@@ -525,8 +525,8 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 		for _, msgID := range reminders {
 			if msgID != cb.Message.MessageID {
-				if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
-					slog.Error("send failed", "error", err)
+				if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
+					slog.Error("delete message failed", "error", err)
 				}
 			}
 		}
@@ -585,8 +585,8 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		b.handleWeightReminderCallback(cb, data)
 	} else if data == "dismiss_notification" {
 		// Just delete the message
-		if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
-			slog.Error("send failed", "error", err)
+		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+			slog.Error("delete message failed", "error", err)
 		}
 	}
 }

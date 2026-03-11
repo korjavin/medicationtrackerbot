@@ -209,7 +209,7 @@ func (b *Bot) handleExercisePageCallback(cb *tgbotapi.CallbackQuery, sessionID i
 	}
 
 	// Delete the old message
-	if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+	if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
 		slog.Error("send failed", "error", err)
 	}
 }
@@ -276,7 +276,7 @@ func (b *Bot) handleSelectExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID
 	}
 
 	// All validations passed - delete the exercise list message
-	if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+	if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
 		slog.Error("send failed", "error", err)
 	}
 
@@ -293,7 +293,7 @@ func (b *Bot) handleSelectExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID
 
 // handleCancelAddExerciseCallback deletes the exercise selection message without adding anything.
 func (b *Bot) handleCancelAddExerciseCallback(cb *tgbotapi.CallbackQuery) {
-	if _, err := b.api.Send(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+	if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
 		slog.Error("send failed", "error", err)
 	}
 }

@@ -185,6 +185,17 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
 	}
 
+	// Set busy_timeout so concurrent writers retry instead of immediately
+	// returning SQLITE_BUSY ("database is locked"). 5 seconds gives enough
+	// time for the scheduler's simultaneous reminder writes to succeed.
+	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		return nil, fmt.Errorf("failed to set busy_timeout: %w", err)
+	}
+
+	// Limit connection pool to 1 to avoid multiple connections racing each
+	// other for the WAL write lock in concurrent-write scenarios.
+	db.SetMaxOpenConns(1)
+
 	// Set dialect
 	if err := goose.SetDialect("sqlite3"); err != nil {
 		return nil, err
