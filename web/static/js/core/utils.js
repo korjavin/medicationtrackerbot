@@ -15,6 +15,20 @@ function safeAlert(msg) {
     }
 }
 
+function safeConfirm(msg, callback) {
+    console.log("Confirm:", msg);
+    const tg = window.Telegram && window.Telegram.WebApp;
+    if (tg && tg.showConfirm) {
+        try {
+            tg.showConfirm(msg, callback);
+        } catch (e) {
+            callback(confirm(msg));
+        }
+    } else {
+        callback(confirm(msg));
+    }
+}
+
 function formatDateTimeLocalForInput(dateValue = new Date()) {
     const localDate = dateValue instanceof Date ? new Date(dateValue.getTime()) : new Date(dateValue);
     localDate.setMinutes(localDate.getMinutes() - localDate.getTimezoneOffset());

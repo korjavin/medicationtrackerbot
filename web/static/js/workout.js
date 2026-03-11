@@ -303,7 +303,7 @@ async function nextWorkoutVariant(sessionId) {
         await loadNextWorkout();
     } catch (error) {
         console.error('Error switching to next variant:', error);
-        alert('Failed to switch variant. Please try again.');
+        safeAlert('Failed to switch variant. Please try again.');
     }
 }
 
@@ -598,11 +598,17 @@ async function saveWorkoutGroup() {
 async function deleteWorkoutGroup(groupId, event) {
     event.stopPropagation();
 
-    if (confirm('Delete this workout group?')) {
-        const result = await apiCall(`/api/workout/groups/delete?id=${groupId}`, 'DELETE');
-        if (result || result === true) {
-            loadWorkoutGroups();
+    safeConfirm('Delete this workout group?', (ok) => {
+        if (ok) {
+            _deleteWorkoutGroupApi(groupId);
         }
+    });
+}
+
+async function _deleteWorkoutGroupApi(groupId) {
+    const result = await apiCall(`/api/workout/groups/delete?id=${groupId}`, 'DELETE');
+    if (result || result === true) {
+        loadWorkoutGroups();
     }
 }
 
@@ -772,11 +778,17 @@ async function saveVariant() {
 
 async function deleteVariant(variantId, event) {
     event.stopPropagation();
-    if (confirm('Delete this variant and all its exercises?')) {
-        const result = await apiCall(`/api/workout/variants/delete?id=${variantId}`, 'DELETE');
-        if (result || result === true) {
-            loadVariantsForGroup(currentGroupForVariant);
+    safeConfirm('Delete this variant and all its exercises?', (ok) => {
+        if (ok) {
+            _deleteVariantApi(variantId);
         }
+    });
+}
+
+async function _deleteVariantApi(variantId) {
+    const result = await apiCall(`/api/workout/variants/delete?id=${variantId}`, 'DELETE');
+    if (result || result === true) {
+        loadVariantsForGroup(currentGroupForVariant);
     }
 }
 
@@ -1028,11 +1040,17 @@ async function saveExercise() {
 
 async function deleteExercise(exerciseId, event) {
     event.stopPropagation();
-    if (confirm('Delete this exercise?')) {
-        const result = await apiCall(`/api/workout/exercises/delete?id=${exerciseId}`, 'DELETE');
-        if (result || result === true) {
-            loadExercisesForVariant(currentVariantForExercise, currentExercisesContainerId);
+    safeConfirm('Delete this exercise?', (ok) => {
+        if (ok) {
+            _deleteExerciseApi(exerciseId);
         }
+    });
+}
+
+async function _deleteExerciseApi(id) {
+    const result = await apiCall(`/api/workout/exercises/delete?id=${id}`, 'DELETE');
+    if (result || result === true) {
+        loadExercisesForVariant(currentVariantForExercise, currentExercisesContainerId);
     }
 }
 
@@ -1210,11 +1228,17 @@ async function saveExerciseLibraryItem() {
 
 async function deleteExerciseLibraryItem(id, event) {
     event?.stopPropagation?.();
-    if (confirm('Delete this exercise from library?')) {
-        const result = await apiCall(`/api/workout/exercise-library/delete?id=${id}`, 'DELETE');
-        if (result || result === true) {
-            loadExerciseLibrary();
+    safeConfirm('Delete this exercise from library?', (ok) => {
+        if (ok) {
+            _deleteExerciseLibraryApi(id);
         }
+    });
+}
+
+async function _deleteExerciseLibraryApi(id) {
+    const result = await apiCall(`/api/workout/exercise-library/delete?id=${id}`, 'DELETE');
+    if (result || result === true) {
+        loadExerciseLibrary();
     }
 }
 
@@ -1536,8 +1560,14 @@ async function saveMiBandWorkout() {
 
 async function deleteMiBandWorkout() {
     if (!currentMiBandWorkout) return;
-    if (!confirm('Delete this workout?')) return;
+    safeConfirm('Delete this workout?', (ok) => {
+        if (ok) {
+            _deleteMiBandWorkoutApi();
+        }
+    });
+}
 
+async function _deleteMiBandWorkoutApi() {
     try {
         const result = await apiCall(`/api/workout/miband/${currentMiBandWorkout.id}`, 'DELETE');
         if (result || result === true) {
@@ -1809,39 +1839,42 @@ function updateLocalLog(index, field, value) {
         if (hint) hint.remove();
     }
 }
-
 async function deleteExerciseLog(index) {
     const log = currentSessionLogs[index];
     if (!log) return;
 
-    if (!confirm(`Remove ${log.exercise_name} from this workout?`)) return;
+    safeConfirm(`Remove ${log.exercise_name} from this workout?`, async (ok) => {
+        if (!ok) return;
 
-    // If it has an ID (already saved in DB), delete from backend
-    if (log.id && log.id > 0) {
-        try {
-            await apiCall(`/api/workout/sessions/logs/delete?id=${log.id}`, 'DELETE');
-        } catch (error) {
-            console.error('Error deleting exercise log:', error);
-            safeAlert('Failed to delete exercise log');
-            return;
+        // If it has an ID (already saved in DB), delete from backend
+        if (log.id && log.id > 0) {
+            try {
+                await apiCall(`/api/workout/sessions/logs/delete?id=${log.id}`, 'DELETE');
+            } catch (error) {
+                console.error('Error deleting exercise log:', error);
+                safeAlert('Failed to delete exercise log');
+                return;
+            }
         }
-    }
 
-    // Remove from local array and re-render
-    currentSessionLogs.splice(index, 1);
-    const logsContainer = document.getElementById('workout-session-logs');
-    renderWorkoutSessionLogs(logsContainer);
+        // Remove from local array and re-render
+        currentSessionLogs.splice(index, 1);
+        const logsContainer = document.getElementById('workout-session-logs');
+        renderWorkoutSessionLogs(logsContainer);
+    });
 }
 
 async function deleteWorkoutSession() {
     if (!currentSessionData) return;
-    if (!confirm('Delete this workout session?')) return;
-
-    const result = await apiCall(`/api/workout/sessions/delete?id=${currentSessionData.id}`, 'DELETE');
-    if (result || result === true) {
-        closeWorkoutSessionModal();
-        loadWorkoutHistoryTab();
-    }
+    safeConfirm('Delete this workout session?', async (ok) => {
+        if (ok) {
+            const result = await apiCall(`/api/workout/sessions/delete?id=${currentSessionData.id}`, 'DELETE');
+            if (result || result === true) {
+                closeWorkoutSessionModal();
+                loadWorkoutHistoryTab();
+            }
+        }
+    });
 }
 
 function closeWorkoutSessionModal() {
@@ -2211,52 +2244,51 @@ async function startAdHocWorkout() {
 // ====================================
 
 async function startWorkoutSession(sessionId) {
-    if (!confirm('Start this workout now?')) {
-        return;
-    }
+    safeConfirm('Start this workout now?', async (ok) => {
+        if (!ok) return;
 
-    try {
-        await apiCall(`/api/workout/sessions/${sessionId}/start`, 'POST');
+        try {
+            await apiCall(`/api/workout/sessions/${sessionId}/start`, 'POST');
 
-        // Show success message
-        safeAlert('✅ Workout started! You can now log exercises.');
+            // Show success message
+            safeAlert('✅ Workout started! You can now log exercises.');
 
-        // Refresh the next workout card
-        loadNextWorkout();
-
-        // Optionally open the session details to log exercises
-
-    } catch (error) {
-        console.error('Error starting workout:', error);
-        safeAlert('❌ Failed to start workout. Please try again.');
-    }
+            // Refresh the next workout card
+            loadNextWorkout();
+        } catch (error) {
+            console.error('Error starting workout:', error);
+            safeAlert('❌ Failed to start workout. Please try again.');
+        }
+    });
 }
 
 async function cancelWorkoutSession(sessionId) {
-    if (confirm('Finish this workout now? It will be marked as completed.')) {
-        try {
-            await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
-            loadNextWorkout();
-            loadWorkoutHistoryTab(); // Refresh history if visible
-        } catch (e) {
-            console.error(e);
-            safeAlert('Failed to finish workout');
+    safeConfirm('Finish this workout now? It will be marked as completed.', async (ok) => {
+        if (ok) {
+            try {
+                await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
+                loadNextWorkout();
+                loadWorkoutHistoryTab(); // Refresh history if visible
+            } catch (e) {
+                console.error(e);
+                safeAlert('Failed to finish workout');
+            }
         }
-    }
+    });
 }
 
 async function preSkipWorkoutSession(sessionId) {
-    if (!confirm('Mark this workout as to-be-skipped? No notification will be sent and it will be automatically skipped at the scheduled time.')) {
-        return;
-    }
+    safeConfirm('Mark this workout as to-be-skipped? No notification will be sent and it will be automatically skipped at the scheduled time.', async (ok) => {
+        if (!ok) return;
 
-    try {
-        await apiCall(`/api/workout/sessions/${sessionId}/preskip`, 'POST');
-        loadNextWorkout();
-    } catch (error) {
-        console.error('Error pre-skipping workout:', error);
-        safeAlert('❌ Failed to mark workout as skipped. Please try again.');
-    }
+        try {
+            await apiCall(`/api/workout/sessions/${sessionId}/preskip`, 'POST');
+            loadNextWorkout();
+        } catch (error) {
+            console.error('Error pre-skipping workout:', error);
+            safeAlert('❌ Failed to mark workout as skipped. Please try again.');
+        }
+    });
 }
 
 async function cancelPreSkipWorkoutSession(sessionId) {
