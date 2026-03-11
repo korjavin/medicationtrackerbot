@@ -14,6 +14,8 @@ const STATIC_ASSETS = [
     '/static/js/sync.js',
     '/static/js/data-store.js',
     '/static/js/push.js',
+    '/static/vendor/dexie.min.js',
+    '/static/vendor/zxing.min.js',
     '/static/icons/icon-192.png',
     '/static/icons/icon-512.png',
     '/static/icons/favicon.ico',
@@ -24,8 +26,7 @@ const STATIC_ASSETS = [
 
 // External CDN resources to cache (try caching but don't fail if unavailable)
 const EXTERNAL_ASSETS = [
-    'https://telegram.org/js/telegram-web-app.js',
-    'https://cdn.jsdelivr.net/npm/dexie@3/dist/dexie.min.js'
+    'https://telegram.org/js/telegram-web-app.js'
 ];
 
 // Install event - cache static assets

@@ -50,7 +50,7 @@ async function handleBPSubmit(event) {
     const notes = document.getElementById('bp-notes').value;
 
     if (!datetime || !systolic || !diastolic) {
-        window.tg.showAlert('Please fill in all required fields');
+        safeAlert('Please fill in all required fields');
         return;
     }
 
@@ -530,20 +530,9 @@ function renderBPReadings(readings) {
 async function deleteBPReading(id) {
     const confirmMsg = 'Delete this blood pressure reading?';
 
-    if (userInitData && window.tg.showConfirm) {
-        try {
-            window.tg.showConfirm(confirmMsg, (ok) => {
-                if (ok) _deleteBPApi(id);
-            });
-            return;
-        } catch (e) {
-            console.log('window.tg.showConfirm failed, falling back', e);
-        }
-    }
-
-    if (confirm(confirmMsg)) {
-        _deleteBPApi(id);
-    }
+    safeConfirm(confirmMsg, (ok) => {
+        if (ok) _deleteBPApi(id);
+    });
 }
 
 async function _deleteBPApi(id) {
@@ -590,7 +579,7 @@ async function exportBPCSV() {
         });
 
         if (!response.ok) {
-            window.tg.showAlert('Failed to generate export');
+            safeAlert('Failed to generate export');
             return;
         }
 
@@ -598,6 +587,6 @@ async function exportBPCSV() {
         downloadBlobAsFile(blob, 'blood_pressure_export.csv');
     } catch (err) {
         console.error('Export error:', err);
-        window.tg.showAlert('Failed to export data');
+        safeAlert('Failed to export data');
     }
 }

@@ -37,7 +37,7 @@ async function handleWeightSubmit(event) {
     const notes = document.getElementById('weight-notes').value;
 
     if (!datetime || !weight) {
-        window.tg.showAlert('Please fill in all required fields');
+        safeAlert('Please fill in all required fields');
         return;
     }
 
@@ -766,20 +766,9 @@ function renderWeightLogs(logs) {
 async function deleteWeightLog(id) {
     const confirmMsg = 'Delete this weight log?';
 
-    if (userInitData && window.tg.showConfirm) {
-        try {
-            window.tg.showConfirm(confirmMsg, (ok) => {
-                if (ok) _deleteWeightApi(id);
-            });
-            return;
-        } catch (e) {
-            console.log('window.tg.showConfirm failed, falling back', e);
-        }
-    }
-
-    if (confirm(confirmMsg)) {
-        _deleteWeightApi(id);
-    }
+    safeConfirm(confirmMsg, (ok) => {
+        if (ok) _deleteWeightApi(id);
+    });
 }
 
 async function _deleteWeightApi(id) {
@@ -825,7 +814,7 @@ async function exportWeightCSV() {
         });
 
         if (!response.ok) {
-            window.tg.showAlert('Failed to generate export');
+            safeAlert('Failed to generate export');
             return;
         }
 
@@ -833,6 +822,6 @@ async function exportWeightCSV() {
         downloadBlobAsFile(blob, 'weight_export.csv');
     } catch (err) {
         console.error('Export error:', err);
-        window.tg.showAlert('Failed to export data');
+        safeAlert('Failed to export data');
     }
 }

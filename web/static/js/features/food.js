@@ -964,28 +964,29 @@ async function saveFoodProduct() {
 }
 
 async function deleteFoodProduct(id, displayName) {
-    if (!confirm(`Delete "${displayName}" from your food database?`)) return;
+    safeConfirm(`Delete "${displayName}" from your food database?`, async (ok) => {
+        if (!ok) return;
 
-    try {
-        await apiCall(`/api/food/products/${id}`, 'DELETE');
-        // Refresh the cache
-        foodProductsCache = null;
-        if (window.MedTrackerDB) {
-            await window.MedTrackerDB.FoodProductsStore.clearCache();
-        }
-        await initFoodProductsCache();
+        try {
+            await apiCall(`/api/food/products/${id}`, 'DELETE');
+            // Refresh the cache
+            foodProductsCache = null;
+            if (window.MedTrackerDB) {
+                await window.MedTrackerDB.FoodProductsStore.clearCache();
+            }
+            await initFoodProductsCache();
 
-        // Refresh UI based on context
-        const fooddbTab = document.getElementById('food-fooddb-tab');
-        if (fooddbTab && fooddbTab.classList.contains('active')) {
-            loadFoodDB();
-        } else {
-            renderFoodAutocomplete(foodProductsCache);
+            // Refresh UI based on context
+            const fooddbTab = document.getElementById('food-fooddb-tab');
+            if (fooddbTab && !fooddbTab.classList.contains('hidden')) {
+                loadFoodDB();
+            }
+            if (typeof loadMyMeals === 'function') loadMyMeals();
+        } catch (e) {
+            console.error('Failed to delete food product:', e);
+            safeAlert('Failed to delete food product');
         }
-    } catch (e) {
-        console.error('Failed to delete food product', e);
-        safeAlert('Failed to delete product.');
-    }
+    });
 }
 
 // -- Food Intake Functions --
@@ -1609,19 +1610,22 @@ async function loadMyMeals() {
         const editBtn = createEditButton(() => showEditFoodProductModal(meal));
 
         const deleteBtn = createDeleteButton(async () => {
-            if (confirm(`Delete the meal "${decodeFoodDisplayText(meal.name)}"?`)) {
-                try {
-                    await apiCall(`/api/food/products/${meal.id}`, 'DELETE');
-                    foodProductsCache = null;
-                    if (window.MedTrackerDB) {
-                        await window.MedTrackerDB.FoodProductsStore.clearCache();
+            const displayName = decodeFoodDisplayText(meal.name);
+            safeConfirm(`Delete the meal "${displayName}"?`, async (ok) => {
+                if (ok) {
+                    try {
+                        await apiCall(`/api/food/products/${meal.id}`, 'DELETE');
+                        foodProductsCache = null;
+                        if (window.MedTrackerDB) {
+                            await window.MedTrackerDB.FoodProductsStore.clearCache();
+                        }
+                        await initFoodProductsCache();
+                        if (typeof loadMyMeals === 'function') loadMyMeals();
+                    } catch (e) {
+                        safeAlert('Failed to delete meal');
                     }
-                    await initFoodProductsCache();
-                    if (typeof loadMyMeals === 'function') loadMyMeals();
-                } catch (e) {
-                    safeAlert('Failed to delete meal');
                 }
-            }
+            });
         });
         actions.appendChild(editBtn);
         actions.appendChild(deleteBtn);
@@ -1834,9 +1838,12 @@ function switchFoodTab(tab) {
 }
 
 async function deleteFoodLog(id) {
-    if (!confirm("Delete this entry?")) return;
-    const ok = await apiCall(`/api/food/log/${id}`, 'DELETE');
-    if (ok) loadFoodLogs();
+    safeConfirm("Delete this entry?", async (ok) => {
+        if (ok) {
+            const res = await apiCall(`/api/food/log/${id}`, 'DELETE');
+            if (res) loadFoodLogs();
+        }
+    });
 }
 
 

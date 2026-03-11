@@ -2,12 +2,14 @@
 // loaded in later <script> tags can use `const tg = window.tg` without
 // triggering "SyntaxError: Identifier 'tg' has already been declared"
 // (which would happen if multiple scripts all tried `const tg = ...`).
-window.tg = window.Telegram.WebApp;
-window.tg.ready();
-window.tg.expand();
+window.tg = window.Telegram ? window.Telegram.WebApp : null;
+if (window.tg) {
+    window.tg.ready();
+    window.tg.expand();
+}
 
 // Config
-const userInitData = window.tg.initData;
+const userInitData = window.tg ? window.tg.initData : null;
 window.userInitData = userInitData;
 let initialAuthLoad = false;
 
@@ -350,11 +352,11 @@ async function checkAuth() {
             } else {
                 const err = await res.text();
                 console.error("Telegram login failed:", err);
-                alert("Login failed: " + err);
+                safeAlert("Login failed: " + err);
             }
         } catch (e) {
             console.error("Telegram login error:", e);
-            alert("Login error: " + e.message);
+            safeAlert("Login error: " + e.message);
         }
     };
 
@@ -722,7 +724,7 @@ function bindNotificationControls() {
     bindClick('workout-start-now-btn', () => startWorkoutFromModal());
     bindClick('workout-start-snooze-60-btn', () => snoozeWorkout(60));
     bindClick('workout-start-snooze-120-btn', () => snoozeWorkout(120));
-    bindClick('workout-start-skip-btn', () => skipWorkoutFromModal());
+    bindClick('workout-start-skip-btn', () => skipWorkout());
     bindClick('workout-start-dismiss-btn', () => closeWorkoutStartModal());
 }
 
@@ -835,7 +837,7 @@ async function toggleFeatureSetting(feature, enabled) {
     } catch (e) {
         console.error(`Failed to toggle ${feature} feature:`, e);
         updateFeatureToggles();
-        alert('Failed to update setting.');
+        safeAlert('Failed to update setting.');
     }
 }
 
@@ -1169,7 +1171,7 @@ async function handleRestock() {
     const qty = parseInt(qtyInput.value);
 
     if (!qty || qty <= 0) {
-        window.tg.showAlert("Please enter a valid quantity");
+        safeAlert("Please enter a valid quantity");
         return;
     }
 
@@ -1179,7 +1181,7 @@ async function handleRestock() {
         document.getElementById('med-inventory-count').value = res.inventory_count;
         qtyInput.value = '';
         loadRestockHistory(editingMedId);
-        window.tg.showAlert(`Added ${qty} units. New total: ${res.inventory_count}`);
+        safeAlert(`Added ${qty} units. New total: ${res.inventory_count}`);
     }
 }
 
@@ -1715,7 +1717,7 @@ async function saveMedication() {
         inventoryCount = parseInt(inventoryCountRaw);
     }
 
-    if (!name) { window.tg.showAlert("Name is required!"); return; }
+    if (!name) { safeAlert("Name is required!"); return; }
 
     const schedule = { type: type };
 
@@ -1725,7 +1727,7 @@ async function saveMedication() {
             .filter(v => v !== "");
 
         if (times.length === 0) {
-            window.tg.showAlert("At least one time is required!");
+            safeAlert("At least one time is required!");
             return;
         }
         schedule.times = times;
@@ -1736,7 +1738,7 @@ async function saveMedication() {
             .map(s => parseInt(s.dataset.day));
 
         if (days.length === 0) {
-            window.tg.showAlert("Select at least one day!");
+            safeAlert("Select at least one day!");
             return;
         }
         schedule.days = days;
@@ -1763,7 +1765,7 @@ async function saveMedication() {
         }
 
         if (res && res.warning) {
-            window.tg.showAlert("⚠️ " + res.warning);
+            safeAlert("⚠️ " + res.warning);
         }
 
         await window.DataStore.invalidateTags(['medications', 'history']);
@@ -1777,22 +1779,9 @@ async function saveMedication() {
 async function deleteMed(id) {
     const confirmMsg = "Archive this medication?";
 
-    // Check if we are in Telegram and version supports it
-    if (userInitData && window.tg.showConfirm) {
-        try {
-            window.tg.showConfirm(confirmMsg, (ok) => {
-                if (ok) _archiveMedApi(id);
-            });
-            return;
-        } catch (e) {
-            console.log("window.tg.showConfirm failed, falling back", e);
-        }
-    }
-
-    // Fallback for browser
-    if (confirm(confirmMsg)) {
-        _archiveMedApi(id);
-    }
+    safeConfirm(confirmMsg, (ok) => {
+        if (ok) _archiveMedApi(id);
+    });
 }
 
 async function _archiveMedApi(id) {
@@ -1810,7 +1799,7 @@ async function _archiveMedApi(id) {
 
     const res = await apiCall(`/api/medications/${id}`, 'POST', payload);
     if (res && res.warning) {
-        window.tg.showAlert("⚠️ " + res.warning);
+        safeAlert("⚠️ " + res.warning);
     }
     await window.DataStore.invalidateTags(['medications', 'history']);
     await window.DataStore.invalidateKey('next_intake');
@@ -2323,11 +2312,10 @@ async function snoozeWorkout(minutes) {
     });
 }
 
-async function skipWorkoutFromModal() {
-    if (!pendingWorkoutSessionId) return;
-    if (!confirm("Are you sure you want to skip this workout?")) return;
-    const btn = document.getElementById('workout-start-skip-btn');
-    await withSubmit(btn, async () => {
+async function skipWorkout() {
+    safeConfirm("Are you sure you want to skip this workout?", async (ok) => {
+        if (!ok) return;
+
         const res = await apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/skip`, 'POST');
         if (res) {
             safeAlert("Workout skipped");
