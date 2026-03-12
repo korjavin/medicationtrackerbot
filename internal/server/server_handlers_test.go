@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,32 @@ func createGenericTestServer(t *testing.T) (*Server, *store.Store) {
 	}
 	srv := New(db, "test-token", "test-secret", 123456, OIDCConfig{}, "test-bot", "")
 	return srv, db
+}
+
+func TestServeConfigJS(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest("GET", "/static/config.js", nil)
+	w := httptest.NewRecorder()
+
+	srv.serveConfigJS(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", w.Code)
+	}
+
+	if ct := w.Header().Get("Content-Type"); ct != "application/javascript" {
+		t.Errorf("Expected application/javascript, got %q", ct)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "window.BOT_USERNAME") {
+		t.Errorf("Body missing window.BOT_USERNAME: %s", body)
+	}
+	if !strings.Contains(body, "window.OIDC_CONFIG") {
+		t.Errorf("Body missing window.OIDC_CONFIG: %s", body)
+	}
 }
 
 // --- Restock handlers ---
@@ -1004,11 +1031,11 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 		"X-Content-Type-Options":       "nosniff",
 		"X-Frame-Options":              "SAMEORIGIN",
 		"Referrer-Policy":              "strict-origin-when-cross-origin",
-		"Permissions-Policy":           "camera=*, microphone=(), geolocation=()",
+		"Permissions-Policy":           "camera=(self), microphone=(), geolocation=()",
 		"Cross-Origin-Opener-Policy":   "same-origin-allow-popups",
 		"Cross-Origin-Resource-Policy": "same-site",
 		"Strict-Transport-Security":    "max-age=31536000; includeSubDomains",
-		"Content-Security-Policy":      "default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; frame-ancestors 'self'",
+		"Content-Security-Policy":      "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; base-uri 'self'; frame-ancestors 'self'",
 	}
 
 	for header, expectedVal := range expectedHeaders {
