@@ -1,5 +1,6 @@
 /bot
 vendor/
+!web/static/vendor/
 meds.db
 *.db
 *.log
