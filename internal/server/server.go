@@ -290,6 +290,21 @@ func noCacheMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// securityHeadersMiddleware adds headers to improve application security
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=*, microphone=(), geolocation=()")
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-site")
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; frame-ancestors 'self'")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
@@ -467,7 +482,7 @@ func (s *Server) Routes() http.Handler {
 	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)
 	mux.Handle("/api/", authMW(apiMux))
 
-	return mux
+	return securityHeadersMiddleware(mux)
 }
 
 // -- Blood Pressure Handlers --
