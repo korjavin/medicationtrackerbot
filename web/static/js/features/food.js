@@ -964,7 +964,7 @@ async function saveFoodProduct() {
 }
 
 async function deleteFoodProduct(id, displayName) {
-    safeConfirm(`Delete "${displayName}" from your food database?`, async (ok) => {
+    await safeConfirm(`Delete "${displayName}" from your food database?`, async (ok) => {
         if (!ok) return;
 
         try {
@@ -984,7 +984,7 @@ async function deleteFoodProduct(id, displayName) {
             if (typeof loadMyMeals === 'function') loadMyMeals();
         } catch (e) {
             console.error('Failed to delete food product:', e);
-            safeAlert('Failed to delete food product');
+            safeAlert('Failed to delete product.');
         }
     });
 }
@@ -1611,7 +1611,7 @@ async function loadMyMeals() {
 
         const deleteBtn = createDeleteButton(async () => {
             const displayName = decodeFoodDisplayText(meal.name);
-            safeConfirm(`Delete the meal "${displayName}"?`, async (ok) => {
+            await safeConfirm(`Delete the meal "${displayName}"?`, async (ok) => {
                 if (ok) {
                     try {
                         await apiCall(`/api/food/products/${meal.id}`, 'DELETE');
@@ -1838,7 +1838,7 @@ function switchFoodTab(tab) {
 }
 
 async function deleteFoodLog(id) {
-    safeConfirm("Delete this entry?", async (ok) => {
+    await safeConfirm("Delete this entry?", async (ok) => {
         if (ok) {
             const res = await apiCall(`/api/food/log/${id}`, 'DELETE');
             if (res) loadFoodLogs();

@@ -199,6 +199,7 @@ describe('workout.js SWR and modal edge branches', () => {
 
       const editSpy = vi.spyOn(window, 'showEditExerciseLibraryModal').mockResolvedValue(undefined);
       const deleteSpy = vi.spyOn(window, 'deleteExerciseLibraryItem');
+      window.Telegram.WebApp.showConfirm = vi.fn((_msg, cb) => cb(false));
       window.confirm = vi.fn().mockReturnValue(false);
 
       await window.loadExerciseLibrary();
