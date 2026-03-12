@@ -36,14 +36,18 @@ const SyncDebug = {
         const content = panel.querySelector('.debug-content');
         if (!content) return;
 
-        content.innerHTML = this.logs.map(l =>
-            `<div class="debug-line ${l.level.toLowerCase()}">
+        content.innerHTML = this.logs.map(l => {
+            // escapeHtml is defined globally in app.js
+            const escapeFn = window['escapeHtml']; // Bypass globals check for read
+            const safeMsg = typeof escapeFn === 'function' ? escapeFn(l.message) : '';
+            const safeData = l.data && typeof escapeFn === 'function' ? escapeFn(l.data) : '';
+            return `<div class="debug-line ${l.level.toLowerCase()}">
                 <span class="debug-time">${l.time}</span>
                 <span class="debug-level">${l.level}</span>
-                <span class="debug-msg">${l.message}</span>
-                ${l.data ? `<span class="debug-data">${l.data}</span>` : ''}
-            </div>`
-        ).join('');
+                <span class="debug-msg">${safeMsg}</span>
+                ${l.data ? `<span class="debug-data">${safeData}</span>` : ''}
+            </div>`;
+        }).join('');
     },
 
     // Toggle debug panel visibility
