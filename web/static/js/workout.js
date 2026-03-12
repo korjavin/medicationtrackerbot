@@ -303,7 +303,7 @@ async function nextWorkoutVariant(sessionId) {
         await loadNextWorkout();
     } catch (error) {
         console.error('Error switching to next variant:', error);
-        safeAlert('Failed to switch variant. Please try again.');
+        alert('Failed to switch variant. Please try again.');
     }
 }
 
@@ -598,9 +598,9 @@ async function saveWorkoutGroup() {
 async function deleteWorkoutGroup(groupId, event) {
     event.stopPropagation();
 
-    safeConfirm('Delete this workout group?', (ok) => {
+    await safeConfirm('Delete this workout group?', async (ok) => {
         if (ok) {
-            _deleteWorkoutGroupApi(groupId);
+            await _deleteWorkoutGroupApi(groupId);
         }
     });
 }
@@ -778,9 +778,9 @@ async function saveVariant() {
 
 async function deleteVariant(variantId, event) {
     event.stopPropagation();
-    safeConfirm('Delete this variant and all its exercises?', (ok) => {
+    await safeConfirm('Delete this variant and all its exercises?', async (ok) => {
         if (ok) {
-            _deleteVariantApi(variantId);
+            await _deleteVariantApi(variantId);
         }
     });
 }
@@ -1040,9 +1040,9 @@ async function saveExercise() {
 
 async function deleteExercise(exerciseId, event) {
     event.stopPropagation();
-    safeConfirm('Delete this exercise?', (ok) => {
+    await safeConfirm('Delete this exercise?', async (ok) => {
         if (ok) {
-            _deleteExerciseApi(exerciseId);
+            await _deleteExerciseApi(exerciseId);
         }
     });
 }
@@ -1228,9 +1228,9 @@ async function saveExerciseLibraryItem() {
 
 async function deleteExerciseLibraryItem(id, event) {
     event?.stopPropagation?.();
-    safeConfirm('Delete this exercise from library?', (ok) => {
+    await safeConfirm('Delete this exercise from library?', async (ok) => {
         if (ok) {
-            _deleteExerciseLibraryApi(id);
+            await _deleteExerciseLibraryApi(id);
         }
     });
 }
@@ -1560,9 +1560,9 @@ async function saveMiBandWorkout() {
 
 async function deleteMiBandWorkout() {
     if (!currentMiBandWorkout) return;
-    safeConfirm('Delete this workout?', (ok) => {
+    await safeConfirm('Delete this workout?', async (ok) => {
         if (ok) {
-            _deleteMiBandWorkoutApi();
+            await _deleteMiBandWorkoutApi();
         }
     });
 }
@@ -1843,7 +1843,7 @@ async function deleteExerciseLog(index) {
     const log = currentSessionLogs[index];
     if (!log) return;
 
-    safeConfirm(`Remove ${log.exercise_name} from this workout?`, async (ok) => {
+    await safeConfirm(`Remove ${log.exercise_name} from this workout?`, async (ok) => {
         if (!ok) return;
 
         // If it has an ID (already saved in DB), delete from backend
@@ -1866,7 +1866,7 @@ async function deleteExerciseLog(index) {
 
 async function deleteWorkoutSession() {
     if (!currentSessionData) return;
-    safeConfirm('Delete this workout session?', async (ok) => {
+    await safeConfirm('Delete this workout session?', async (ok) => {
         if (ok) {
             const result = await apiCall(`/api/workout/sessions/delete?id=${currentSessionData.id}`, 'DELETE');
             if (result || result === true) {
@@ -2244,7 +2244,7 @@ async function startAdHocWorkout() {
 // ====================================
 
 async function startWorkoutSession(sessionId) {
-    safeConfirm('Start this workout now?', async (ok) => {
+    await safeConfirm('Start this workout now?', async (ok) => {
         if (!ok) return;
 
         try {
@@ -2263,7 +2263,7 @@ async function startWorkoutSession(sessionId) {
 }
 
 async function cancelWorkoutSession(sessionId) {
-    safeConfirm('Finish this workout now? It will be marked as completed.', async (ok) => {
+    await safeConfirm('Finish this workout now? It will be marked as completed.', async (ok) => {
         if (ok) {
             try {
                 await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
@@ -2278,7 +2278,7 @@ async function cancelWorkoutSession(sessionId) {
 }
 
 async function preSkipWorkoutSession(sessionId) {
-    safeConfirm('Mark this workout as to-be-skipped? No notification will be sent and it will be automatically skipped at the scheduled time.', async (ok) => {
+    await safeConfirm('Mark this workout as to-be-skipped? No notification will be sent and it will be automatically skipped at the scheduled time.', async (ok) => {
         if (!ok) return;
 
         try {

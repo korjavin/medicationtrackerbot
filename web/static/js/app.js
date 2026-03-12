@@ -1779,8 +1779,8 @@ async function saveMedication() {
 async function deleteMed(id) {
     const confirmMsg = "Archive this medication?";
 
-    safeConfirm(confirmMsg, (ok) => {
-        if (ok) _archiveMedApi(id);
+    await safeConfirm(confirmMsg, async (ok) => {
+        if (ok) await _archiveMedApi(id);
     });
 }
 
@@ -2313,7 +2313,8 @@ async function snoozeWorkout(minutes) {
 }
 
 async function skipWorkout() {
-    safeConfirm("Are you sure you want to skip this workout?", async (ok) => {
+    if (!pendingWorkoutSessionId) return;
+    await safeConfirm("Are you sure you want to skip this workout?", async (ok) => {
         if (!ok) return;
 
         const res = await apiCall(`/api/workout/sessions/${pendingWorkoutSessionId}/skip`, 'POST');
@@ -2323,6 +2324,10 @@ async function skipWorkout() {
         }
         closeWorkoutStartModal();
     });
+}
+
+async function skipWorkoutFromModal() {
+    await skipWorkout();
 }
 
 async function sendTestMedicationNotification() {

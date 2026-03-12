@@ -530,8 +530,8 @@ function renderBPReadings(readings) {
 async function deleteBPReading(id) {
     const confirmMsg = 'Delete this blood pressure reading?';
 
-    safeConfirm(confirmMsg, (ok) => {
-        if (ok) _deleteBPApi(id);
+    await safeConfirm(confirmMsg, async (ok) => {
+        if (ok) await _deleteBPApi(id);
     });
 }
 

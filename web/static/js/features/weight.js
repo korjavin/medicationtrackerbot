@@ -766,8 +766,8 @@ function renderWeightLogs(logs) {
 async function deleteWeightLog(id) {
     const confirmMsg = 'Delete this weight log?';
 
-    safeConfirm(confirmMsg, (ok) => {
-        if (ok) _deleteWeightApi(id);
+    await safeConfirm(confirmMsg, async (ok) => {
+        if (ok) await _deleteWeightApi(id);
     });
 }
 

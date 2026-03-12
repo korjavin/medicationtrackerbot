@@ -2,7 +2,6 @@
 // Loaded early (before app.js) — no dependencies on other app files.
 
 function safeAlert(msg) {
-    console.log("Alert:", msg);
     const tg = window.Telegram && window.Telegram.WebApp;
     if (tg && tg.showAlert) {
         try {
@@ -16,17 +15,29 @@ function safeAlert(msg) {
 }
 
 function safeConfirm(msg, callback) {
-    console.log("Confirm:", msg);
     const tg = window.Telegram && window.Telegram.WebApp;
-    if (tg && tg.showConfirm) {
-        try {
-            tg.showConfirm(msg, callback);
-        } catch (e) {
-            callback(confirm(msg));
+    const hasTelegramContext = !!(tg && (window.userInitData || tg.initData));
+    const invokeCallback = (ok) => {
+        if (typeof callback !== 'function') return ok;
+        return callback(ok);
+    };
+
+    return new Promise((resolve, reject) => {
+        const handleResult = (ok) => {
+            Promise.resolve(invokeCallback(ok)).then(resolve).catch(reject);
+        };
+
+        if (hasTelegramContext && tg.showConfirm) {
+            try {
+                tg.showConfirm(msg, handleResult);
+            } catch (e) {
+                handleResult(confirm(msg));
+            }
+            return;
         }
-    } else {
-        callback(confirm(msg));
-    }
+
+        handleResult(confirm(msg));
+    });
 }
 
 function formatDateTimeLocalForInput(dateValue = new Date()) {
