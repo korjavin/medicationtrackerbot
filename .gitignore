@@ -1,5 +1,5 @@
 /bot
-vendor/
+/vendor/
 meds.db
 *.db
 *.log

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -989,6 +990,36 @@ func TestHandleGetRotationState(t *testing.T) {
 	}
 }
 
+// --- ServeConfigJS Test ---
+
+func TestServeConfigJS(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+	srv.botUsername = "TestBot_123"
+
+	req := httptest.NewRequest("GET", "/static/config.js", nil)
+	w := httptest.NewRecorder()
+
+	srv.serveConfigJS(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "application/javascript" {
+		t.Errorf("Expected Content-Type application/javascript, got %q", contentType)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "window.BOT_USERNAME = \"TestBot_123\";") {
+		t.Errorf("Expected body to contain BOT_USERNAME assignment, got: %s", body)
+	}
+	if !strings.Contains(body, "window.OIDC_CONFIG = {") {
+		t.Errorf("Expected body to contain OIDC_CONFIG assignment, got: %s", body)
+	}
+}
+
 // --- Security Headers Middleware Test ---
 
 func TestSecurityHeadersMiddleware(t *testing.T) {
@@ -1008,7 +1039,7 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 		"Cross-Origin-Opener-Policy":   "same-origin-allow-popups",
 		"Cross-Origin-Resource-Policy": "same-site",
 		"Strict-Transport-Security":    "max-age=31536000; includeSubDomains",
-		"Content-Security-Policy":      "default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; frame-ancestors 'self'",
+		"Content-Security-Policy":      "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; base-uri 'self'; frame-ancestors 'self'",
 	}
 
 	for header, expectedVal := range expectedHeaders {
