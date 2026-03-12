@@ -1035,7 +1035,7 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 		"Cross-Origin-Opener-Policy":   "same-origin-allow-popups",
 		"Cross-Origin-Resource-Policy": "same-site",
 		"Strict-Transport-Security":    "max-age=31536000; includeSubDomains",
-		"Content-Security-Policy":      "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; base-uri 'self'; frame-ancestors 'self'",
+			"Content-Security-Policy":      "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self' https://telegram.org; font-src 'self' https://fonts.gstatic.com; base-uri 'self'; frame-ancestors 'self'",
 	}
 
 	for header, expectedVal := range expectedHeaders {
