@@ -296,11 +296,11 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Permissions-Policy", "camera=*, microphone=(), geolocation=()")
+		w.Header().Set("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-site")
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; frame-ancestors 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; base-uri 'self'; frame-ancestors 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -325,6 +325,9 @@ func (s *Server) Routes() http.Handler {
 
 	// OIDC Setup Helper
 	mux.HandleFunc("/oidc-setup", s.serveOIDCSetup)
+
+	// Dynamic config for JS
+	mux.HandleFunc("/static/config.js", s.serveConfigJS)
 
 	// Main Page with no-cache headers and bot username injection
 	mux.HandleFunc("/", s.serveIndexWithBotUsername)
@@ -625,7 +628,43 @@ func (s *Server) serveServiceWorker(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "./web/static/sw.js")
 }
 
-// serveIndexWithBotUsername serves index.html with bot username injected
+// serveConfigJS serves dynamic configuration variables as a JavaScript file
+func (s *Server) serveConfigJS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
+	oidcClient := struct {
+		Enabled     bool   `json:"enabled"`
+		Label       string `json:"label,omitempty"`
+		LoginURL    string `json:"loginUrl,omitempty"`
+		ButtonColor string `json:"buttonColor,omitempty"`
+		ButtonText  string `json:"buttonText,omitempty"`
+	}{
+		Enabled: s.oauthConfig != nil && s.oidcConfig.ClientID != "",
+	}
+	if oidcClient.Enabled {
+		oidcClient.Label = defaultOIDCButtonLabel(s.oidcConfig)
+		oidcClient.LoginURL = "/auth/oidc/login"
+		oidcClient.ButtonColor = s.oidcConfig.ButtonColor
+		oidcClient.ButtonText = s.oidcConfig.ButtonText
+	}
+
+	oidcJSON, err := json.Marshal(oidcClient)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	content := fmt.Sprintf("window.BOT_USERNAME = %q;\nwindow.OIDC_CONFIG = %s;\n", s.botUsername, string(oidcJSON))
+
+	if _, err := w.Write([]byte(content)); err != nil { // #nosec G203
+		slog.Error("write response", "error", err)
+	}
+}
+
+// serveIndexWithBotUsername serves index.html with cache busting injected
 func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
@@ -645,31 +684,8 @@ func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Inject bot username & timestamp for cache busting
-	html := strings.ReplaceAll(string(content), "BOT_USERNAME_PLACEHOLDER", s.botUsername)
-	html = strings.ReplaceAll(html, "TIMESTAMP_PLACEHOLDER", fmt.Sprintf("%d", time.Now().UnixNano()))
-
-	oidcClient := struct {
-		Enabled     bool   `json:"enabled"`
-		Label       string `json:"label,omitempty"`
-		LoginURL    string `json:"loginUrl,omitempty"`
-		ButtonColor string `json:"buttonColor,omitempty"`
-		ButtonText  string `json:"buttonText,omitempty"`
-	}{
-		Enabled: s.oauthConfig != nil && s.oidcConfig.ClientID != "",
-	}
-	if oidcClient.Enabled {
-		oidcClient.Label = defaultOIDCButtonLabel(s.oidcConfig)
-		oidcClient.LoginURL = "/auth/oidc/login"
-		oidcClient.ButtonColor = s.oidcConfig.ButtonColor
-		oidcClient.ButtonText = s.oidcConfig.ButtonText
-	}
-	oidcJSON, err := json.Marshal(oidcClient)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	html = strings.ReplaceAll(html, "OIDC_CONFIG_PLACEHOLDER", string(oidcJSON))
+	// Inject timestamp for cache busting
+	html := strings.ReplaceAll(string(content), "TIMESTAMP_PLACEHOLDER", fmt.Sprintf("%d", time.Now().UnixNano()))
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if _, err := w.Write([]byte(html)); err != nil { // #nosec G203
