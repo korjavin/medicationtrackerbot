@@ -15,6 +15,7 @@ func (s *Server) handleCancelIntake(w http.ResponseWriter, r *http.Request) {
 		IntakeIDs []int64 `json:"intake_ids"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return

@@ -163,6 +163,7 @@ func (s *Server) handleUpdateMiBandWorkout(w http.ResponseWriter, r *http.Reques
 	}
 
 	var fields store.UpdateMiBandWorkoutFields
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
 		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
 		return
