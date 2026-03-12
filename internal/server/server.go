@@ -300,7 +300,7 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-site")
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; frame-ancestors 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
