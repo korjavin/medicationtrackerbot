@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -118,7 +119,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing oauth state", http.StatusBadRequest)
 		return
 	}
-	if r.FormValue("state") != oauthState.Value {
+	if subtle.ConstantTimeCompare([]byte(r.FormValue("state")), []byte(oauthState.Value)) != 1 {
 		http.Error(w, "invalid oauth state", http.StatusUnauthorized)
 		return
 	}
