@@ -242,6 +242,29 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 			}
 		}
 
+		// 10. Check snoozed sessions for this group (Do this BEFORE 3h logic so wake-ups are prioritized)
+		if existing.SnoozedUntil != nil && now.After(*existing.SnoozedUntil) && !notifiedThisLoop {
+			if activeSession == nil {
+				if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
+					slog.Error("Failed to re-send snoozed notification", "error", err)
+				} else {
+					notifiedThisLoop = true
+					if err := c.store.ClearSnooze(existing.ID); err != nil {
+						slog.Error("Failed to clear snooze state", "error", err)
+					}
+					// If the session was previously marked with "resent_3h", clear it out so that
+					// waking from a snooze gives the user another full cycle before it auto-skips.
+					if strings.Contains(existing.Notes, "resent_3h") {
+						newNotes := strings.TrimSpace(strings.ReplaceAll(existing.Notes, "resent_3h", ""))
+						if err := c.store.UpdateWorkoutSessionNotes(existing.ID, newNotes); err != nil {
+							slog.Error("Failed to update session notes", "error", err)
+						}
+						existing.Notes = newNotes // ensure subsequent checks see updated notes
+					}
+				}
+			}
+		}
+
 		// Handle re-notification for ignored sessions (3h logic)
 		// Only check if we didn't just notify them
 		if existing.Status == "notified" && !notifiedThisLoop {
@@ -265,20 +288,6 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 					}
 					if existing.NotificationMessageID != nil {
 						c.DeleteNotification(ctx, *existing.NotificationMessageID)
-					}
-				}
-			}
-		}
-
-		// 10. Check snoozed sessions for this group
-		if existing.SnoozedUntil != nil && now.After(*existing.SnoozedUntil) && !notifiedThisLoop {
-			if activeSession == nil {
-				if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
-					slog.Error("Failed to re-send snoozed notification", "error", err)
-				} else {
-					notifiedThisLoop = true
-					if err := c.store.ClearSnooze(existing.ID); err != nil {
-						slog.Error("Failed to clear snooze state", "error", err)
 					}
 				}
 			}
