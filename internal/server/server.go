@@ -300,7 +300,7 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-site")
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; frame-ancestors 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; base-uri 'self'; frame-ancestors 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -310,6 +310,9 @@ func (s *Server) Routes() http.Handler {
 
 	// Service Worker with special headers (must be at root scope)
 	mux.HandleFunc("/static/sw.js", s.serveServiceWorker)
+
+	// Dynamic config file
+	mux.HandleFunc("/static/config.js", s.serveConfigJS)
 
 	// Static Files with no-cache headers
 	fs := http.FileServer(http.Dir("./web/static"))
@@ -625,29 +628,12 @@ func (s *Server) serveServiceWorker(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "./web/static/sw.js")
 }
 
-// serveIndexWithBotUsername serves index.html with bot username injected
-func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Request) {
+// serveConfigJS serves dynamic javascript configuration
+func (s *Server) serveConfigJS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
-
-	// Read index.html
-	f, err := os.Open("./web/static/index.html")
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	defer f.Close()
-
-	content, err := io.ReadAll(f)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	// Inject bot username & timestamp for cache busting
-	html := strings.ReplaceAll(string(content), "BOT_USERNAME_PLACEHOLDER", s.botUsername)
-	html = strings.ReplaceAll(html, "TIMESTAMP_PLACEHOLDER", fmt.Sprintf("%d", time.Now().UnixNano()))
 
 	oidcClient := struct {
 		Enabled     bool   `json:"enabled"`
@@ -669,7 +655,35 @@ func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	html = strings.ReplaceAll(html, "OIDC_CONFIG_PLACEHOLDER", string(oidcJSON))
+
+	js := fmt.Sprintf("window.BOT_USERNAME = %q;\nwindow.OIDC_CONFIG = %s;\n", s.botUsername, string(oidcJSON))
+	if _, err := w.Write([]byte(js)); err != nil { // #nosec G203
+		slog.Error("write response", "error", err)
+	}
+}
+
+// serveIndexWithBotUsername serves index.html with bot username injected
+func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
+	// Read index.html
+	f, err := os.Open("./web/static/index.html")
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	content, err := io.ReadAll(f)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Inject timestamp for cache busting
+	html := strings.ReplaceAll(string(content), "TIMESTAMP_PLACEHOLDER", fmt.Sprintf("%d", time.Now().UnixNano()))
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if _, err := w.Write([]byte(html)); err != nil { // #nosec G203
