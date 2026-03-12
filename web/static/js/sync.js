@@ -39,8 +39,8 @@ const SyncDebug = {
         content.innerHTML = this.logs.map(l => {
             // escapeHtml is defined globally in app.js
             const escapeFn = window['escapeHtml']; // Bypass globals check for read
-            const safeMsg = typeof escapeFn === 'function' ? escapeFn(l.message) : l.message;
-            const safeData = l.data && typeof escapeFn === 'function' ? escapeFn(l.data) : l.data;
+            const safeMsg = typeof escapeFn === 'function' ? escapeFn(l.message) : '';
+            const safeData = l.data && typeof escapeFn === 'function' ? escapeFn(l.data) : '';
             return `<div class="debug-line ${l.level.toLowerCase()}">
                 <span class="debug-time">${l.time}</span>
                 <span class="debug-level">${l.level}</span>
