@@ -1247,7 +1247,27 @@ function editFoodLog(id) {
 function navigateToFoodProduct(event, productId, isMeal) {
     event.preventDefault();
     window.ModalManager.food.close();
-    switchFoodTab(isMeal ? 'meals' : 'fooddb');
+    if (isMeal) {
+        switchFoodTab('meals');
+        setTimeout(() => {
+            if (foodMealsCache && foodMealsCache.length > 0) {
+                const meal = foodMealsCache.find(m => m.id === productId);
+                if (meal) {
+                    showEditFoodProductModal(meal);
+                }
+            }
+        }, 100);
+    } else {
+        switchFoodTab('fooddb');
+        setTimeout(() => {
+            if (foodProductsCache && foodProductsCache.length > 0) {
+                const product = foodProductsCache.find(p => p.id === productId);
+                if (product) {
+                    showEditFoodProductModal(product);
+                }
+            }
+        }, 100);
+    }
 }
 
 function closeFoodModal() {
