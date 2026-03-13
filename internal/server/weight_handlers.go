@@ -25,6 +25,7 @@ func (s *Server) handleCreateWeight(w http.ResponseWriter, r *http.Request) {
 		MuscleMass *float64  `json:"muscle_mass,omitempty"`
 		Notes      string    `json:"notes,omitempty"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -261,6 +262,7 @@ func (s *Server) handleToggleWeightReminder(w http.ResponseWriter, r *http.Reque
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return

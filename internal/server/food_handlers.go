@@ -32,6 +32,7 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 		Per100g  bool   `json:"per_100g"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -184,6 +185,7 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 		Per100g  bool   `json:"per_100g"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -391,6 +393,7 @@ func (s *Server) handleSetFoodIntakeEnabled(w http.ResponseWriter, r *http.Reque
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -417,6 +420,7 @@ func (s *Server) handleGetFoodTargets(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSetFoodTargets(w http.ResponseWriter, r *http.Request) {
 	var req store.FoodTargets
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -453,6 +457,7 @@ func (s *Server) handleUpdateFoodProduct(w http.ResponseWriter, r *http.Request)
 		IsMeal         bool    `json:"is_meal"`
 		TotalWeightG   int     `json:"total_weight_g"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -769,6 +774,7 @@ func (s *Server) handleCreateMealFromLogs(w http.ResponseWriter, r *http.Request
 		Name   string  `json:"name"`
 		LogIDs []int64 `json:"log_ids"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return

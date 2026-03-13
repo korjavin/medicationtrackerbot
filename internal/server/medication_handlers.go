@@ -22,6 +22,7 @@ func (s *Server) handleSnoozeMedication(w http.ResponseWriter, r *http.Request) 
 		IntakeID        int64 `json:"intake_id"`
 		DurationMinutes int   `json:"duration_minutes"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -56,6 +57,7 @@ func (s *Server) handleSkipMedication(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		IntakeID int64 `json:"intake_id"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -101,6 +103,7 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 		StartDate  *time.Time `json:"start_date"`
 		EndDate    *time.Time `json:"end_date"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -175,6 +178,7 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 		EndDate        *time.Time `json:"end_date"`
 		InventoryCount *int       `json:"inventory_count"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -283,6 +287,7 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 		} `json:"updates"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -667,6 +672,7 @@ func (s *Server) handleLogPastIntake(w http.ResponseWriter, r *http.Request) {
 		MedicationID int64  `json:"medication_id"`
 		TakenAt      string `json:"taken_at"` // RFC3339
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return

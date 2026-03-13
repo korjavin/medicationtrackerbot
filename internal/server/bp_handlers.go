@@ -28,6 +28,7 @@ func (s *Server) handleCreateBloodPressure(w http.ResponseWriter, r *http.Reques
 		Notes      string    `json:"notes,omitempty"`
 		Tag        string    `json:"tag,omitempty"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -141,6 +142,7 @@ func (s *Server) handleImportBloodPressure(w http.ResponseWriter, r *http.Reques
 			Tag        string    `json:"tag,omitempty"`
 		} `json:"readings"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -283,6 +285,7 @@ func (s *Server) handleToggleBPReminder(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
