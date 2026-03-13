@@ -1250,8 +1250,8 @@ function navigateToFoodProduct(event, productId, isMeal) {
     if (isMeal) {
         switchFoodTab('meals');
         setTimeout(() => {
-            if (foodMealsCache && foodMealsCache.length > 0) {
-                const meal = foodMealsCache.find(m => m.id === productId);
+            if (foodProductsCache && foodProductsCache.length > 0) {
+                const meal = foodProductsCache.find(m => m.id === productId);
                 if (meal) {
                     showEditFoodProductModal(meal);
                 }
