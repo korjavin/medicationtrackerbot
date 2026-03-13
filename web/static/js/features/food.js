@@ -174,6 +174,18 @@ async function onFoodNameChange() {
     const query = foodNameInput.value;
     const normalizedQuery = normalizeFoodSearchQuery(query);
 
+    // Clear previous selection
+    const pidEl = document.getElementById('food-log-product-id');
+    if (pidEl) pidEl.value = '';
+    const isMealEl = document.getElementById('food-log-is-meal');
+    if (isMealEl) isMealEl.value = '';
+
+    const linkContainer = document.getElementById('food-product-link-container');
+    if (linkContainer) {
+        linkContainer.innerHTML = '';
+        linkContainer.classList.add('hidden');
+    }
+
     if (normalizedQuery.length >= 2 && normalizedQuery === lastFoodSearchQueryNormalized) {
         const list = document.getElementById('food-autocomplete-list');
         if (list && foodAutoCompleteSuggestions.length > 0) {
@@ -873,6 +885,11 @@ function autofillFoodProduct(product) {
 
     document.getElementById('food-barcode').value = product.barcode || '';
 
+    const pidEl = document.getElementById('food-log-product-id');
+    if (pidEl) pidEl.value = product.id || '';
+    const isMealEl = document.getElementById('food-log-is-meal');
+    if (isMealEl) isMealEl.value = product.is_meal ? 'true' : '';
+
     // Check per 100g to auto-fill macros directly
     document.getElementById('food-per-100g').checked = true;
     document.getElementById('food-carbs').value = product.carbs_100g;
@@ -1150,6 +1167,17 @@ function showAddFoodModal() {
 
     // Clear inputs
     document.getElementById('food-id').value = '';
+    const pidEl = document.getElementById('food-log-product-id');
+    if (pidEl) pidEl.value = '';
+    const isMealEl = document.getElementById('food-log-is-meal');
+    if (isMealEl) isMealEl.value = '';
+
+    const linkContainer = document.getElementById('food-product-link-container');
+    if (linkContainer) {
+        linkContainer.innerHTML = '';
+        linkContainer.classList.add('hidden');
+    }
+
     document.getElementById('food-name').value = '';
     document.getElementById('food-barcode').value = '';
     document.getElementById('food-weight').value = '';
@@ -1175,6 +1203,10 @@ function editFoodLog(id) {
     document.getElementById('food-modal-title').innerText = 'Edit Food';
 
     document.getElementById('food-id').value = log.id;
+    const pidEl = document.getElementById('food-log-product-id');
+    if (pidEl) pidEl.value = log.product_id || '';
+    const isMealEl = document.getElementById('food-log-is-meal');
+    if (isMealEl) isMealEl.value = log.is_meal ? 'true' : '';
     document.getElementById('food-name').value = log.name || '';
     document.getElementById('food-barcode').value = log.barcode || '';
     document.getElementById('food-weight').value = log.weight || '';
@@ -1198,7 +1230,24 @@ function editFoodLog(id) {
     if (log.eaten_at) {
         document.getElementById('food-datetime').value = formatDateTimeLocalForInput(log.eaten_at);
     }
+
+    const linkContainer = document.getElementById('food-product-link-container');
+    if (log.product_id) {
+        const linkText = log.is_meal ? '→ View Meal' : '→ View in Products';
+        linkContainer.innerHTML = `<a href="#" onclick="navigateToFoodProduct(event, ${log.product_id}, ${log.is_meal ? 'true' : 'false'})" style="color: var(--primary-color); text-decoration: none;">${linkText}</a>`;
+        linkContainer.classList.remove('hidden');
+    } else {
+        linkContainer.innerHTML = '';
+        linkContainer.classList.add('hidden');
+    }
+
     document.getElementById('food-weight').focus();
+}
+
+function navigateToFoodProduct(event, productId, isMeal) {
+    event.preventDefault();
+    window.ModalManager.food.close();
+    switchFoodTab(isMeal ? 'meals' : 'fooddb');
 }
 
 function closeFoodModal() {
@@ -1230,6 +1279,11 @@ async function saveFoodLog() {
         barcode: document.getElementById('food-barcode').value,
         per_100g: false  // values are converted to totals before sending
     };
+
+    const pidEl = document.getElementById('food-log-product-id');
+    if (pidEl && pidEl.value) {
+        payload.product_id = parseInt(pidEl.value, 10);
+    }
 
     const id = document.getElementById('food-id').value;
 
@@ -1420,7 +1474,12 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
                 itemBody.style.overflow = 'hidden';
                 const name = document.createElement('div');
                 name.style.fontWeight = '500';
-                name.textContent = log.name || 'Food';
+
+                if (log.is_meal) {
+                    name.textContent = '🍽 ' + (log.name || 'Food');
+                } else {
+                    name.textContent = log.name || 'Food';
+                }
                 const meta = document.createElement('div');
                 meta.style.cssText = 'font-size:0.85em; color:var(--hint-color);';
                 meta.textContent = `${Math.round(log.weight)}g • ${Math.round(log.calories)} kcal`;
