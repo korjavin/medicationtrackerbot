@@ -1244,9 +1244,15 @@ function editFoodLog(id) {
     document.getElementById('food-weight').focus();
 }
 
-function navigateToFoodProduct(event, productId, isMeal) {
+async function navigateToFoodProduct(event, productId, isMeal) {
     event.preventDefault();
     window.ModalManager.food.close();
+
+    // Ensure cache is populated before trying to find the item
+    if (!foodProductsCache || foodProductsCache.length === 0) {
+        await initFoodProductsCache();
+    }
+
     if (isMeal) {
         switchFoodTab('meals');
         setTimeout(() => {
