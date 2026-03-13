@@ -51,6 +51,7 @@ func (s *Server) handleCreateWorkoutGroup(w http.ResponseWriter, r *http.Request
 		NotificationAdvanceMinutes int    `json:"notification_advance_minutes"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -102,6 +103,7 @@ func (s *Server) handleUpdateWorkoutGroup(w http.ResponseWriter, r *http.Request
 		Active                     bool   `json:"active"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -142,6 +144,7 @@ func (s *Server) handleSkipWorkoutSessionCompat(w http.ResponseWriter, r *http.R
 	var req struct {
 		SessionID int64 `json:"session_id"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -187,6 +190,7 @@ func (s *Server) handleSnoozeWorkoutSessionCompat(w http.ResponseWriter, r *http
 		SessionID     int64 `json:"session_id"`
 		DurationHours int   `json:"duration_hours"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -271,6 +275,7 @@ func (s *Server) handleCreateWorkoutVariant(w http.ResponseWriter, r *http.Reque
 		Description   string `json:"description"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -308,6 +313,7 @@ func (s *Server) handleUpdateWorkoutVariant(w http.ResponseWriter, r *http.Reque
 		Description   string `json:"description"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -372,6 +378,7 @@ func (s *Server) handleCreateExercise(w http.ResponseWriter, r *http.Request) {
 		OrderIndex     int      `json:"order_index"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -415,6 +422,7 @@ func (s *Server) handleUpdateExercise(w http.ResponseWriter, r *http.Request) {
 		OrderIndex     int      `json:"order_index"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1078,6 +1086,7 @@ func (s *Server) handleInitializeRotation(w http.ResponseWriter, r *http.Request
 		StartingVariantID int64 `json:"starting_variant_id"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1101,6 +1110,7 @@ func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request)
 		Notes         string   `json:"notes"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1188,6 +1198,7 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 		Notes          string   `json:"notes"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1305,6 +1316,7 @@ func (s *Server) handleSnoozeWorkoutSession(w http.ResponseWriter, r *http.Reque
 	var req struct {
 		Minutes int `json:"minutes"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1551,6 +1563,7 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 	var req struct {
 		Status string `json:"status"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1653,6 +1666,7 @@ func (s *Server) handleCreateExerciseLibraryItem(w http.ResponseWriter, r *http.
 		Notes           string   `json:"notes"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1693,6 +1707,7 @@ func (s *Server) handleUpdateExerciseLibraryItem(w http.ResponseWriter, r *http.
 		Notes           string   `json:"notes"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
