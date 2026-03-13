@@ -227,16 +227,11 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 
 		editText := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
 			cb.Message.Text+"\n\n✅ Completed")
-		editText.ParseMode = "Markdown"
+		// Remove ParseMode so that unescaped characters in the exercise name do not break the request (cb.Message.Text is already stripped of Markdown)
+		emptyMarkup := tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}}
+		editText.ReplyMarkup = &emptyMarkup
 		if _, err := b.api.Send(editText); err != nil {
-			slog.Error("send failed", "error", err)
-		}
-
-		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
-			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
-		})
-		if _, err := b.api.Send(edit); err != nil {
-			slog.Error("send failed", "error", err)
+			slog.Error("send failed: edit message text", "error", err)
 		}
 
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
@@ -252,16 +247,10 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 
 		editText := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
 			cb.Message.Text+"\n\n⏭ Skipped")
-		editText.ParseMode = "Markdown"
+		emptyMarkup := tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}}
+		editText.ReplyMarkup = &emptyMarkup
 		if _, err := b.api.Send(editText); err != nil {
-			slog.Error("send failed", "error", err)
-		}
-
-		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
-			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
-		})
-		if _, err := b.api.Send(edit); err != nil {
-			slog.Error("send failed", "error", err)
+			slog.Error("send failed: edit message text", "error", err)
 		}
 
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
@@ -282,16 +271,10 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 
 		editText := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
 			cb.Message.Text+"\n\n✅ Logged (edit in web app)")
-		editText.ParseMode = "Markdown"
+		emptyMarkup := tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}}
+		editText.ReplyMarkup = &emptyMarkup
 		if _, err := b.api.Send(editText); err != nil {
-			slog.Error("send failed", "error", err)
-		}
-
-		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
-			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
-		})
-		if _, err := b.api.Send(edit); err != nil {
-			slog.Error("send failed", "error", err)
+			slog.Error("send failed: edit message text", "error", err)
 		}
 
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
