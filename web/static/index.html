@@ -597,6 +597,8 @@
             </div>
         </div>
         <input type="hidden" id="food-id">
+        <input type="hidden" id="food-log-product-id">
+        <input type="hidden" id="food-log-is-meal">
 
         <!-- Weight + Barcode above name so autocomplete doesn't cover them -->
         <div class="form-row food-quick-row">
@@ -621,6 +623,8 @@
             <input type="text" id="food-name" placeholder="e.g. Apple" autocomplete="off">
             <div id="food-autocomplete-list" class="autocomplete-items hidden"></div>
         </div>
+
+        <div id="food-product-link-container" class="form-row hidden" style="margin-top: -10px; font-size: 0.9em;"></div>
 
         <div class="form-row">
             <span class="form-label">Macros:</span>
