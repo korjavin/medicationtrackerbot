@@ -532,6 +532,7 @@ func (s *Server) handleRestock(w http.ResponseWriter, r *http.Request) {
 		Quantity int    `json:"quantity"`
 		Note     string `json:"note,omitempty"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -831,6 +832,7 @@ func (s *Server) handleSubscribePush(w http.ResponseWriter, r *http.Request) {
 			P256dh string `json:"p256dh"`
 		} `json:"keys"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -848,6 +850,7 @@ func (s *Server) handleUnsubscribePush(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Endpoint string `json:"endpoint"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -884,6 +887,7 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 		MedicationIDs []int64 `json:"medication_ids"`
 		IntakeIDs     []int64 `json:"intake_ids"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
