@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -167,5 +168,51 @@ func TestDeleteMessageUsesRequest(t *testing.T) {
 	}
 	if intake.Status != "TAKEN" {
 		t.Errorf("expected intake status TAKEN, got %q", intake.Status)
+	}
+}
+
+func TestDeleteMessagesParallel_PartialFailure(t *testing.T) {
+	deleteCalls := make(map[string]int)
+	var mu sync.Mutex
+
+	env := setupBotTestCustom(t, func(path, body string) string {
+		if strings.Contains(path, "deleteMessage") {
+			mu.Lock()
+			deleteCalls[body]++
+			count := deleteCalls[body]
+			mu.Unlock()
+
+			// Simulate rate limit for the first attempt of message 1001
+			if strings.Contains(body, "message_id=1001") && count == 1 {
+				return `{"ok":false,"error_code":429,"description":"Too Many Requests"}`
+			}
+			return `{"ok":true,"result":true}`
+		}
+		return `{"ok":true,"result":{"message_id":123,"chat":{"id":123456}}}`
+	})
+	defer env.teardown()
+
+	msgIDs := []int{1000, 1001, 1002, 1003, 1004}
+	chatID := int64(123456)
+
+	// This should not panic and should complete even with partial failures
+	env.b.deleteMessagesParallel(chatID, msgIDs, 0)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Verify all messages were attempted
+	for _, id := range msgIDs {
+		bodyPart := fmt.Sprintf("message_id=%d", id)
+		found := false
+		for body := range deleteCalls {
+			if strings.Contains(body, bodyPart) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("message %d was not attempted", id)
+		}
 	}
 }
