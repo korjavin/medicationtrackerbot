@@ -373,3 +373,87 @@ func TestHandleGetNextWorkout_LazyCreation(t *testing.T) {
 		}
 	}
 }
+
+func TestGetWorkoutStats(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	defer db.Close()
+
+	srv := &Server{
+		workouts:      db,
+		workoutSvc:    workoutsvc.New(db),
+		allowedUserID: 123,
+	}
+
+	// Create test user implicitly by adding group
+	userID := int64(123)
+
+	group, err := db.CreateWorkoutGroup("Test Group", "Desc", false, userID, "[1,3,5]", "09:00", 15)
+	if err != nil {
+		t.Fatalf("Failed to create group: %v", err)
+	}
+
+	variant, err := db.CreateWorkoutVariant(group.ID, "Main", nil, "")
+	if err != nil {
+		t.Fatalf("Failed to create variant: %v", err)
+	}
+
+	now := time.Now()
+	// Create sessions that reflect some activity
+	for i := 0; i < 3; i++ {
+		date := now.AddDate(0, 0, -i*7) // weekly sessions
+		session, err := db.CreateWorkoutSession(group.ID, variant.ID, userID, date, "09:00")
+		if err != nil {
+			t.Fatalf("Failed to create session: %v", err)
+		}
+
+		err = db.UpdateSessionStatus(session.ID, "started")
+		if err != nil {
+			t.Fatalf("Failed to update status: %v", err)
+		}
+		err = srv.workoutSvc.CompleteSession(session.ID)
+		if err != nil {
+			t.Fatalf("Failed to complete session: %v", err)
+		}
+	}
+
+	req := httptest.NewRequest("GET", "/api/workout/stats", nil)
+	// We need to set the user context manually
+	req = withUser(req, 123)
+	w := httptest.NewRecorder()
+
+	srv.handleGetWorkoutStats(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var stats map[string]interface{}
+	err = json.Unmarshal(w.Body.Bytes(), &stats)
+	if err != nil {
+		t.Fatalf("Failed to parse JSON response: %v", err)
+	}
+
+	// Verify new stats are present
+	if _, ok := stats["active_weeks"]; !ok {
+		t.Errorf("Expected 'active_weeks' in response, got: %v", stats)
+	}
+
+	// Verify active weeks count is 3 (based on loop)
+	if activeWeeks, ok := stats["active_weeks"].(float64); ok {
+		if activeWeeks != 3 {
+			t.Errorf("Expected active_weeks to be 3, got %f", activeWeeks)
+		}
+	} else {
+		t.Errorf("active_weeks was not a float64: %v", stats["active_weeks"])
+	}
+
+	// Verify streak metrics and total_volume_kg are absent
+	for _, field := range []string{"current_streak", "longest_streak", "total_volume_kg"} {
+		if _, ok := stats[field]; ok {
+			t.Errorf("Expected '%s' to be absent from response", field)
+		}
+	}
+}
