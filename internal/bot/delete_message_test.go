@@ -2,87 +2,13 @@ package bot
 
 import (
 	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/korjavin/medicationtrackerbot/internal/domain"
-	"github.com/korjavin/medicationtrackerbot/internal/store"
-	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 )
-
-// setupBotTestCustom sets up a bot test environment with a custom per-endpoint
-// handler, useful for simulating specific Telegram API responses (e.g. the
-// boolean "true" returned by deleteMessage).
-func setupBotTestCustom(t *testing.T, handler func(path, body string) string) *botTestEnv {
-	t.Helper()
-	s, err := store.New(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
-
-	messageChan := make(chan string, 100)
-	requestChan := make(chan string, 100)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Errorf("Failed to read request body: %v", err)
-			return
-		}
-		bodyStr, err := url.QueryUnescape(string(bodyBytes))
-		if err != nil {
-			t.Errorf("Failed to unescape URL: %v", err)
-			return
-		}
-
-		requestChan <- r.URL.Path + "|" + bodyStr
-
-		if strings.Contains(r.URL.Path, "sendMessage") {
-			messageChan <- bodyStr
-		}
-
-		resp := handler(r.URL.Path, bodyStr)
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(resp))
-	}))
-
-	api := &tgbotapi.BotAPI{
-		Token:  "TEST_TOKEN",
-		Client: &http.Client{},
-		Buffer: 100,
-	}
-	api.SetAPIEndpoint(server.URL + "/bot%s/%s")
-
-	b := &Bot{
-		api:           api,
-		meds:          s,
-		medSvc:        domain.NewMedicationService(s),
-		bp:            s,
-		weight:        s,
-		workouts:      s,
-		workoutSvc:    workoutsvc.New(s),
-		exerciseSvc:   domain.NewExerciseService(s),
-		reminderSvc:   domain.NewReminderService(s),
-		food:          s,
-		imports:       s,
-		allowedUserID: 123456,
-	}
-
-	return &botTestEnv{
-		b:           b,
-		s:           s,
-		server:      server,
-		messageChan: messageChan,
-		requestChan: requestChan,
-	}
-}
 
 // TestDeleteMessageUsesRequest verifies that when the bot deletes reminder
 // messages after intake confirmation, it uses b.api.Request() (not Send()),
