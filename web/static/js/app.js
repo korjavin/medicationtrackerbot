@@ -1706,7 +1706,11 @@ function populateMedFilter() {
         select.appendChild(opt);
     });
 
-    select.value = currentVal;
+    if (Array.from(select.options).some(o => o.value === currentVal)) {
+        select.value = currentVal;
+    } else {
+        select.value = "0";
+    }
 }
 
 async function saveMedication() {
