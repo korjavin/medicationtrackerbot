@@ -8,7 +8,7 @@ By default, without an explicit `Access-Control-Allow-Origin` header on response
 ## Why is this the correct default?
 As a self-hosted, single-user application designed primarily as a Telegram Mini App and Progressive Web App (PWA), all valid frontend requests naturally originate from the same domain as the backend server.
 
-Not defining CORS headers actively protects the application from Cross-Site Request Forgery (CSRF) and unwanted third-party origin access.
+Not defining CORS headers effectively prevents third-party origins from reading sensitive application data via cross-origin script access. (Note: CSRF protection is handled separately, such as via SameSite cookie attributes).
 
 ## Future Considerations
 If integrations with third-party web domains or decoupled frontend architectures are required in the future, CORS headers will need to be explicitly configured.
