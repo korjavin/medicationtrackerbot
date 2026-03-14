@@ -333,6 +333,14 @@ func (s *Store) SetMedicationSupplement(id int64, supplement bool) error {
 	return err
 }
 
+func (s *Store) UpdateMedicationCreatedAt(id int64, createdAt time.Time) (int64, error) {
+	res, err := s.db.Exec("UPDATE medications SET created_at = ? WHERE id = ?", createdAt, id)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // -- Inventory Functions --
 
 // DecrementInventory reduces the inventory count by the given quantity

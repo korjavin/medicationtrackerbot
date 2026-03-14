@@ -73,7 +73,9 @@ func (s *Server) handleSkipMedication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.meds.SkipIntake(req.IntakeID); err != nil {
+	// use domain service to skip so we clean up reminders too
+	_, err = s.medSvc.SkipIntake(req.IntakeID)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
