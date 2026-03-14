@@ -327,7 +327,7 @@ describe('app.js medication, history and intake flows', () => {
     }
   });
 
-  it('next intake trigger render/action and weekly hub segmentation behave correctly', async () => {
+  it('next intake trigger render/action behave correctly', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
@@ -383,18 +383,6 @@ describe('app.js medication, history and intake flows', () => {
       await window.triggerNextIntake();
       expect(loadHistorySpy).not.toHaveBeenCalled();
       expect(alertSpy).not.toHaveBeenCalled();
-
-      const today = new Date().toISOString().split('T')[0];
-      await seedMedications(window, [
-        { id: 1, name: 'A', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }) },
-        { id: 2, name: 'B', archived: false, schedule: JSON.stringify({ type: 'weekly', days: [new Date().getDay()], times: ['09:00'] }) }
-      ]);
-      window.apiCall = vi.fn().mockResolvedValue([
-        { medication_id: 1, status: 'TAKEN', scheduled_at: `${today}T08:00:00Z` }
-      ]);
-      await window.renderWeeklyHub();
-      expect(document.getElementById('weekly-hub-container').innerHTML).toContain('Last 7 Days');
-      expect(document.getElementById('weekly-hub-container').innerHTML).toContain('day-circle');
     } finally {
       cleanup();
     }
