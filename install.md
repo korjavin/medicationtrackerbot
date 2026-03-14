@@ -1,13 +1,13 @@
 # 🚀 Installation Guide
 
-This guide will walk you through setting up your own **Medication Tracker Bot**. 
+This guide will walk you through setting up your own **Medication Tracker Bot**.
 
 The installer automates the complex parts (**Docker, SSL certificates via Traefik, authentication via Pocket-ID**), asking you simple questions to customize your setup. By the end, you will have a fully functional web app and Telegram bot running on your own server.
 
 ## 👋 Introduction
 
 ### Why a Separate Server?
-We strongly advise using a **dedicated server (VPS)** rather than a shared hosting environment. 
+We strongly advise using a **dedicated server (VPS)** rather than a shared hosting environment.
 
 *   **Privacy**: This is your medical data. Hosting it on your own private server ensures that **no one else**—including us—has access to it. It stays 100% yours.
 *   **Security**: Securing a dedicated isolated environment is simpler and more robust than shared hosting.
@@ -54,7 +54,7 @@ ssh root@<your-server-ip>
 ```
 
 ### Step 2: Download & Run Installer
-Run these commands to download and start the interactive wizard. 
+Run these commands to download and start the interactive wizard.
 
 > [!TIP]
 > Always check for the latest version on the [**Releases**](https://github.com/korjavin/medicationtrackerbot/releases) page. Replace `v0.1.3` in the commands below with the latest version number if available.
