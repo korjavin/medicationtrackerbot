@@ -1777,11 +1777,31 @@ async function saveMedication() {
 }
 
 async function deleteMed(id) {
-    const confirmMsg = "Archive this medication?";
+    const med = medications.find(m => m.id === id);
+    if (!med) return;
 
-    await safeConfirm(confirmMsg, async (ok) => {
-        if (ok) await _archiveMedApi(id);
-    });
+    if (med.archived) {
+        const confirmMsg = "Delete this medication permanently?";
+        await safeConfirm(confirmMsg, async (ok) => {
+            if (ok) {
+                const res = await apiCall(`/api/medications/${id}`, 'DELETE');
+                if (res !== null) { // Success
+                    await window.DataStore.invalidateTags(['medications', 'history']);
+                    await window.DataStore.invalidateKey('next_intake');
+                    loadMeds();
+                } else {
+                    // It returns null on error and safeAlert is already handled by apiCall
+                    // However, we can add a specific catch-all just in case, or trust apiCall.
+                    // Let's trust apiCall since it already alerts the error message.
+                }
+            }
+        });
+    } else {
+        const confirmMsg = "Archive this medication?";
+        await safeConfirm(confirmMsg, async (ok) => {
+            if (ok) await _archiveMedApi(id);
+        });
+    }
 }
 
 async function _archiveMedApi(id) {
