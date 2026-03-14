@@ -54,10 +54,6 @@ const ALLOWED_GLOBALS = new Set([
     // Features
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js
 
-    // features/hub.js — weekly summary widget
-    'window.loadWeeklyHub',             // features/hub.js — fetches and renders weekly hub card
-    'window.renderWeeklyHub',           // features/hub.js — renders data into weekly-hub-container
-
     // features/settings.js — feature toggles, food targets, reminder settings
     'window.applyFeatureSettings',      // features/settings.js — applies feature toggles to DOM and state
     'window.featureSettings',           // features/settings.js — ephemeral cache of current feature flags

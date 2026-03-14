@@ -13,13 +13,12 @@ function makeTouchEvent(window, type, { x, y }) {
 }
 
 describe('app.js loadMeds/BP/swipe edge branches', () => {
-  it('wrapped loadMeds runs original loader and then refreshes weekly hub', async () => {
+  it('wrapped loadMeds runs original loader', async () => {
     const { window, cleanup } = loadFrontendEnv();
 
     try {
       window.renderMeds = vi.fn();
       window.populateMedFilter = vi.fn();
-      window.renderWeeklyHub = vi.fn();
       window.DataStore.loadSWR = vi.fn(async (options) => {
         await options.onCached([]);
       });
@@ -27,7 +26,6 @@ describe('app.js loadMeds/BP/swipe edge branches', () => {
       await window.loadMeds();
 
       expect(window.DataStore.loadSWR).toHaveBeenCalled();
-      expect(window.renderWeeklyHub).toHaveBeenCalledTimes(1);
     } finally {
       cleanup();
     }
