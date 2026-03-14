@@ -928,12 +928,6 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 	completedSessions := 0
 	skippedSessions := 0
 
-	// Streaks (sessions sorted newest-first)
-	currentStreak := 0
-	longestStreak := 0
-	tempStreak := 0
-	streakDone := false
-
 	// Weekly activity heatmap (last 12 weeks)
 	type WeekActivity struct {
 		Week      string `json:"week"`
@@ -951,28 +945,6 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, session := range sessions {
-		// Current streak: walk newest-first, only break on "skipped"
-		if !streakDone {
-			switch session.Status {
-			case "completed":
-				currentStreak++
-			case "skipped":
-				streakDone = true
-				// pending, notified, in_progress, snoozed: ignore (don't break streak)
-			}
-		}
-
-		// Longest streak: track running count, reset on skipped
-		switch session.Status {
-		case "completed":
-			tempStreak++
-			if tempStreak > longestStreak {
-				longestStreak = tempStreak
-			}
-		case "skipped":
-			tempStreak = 0
-		}
-
 		// 30-day stats
 		if !session.ScheduledDate.Before(since30) {
 			switch session.Status {
@@ -1000,11 +972,6 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Ensure longest >= current (in case all sessions are completed)
-	if currentStreak > longestStreak {
-		longestStreak = currentStreak
-	}
-
 	// Sort weekly activity chronologically
 	var weekKeys []string
 	for w := range weekMap {
@@ -1012,18 +979,17 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(weekKeys)
 	var weeklyActivity []WeekActivity
+	activeWeeks := 0
 	for _, w := range weekKeys {
-		weeklyActivity = append(weeklyActivity, *weekMap[w])
+		activity := *weekMap[w]
+		weeklyActivity = append(weeklyActivity, activity)
+		if activity.Completed > 0 {
+			activeWeeks++
+		}
 	}
 
 	// Exercise stats from DB
 	exerciseStats, _ := s.workouts.GetExerciseStats(userID)
-
-	// Total volume = sum across all exercises
-	totalVolumeKg := 0.0
-	for _, es := range exerciseStats {
-		totalVolumeKg += es.TotalVolumeKg
-	}
 
 	completionRate := 0.0
 	if totalSessions > 0 {
@@ -1035,9 +1001,7 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 		CompletedSessions int                  `json:"completed_sessions"`
 		SkippedSessions   int                  `json:"skipped_sessions"`
 		CompletionRate    float64              `json:"completion_rate"`
-		CurrentStreak     int                  `json:"current_streak"`
-		LongestStreak     int                  `json:"longest_streak"`
-		TotalVolumeKg     float64              `json:"total_volume_kg"`
+		ActiveWeeks       int                  `json:"active_weeks"`
 		TopExercises      []store.ExerciseStat `json:"top_exercises"`
 		WeeklyActivity    []WeekActivity       `json:"weekly_activity"`
 	}{
@@ -1045,9 +1009,7 @@ func (s *Server) handleGetWorkoutStats(w http.ResponseWriter, r *http.Request) {
 		CompletedSessions: completedSessions,
 		SkippedSessions:   skippedSessions,
 		CompletionRate:    completionRate,
-		CurrentStreak:     currentStreak,
-		LongestStreak:     longestStreak,
-		TotalVolumeKg:     totalVolumeKg,
+		ActiveWeeks:       activeWeeks,
 		TopExercises:      exerciseStats,
 		WeeklyActivity:    weeklyActivity,
 	}

@@ -216,12 +216,10 @@ describe('workout.js session and stats flows', () => {
       expect(statsContainer.textContent).toContain('No statistics available yet');
 
       window._renderWorkoutStats(statsContainer, {
-        current_streak: 5,
-        longest_streak: 12,
-        completion_rate: 72.4,
+        active_weeks: 5,
         completed_sessions: 30,
+        completion_rate: 72.4,
         skipped_sessions: 8,
-        total_volume_kg: 12450,
         top_exercises: [
           { exercise_name: 'Squat', total_volume_kg: 8000, max_weight_kg: 140 },
           { exercise_name: 'Bench', total_volume_kg: 5000, max_weight_kg: 100 }
@@ -234,7 +232,10 @@ describe('workout.js session and stats flows', () => {
 
       expect(statsContainer.innerHTML).toContain('Top Exercises');
       expect(statsContainer.innerHTML).toContain('12-Week Activity');
-      expect(statsContainer.innerHTML).toContain('t');
+      expect(statsContainer.innerHTML).toContain('Active Weeks');
+      expect(statsContainer.innerHTML).toContain('30-Day Sessions');
+      expect(statsContainer.innerHTML).toContain('Partial &lt;50%');
+      expect(statsContainer.innerHTML).toContain('Partial ≥50%');
     } finally {
       cleanup();
     }

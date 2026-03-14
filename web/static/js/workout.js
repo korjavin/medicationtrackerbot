@@ -2031,14 +2031,14 @@ function _renderWorkoutStats(container, stats) {
         return card;
     };
 
-    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #667eea 0%, #764ba2 100%)', String(stats.current_streak), '🔥 Streak'));
-    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', String(stats.longest_streak), '🏆 Best'));
-    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', `${Math.round(stats.completion_rate)}%`, '💪 30-Day'));
+    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #667eea 0%, #764ba2 100%)', String(stats.active_weeks || 0), '🔥 Active Weeks'));
+        topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', String(stats.total_sessions || 0), '🏆 30-Day Sessions'));
+    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', `${Math.round(stats.completion_rate || 0)}%`, '💪 30-Day'));
     root.appendChild(topGrid);
 
     const totalsGrid = document.createElement('div');
     totalsGrid.style.display = 'grid';
-    totalsGrid.style.gridTemplateColumns = 'repeat(3, 1fr)';
+    totalsGrid.style.gridTemplateColumns = 'repeat(2, 1fr)';
     totalsGrid.style.gap = '10px';
 
     const buildTotalsCard = (background, borderColor, valueColor, valueText, labelText) => {
@@ -2066,9 +2066,8 @@ function _renderWorkoutStats(container, stats) {
         return card;
     };
 
-    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #f0fff4)', '#28a745', '#28a745', String(stats.completed_sessions), 'Done'));
-    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #fffbf0)', '#ffc107', '#ffc107', String(stats.skipped_sessions), 'Skipped'));
-    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #f5f0ff)', '#764ba2', '#764ba2', formatVolume(stats.total_volume_kg), 'Lifted'));
+    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #f0fff4)', '#28a745', '#28a745', String(stats.completed_sessions || 0), 'Done'));
+    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #fffbf0)', '#ffc107', '#ffc107', String(stats.skipped_sessions || 0), 'Skipped'));
     root.appendChild(totalsGrid);
 
     if (stats.top_exercises && stats.top_exercises.length > 0) {
@@ -2200,7 +2199,8 @@ function _renderWorkoutStats(container, stats) {
         };
 
         legend.appendChild(createLegendItem('#28a745', 'All done'));
-        legend.appendChild(createLegendItem('#85c17e', 'Partial'));
+        legend.appendChild(createLegendItem('#85c17e', 'Partial \u226550%'));
+        legend.appendChild(createLegendItem('#ffc107', 'Partial <50%'));
         legend.appendChild(createLegendItem('#e05c5c', 'Skipped'));
 
         section.appendChild(squares);
