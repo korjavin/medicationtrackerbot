@@ -716,6 +716,37 @@ func TestIntakeReminders(t *testing.T) {
 	}
 }
 
+func TestIncrementInventory(t *testing.T) {
+	db := setupTestStore(t)
+
+	// Create a medication
+	id, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication failed: %v", err)
+	}
+
+	// Set inventory
+	inventory := 30
+	err = db.UpdateMedication(id, "Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, false, nil, nil, "", "", &inventory)
+	if err != nil {
+		t.Fatalf("UpdateMedication failed: %v", err)
+	}
+
+	// Increment inventory
+	err = db.IncrementInventory(id, 5)
+	if err != nil {
+		t.Fatalf("IncrementInventory failed: %v", err)
+	}
+
+	med, err := db.GetMedication(id)
+	if err != nil {
+		t.Fatalf("GetMedication failed: %v", err)
+	}
+	if med.InventoryCount == nil || *med.InventoryCount != 35 {
+		t.Errorf("expected inventory count 35, got %v", med.InventoryCount)
+	}
+}
+
 func TestGetPendingIntakesBySchedule(t *testing.T) {
 	db := setupTestStore(t)
 
@@ -747,6 +778,54 @@ func TestGetPendingIntakesBySchedule(t *testing.T) {
 		}
 		if p.Status != "PENDING" {
 			t.Errorf("expected status PENDING, got %q", p.Status)
+		}
+	}
+}
+
+func TestGetTakenIntakesBySchedule(t *testing.T) {
+	db := setupTestStore(t)
+
+	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["09:00","21:00"]}`, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication failed: %v", err)
+	}
+
+	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
+	otherTime := time.Date(2026, 2, 28, 21, 0, 0, 0, time.UTC)
+
+	intake1, err := db.CreateIntake(medID, 12345, scheduled)
+	if err != nil {
+		t.Fatalf("CreateIntake failed: %v", err)
+	}
+	_, err = db.CreateIntake(medID, 12345, otherTime)
+	if err != nil {
+		t.Fatalf("CreateIntake failed: %v", err)
+	}
+
+	// Confirm intake1
+	err = db.ConfirmIntake(intake1, scheduled.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("ConfirmIntake failed: %v", err)
+	}
+
+	taken, err := db.GetTakenIntakesBySchedule(12345, scheduled)
+	if err != nil {
+		t.Fatalf("GetTakenIntakesBySchedule failed: %v", err)
+	}
+
+	if len(taken) != 1 {
+		t.Fatalf("expected 1 taken intake, got %d", len(taken))
+	}
+
+	for _, p := range taken {
+		if !p.ScheduledAt.Equal(scheduled) {
+			t.Errorf("expected scheduled time %v, got %v", scheduled, p.ScheduledAt)
+		}
+		if p.Status != "TAKEN" {
+			t.Errorf("expected status TAKEN, got %q", p.Status)
+		}
+		if p.ID != intake1 {
+			t.Errorf("expected intake ID %d, got %d", intake1, p.ID)
 		}
 	}
 }
