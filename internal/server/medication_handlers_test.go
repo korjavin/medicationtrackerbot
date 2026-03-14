@@ -182,8 +182,12 @@ func TestHandleDeleteMedication(t *testing.T) {
 	srv, db := createTestServer(t)
 	defer db.Close()
 
-	// Setup: Create a medication without history
+	// Setup: Create a medication without history and archive it
 	id, _ := db.CreateMedication("To Delete", "10mg", "Wait", nil, nil, "", "")
+	err := db.UpdateMedication(id, "To Delete", "10mg", "Wait", true, nil, nil, "", "", nil)
+	if err != nil {
+		t.Fatalf("Failed to archive med: %v", err)
+	}
 
 	// Test: Delete it
 	url := fmt.Sprintf("/api/medications/%d", id)
@@ -202,6 +206,27 @@ func TestHandleDeleteMedication(t *testing.T) {
 	med, _ := db.GetMedication(id)
 	if med != nil {
 		t.Errorf("Expected nil, got %v", med)
+	}
+
+	// Setup: Create an active medication without history
+	idActive, _ := db.CreateMedication("Active Med", "10mg", "Wait", nil, nil, "", "")
+
+	// Test: Delete it should fail because it's not archived
+	urlActive := fmt.Sprintf("/api/medications/%d", idActive)
+	reqActive := httptest.NewRequest("DELETE", urlActive, nil)
+	reqActive.SetPathValue("id", fmt.Sprintf("%d", idActive))
+
+	wActive := httptest.NewRecorder()
+	srv.handleDeleteMedication(wActive, reqActive)
+
+	if wActive.Code != http.StatusConflict {
+		t.Errorf("Expected status 409 Conflict for active med, got %d", wActive.Code)
+	}
+
+	// Verify it was not deleted
+	medActive, _ := db.GetMedication(idActive)
+	if medActive == nil {
+		t.Errorf("Expected active medication to still exist, got nil")
 	}
 
 	// Setup: Create a medication with history
