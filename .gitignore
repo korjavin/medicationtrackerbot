@@ -16,3 +16,6 @@ coverage/
 
 # ralphex progress logs
 .ralphex/progress/
+
+# ralphex progress logs
+.ralphex/worktrees/
