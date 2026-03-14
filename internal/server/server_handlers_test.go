@@ -297,6 +297,133 @@ func TestHandleConfirmSchedule_WithIntakeIDs(t *testing.T) {
 	}
 }
 
+func TestHandleConfirmSchedule_RevertsUncheckedTakenIntake(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	userID := int64(123456)
+	medID1, _ := db.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID2, _ := db.CreateMedication("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+
+	count1 := 10
+	db.SetInventory(medID1, &count1)
+	count2 := 10
+	db.SetInventory(medID2, &count2)
+
+	schedTime := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
+	intake1, _ := db.CreateIntake(medID1, userID, schedTime)
+	intake2, _ := db.CreateIntake(medID2, userID, schedTime)
+
+	// Mark both as TAKEN initially
+	db.ConfirmIntake(intake1, time.Now())
+	db.DecrementInventory(medID1, 1) // Simulate inventory decremented
+	db.ConfirmIntake(intake2, time.Now())
+	db.DecrementInventory(medID2, 1) // Simulate inventory decremented
+
+	// Client sends only medID1 to confirm-schedule
+	reqBody := map[string]interface{}{
+		"scheduled_at":   schedTime.Format(time.RFC3339),
+		"medication_ids": []int64{medID1},
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("POST", "/api/medications/confirm-schedule", bytes.NewReader(body))
+	req = withUser(req, userID)
+	w := httptest.NewRecorder()
+
+	srv.handleConfirmSchedule(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify med1 intake is still TAKEN
+	i1, _ := db.GetIntake(intake1)
+	if i1.Status != "TAKEN" {
+		t.Errorf("Expected intake 1 status TAKEN, got %s", i1.Status)
+	}
+
+	// Verify med2 intake reverted to PENDING
+	i2, _ := db.GetIntake(intake2)
+	if i2.Status != "PENDING" {
+		t.Errorf("Expected intake 2 status PENDING, got %s", i2.Status)
+	}
+	if i2.TakenAt != nil {
+		t.Errorf("Expected intake 2 taken_at to be nil, got %v", i2.TakenAt)
+	}
+
+	// Verify inventory
+	m1, _ := db.GetMedication(medID1)
+	if *m1.InventoryCount != 9 {
+		t.Errorf("Expected med1 inventory 9, got %v", m1.InventoryCount)
+	}
+	m2, _ := db.GetMedication(medID2)
+	if *m2.InventoryCount != 10 { // Should have incremented back from 9
+		t.Errorf("Expected med2 inventory 10, got %v", m2.InventoryCount)
+	}
+}
+
+func TestHandleConfirmSchedule_ConfirmsAndRevertsInSameRequest(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	userID := int64(123456)
+	medID1, _ := db.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID2, _ := db.CreateMedication("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+
+	count1 := 10
+	db.SetInventory(medID1, &count1)
+	count2 := 10
+	db.SetInventory(medID2, &count2)
+
+	schedTime := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
+	intake1, _ := db.CreateIntake(medID1, userID, schedTime)
+	intake2, _ := db.CreateIntake(medID2, userID, schedTime)
+
+	// med1 is PENDING, med2 is TAKEN
+	db.ConfirmIntake(intake2, time.Now())
+	db.DecrementInventory(medID2, 1)
+
+	// Client unchecks med2, checks med1
+	reqBody := map[string]interface{}{
+		"scheduled_at":   schedTime.Format(time.RFC3339),
+		"medication_ids": []int64{medID1},
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("POST", "/api/medications/confirm-schedule", bytes.NewReader(body))
+	req = withUser(req, userID)
+	w := httptest.NewRecorder()
+
+	srv.handleConfirmSchedule(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify med1 intake is now TAKEN
+	i1, _ := db.GetIntake(intake1)
+	if i1.Status != "TAKEN" {
+		t.Errorf("Expected intake 1 status TAKEN, got %s", i1.Status)
+	}
+
+	// Verify med2 intake reverted to PENDING
+	i2, _ := db.GetIntake(intake2)
+	if i2.Status != "PENDING" {
+		t.Errorf("Expected intake 2 status PENDING, got %s", i2.Status)
+	}
+
+	// Verify inventory
+	m1, _ := db.GetMedication(medID1)
+	if *m1.InventoryCount != 9 { // Should have decremented from 10
+		t.Errorf("Expected med1 inventory 9, got %v", m1.InventoryCount)
+	}
+	m2, _ := db.GetMedication(medID2)
+	if *m2.InventoryCount != 10 { // Should have incremented back from 9
+		t.Errorf("Expected med2 inventory 10, got %v", m2.InventoryCount)
+	}
+}
+
 // --- Log past intake handler ---
 
 func TestHandleLogPastIntake(t *testing.T) {

@@ -985,6 +985,29 @@ func (s *Server) handleConfirmSchedule(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Revert unchecked TAKEN intakes back to PENDING
+	medSet := make(map[int64]bool)
+	for _, id := range req.MedicationIDs {
+		medSet[id] = true
+	}
+
+	takenIntakes, err := s.meds.GetTakenIntakesBySchedule(userID, parsedTime)
+	if err != nil {
+		slog.Error("Error getting taken intakes for schedule", "scheduledAt", req.ScheduledAt, "error", err)
+	} else {
+		for _, intake := range takenIntakes {
+			if !medSet[intake.MedicationID] {
+				if err := s.meds.UpdateIntake(intake.ID, time.Time{}, "PENDING"); err != nil {
+					slog.Error("Error reverting unchecked taken intake", "intakeID", intake.ID, "error", err)
+					continue
+				}
+				if err := s.meds.IncrementInventory(intake.MedicationID, 1); err != nil {
+					slog.Error("Error incrementing inventory on revert", "intakeID", intake.ID, "error", err)
+				}
+			}
+		}
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
