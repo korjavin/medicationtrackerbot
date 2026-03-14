@@ -8,7 +8,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func TestHandleCallback_SkipSupplementIntake(t *testing.T) {
+func TestHandleCallback_SkipIntake(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
