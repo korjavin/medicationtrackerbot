@@ -384,13 +384,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		for _, msgID := range reminders {
-			if msgID != cb.Message.MessageID {
-				if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
-					slog.Error("delete message failed", "error", err)
-				}
-			}
-		}
+		b.deleteMessagesParallel(cb.Message.Chat.ID, reminders, cb.Message.MessageID)
 
 		callbacksToRemove := []string{data}
 		if isSupp {
@@ -426,13 +420,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		for _, msgID := range reminders {
-			if msgID != cb.Message.MessageID {
-				if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
-					slog.Error("delete message failed", "error", err)
-				}
-			}
-		}
+		b.deleteMessagesParallel(cb.Message.Chat.ID, reminders, cb.Message.MessageID)
 
 		b.removeButtonsFromCallbackMessage(cb,
 			"confirm_intake:"+strconv.FormatInt(intakeID, 10),
@@ -462,13 +450,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		for _, msgID := range reminders {
-			if msgID != cb.Message.MessageID {
-				if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
-					slog.Error("delete message failed", "error", err)
-				}
-			}
-		}
+		b.deleteMessagesParallel(cb.Message.Chat.ID, reminders, cb.Message.MessageID)
 
 		// Legacy callback path: only remove the pressed button.
 		b.removeButtonFromCallbackMessage(cb, data)
@@ -523,13 +505,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		for _, msgID := range reminders {
-			if msgID != cb.Message.MessageID {
-				if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, msgID)); err != nil {
-					slog.Error("delete message failed", "error", err)
-				}
-			}
-		}
+		b.deleteMessagesParallel(cb.Message.Chat.ID, reminders, cb.Message.MessageID)
 
 		// Update message to remove buttons.
 		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
@@ -677,6 +653,34 @@ func (b *Bot) DeleteMessage(messageID int) error {
 	return err
 }
 
+func (b *Bot) deleteMessagesParallel(chatID int64, msgIDs []int, excludeID int) {
+	const maxConcurrency = 3
+	var wg sync.WaitGroup
+	msgChan := make(chan int)
+
+	// Start workers
+	for i := 0; i < maxConcurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for mid := range msgChan {
+				if _, err := b.api.Request(tgbotapi.NewDeleteMessage(chatID, mid)); err != nil {
+					slog.Error("delete message failed", "error", err, "messageID", mid)
+				}
+			}
+		}()
+	}
+
+	// Send messages to workers
+	for _, msgID := range msgIDs {
+		if msgID != excludeID {
+			msgChan <- msgID
+		}
+	}
+	close(msgChan)
+	wg.Wait()
+}
+
 func (b *Bot) trackWorkoutMessage(sessionID int64, messageID int) {
 	if sessionID == 0 || messageID == 0 {
 		return
@@ -741,9 +745,7 @@ func extractWorkoutSessionID(actionID string) (int64, bool) {
 // CleanupWorkoutSessionMessages removes tracked Telegram messages for the given workout session.
 func (b *Bot) CleanupWorkoutSessionMessages(sessionID int64) error {
 	msgIDs := b.consumeTrackedWorkoutMessages(sessionID)
-	for _, msgID := range msgIDs {
-		_ = b.DeleteMessage(msgID)
-	}
+	b.deleteMessagesParallel(b.allowedUserID, msgIDs, 0)
 	return nil
 }
 
