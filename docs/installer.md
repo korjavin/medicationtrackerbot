@@ -10,12 +10,12 @@
 
 ## 👋 Introduction
 
-Welcome! This guide will walk you through setting up your own **Medication Tracker Bot**. 
+Welcome! This guide will walk you through setting up your own **Medication Tracker Bot**.
 
 The installer automates the complex parts (Docker, SSL certificates, Nginx/Traefik configuration), asking you simple questions to customize your setup. By the end, you will have a fully functional web app and Telegram bot running on your own server.
 
 ### Why a Separate Server?
-We strongly advise using a **dedicated server (VPS)** rather than a shared hosting environment. 
+We strongly advise using a **dedicated server (VPS)** rather than a shared hosting environment.
 
 *   **Privacy**: This is your medical data. Hosting it on your own private server ensures that **no one else**—including us—has access to it. It stays 100% yours.
 *   **Security**: Securing a dedicated isolated environment is simpler and more robust than shared hosting.
@@ -236,4 +236,3 @@ Open that URL in your browser. It will log you in and allow you to **register yo
 
 ---
 *Last Updated: 2026-02-20*
-
