@@ -21,15 +21,16 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	var req struct {
-		EatenAt  string `json:"eaten_at"` // ISO8601
-		Weight   int    `json:"weight"`   // grams
-		Carbs    int    `json:"carbs"`    // total grams
-		Protein  int    `json:"protein"`  // total grams
-		Fat      int    `json:"fat"`      // total grams
-		Calories int    `json:"calories"` // total kcal
-		Name     string `json:"name"`
-		Barcode  string `json:"barcode"`
-		Per100g  bool   `json:"per_100g"`
+		EatenAt   string `json:"eaten_at"` // ISO8601
+		Weight    int    `json:"weight"`   // grams
+		Carbs     int    `json:"carbs"`    // total grams
+		Protein   int    `json:"protein"`  // total grams
+		Fat       int    `json:"fat"`      // total grams
+		Calories  int    `json:"calories"` // total kcal
+		Name      string `json:"name"`
+		ProductID *int64 `json:"product_id"`
+		Barcode   string `json:"barcode"`
+		Per100g   bool   `json:"per_100g"`
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -49,14 +50,15 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	foodLog := &store.FoodLog{
-		UserID:   userID,
-		EatenAt:  eatenAt,
-		Weight:   req.Weight,
-		Carbs:    req.Carbs,
-		Protein:  req.Protein,
-		Fat:      req.Fat,
-		Calories: req.Calories,
-		Name:     req.Name,
+		UserID:    userID,
+		EatenAt:   eatenAt,
+		Weight:    req.Weight,
+		Carbs:     req.Carbs,
+		Protein:   req.Protein,
+		Fat:       req.Fat,
+		Calories:  req.Calories,
+		Name:      req.Name,
+		ProductID: req.ProductID,
 	}
 
 	id, err := s.food.CreateFoodLog(context.Background(), foodLog)
@@ -174,15 +176,16 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		EatenAt  string `json:"eaten_at"` // ISO8601
-		Weight   int    `json:"weight"`   // grams
-		Carbs    int    `json:"carbs"`    // total grams
-		Protein  int    `json:"protein"`  // total grams
-		Fat      int    `json:"fat"`      // total grams
-		Calories int    `json:"calories"` // total kcal
-		Name     string `json:"name"`
-		Barcode  string `json:"barcode"`
-		Per100g  bool   `json:"per_100g"`
+		EatenAt   string `json:"eaten_at"` // ISO8601
+		Weight    int    `json:"weight"`   // grams
+		Carbs     int    `json:"carbs"`    // total grams
+		Protein   int    `json:"protein"`  // total grams
+		Fat       int    `json:"fat"`      // total grams
+		Calories  int    `json:"calories"` // total kcal
+		Name      string `json:"name"`
+		ProductID *int64 `json:"product_id"`
+		Barcode   string `json:"barcode"`
+		Per100g   bool   `json:"per_100g"`
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -202,15 +205,16 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	foodLog := &store.FoodLog{
-		ID:       id,
-		UserID:   userID,
-		EatenAt:  eatenAt,
-		Weight:   req.Weight,
-		Carbs:    req.Carbs,
-		Protein:  req.Protein,
-		Fat:      req.Fat,
-		Calories: req.Calories,
-		Name:     req.Name,
+		ID:        id,
+		UserID:    userID,
+		EatenAt:   eatenAt,
+		Weight:    req.Weight,
+		Carbs:     req.Carbs,
+		Protein:   req.Protein,
+		Fat:       req.Fat,
+		Calories:  req.Calories,
+		Name:      req.Name,
+		ProductID: req.ProductID,
 	}
 
 	if err := s.food.UpdateFoodLog(context.Background(), foodLog); err != nil {
