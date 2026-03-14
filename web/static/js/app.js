@@ -2172,11 +2172,6 @@ async function confirmSelectedMedications() {
     const checks = document.querySelectorAll('.med-confirm-check:checked');
     const selectedIds = Array.from(checks).map(c => parseInt(c.value));
 
-    if (selectedIds.length === 0) {
-        closeMedicationConfirmModal();
-        return;
-    }
-
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
         const res = await apiCall('/api/medications/confirm-schedule', 'POST', {
