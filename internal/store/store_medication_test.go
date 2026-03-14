@@ -621,6 +621,22 @@ func TestGetIntakeHistoryFilters(t *testing.T) {
 	}
 }
 
+func TestGetIntakeHistoryEmpty(t *testing.T) {
+	db := setupTestStore(t)
+
+	// Fetch history when there's no data
+	history, err := db.GetIntakeHistory(1, 7)
+	if err != nil {
+		t.Fatalf("GetIntakeHistory failed: %v", err)
+	}
+	if history == nil {
+		t.Fatalf("expected empty non-nil slice, got nil")
+	}
+	if len(history) != 0 {
+		t.Fatalf("expected 0 items, got %d", len(history))
+	}
+}
+
 func TestConfirmIntakesByScheduleSkipsArchived(t *testing.T) {
 	db := setupTestStore(t)
 
