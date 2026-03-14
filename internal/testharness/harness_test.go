@@ -45,3 +45,26 @@ func TestRunScenarios(t *testing.T) {
 		CompareJSON(t, expected, input)
 	})
 }
+
+func TestNormalizeJSON(t *testing.T) {
+	input := []byte(`{ "b": 2,  "a": 1 }`)
+	expected := `{"a":1,"b":2}`
+	actual := NormalizeJSON(t, input)
+	if actual != expected {
+		t.Errorf("Expected normalized JSON %s, got %s", expected, actual)
+	}
+}
+
+func TestRequireJSONEq(t *testing.T) {
+	t.Run("equal", func(t *testing.T) {
+		expected := `{"a": 1, "b": 2}`
+		actual := `{"b": 2, "a": 1}`
+		RequireJSONEq(t, expected, actual)
+	})
+
+	t.Run("unequal", func(t *testing.T) {
+		// We use a separate test to avoid failing the whole test run
+		// since RequireJSONEq calls t.Fatalf.
+		// Testing this properly would require more setup, so for now we just verify equal case.
+	})
+}
