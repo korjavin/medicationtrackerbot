@@ -252,18 +252,17 @@ describe('workout.js SWR and modal edge branches', () => {
 
       window.DataStore.loadSWR = vi.fn(async (options) => {
         await options.onFresh({
-          current_streak: 2,
-          longest_streak: 5,
+          active_weeks: 2,
           completion_rate: 80,
           completed_sessions: 8,
           skipped_sessions: 2,
-          total_volume_kg: 0,
+          total_sessions: 10,
           top_exercises: [],
           weekly_activity: []
         });
       });
       await window.loadWorkoutStatsTab();
-      expect(document.getElementById('workout-stats-display').innerHTML).toContain('Streak');
+      expect(document.getElementById('workout-stats-display').innerHTML).toContain('Active Weeks');
 
       window.apiCall = vi.fn().mockRejectedValue(new Error('details failed'));
       window.safeAlert = vi.fn();
