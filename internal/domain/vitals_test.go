@@ -176,13 +176,39 @@ func TestCalculateBPStats(t *testing.T) {
 }
 
 func TestFormatBPStats(t *testing.T) {
-	stats := BPStats{
-		AvgSys: 125, AvgDia: 85, AvgPulse: 75,
-		MinSys: 120, MaxSys: 130, MinDia: 80, MaxDia: 90,
-		MinPulse: 70, MaxPulse: 80, PulseCount: 2,
+	tests := []struct {
+		name  string
+		stats BPStats
+		want  string
+	}{
+		{
+			name: "with pulse",
+			stats: BPStats{
+				AvgSys: 125, AvgDia: 85, AvgPulse: 75,
+				MaxSys: 130, MaxDia: 90, MaxPulse: 80,
+				MinSys: 120, MinDia: 80, MinPulse: 70,
+				PulseCount: 2,
+			},
+			want: "Average: 125/85, pulse 75\nMax: 130/90, pulse 80\nMin: 120/80, pulse 70",
+		},
+		{
+			name: "without pulse",
+			stats: BPStats{
+				AvgSys: 120, AvgDia: 80,
+				MaxSys: 120, MaxDia: 80,
+				MinSys: 120, MinDia: 80,
+				PulseCount: 0,
+			},
+			want: "Average: 120/80\nMax: 120/80, pulse —\nMin: 120/80, pulse —",
+		},
 	}
-	text := stats.FormatBPStats()
-	if text == "" {
-		t.Error("expected non-empty formatted stats")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.stats.FormatBPStats()
+			if got != tt.want {
+				t.Errorf("FormatBPStats() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
