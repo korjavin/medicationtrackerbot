@@ -5,6 +5,12 @@
 //
 // Loaded after app.js.  Plain function declarations propagate to window in
 // non-strict eval so checkAuth() can call these by name at runtime.
+//
+// SECURITY NOTE: The localStorage auth cache is used *strictly* for UX purposes
+// (e.g., avoiding UI flashes during offline loads or initial boot) and does not
+// provide any actual security. True authentication is secured by the HttpOnly
+// "auth_session" cookie which is inaccessible to JavaScript. While an XSS attack
+// could read or modify this cache, it contains no sensitive credentials or tokens.
 
 const AUTH_CACHE_KEY = 'medtracker_auth_state';
 const AUTH_CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms

@@ -176,10 +176,12 @@ func main() {
 	srvHandler := srv.Routes()
 
 	server := &http.Server{
-		Addr:         serverAddr,
-		Handler:      srvHandler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 45 * time.Second, // Increased to support 30s OpenFoodFacts search
+		Addr:              serverAddr,
+		Handler:           srvHandler,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      45 * time.Second, // Increased to support 30s OpenFoodFacts search
+		MaxHeaderBytes:    1 << 20,          // 1MB max header bytes
 	}
 
 	if err := server.ListenAndServe(); err != nil {

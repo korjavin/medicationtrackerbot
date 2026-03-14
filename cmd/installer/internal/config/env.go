@@ -26,7 +26,7 @@ func GenerateEnv(cfg *Config, secrets *Secrets, pid *PocketIDState) string {
 	writeln(&b, "DB_PATH=/app/data/meds.db")
 	writeln(&b, "PORT=8080")
 	writeln(&b, "SESSION_SECRET=%s", secrets.SessionSecret)
-	writeln(&b, "AUTH_TRUST_PROXY=true")
+	writeln(&b, "AUTH_TRUST_PROXY=false")
 	writeln(&b, "")
 
 	// Food API (injected at build time)

@@ -102,6 +102,22 @@ func TestHandleMCPAudit_InvalidSignature(t *testing.T) {
 	}
 }
 
+func TestHandleMCPAudit_BodySizeLimit(t *testing.T) {
+	srv, _ := createGenericTestServer(t)
+	srv.SetMCPAuditSecret("test-secret")
+
+	// Create body slightly larger than 1MB
+	largeBody := make([]byte, (1<<20)+10)
+	req := httptest.NewRequest("POST", "/api/mcp-audit", bytes.NewBuffer(largeBody))
+	rec := httptest.NewRecorder()
+
+	srv.handleMCPAudit(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("Expected 400 Bad Request for oversized body, got %d", rec.Code)
+	}
+}
+
 func TestHandleMCPAudit_Snooze(t *testing.T) {
 	secret := "test-secret"
 	srv := &Server{
