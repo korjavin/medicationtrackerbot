@@ -25,9 +25,8 @@ We built this because health data was everywhere—and nowhere. Medications, blo
     - **Smart Schedules**: Rotating (PPL, PHUL) and non-rotating schedules.
     - **Live Guidance**: Exercise-by-exercise logging via Telegram.
     - **Performance Stats**: Streak tracking and completion analytics.
-    - See [docs/WORKOUT_TRACKING.md](docs/WORKOUT_TRACKING.md) for details.
 - **Web App Features**:
-    - **Local First (PWA)**: UI renders instantly from cache; fresh data loads in the background. Blood pressure, weight, and medication confirmations can be recorded offline and sync automatically when connectivity returns. See [ARCHITECTURE.md](ARCHITECTURE.md) for technical details.
+    - **Local First (PWA)**: UI renders instantly from cache; fresh data loads in the background. Blood pressure, weight, and medication confirmations can be recorded offline and sync automatically when connectivity returns.
     - **Push Notifications**: Receive medication and workout reminders directly on your device.
     - **Responsive Design**: Optimized for both mobile and desktop browsers.
 - **Medication Management**: Add, edit, archive medications with custom dosages and schedules.
@@ -113,14 +112,63 @@ The application is configured via Environment Variables:
 
 ### Easy Installer (Recommended)
 
-The easiest way to get started is with our **Automatic Installer**. It handles everything: Docker, Traefik, SSL certificates, and even external authentication with Pocket-ID.
+The easiest way to get started is with our **Automatic Installer**. It automates the complex parts (Docker, SSL certificates, Nginx/Traefik configuration), asking you simple questions to customize your setup.
+
+#### Prerequisites
+
+1. **A Linux Server (VPS)**
+   You need a server running **Ubuntu**, **Debian**, **Fedora**, or **CentOS**.
+   - **Recommended**: Ubuntu 22.04 LTS or 24.04 LTS.
+   - **Hardware**: Only 1 CPU and 1GB RAM needed (very lightweight).
+   - **Public IP**: You need a public IPv4 address.
+   - **Firewall**: Ports `80` (HTTP) and `443` (HTTPS) must be open.
+   - *Note on sharing:* We strongly advise using a dedicated server (VPS) for privacy and security of your medical data.
+
+2. **A Domain Name**
+   You need a domain name to access your tracker securely (HTTPS). Any domain you own works perfectly.
+   Log in to your domain registrar and create **A Records** pointing to your server's IP address (e.g., one for the main app `meds`, optionally one for `id` if using Pocket-ID, and `mcp` if using Claude MCP).
+
+3. **Telegram Bot Token**
+   - Open [@BotFather](https://t.me/BotFather) and send `/newbot` to get your token.
+   - Send `/mybots`, select your bot, tap **Bot Settings**, then **Domain**, and enter your app's domain (e.g., `meds.example.com`).
+
+4. **Your Telegram User ID**
+   - Open [@userinfobot](https://t.me/userinfobot) and copy your numeric ID. This ensures the bot only responds to you.
+
+#### Installation
+
+SSH into your server and run this single command to start the interactive wizard:
 
 ```bash
-wget -qO- https://github.com/korjavin/medicationtrackerbot/releases/latest/download/medtracker-installer_linux_amd64.tar.gz | tar xvz && ./medtracker-installer
+wget -qO- https://github.com/korjavin/medicationtrackerbot/releases/download/v0.1.7/medtracker-installer_linux_amd64.tar.gz | tar xvz && ./medtracker-installer
 ```
 
-See the [**Quick Installation Guide (install.md)**](install.md) for server recommendations and prerequisites.
-Detailed walkthrough available in [docs/installer.md](docs/installer.md).
+#### The Interactive Walkthrough
+The installer will ask you a series of questions. We generally recommend accepting the default values (just press Enter).
+- **Install Directory**: Default (`/opt/medtracker`).
+- **Primary Domain**: Enter your domain (e.g., `meds.example.com`).
+- **HTTPS & Traefik**: Choose **Yes** to handle SSL certificates automatically.
+- **Timezone**: Enter your timezone (e.g., `America/New_York`) for accurate reminders.
+- **Telegram Configuration**: Paste your Bot Token and User ID.
+- **Browser Login (Optional)**: Choose **Yes** to set up Pocket-ID for web login.
+- **Litestream Backups (Optional)**: Enable for real-time streaming backups to Cloudflare R2.
+
+#### Post-Installation Steps
+
+1. **Configure DNS**: Ensure A Records point to your server IP for your primary domain and Pocket-ID domain (if installed).
+2. **Configure Telegram Bot Domain**: Ensure your bot domain is set in BotFather as instructed in Prerequisites.
+3. **Log In**: Open your domain in your browser or launch the bot in Telegram.
+4. **Configure Pocket-ID (If Installed)**:
+   - Open `https://id.yourdomain.com/setup` and create your Admin account with a Passkey.
+   - To log in from a new browser, generate a one-time code on your server: `cd /opt/medtracker && docker compose exec pocket-id ./pocket-id one-time-access-token --email admin@example.com`
+   - Open the generated URL to log in and register your Passkey.
+   - To enable web login, create an OIDC Client in Pocket-ID (Redirect URI: `https://meds.yourdomain.com/auth/oidc/callback`), copy the Client ID and Secret, update `/opt/medtracker/.env`, and restart with `docker compose up -d`.
+
+#### Troubleshooting
+
+- **"Client version 1.24 is too old"**: Update your Docker version using the installer's printed instructions.
+- **"Permission Denied"**: Make sure you run the installer as `root`.
+- **"502 Bad Gateway"**: Wait 30-60 seconds for containers to start. Check logs with `cd /opt/medtracker && docker compose logs -f`.
 
 ### Web Interface
 
