@@ -299,7 +299,9 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-site")
-		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		w.Header().Set("Strict-Transport-Security", "max-age=15552000; includeSubDomains")
+		// Note: 'unsafe-inline' is currently required in style-src because the application dynamically
+		// injects styles for various components (like charts, modals, and dynamic themes).
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self' https://telegram.org; font-src 'self' https://fonts.gstatic.com; base-uri 'self'; frame-ancestors 'self'")
 		next.ServeHTTP(w, r)
 	})
@@ -338,7 +340,8 @@ func (s *Server) Routes() http.Handler {
 
 	// Auth Routes (rate-limited)
 	authLimiter := newRateLimiter(10, time.Minute)
-	trustProxy := parseBoolEnv("AUTH_TRUST_PROXY", true)
+	// Must be explicitly set to true when behind a trusted reverse proxy
+	trustProxy := parseBoolEnv("AUTH_TRUST_PROXY", false)
 	authLimit := rateLimitMiddleware(authLimiter, trustProxy)
 	mux.Handle("/auth/oidc/login", authLimit(http.HandlerFunc(s.handleOIDCLogin)))
 	mux.Handle("/auth/oidc/callback", authLimit(http.HandlerFunc(s.handleOIDCCallback)))
