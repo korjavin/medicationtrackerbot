@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"log/slog"
 	"os"
 	"strconv"
@@ -34,6 +35,8 @@ type Bot struct {
 
 	workoutMessagesMu sync.Mutex
 	workoutMessages   map[int64]map[int]struct{}
+
+	httpClient *http.Client
 }
 
 type featureFlags struct {
@@ -75,6 +78,7 @@ func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 		imports:       s,
 		allowedUserID: allowedUserID,
 		appDomain:     appDomain,
+		httpClient:    &http.Client{Timeout: 30 * time.Second},
 	}, nil
 }
 
