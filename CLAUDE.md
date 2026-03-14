@@ -598,3 +598,6 @@ The app is single-user, self-hosted, and runs primarily inside Telegram's WebVie
 
 - `README.md` - User-facing features and setup
 - `.env.mcp.example` - MCP server configuration example
+
+### Notes
+- Workout stats API (`/api/workout/stats`) no longer returns streak or total volume metrics. Instead, it returns `active_weeks` (count of weeks with at least one completed session) and `total_sessions` (sum of completed and skipped).
