@@ -592,7 +592,7 @@ func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
 	}
 	defer rows.Close()
 
-	var logs []IntakeLog
+	logs := []IntakeLog{}
 	for rows.Next() {
 		var l IntakeLog
 		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status, &l.SnoozedUntil); err != nil {
@@ -626,7 +626,7 @@ func (s *Store) GetIntakeHistory(medID int, days int) ([]IntakeLog, error) {
 	}
 	defer rows.Close()
 
-	var logs []IntakeLog
+	logs := []IntakeLog{}
 	for rows.Next() {
 		var l IntakeLog
 		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status, &l.SnoozedUntil); err != nil {

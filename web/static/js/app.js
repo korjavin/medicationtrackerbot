@@ -1686,13 +1686,23 @@ function populateMedFilter() {
     allOpt.textContent = "All Medications";
     select.replaceChildren(allOpt);
 
+    // Filter to only include meds taken in the last 7 days
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 7);
+
+    const activeMeds = medications.filter(m => {
+        if (!m.last_taken_at) return false;
+        const lastTaken = new Date(m.last_taken_at);
+        return lastTaken >= cutoffDate;
+    });
+
     // Sort alphabetically
-    const sorted = [...medications].sort((a, b) => a.name.localeCompare(b.name));
+    const sorted = activeMeds.sort((a, b) => a.name.localeCompare(b.name));
 
     sorted.forEach(m => {
         const opt = document.createElement('option');
         opt.value = m.id;
-        opt.innerText = m.name + (m.archived ? ' (Archived)' : '');
+        opt.textContent = m.name + (m.archived ? ' (Archived)' : '');
         select.appendChild(opt);
     });
 
@@ -1819,6 +1829,7 @@ async function loadHistory() {
         key: cacheKey,
         tags: ['history'],
         fetcher: async () => await apiCall(`/api/history?days=${days}&med_id=${medId}`),
+        allowNullFresh: true,
         onCached: async (cached) => {
             renderHistory(cached);
         },
