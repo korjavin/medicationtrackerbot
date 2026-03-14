@@ -328,6 +328,15 @@ func (s *Store) DeleteMedication(id int64) error {
 	return err
 }
 
+func (s *Store) CanDeleteMedication(id int64) (bool, error) {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM intake_log WHERE medication_id = ?", id).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count == 0, nil
+}
+
 func (s *Store) SetMedicationSupplement(id int64, supplement bool) error {
 	_, err := s.db.Exec("UPDATE medications SET supplement = ? WHERE id = ?", supplement, id)
 	return err

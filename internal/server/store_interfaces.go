@@ -15,6 +15,7 @@ type MedicationStore interface {
 	GetMedication(id int64) (*store.Medication, error)
 	UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int) error
 	DeleteMedication(id int64) error
+	CanDeleteMedication(id int64) (bool, error)
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
 	CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error)
 	ConfirmIntake(id int64, takenAt time.Time) error

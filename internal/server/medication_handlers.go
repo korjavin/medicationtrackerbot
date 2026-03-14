@@ -268,6 +268,17 @@ func (s *Server) handleDeleteMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	canDelete, err := s.meds.CanDeleteMedication(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if !canDelete {
+		http.Error(w, "Cannot delete medication with intake history", http.StatusConflict)
+		return
+	}
+
 	if err := s.meds.DeleteMedication(id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

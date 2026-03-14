@@ -182,7 +182,7 @@ func TestHandleDeleteMedication(t *testing.T) {
 	srv, db := createTestServer(t)
 	defer db.Close()
 
-	// Setup: Create a medication
+	// Setup: Create a medication without history
 	id, _ := db.CreateMedication("To Delete", "10mg", "Wait", nil, nil, "", "")
 
 	// Test: Delete it
@@ -199,9 +199,32 @@ func TestHandleDeleteMedication(t *testing.T) {
 	}
 
 	// Verify
-	meds, _ := db.ListMedications(true)
-	if len(meds) != 0 {
-		t.Errorf("Expected 0 medications, got %d", len(meds))
+	med, _ := db.GetMedication(id)
+	if med != nil {
+		t.Errorf("Expected nil, got %v", med)
+	}
+
+	// Setup: Create a medication with history
+	id2, _ := db.CreateMedication("With History", "10mg", "Wait", nil, nil, "", "")
+	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
+	_, _ = db.CreateIntake(id2, 12345, scheduled)
+
+	// Test: Delete it should fail
+	url2 := fmt.Sprintf("/api/medications/%d", id2)
+	req2 := httptest.NewRequest("DELETE", url2, nil)
+	req2.SetPathValue("id", fmt.Sprintf("%d", id2))
+
+	w2 := httptest.NewRecorder()
+	srv.handleDeleteMedication(w2, req2)
+
+	if w2.Code != http.StatusConflict {
+		t.Errorf("Expected status 409 Conflict, got %d", w2.Code)
+	}
+
+	// Verify it was not deleted
+	med2, _ := db.GetMedication(id2)
+	if med2 == nil {
+		t.Errorf("Expected medication to still exist, got nil")
 	}
 }
 
