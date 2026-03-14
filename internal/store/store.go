@@ -706,22 +706,8 @@ func (s *Store) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, ta
 }
 
 func (s *Store) AddIntakeReminder(intakeID int64, messageID int) error {
-	var err error
-	maxRetries := 5
-	backoff := 50 * time.Millisecond
-
-	for i := 0; i < maxRetries; i++ {
-		_, err = s.db.Exec("INSERT INTO intake_reminders (intake_id, message_id) VALUES (?, ?)", intakeID, messageID)
-		if err == nil {
-			return nil
-		}
-		if !strings.Contains(err.Error(), "database is locked") && !strings.Contains(err.Error(), "SQLITE_BUSY") {
-			return err
-		}
-		time.Sleep(backoff)
-		backoff *= 2
-	}
-	return fmt.Errorf("failed to add intake reminder after %d retries: %w", maxRetries, err)
+	_, err := s.db.Exec("INSERT INTO intake_reminders (intake_id, message_id) VALUES (?, ?)", intakeID, messageID)
+	return err
 }
 
 func (s *Store) GetIntakeReminders(intakeID int64) ([]int, error) {
