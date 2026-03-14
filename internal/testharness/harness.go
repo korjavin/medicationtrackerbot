@@ -76,3 +76,33 @@ func RunScenarios(t *testing.T, filename string, runner func(t *testing.T, s Sce
 		Run(t, s, runner)
 	}
 }
+
+// NormalizeJSON unmarshals data and marshals it back to return a canonical string representation.
+func NormalizeJSON(t *testing.T, data []byte) string {
+	t.Helper()
+	var obj interface{}
+	if err := json.Unmarshal(data, &obj); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+	normalized, err := json.Marshal(obj)
+	if err != nil {
+		t.Fatalf("Failed to marshal JSON: %v", err)
+	}
+	return string(normalized)
+}
+
+// RequireJSONEq compares two JSON strings and fails the test immediately if they differ.
+func RequireJSONEq(t *testing.T, expected, actual string) {
+	t.Helper()
+	var expObj, actObj interface{}
+	if err := json.Unmarshal([]byte(expected), &expObj); err != nil {
+		t.Fatalf("Failed to unmarshal expected JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(actual), &actObj); err != nil {
+		t.Fatalf("Failed to unmarshal actual JSON: %v", err)
+	}
+
+	if diff := Diff(expObj, actObj); diff != "" {
+		t.Fatalf("Mismatch found:\n%s", diff)
+	}
+}
