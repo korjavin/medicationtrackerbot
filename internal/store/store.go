@@ -351,6 +351,13 @@ func (s *Store) DecrementInventory(medID int64, qty int) error {
 	return err
 }
 
+// IncrementInventory increases the inventory count by the given quantity
+// Only increments if inventory is being tracked (not NULL)
+func (s *Store) IncrementInventory(medID int64, qty int) error {
+	_, err := s.db.Exec("UPDATE medications SET inventory_count = inventory_count + ? WHERE id = ? AND inventory_count IS NOT NULL", qty, medID)
+	return err
+}
+
 // SetInventory sets the inventory count for a medication (nil to disable tracking)
 func (s *Store) SetInventory(medID int64, count *int) error {
 	_, err := s.db.Exec("UPDATE medications SET inventory_count = ? WHERE id = ?", count, medID)
@@ -602,6 +609,23 @@ func (s *Store) GetPendingIntakes() ([]IntakeLog, error) {
 	defer rows.Close()
 
 	logs := []IntakeLog{}
+	for rows.Next() {
+		var l IntakeLog
+		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status, &l.SnoozedUntil); err != nil {
+			return nil, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
+func (s *Store) GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
+	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status, snoozed_until FROM intake_log WHERE user_id = ? AND scheduled_at = ? AND status = 'TAKEN'", userID, scheduledAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var logs []IntakeLog
 	for rows.Next() {
 		var l IntakeLog
 		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status, &l.SnoozedUntil); err != nil {
