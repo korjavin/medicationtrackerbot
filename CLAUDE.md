@@ -166,6 +166,7 @@ Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.Exerci
 
 ### Medication Tracking
 - **Smart Sorting**: Scheduled Soon (>14h) → Recently Taken → As-Needed → Archived
+- **Archiving & Deleting**: Active medications can be archived. Archived medications can be permanently deleted only if they have no intake history.
 - **Schedule Types**: Daily, Weekly, As-Needed with optional Start/End dates
 - **Drug Interactions**: Automatic checking via RxNorm API when adding/unarchiving
 - **Notifications**: Telegram alerts with scheduled time and dosage, hourly retry if not confirmed
