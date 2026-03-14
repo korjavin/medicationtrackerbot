@@ -1855,6 +1855,16 @@ func (s *Store) CreateMealFromLogs(ctx context.Context, userID int64, name strin
 }
 
 func (s *Store) CreateFoodLog(ctx context.Context, f *FoodLog) (int64, error) {
+	if f.ProductID != nil {
+		var exists int
+		err := s.db.QueryRowContext(ctx, "SELECT 1 FROM food_products WHERE id = ? AND user_id = ?", *f.ProductID, f.UserID).Scan(&exists)
+		if err == sql.ErrNoRows {
+			return 0, fmt.Errorf("invalid product_id: product does not exist or belongs to another user")
+		} else if err != nil {
+			return 0, err
+		}
+	}
+
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO food_log (user_id, eaten_at, weight, carbs, protein, fat, calories, name, product_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		f.UserID, f.EatenAt, f.Weight, f.Carbs, f.Protein, f.Fat, f.Calories, f.Name, f.ProductID)
@@ -1865,6 +1875,16 @@ func (s *Store) CreateFoodLog(ctx context.Context, f *FoodLog) (int64, error) {
 }
 
 func (s *Store) UpdateFoodLog(ctx context.Context, f *FoodLog) error {
+	if f.ProductID != nil {
+		var exists int
+		err := s.db.QueryRowContext(ctx, "SELECT 1 FROM food_products WHERE id = ? AND user_id = ?", *f.ProductID, f.UserID).Scan(&exists)
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("invalid product_id: product does not exist or belongs to another user")
+		} else if err != nil {
+			return err
+		}
+	}
+
 	res, err := s.db.ExecContext(ctx,
 		"UPDATE food_log SET eaten_at = ?, weight = ?, carbs = ?, protein = ?, fat = ?, calories = ?, name = ?, product_id = ? WHERE id = ? AND user_id = ?",
 		f.EatenAt, f.Weight, f.Carbs, f.Protein, f.Fat, f.Calories, f.Name, f.ProductID, f.ID, f.UserID)
@@ -1887,7 +1907,7 @@ func (s *Store) GetFoodLogs(ctx context.Context, userID int64, date time.Time, d
 		SELECT
 			fl.id, fl.user_id, fl.eaten_at, fl.weight, fl.carbs, fl.protein, fl.fat, fl.calories, fl.name, fl.product_id, fp.is_meal
 		FROM food_log fl
-		LEFT JOIN food_products fp ON fl.product_id = fp.id
+		LEFT JOIN food_products fp ON fl.product_id = fp.id AND fp.user_id = fl.user_id
 		WHERE fl.user_id = ? AND fl.eaten_at >= ? AND fl.eaten_at < ?
 		ORDER BY fl.eaten_at ASC
 	`
