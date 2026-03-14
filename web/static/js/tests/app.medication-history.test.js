@@ -118,7 +118,113 @@ describe('app.js medication, history and intake flows', () => {
       expect(deleteSpy).toHaveBeenCalledWith(1);
 
       const filter = document.getElementById('history-filter-med');
-      expect(filter.querySelectorAll('option').length).toBeGreaterThan(2);
+      const options = Array.from(filter.querySelectorAll('option'));
+
+      // Should include 'All Medications' and 'Soon Med' (taken recently)
+      // but NOT 'Later Med' (taken 2 days ago, which IS recent, so we need to add a test case for one > 7 days)
+
+      // But let's check what's actually there
+      expect(options.some(o => o.text.includes('All Medications'))).toBe(true);
+      expect(options.some(o => o.text.includes('Soon Med'))).toBe(true);
+      expect(options.some(o => o.text.includes('Later Med'))).toBe(true); // 2 days ago is within 7 days
+      expect(options.some(o => o.text.includes('As Needed'))).toBe(false); // no last_taken_at
+      expect(options.some(o => o.text.includes('Archived Med'))).toBe(false); // no last_taken_at
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('populateMedFilter only shows medications taken in the last 7 days', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const now = new Date();
+      const threeDaysAgo = new Date(now.getTime() - (3 * 24 * 60 * 60 * 1000));
+      const eightDaysAgo = new Date(now.getTime() - (8 * 24 * 60 * 60 * 1000));
+
+      await seedMedications(window, [
+        {
+          id: 1,
+          name: 'Recent Med',
+          schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
+          last_taken_at: threeDaysAgo.toISOString()
+        },
+        {
+          id: 2,
+          name: 'Old Med',
+          schedule: JSON.stringify({ type: 'daily', times: ['09:00'] }),
+          last_taken_at: eightDaysAgo.toISOString()
+        },
+        {
+          id: 3,
+          name: 'Never Taken Med',
+          schedule: JSON.stringify({ type: 'daily', times: ['10:00'] }),
+          last_taken_at: null
+        }
+      ]);
+
+      const filter = document.getElementById('history-filter-med');
+      const options = Array.from(filter.querySelectorAll('option'));
+
+      expect(options.length).toBe(2); // All Medications + Recent Med
+      expect(options[0].text).toBe('All Medications');
+      expect(options[1].text).toBe('Recent Med');
+
+      // Test fallback to 0 when previously selected medication ages out
+      filter.value = "2"; // Simulate 'Old Med' was selected
+      window.populateMedFilter();
+      expect(filter.value).toBe("0"); // Should fallback to 'All Medications'
+
+      // Test retaining selected value when still valid
+      filter.value = "1"; // Simulate 'Recent Med' was selected
+      window.populateMedFilter();
+      expect(filter.value).toBe("1"); // Should retain 'Recent Med'
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('loadHistory clears the list when fetching returns null or empty array', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      await seedMedications(window, [
+        { id: 1, name: 'Aspirin' }
+      ]);
+
+      // Seed with initial history
+      const now = new Date();
+      window.renderHistory([
+        { id: 100, medication_id: 1, status: 'TAKEN', taken_at: now.toISOString(), scheduled_at: now.toISOString() }
+      ]);
+
+      const list = document.getElementById('history-list');
+      expect(list.innerHTML).toContain('Aspirin');
+
+      // Now mock DataStore.loadSWR to return null for fresh
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        // Assert we passed allowNullFresh
+        expect(options.allowNullFresh).toBe(true);
+        await options.onFresh(null);
+      });
+
+      await window.loadHistory();
+
+      // List should be empty
+      expect(list.innerHTML).toContain('No history yet.');
+      expect(list.innerHTML).not.toContain('Aspirin');
+
+      // Test empty array as well
+      window.renderHistory([
+        { id: 100, medication_id: 1, status: 'TAKEN', taken_at: now.toISOString(), scheduled_at: now.toISOString() }
+      ]);
+      expect(list.innerHTML).toContain('Aspirin');
+
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onFresh([]);
+      });
+      await window.loadHistory();
+      expect(list.innerHTML).toContain('No history yet.');
     } finally {
       cleanup();
     }
