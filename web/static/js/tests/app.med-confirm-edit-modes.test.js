@@ -35,8 +35,12 @@ describe('app.js medication confirm edit/log modes', () => {
     }
   });
 
-  it('confirmSelectedMedications closes without API call when nothing is selected, and surfaces API errors', async () => {
+  it('confirmSelectedMedications calls API with empty array when nothing is selected to allow reverting, and surfaces API errors', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
+
+    // Mock loadMeds and loadHistory to avoid DOM errors in tests
+    window.loadMeds = vi.fn();
+    window.loadHistory = vi.fn();
 
     try {
       window.showMedicationConfirmModal([1, 2], ['A', 'B'], '2026-02-28T10:00:00Z');
@@ -44,9 +48,12 @@ describe('app.js medication confirm edit/log modes', () => {
       document.querySelectorAll('.med-confirm-check').forEach((checkbox) => {
         checkbox.checked = false;
       });
-      window.apiCall = vi.fn();
+      window.apiCall = vi.fn().mockResolvedValue({ status: "ok" });
       await window.confirmSelectedMedications();
-      expect(window.apiCall).not.toHaveBeenCalled();
+      expect(window.apiCall).toHaveBeenCalledWith('/api/medications/confirm-schedule', 'POST', {
+        scheduled_at: '2026-02-28T10:00:00Z',
+        medication_ids: []
+      });
       expect(document.getElementById('med-confirm-modal').classList.contains('hidden')).toBe(true);
 
       window.safeAlert = vi.fn();
