@@ -169,6 +169,16 @@ describe('app.js medication, history and intake flows', () => {
       expect(options.length).toBe(2); // All Medications + Recent Med
       expect(options[0].text).toBe('All Medications');
       expect(options[1].text).toBe('Recent Med');
+
+      // Test fallback to 0 when previously selected medication ages out
+      filter.value = "2"; // Simulate 'Old Med' was selected
+      window.populateMedFilter();
+      expect(filter.value).toBe("0"); // Should fallback to 'All Medications'
+
+      // Test retaining selected value when still valid
+      filter.value = "1"; // Simulate 'Recent Med' was selected
+      window.populateMedFilter();
+      expect(filter.value).toBe("1"); // Should retain 'Recent Med'
     } finally {
       cleanup();
     }
