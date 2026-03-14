@@ -297,6 +297,56 @@ func TestHandleConfirmSchedule_WithIntakeIDs(t *testing.T) {
 	}
 }
 
+func TestHandleConfirmSchedule_RevertsAllTakenIntakesWhenEmpty(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	userID := int64(123456)
+	medID1, _ := db.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+
+	count1 := 10
+	db.SetInventory(medID1, &count1)
+
+	schedTime := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
+	intake1, _ := db.CreateIntake(medID1, userID, schedTime)
+
+	// Mark as TAKEN initially
+	db.ConfirmIntake(intake1, time.Now())
+	db.DecrementInventory(medID1, 1) // Simulate inventory decremented
+
+	// Client sends empty medication_ids to confirm-schedule
+	reqBody := map[string]interface{}{
+		"scheduled_at":   schedTime.Format(time.RFC3339),
+		"medication_ids": []int64{},
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("POST", "/api/medications/confirm-schedule", bytes.NewReader(body))
+	req = withUser(req, userID)
+	w := httptest.NewRecorder()
+
+	srv.handleConfirmSchedule(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify med1 intake reverted to PENDING
+	i1, _ := db.GetIntake(intake1)
+	if i1.Status != "PENDING" {
+		t.Errorf("Expected intake 1 status PENDING, got %s", i1.Status)
+	}
+	if i1.TakenAt != nil {
+		t.Errorf("Expected intake 1 taken_at to be nil, got %v", i1.TakenAt)
+	}
+
+	// Verify inventory
+	m1, _ := db.GetMedication(medID1)
+	if *m1.InventoryCount != 10 { // Should have incremented back from 9
+		t.Errorf("Expected med1 inventory 10, got %v", m1.InventoryCount)
+	}
+}
+
 func TestHandleConfirmSchedule_RevertsUncheckedTakenIntake(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
