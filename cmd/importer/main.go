@@ -204,19 +204,19 @@ func main() {
 
 		var endDateSQL string
 		if agg.Archived {
-			endDateSQL = fmt.Sprintf("'%s'", tLast.Format(time.RFC3339))
+			endDateSQL = quoteSQL(tLast.Format(time.RFC3339))
 		} else {
 			endDateSQL = "NULL"
 		}
-		startDateSQL := fmt.Sprintf("'%s'", tFirst.Format(time.RFC3339))
+		startDateSQL := quoteSQL(tFirst.Format(time.RFC3339))
 
 		// Insert Medication
 		// ID, Name, Dosage, Schedule, Archived, StartDate, EndDate
-		stmt := fmt.Sprintf("INSERT INTO medications (id, name, dosage, schedule, archived, start_date, end_date) VALUES (%d, '%s', '%s', '%s', %v, %s, %s);\n",
+		stmt := fmt.Sprintf("INSERT INTO medications (id, name, dosage, schedule, archived, start_date, end_date) VALUES (%d, %s, %s, %s, %v, %s, %s);\n",
 			medIDCounter,
-			escapeSQL(agg.Name),
-			escapeSQL(agg.Dosage),
-			scheduleJSON,
+			quoteSQL(agg.Name),
+			quoteSQL(agg.Dosage),
+			quoteSQL(scheduleJSON),
 			boolToInt(agg.Archived),
 			startDateSQL,
 			endDateSQL,
@@ -236,12 +236,12 @@ func main() {
 
 			// user_id from flag
 
-			intakeStmt := fmt.Sprintf("INSERT INTO intake_log (medication_id, user_id, scheduled_at, taken_at, status) VALUES (%d, %d, '%s', '%s', '%s');\n",
+			intakeStmt := fmt.Sprintf("INSERT INTO intake_log (medication_id, user_id, scheduled_at, taken_at, status) VALUES (%d, %d, %s, %s, %s);\n",
 				medIDCounter,
 				*userID,
-				schedTime.Format(time.RFC3339),
-				takenTime.Format(time.RFC3339),
-				status,
+				quoteSQL(schedTime.Format(time.RFC3339)),
+				quoteSQL(takenTime.Format(time.RFC3339)),
+				quoteSQL(status),
 			)
 			_, _ = writer.WriteString(intakeStmt)
 		}
@@ -254,8 +254,8 @@ func main() {
 	slog.Info("Successfully generated import.sql", "medications", medIDCounter-1)
 }
 
-func escapeSQL(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
+func quoteSQL(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 func boolToInt(b bool) int {
