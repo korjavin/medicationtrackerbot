@@ -654,18 +654,30 @@ func (b *Bot) DeleteMessage(messageID int) error {
 }
 
 func (b *Bot) deleteMessagesParallel(chatID int64, msgIDs []int, excludeID int) {
+	const maxConcurrency = 3
 	var wg sync.WaitGroup
-	for _, msgID := range msgIDs {
-		if msgID != excludeID {
-			wg.Add(1)
-			go func(mid int) {
-				defer wg.Done()
+	msgChan := make(chan int)
+
+	// Start workers
+	for i := 0; i < maxConcurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for mid := range msgChan {
 				if _, err := b.api.Request(tgbotapi.NewDeleteMessage(chatID, mid)); err != nil {
 					slog.Error("delete message failed", "error", err, "messageID", mid)
 				}
-			}(msgID)
+			}
+		}()
+	}
+
+	// Send messages to workers
+	for _, msgID := range msgIDs {
+		if msgID != excludeID {
+			msgChan <- msgID
 		}
 	}
+	close(msgChan)
 	wg.Wait()
 }
 
