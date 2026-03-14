@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
@@ -69,7 +70,8 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 		fileURL := file.Link(b.api.Token)
 		slog.Info("Downloading file", "url", fileURL)
 
-		resp, err := http.Get(fileURL) // #nosec G107 -- fileURL is from Telegram Bot API (file.Link), not user-controlled
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Get(fileURL) // #nosec G107 -- fileURL is from Telegram Bot API (file.Link), not user-controlled, and we now use a timeout
 		if err != nil {
 			slog.Error("Error downloading file", "url", fileURL, "error", err)
 			b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error downloading file.")

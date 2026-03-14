@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -142,6 +143,65 @@ func TestValidateWebAppData_ExpiredAuthDate(t *testing.T) {
 	_, _, err := ValidateWebAppData(token, initData)
 	if err == nil {
 		t.Fatal("expected error for expired auth_date")
+	}
+}
+
+func TestClientIP(t *testing.T) {
+	tests := []struct {
+		name       string
+		remoteAddr string
+		xff        string
+		xrip       string
+		trustProxy bool
+		expected   string
+	}{
+		{
+			name:       "trust proxy, use XFF",
+			remoteAddr: "192.168.1.1:1234",
+			xff:        "10.0.0.1, 10.0.0.2",
+			trustProxy: true,
+			expected:   "10.0.0.1",
+		},
+		{
+			name:       "trust proxy, use X-Real-IP",
+			remoteAddr: "192.168.1.1:1234",
+			xrip:       "10.0.0.3",
+			trustProxy: true,
+			expected:   "10.0.0.3",
+		},
+		{
+			name:       "distrust proxy, ignore headers",
+			remoteAddr: "192.168.1.1:1234",
+			xff:        "10.0.0.1, 10.0.0.2",
+			xrip:       "10.0.0.3",
+			trustProxy: false,
+			expected:   "192.168.1.1",
+		},
+		{
+			name:       "distrust proxy, no port",
+			remoteAddr: "192.168.1.1",
+			xff:        "10.0.0.1",
+			trustProxy: false,
+			expected:   "192.168.1.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequest("GET", "/", nil)
+			req.RemoteAddr = tt.remoteAddr
+			if tt.xff != "" {
+				req.Header.Set("X-Forwarded-For", tt.xff)
+			}
+			if tt.xrip != "" {
+				req.Header.Set("X-Real-IP", tt.xrip)
+			}
+
+			actual := clientIP(req, tt.trustProxy)
+			if actual != tt.expected {
+				t.Errorf("Expected IP %q, got %q", tt.expected, actual)
+			}
+		})
 	}
 }
 

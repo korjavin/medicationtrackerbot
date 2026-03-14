@@ -29,6 +29,23 @@ const SyncDebug = {
     error(msg, data) { this.log('ERROR', msg, data); },
     warn(msg, data) { this.log('WARN', msg, data); },
 
+    // Robust fallback for escaping HTML entities
+    _escapeHtml(unsafe) {
+        if (!unsafe) return '';
+        // Use global escapeHtml if available, otherwise fallback
+        const escapeFn = window['escapeHtml'];
+        if (typeof escapeFn === 'function') {
+            return escapeFn(unsafe);
+        }
+
+        return String(unsafe)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    },
+
     updateDebugPanel() {
         const panel = document.getElementById('sync-debug-panel');
         if (!panel || panel.style.display === 'none') return;
@@ -37,13 +54,14 @@ const SyncDebug = {
         if (!content) return;
 
         content.innerHTML = this.logs.map(l => {
-            // escapeHtml is defined globally in app.js
-            const escapeFn = window['escapeHtml']; // Bypass globals check for read
-            const safeMsg = typeof escapeFn === 'function' ? escapeFn(l.message) : '';
-            const safeData = l.data && typeof escapeFn === 'function' ? escapeFn(l.data) : '';
-            return `<div class="debug-line ${l.level.toLowerCase()}">
-                <span class="debug-time">${l.time}</span>
-                <span class="debug-level">${l.level}</span>
+            const safeMsg = this._escapeHtml(l.message);
+            const safeData = l.data ? this._escapeHtml(l.data) : '';
+            const safeLevel = this._escapeHtml(l.level);
+            const safeTime = this._escapeHtml(l.time);
+
+            return `<div class="debug-line ${safeLevel.toLowerCase()}">
+                <span class="debug-time">${safeTime}</span>
+                <span class="debug-level">${safeLevel}</span>
                 <span class="debug-msg">${safeMsg}</span>
                 ${l.data ? `<span class="debug-data">${safeData}</span>` : ''}
             </div>`;
