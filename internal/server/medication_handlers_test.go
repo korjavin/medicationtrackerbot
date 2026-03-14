@@ -182,8 +182,12 @@ func TestHandleDeleteMedication(t *testing.T) {
 	srv, db := createTestServer(t)
 	defer db.Close()
 
-	// Setup: Create a medication
+	// Setup: Create a medication without history and archive it
 	id, _ := db.CreateMedication("To Delete", "10mg", "Wait", nil, nil, "", "")
+	err := db.UpdateMedication(id, "To Delete", "10mg", "Wait", true, nil, nil, "", "", nil)
+	if err != nil {
+		t.Fatalf("Failed to archive med: %v", err)
+	}
 
 	// Test: Delete it
 	url := fmt.Sprintf("/api/medications/%d", id)
@@ -199,9 +203,53 @@ func TestHandleDeleteMedication(t *testing.T) {
 	}
 
 	// Verify
-	meds, _ := db.ListMedications(true)
-	if len(meds) != 0 {
-		t.Errorf("Expected 0 medications, got %d", len(meds))
+	med, _ := db.GetMedication(id)
+	if med != nil {
+		t.Errorf("Expected nil, got %v", med)
+	}
+
+	// Setup: Create an active medication without history
+	idActive, _ := db.CreateMedication("Active Med", "10mg", "Wait", nil, nil, "", "")
+
+	// Test: Delete it should fail because it's not archived
+	urlActive := fmt.Sprintf("/api/medications/%d", idActive)
+	reqActive := httptest.NewRequest("DELETE", urlActive, nil)
+	reqActive.SetPathValue("id", fmt.Sprintf("%d", idActive))
+
+	wActive := httptest.NewRecorder()
+	srv.handleDeleteMedication(wActive, reqActive)
+
+	if wActive.Code != http.StatusConflict {
+		t.Errorf("Expected status 409 Conflict for active med, got %d", wActive.Code)
+	}
+
+	// Verify it was not deleted
+	medActive, _ := db.GetMedication(idActive)
+	if medActive == nil {
+		t.Errorf("Expected active medication to still exist, got nil")
+	}
+
+	// Setup: Create a medication with history
+	id2, _ := db.CreateMedication("With History", "10mg", "Wait", nil, nil, "", "")
+	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
+	_, _ = db.CreateIntake(id2, 12345, scheduled)
+
+	// Test: Delete it should fail
+	url2 := fmt.Sprintf("/api/medications/%d", id2)
+	req2 := httptest.NewRequest("DELETE", url2, nil)
+	req2.SetPathValue("id", fmt.Sprintf("%d", id2))
+
+	w2 := httptest.NewRecorder()
+	srv.handleDeleteMedication(w2, req2)
+
+	if w2.Code != http.StatusConflict {
+		t.Errorf("Expected status 409 Conflict, got %d", w2.Code)
+	}
+
+	// Verify it was not deleted
+	med2, _ := db.GetMedication(id2)
+	if med2 == nil {
+		t.Errorf("Expected medication to still exist, got nil")
 	}
 }
 

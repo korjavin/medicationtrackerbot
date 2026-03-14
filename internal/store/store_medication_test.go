@@ -181,6 +181,41 @@ func TestDeleteMedication(t *testing.T) {
 	}
 }
 
+func TestCanDeleteMedication(t *testing.T) {
+	db := setupTestStore(t)
+
+	// Create a medication
+	id, err := db.CreateMedication("CheckDelete", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication failed: %v", err)
+	}
+
+	// Should be deletable initially
+	canDelete, err := db.CanDeleteMedication(id)
+	if err != nil {
+		t.Fatalf("CanDeleteMedication failed: %v", err)
+	}
+	if !canDelete {
+		t.Error("expected CanDeleteMedication to return true for medication without history")
+	}
+
+	// Add an intake
+	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
+	_, err = db.CreateIntake(id, 12345, scheduled)
+	if err != nil {
+		t.Fatalf("CreateIntake failed: %v", err)
+	}
+
+	// Should no longer be deletable
+	canDelete, err = db.CanDeleteMedication(id)
+	if err != nil {
+		t.Fatalf("CanDeleteMedication failed: %v", err)
+	}
+	if canDelete {
+		t.Error("expected CanDeleteMedication to return false for medication with history")
+	}
+}
+
 func TestListMedicationsExcludesArchived(t *testing.T) {
 	db := setupTestStore(t)
 
