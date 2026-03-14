@@ -1553,15 +1553,17 @@ func (s *Store) DisablePushSubscription(endpoint string) error {
 // -- Food Logs --
 
 type FoodLog struct {
-	ID       int64     `json:"id"`
-	UserID   int64     `json:"user_id"`
-	EatenAt  time.Time `json:"eaten_at"`
-	Weight   int       `json:"weight"`
-	Carbs    int       `json:"carbs"`    // total grams
-	Protein  int       `json:"protein"`  // total grams
-	Fat      int       `json:"fat"`      // total grams
-	Calories int       `json:"calories"` // total kcal
-	Name     string    `json:"name,omitempty"`
+	ID        int64     `json:"id"`
+	UserID    int64     `json:"user_id"`
+	EatenAt   time.Time `json:"eaten_at"`
+	Weight    int       `json:"weight"`
+	Carbs     int       `json:"carbs"`    // total grams
+	Protein   int       `json:"protein"`  // total grams
+	Fat       int       `json:"fat"`      // total grams
+	Calories  int       `json:"calories"` // total kcal
+	Name      string    `json:"name,omitempty"`
+	ProductID *int64    `json:"product_id,omitempty"`
+	IsMeal    bool      `json:"is_meal"`
 }
 
 type FoodProduct struct {
@@ -1774,7 +1776,7 @@ func (s *Store) CreateMealFromLogs(ctx context.Context, userID int64, name strin
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, user_id, eaten_at, weight, carbs, protein, fat, calories, name
+		SELECT id, user_id, eaten_at, weight, carbs, protein, fat, calories, name, product_id
 		FROM food_log
 		WHERE user_id = ? AND id IN (%s)
 	`, strings.Join(placeholders, ","))
@@ -1791,7 +1793,8 @@ func (s *Store) CreateMealFromLogs(ctx context.Context, userID int64, name strin
 	for rows.Next() {
 		var l FoodLog
 		var lname sql.NullString
-		if err := rows.Scan(&l.ID, &l.UserID, &l.EatenAt, &l.Weight, &l.Carbs, &l.Protein, &l.Fat, &l.Calories, &lname); err != nil {
+		var productID sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.UserID, &l.EatenAt, &l.Weight, &l.Carbs, &l.Protein, &l.Fat, &l.Calories, &lname, &productID); err != nil {
 			return nil, err
 		}
 		totalWeight += l.Weight
@@ -1852,9 +1855,19 @@ func (s *Store) CreateMealFromLogs(ctx context.Context, userID int64, name strin
 }
 
 func (s *Store) CreateFoodLog(ctx context.Context, f *FoodLog) (int64, error) {
+	if f.ProductID != nil {
+		var exists int
+		err := s.db.QueryRowContext(ctx, "SELECT 1 FROM food_products WHERE id = ? AND user_id = ?", *f.ProductID, f.UserID).Scan(&exists)
+		if err == sql.ErrNoRows {
+			return 0, fmt.Errorf("invalid product_id: product does not exist or belongs to another user")
+		} else if err != nil {
+			return 0, err
+		}
+	}
+
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO food_log (user_id, eaten_at, weight, carbs, protein, fat, calories, name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		f.UserID, f.EatenAt, f.Weight, f.Carbs, f.Protein, f.Fat, f.Calories, f.Name)
+		"INSERT INTO food_log (user_id, eaten_at, weight, carbs, protein, fat, calories, name, product_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		f.UserID, f.EatenAt, f.Weight, f.Carbs, f.Protein, f.Fat, f.Calories, f.Name, f.ProductID)
 	if err != nil {
 		return 0, err
 	}
@@ -1862,9 +1875,19 @@ func (s *Store) CreateFoodLog(ctx context.Context, f *FoodLog) (int64, error) {
 }
 
 func (s *Store) UpdateFoodLog(ctx context.Context, f *FoodLog) error {
+	if f.ProductID != nil {
+		var exists int
+		err := s.db.QueryRowContext(ctx, "SELECT 1 FROM food_products WHERE id = ? AND user_id = ?", *f.ProductID, f.UserID).Scan(&exists)
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("invalid product_id: product does not exist or belongs to another user")
+		} else if err != nil {
+			return err
+		}
+	}
+
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE food_log SET eaten_at = ?, weight = ?, carbs = ?, protein = ?, fat = ?, calories = ?, name = ? WHERE id = ? AND user_id = ?",
-		f.EatenAt, f.Weight, f.Carbs, f.Protein, f.Fat, f.Calories, f.Name, f.ID, f.UserID)
+		"UPDATE food_log SET eaten_at = ?, weight = ?, carbs = ?, protein = ?, fat = ?, calories = ?, name = ?, product_id = ? WHERE id = ? AND user_id = ?",
+		f.EatenAt, f.Weight, f.Carbs, f.Protein, f.Fat, f.Calories, f.Name, f.ProductID, f.ID, f.UserID)
 	if err != nil {
 		return err
 	}
@@ -1880,7 +1903,14 @@ func (s *Store) GetFoodLogs(ctx context.Context, userID int64, date time.Time, d
 	endOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location()).Add(24 * time.Hour)
 	startOfDay := endOfDay.Add(-time.Duration(days) * 24 * time.Hour)
 
-	query := "SELECT id, user_id, eaten_at, weight, carbs, protein, fat, calories, name FROM food_log WHERE user_id = ? AND eaten_at >= ? AND eaten_at < ? ORDER BY eaten_at ASC"
+	query := `
+		SELECT
+			fl.id, fl.user_id, fl.eaten_at, fl.weight, fl.carbs, fl.protein, fl.fat, fl.calories, fl.name, fl.product_id, fp.is_meal
+		FROM food_log fl
+		LEFT JOIN food_products fp ON fl.product_id = fp.id AND fp.user_id = fl.user_id
+		WHERE fl.user_id = ? AND fl.eaten_at >= ? AND fl.eaten_at < ?
+		ORDER BY fl.eaten_at ASC
+	`
 
 	rows, err := s.db.QueryContext(ctx, query, userID, startOfDay, endOfDay)
 	if err != nil {
@@ -1892,11 +1922,21 @@ func (s *Store) GetFoodLogs(ctx context.Context, userID int64, date time.Time, d
 	for rows.Next() {
 		var l FoodLog
 		var name sql.NullString
-		if err := rows.Scan(&l.ID, &l.UserID, &l.EatenAt, &l.Weight, &l.Carbs, &l.Protein, &l.Fat, &l.Calories, &name); err != nil {
+		var productID sql.NullInt64
+		var isMeal sql.NullBool
+
+		if err := rows.Scan(&l.ID, &l.UserID, &l.EatenAt, &l.Weight, &l.Carbs, &l.Protein, &l.Fat, &l.Calories, &name, &productID, &isMeal); err != nil {
 			return nil, err
 		}
 		if name.Valid {
 			l.Name = name.String
+		}
+		if productID.Valid {
+			id := productID.Int64
+			l.ProductID = &id
+		}
+		if isMeal.Valid {
+			l.IsMeal = isMeal.Bool
 		}
 		logs = append(logs, l)
 	}
