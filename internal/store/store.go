@@ -270,17 +270,24 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 		}
 
 		if lastTaken.Valid {
+			raw := lastTaken.String
+			// Strip Go's monotonic clock suffix if present (e.g. " ... m=+123.456")
+			if idx := strings.Index(raw, " m="); idx != -1 {
+				raw = raw[:idx]
+			}
+
 			// Helper to parse potential SQLite formats
 			formats := []string{
 				"2006-01-02 15:04:05.999999999-07:00", // Default driver format
 				"2006-01-02 15:04:05.999999999 -0700 MST", // Go String() format
 				"2006-01-02 15:04:05 -0700 MST",           // Go String() format (no nanos)
+				"2006-01-02 15:04:05.999999999",           // No TZ
 				"2006-01-02 15:04:05",                     // Simple
 				time.RFC3339,
 				time.RFC3339Nano,
 			}
 			for _, layout := range formats {
-				if t, err := time.Parse(layout, lastTaken.String); err == nil {
+				if t, err := time.Parse(layout, raw); err == nil {
 					m.LastTakenAt = &t
 					break
 				}
@@ -530,6 +537,7 @@ func (s *Store) IsLowOnStock(m *Medication, daysThreshold int) bool {
 // -- Intake Log --
 
 func (s *Store) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
+	scheduledAt = scheduledAt.Truncate(0)
 	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at, status) VALUES (?, ?, ?, 'PENDING')",
 		medID, userID, scheduledAt)
 	if err != nil {
@@ -539,6 +547,7 @@ func (s *Store) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64,
 }
 
 func (s *Store) CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error) {
+	takenAt = takenAt.Truncate(0)
 	// For manual intake, scheduled_at = taken_at
 	res, err := s.db.Exec("INSERT INTO intake_log (medication_id, user_id, scheduled_at, taken_at, status) VALUES (?, ?, ?, ?, 'TAKEN')",
 		medID, userID, takenAt, takenAt)
@@ -549,6 +558,7 @@ func (s *Store) CreateManualIntake(medID, userID int64, takenAt time.Time) (int6
 }
 
 func (s *Store) ConfirmIntake(id int64, takenAt time.Time) error {
+	takenAt = takenAt.Truncate(0)
 	res, err := s.db.Exec("UPDATE intake_log SET status = 'TAKEN', taken_at = ? WHERE id = ? AND status = 'PENDING'", takenAt, id)
 	if err != nil {
 		return err
@@ -579,6 +589,7 @@ func (s *Store) SkipIntake(id int64) error {
 }
 
 func (s *Store) UpdateIntake(id int64, takenAt time.Time, status string) error {
+	takenAt = takenAt.Truncate(0)
 	var takenAtVal interface{}
 	if status == "TAKEN" {
 		takenAtVal = takenAt
@@ -688,6 +699,7 @@ func (s *Store) GetIntake(id int64) (*IntakeLog, error) {
 }
 
 func (s *Store) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*IntakeLog, error) {
+	scheduledAt = scheduledAt.Truncate(0)
 	// We want to find a log that matches the medication and the exact scheduled time (or within a small window if we used drift, but here we construct exact time)
 	// Since we construct scheduledAt based on "Today + HH:MM", it should be exact.
 
@@ -709,6 +721,8 @@ func (s *Store) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*Intake
 }
 
 func (s *Store) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
+	scheduledAt = scheduledAt.Truncate(0)
+	takenAt = takenAt.Truncate(0)
 	// Only confirm intakes for medications that are NOT archived (archived = 0)
 	// Use RETURNING clause to get the IDs that were actually updated, avoiding race conditions
 	// with concurrent calls that might use the same takenAt timestamp.
