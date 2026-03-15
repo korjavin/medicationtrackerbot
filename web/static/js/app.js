@@ -1842,7 +1842,10 @@ async function _archiveMedApi(id) {
 
 async function loadHistory() {
     // Ensure medications are loaded for name resolution
+    // populateMedFilter() is called inside loadMeds(), so only call it explicitly
+    // when loadMeds() is skipped (medications pre-loaded from bootstrap)
     if (medications.length === 0) await loadMeds();
+    else populateMedFilter();
 
     const days = document.getElementById('history-filter-days').value;
     const medId = document.getElementById('history-filter-med').value;
