@@ -52,8 +52,8 @@ The function builds the request body with only `scheduled_at` and `medication_id
 
 The existing tests already cover `intake_ids` path (`TestHandleConfirmSchedule_WithIntakeIDs`). Add a test that mirrors the push-notification scenario: a single medication confirmed by `intake_ids` coming from a click on a `medication_individual` push notification (a single intake ID).
 
-- [ ] Add `TestHandleConfirmSchedule_SingleIntakeFromPush`: creates one intake, sends `{ intake_ids: [id] }`, asserts status TAKEN and inventory decremented
-- [ ] Run `go test ./internal/server/...` — must pass
+- [x] Add `TestHandleConfirmSchedule_SingleIntakeFromPush`: creates one intake, sends `{ intake_ids: [id] }`, asserts status TAKEN and inventory decremented
+- [x] Run `go test ./internal/server/...` — must pass
 
 ### Task 4: Verify acceptance criteria
 
