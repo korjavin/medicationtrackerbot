@@ -1950,7 +1950,7 @@ async function triggerNextIntake() {
 
 function handlePushAction(action, params) {
     if (action === 'medication_confirm') {
-        const ids = params.get('ids') ? params.get('ids').split(',') : [];
+        const ids = params.get('ids') ? params.get('ids').split(',').map(Number) : [];
         const names = params.get('names') ? params.get('names').split(',') : [];
         const scheduled = params.get('scheduled');
         const intakeIds = params.get('intake_ids') ? params.get('intake_ids').split(',').map(Number) : [];
