@@ -35,8 +35,8 @@ Call `populateMedFilter()` in `loadHistory()` so the combobox is populated even 
 
 ### Task N: Verify acceptance criteria
 
-- [ ] manual test: open the app, navigate directly to the History sub-tab without visiting Schedule first — combobox should show medication names
-- [ ] manual test: navigate to History sub-tab after visiting Schedule — combobox still works correctly
-- [ ] run full test suite: `go test ./...` and frontend tests
-- [ ] move this plan to `docs/plans/completed/`
+- [x] manual test: open the app, navigate directly to the History sub-tab without visiting Schedule first — combobox should show medication names
+- [x] manual test: navigate to History sub-tab after visiting Schedule — combobox still works correctly
+- [x] run full test suite: `go test ./...` and frontend tests
+- [x] move this plan to `docs/plans/completed/`
 ---
