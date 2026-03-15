@@ -625,7 +625,7 @@ func (s *Store) GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) (
 		return nil, err
 	}
 	defer rows.Close()
-	var logs []IntakeLog
+	logs := []IntakeLog{}
 	for rows.Next() {
 		var l IntakeLog
 		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status, &l.SnoozedUntil); err != nil {
