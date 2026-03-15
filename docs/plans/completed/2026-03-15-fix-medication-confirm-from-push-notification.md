@@ -63,5 +63,5 @@ The existing tests already cover `intake_ids` path (`TestHandleConfirmSchedule_W
 
 ### Task 5: Update documentation
 
-- [ ] No CLAUDE.md changes needed (internal bug fix, no pattern change)
-- [ ] Move this plan to `docs/plans/completed/`
+- [x] No CLAUDE.md changes needed (internal bug fix, no pattern change)
+- [x] Move this plan to `docs/plans/completed/`
