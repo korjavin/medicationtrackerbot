@@ -30,9 +30,9 @@ Two-line fix in `app.js` with a matching server test.
 
 The function reads `ids`, `names`, `scheduled` from URL params but discards `intake_ids`. Fix: read `intake_ids` and pass them to `showMedicationConfirmModal`.
 
-- [ ] In `handlePushAction`, after reading `scheduled`, add: `const intakeIds = params.get('intake_ids') ? params.get('intake_ids').split(',').map(Number) : [];`
-- [ ] Change the `showMedicationConfirmModal` call from `showMedicationConfirmModal(ids, names, scheduled)` to `showMedicationConfirmModal(ids, names, scheduled, 'confirm', intakeIds)`
-- [ ] Run full test suite: `go test ./...` — must pass before task 2
+- [x] In `handlePushAction`, after reading `scheduled`, add: `const intakeIds = params.get('intake_ids') ? params.get('intake_ids').split(',').map(Number) : [];`
+- [x] Change the `showMedicationConfirmModal` call from `showMedicationConfirmModal(ids, names, scheduled)` to `showMedicationConfirmModal(ids, names, scheduled, 'confirm', intakeIds)`
+- [x] Run full test suite: `go test ./...` — must pass before task 2
 
 ### Task 2: Fix `confirmSelectedMedications` to include `intake_ids` in API request
 
