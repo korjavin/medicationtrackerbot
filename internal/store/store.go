@@ -273,8 +273,11 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 			// Helper to parse potential SQLite formats
 			formats := []string{
 				"2006-01-02 15:04:05.999999999-07:00", // Default driver format
-				"2006-01-02 15:04:05",                 // Simple
+				"2006-01-02 15:04:05.999999999 -0700 MST", // Go String() format
+				"2006-01-02 15:04:05 -0700 MST",           // Go String() format (no nanos)
+				"2006-01-02 15:04:05",                     // Simple
 				time.RFC3339,
+				time.RFC3339Nano,
 			}
 			for _, layout := range formats {
 				if t, err := time.Parse(layout, lastTaken.String); err == nil {
