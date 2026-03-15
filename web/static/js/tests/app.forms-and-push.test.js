@@ -72,6 +72,41 @@ describe('app.js form submissions and push modal behavior', () => {
     }
   });
 
+  it('confirmSelectedMedications includes intake_ids in POST body when provided via push notification', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const apiCallSpy = vi.fn().mockResolvedValue({ ok: true });
+      const loadMedsSpy = vi.fn();
+      const loadHistorySpy = vi.fn();
+      const alertSpy = vi.fn();
+
+      window.apiCall = apiCallSpy;
+      window.loadMeds = loadMedsSpy;
+      window.loadHistory = loadHistorySpy;
+      window.Telegram.WebApp.showAlert = alertSpy;
+
+      // Simulate push notification flow: ids are numbers, intakeIds are provided
+      window.showMedicationConfirmModal([10, 20], ['A', 'B'], '2026-02-27T10:00:00Z', 'confirm', [100, 200]);
+
+      const checks = document.querySelectorAll('.med-confirm-check');
+      checks[1].checked = false; // uncheck medication id 20, keeping only 10 with intakeId 100
+
+      await window.confirmSelectedMedications();
+
+      expect(apiCallSpy).toHaveBeenCalledTimes(1);
+      expect(apiCallSpy.mock.calls[0][0]).toBe('/api/medications/confirm-schedule');
+      expect(apiCallSpy.mock.calls[0][1]).toBe('POST');
+      expect(apiCallSpy.mock.calls[0][2]).toEqual({
+        scheduled_at: '2026-02-27T10:00:00Z',
+        medication_ids: [10],
+        intake_ids: [100]
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
   it('handleBPSubmit posts payload, invalidates bp tag and refreshes list', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
