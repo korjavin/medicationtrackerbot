@@ -2058,12 +2058,24 @@ async function confirmSelectedMedications() {
     const checks = document.querySelectorAll('.med-confirm-check:checked');
     const selectedIds = Array.from(checks).map(c => parseInt(c.value));
 
+    // Map selected medication IDs to their corresponding intake IDs (parallel arrays)
+    const selectedIntakeIds = selectedIds
+        .map(medId => {
+            const idx = pendingMedConfirmIds.indexOf(medId);
+            return idx !== -1 ? pendingMedConfirmIntakeIds[idx] : null;
+        })
+        .filter(id => id != null);
+
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
-        const res = await apiCall('/api/medications/confirm-schedule', 'POST', {
+        const body = {
             scheduled_at: pendingMedConfirmScheduled,
             medication_ids: selectedIds
-        });
+        };
+        if (selectedIntakeIds.length > 0) {
+            body.intake_ids = selectedIntakeIds;
+        }
+        const res = await apiCall('/api/medications/confirm-schedule', 'POST', body);
 
         if (res) {
             safeAlert("Confirmed!");

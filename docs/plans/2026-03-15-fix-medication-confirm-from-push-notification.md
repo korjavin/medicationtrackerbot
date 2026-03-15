@@ -41,9 +41,9 @@ The function reads `ids`, `names`, `scheduled` from URL params but discards `int
 
 The function builds the request body with only `scheduled_at` and `medication_ids`. Fix: when `pendingMedConfirmIntakeIds` is populated, also compute and send `intake_ids` for the selected medications.
 
-- [ ] After computing `selectedIds`, compute `selectedIntakeIds`: map each `selectedId` to its intake ID using the parallel `pendingMedConfirmIds` / `pendingMedConfirmIntakeIds` arrays
-- [ ] Include `intake_ids: selectedIntakeIds` in the API request body (alongside `scheduled_at` and `medication_ids` for backwards compatibility; the server prefers `intake_ids` when present)
-- [ ] Run full test suite: `go test ./...` — must pass before task 3
+- [x] After computing `selectedIds`, compute `selectedIntakeIds`: map each `selectedId` to its intake ID using the parallel `pendingMedConfirmIds` / `pendingMedConfirmIntakeIds` arrays
+- [x] Include `intake_ids: selectedIntakeIds` in the API request body (alongside `scheduled_at` and `medication_ids` for backwards compatibility; the server prefers `intake_ids` when present)
+- [x] Run full test suite: `go test ./...` — must pass before task 3
 
 ### Task 3: Add server test for the push-notification confirm flow
 
