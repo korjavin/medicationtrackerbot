@@ -230,6 +230,42 @@ describe('app.js medication, history and intake flows', () => {
     }
   });
 
+  it('loadHistory populates the med filter when medications are pre-loaded from bootstrap', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const now = new Date();
+      // Pre-populate medications directly (simulating bootstrap path — loadMeds() will be skipped)
+      const recentDate = new Date(now.getTime() - (2 * 24 * 60 * 60 * 1000)).toISOString();
+      await seedMedications(window, [
+        {
+          id: 10,
+          name: 'Pre-loaded Med',
+          schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
+          last_taken_at: recentDate
+        }
+      ]);
+
+      // Reset the filter to only default option to simulate it not being populated yet
+      const filter = document.getElementById('history-filter-med');
+      filter.innerHTML = '<option value="0">All Medications</option>';
+      expect(filter.querySelectorAll('option').length).toBe(1);
+
+      // Mock DataStore.loadSWR so loadHistory doesn't fail
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onFresh([]);
+      });
+
+      await window.loadHistory();
+
+      // Filter should now include Pre-loaded Med (medications were already loaded, populateMedFilter called)
+      const options = Array.from(filter.querySelectorAll('option'));
+      expect(options.some(o => o.text.includes('Pre-loaded Med'))).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('renderHistory groups intakes and opens edit modal on TAKEN group click', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 

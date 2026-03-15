@@ -22,7 +22,7 @@ Call `populateMedFilter()` in `loadHistory()` so the combobox is populated even 
 **Files:**
 - Modify: `web/static/js/app.js`
 
-- [ ] In `loadHistory()`, add a `populateMedFilter()` call after the guard that ensures medications are loaded:
+- [x] In `loadHistory()`, add a `populateMedFilter()` call after the guard that ensures medications are loaded:
   ```javascript
   async function loadHistory() {
       // Ensure medications are loaded for name resolution
@@ -30,8 +30,8 @@ Call `populateMedFilter()` in `loadHistory()` so the combobox is populated even 
       populateMedFilter();   // <-- add this line
       ...
   ```
-- [ ] Add a test to `web/static/js/tests/app.medication-history.test.js` that verifies the filter is correctly populated when `medications` is already pre-populated (simulating the bootstrap path where `loadMeds()` is skipped)
-- [ ] Run frontend tests (`npx vitest run` from `web/static/js`) — must pass
+- [x] Add a test to `web/static/js/tests/app.medication-history.test.js` that verifies the filter is correctly populated when `medications` is already pre-populated (simulating the bootstrap path where `loadMeds()` is skipped)
+- [x] Run frontend tests (`npx vitest run` from `web/static/js`) — must pass
 
 ### Task N: Verify acceptance criteria
 

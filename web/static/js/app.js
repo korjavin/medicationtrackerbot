@@ -1843,6 +1843,7 @@ async function _archiveMedApi(id) {
 async function loadHistory() {
     // Ensure medications are loaded for name resolution
     if (medications.length === 0) await loadMeds();
+    populateMedFilter();
 
     const days = document.getElementById('history-filter-days').value;
     const medId = document.getElementById('history-filter-med').value;
