@@ -1953,9 +1953,10 @@ function handlePushAction(action, params) {
         const ids = params.get('ids') ? params.get('ids').split(',') : [];
         const names = params.get('names') ? params.get('names').split(',') : [];
         const scheduled = params.get('scheduled');
+        const intakeIds = params.get('intake_ids') ? params.get('intake_ids').split(',').map(Number) : [];
 
         setTimeout(() => {
-            showMedicationConfirmModal(ids, names, scheduled);
+            showMedicationConfirmModal(ids, names, scheduled, 'confirm', intakeIds);
         }, 500);
     } else if (action === 'workout_start') {
         const sessionId = params.get('session_id');
