@@ -400,7 +400,14 @@ func (s *Server) Run(ctx context.Context) error {
 	}, nil)
 
 	mcpHandler := s.oauth.Middleware(sseHandler)
-	mux.Handle("/mcp", mcpHandler)
+
+	// Limit request body size to 1MB to prevent memory exhaustion
+	maxBytesMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		mcpHandler.ServeHTTP(w, r)
+	})
+
+	mux.Handle("/mcp", maxBytesMiddleware)
 
 	// Health check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
