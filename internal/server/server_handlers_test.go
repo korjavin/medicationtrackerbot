@@ -297,6 +297,48 @@ func TestHandleConfirmSchedule_WithIntakeIDs(t *testing.T) {
 	}
 }
 
+func TestHandleConfirmSchedule_SingleIntakeFromPush(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	userID := int64(123456)
+	medID, _ := db.CreateMedication("PushMed", "5mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "")
+	count := 10
+	db.SetInventory(medID, &count)
+
+	schedTime := time.Now()
+	intakeID, _ := db.CreateIntake(medID, userID, schedTime)
+
+	// Simulate what the fixed JS sends after clicking a push notification body:
+	// intake_ids from URL params, no scheduled_at or medication_ids
+	reqBody := map[string]interface{}{
+		"intake_ids": []int64{intakeID},
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("POST", "/api/medications/confirm-schedule", bytes.NewReader(body))
+	req = withUser(req, userID)
+	w := httptest.NewRecorder()
+
+	srv.handleConfirmSchedule(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Intake must be TAKEN
+	intake, _ := db.GetIntake(intakeID)
+	if intake.Status != "TAKEN" {
+		t.Errorf("Expected status TAKEN, got %s", intake.Status)
+	}
+
+	// Inventory must be decremented
+	med, _ := db.GetMedication(medID)
+	if med.InventoryCount == nil || *med.InventoryCount != 9 {
+		t.Errorf("Expected inventory 9, got %v", med.InventoryCount)
+	}
+}
+
 func TestHandleConfirmSchedule_RevertsAllTakenIntakesWhenEmpty(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
