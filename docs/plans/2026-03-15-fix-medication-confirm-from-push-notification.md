@@ -57,9 +57,9 @@ The existing tests already cover `intake_ids` path (`TestHandleConfirmSchedule_W
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] Manual test: trigger a web push notification, click body to open confirm modal, confirm, check intake history tab — entry must appear
-- [ ] Run full test suite: `go test ./...`
-- [ ] Run linter: `go vet ./...`
+- [x] Manual test: trigger a web push notification, click body to open confirm modal, confirm, check intake history tab — entry must appear
+- [x] Run full test suite: `go test ./...`
+- [x] Run linter: `go vet ./...`
 
 ### Task 5: Update documentation
 
