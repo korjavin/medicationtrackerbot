@@ -2039,7 +2039,7 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
 
         const input = document.createElement('input');
         input.type = 'checkbox';
-        input.value = String(id);
+        input.value = String(index); // row index — preserves identity when same med appears twice
         input.checked = true;
         input.className = 'med-confirm-check';
 
@@ -2056,14 +2056,13 @@ function closeMedicationConfirmModal() {
 
 async function confirmSelectedMedications() {
     const checks = document.querySelectorAll('.med-confirm-check:checked');
-    const selectedIds = Array.from(checks).map(c => parseInt(c.value));
+    // checkbox.value holds the row index, not the medication ID
+    const selectedIndices = Array.from(checks).map(c => parseInt(c.value));
+    const selectedIds = selectedIndices.map(idx => pendingMedConfirmIds[idx]);
 
-    // Map selected medication IDs to their corresponding intake IDs (parallel arrays)
-    const selectedIntakeIds = selectedIds
-        .map(medId => {
-            const idx = pendingMedConfirmIds.indexOf(medId);
-            return idx !== -1 ? pendingMedConfirmIntakeIds[idx] : null;
-        })
+    // Use row index directly — avoids indexOf collision when same med appears twice
+    const selectedIntakeIds = selectedIndices
+        .map(idx => pendingMedConfirmIntakeIds[idx])
         .filter(id => id != null);
 
     const btn = document.getElementById('med-confirm-action-btn');
@@ -2089,15 +2088,16 @@ async function confirmSelectedMedications() {
 
 async function updateIntakeHistory() {
     const checks = document.querySelectorAll('.med-confirm-check');
-    const selectedIds = [];
-    const unselectedIds = [];
+    const selectedIndices = [];
+    const unselectedIndices = [];
 
+    // checkbox.value holds the row index — preserves identity when same med appears twice
     checks.forEach(c => {
-        const medId = parseInt(c.value);
+        const idx = parseInt(c.value);
         if (c.checked) {
-            selectedIds.push(medId);
+            selectedIndices.push(idx);
         } else {
-            unselectedIds.push(medId);
+            unselectedIndices.push(idx);
         }
     });
 
@@ -2106,14 +2106,9 @@ async function updateIntakeHistory() {
 
     const updates = [];
 
-    // Map medication IDs back to intake IDs if possible. 
-    // We have pendingMedConfirmIds (order matches pendingMedConfirmIntakeIds)
-    // We need to find the intake ID for each medication ID.
-
     // For selected items (TAKEN)
-    selectedIds.forEach(medId => {
-        const idx = pendingMedConfirmIds.indexOf(medId);
-        if (idx !== -1 && pendingMedConfirmIntakeIds[idx]) {
+    selectedIndices.forEach(idx => {
+        if (pendingMedConfirmIntakeIds[idx]) {
             updates.push({
                 id: pendingMedConfirmIntakeIds[idx],
                 status: 'TAKEN',
@@ -2123,9 +2118,8 @@ async function updateIntakeHistory() {
     });
 
     // For unselected items (PENDING - Reverting)
-    unselectedIds.forEach(medId => {
-        const idx = pendingMedConfirmIds.indexOf(medId);
-        if (idx !== -1 && pendingMedConfirmIntakeIds[idx]) {
+    unselectedIndices.forEach(idx => {
+        if (pendingMedConfirmIntakeIds[idx]) {
             updates.push({
                 id: pendingMedConfirmIntakeIds[idx],
                 status: 'PENDING',
