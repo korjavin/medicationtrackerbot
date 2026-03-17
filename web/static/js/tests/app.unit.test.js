@@ -366,4 +366,20 @@ describe('app.js unit tests', () => {
       cleanup();
     }
   });
+
+  it('_formatCountdown converts milliseconds to h:mm countdown string', () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      const fmt = window._formatCountdown;
+      expect(fmt(0)).toBe('0:00');
+      expect(fmt(-1000)).toBe('0:00');
+      expect(fmt(5 * 60 * 1000)).toBe('0:05');
+      expect(fmt(65 * 60 * 1000)).toBe('1:05');
+      expect(fmt((5 * 60 + 13) * 60 * 1000)).toBe('5:13');
+      expect(fmt((5 * 60 + 1) * 60 * 1000)).toBe('5:01');
+      expect(fmt(59 * 1000)).toBe('0:00'); // less than 1 minute rounds down
+    } finally {
+      cleanup();
+    }
+  });
 });
