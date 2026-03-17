@@ -1396,13 +1396,14 @@ async function loadFoodLogs() {
 
     // Always fetch fresh data
     try {
+        const tzOffset = new Date().getTimezoneOffset(); // JS: positive = west of UTC (e.g. PDT = 420)
         const daysParam = period === 'week' ? '&days=7' : '';
-        const groups = await apiCall(`/api/food/log?date=${dateStr}${daysParam}`, 'GET');
+        const groups = await apiCall(`/api/food/log?date=${dateStr}&tz_offset=${tzOffset}${daysParam}`, 'GET');
 
         let weekStats = null;
         if (period === 'week' || period === '2weeks') {
             const daysCount = period === 'week' ? 7 : 14;
-            weekStats = await apiCall(`/api/food/stats?date=${dateStr}&days=${daysCount}`, 'GET');
+            weekStats = await apiCall(`/api/food/stats?date=${dateStr}&days=${daysCount}&tz_offset=${tzOffset}`, 'GET');
         }
 
         await window.DataStore.setCached(cacheKey, { groups: groups || [], weekStats });

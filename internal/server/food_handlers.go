@@ -118,13 +118,7 @@ func (s *Server) handleGetFoodLogs(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	dateStr := r.URL.Query().Get("date")
-	date := time.Now()
-	if dateStr != "" {
-		parsed, err := time.Parse("2006-01-02", dateStr)
-		if err == nil {
-			date = parsed
-		}
-	}
+	date := parseDateWithTzOffset(dateStr, r.URL.Query().Get("tz_offset"))
 
 	days := 1
 	daysStr := r.URL.Query().Get("days")
@@ -262,6 +256,26 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 }
 
 // groupFoodLogs groups logs into meals based on time proximity
+// parseDateWithTzOffset parses a YYYY-MM-DD dateStr using the client's timezone
+// offset (tz_offset, JS convention: positive = minutes west of UTC, e.g. PDT = 420).
+// This ensures day boundaries align with the user's local day, not UTC.
+func parseDateWithTzOffset(dateStr, tzOffsetStr string) time.Time {
+	loc := time.Local
+	if tzOffsetStr != "" {
+		if offsetMin, err := strconv.Atoi(tzOffsetStr); err == nil {
+			// JS getTimezoneOffset() is positive west of UTC (opposite of standard)
+			loc = time.FixedZone("client", -offsetMin*60)
+		}
+	}
+	if dateStr != "" {
+		parsed, err := time.Parse("2006-01-02", dateStr)
+		if err == nil {
+			return time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, loc)
+		}
+	}
+	return time.Now().In(loc)
+}
+
 func groupFoodLogs(logs []store.FoodLog, isMultiDay bool) []FoodGroup {
 	if len(logs) == 0 {
 		return []FoodGroup{}
@@ -354,13 +368,7 @@ func (s *Server) handleGetFoodStats(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	dateStr := r.URL.Query().Get("date")
-	date := time.Now()
-	if dateStr != "" {
-		parsed, err := time.Parse("2006-01-02", dateStr)
-		if err == nil {
-			date = parsed
-		}
-	}
+	date := parseDateWithTzOffset(dateStr, r.URL.Query().Get("tz_offset"))
 
 	days := 7 // Default for week stats
 	daysStr := r.URL.Query().Get("days")
