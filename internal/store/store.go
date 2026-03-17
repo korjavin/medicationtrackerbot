@@ -1950,8 +1950,9 @@ func (s *Store) UpdateFoodLog(ctx context.Context, f *FoodLog) error {
 }
 
 func (s *Store) GetFoodLogs(ctx context.Context, userID int64, date time.Time, days int) ([]FoodLog, error) {
-	// Range for the days
-	endOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location()).Add(24 * time.Hour)
+	// Range for the days — compute in the date's timezone so day boundaries respect the
+	// client's local time, then convert to UTC for consistent SQLite string comparison.
+	endOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location()).Add(24 * time.Hour).UTC()
 	startOfDay := endOfDay.Add(-time.Duration(days) * 24 * time.Hour)
 
 	query := `
@@ -2022,8 +2023,8 @@ type FoodStats struct {
 }
 
 func (s *Store) GetFoodStats(ctx context.Context, userID int64, endDate time.Time, days int) (*FoodStats, error) {
-	// Range for the days
-	endOfDay := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 0, 0, 0, 0, endDate.Location()).Add(24 * time.Hour)
+	// Range for the days — same UTC-normalisation as GetFoodLogs.
+	endOfDay := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 0, 0, 0, 0, endDate.Location()).Add(24 * time.Hour).UTC()
 	startOfDay := endOfDay.Add(-time.Duration(days) * 24 * time.Hour)
 
 	query := "SELECT COALESCE(SUM(calories), 0), COALESCE(SUM(carbs), 0), COALESCE(SUM(protein), 0), COALESCE(SUM(fat), 0) FROM food_log WHERE user_id = ? AND eaten_at >= ? AND eaten_at < ?"
