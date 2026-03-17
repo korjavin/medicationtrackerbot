@@ -203,6 +203,7 @@ func New(dbPath string) (*Store, error) {
 
 	// Set Base FS
 	goose.SetBaseFS(embedMigrations)
+	goose.SetLogger(goose.NopLogger())
 
 	// Run migrations
 	if err := goose.Up(db, "migrations"); err != nil {
