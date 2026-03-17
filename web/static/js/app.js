@@ -1873,9 +1873,24 @@ async function loadHistory() {
     renderNextIntakeTrigger();
 }
 
+let _nextIntakeTimerInterval = null;
+
+function _formatCountdown(ms) {
+    if (ms <= 0) return '0:00';
+    const totalMinutes = Math.floor(ms / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours}:${String(minutes).padStart(2, '0')}`;
+}
+
 async function renderNextIntakeTrigger() {
     const container = document.getElementById('next-intake-trigger');
     if (!container) return;
+
+    if (_nextIntakeTimerInterval) {
+        clearInterval(_nextIntakeTimerInterval);
+        _nextIntakeTimerInterval = null;
+    }
 
     try {
         const res = await window.DataStore.fetchFresh(
@@ -1905,12 +1920,22 @@ async function renderNextIntakeTrigger() {
 
         const body = document.createElement('div');
         const title = document.createElement('div');
-        title.style.cssText = 'font-size: 14px; font-weight: 600; margin-bottom: 4px;';
+        title.style.cssText = 'font-size: 14px; font-weight: 600; margin-bottom: 2px;';
         title.textContent = 'Next scheduled intake';
+
+        const countdown = document.createElement('div');
+        countdown.style.cssText = 'font-size: 28px; font-weight: 700; letter-spacing: 1px; line-height: 1.1; margin-bottom: 4px;';
+        function updateCountdown() {
+            countdown.textContent = _formatCountdown(nextTime - Date.now());
+        }
+        updateCountdown();
+        _nextIntakeTimerInterval = setInterval(updateCountdown, 30000);
+
         const details = document.createElement('div');
         details.style.cssText = 'font-size: 12px; opacity: 0.9;';
         details.textContent = `${medNamesStr} at ${timeStr}`;
         body.appendChild(title);
+        body.appendChild(countdown);
         body.appendChild(details);
 
         const action = document.createElement('button');
