@@ -173,6 +173,141 @@ func TestHandleGetFoodIntakeStatus(t *testing.T) {
 	}
 }
 
+func TestParseDateWithTzOffset(t *testing.T) {
+	cases := []struct {
+		name        string
+		dateStr     string
+		tzOffsetStr string
+		wantUTCHour int // expected UTC hour of the parsed midnight
+	}{
+		{
+			name:        "UTC (tz_offset=0)",
+			dateStr:     "2026-03-17",
+			tzOffsetStr: "0",
+			wantUTCHour: 0, // midnight UTC = 00:00 UTC
+		},
+		{
+			name:        "California PDT (tz_offset=420, UTC-7)",
+			dateStr:     "2026-03-17",
+			tzOffsetStr: "420",
+			wantUTCHour: 7, // midnight PDT = 07:00 UTC
+		},
+		{
+			name:        "Berlin CET (tz_offset=-60, UTC+1)",
+			dateStr:     "2026-03-17",
+			tzOffsetStr: "-60",
+			wantUTCHour: 23, // midnight CET = 23:00 UTC of previous day
+		},
+		{
+			name:        "invalid tz_offset falls back to time.Local",
+			dateStr:     "2026-03-17",
+			tzOffsetStr: "abc",
+			// just verify it returns a valid time without panic; UTC hour depends on local TZ
+		},
+		{
+			name:        "empty tz_offset uses time.Local",
+			dateStr:     "2026-03-17",
+			tzOffsetStr: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := parseDateWithTzOffset(tc.dateStr, tc.tzOffsetStr)
+			if result.IsZero() {
+				t.Fatal("expected non-zero time")
+			}
+			// For cases with known UTC hour, verify the UTC representation
+			if tc.tzOffsetStr == "0" || tc.tzOffsetStr == "420" {
+				utc := result.UTC()
+				if utc.Hour() != tc.wantUTCHour {
+					t.Errorf("got UTC hour %d, want %d", utc.Hour(), tc.wantUTCHour)
+				}
+				// Date part in the parsed timezone should be 2026-03-17
+				if result.Day() != 17 || result.Month() != time.March || result.Year() != 2026 {
+					t.Errorf("wrong date: %v", result)
+				}
+				// Should represent local midnight (hour=0 in the local timezone)
+				if result.Hour() != 0 {
+					t.Errorf("expected local midnight (hour=0), got %d", result.Hour())
+				}
+			}
+			if tc.tzOffsetStr == "-60" {
+				utc := result.UTC()
+				if utc.Hour() != tc.wantUTCHour || utc.Day() != 16 {
+					t.Errorf("got UTC %v, want 2026-03-16T23:00Z", utc)
+				}
+			}
+		})
+	}
+}
+
+// TestHandleGetFoodLogsTimezone verifies that food items added in the evening
+// in a western timezone (e.g. California PDT = UTC-7) still appear when
+// querying with tz_offset. This is the core regression test for the bug where
+// items added after 17:00 PDT were stored as the next UTC day and became invisible.
+func TestHandleGetFoodLogsTimezone(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	ctx := ctxWithUser(123456)
+
+	// Simulate food added at 18:00 PDT on 2026-03-17.
+	// 18:00 PDT (UTC-7) = 2026-03-18T01:00Z — next UTC day.
+	californiaEvening := time.Date(2026, time.March, 18, 1, 0, 0, 0, time.UTC)
+	_, err := db.CreateFoodLog(ctx, &store.FoodLog{
+		UserID:   123456,
+		EatenAt:  californiaEvening,
+		Name:     "Late dinner",
+		Calories: 600,
+	})
+	if err != nil {
+		t.Fatalf("CreateFoodLog: %v", err)
+	}
+
+	// Without tz_offset (UTC day boundaries): querying 2026-03-17 should NOT return it.
+	req := httptest.NewRequest("GET", "/api/food/log?date=2026-03-17", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleGetFoodLogs(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", w.Code)
+	}
+	var groups []FoodGroup
+	if err := json.NewDecoder(w.Body).Decode(&groups); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	totalItems := 0
+	for _, g := range groups {
+		totalItems += len(g.Logs)
+	}
+	if totalItems != 0 {
+		t.Errorf("without tz_offset: expected 0 items for UTC 2026-03-17, got %d (entry is on 2026-03-18 UTC)", totalItems)
+	}
+
+	// With tz_offset=420 (PDT, UTC-7): querying 2026-03-17 SHOULD return it.
+	// PDT day 2026-03-17 spans [2026-03-17T07:00Z, 2026-03-18T07:00Z).
+	// Our item at 2026-03-18T01:00Z falls within that range.
+	req = httptest.NewRequest("GET", "/api/food/log?date=2026-03-17&tz_offset=420", nil)
+	req = withUser(req, 123456)
+	w = httptest.NewRecorder()
+	srv.handleGetFoodLogs(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", w.Code)
+	}
+	groups = nil
+	if err := json.NewDecoder(w.Body).Decode(&groups); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	totalItems = 0
+	for _, g := range groups {
+		totalItems += len(g.Logs)
+	}
+	if totalItems != 1 {
+		t.Errorf("with tz_offset=420: expected 1 item for PDT 2026-03-17, got %d", totalItems)
+	}
+}
+
 func TestMergeFoodProducts_DedupAndOrder(t *testing.T) {
 	localBarcode := "111"
 	local := []store.FoodProduct{
