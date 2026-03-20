@@ -39,6 +39,7 @@ type HealthDataReader interface {
 	GetVitalsSpO2(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsSpO2Log, error)
 	GetVitalsStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error)
 	ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error)
+	CreateFoodLog(ctx context.Context, log *store.FoodLog) (int64, error)
 }
 
 // Config holds MCP server configuration
@@ -303,6 +304,49 @@ func (s *Server) registerTools() {
 			}`),
 		},
 		s.handleGetStepHistory,
+	)
+
+	// Log Food Intake Tool
+	mcp.AddTool(s.mcpServer,
+		&mcp.Tool{
+			Name:        "log_food_intake",
+			Description: "Log a food intake entry with macros (calories, carbs, protein, fat) and the time it was eaten. Use this when you can estimate or look up nutritional info from a description or photo of a meal. You can backfill past meals by specifying eaten_at.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"required": ["name", "eaten_at", "calories", "carbs_g", "protein_g", "fat_g", "weight_g"],
+				"properties": {
+					"name": {
+						"type": "string",
+						"description": "Name or description of the food item or meal."
+					},
+					"eaten_at": {
+						"type": "string",
+						"description": "Date and time the food was eaten. Accepts 'YYYY-MM-DD HH:MM' or RFC3339. Use local time."
+					},
+					"calories": {
+						"type": "integer",
+						"description": "Total calories (kcal) for this serving."
+					},
+					"carbs_g": {
+						"type": "integer",
+						"description": "Total carbohydrates in grams for this serving."
+					},
+					"protein_g": {
+						"type": "integer",
+						"description": "Total protein in grams for this serving."
+					},
+					"fat_g": {
+						"type": "integer",
+						"description": "Total fat in grams for this serving."
+					},
+					"weight_g": {
+						"type": "integer",
+						"description": "Serving weight in grams (best estimate; use 0 if unknown)."
+					}
+				}
+			}`),
+		},
+		s.handleLogFoodIntake,
 	)
 
 	// Register Vitals & Health Overview Tools
