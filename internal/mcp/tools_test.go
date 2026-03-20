@@ -617,3 +617,129 @@ func TestHandleGetStepHistory_EmptyRange(t *testing.T) {
 		t.Error("expected a warning when no step data found")
 	}
 }
+
+// --- handleLogFoodIntake tests ---
+
+func TestHandleLogFoodIntake_Success(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	_, resp, err := s.handleLogFoodIntake(ctx, nil, LogFoodIntakeInput{
+		Name:     "Pasta Carbonara",
+		EatenAt:  "2026-02-18 13:00",
+		Calories: 650,
+		CarbsG:   80,
+		ProteinG: 25,
+		FatG:     22,
+		WeightG:  300,
+	})
+	if err != nil {
+		t.Fatalf("handleLogFoodIntake error: %v", err)
+	}
+	if resp.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+	if resp.Message == "" {
+		t.Error("expected non-empty message")
+	}
+
+	// Verify it was actually persisted
+	logs, err := st.GetFoodLogs(ctx, 123456, time.Date(2026, 2, 18, 0, 0, 0, 0, time.UTC), 1)
+	if err != nil {
+		t.Fatalf("GetFoodLogs error: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+	if logs[0].Name != "Pasta Carbonara" {
+		t.Errorf("expected name 'Pasta Carbonara', got %q", logs[0].Name)
+	}
+	if logs[0].Calories != 650 {
+		t.Errorf("expected calories 650, got %d", logs[0].Calories)
+	}
+}
+
+func TestHandleLogFoodIntake_RFC3339(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	_, resp, err := s.handleLogFoodIntake(ctx, nil, LogFoodIntakeInput{
+		Name:     "Salad",
+		EatenAt:  "2026-02-19T12:30:00Z",
+		Calories: 200,
+		CarbsG:   15,
+		ProteinG: 8,
+		FatG:     10,
+		WeightG:  150,
+	})
+	if err != nil {
+		t.Fatalf("handleLogFoodIntake RFC3339 error: %v", err)
+	}
+	if resp.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+}
+
+func TestHandleLogFoodIntake_FeatureDisabled(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetFoodIntakeEnabled(ctx, false); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	_, _, err := s.handleLogFoodIntake(ctx, nil, LogFoodIntakeInput{
+		Name:    "Burger",
+		EatenAt: "2026-02-18 19:00",
+	})
+	if err == nil {
+		t.Fatal("expected error when food feature is disabled")
+	}
+}
+
+func TestHandleLogFoodIntake_MissingName(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	_, _, err := s.handleLogFoodIntake(ctx, nil, LogFoodIntakeInput{
+		EatenAt:  "2026-02-18 13:00",
+		Calories: 500,
+	})
+	if err == nil {
+		t.Fatal("expected error when name is missing")
+	}
+}
+
+func TestHandleLogFoodIntake_InvalidDate(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	_, _, err := s.handleLogFoodIntake(ctx, nil, LogFoodIntakeInput{
+		Name:    "Pizza",
+		EatenAt: "not-a-date",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid date")
+	}
+}
