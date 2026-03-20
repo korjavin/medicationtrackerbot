@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/korjavin/medicationtrackerbot/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -919,6 +918,10 @@ type LogFoodIntakeResponse struct {
 
 // handleLogFoodIntake handles the log_food_intake tool
 func (s *Server) handleLogFoodIntake(ctx context.Context, req *mcp.CallToolRequest, input LogFoodIntakeInput) (*mcp.CallToolResult, LogFoodIntakeResponse, error) {
+	if s.foodWriter == nil {
+		return nil, LogFoodIntakeResponse{}, fmt.Errorf("food write-through not configured (MCP_AUDIT_ENDPOINT and MCP_AUDIT_SECRET required)")
+	}
+
 	if err := s.ensureFeatureEnabled(ctx, "food"); err != nil {
 		return nil, LogFoodIntakeResponse{}, err
 	}
@@ -948,22 +951,17 @@ func (s *Server) handleLogFoodIntake(ctx context.Context, req *mcp.CallToolReque
 		return nil, LogFoodIntakeResponse{}, fmt.Errorf("macro values and weight must be non-negative")
 	}
 
-	userID := s.config.UserID
-
-	log := &store.FoodLog{
-		UserID:   userID,
-		EatenAt:  eatenAt,
+	id, err := s.foodWriter.LogFood(ctx, foodLogPayload{
 		Name:     input.Name,
-		Weight:   input.WeightG,
+		EatenAt:  eatenAt,
 		Calories: input.Calories,
-		Carbs:    input.CarbsG,
-		Protein:  input.ProteinG,
-		Fat:      input.FatG,
-	}
-
-	id, err := s.data.CreateFoodLog(ctx, log)
+		CarbsG:   input.CarbsG,
+		ProteinG: input.ProteinG,
+		FatG:     input.FatG,
+		WeightG:  input.WeightG,
+	})
 	if err != nil {
-		slog.Error("[MCP] Failed to create food log", "error", err)
+		slog.Error("[MCP] Failed to log food intake via HTTP", "error", err)
 		return nil, LogFoodIntakeResponse{}, fmt.Errorf("failed to log food intake: %w", err)
 	}
 
