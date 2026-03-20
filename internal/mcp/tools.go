@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -897,6 +898,89 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 	}
 
 	return nil, response, nil
+}
+
+// LogFoodIntakeInput is the input type for the log_food_intake tool
+type LogFoodIntakeInput struct {
+	Name     string `json:"name"`
+	EatenAt  string `json:"eaten_at"`
+	Calories int    `json:"calories"`
+	CarbsG   int    `json:"carbs_g"`
+	ProteinG int    `json:"protein_g"`
+	FatG     int    `json:"fat_g"`
+	WeightG  int    `json:"weight_g"`
+}
+
+// LogFoodIntakeResponse is the response for the log_food_intake tool
+type LogFoodIntakeResponse struct {
+	ID      int64  `json:"id"`
+	Message string `json:"message"`
+}
+
+// handleLogFoodIntake handles the log_food_intake tool
+func (s *Server) handleLogFoodIntake(ctx context.Context, req *mcp.CallToolRequest, input LogFoodIntakeInput) (*mcp.CallToolResult, LogFoodIntakeResponse, error) {
+	if err := s.ensureFeatureEnabled(ctx, "food"); err != nil {
+		return nil, LogFoodIntakeResponse{}, err
+	}
+
+	if input.Name == "" {
+		return nil, LogFoodIntakeResponse{}, fmt.Errorf("name is required")
+	}
+	if input.EatenAt == "" {
+		return nil, LogFoodIntakeResponse{}, fmt.Errorf("eaten_at is required (format: YYYY-MM-DD HH:MM or RFC3339)")
+	}
+
+	// Parse eaten_at — accept RFC3339 or "YYYY-MM-DD HH:MM"
+	var eatenAt time.Time
+	var parseErr error
+	for _, layout := range []string{time.RFC3339, "2006-01-02 15:04", "2006-01-02T15:04", "2006-01-02"} {
+		eatenAt, parseErr = time.ParseInLocation(layout, strings.TrimSpace(input.EatenAt), time.Local)
+		if parseErr == nil {
+			break
+		}
+	}
+	if parseErr != nil {
+		return nil, LogFoodIntakeResponse{}, fmt.Errorf("invalid eaten_at %q: use YYYY-MM-DD HH:MM or RFC3339", input.EatenAt)
+	}
+
+	// Validate non-negative macros
+	if input.Calories < 0 || input.CarbsG < 0 || input.ProteinG < 0 || input.FatG < 0 || input.WeightG < 0 {
+		return nil, LogFoodIntakeResponse{}, fmt.Errorf("macro values and weight must be non-negative")
+	}
+
+	userID := s.config.UserID
+
+	log := &store.FoodLog{
+		UserID:   userID,
+		EatenAt:  eatenAt,
+		Name:     input.Name,
+		Weight:   input.WeightG,
+		Calories: input.Calories,
+		Carbs:    input.CarbsG,
+		Protein:  input.ProteinG,
+		Fat:      input.FatG,
+	}
+
+	id, err := s.data.CreateFoodLog(ctx, log)
+	if err != nil {
+		slog.Error("[MCP] Failed to create food log", "error", err)
+		return nil, LogFoodIntakeResponse{}, fmt.Errorf("failed to log food intake: %w", err)
+	}
+
+	slog.Info("[MCP] Food intake logged", "id", id, "name", input.Name, "eaten_at", eatenAt.Format("2006-01-02 15:04"))
+
+	if s.audit != nil {
+		s.audit.Record(AuditEvent{
+			DataType:  "Food (write)",
+			StartDate: eatenAt,
+			EndDate:   eatenAt,
+		})
+	}
+
+	return nil, LogFoodIntakeResponse{
+		ID:      id,
+		Message: fmt.Sprintf("Food intake logged: %s at %s (id=%d)", input.Name, eatenAt.Format("2006-01-02 15:04"), id),
+	}, nil
 }
 
 // StepHistoryResult represents a daily step count for the tool response
