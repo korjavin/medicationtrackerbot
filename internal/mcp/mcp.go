@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path"
 	"strconv"
 	"strings"
 	"syscall"
@@ -141,7 +142,7 @@ func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error
 	if cfg.AuditEndpoint != "" && cfg.AuditSecret != "" {
 		u, err := url.Parse(cfg.AuditEndpoint)
 		if err == nil {
-			u.Path = "/api/mcp-food-log"
+			u.Path = path.Join(path.Dir(u.Path), "mcp-food-log")
 			s.foodWriter = NewFoodWriter(u.String(), cfg.AuditSecret)
 		}
 	}
