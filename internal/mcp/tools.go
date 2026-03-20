@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/korjavin/medicationtrackerbot/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -917,8 +916,14 @@ type LogFoodIntakeResponse struct {
 	Message string `json:"message"`
 }
 
-// handleLogFoodIntake handles the log_food_intake tool
+// handleLogFoodIntake handles the log_food_intake tool.
+// It delegates the write to the main bot container via HMAC-signed HTTP so that
+// the MCP container can remain read-only against the database.
 func (s *Server) handleLogFoodIntake(ctx context.Context, req *mcp.CallToolRequest, input LogFoodIntakeInput) (*mcp.CallToolResult, LogFoodIntakeResponse, error) {
+	if s.foodWriter == nil {
+		return nil, LogFoodIntakeResponse{}, fmt.Errorf("food logging is not available: MCP_AUDIT_ENDPOINT and MCP_AUDIT_SECRET must be configured")
+	}
+
 	if err := s.ensureFeatureEnabled(ctx, "food"); err != nil {
 		return nil, LogFoodIntakeResponse{}, err
 	}
@@ -948,26 +953,21 @@ func (s *Server) handleLogFoodIntake(ctx context.Context, req *mcp.CallToolReque
 		return nil, LogFoodIntakeResponse{}, fmt.Errorf("macro values and weight must be non-negative")
 	}
 
-	userID := s.config.UserID
-
-	log := &store.FoodLog{
-		UserID:   userID,
-		EatenAt:  eatenAt,
+	id, err := s.foodWriter.LogFood(ctx, foodLogPayload{
 		Name:     input.Name,
-		Weight:   input.WeightG,
+		EatenAt:  eatenAt,
 		Calories: input.Calories,
-		Carbs:    input.CarbsG,
-		Protein:  input.ProteinG,
-		Fat:      input.FatG,
-	}
-
-	id, err := s.data.CreateFoodLog(ctx, log)
+		CarbsG:   input.CarbsG,
+		ProteinG: input.ProteinG,
+		FatG:     input.FatG,
+		WeightG:  input.WeightG,
+	})
 	if err != nil {
-		slog.Error("[MCP] Failed to create food log", "error", err)
+		slog.Error("[MCP] Failed to log food intake via bot API", "error", err)
 		return nil, LogFoodIntakeResponse{}, fmt.Errorf("failed to log food intake: %w", err)
 	}
 
-	slog.Info("[MCP] Food intake logged", "id", id, "name", input.Name, "eaten_at", eatenAt.Format("2006-01-02 15:04"))
+	slog.Info("[MCP] Food intake logged via bot API", "id", id, "name", input.Name, "eaten_at", eatenAt.Format("2006-01-02 15:04"))
 
 	if s.audit != nil {
 		s.audit.Record(AuditEvent{

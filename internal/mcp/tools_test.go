@@ -2,6 +2,9 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -620,9 +623,53 @@ func TestHandleGetStepHistory_EmptyRange(t *testing.T) {
 
 // --- handleLogFoodIntake tests ---
 
+// setupFoodWriteTestServer creates an MCP server with a fake bot HTTP server acting as the food-log endpoint.
+// The fake server stores the last received request and returns a fixed ID.
+func setupFoodWriteTestServer(t *testing.T) (s *Server, st *store.Store, lastReq *foodLogPayload, cleanup func()) {
+	t.Helper()
+
+	st, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create test store: %v", err)
+	}
+
+	var captured foodLogPayload
+	lastReq = &captured
+
+	const secret = "test-secret"
+
+	// Fake bot endpoint
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(struct {
+			ID int64 `json:"id"`
+		}{ID: 42})
+	}))
+
+	s = &Server{
+		config: &Config{
+			MaxQueryDays: 90,
+			UserID:       123456,
+		},
+		data:       st,
+		foodWriter: NewFoodWriter(fake.URL, secret),
+	}
+
+	cleanup = func() {
+		fake.Close()
+		st.Close()
+	}
+	return s, st, lastReq, cleanup
+}
+
 func TestHandleLogFoodIntake_Success(t *testing.T) {
-	s, st := setupFoodMCPTestServer(t)
-	defer st.Close()
+	s, st, lastReq, cleanup := setupFoodWriteTestServer(t)
+	defer cleanup()
 
 	ctx := context.Background()
 	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
@@ -641,32 +688,23 @@ func TestHandleLogFoodIntake_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleLogFoodIntake error: %v", err)
 	}
-	if resp.ID == 0 {
-		t.Error("expected non-zero ID")
+	if resp.ID != 42 {
+		t.Errorf("expected ID=42 (from fake server), got %d", resp.ID)
 	}
 	if resp.Message == "" {
 		t.Error("expected non-empty message")
 	}
-
-	// Verify it was actually persisted
-	logs, err := st.GetFoodLogs(ctx, 123456, time.Date(2026, 2, 18, 0, 0, 0, 0, time.UTC), 1)
-	if err != nil {
-		t.Fatalf("GetFoodLogs error: %v", err)
+	if lastReq.Name != "Pasta Carbonara" {
+		t.Errorf("expected forwarded name 'Pasta Carbonara', got %q", lastReq.Name)
 	}
-	if len(logs) != 1 {
-		t.Fatalf("expected 1 log, got %d", len(logs))
-	}
-	if logs[0].Name != "Pasta Carbonara" {
-		t.Errorf("expected name 'Pasta Carbonara', got %q", logs[0].Name)
-	}
-	if logs[0].Calories != 650 {
-		t.Errorf("expected calories 650, got %d", logs[0].Calories)
+	if lastReq.Calories != 650 {
+		t.Errorf("expected forwarded calories 650, got %d", lastReq.Calories)
 	}
 }
 
 func TestHandleLogFoodIntake_RFC3339(t *testing.T) {
-	s, st := setupFoodMCPTestServer(t)
-	defer st.Close()
+	s, st, _, cleanup := setupFoodWriteTestServer(t)
+	defer cleanup()
 
 	ctx := context.Background()
 	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
@@ -690,9 +728,27 @@ func TestHandleLogFoodIntake_RFC3339(t *testing.T) {
 	}
 }
 
-func TestHandleLogFoodIntake_FeatureDisabled(t *testing.T) {
-	s, st := setupFoodMCPTestServer(t)
+func TestHandleLogFoodIntake_NoFoodWriter(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t) // no foodWriter set
 	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	_, _, err := s.handleLogFoodIntake(ctx, nil, LogFoodIntakeInput{
+		Name:    "Burger",
+		EatenAt: "2026-02-18 19:00",
+	})
+	if err == nil {
+		t.Fatal("expected error when foodWriter is not configured")
+	}
+}
+
+func TestHandleLogFoodIntake_FeatureDisabled(t *testing.T) {
+	s, st, _, cleanup := setupFoodWriteTestServer(t)
+	defer cleanup()
 
 	ctx := context.Background()
 	if err := st.SetFoodIntakeEnabled(ctx, false); err != nil {
@@ -709,8 +765,8 @@ func TestHandleLogFoodIntake_FeatureDisabled(t *testing.T) {
 }
 
 func TestHandleLogFoodIntake_MissingName(t *testing.T) {
-	s, st := setupFoodMCPTestServer(t)
-	defer st.Close()
+	s, st, _, cleanup := setupFoodWriteTestServer(t)
+	defer cleanup()
 
 	ctx := context.Background()
 	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
@@ -727,8 +783,8 @@ func TestHandleLogFoodIntake_MissingName(t *testing.T) {
 }
 
 func TestHandleLogFoodIntake_InvalidDate(t *testing.T) {
-	s, st := setupFoodMCPTestServer(t)
-	defer st.Close()
+	s, st, _, cleanup := setupFoodWriteTestServer(t)
+	defer cleanup()
 
 	ctx := context.Background()
 	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {

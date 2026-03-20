@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -39,7 +40,6 @@ type HealthDataReader interface {
 	GetVitalsSpO2(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsSpO2Log, error)
 	GetVitalsStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error)
 	ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error)
-	CreateFoodLog(ctx context.Context, log *store.FoodLog) (int64, error)
 }
 
 // Config holds MCP server configuration
@@ -109,11 +109,12 @@ func LoadConfigFromEnv() (*Config, error) {
 
 // Server represents the MCP server
 type Server struct {
-	config    *Config
-	data      HealthDataReader
-	mcpServer *mcp.Server
-	oauth     *OAuthHandler
-	audit     *AuditBuffer
+	config      *Config
+	data        HealthDataReader
+	mcpServer   *mcp.Server
+	oauth       *OAuthHandler
+	audit       *AuditBuffer
+	foodWriter  *FoodWriter
 }
 
 // NewServer creates a new MCP server
@@ -122,6 +123,21 @@ func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error
 		config: cfg,
 		data:   st,
 		audit:  audit,
+	}
+
+	// Set up food writer if audit endpoint + secret are configured.
+	// Derive the food-log endpoint from the audit endpoint by replacing the path.
+	if cfg.AuditEndpoint != "" && cfg.AuditSecret != "" {
+		u, err := url.Parse(cfg.AuditEndpoint)
+		if err == nil {
+			u.Path = "/api/mcp-food-log"
+			s.foodWriter = NewFoodWriter(u.String(), cfg.AuditSecret)
+			slog.Info("[MCP] Food write endpoint configured", "endpoint", u.String())
+		} else {
+			slog.Warn("[MCP] Could not parse audit endpoint for food writer; food logging disabled", "error", err)
+		}
+	} else {
+		slog.Warn("[MCP] Food write endpoint not configured (MCP_AUDIT_ENDPOINT or MCP_AUDIT_SECRET missing); log_food_intake will be unavailable")
 	}
 
 	// Create MCP server instance
