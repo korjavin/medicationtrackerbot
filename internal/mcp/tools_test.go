@@ -2,6 +2,9 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -620,9 +623,32 @@ func TestHandleGetStepHistory_EmptyRange(t *testing.T) {
 
 // --- handleLogFoodIntake tests ---
 
+// fakeFoodLogServer creates a test HTTP server that responds to food log requests.
+// It stores the last decoded payload and returns the given ID.
+func fakeFoodLogServer(t *testing.T, returnID int64) (*httptest.Server, *foodLogPayload) {
+	t.Helper()
+	var captured foodLogPayload
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p foodLogPayload
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			http.Error(w, "bad payload", http.StatusBadRequest)
+			return
+		}
+		captured = p
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]int64{"id": returnID})
+	}))
+	return srv, &captured
+}
+
 func TestHandleLogFoodIntake_Success(t *testing.T) {
 	s, st := setupFoodMCPTestServer(t)
 	defer st.Close()
+
+	fakeSrv, captured := fakeFoodLogServer(t, 42)
+	defer fakeSrv.Close()
+	s.foodWriter = NewFoodWriter(fakeSrv.URL, "test-secret")
 
 	ctx := context.Background()
 	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
@@ -641,32 +667,29 @@ func TestHandleLogFoodIntake_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleLogFoodIntake error: %v", err)
 	}
-	if resp.ID == 0 {
-		t.Error("expected non-zero ID")
+	if resp.ID != 42 {
+		t.Errorf("expected ID=42, got %d", resp.ID)
 	}
 	if resp.Message == "" {
 		t.Error("expected non-empty message")
 	}
 
-	// Verify it was actually persisted
-	logs, err := st.GetFoodLogs(ctx, 123456, time.Date(2026, 2, 18, 0, 0, 0, 0, time.UTC), 1)
-	if err != nil {
-		t.Fatalf("GetFoodLogs error: %v", err)
+	// Verify payload was forwarded correctly
+	if captured.Name != "Pasta Carbonara" {
+		t.Errorf("expected forwarded name 'Pasta Carbonara', got %q", captured.Name)
 	}
-	if len(logs) != 1 {
-		t.Fatalf("expected 1 log, got %d", len(logs))
-	}
-	if logs[0].Name != "Pasta Carbonara" {
-		t.Errorf("expected name 'Pasta Carbonara', got %q", logs[0].Name)
-	}
-	if logs[0].Calories != 650 {
-		t.Errorf("expected calories 650, got %d", logs[0].Calories)
+	if captured.Calories != 650 {
+		t.Errorf("expected forwarded calories 650, got %d", captured.Calories)
 	}
 }
 
 func TestHandleLogFoodIntake_RFC3339(t *testing.T) {
 	s, st := setupFoodMCPTestServer(t)
 	defer st.Close()
+
+	fakeSrv, _ := fakeFoodLogServer(t, 7)
+	defer fakeSrv.Close()
+	s.foodWriter = NewFoodWriter(fakeSrv.URL, "test-secret")
 
 	ctx := context.Background()
 	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
@@ -685,14 +708,37 @@ func TestHandleLogFoodIntake_RFC3339(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleLogFoodIntake RFC3339 error: %v", err)
 	}
-	if resp.ID == 0 {
-		t.Error("expected non-zero ID")
+	if resp.ID != 7 {
+		t.Errorf("expected ID=7, got %d", resp.ID)
+	}
+}
+
+func TestHandleLogFoodIntake_WriterNotConfigured(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+
+	// foodWriter is nil (not configured)
+	_, _, err := s.handleLogFoodIntake(ctx, nil, LogFoodIntakeInput{
+		Name:    "Burger",
+		EatenAt: "2026-02-18 19:00",
+	})
+	if err == nil {
+		t.Fatal("expected error when foodWriter is nil")
 	}
 }
 
 func TestHandleLogFoodIntake_FeatureDisabled(t *testing.T) {
 	s, st := setupFoodMCPTestServer(t)
 	defer st.Close()
+
+	fakeSrv, _ := fakeFoodLogServer(t, 1)
+	defer fakeSrv.Close()
+	s.foodWriter = NewFoodWriter(fakeSrv.URL, "test-secret")
 
 	ctx := context.Background()
 	if err := st.SetFoodIntakeEnabled(ctx, false); err != nil {
@@ -712,6 +758,10 @@ func TestHandleLogFoodIntake_MissingName(t *testing.T) {
 	s, st := setupFoodMCPTestServer(t)
 	defer st.Close()
 
+	fakeSrv, _ := fakeFoodLogServer(t, 1)
+	defer fakeSrv.Close()
+	s.foodWriter = NewFoodWriter(fakeSrv.URL, "test-secret")
+
 	ctx := context.Background()
 	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
@@ -730,6 +780,10 @@ func TestHandleLogFoodIntake_InvalidDate(t *testing.T) {
 	s, st := setupFoodMCPTestServer(t)
 	defer st.Close()
 
+	fakeSrv, _ := fakeFoodLogServer(t, 1)
+	defer fakeSrv.Close()
+	s.foodWriter = NewFoodWriter(fakeSrv.URL, "test-secret")
+
 	ctx := context.Background()
 	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
 		t.Fatalf("SetFoodIntakeEnabled: %v", err)
@@ -743,3 +797,4 @@ func TestHandleLogFoodIntake_InvalidDate(t *testing.T) {
 		t.Fatal("expected error for invalid date")
 	}
 }
+
