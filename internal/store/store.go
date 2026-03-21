@@ -601,7 +601,7 @@ func (s *Store) UpdateIntake(id int64, takenAt time.Time, status string) error {
 }
 
 func (s *Store) SnoozeIntake(id int64, snoozeUntil time.Time) error {
-	res, err := s.db.Exec("UPDATE intake_log SET snoozed_until = ? WHERE id = ?", snoozeUntil, id)
+	res, err := s.db.Exec("UPDATE intake_log SET snoozed_until = ? WHERE id = ? AND status = 'PENDING'", snoozeUntil, id)
 	if err != nil {
 		return err
 	}

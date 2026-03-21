@@ -239,6 +239,9 @@ func (s *medicationService) SilenceIntake(intakeID int64) ([]int, error) {
 
 	snoozeUntil := time.Now().Add(24 * time.Hour)
 	if err := s.store.SnoozeIntake(intakeID, snoozeUntil); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotPending
+		}
 		return nil, fmt.Errorf("snooze intake %d: %w", intakeID, err)
 	}
 
