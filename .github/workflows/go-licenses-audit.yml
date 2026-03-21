@@ -160,25 +160,37 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            let report = '## 📜 License Compliance Audit\n\n';
 
+            const BLOCKED_LICENSES = ['GPL', 'AGPL', 'GNU General Public License', 'GNU Affero General Public License', 'Copyleft'];
+
+            let blockedPkgs = [];
             try {
               const csv = fs.readFileSync('licenses-report.csv', 'utf8');
-              const lines = csv.trim().split('\n');
-
-              if (lines.length > 0) {
-                report += `✅ Scanned ${lines.length} dependencies for license compliance\n`;
-                report += '- GPL/AGPL/Copyleft licenses: **BLOCKED**\n';
-                report += '- Undeclared licenses: **WARNING** (not a build failure)\n';
-                report += '- MIT/Apache/BSD/ISC/MPL: **ALLOWED**\n';
+              for (const line of csv.trim().split('\n')) {
+                const parts = line.split(',');
+                if (parts.length >= 3) {
+                  const licenseName = parts[2].trim();
+                  if (BLOCKED_LICENSES.some(b => licenseName.includes(b))) {
+                    blockedPkgs.push({ pkg: parts[0], license: licenseName });
+                  }
+                }
               }
             } catch (e) {
-              report += 'Report generated, check artifacts for details\n';
+              // If we can't read the report, skip commenting
             }
 
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: report
-            });
+            if (blockedPkgs.length > 0) {
+              let report = '## 📜 License Compliance Audit\n\n';
+              report += `❌ **${blockedPkgs.length} blocked license(s) found**\n\n`;
+              for (const { pkg, license } of blockedPkgs) {
+                report += `- **${pkg}**: ${license}\n`;
+              }
+              report += '\nGPL/AGPL/Copyleft licenses are not allowed. Please replace these dependencies.\n';
+
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: report
+              });
+            }
