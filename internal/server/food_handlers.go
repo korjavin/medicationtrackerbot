@@ -118,13 +118,7 @@ func (s *Server) handleGetFoodLogs(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	dateStr := r.URL.Query().Get("date")
-	date := time.Now()
-	if dateStr != "" {
-		parsed, err := time.Parse("2006-01-02", dateStr)
-		if err == nil {
-			date = parsed
-		}
-	}
+	date := parseDateInLocation(dateStr, r.URL.Query().Get("tz"), r.URL.Query().Get("tz_offset"))
 
 	days := 1
 	daysStr := r.URL.Query().Get("days")
@@ -140,8 +134,8 @@ func (s *Server) handleGetFoodLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Group logs logic
-	groups := groupFoodLogs(logs, days > 1)
+	// Group logs logic — pass client timezone so EatenAt is formatted in local time
+	groups := groupFoodLogs(logs, days > 1, date.Location())
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(groups); err != nil {
@@ -262,9 +256,56 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 }
 
 // groupFoodLogs groups logs into meals based on time proximity
-func groupFoodLogs(logs []store.FoodLog, isMultiDay bool) []FoodGroup {
+// parseClientLocation resolves the client's *time.Location from query parameters.
+// Prefers the IANA timezone name (tz= param) which is DST-aware; falls back to the
+// numeric tz_offset (minutes west of UTC, JS convention) as a best-effort fixed zone.
+// Returns time.UTC when neither is provided or parseable.
+func parseClientLocation(tzName, tzOffsetStr string) *time.Location {
+	if tzName != "" {
+		if loc, err := time.LoadLocation(tzName); err == nil {
+			return loc
+		}
+	}
+	if tzOffsetStr != "" {
+		if offsetMin, err := strconv.Atoi(tzOffsetStr); err == nil {
+			// JS getTimezoneOffset() is positive west of UTC (opposite of standard)
+			return time.FixedZone("client", -offsetMin*60)
+		}
+	}
+	return time.UTC
+}
+
+// parseDateWithTzOffset parses a YYYY-MM-DD dateStr in the given location.
+func parseDateWithTzOffset(dateStr, tzOffsetStr string) time.Time {
+	loc := parseClientLocation("", tzOffsetStr)
+	if dateStr != "" {
+		parsed, err := time.Parse("2006-01-02", dateStr)
+		if err == nil {
+			return time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, loc)
+		}
+	}
+	return time.Now().In(loc)
+}
+
+// parseDateInLocation is the DST-aware version; prefers IANA tz name over fixed offset.
+func parseDateInLocation(dateStr, tzName, tzOffsetStr string) time.Time {
+	loc := parseClientLocation(tzName, tzOffsetStr)
+	if dateStr != "" {
+		parsed, err := time.Parse("2006-01-02", dateStr)
+		if err == nil {
+			return time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, loc)
+		}
+	}
+	return time.Now().In(loc)
+}
+
+func groupFoodLogs(logs []store.FoodLog, isMultiDay bool, loc *time.Location) []FoodGroup {
 	if len(logs) == 0 {
 		return []FoodGroup{}
+	}
+
+	if loc == nil {
+		loc = time.Local
 	}
 
 	var groups []FoodGroup
@@ -285,15 +326,17 @@ func groupFoodLogs(logs []store.FoodLog, isMultiDay bool) []FoodGroup {
 	currentGroup := FoodGroup{}
 
 	for i, log := range logs {
+		// Convert to client timezone so time labels and meal names reflect local time
+		t := log.EatenAt.In(loc)
 		var timeStr string
 		var groupName string
 
 		if isMultiDay {
-			timeStr = log.EatenAt.Format("Mon, Jan 02")
-			groupName = log.EatenAt.Format("Mon, Jan 02") // Simplified for multi-day
+			timeStr = t.Format("Mon, Jan 02")
+			groupName = t.Format("Mon, Jan 02") // Simplified for multi-day
 		} else {
-			timeStr = log.EatenAt.Format("15:04")
-			groupName = getMealName(log.EatenAt)
+			timeStr = t.Format("15:04")
+			groupName = getMealName(t)
 		}
 
 		if i == 0 {
@@ -307,7 +350,7 @@ func groupFoodLogs(logs []store.FoodLog, isMultiDay bool) []FoodGroup {
 			var shouldGroup bool
 
 			if isMultiDay {
-				shouldGroup = log.EatenAt.Format("2006-01-02") == lastLog.EatenAt.Format("2006-01-02")
+				shouldGroup = log.EatenAt.In(loc).Format("2006-01-02") == lastLog.EatenAt.In(loc).Format("2006-01-02")
 			} else {
 				diff := log.EatenAt.Sub(lastLog.EatenAt)
 				shouldGroup = diff < 30*time.Minute && diff > -30*time.Minute
@@ -354,13 +397,7 @@ func (s *Server) handleGetFoodStats(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	dateStr := r.URL.Query().Get("date")
-	date := time.Now()
-	if dateStr != "" {
-		parsed, err := time.Parse("2006-01-02", dateStr)
-		if err == nil {
-			date = parsed
-		}
-	}
+	date := parseDateInLocation(dateStr, r.URL.Query().Get("tz"), r.URL.Query().Get("tz_offset"))
 
 	days := 7 // Default for week stats
 	daysStr := r.URL.Query().Get("days")
