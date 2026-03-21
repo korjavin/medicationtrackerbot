@@ -390,7 +390,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 		b.deleteMessagesParallel(cb.Message.Chat.ID, reminders, cb.Message.MessageID)
 
-		callbacksToRemove := []string{data}
+		callbacksToRemove := []string{data, "silence_intake:" + strconv.FormatInt(intakeID, 10)}
 		if isSupp {
 			callbacksToRemove = append(callbacksToRemove, "skip_intake:"+strconv.FormatInt(intakeID, 10))
 		}
@@ -429,9 +429,39 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		b.removeButtonsFromCallbackMessage(cb,
 			"confirm_intake:"+strconv.FormatInt(intakeID, 10),
 			"skip_intake:"+strconv.FormatInt(intakeID, 10),
+			"silence_intake:"+strconv.FormatInt(intakeID, 10),
 		)
 
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⏭ Marked as skipped.")); err != nil {
+			slog.Error("send failed", "error", err)
+		}
+	} else if strings.HasPrefix(data, "silence_intake:") {
+		intakeIDStr := strings.TrimPrefix(data, "silence_intake:")
+		intakeID, _ := strconv.ParseInt(intakeIDStr, 10, 64)
+		if intakeID == 0 {
+			return
+		}
+
+		reminders, err := b.medSvc.SilenceIntake(intakeID)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotPending) {
+				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already processed).")); err != nil {
+					slog.Error("send failed", "error", err)
+				}
+				return
+			}
+			slog.Error("Error silencing intake", "intakeID", intakeID, "error", err)
+			return
+		}
+
+		b.deleteMessagesParallel(cb.Message.Chat.ID, reminders, cb.Message.MessageID)
+		b.removeButtonsFromCallbackMessage(cb,
+			"confirm_intake:"+strconv.FormatInt(intakeID, 10),
+			"skip_intake:"+strconv.FormatInt(intakeID, 10),
+			"silence_intake:"+strconv.FormatInt(intakeID, 10),
+		)
+
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "🔕 Reminders silenced for 24 hours.")); err != nil {
 			slog.Error("send failed", "error", err)
 		}
 	} else if strings.HasPrefix(data, "confirm:") {
