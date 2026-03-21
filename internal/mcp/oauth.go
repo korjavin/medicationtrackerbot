@@ -151,6 +151,13 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 		return "", fmt.Errorf("failed to get public key: %w", err)
 	}
 
+	// Determine expected issuer
+	// In deployments using an internal transport URL, the JWT is still issued for the public domain
+	expectedIssuer := h.config.PocketIDURL
+	if h.config.PocketIDDomain != "" {
+		expectedIssuer = "https://" + h.config.PocketIDDomain
+	}
+
 	// Parse and validate the token with the public key
 	validToken, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
 		// Verify signing method is RSA
@@ -158,7 +165,7 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return publicKey, nil
-	}, jwt.WithExpirationRequired(), jwt.WithIssuer(h.config.PocketIDURL))
+	}, jwt.WithExpirationRequired(), jwt.WithIssuer(expectedIssuer))
 
 	if err != nil {
 		// Debug logging for claims comparison

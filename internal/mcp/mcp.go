@@ -46,6 +46,7 @@ type Config struct {
 	Port           int
 	DatabasePath   string
 	PocketIDURL    string
+	PocketIDDomain string
 	ClientID       string
 	ClientSecret   string // #nosec G117 -- OAuth client secret, loaded from env var
 	AllowedSubject string
@@ -78,6 +79,7 @@ func LoadConfigFromEnv() (*Config, error) {
 		Port:           port,
 		DatabasePath:   os.Getenv("MCP_DATABASE_PATH"),
 		PocketIDURL:    os.Getenv("POCKET_ID_URL"),
+		PocketIDDomain: os.Getenv("POCKET_ID_DOMAIN"),
 		ClientID:       os.Getenv("POCKET_ID_CLIENT_ID"),
 		ClientSecret:   os.Getenv("POCKET_ID_CLIENT_SECRET"),
 		AllowedSubject: os.Getenv("MCP_ALLOWED_SUBJECT"),
