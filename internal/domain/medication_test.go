@@ -23,6 +23,7 @@ type mockMedicationStore struct {
 	confirmIntakeFn               func(id int64, takenAt time.Time) error
 	confirmIntakesByScheduleFn    func(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error)
 	skipIntakeFn                  func(id int64) error
+	snoozeIntakeFn                func(id int64, snoozeUntil time.Time) error
 	createIntakeFn                func(medID, userID int64, scheduledAt time.Time) (int64, error)
 	createManualIntakeFn          func(medID, userID int64, takenAt time.Time) (int64, error)
 	decrementInventoryFn          func(medID int64, qty int) error
@@ -83,6 +84,13 @@ func (m *mockMedicationStore) ConfirmIntakesBySchedule(userID int64, scheduledAt
 func (m *mockMedicationStore) SkipIntake(id int64) error {
 	if m.skipIntakeFn != nil {
 		return m.skipIntakeFn(id)
+	}
+	return nil
+}
+
+func (m *mockMedicationStore) SnoozeIntake(id int64, snoozeUntil time.Time) error {
+	if m.snoozeIntakeFn != nil {
+		return m.snoozeIntakeFn(id, snoozeUntil)
 	}
 	return nil
 }

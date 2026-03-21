@@ -92,6 +92,13 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 					Label: "⏭ Skip",
 				})
 			}
+			// Show "Silence 24h" button starting from the second reminder (when snoozed_until is already set)
+			if p.SnoozedUntil != nil {
+				actions = append(actions, notifier.Action{
+					ID:    "silence_intake:" + strconv.FormatInt(p.ID, 10),
+					Label: "🔕 Silence 24h",
+				})
+			}
 
 			n := notifier.Notification{
 				Text:    text,
