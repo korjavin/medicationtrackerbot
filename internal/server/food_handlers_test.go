@@ -461,3 +461,74 @@ func TestHandleCreateMealFromLogs(t *testing.T) {
 		t.Errorf("Expected total_weight_g to be 200, got %d", product.TotalWeightG)
 	}
 }
+
+// TestHandleGetFoodStats_DST verifies that /api/food/stats uses DST-aware calendar
+// day boundaries when tz=America/Los_Angeles is supplied.
+//
+// Scenario: US spring-forward on 2026-03-08 (clocks jump from 02:00 PST → 03:00 PDT).
+// A meal logged at 2026-03-08T09:30:00Z (01:30 PST, still pre-transition) and another
+// at 2026-03-08T20:00:00Z (13:00 PDT, post-transition) both belong to local March 8.
+// An item on 2026-03-09T08:00:00Z (01:00 PDT) belongs to local March 9 and must NOT
+// be counted when querying days=1 for 2026-03-08.
+//
+// With a fixed tz_offset=480 (PST = UTC-8 throughout), endOfDay would be
+// 2026-03-09T08:00:00Z — accidentally including the March 9 item. The IANA-aware path
+// sets endOfDay to 2026-03-09T07:00:00Z (PDT midnight), correctly excluding it.
+func TestHandleGetFoodStats_DST(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	ctx := ctxWithUser(123456)
+
+	entries := []struct {
+		utc      time.Time
+		calories int
+	}{
+		// 01:30 PST on March 8 — pre-DST, belongs to local March 8
+		{time.Date(2026, time.March, 8, 9, 30, 0, 0, time.UTC), 400},
+		// 13:00 PDT on March 8 — post-DST, belongs to local March 8
+		{time.Date(2026, time.March, 8, 20, 0, 0, 0, time.UTC), 600},
+		// 01:00 PDT on March 9 — belongs to local March 9, must be excluded
+		{time.Date(2026, time.March, 9, 8, 0, 0, 0, time.UTC), 999},
+	}
+	for _, e := range entries {
+		if _, err := db.CreateFoodLog(ctx, &store.FoodLog{
+			UserID: 123456, EatenAt: e.utc, Name: "test", Calories: e.calories,
+		}); err != nil {
+			t.Fatalf("CreateFoodLog: %v", err)
+		}
+	}
+
+	// Fixed offset (PST = UTC-8 = tz_offset=480) incorrectly includes the March 9 item
+	// because it computes endOfDay as 2026-03-09T08:00Z instead of 07:00Z.
+	req := httptest.NewRequest("GET", "/api/food/stats?date=2026-03-08&days=1&tz_offset=480", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleGetFoodStats(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("stats (tz_offset): expected 200, got %d", w.Code)
+	}
+	var statsFixed store.FoodStats
+	if err := json.NewDecoder(w.Body).Decode(&statsFixed); err != nil {
+		t.Fatalf("decode (tz_offset): %v", err)
+	}
+	if statsFixed.Calories == 400+600+999 {
+		t.Errorf("tz_offset=480: incorrectly included the March 9 item (got %d calories)", statsFixed.Calories)
+	}
+
+	// IANA timezone correctly computes endOfDay = 2026-03-09T07:00Z (PDT midnight).
+	req = httptest.NewRequest("GET", "/api/food/stats?date=2026-03-08&days=1&tz=America%2FLos_Angeles", nil)
+	req = withUser(req, 123456)
+	w = httptest.NewRecorder()
+	srv.handleGetFoodStats(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("stats (IANA): expected 200, got %d", w.Code)
+	}
+	var statsIANA store.FoodStats
+	if err := json.NewDecoder(w.Body).Decode(&statsIANA); err != nil {
+		t.Fatalf("decode (IANA): %v", err)
+	}
+	if statsIANA.Calories != 400+600 {
+		t.Errorf("tz=America/Los_Angeles: expected %d calories for March 8, got %d", 400+600, statsIANA.Calories)
+	}
+}
