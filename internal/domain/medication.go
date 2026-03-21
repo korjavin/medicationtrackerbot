@@ -28,6 +28,7 @@ type MedicationStore interface {
 	ConfirmIntake(id int64, takenAt time.Time) error
 	ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error)
 	SkipIntake(id int64) error
+	SnoozeIntake(id int64, snoozeUntil time.Time) error
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
 	CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error)
 	DecrementInventory(medID int64, qty int) error
@@ -61,6 +62,10 @@ type MedicationService interface {
 	// Used by the legacy confirm: callback which only carries a medication ID, not an intake ID.
 	// Returns ErrNotPending if no pending intake exists for the medication.
 	ConfirmMedicationByMedID(medID int64, takenAt time.Time) (reminderMsgIDs []int, isSupplement bool, err error)
+
+	// SilenceIntake snoozes a pending intake for 24 hours and returns reminder message IDs
+	// so the caller can delete the current reminder message.
+	SilenceIntake(intakeID int64) (reminderMsgIDs []int, err error)
 }
 
 type medicationService struct {
@@ -216,4 +221,26 @@ func (s *medicationService) ConfirmMedicationByMedID(medID int64, takenAt time.T
 	})
 
 	return s.ConfirmIntakeWithCleanup(matching[0].ID, takenAt)
+}
+
+func (s *medicationService) SilenceIntake(intakeID int64) ([]int, error) {
+	intake, err := s.store.GetIntake(intakeID)
+	if err != nil {
+		return nil, fmt.Errorf("get intake %d: %w", intakeID, err)
+	}
+	if intake == nil || intake.Status != "PENDING" {
+		return nil, ErrNotPending
+	}
+
+	reminders, err := s.store.GetIntakeReminders(intakeID)
+	if err != nil {
+		slog.Error("GetIntakeReminders failed", "intakeID", intakeID, "error", err)
+	}
+
+	snoozeUntil := time.Now().Add(24 * time.Hour)
+	if err := s.store.SnoozeIntake(intakeID, snoozeUntil); err != nil {
+		return nil, fmt.Errorf("snooze intake %d: %w", intakeID, err)
+	}
+
+	return reminders, nil
 }
