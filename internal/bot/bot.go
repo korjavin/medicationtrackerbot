@@ -390,7 +390,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 		b.deleteMessagesParallel(cb.Message.Chat.ID, reminders, cb.Message.MessageID)
 
-		callbacksToRemove := []string{data}
+		callbacksToRemove := []string{data, "silence_intake:" + strconv.FormatInt(intakeID, 10)}
 		if isSupp {
 			callbacksToRemove = append(callbacksToRemove, "skip_intake:"+strconv.FormatInt(intakeID, 10))
 		}
@@ -429,6 +429,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		b.removeButtonsFromCallbackMessage(cb,
 			"confirm_intake:"+strconv.FormatInt(intakeID, 10),
 			"skip_intake:"+strconv.FormatInt(intakeID, 10),
+			"silence_intake:"+strconv.FormatInt(intakeID, 10),
 		)
 
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⏭ Marked as skipped.")); err != nil {
