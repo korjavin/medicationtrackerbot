@@ -118,7 +118,7 @@ func (s *Server) handleGetFoodLogs(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	dateStr := r.URL.Query().Get("date")
-	date := parseDateWithTzOffset(dateStr, r.URL.Query().Get("tz_offset"))
+	date := parseDateInLocation(dateStr, r.URL.Query().Get("tz"), r.URL.Query().Get("tz_offset"))
 
 	days := 1
 	daysStr := r.URL.Query().Get("days")
@@ -256,17 +256,40 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 }
 
 // groupFoodLogs groups logs into meals based on time proximity
-// parseDateWithTzOffset parses a YYYY-MM-DD dateStr using the client's timezone
-// offset (tz_offset, JS convention: positive = minutes west of UTC, e.g. PDT = 420).
-// This ensures day boundaries align with the user's local day, not UTC.
-func parseDateWithTzOffset(dateStr, tzOffsetStr string) time.Time {
-	loc := time.UTC
+// parseClientLocation resolves the client's *time.Location from query parameters.
+// Prefers the IANA timezone name (tz= param) which is DST-aware; falls back to the
+// numeric tz_offset (minutes west of UTC, JS convention) as a best-effort fixed zone.
+// Returns time.UTC when neither is provided or parseable.
+func parseClientLocation(tzName, tzOffsetStr string) *time.Location {
+	if tzName != "" {
+		if loc, err := time.LoadLocation(tzName); err == nil {
+			return loc
+		}
+	}
 	if tzOffsetStr != "" {
 		if offsetMin, err := strconv.Atoi(tzOffsetStr); err == nil {
 			// JS getTimezoneOffset() is positive west of UTC (opposite of standard)
-			loc = time.FixedZone("client", -offsetMin*60)
+			return time.FixedZone("client", -offsetMin*60)
 		}
 	}
+	return time.UTC
+}
+
+// parseDateWithTzOffset parses a YYYY-MM-DD dateStr in the given location.
+func parseDateWithTzOffset(dateStr, tzOffsetStr string) time.Time {
+	loc := parseClientLocation("", tzOffsetStr)
+	if dateStr != "" {
+		parsed, err := time.Parse("2006-01-02", dateStr)
+		if err == nil {
+			return time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, loc)
+		}
+	}
+	return time.Now().In(loc)
+}
+
+// parseDateInLocation is the DST-aware version; prefers IANA tz name over fixed offset.
+func parseDateInLocation(dateStr, tzName, tzOffsetStr string) time.Time {
+	loc := parseClientLocation(tzName, tzOffsetStr)
 	if dateStr != "" {
 		parsed, err := time.Parse("2006-01-02", dateStr)
 		if err == nil {
@@ -374,7 +397,7 @@ func (s *Server) handleGetFoodStats(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	dateStr := r.URL.Query().Get("date")
-	date := parseDateWithTzOffset(dateStr, r.URL.Query().Get("tz_offset"))
+	date := parseDateInLocation(dateStr, r.URL.Query().Get("tz"), r.URL.Query().Get("tz_offset"))
 
 	days := 7 // Default for week stats
 	daysStr := r.URL.Query().Get("days")

@@ -199,15 +199,16 @@ func TestParseDateWithTzOffset(t *testing.T) {
 			wantUTCHour: 23, // midnight CET = 23:00 UTC of previous day
 		},
 		{
-			name:        "invalid tz_offset falls back to time.Local",
+			name:        "invalid tz_offset falls back to UTC",
 			dateStr:     "2026-03-17",
 			tzOffsetStr: "abc",
-			// just verify it returns a valid time without panic; UTC hour depends on local TZ
+			wantUTCHour: 0, // falls back to UTC
 		},
 		{
-			name:        "empty tz_offset uses time.Local",
+			name:        "empty tz_offset uses UTC",
 			dateStr:     "2026-03-17",
 			tzOffsetStr: "",
+			wantUTCHour: 0,
 		},
 	}
 
@@ -217,17 +218,14 @@ func TestParseDateWithTzOffset(t *testing.T) {
 			if result.IsZero() {
 				t.Fatal("expected non-zero time")
 			}
-			// For cases with known UTC hour, verify the UTC representation
-			if tc.tzOffsetStr == "0" || tc.tzOffsetStr == "420" {
+			if tc.tzOffsetStr == "0" || tc.tzOffsetStr == "420" || tc.tzOffsetStr == "" || tc.tzOffsetStr == "abc" {
 				utc := result.UTC()
 				if utc.Hour() != tc.wantUTCHour {
 					t.Errorf("got UTC hour %d, want %d", utc.Hour(), tc.wantUTCHour)
 				}
-				// Date part in the parsed timezone should be 2026-03-17
 				if result.Day() != 17 || result.Month() != time.March || result.Year() != 2026 {
 					t.Errorf("wrong date: %v", result)
 				}
-				// Should represent local midnight (hour=0 in the local timezone)
 				if result.Hour() != 0 {
 					t.Errorf("expected local midnight (hour=0), got %d", result.Hour())
 				}
@@ -239,6 +237,62 @@ func TestParseDateWithTzOffset(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseClientLocation_IANAPreferredOverOffset(t *testing.T) {
+	// America/Los_Angeles on 2026-03-08 (US spring DST starts): midnight is UTC-8 (PST).
+	// tz_offset=420 (UTC-7, PDT) would give the wrong boundary if IANA not used.
+	loc := parseClientLocation("America/Los_Angeles", "420")
+	if loc == nil {
+		t.Fatal("expected non-nil location")
+	}
+	// Midnight on March 8 in LA should be 08:00 UTC (PST = UTC-8), not 07:00 (PDT = UTC-7)
+	midnight := time.Date(2026, time.March, 8, 0, 0, 0, 0, loc)
+	utc := midnight.UTC()
+	if utc.Hour() != 8 {
+		t.Errorf("IANA-derived midnight: got UTC hour %d, want 8 (PST midnight)", utc.Hour())
+	}
+}
+
+func TestHandleGetFoodLogsTimezone_IANA(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	ctx := ctxWithUser(123456)
+
+	// Item at 2026-03-18T01:00Z = 18:00 PDT on 2026-03-17 (UTC-7 after DST started Mar 8)
+	californiaEvening := time.Date(2026, time.March, 18, 1, 0, 0, 0, time.UTC)
+	_, err := db.CreateFoodLog(ctx, &store.FoodLog{
+		UserID: 123456, EatenAt: californiaEvening, Name: "Late dinner", Calories: 600,
+	})
+	if err != nil {
+		t.Fatalf("CreateFoodLog: %v", err)
+	}
+
+	// With tz=America/Los_Angeles: querying 2026-03-17 SHOULD return it.
+	req := httptest.NewRequest("GET", "/api/food/log?date=2026-03-17&tz=America%2FLos_Angeles", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleGetFoodLogs(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", w.Code)
+	}
+	var groups []FoodGroup
+	if err := json.NewDecoder(w.Body).Decode(&groups); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	total := 0
+	for _, g := range groups {
+		total += len(g.Logs)
+	}
+	if total != 1 {
+		t.Errorf("with tz=America/Los_Angeles: expected 1 item for 2026-03-17, got %d", total)
+	}
+
+	// Verify the time label uses local PDT time (18:00), not UTC (01:00)
+	if len(groups) > 0 && groups[0].Time != "18:00" {
+		t.Errorf("expected time label '18:00' (PDT), got %q", groups[0].Time)
 	}
 }
 
