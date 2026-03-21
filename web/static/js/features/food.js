@@ -1396,7 +1396,8 @@ async function loadFoodLogs() {
 
     // Always fetch fresh data
     try {
-        const tzOffset = new Date().getTimezoneOffset(); // JS: positive = west of UTC (e.g. PDT = 420)
+        // Use offset for the selected date (not now) so DST transitions don't shift boundaries
+        const tzOffset = new Date(`${dateStr}T00:00:00`).getTimezoneOffset();
         const daysParam = period === 'week' ? '&days=7' : '';
         const groups = await apiCall(`/api/food/log?date=${dateStr}&tz_offset=${tzOffset}${daysParam}`, 'GET');
 
