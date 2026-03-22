@@ -429,6 +429,8 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.MedTrackerPush` | `push.js` | app.js |
 | `window.initServiceWorker` | `app-shell.js` | index.html inline |
 | `window.showUpdateToast` | `app-shell.js` | service worker message |
+| `window.showStaleIndicator` | `core/utils.js` | feature modules (bp.js, weight.js, food.js, etc.) |
+| `window.hideStaleIndicator` | `core/utils.js` | feature modules (bp.js, weight.js, food.js, etc.) |
 
 ### Logging Pattern
 - We use the standard library structured logger (`log/slog`).
