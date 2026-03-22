@@ -1977,7 +1977,7 @@ async function renderNextIntakeTrigger() {
             const card = _buildNextIntakeCard(cached);
             container.replaceChildren(card);
             const meta = await window.DataStore.getCachedMeta('next_intake');
-            window.showStaleIndicator(container, meta && meta.cachedAt);
+            if (window.showStaleIndicator) window.showStaleIndicator(container, meta && meta.cachedAt);
         },
         onFresh: async (fresh) => {
             if (_nextIntakeTimerInterval) {
@@ -1990,7 +1990,7 @@ async function renderNextIntakeTrigger() {
             }
             const card = _buildNextIntakeCard(fresh);
             container.replaceChildren(card);
-            window.hideStaleIndicator(container);
+            if (window.hideStaleIndicator) window.hideStaleIndicator(container);
         },
         onError: async (_e, cached) => {
             if (cached && cached.scheduled_at) return; // keep cached card + stale dot

@@ -107,7 +107,7 @@ User
 **Frontend** (`web/static/`):
 - Vanilla JavaScript (no framework), Dexie.js for IndexedDB
 - Local First architecture with four layers: Service Worker → IndexedDB → SyncManager → SWR DataStore
-- Offline writes supported for BP, weight, and medication confirmations
+- Offline writes supported for BP, weight, medication confirmations, food logs, and workout exercise logs
 - Stale-While-Revalidate caching with tag-based invalidation via polling (`/api/changes`)
 - Telegram WebApp JS SDK for theme integration
 
@@ -558,9 +558,9 @@ If you want to use this pattern for a new component:
 
 SSE (Server-Sent Events) over HTTP/2 behind reverse proxies like Traefik and nginx is unreliable. When the server closes the stream, it sends an HTTP/2 `RST_STREAM` frame that browsers surface as `ERR_HTTP2_PROTOCOL_ERROR`. This causes spurious reconnection loops and error noise. Polling every 30 seconds with a cursor-based `GET /api/changes?since=` is lightweight (empty responses are ~50 bytes) and works reliably through any proxy stack.
 
-### Why only three endpoints support offline writes
+### Why offline writes are limited to time-sensitive endpoints
 
-Adding offline write support requires: IndexedDB schema, optimistic UI rendering, conflict resolution on sync, and error handling for rejected writes. We limit this to the three most time-sensitive health actions (BP readings, weight logs, medication confirmations) where missing a data point is worse than the implementation complexity. Other writes (editing medications, creating workouts) are infrequent and can wait for connectivity.
+Adding offline write support requires: IndexedDB schema, optimistic UI rendering, conflict resolution on sync, and error handling for rejected writes. We limit this to time-sensitive or session-critical health actions where missing a data point is worse than the implementation complexity: BP readings, weight logs, medication confirmations, food log entries (entered during a meal), and workout exercise logs (entered mid-session). Other writes (editing medications, creating workout structures) are infrequent and can wait for connectivity.
 
 ### Why 5xx responses are treated as "offline"
 

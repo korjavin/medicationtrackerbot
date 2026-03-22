@@ -26,7 +26,7 @@ We built this because health data was everywhere—and nowhere. Medications, blo
     - **Live Guidance**: Exercise-by-exercise logging via Telegram.
     - **Performance Stats**: Streak tracking and completion analytics.
 - **Web App Features**:
-    - **Local First (PWA)**: UI renders instantly from cache; fresh data loads in the background. Blood pressure, weight, and medication confirmations can be recorded offline and sync automatically when connectivity returns.
+    - **Local First (PWA)**: UI renders instantly from cache; fresh data loads in the background. Blood pressure, weight, medication confirmations, food logs, and workout exercise logs can be recorded offline and sync automatically when connectivity returns.
     - **Push Notifications**: Receive medication and workout reminders directly on your device.
     - **Responsive Design**: Optimized for both mobile and desktop browsers.
 - **Medication Management**: Add, edit, archive medications with custom dosages and schedules.

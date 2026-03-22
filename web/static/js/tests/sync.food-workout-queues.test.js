@@ -59,8 +59,8 @@ describe('SyncManager food and workout queue sync', () => {
       window.MedTrackerDB.db = { food_log_queue: fakeQueue, workout_log_queue: makeFakeQueue() };
 
       window.apiCallDirect = vi.fn().mockResolvedValue({ id: 42 });
-      const invalidateSpy = vi.fn().mockResolvedValue(undefined);
-      window.DataStore = { invalidateKey: invalidateSpy };
+      const requestTabRefreshSpy = vi.fn();
+      window.DataStore = { requestTabRefresh: requestTabRefreshSpy };
 
       window.SyncManager.isOnline = true;
       vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
@@ -69,7 +69,7 @@ describe('SyncManager food and workout queue sync', () => {
 
       expect(window.apiCallDirect).toHaveBeenCalledWith('/api/food/log', 'POST', { name: 'Apple' });
       expect(fakeQueue._store).toHaveLength(0);
-      expect(invalidateSpy).toHaveBeenCalledWith('food_log');
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({ changedTags: ['food'], source: 'sync' });
     } finally {
       cleanup();
     }
@@ -106,8 +106,9 @@ describe('SyncManager food and workout queue sync', () => {
       window.MedTrackerDB.db = { food_log_queue: makeFakeQueue(), workout_log_queue: fakeQueue };
 
       window.apiCallDirect = vi.fn().mockResolvedValue({ ok: true });
-      const invalidateSpy = vi.fn().mockResolvedValue(undefined);
-      window.DataStore = { invalidateKey: invalidateSpy };
+      const invalidateTagsSpy = vi.fn().mockResolvedValue(undefined);
+      const requestTabRefreshSpy = vi.fn();
+      window.DataStore = { invalidateTags: invalidateTagsSpy, requestTabRefresh: requestTabRefreshSpy };
 
       window.SyncManager.isOnline = true;
       vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
@@ -116,7 +117,8 @@ describe('SyncManager food and workout queue sync', () => {
 
       expect(window.apiCallDirect).toHaveBeenCalledWith('/api/workout/sessions/log', 'POST', { exercise_id: 5, reps: 10 });
       expect(fakeQueue._store).toHaveLength(0);
-      expect(invalidateSpy).toHaveBeenCalledWith('workout_sessions');
+      expect(invalidateTagsSpy).toHaveBeenCalledWith(['workout']);
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith({ changedTags: ['workout'], source: 'sync' });
     } finally {
       cleanup();
     }

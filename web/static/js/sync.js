@@ -188,7 +188,11 @@ const SyncManager = {
         const weightPending = await window.MedTrackerDB.WeightStore.getPendingCount();
         const intakePending = window.MedTrackerDB.IntakeQueueStore
             ? await window.MedTrackerDB.IntakeQueueStore.getPendingCount() : 0;
-        const totalPending = bpPending + weightPending + intakePending;
+        const foodPending = window.MedTrackerDB?.db?.food_log_queue
+            ? await window.MedTrackerDB.db.food_log_queue.count().catch(() => 0) : 0;
+        const workoutPending = window.MedTrackerDB?.db?.workout_log_queue
+            ? await window.MedTrackerDB.db.workout_log_queue.count().catch(() => 0) : 0;
+        const totalPending = bpPending + weightPending + intakePending + foodPending + workoutPending;
 
         const status = {
             isOnline: this.isOnline,
@@ -424,8 +428,8 @@ const SyncManager = {
             }
         }
 
-        if (anySuccess && window.DataStore?.invalidateKey) {
-            await window.DataStore.invalidateKey('food_log');
+        if (anySuccess && window.DataStore?.requestTabRefresh) {
+            window.DataStore.requestTabRefresh({ changedTags: ['food'], source: 'sync' });
         }
 
         this.updateStatus();
@@ -463,8 +467,13 @@ const SyncManager = {
             }
         }
 
-        if (anySuccess && window.DataStore?.invalidateKey) {
-            await window.DataStore.invalidateKey('workout_sessions');
+        if (anySuccess) {
+            if (window.DataStore?.invalidateTags) {
+                await window.DataStore.invalidateTags(['workout']);
+            }
+            if (window.DataStore?.requestTabRefresh) {
+                window.DataStore.requestTabRefresh({ changedTags: ['workout'], source: 'sync' });
+            }
         }
 
         this.updateStatus();
