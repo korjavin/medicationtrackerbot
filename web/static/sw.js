@@ -225,12 +225,18 @@ self.addEventListener('sync', (event) => {
         event.waitUntil(syncWeightLogs());
     } else if (event.tag === 'sync-intake-logs') {
         event.waitUntil(syncIntakeLogs());
+    } else if (event.tag === 'sync-food-logs') {
+        event.waitUntil(syncFoodLogs());
+    } else if (event.tag === 'sync-workout-logs') {
+        event.waitUntil(syncWorkoutLogs());
     } else if (event.tag === 'sync-all') {
         event.waitUntil(
             Promise.all([
                 syncBPReadings(),
                 syncWeightLogs(),
-                syncIntakeLogs()
+                syncIntakeLogs(),
+                syncFoodLogs(),
+                syncWorkoutLogs()
             ])
         );
     }
@@ -279,6 +285,24 @@ async function syncIntakeLogs() {
     const clients = await self.clients.matchAll();
     clients.forEach((client) => {
         client.postMessage({ type: 'SYNC_INTAKE_LOGS' });
+    });
+}
+
+// Sync food logs to server
+async function syncFoodLogs() {
+    console.log('[SW] Syncing food logs...');
+    const clients = await self.clients.matchAll();
+    clients.forEach((client) => {
+        client.postMessage({ type: 'SYNC_FOOD_LOGS' });
+    });
+}
+
+// Sync workout logs to server
+async function syncWorkoutLogs() {
+    console.log('[SW] Syncing workout logs...');
+    const clients = await self.clients.matchAll();
+    clients.forEach((client) => {
+        client.postMessage({ type: 'SYNC_WORKOUT_LOGS' });
     });
 }
 

@@ -60,7 +60,8 @@ describe('SyncManager food and workout queue sync', () => {
 
       window.apiCallDirect = vi.fn().mockResolvedValue({ id: 42 });
       const requestTabRefreshSpy = vi.fn();
-      window.DataStore = { requestTabRefresh: requestTabRefreshSpy };
+      const invalidateTagsSpy = vi.fn().mockResolvedValue(undefined);
+      window.DataStore = { requestTabRefresh: requestTabRefreshSpy, invalidateTags: invalidateTagsSpy };
 
       window.SyncManager.isOnline = true;
       vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
@@ -69,7 +70,8 @@ describe('SyncManager food and workout queue sync', () => {
 
       expect(window.apiCallDirect).toHaveBeenCalledWith('/api/food/log', 'POST', { name: 'Apple' });
       expect(fakeQueue._store).toHaveLength(0);
-      expect(requestTabRefreshSpy).toHaveBeenCalledWith({ changedTags: ['food'], source: 'sync' });
+      expect(invalidateTagsSpy).toHaveBeenCalledWith(['food']);
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith(['food']);
     } finally {
       cleanup();
     }
@@ -118,7 +120,7 @@ describe('SyncManager food and workout queue sync', () => {
       expect(window.apiCallDirect).toHaveBeenCalledWith('/api/workout/sessions/log', 'POST', { exercise_id: 5, reps: 10 });
       expect(fakeQueue._store).toHaveLength(0);
       expect(invalidateTagsSpy).toHaveBeenCalledWith(['workout']);
-      expect(requestTabRefreshSpy).toHaveBeenCalledWith({ changedTags: ['workout'], source: 'sync' });
+      expect(requestTabRefreshSpy).toHaveBeenCalledWith(['workout']);
     } finally {
       cleanup();
     }

@@ -136,6 +136,10 @@ const SyncManager = {
                     this.syncWeightLogs();
                 } else if (event.data.type === 'SYNC_INTAKE_LOGS') {
                     this.syncIntakeLogs();
+                } else if (event.data.type === 'SYNC_FOOD_LOGS') {
+                    this.syncFoodLogQueue();
+                } else if (event.data.type === 'SYNC_WORKOUT_LOGS') {
+                    this.syncWorkoutLogQueue();
                 }
             });
         } else {
@@ -428,8 +432,13 @@ const SyncManager = {
             }
         }
 
-        if (anySuccess && window.DataStore?.requestTabRefresh) {
-            window.DataStore.requestTabRefresh({ changedTags: ['food'], source: 'sync' });
+        if (anySuccess) {
+            if (window.DataStore?.invalidateTags) {
+                await window.DataStore.invalidateTags(['food']);
+            }
+            if (window.DataStore?.requestTabRefresh) {
+                window.DataStore.requestTabRefresh(['food']);
+            }
         }
 
         this.updateStatus();
@@ -472,7 +481,7 @@ const SyncManager = {
                 await window.DataStore.invalidateTags(['workout']);
             }
             if (window.DataStore?.requestTabRefresh) {
-                window.DataStore.requestTabRefresh({ changedTags: ['workout'], source: 'sync' });
+                window.DataStore.requestTabRefresh(['workout']);
             }
         }
 

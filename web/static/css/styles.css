@@ -271,6 +271,7 @@ h1 {
 #modal-overlay.hidden,
 .view {
     display: none;
+    position: relative;
 }
 
 .view.active {
