@@ -90,9 +90,16 @@ async function loadBPReadings() {
         },
         onCached: async (cached) => {
             await _renderBPData(cached.readingsRes, cached.goalRes, cached.statsRes);
+            const meta = await window.DataStore.getCachedMeta('bp');
+            if (meta && list.parentElement && window.showStaleIndicator) {
+                window.showStaleIndicator(list.parentElement, meta.cachedAt);
+            }
         },
         onFresh: async (fresh) => {
             await _renderBPData(fresh.readingsRes, fresh.goalRes, fresh.statsRes);
+            if (list.parentElement && window.hideStaleIndicator) {
+                window.hideStaleIndicator(list.parentElement);
+            }
         },
         onError: async (e, cached) => {
             console.error('Failed to load BP data:', e);

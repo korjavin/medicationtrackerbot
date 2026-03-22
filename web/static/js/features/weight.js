@@ -664,9 +664,16 @@ async function loadWeightLogs() {
         },
         onCached: async (cached) => {
             await _renderWeightData(cached.logsRes, cached.goalRes);
+            const meta = await window.DataStore.getCachedMeta('weight');
+            if (meta && list.parentElement && window.showStaleIndicator) {
+                window.showStaleIndicator(list.parentElement, meta.cachedAt);
+            }
         },
         onFresh: async (fresh) => {
             await _renderWeightData(fresh.logsRes, fresh.goalRes);
+            if (list.parentElement && window.hideStaleIndicator) {
+                window.hideStaleIndicator(list.parentElement);
+            }
         },
         onError: async (e, cached) => {
             console.error('Failed to load weight data:', e);

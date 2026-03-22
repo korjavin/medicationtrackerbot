@@ -117,6 +117,10 @@
                     renderHealthOverviewContent(content, cached);
                     loading.style.display = 'none';
                     content.classList.remove('hidden');
+                    const meta = await window.DataStore.getCachedMeta('health_overview');
+                    if (meta && window.showStaleIndicator) {
+                        window.showStaleIndicator(content, meta.cachedAt);
+                    }
                 },
                 onFresh: async (fresh, cached) => {
                     loading.style.display = 'none';
@@ -126,6 +130,9 @@
                     }
                     renderHealthOverviewContent(content, fresh);
                     content.classList.remove('hidden');
+                    if (window.hideStaleIndicator) {
+                        window.hideStaleIndicator(content);
+                    }
                 },
                 onError: async (e, cached) => {
                     console.error('Failed to load health overview:', e);

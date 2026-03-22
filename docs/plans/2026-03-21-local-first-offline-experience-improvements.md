@@ -121,13 +121,13 @@ Systematically fix offline behavior across all app sections. Three concrete bugs
 
 Pattern for each: onCached → `showStaleIndicator(container, cachedAt)` via `DataStore.getCachedMeta(key)`; onFresh → `hideStaleIndicator(container)`
 
-- [ ] `bp.js` with key `'bp'`
-- [ ] `weight.js` with key `'weight'`
-- [ ] `health.js` with key `'health_overview'`
-- [ ] `settings.js` with key `'settings_bundle'`
-- [ ] `app.js` loadMeds with key `'medications'`
-- [ ] Write at least 2 representative tests (BP onCached calls showStaleIndicator, BP onFresh calls hideStaleIndicator)
-- [ ] Run frontend tests — must pass before task 8
+- [x] `bp.js` with key `'bp'`
+- [x] `weight.js` with key `'weight'`
+- [x] `health.js` with key `'health_overview'`
+- [x] `settings.js` with key `'settings_bundle'`
+- [x] `app.js` loadMeds with key `'medications'`
+- [x] Write at least 2 representative tests (BP onCached calls showStaleIndicator, BP onFresh calls hideStaleIndicator)
+- [x] Run frontend tests — must pass before task 8
 
 ### Task 8: Verify acceptance criteria
 

@@ -801,8 +801,21 @@ async function loadSettings() {
             key: 'settings_bundle',
             tags: ['settings', 'food_targets', 'feature_settings'],
             fetcher: fetchBundle,
-            onCached: applyBundle,
-            onFresh: applyBundle,
+            onCached: async (cached) => {
+                await applyBundle(cached);
+                const meta = await window.DataStore.getCachedMeta('settings_bundle');
+                const container = document.getElementById('settings-view');
+                if (meta && container && window.showStaleIndicator) {
+                    window.showStaleIndicator(container, meta.cachedAt);
+                }
+            },
+            onFresh: async (fresh) => {
+                await applyBundle(fresh);
+                const container = document.getElementById('settings-view');
+                if (container && window.hideStaleIndicator) {
+                    window.hideStaleIndicator(container);
+                }
+            },
             onError: async (error) => {
                 console.error('Failed to load settings:', error);
             }
@@ -1650,6 +1663,11 @@ async function loadMeds() {
             medications = cached;
             renderMeds();
             populateMedFilter();
+            const meta = await window.DataStore.getCachedMeta('medications');
+            const container = document.getElementById('med-list');
+            if (meta && container && window.showStaleIndicator) {
+                window.showStaleIndicator(container, meta.cachedAt);
+            }
         },
         onFresh: async (fresh) => {
             medications = fresh;
@@ -1658,6 +1676,10 @@ async function loadMeds() {
             }
             renderMeds();
             populateMedFilter();
+            const container = document.getElementById('med-list');
+            if (container && window.hideStaleIndicator) {
+                window.hideStaleIndicator(container);
+            }
         },
         onError: async (_err, cached) => {
             if (cached) return;
