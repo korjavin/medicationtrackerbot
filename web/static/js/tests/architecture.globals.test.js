@@ -51,6 +51,10 @@ const ALLOWED_GLOBALS = new Set([
     'window.ModalManager',              // core/modal-manager.js — modal lifecycle façade
     'window.AppStore',                  // core/store.js — ephemeral UI state
 
+    // Stale data indicators
+    'window.showStaleIndicator',        // core/utils.js — shows amber dot on cached-data containers
+    'window.hideStaleIndicator',        // core/utils.js — hides stale dot after fresh data loads
+
     // Features
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js
 

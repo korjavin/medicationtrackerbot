@@ -66,13 +66,13 @@ Systematically fix offline behavior across all app sections. Three concrete bugs
 - Modify: `web/static/js/core/utils.js`
 - Modify: `web/static/index.html`
 
-- [ ] Add CSS in `index.html` `<style>` block for `.stale-dot`: 6px circle, positioned absolute at top-right of nearest `position:relative` parent, amber color `#f59e0b`, hidden by default, cursor `help`
-- [ ] Add `.stale-dot::after` CSS tooltip: appears on `:hover`, reads from `data-cache-age` attribute, small dark pill, 11px font, z-index 100
-- [ ] Add `showStaleIndicator(containerEl, cachedAt)` in `core/utils.js` — creates/finds `.stale-dot` inside `containerEl`, computes relative age ("2h ago", "3d ago"), sets `data-cache-age="Cached 2h ago"`, makes visible
-- [ ] Add `hideStaleIndicator(containerEl)` — hides the dot
-- [ ] Expose as `window.showStaleIndicator` / `window.hideStaleIndicator`; add both to allowlist in `tests/architecture.globals.test.js`
-- [ ] Write unit tests (dot created, age text set, hidden on call)
-- [ ] Run frontend tests — must pass before task 4
+- [x] Add CSS in `index.html` `<style>` block for `.stale-dot`: 6px circle, positioned absolute at top-right of nearest `position:relative` parent, amber color `#f59e0b`, hidden by default, cursor `help`
+- [x] Add `.stale-dot::after` CSS tooltip: appears on `:hover`, reads from `data-cache-age` attribute, small dark pill, 11px font, z-index 100
+- [x] Add `showStaleIndicator(containerEl, cachedAt)` in `core/utils.js` — creates/finds `.stale-dot` inside `containerEl`, computes relative age ("2h ago", "3d ago"), sets `data-cache-age="Cached 2h ago"`, makes visible
+- [x] Add `hideStaleIndicator(containerEl)` — hides the dot
+- [x] Expose as `window.showStaleIndicator` / `window.hideStaleIndicator`; add both to allowlist in `tests/architecture.globals.test.js`
+- [x] Write unit tests (dot created, age text set, hidden on call)
+- [x] Run frontend tests — must pass before task 4
 
 ### Task 4: Fix next_intake — replace fetchFresh with loadSWR
 

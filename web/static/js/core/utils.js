@@ -56,3 +56,38 @@ function downloadBlobAsFile(blob, filename) {
     window.URL.revokeObjectURL(url);
     document.body.removeChild(link);
 }
+
+function formatCacheAge(cachedAt) {
+    if (!cachedAt) return 'Cached';
+    const ageMs = Date.now() - new Date(cachedAt).getTime();
+    const ageMin = Math.floor(ageMs / 60000);
+    if (ageMin < 1) return 'Cached just now';
+    if (ageMin < 60) return `Cached ${ageMin}m ago`;
+    const ageHours = Math.floor(ageMin / 60);
+    if (ageHours < 24) return `Cached ${ageHours}h ago`;
+    const ageDays = Math.floor(ageHours / 24);
+    return `Cached ${ageDays}d ago`;
+}
+
+function showStaleIndicator(containerEl, cachedAt) {
+    if (!containerEl) return;
+    let dot = containerEl.querySelector('.stale-dot');
+    if (!dot) {
+        dot = document.createElement('span');
+        dot.className = 'stale-dot';
+        containerEl.appendChild(dot);
+    }
+    dot.setAttribute('data-cache-age', formatCacheAge(cachedAt));
+    dot.classList.add('visible');
+}
+
+function hideStaleIndicator(containerEl) {
+    if (!containerEl) return;
+    const dot = containerEl.querySelector('.stale-dot');
+    if (dot) {
+        dot.classList.remove('visible');
+    }
+}
+
+window.showStaleIndicator = showStaleIndicator;
+window.hideStaleIndicator = hideStaleIndicator;
