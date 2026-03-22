@@ -120,9 +120,14 @@ async function loadNextWorkout() {
         fetcher: async () => await apiCall('/api/workout/sessions/next'),
         onCached: async (cached) => {
             _renderNextWorkout(container, cached);
+            if (cached) {
+                const meta = await window.DataStore.getCachedMeta('workout_next');
+                if (meta && window.showStaleIndicator) window.showStaleIndicator(container, meta.cachedAt);
+            }
         },
         onFresh: async (fresh) => {
             _renderNextWorkout(container, fresh);
+            if (window.hideStaleIndicator) window.hideStaleIndicator(container);
         },
         onError: async (error, cached) => {
             console.error('Error loading next workout:', error);
@@ -319,6 +324,10 @@ async function loadWorkoutGroups() {
         fetcher: async () => await apiCall('/api/workout/groups'),
         onCached: async (cached) => {
             _renderWorkoutGroups(container, cached);
+            if (cached) {
+                const meta = await window.DataStore.getCachedMeta('workout_groups');
+                if (meta && window.showStaleIndicator) window.showStaleIndicator(container, meta.cachedAt);
+            }
         },
         onFresh: async (groups) => {
             workoutGroups = groups || [];
@@ -326,6 +335,7 @@ async function loadWorkoutGroups() {
                 await window.MedTrackerDB.WorkoutStore.saveCache('groups', groups);
             }
             _renderWorkoutGroups(container, groups);
+            if (window.hideStaleIndicator) window.hideStaleIndicator(container);
         },
         onError: async (error, cached) => {
             console.error('Error loading workout groups:', error);
@@ -1068,9 +1078,14 @@ async function loadExerciseLibrary() {
         fetcher: async () => await apiCall('/api/workout/exercise-library'),
         onCached: async (cached) => {
             _renderExerciseLibrary(container, cached);
+            if (cached) {
+                const meta = await window.DataStore.getCachedMeta('exercise_library');
+                if (meta && window.showStaleIndicator) window.showStaleIndicator(container, meta.cachedAt);
+            }
         },
         onFresh: async (fresh) => {
             _renderExerciseLibrary(container, fresh);
+            if (window.hideStaleIndicator) window.hideStaleIndicator(container);
         },
         onError: async (error, cached) => {
             console.error('Error loading exercise library:', error);
@@ -1966,9 +1981,14 @@ async function loadWorkoutStatsTab() {
         fetcher: async () => await apiCall('/api/workout/stats'),
         onCached: async (cached) => {
             _renderWorkoutStats(container, cached);
+            if (cached) {
+                const meta = await window.DataStore.getCachedMeta('workout_stats');
+                if (meta && window.showStaleIndicator) window.showStaleIndicator(container, meta.cachedAt);
+            }
         },
         onFresh: async (stats) => {
             _renderWorkoutStats(container, stats);
+            if (window.hideStaleIndicator) window.hideStaleIndicator(container);
         },
         onError: async (error, cached) => {
             console.error('Error loading stats:', error);

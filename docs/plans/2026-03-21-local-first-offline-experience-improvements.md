@@ -103,12 +103,12 @@ Systematically fix offline behavior across all app sections. Three concrete bugs
 **Files:**
 - Modify: `web/static/js/workout.js`
 
-- [ ] In workout exercise log submit handler: replace direct `apiCall` with `offlineAwareApiCall` using `'workout_log_queue'` — exercise logs queue offline, sync when online
-- [ ] Workout snooze/skip handlers: same treatment (queue them)
-- [ ] In the workout section's `loadSWR` `onCached` callback: call `showStaleIndicator(container, cachedAt)` using `DataStore.getCachedMeta`
-- [ ] In `onFresh`: call `hideStaleIndicator(container)`
-- [ ] Write tests: offline exercise log write → item in workout_log_queue; onCached shows stale dot
-- [ ] Run frontend tests — must pass before task 7
+- [x] In workout exercise log submit handler: replace direct `apiCall` with `offlineAwareApiCall` using `'workout_log_queue'` — exercise logs queue offline, sync when online
+- [x] Workout snooze/skip handlers: same treatment (queue them)
+- [x] In the workout section's `loadSWR` `onCached` callback: call `showStaleIndicator(container, cachedAt)` using `DataStore.getCachedMeta`
+- [x] In `onFresh`: call `hideStaleIndicator(container)`
+- [x] Write tests: offline exercise log write → item in workout_log_queue; onCached shows stale dot
+- [x] Run frontend tests — must pass before task 7
 
 ### Task 7: Add stale indicators to remaining SWR sections
 

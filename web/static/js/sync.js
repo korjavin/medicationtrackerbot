@@ -531,6 +531,10 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
         if (endpoint.startsWith('/api/food/log') && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
             return await handleOfflineFoodLogWrite(endpoint, method, body);
         }
+        // Handle offline workout exercise log and session status writes
+        if (isWorkoutWriteEndpoint(endpoint, method)) {
+            return await handleOfflineWorkoutWrite(endpoint, method, body);
+        }
         // Other endpoints don't support offline writes - silently fail
         // The calling code will handle the null return appropriately
         SyncDebug.warn('Endpoint does not support offline writes', { endpoint });
@@ -565,6 +569,9 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
             }
             if (endpoint.startsWith('/api/food/log') && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
                 return await handleOfflineFoodLogWrite(endpoint, method, body);
+            }
+            if (isWorkoutWriteEndpoint(endpoint, method)) {
+                return await handleOfflineWorkoutWrite(endpoint, method, body);
             }
         }
 
@@ -658,6 +665,33 @@ async function handleOfflineFoodLogWrite(url, method, body) {
     SyncDebug.info('Food log queued in IndexedDB', { url, method });
 
     SyncManager.registerBackgroundSync('sync-food-logs');
+    SyncManager.showToast('Saved offline - will sync when online', 'info');
+    SyncManager.updateStatus();
+
+    return { isLocal: true, queued: true };
+}
+
+// Returns true for workout write endpoints that support offline queueing
+function isWorkoutWriteEndpoint(endpoint, method) {
+    if (method !== 'POST' && method !== 'PUT' && method !== 'DELETE') return false;
+    if (endpoint.startsWith('/api/workout/sessions/logs/')) return true;
+    if (endpoint.includes('/preskip')) return true;
+    return false;
+}
+
+async function handleOfflineWorkoutWrite(url, method, body) {
+    SyncDebug.info('Saving workout log offline', { url, method });
+
+    const queue = window.MedTrackerDB.db.workout_log_queue;
+    await queue.add({
+        url,
+        method,
+        body: body ? JSON.stringify(body) : null,
+        timestamp: Date.now()
+    });
+    SyncDebug.info('Workout log queued in IndexedDB', { url, method });
+
+    SyncManager.registerBackgroundSync('sync-workout-logs');
     SyncManager.showToast('Saved offline - will sync when online', 'info');
     SyncManager.updateStatus();
 

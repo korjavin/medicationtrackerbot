@@ -318,4 +318,89 @@ describe('sync.js offlineAwareApiCall behavior', () => {
       cleanup();
     }
   });
+
+  it('queues workout exercise log POST to workout_log_queue when offline', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = false;
+
+      const addedEntries = [];
+      window.MedTrackerDB.db = {
+        workout_log_queue: {
+          async add(entry) { addedEntries.push(entry); return addedEntries.length; }
+        }
+      };
+
+      vi.spyOn(window.SyncManager, 'registerBackgroundSync').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'showToast').mockImplementation(() => {});
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+
+      const payload = { session_id: 1, exercise_id: 5, target_sets: 3, target_reps_min: 10, status: 'completed' };
+      const result = await window.offlineAwareApiCall('/api/workout/sessions/logs/create', 'POST', payload);
+
+      expect(addedEntries).toHaveLength(1);
+      expect(addedEntries[0].url).toBe('/api/workout/sessions/logs/create');
+      expect(addedEntries[0].method).toBe('POST');
+      expect(JSON.parse(addedEntries[0].body)).toEqual(payload);
+      expect(result).toMatchObject({ isLocal: true, queued: true });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('queues workout exercise log to workout_log_queue on network error', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = true;
+      window.apiCallDirect = vi.fn().mockRejectedValue(new window.TypeError('fetch failed'));
+
+      const addedEntries = [];
+      window.MedTrackerDB.db = {
+        workout_log_queue: {
+          async add(entry) { addedEntries.push(entry); return addedEntries.length; }
+        }
+      };
+
+      vi.spyOn(window.SyncManager, 'registerBackgroundSync').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'showToast').mockImplementation(() => {});
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+
+      const payload = { id: 7, sets_completed: 3, reps_completed: 10, weight_kg: 50 };
+      const result = await window.offlineAwareApiCall('/api/workout/sessions/logs/update', 'POST', payload);
+
+      expect(addedEntries).toHaveLength(1);
+      expect(result).toMatchObject({ isLocal: true, queued: true });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('queues preskip to workout_log_queue when offline', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = false;
+
+      const addedEntries = [];
+      window.MedTrackerDB.db = {
+        workout_log_queue: {
+          async add(entry) { addedEntries.push(entry); return addedEntries.length; }
+        }
+      };
+
+      vi.spyOn(window.SyncManager, 'registerBackgroundSync').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'showToast').mockImplementation(() => {});
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+
+      const result = await window.offlineAwareApiCall('/api/workout/sessions/42/preskip', 'POST', null);
+
+      expect(addedEntries).toHaveLength(1);
+      expect(addedEntries[0].url).toBe('/api/workout/sessions/42/preskip');
+      expect(result).toMatchObject({ isLocal: true, queued: true });
+    } finally {
+      cleanup();
+    }
+  });
 });
