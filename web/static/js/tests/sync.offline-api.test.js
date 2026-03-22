@@ -231,4 +231,91 @@ describe('sync.js offlineAwareApiCall behavior', () => {
       cleanup();
     }
   });
+
+  it('queues food log POST to food_log_queue when offline', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = false;
+
+      const addedEntries = [];
+      window.MedTrackerDB.db = {
+        food_log_queue: {
+          async add(entry) { addedEntries.push(entry); return addedEntries.length; }
+        }
+      };
+
+      const registerSpy = vi.spyOn(window.SyncManager, 'registerBackgroundSync').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'showToast').mockImplementation(() => {});
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+
+      const payload = { name: 'Apple', calories: 52 };
+      const result = await window.offlineAwareApiCall('/api/food/log', 'POST', payload);
+
+      expect(addedEntries).toHaveLength(1);
+      expect(addedEntries[0].url).toBe('/api/food/log');
+      expect(addedEntries[0].method).toBe('POST');
+      expect(JSON.parse(addedEntries[0].body)).toEqual(payload);
+      expect(registerSpy).toHaveBeenCalledWith('sync-food-logs');
+      expect(result).toMatchObject({ isLocal: true, queued: true });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('queues food log DELETE to food_log_queue when offline', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = false;
+
+      const addedEntries = [];
+      window.MedTrackerDB.db = {
+        food_log_queue: {
+          async add(entry) { addedEntries.push(entry); return addedEntries.length; }
+        }
+      };
+
+      vi.spyOn(window.SyncManager, 'registerBackgroundSync').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'showToast').mockImplementation(() => {});
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+
+      const result = await window.offlineAwareApiCall('/api/food/log/5', 'DELETE', null);
+
+      expect(addedEntries).toHaveLength(1);
+      expect(addedEntries[0].url).toBe('/api/food/log/5');
+      expect(addedEntries[0].method).toBe('DELETE');
+      expect(result).toMatchObject({ isLocal: true, queued: true });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('queues food log POST to food_log_queue on network error (online but connection fails)', async () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      window.SyncManager.isOnline = true;
+      window.apiCallDirect = vi.fn().mockRejectedValue(new window.TypeError('fetch failed'));
+
+      const addedEntries = [];
+      window.MedTrackerDB.db = {
+        food_log_queue: {
+          async add(entry) { addedEntries.push(entry); return addedEntries.length; }
+        }
+      };
+
+      vi.spyOn(window.SyncManager, 'registerBackgroundSync').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'showToast').mockImplementation(() => {});
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+
+      const payload = { name: 'Banana', calories: 89 };
+      const result = await window.offlineAwareApiCall('/api/food/log', 'POST', payload);
+
+      expect(addedEntries).toHaveLength(1);
+      expect(result).toMatchObject({ isLocal: true, queued: true });
+    } finally {
+      cleanup();
+    }
+  });
 });

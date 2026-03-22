@@ -91,12 +91,12 @@ Systematically fix offline behavior across all app sections. Three concrete bugs
 **Files:**
 - Modify: `web/static/js/features/food.js`
 
-- [ ] In `loadFoodLogs()`: add `if (groups !== null)` guard around `DataStore.setCached(cacheKey, ...)` so null offline result never overwrites valid cache
-- [ ] In cached-read path: call `DataStore.getCachedMeta(cacheKey)` then `showStaleIndicator(list.parentElement, cachedAt)`
-- [ ] After successful fresh-data write: call `hideStaleIndicator(list.parentElement)`
-- [ ] In `saveFoodLog()` (and food delete handler): replace direct `apiCall` with `offlineAwareApiCall` passing `'food_log_queue'` as the queue target — writes go to Dexie when offline, sync automatically when online
-- [ ] Write tests: offline path → setCached NOT called, stale dot shown, cached data rendered; write while offline → item in food_log_queue
-- [ ] Run frontend tests — must pass before task 6
+- [x] In `loadFoodLogs()`: add `if (groups !== null)` guard around `DataStore.setCached(cacheKey, ...)` so null offline result never overwrites valid cache
+- [x] In cached-read path: call `DataStore.getCachedMeta(cacheKey)` then `showStaleIndicator(list.parentElement, cachedAt)`
+- [x] After successful fresh-data write: call `hideStaleIndicator(list.parentElement)`
+- [x] In `saveFoodLog()` (and food delete handler): replace direct `apiCall` with `offlineAwareApiCall` passing `'food_log_queue'` as the queue target — writes go to Dexie when offline, sync automatically when online
+- [x] Write tests: offline path → setCached NOT called, stale dot shown, cached data rendered; write while offline → item in food_log_queue
+- [x] Run frontend tests — must pass before task 6
 
 ### Task 6: Route workout writes through offline queue and add stale indicators
 

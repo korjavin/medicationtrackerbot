@@ -357,4 +357,83 @@ describe('app.js food CRUD, targets and period helpers', () => {
       cleanup();
     }
   });
+
+  it('loadFoodLogs does NOT overwrite cache when apiCall returns null (offline)', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const foodListContainer = document.createElement('div');
+      const foodList = document.createElement('div');
+      foodList.id = 'food-list';
+      foodListContainer.appendChild(foodList);
+      document.body.appendChild(foodListContainer);
+
+      const dateFilter = document.createElement('input');
+      dateFilter.id = 'food-date-filter';
+      dateFilter.value = '2026-03-20';
+      document.body.appendChild(dateFilter);
+
+      window.loadFoodTargets = vi.fn().mockResolvedValue(undefined);
+      window.loadMyMeals = vi.fn();
+      window.updateFoodDateNav = vi.fn();
+      window._renderFoodData = vi.fn(); // prevent real DOM operations
+
+      // Has cached data
+      const cachedData = { groups: [{ name: 'Lunch', items: [] }], weekStats: null };
+      window.DataStore.getCached = vi.fn().mockResolvedValue(cachedData);
+      window.DataStore.getCachedMeta = vi.fn().mockResolvedValue(null);
+      const setCachedSpy = vi.fn().mockResolvedValue(undefined);
+      window.DataStore.setCached = setCachedSpy;
+
+      // apiCall returns null (offline)
+      window.apiCall = vi.fn().mockResolvedValue(null);
+
+      await window.loadFoodLogs();
+
+      // setCached must NOT be called when groups is null
+      expect(setCachedSpy).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('loadFoodLogs shows stale indicator from cached data and hides it on fresh data', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      // index.html already has #food-list; find its actual parent for the assertion
+      const foodList = document.getElementById('food-list');
+      const foodListParent = foodList.parentElement;
+
+      const dateFilter = document.getElementById('food-date-filter');
+      if (dateFilter) dateFilter.value = '2026-03-20';
+
+      window.loadFoodTargets = vi.fn().mockResolvedValue(undefined);
+      window.loadMyMeals = vi.fn();
+      window.updateFoodDateNav = vi.fn();
+
+      const cachedAt = Date.now() - 5 * 60 * 1000; // 5 min ago
+      window.DataStore.getCached = vi.fn().mockResolvedValue({ groups: [], weekStats: null });
+      window.DataStore.getCachedMeta = vi.fn().mockResolvedValue({ cachedAt });
+      window.DataStore.setCached = vi.fn().mockResolvedValue(undefined);
+
+      const showStaleSpy = vi.fn();
+      const hideStaleSpy = vi.fn();
+      window.showStaleIndicator = showStaleSpy;
+      window.hideStaleIndicator = hideStaleSpy;
+
+      // Return empty fresh data — avoids touching _renderFoodData internals (group.logs)
+      // but still enters the `if (groups !== null)` branch
+      window.apiCall = vi.fn().mockResolvedValue([]);
+
+      await window.loadFoodLogs();
+
+      // Stale indicator should have been shown (cached path)
+      expect(showStaleSpy).toHaveBeenCalledWith(foodListParent, cachedAt);
+      // Stale indicator should have been hidden (fresh data arrived)
+      expect(hideStaleSpy).toHaveBeenCalledWith(foodListParent);
+    } finally {
+      cleanup();
+    }
+  });
 });

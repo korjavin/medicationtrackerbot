@@ -527,6 +527,10 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
         if (endpoint === '/api/medications/confirm-schedule' && method === 'POST') {
             return await handleOfflineIntakeWrite(body);
         }
+        // Handle offline food log writes (POST/PUT/DELETE)
+        if (endpoint.startsWith('/api/food/log') && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
+            return await handleOfflineFoodLogWrite(endpoint, method, body);
+        }
         // Other endpoints don't support offline writes - silently fail
         // The calling code will handle the null return appropriately
         SyncDebug.warn('Endpoint does not support offline writes', { endpoint });
@@ -558,6 +562,9 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
             }
             if (endpoint === '/api/medications/confirm-schedule' && method === 'POST') {
                 return await handleOfflineIntakeWrite(body);
+            }
+            if (endpoint.startsWith('/api/food/log') && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
+                return await handleOfflineFoodLogWrite(endpoint, method, body);
             }
         }
 
@@ -635,6 +642,26 @@ async function handleOfflineWeightWrite(body) {
         localId: localEntry.localId,
         isLocal: true
     };
+}
+
+// Handle offline food log write (POST/PUT/DELETE)
+async function handleOfflineFoodLogWrite(url, method, body) {
+    SyncDebug.info('Saving food log offline', { url, method });
+
+    const queue = window.MedTrackerDB.db.food_log_queue;
+    await queue.add({
+        url,
+        method,
+        body: body ? JSON.stringify(body) : null,
+        timestamp: Date.now()
+    });
+    SyncDebug.info('Food log queued in IndexedDB', { url, method });
+
+    SyncManager.registerBackgroundSync('sync-food-logs');
+    SyncManager.showToast('Saved offline - will sync when online', 'info');
+    SyncManager.updateStatus();
+
+    return { isLocal: true, queued: true };
 }
 
 // Handle offline BP read

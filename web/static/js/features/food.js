@@ -1387,6 +1387,10 @@ async function loadFoodLogs() {
     const cached = await window.DataStore.getCached(cacheKey);
     if (cached) {
         _renderFoodData(cached.groups, cached.weekStats, period, dateStr);
+        const meta = await window.DataStore.getCachedMeta(cacheKey);
+        if (meta && list.parentElement && window.showStaleIndicator) {
+            window.showStaleIndicator(list.parentElement, meta.cachedAt);
+        }
     } else {
         const loadingStr = document.createTextNode('Loading...');
         list.replaceChildren(loadingStr);
@@ -1411,9 +1415,16 @@ async function loadFoodLogs() {
             weekStats = await apiCall(`/api/food/stats?date=${dateStr}&days=${daysCount}${tzParams}`, 'GET');
         }
 
-        await window.DataStore.setCached(cacheKey, { groups: groups || [], weekStats });
+        if (groups !== null) {
+            await window.DataStore.setCached(cacheKey, { groups: groups || [], weekStats });
+        }
 
-        _renderFoodData(groups || [], weekStats, period, dateStr);
+        if (groups !== null) {
+            _renderFoodData(groups || [], weekStats, period, dateStr);
+            if (list.parentElement && window.hideStaleIndicator) {
+                window.hideStaleIndicator(list.parentElement);
+            }
+        }
     } catch (e) {
         console.error(e);
         if (!cached) {
