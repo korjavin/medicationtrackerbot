@@ -29,6 +29,7 @@ type Bot struct {
 	exerciseSvc   domain.ExerciseService
 	reminderSvc   domain.ReminderService
 	food          FoodStore
+	foodAI        domain.FoodAIService
 	imports       ImportStore
 	allowedUserID int64
 	appDomain     string
@@ -47,7 +48,7 @@ type featureFlags struct {
 	Food       bool
 }
 
-func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
+func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAIService) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
@@ -75,6 +76,7 @@ func New(token string, allowedUserID int64, s *store.Store) (*Bot, error) {
 		exerciseSvc:   domain.NewExerciseService(s),
 		reminderSvc:   domain.NewReminderService(s),
 		food:          s,
+		foodAI:        foodAI,
 		imports:       s,
 		allowedUserID: allowedUserID,
 		appDomain:     appDomain,
@@ -156,8 +158,11 @@ func (b *Bot) buildHelpText(flags featureFlags) string {
 	}
 
 	if flags.Food {
-		sections = append(sections, `**Food Command:**
-/intake <carbs> <protein> <fat> <weight> [name] - Log food intake`)
+		foodSection := "**Food Command:**\n/intake <carbs> <protein> <fat> <weight> [name] - Log food intake"
+		if b.foodAI != nil {
+			foodSection += "\n/food <description> - Log food using natural language\n  Example: /food 200g chicken breast with rice"
+		}
+		sections = append(sections, foodSection)
 	}
 
 	sections = append(sections, `**How to use:**
@@ -352,6 +357,12 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			break
 		}
 		b.handleIntakeCommand(msg, &msgConfig)
+	case "food":
+		if !flags.Food {
+			msgConfig.Text = "⚠️ Food section is disabled in settings."
+			break
+		}
+		b.handleFoodCommand(msg, &msgConfig)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}

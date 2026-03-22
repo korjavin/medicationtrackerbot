@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/ai"
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/scheduler"
 	"github.com/korjavin/medicationtrackerbot/internal/server"
@@ -56,10 +58,24 @@ func main() {
 	defer s.Close()
 	slog.Info("Database initialized", "path", dbPath)
 
+	// 2.5 OpenAI Client
+	openAIApiKey := os.Getenv("OPENAI_API_KEY")
+	openAIURL := os.Getenv("OPENAI_URL")
+	openAIModel := os.Getenv("OPENAI_MODEL")
+
+	var foodAI domain.FoodAIService
+	if openAIApiKey != "" {
+		aiClient := ai.NewClient(openAIApiKey, openAIURL, openAIModel)
+		foodAI = domain.NewFoodAIService(aiClient)
+		slog.Info("AI food logging enabled")
+	} else {
+		slog.Info("AI food logging disabled (OPENAI_API_KEY not set)")
+	}
+
 	// 3. Bot
 	var tgBot *bot.Bot
 	if botToken != "" {
-		tgBot, err = bot.New(botToken, allowedUserID, s)
+		tgBot, err = bot.New(botToken, allowedUserID, s, foodAI)
 		if err != nil {
 			slog.Error("Failed to start bot", "error", err)
 			os.Exit(1)
