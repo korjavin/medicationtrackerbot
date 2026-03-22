@@ -64,12 +64,13 @@ func main() {
 	openAIModel := os.Getenv("OPENAI_MODEL")
 
 	var foodAI domain.FoodAIService
-	if openAIApiKey != "" {
+	// Enable AI food logging if API Key, URL, OR Model are explicitly set
+	if openAIApiKey != "" || openAIURL != "" || openAIModel != "" {
 		aiClient := ai.NewClient(openAIApiKey, openAIURL, openAIModel)
 		foodAI = domain.NewFoodAIService(aiClient)
 		slog.Info("AI food logging enabled")
 	} else {
-		slog.Info("AI food logging disabled (OPENAI_API_KEY not set)")
+		slog.Info("AI food logging disabled (no OPENAI variables set)")
 	}
 
 	// 3. Bot

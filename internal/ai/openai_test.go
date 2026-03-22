@@ -7,14 +7,6 @@ import (
 	"testing"
 )
 
-func TestParseMealFromDescription_MissingKey(t *testing.T) {
-	client := NewClient("", "", "")
-	_, err := client.ParseMealFromDescription(context.Background(), "apple")
-	if err == nil {
-		t.Fatal("expected error for missing API key, got nil")
-	}
-}
-
 func TestParseMealFromDescription_APIError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

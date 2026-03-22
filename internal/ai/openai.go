@@ -109,10 +109,6 @@ var mealSchema = map[string]any{
 
 // ParseMealFromDescription sends a natural language meal description to the OpenAI API and extracts nutritional data.
 func (c *Client) ParseMealFromDescription(ctx context.Context, description string) (*MealData, error) {
-	if c.apiKey == "" {
-		return nil, errors.New("OpenAI API key is missing")
-	}
-
 	systemPrompt := `You are a nutrition expert. Your task is to extract the food name, estimated total weight in grams, and the macronutrients (carbohydrates, protein, and fat) PER 100 GRAMS from a free-text meal description.
 If the description mentions multiple items, provide an aggregate name (e.g., "Chicken breast with rice and broccoli") and calculate the average/combined macros per 100g for the entire meal.
 Respond ONLY with the requested JSON schema.`
@@ -145,7 +141,9 @@ Respond ONLY with the requested JSON schema.`
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
