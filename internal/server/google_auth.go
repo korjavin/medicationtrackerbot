@@ -145,7 +145,9 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 	req.Header.Set("Accept", "application/json")
-	resp, err := http.DefaultClient.Do(req) // #nosec G107
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req) // #nosec G107
 	if err != nil {
 		http.Error(w, "failed getting user info: "+err.Error(), http.StatusInternalServerError)
 		return
