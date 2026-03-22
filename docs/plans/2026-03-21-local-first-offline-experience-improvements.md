@@ -41,12 +41,12 @@ Systematically fix offline behavior across all app sections. Three concrete bugs
 - Modify: `web/static/js/db.js`
 - Modify: `web/static/js/data-store.js`
 
-- [ ] In `db.js`: add `getWithMeta(key)` to `ApiCache` — returns `{ data, cachedAt }` using the existing `timestamp` field, or null if not found
-- [ ] In `db.js`: bump Dexie schema version, add `food_log_queue` table (`++id, url, method, body, timestamp`) and `workout_log_queue` table (`++id, url, method, body, timestamp`) following the same shape as existing offline queue tables
-- [ ] In `data-store.js`: add `DataStore.getCachedMeta(key)` — calls `window.MedTrackerDB.ApiCache.getWithMeta(key)` and returns `{ cachedAt }` or null
-- [ ] Write unit tests in `db.unit.test.js` for `getWithMeta` (returns meta with timestamp, returns null on miss, food/workout queue tables exist)
-- [ ] Write unit tests in `data-store.unit.test.js` for `getCachedMeta`
-- [ ] Run frontend tests — must pass before task 2
+- [x] In `db.js`: add `getWithMeta(key)` to `ApiCache` — returns `{ data, cachedAt }` using the existing `timestamp` field, or null if not found
+- [x] In `db.js`: bump Dexie schema version, add `food_log_queue` table (`++id, url, method, body, timestamp`) and `workout_log_queue` table (`++id, url, method, body, timestamp`) following the same shape as existing offline queue tables
+- [x] In `data-store.js`: add `DataStore.getCachedMeta(key)` — calls `window.MedTrackerDB.ApiCache.getWithMeta(key)` and returns `{ cachedAt }` or null
+- [x] Write unit tests in `db.unit.test.js` for `getWithMeta` (returns meta with timestamp, returns null on miss, food/workout queue tables exist)
+- [x] Write unit tests in `data-store.unit.test.js` for `getCachedMeta`
+- [x] Run frontend tests — must pass before task 2
 
 ### Task 2: Extend SyncManager to flush food and workout queues
 

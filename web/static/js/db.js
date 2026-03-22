@@ -70,6 +70,22 @@ db.version(5).stores({
     api_cache: 'id, timestamp'
 });
 
+// Version 6: Add offline write queues for food log and workout exercise logs
+db.version(6).stores({
+    bp_readings: '++localId, serverId, measured_at, syncStatus',
+    weight_logs: '++localId, serverId, measured_at, syncStatus',
+    medication_cache: 'id, timestamp',
+    intake_history_cache: 'id, timestamp',
+    workout_cache: 'id, timestamp',
+    intake_queue: '++localId, medication_id, syncStatus',
+    food_products_cache: 'id, timestamp',
+    api_cache: 'id, timestamp',
+
+    // Offline write queues for food and workout
+    food_log_queue: '++id, url, method, timestamp',
+    workout_log_queue: '++id, url, method, timestamp'
+});
+
 // Simple logger for db operations (will be enhanced by sync.js SyncDebug)
 const dbLog = (msg, data) => {
     console.log(`[DB] ${msg}`, data || '');
@@ -550,6 +566,17 @@ const ApiCache = {
             }
         } catch (e) {
             console.warn('[ApiCache] Failed to clear', e);
+        }
+    },
+
+    // Returns { data, cachedAt } using the stored timestamp, or null if not found
+    async getWithMeta(key) {
+        try {
+            const entry = await db.api_cache.get(key);
+            if (!entry) return null;
+            return { data: entry.data, cachedAt: entry.timestamp };
+        } catch (e) {
+            return null;
         }
     }
 };

@@ -54,6 +54,13 @@
             return await window.MedTrackerDB.ApiCache.get(key);
         },
 
+        async getCachedMeta(key) {
+            if (!window.MedTrackerDB?.ApiCache?.getWithMeta) return null;
+            const meta = await window.MedTrackerDB.ApiCache.getWithMeta(key);
+            if (!meta) return null;
+            return { cachedAt: meta.cachedAt };
+        },
+
         async setCached(key, data) {
             if (!window.MedTrackerDB?.ApiCache) return;
             await window.MedTrackerDB.ApiCache.set(key, data);

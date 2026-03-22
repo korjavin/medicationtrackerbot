@@ -219,6 +219,47 @@ describe('db.js store behavior', () => {
     }
   });
 
+  it('ApiCache getWithMeta returns data and cachedAt on hit, null on miss', async () => {
+    const { window, cleanup } = loadDbEnv();
+
+    try {
+      const { ApiCache } = window.MedTrackerDB;
+      const nowSpy = vi.spyOn(window.Date, 'now').mockReturnValue(1711000000000);
+
+      await ApiCache.set('bp', { list: [1, 2] });
+      const meta = await ApiCache.getWithMeta('bp');
+      expect(meta).not.toBeNull();
+      expect(meta.data).toEqual({ list: [1, 2] });
+      expect(meta.cachedAt).toBe(1711000000000);
+
+      const miss = await ApiCache.getWithMeta('nonexistent');
+      expect(miss).toBeNull();
+
+      nowSpy.mockRestore();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('food_log_queue and workout_log_queue tables exist in the db', async () => {
+    const { window, cleanup } = loadDbEnv();
+
+    try {
+      const { db } = window.MedTrackerDB;
+      expect(db.food_log_queue).toBeDefined();
+      expect(db.workout_log_queue).toBeDefined();
+
+      // Verify they support basic operations
+      const foodId = await db.food_log_queue.add({ url: '/api/food/log', method: 'POST', body: '{}', timestamp: Date.now() });
+      expect(foodId).toBe(1);
+
+      const workoutId = await db.workout_log_queue.add({ url: '/api/workout/log', method: 'POST', body: '{}', timestamp: Date.now() });
+      expect(workoutId).toBe(1);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('ApiCache get/set/clear work and tolerate storage failures', async () => {
     const { window, cleanup } = loadDbEnv();
 

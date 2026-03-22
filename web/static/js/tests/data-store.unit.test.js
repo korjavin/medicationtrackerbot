@@ -144,6 +144,37 @@ describe('data-store.js unit tests', () => {
     }
   });
 
+  it('getCachedMeta returns cachedAt for existing key, null for missing key', async () => {
+    const { window, cleanup } = loadDataStoreEnv({
+      initialCache: { bp: { list: [1] } }
+    });
+
+    try {
+      // For the pre-seeded key, the mock sets timestamp on set() — seed via setCached to get metaMap entry
+      await window.DataStore.setCached('bp_fresh', { list: [2] });
+      const meta = await window.DataStore.getCachedMeta('bp_fresh');
+      expect(meta).not.toBeNull();
+      expect(typeof meta.cachedAt).toBe('number');
+
+      const miss = await window.DataStore.getCachedMeta('nonexistent_key');
+      expect(miss).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('getCachedMeta returns null when ApiCache is unavailable', async () => {
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      window.MedTrackerDB = null;
+      const meta = await window.DataStore.getCachedMeta('any_key');
+      expect(meta).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
   it('requestTabRefresh falls back to reloadCurrentTab when no global request handler exists', () => {
     const { window, cleanup } = loadDataStoreEnv();
 

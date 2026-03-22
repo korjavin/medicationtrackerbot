@@ -14,17 +14,26 @@ function evalWithSourceURL(window, source, scriptPath) {
 
 function createApiCacheMock(initialCache = {}) {
   const map = new Map(Object.entries(initialCache));
+  // Track timestamps for getWithMeta support
+  const metaMap = new Map();
 
   return {
     map,
+    metaMap,
     async get(key) {
       return map.has(key) ? map.get(key) : null;
     },
     async set(key, value) {
       map.set(key, value);
+      metaMap.set(key, Date.now());
     },
     async clear(key) {
       map.delete(key);
+      metaMap.delete(key);
+    },
+    async getWithMeta(key) {
+      if (!map.has(key)) return null;
+      return { data: map.get(key), cachedAt: metaMap.get(key) || 0 };
     }
   };
 }
