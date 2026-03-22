@@ -94,10 +94,11 @@ User
 - `genvapid/` - VAPID key generator for web push
 
 **Core Packages** (`internal/`):
+- `ai/` - AI client integration (OpenAI-compatible)
 - `store/` - Database layer (SQLite repository, migrations)
 - `server/` - HTTP handlers for REST API
 - `bot/` - Telegram bot logic (commands, callbacks, notifications) — thin channel layer only
-- `domain/` - Business logic services: `medication.go`, `exercise.go`, `reminder.go`, `food.go`
+- `domain/` - Business logic services: `medication.go`, `exercise.go`, `reminder.go`, `food.go`, `food_ai.go`
 - `workout/` - Workout session management service (`service.go`)
 - `scheduler/` - Notification scheduling (medications, workouts, BP/weight reminders)
 - `mcp/` - Model Context Protocol server implementation
@@ -288,6 +289,11 @@ TZ=Europe/Berlin              # Critical for correct scheduling
 DB_PATH=meds.db               # SQLite database path (default: meds.db)
 PORT=8080                     # HTTP port (default: 8080)
 EXTERNAL_WORKOUT_API_KEY=...  # Required for external workout endpoint (e.g. Mi Notify)
+
+# Natural Language Food Logging (optional)
+OPENAI_API_KEY=...            # Optional, for the /food AI command
+OPENAI_URL=...                # Optional, defaults to https://api.openai.com/v1
+OPENAI_MODEL=...              # Optional, defaults to gpt-4o-mini
 
 # Google Auth (optional, for browser access)
 GOOGLE_CLIENT_ID=...
