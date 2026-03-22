@@ -371,16 +371,21 @@ describe('app.js medication, history and intake flows', () => {
       const alertSpy = vi.fn();
       window.Telegram.WebApp.showAlert = alertSpy;
 
-      window.DataStore.fetchFresh = vi
-        .fn()
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({
-          scheduled_at: new Date().toISOString(),
-          medication_names: ['<b>Aspirin</b>', 'Vitamin D']
-        });
+      // onFresh with no data → empty container
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onFresh(null);
+      });
 
       await window.renderNextIntakeTrigger();
       expect(container.innerHTML).toBe('');
+
+      // onFresh with data → card rendered
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onFresh({
+          scheduled_at: new Date().toISOString(),
+          medication_names: ['<b>Aspirin</b>', 'Vitamin D']
+        });
+      });
 
       await window.renderNextIntakeTrigger();
       expect(container.innerHTML).toContain('Next scheduled intake');
@@ -419,6 +424,113 @@ describe('app.js medication, history and intake flows', () => {
       await window.triggerNextIntake();
       expect(loadHistorySpy).not.toHaveBeenCalled();
       expect(alertSpy).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('renderNextIntakeTrigger shows cached card with stale dot when offline (onCached)', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const container = document.getElementById('next-intake-trigger');
+      const cachedAt = new Date(Date.now() - 3600000).toISOString(); // 1h ago
+
+      window.DataStore.getCachedMeta = vi.fn().mockResolvedValue({ cachedAt });
+      window.showStaleIndicator = vi.fn();
+      window.hideStaleIndicator = vi.fn();
+
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onCached({
+          scheduled_at: new Date().toISOString(),
+          medication_names: ['Aspirin']
+        });
+      });
+
+      await window.renderNextIntakeTrigger();
+
+      expect(container.innerHTML).toContain('Next scheduled intake');
+      expect(container.innerHTML).toContain('Take Now');
+      expect(window.DataStore.getCachedMeta).toHaveBeenCalledWith('next_intake');
+      expect(window.showStaleIndicator).toHaveBeenCalledWith(container, cachedAt);
+      expect(window.hideStaleIndicator).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('renderNextIntakeTrigger hides stale dot when fresh data arrives (onFresh)', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const container = document.getElementById('next-intake-trigger');
+
+      window.showStaleIndicator = vi.fn();
+      window.hideStaleIndicator = vi.fn();
+
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onFresh({
+          scheduled_at: new Date().toISOString(),
+          medication_names: ['Vitamin D']
+        });
+      });
+
+      await window.renderNextIntakeTrigger();
+
+      expect(container.innerHTML).toContain('Next scheduled intake');
+      expect(window.hideStaleIndicator).toHaveBeenCalledWith(container);
+      expect(window.showStaleIndicator).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('renderNextIntakeTrigger keeps container empty on error with no cached data (onError)', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const container = document.getElementById('next-intake-trigger');
+      container.innerHTML = '';
+
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onError(new Error('network'), null);
+      });
+
+      await window.renderNextIntakeTrigger();
+
+      expect(container.innerHTML).toBe('');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('renderNextIntakeTrigger keeps existing card on error when cached data is present (onError)', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const container = document.getElementById('next-intake-trigger');
+
+      // First show a card via onCached
+      window.DataStore.getCachedMeta = vi.fn().mockResolvedValue({ cachedAt: new Date().toISOString() });
+      window.showStaleIndicator = vi.fn();
+
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onCached({
+          scheduled_at: new Date().toISOString(),
+          medication_names: ['Aspirin']
+        });
+      });
+      await window.renderNextIntakeTrigger();
+      const contentBeforeError = container.innerHTML;
+
+      // Now trigger onError with cached data present
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onError(new Error('timeout'), { scheduled_at: new Date().toISOString(), medication_names: ['Aspirin'] });
+      });
+      await window.renderNextIntakeTrigger();
+
+      // Container should still have content (card kept)
+      expect(container.innerHTML).toBe(contentBeforeError);
     } finally {
       cleanup();
     }

@@ -79,12 +79,12 @@ Systematically fix offline behavior across all app sections. Three concrete bugs
 **Files:**
 - Modify: `web/static/js/app.js`
 
-- [ ] Change `renderNextIntakeTrigger()` to use `DataStore.loadSWR` instead of `DataStore.fetchFresh`
-- [ ] `onCached(cached)`: render card with cached data; get `cachedAt` via `DataStore.getCachedMeta('next_intake')`; call `showStaleIndicator(container, cachedAt)`
-- [ ] `onFresh(fresh)`: if data exists render card and call `hideStaleIndicator(container)`; if null/empty clear container
-- [ ] `onError(_e, cached)`: if cached exists keep it (dot already showing); else clear container
-- [ ] Write/update tests: offline scenario → onCached called, card rendered, stale dot shown
-- [ ] Run frontend tests — must pass before task 5
+- [x] Change `renderNextIntakeTrigger()` to use `DataStore.loadSWR` instead of `DataStore.fetchFresh`
+- [x] `onCached(cached)`: render card with cached data; get `cachedAt` via `DataStore.getCachedMeta('next_intake')`; call `showStaleIndicator(container, cachedAt)`
+- [x] `onFresh(fresh)`: if data exists render card and call `hideStaleIndicator(container)`; if null/empty clear container
+- [x] `onError(_e, cached)`: if cached exists keep it (dot already showing); else clear container
+- [x] Write/update tests: offline scenario → onCached called, card rendered, stale dot shown
+- [x] Run frontend tests — must pass before task 5
 
 ### Task 5: Fix food logs — prevent cache corruption, route writes through offline queue
 

@@ -1883,6 +1883,55 @@ function _formatCountdown(ms) {
     return `${hours}:${String(minutes).padStart(2, '0')}`;
 }
 
+function _buildNextIntakeCard(res) {
+    const nextTime = new Date(res.scheduled_at);
+    const medNamesStr = res.medication_names.join(', ');
+
+    // Format the next time
+    const timeStr = nextTime.toLocaleString('de-DE', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+
+    const card = document.createElement('div');
+    card.style.cssText = 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;';
+
+    const body = document.createElement('div');
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size: 14px; font-weight: 600; margin-bottom: 2px;';
+    title.textContent = 'Next scheduled intake';
+
+    const countdown = document.createElement('div');
+    countdown.style.cssText = 'font-size: 28px; font-weight: 700; letter-spacing: 1px; line-height: 1.1; margin-bottom: 4px;';
+    function updateCountdown() {
+        countdown.textContent = _formatCountdown(nextTime - Date.now());
+    }
+    updateCountdown();
+    _nextIntakeTimerInterval = setInterval(updateCountdown, 30000);
+
+    const details = document.createElement('div');
+    details.style.cssText = 'font-size: 12px; opacity: 0.9;';
+    details.textContent = `${medNamesStr} at ${timeStr}`;
+    body.appendChild(title);
+    body.appendChild(countdown);
+    body.appendChild(details);
+
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.className = 'btn-pill';
+    action.style.cssText = 'background: rgba(255,255,255,0.25); color: white; white-space: nowrap;';
+    action.textContent = 'Take Now';
+    action.addEventListener('click', () => {
+        triggerNextIntake();
+    });
+
+    card.appendChild(body);
+    card.appendChild(action);
+    return card;
+}
+
 async function renderNextIntakeTrigger() {
     const container = document.getElementById('next-intake-trigger');
     if (!container) return;
@@ -1892,68 +1941,39 @@ async function renderNextIntakeTrigger() {
         _nextIntakeTimerInterval = null;
     }
 
-    try {
-        const res = await window.DataStore.fetchFresh(
-            'next_intake',
-            async () => await apiCall('/api/medications/next-intake', 'GET'),
-            ['history', 'medications']
-        );
-
-        if (!res || !res.scheduled_at) {
+    await window.DataStore.loadSWR({
+        key: 'next_intake',
+        tags: ['history', 'medications'],
+        fetcher: async () => await apiCall('/api/medications/next-intake', 'GET'),
+        onCached: async (cached) => {
+            if (!cached || !cached.scheduled_at) return;
+            if (_nextIntakeTimerInterval) {
+                clearInterval(_nextIntakeTimerInterval);
+                _nextIntakeTimerInterval = null;
+            }
+            const card = _buildNextIntakeCard(cached);
+            container.replaceChildren(card);
+            const meta = await window.DataStore.getCachedMeta('next_intake');
+            window.showStaleIndicator(container, meta && meta.cachedAt);
+        },
+        onFresh: async (fresh) => {
+            if (_nextIntakeTimerInterval) {
+                clearInterval(_nextIntakeTimerInterval);
+                _nextIntakeTimerInterval = null;
+            }
+            if (!fresh || !fresh.scheduled_at) {
+                container.replaceChildren();
+                return;
+            }
+            const card = _buildNextIntakeCard(fresh);
+            container.replaceChildren(card);
+            window.hideStaleIndicator(container);
+        },
+        onError: async (_e, cached) => {
+            if (cached && cached.scheduled_at) return; // keep cached card + stale dot
             container.replaceChildren();
-            return;
         }
-
-        const nextTime = new Date(res.scheduled_at);
-        const medNamesStr = res.medication_names.join(', ');
-
-        // Format the next time
-        const timeStr = nextTime.toLocaleString('de-DE', {
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-
-        const card = document.createElement('div');
-        card.style.cssText = 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;';
-
-        const body = document.createElement('div');
-        const title = document.createElement('div');
-        title.style.cssText = 'font-size: 14px; font-weight: 600; margin-bottom: 2px;';
-        title.textContent = 'Next scheduled intake';
-
-        const countdown = document.createElement('div');
-        countdown.style.cssText = 'font-size: 28px; font-weight: 700; letter-spacing: 1px; line-height: 1.1; margin-bottom: 4px;';
-        function updateCountdown() {
-            countdown.textContent = _formatCountdown(nextTime - Date.now());
-        }
-        updateCountdown();
-        _nextIntakeTimerInterval = setInterval(updateCountdown, 30000);
-
-        const details = document.createElement('div');
-        details.style.cssText = 'font-size: 12px; opacity: 0.9;';
-        details.textContent = `${medNamesStr} at ${timeStr}`;
-        body.appendChild(title);
-        body.appendChild(countdown);
-        body.appendChild(details);
-
-        const action = document.createElement('button');
-        action.type = 'button';
-        action.className = 'btn-pill';
-        action.style.cssText = 'background: rgba(255,255,255,0.25); color: white; white-space: nowrap;';
-        action.textContent = 'Take Now';
-        action.addEventListener('click', () => {
-            triggerNextIntake();
-        });
-
-        card.appendChild(body);
-        card.appendChild(action);
-        container.replaceChildren(card);
-    } catch (e) {
-        console.error("Error fetching next intake:", e);
-        container.replaceChildren();
-    }
+    });
 }
 
 async function triggerNextIntake() {
