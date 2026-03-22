@@ -78,7 +78,7 @@ We built this because health data was everywhere—and nowhere. Medications, blo
 
 ### Food Commands
 - `/intake <carbs> <protein> <fat> <weight> [name]` - Manually log food intake by macros (per 100g).
-- `/food <description>` - Log food using natural language via AI (e.g., `/food 200g chicken breast with a cup of rice`). Requires `OPENAI_API_KEY`.
+- `/food <description>` - Log food using natural language via AI (e.g., `/food 200g chicken breast with a cup of rice`). Requires configuring an `OPENAI_` environment variable.
 
 ## Configuration
 
@@ -99,7 +99,7 @@ The application is configured via Environment Variables:
 | `GOOGLE_REDIRECT_URL` | (Optional, legacy) Callback URL (e.g., `https://your-domain.com/auth/google/callback`) |
 | `ADMIN_EMAIL` | (Optional, legacy) Allow Google Login only for this email |
 | `OIDC_ISSUER_URL` | (Optional) OIDC issuer URL (e.g., `https://id.yourdomain.com`) |
-| `OPENAI_API_KEY` | (Optional) Required for AI food logging via the `/food` command |
+| `OPENAI_API_KEY` | (Optional) API key for AI food logging via the `/food` command |
 | `OPENAI_URL` | (Optional) Base URL for OpenAI-compatible API (default: `https://api.openai.com/v1`) |
 | `OPENAI_MODEL` | (Optional) AI model to use for food logging (default: `gpt-4o-mini`) |
 | `OIDC_CLIENT_ID` | (Optional) OIDC client ID |

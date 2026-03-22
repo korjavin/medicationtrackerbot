@@ -291,7 +291,7 @@ PORT=8080                     # HTTP port (default: 8080)
 EXTERNAL_WORKOUT_API_KEY=...  # Required for external workout endpoint (e.g. Mi Notify)
 
 # Natural Language Food Logging (optional)
-OPENAI_API_KEY=...            # Required for the /food AI command
+OPENAI_API_KEY=...            # Optional, for the /food AI command
 OPENAI_URL=...                # Optional, defaults to https://api.openai.com/v1
 OPENAI_MODEL=...              # Optional, defaults to gpt-4o-mini
 
