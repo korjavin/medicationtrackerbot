@@ -25,6 +25,16 @@ type IntakeArgs struct {
 	Name     string
 }
 
+// FoodLog represents an aggregated food entry without database-specific fields.
+type FoodLog struct {
+	Name     string
+	Weight   int
+	Carbs    int // total grams
+	Protein  int // total grams
+	Fat      int // total grams
+	Calories int // total kcal
+}
+
 // ParseIntakeArgs parses the intake command arguments string.
 // Expected format: <carbs> <protein> <fat> <weight> [name]
 func ParseIntakeArgs(args string) (IntakeArgs, error) {
