@@ -44,6 +44,9 @@ services:
       - FOOD_DOMAIN=${FOOD_DOMAIN}
       - FOOD_API_URL=${FOOD_API_URL}
       - FOOD_API_KEY=${FOOD_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_URL=${OPENAI_URL}
+      - OPENAI_MODEL=${OPENAI_MODEL}
       - EXTERNAL_WORKOUT_API_KEY=${EXTERNAL_WORKOUT_API_KEY}     
     networks:
       - default
