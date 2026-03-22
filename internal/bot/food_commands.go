@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -103,13 +104,15 @@ Examples:
 	processingMsg := tgbotapi.NewMessage(msg.Chat.ID, "⏳ Analyzing your meal...")
 	sentMsg, err := b.api.Send(processingMsg)
 	if err != nil {
-		// Proceed anyway, but we won't be able to edit this later
+		slog.Warn("food command: failed to send processing message", "chat_id", msg.Chat.ID, "error", err)
 	}
 
 	// Delete processing message eventually
 	defer func() {
 		if sentMsg.MessageID != 0 {
-			b.api.Request(tgbotapi.NewDeleteMessage(msg.Chat.ID, sentMsg.MessageID))
+			if _, err := b.api.Request(tgbotapi.NewDeleteMessage(msg.Chat.ID, sentMsg.MessageID)); err != nil {
+				slog.Warn("food command: failed to delete processing message", "chat_id", msg.Chat.ID, "message_id", sentMsg.MessageID, "error", err)
+			}
 		}
 	}()
 
@@ -118,6 +121,7 @@ Examples:
 
 	parsedLog, err := b.foodAI.ParseMealDescription(ctx, args)
 	if err != nil {
+		slog.Error("food command: meal analysis failed", "chat_id", msg.Chat.ID, "description", args, "error", err)
 		msgConfig.Text = "❌ Failed to analyze meal: " + err.Error()
 		return
 	}
@@ -135,6 +139,7 @@ Examples:
 
 	_, err = b.food.CreateFoodLog(context.Background(), log)
 	if err != nil {
+		slog.Error("food command: failed to save food log", "chat_id", msg.Chat.ID, "name", parsedLog.Name, "error", err)
 		msgConfig.Text = "❌ Error saving food log to database."
 		return
 	}

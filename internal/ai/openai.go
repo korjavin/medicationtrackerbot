@@ -84,6 +84,14 @@ type chatCompletionResponse struct {
 	} `json:"error"`
 }
 
+type apiError struct {
+	Message string
+}
+
+func (e *apiError) Error() string {
+	return "API error: " + e.Message
+}
+
 var mealSchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
@@ -130,6 +138,31 @@ Respond ONLY with the requested JSON schema.`
 		},
 	}
 
+	mealData, err := c.parseMealWithRequest(ctx, reqBody)
+	if err == nil {
+		return mealData, nil
+	}
+
+	var apiErr *apiError
+	if errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Message), "response_format") {
+		fallbackReq := reqBody
+		fallbackReq.ResponseFormat = nil
+		fallbackReq.Messages = []chatCompletionMessage{
+			{
+				Role: "system",
+				Content: systemPrompt + `
+Return only valid JSON with keys: name, weight_grams, carbs_100g, protein_100g, fat_100g.
+Do not wrap the JSON in markdown fences or add explanations.`,
+			},
+			{Role: "user", Content: description},
+		}
+		return c.parseMealWithRequest(ctx, fallbackReq)
+	}
+
+	return nil, err
+}
+
+func (c *Client) parseMealWithRequest(ctx context.Context, reqBody chatCompletionRequest) (*MealData, error) {
 	reqBytes, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -154,7 +187,7 @@ Respond ONLY with the requested JSON schema.`
 	if resp.StatusCode != http.StatusOK {
 		var errResp chatCompletionResponse
 		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.Error != nil {
-			return nil, fmt.Errorf("API error: %s", errResp.Error.Message)
+			return nil, &apiError{Message: errResp.Error.Message}
 		}
 		return nil, fmt.Errorf("API returned status code: %d", resp.StatusCode)
 	}
@@ -174,9 +207,17 @@ Respond ONLY with the requested JSON schema.`
 	}
 
 	var mealData MealData
-	if err := json.Unmarshal([]byte(content), &mealData); err != nil {
+	if err := json.Unmarshal([]byte(extractJSONContent(content)), &mealData); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON from API content: %w", err)
 	}
 
 	return &mealData, nil
+}
+
+func extractJSONContent(content string) string {
+	content = strings.TrimSpace(content)
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	return strings.TrimSpace(content)
 }
