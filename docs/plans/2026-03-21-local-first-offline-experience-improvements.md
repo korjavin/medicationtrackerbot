@@ -53,12 +53,12 @@ Systematically fix offline behavior across all app sections. Three concrete bugs
 **Files:**
 - Modify: `web/static/js/sync.js`
 
-- [ ] In `SyncManager.syncAll()`: add a flush loop for `food_log_queue` — dequeue each entry, call `apiCallDirect(entry.url, entry.method, entry.body)`, delete on success, leave on failure (same pattern as existing BP/weight sync)
-- [ ] Add equivalent flush loop for `workout_log_queue`
-- [ ] After successful food log sync, call `DataStore.invalidate('food_log')` (or the relevant cache key) so the section auto-refreshes
-- [ ] After successful workout log sync, call `DataStore.invalidate('workout_sessions')` / the relevant key
-- [ ] Write tests: food_log_queue item syncs and is deleted; failure leaves item in queue
-- [ ] Run frontend tests — must pass before task 3
+- [x] In `SyncManager.syncAll()`: add a flush loop for `food_log_queue` — dequeue each entry, call `apiCallDirect(entry.url, entry.method, entry.body)`, delete on success, leave on failure (same pattern as existing BP/weight sync)
+- [x] Add equivalent flush loop for `workout_log_queue`
+- [x] After successful food log sync, call `DataStore.invalidate('food_log')` (or the relevant cache key) so the section auto-refreshes
+- [x] After successful workout log sync, call `DataStore.invalidate('workout_sessions')` / the relevant key
+- [x] Write tests: food_log_queue item syncs and is deleted; failure leaves item in queue
+- [x] Run frontend tests — must pass before task 3
 
 ### Task 3: Add stale dot indicator utility and CSS
 

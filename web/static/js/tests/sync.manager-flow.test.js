@@ -65,6 +65,8 @@ describe('sync.js manager flow coverage', () => {
       const bpSpy = vi.spyOn(window.SyncManager, 'syncBPReadings').mockResolvedValue(undefined);
       const weightSpy = vi.spyOn(window.SyncManager, 'syncWeightLogs').mockResolvedValue(undefined);
       const intakeSpy = vi.spyOn(window.SyncManager, 'syncIntakeLogs').mockResolvedValue(undefined);
+      const foodSpy = vi.spyOn(window.SyncManager, 'syncFoodLogQueue').mockResolvedValue(undefined);
+      const workoutSpy = vi.spyOn(window.SyncManager, 'syncWorkoutLogQueue').mockResolvedValue(undefined);
       const updateStatusSpy = vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
 
       window.SyncManager.isOnline = true;
@@ -74,6 +76,8 @@ describe('sync.js manager flow coverage', () => {
       expect(bpSpy).toHaveBeenCalledTimes(1);
       expect(weightSpy).toHaveBeenCalledTimes(1);
       expect(intakeSpy).toHaveBeenCalledTimes(1);
+      expect(foodSpy).toHaveBeenCalledTimes(1);
+      expect(workoutSpy).toHaveBeenCalledTimes(1);
       expect(window.SyncManager.isSyncing).toBe(false);
       expect(updateStatusSpy).toHaveBeenCalledTimes(2);
     } finally {

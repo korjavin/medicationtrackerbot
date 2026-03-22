@@ -249,7 +249,9 @@ const SyncManager = {
             await Promise.all([
                 this.syncBPReadings(),
                 this.syncWeightLogs(),
-                this.syncIntakeLogs()
+                this.syncIntakeLogs(),
+                this.syncFoodLogQueue(),
+                this.syncWorkoutLogQueue()
             ]);
             SyncDebug.info('Full sync completed');
         } catch (err) {
@@ -385,6 +387,84 @@ const SyncManager = {
                 SyncDebug.error(`Intake sync failed for ${entry.localId}`, { error: err.message });
                 await window.MedTrackerDB.IntakeQueueStore.markError(entry.localId, err.message);
             }
+        }
+
+        this.updateStatus();
+    },
+
+    // Sync food log queue to server
+    async syncFoodLogQueue() {
+        if (!this.isOnline) return;
+        if (!window.MedTrackerDB?.db?.food_log_queue) return;
+
+        const queue = window.MedTrackerDB.db.food_log_queue;
+        const pending = await queue.toArray();
+        if (pending.length === 0) {
+            SyncDebug.info('No pending food log entries');
+            return;
+        }
+
+        SyncDebug.info(`Syncing ${pending.length} food log entries...`);
+        let anySuccess = false;
+
+        for (const entry of pending) {
+            try {
+                const body = typeof entry.body === 'string' ? JSON.parse(entry.body) : entry.body;
+                const result = await window.apiCallDirect(entry.url, entry.method, body);
+                if (result !== null && result !== undefined) {
+                    await queue.delete(entry.id);
+                    SyncDebug.info('Food log synced and removed', { id: entry.id });
+                    anySuccess = true;
+                } else {
+                    throw new Error('No response from server');
+                }
+            } catch (err) {
+                SyncDebug.error(`Food log sync failed for ${entry.id}`, { error: err.message });
+                // Leave in queue for retry
+            }
+        }
+
+        if (anySuccess && window.DataStore?.invalidateKey) {
+            await window.DataStore.invalidateKey('food_log');
+        }
+
+        this.updateStatus();
+    },
+
+    // Sync workout log queue to server
+    async syncWorkoutLogQueue() {
+        if (!this.isOnline) return;
+        if (!window.MedTrackerDB?.db?.workout_log_queue) return;
+
+        const queue = window.MedTrackerDB.db.workout_log_queue;
+        const pending = await queue.toArray();
+        if (pending.length === 0) {
+            SyncDebug.info('No pending workout log entries');
+            return;
+        }
+
+        SyncDebug.info(`Syncing ${pending.length} workout log entries...`);
+        let anySuccess = false;
+
+        for (const entry of pending) {
+            try {
+                const body = typeof entry.body === 'string' ? JSON.parse(entry.body) : entry.body;
+                const result = await window.apiCallDirect(entry.url, entry.method, body);
+                if (result !== null && result !== undefined) {
+                    await queue.delete(entry.id);
+                    SyncDebug.info('Workout log synced and removed', { id: entry.id });
+                    anySuccess = true;
+                } else {
+                    throw new Error('No response from server');
+                }
+            } catch (err) {
+                SyncDebug.error(`Workout log sync failed for ${entry.id}`, { error: err.message });
+                // Leave in queue for retry
+            }
+        }
+
+        if (anySuccess && window.DataStore?.invalidateKey) {
+            await window.DataStore.invalidateKey('workout_sessions');
         }
 
         this.updateStatus();

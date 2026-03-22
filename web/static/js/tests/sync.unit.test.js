@@ -129,10 +129,14 @@ describe('sync.js SyncManager unit tests', () => {
       const bpSpy = vi.fn();
       const weightSpy = vi.fn();
       const intakeSpy = vi.fn();
+      const foodSpy = vi.fn();
+      const workoutSpy = vi.fn();
 
       window.SyncManager.syncBPReadings = bpSpy;
       window.SyncManager.syncWeightLogs = weightSpy;
       window.SyncManager.syncIntakeLogs = intakeSpy;
+      window.SyncManager.syncFoodLogQueue = foodSpy;
+      window.SyncManager.syncWorkoutLogQueue = workoutSpy;
 
       window.SyncManager.isOnline = false;
       await window.SyncManager.syncAll();
@@ -144,6 +148,8 @@ describe('sync.js SyncManager unit tests', () => {
       expect(bpSpy).not.toHaveBeenCalled();
       expect(weightSpy).not.toHaveBeenCalled();
       expect(intakeSpy).not.toHaveBeenCalled();
+      expect(foodSpy).not.toHaveBeenCalled();
+      expect(workoutSpy).not.toHaveBeenCalled();
     } finally {
       cleanup();
     }
