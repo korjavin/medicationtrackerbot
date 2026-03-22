@@ -82,7 +82,7 @@ func (b *Bot) handleFoodCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.Messa
 	}
 
 	if b.foodAI == nil {
-		msgConfig.Text = "⚠️ AI food logging is not configured. Missing OPENAI_API_KEY environment variable."
+		msgConfig.Text = "⚠️ AI food logging is not configured. Missing OPENAI environment variables."
 		return
 	}
 
