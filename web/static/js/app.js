@@ -1966,6 +1966,7 @@ async function renderNextIntakeTrigger() {
     await window.DataStore.loadSWR({
         key: 'next_intake',
         tags: ['history', 'medications'],
+        allowNullFresh: true,
         fetcher: async () => await apiCall('/api/medications/next-intake', 'GET'),
         onCached: async (cached) => {
             if (!cached || !cached.scheduled_at) return;

@@ -131,8 +131,8 @@ Pattern for each: onCached → `showStaleIndicator(container, cachedAt)` via `Da
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] Run full frontend test suite
-- [ ] Run Go test suite: `go test ./...`
+- [x] Run full frontend test suite
+- [x] Run Go test suite: `go test ./...`
 
 ### Task 9: Update documentation
 
