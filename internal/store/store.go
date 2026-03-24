@@ -1916,9 +1916,15 @@ func (s *Store) CreateFoodLog(ctx context.Context, f *FoodLog) (int64, error) {
 		}
 	}
 
+	// Always store eaten_at in UTC so that SQLite's lexicographic datetime
+	// comparison works correctly against the UTC midnight boundaries used in
+	// GetFoodLogs / GetFoodStats.  Without this, a +01:00 offset stored by a
+	// CET server would sort as if it were an hour later than it actually is.
+	eatenAt := f.EatenAt.UTC()
+
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO food_log (user_id, eaten_at, weight, carbs, protein, fat, calories, name, product_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		f.UserID, f.EatenAt, f.Weight, f.Carbs, f.Protein, f.Fat, f.Calories, f.Name, f.ProductID)
+		f.UserID, eatenAt, f.Weight, f.Carbs, f.Protein, f.Fat, f.Calories, f.Name, f.ProductID)
 	if err != nil {
 		return 0, err
 	}
@@ -1936,9 +1942,12 @@ func (s *Store) UpdateFoodLog(ctx context.Context, f *FoodLog) error {
 		}
 	}
 
+	// Normalise to UTC for the same reason as CreateFoodLog.
+	eatenAt := f.EatenAt.UTC()
+
 	res, err := s.db.ExecContext(ctx,
 		"UPDATE food_log SET eaten_at = ?, weight = ?, carbs = ?, protein = ?, fat = ?, calories = ?, name = ?, product_id = ? WHERE id = ? AND user_id = ?",
-		f.EatenAt, f.Weight, f.Carbs, f.Protein, f.Fat, f.Calories, f.Name, f.ProductID, f.ID, f.UserID)
+		eatenAt, f.Weight, f.Carbs, f.Protein, f.Fat, f.Calories, f.Name, f.ProductID, f.ID, f.UserID)
 	if err != nil {
 		return err
 	}
