@@ -428,6 +428,59 @@ func TestDeleteFoodProduct(t *testing.T) {
 	}
 }
 
+// TestFoodLogNonUTCTimezoneStored reproduces the bug where food added at 23:00
+// local time (CET, UTC+1) by the Telegram bot was appearing under the wrong day in
+// the web UI.  The bot uses time.Unix which creates time in time.Local; if the
+// server runs in a non-UTC zone, the stored timestamp carries a non-UTC offset.
+// SQLite does lexicographic text comparison, so "+01:00" timestamps are compared
+// incorrectly against the UTC "+00:00" boundaries that GetFoodLogs generates.
+// The fix is to store EatenAt always as UTC inside CreateFoodLog / UpdateFoodLog.
+func TestFoodLogNonUTCTimezoneStored(t *testing.T) {
+	s := setupFoodTestStore(t)
+	ctx := context.Background()
+
+	// Simulate the CET timezone (UTC+1).
+	cet := time.FixedZone("CET", 1*60*60)
+
+	// 2026-03-24 23:00 CET  ==  2026-03-24 22:00 UTC.
+	// The user is in CET, so this is still "March 24" in their timezone.
+	eatTime := time.Date(2026, 3, 24, 23, 0, 0, 0, cet)
+
+	_, err := s.CreateFoodLog(ctx, &FoodLog{
+		UserID:   1,
+		EatenAt:  eatTime, // stored with +01:00 offset if bug is present
+		Weight:   200,
+		Carbs:    30,
+		Protein:  20,
+		Fat:      10,
+		Calories: 290,
+		Name:     "Late snack",
+	})
+	if err != nil {
+		t.Fatalf("CreateFoodLog: %v", err)
+	}
+
+	// Query for March 24 in CET — the food MUST appear under this day.
+	queryDate := time.Date(2026, 3, 24, 0, 0, 0, 0, cet)
+	logs, err := s.GetFoodLogs(ctx, 1, queryDate, 1)
+	if err != nil {
+		t.Fatalf("GetFoodLogs (March 24 CET): %v", err)
+	}
+	if len(logs) != 1 {
+		t.Errorf("expected 1 log for March 24 CET, got %d (food added at 23:00 CET was placed on wrong day)", len(logs))
+	}
+
+	// Query for March 25 in CET — the food must NOT appear here.
+	nextDay := time.Date(2026, 3, 25, 0, 0, 0, 0, cet)
+	logsNext, err := s.GetFoodLogs(ctx, 1, nextDay, 1)
+	if err != nil {
+		t.Fatalf("GetFoodLogs (March 25 CET): %v", err)
+	}
+	if len(logsNext) != 0 {
+		t.Errorf("expected 0 logs for March 25 CET, got %d (food added on March 24 at 23:00 CET leaked into March 25)", len(logsNext))
+	}
+}
+
 func TestDeleteFoodProductNotFound(t *testing.T) {
 	s := setupFoodTestStore(t)
 	ctx := context.Background()

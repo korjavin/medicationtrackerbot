@@ -647,9 +647,12 @@ func TestHandleGetFoodStats(t *testing.T) {
 	defer db.Close()
 
 	ctx := ctxWithUser(123456)
+	// Use an explicit UTC noon so the test is timezone-independent:
+	// the query uses date=<UTC-date>&tz=UTC so boundaries are UTC midnights.
+	mealTime := time.Date(time.Now().UTC().Year(), time.Now().UTC().Month(), time.Now().UTC().Day(), 12, 0, 0, 0, time.UTC)
 	db.CreateFoodLog(ctx, &store.FoodLog{
 		UserID:   123456,
-		EatenAt:  time.Now(),
+		EatenAt:  mealTime,
 		Name:     "Meal",
 		Weight:   200,
 		Calories: 500,
@@ -658,8 +661,8 @@ func TestHandleGetFoodStats(t *testing.T) {
 		Fat:      20,
 	})
 
-	today := time.Now().Format("2006-01-02")
-	req := httptest.NewRequest("GET", fmt.Sprintf("/api/food/stats?date=%s&days=1", today), nil)
+	today := mealTime.Format("2006-01-02")
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/food/stats?date=%s&days=1&tz=UTC", today), nil)
 	req = withUser(req, 123456)
 	w := httptest.NewRecorder()
 
@@ -676,6 +679,7 @@ func TestHandleGetFoodStats(t *testing.T) {
 		t.Errorf("Expected 500 calories, got %d", stats.Calories)
 	}
 }
+
 
 func TestHandleGetFoodTargets(t *testing.T) {
 	srv, db := createFoodTestServer(t)
