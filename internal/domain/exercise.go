@@ -12,6 +12,7 @@ import (
 // ExerciseStore is the narrow store interface required by ExerciseService.
 type ExerciseStore interface {
 	GetWorkoutExercise(id int64) (*store.WorkoutExercise, error)
+	GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error)
 	GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) (*store.WorkoutExerciseLog, error)
 	LogExercise(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes string) (int64, error)
 	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error
@@ -76,8 +77,30 @@ func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string
 	if err != nil {
 		return fmt.Errorf("get exercise %d: %w", exerciseID, err)
 	}
+
+	// If not in workout_exercises, fall back to exercise_library (ad-hoc exercise added during session).
 	if exercise == nil {
-		return fmt.Errorf("exercise %d not found", exerciseID)
+		libItem, err := s.store.GetExerciseLibraryItem(exerciseID)
+		if err != nil {
+			return fmt.Errorf("get library exercise %d: %w", exerciseID, err)
+		}
+		if libItem == nil {
+			return fmt.Errorf("exercise %d not found", exerciseID)
+		}
+		// Log as ad-hoc (exercise_id = 0) — the partial unique index allows
+		// multiple exercise_id=0 rows per session (migration 034).
+		var sets *int
+		var reps *int
+		var weight *float64
+		if status == "completed" {
+			sets = &libItem.DefaultSets
+			reps = &libItem.DefaultRepsMin
+			weight = libItem.DefaultWeightKg
+		}
+		if _, err := s.store.LogExercise(sessionID, 0, libItem.Name, sets, reps, weight, status, ""); err != nil {
+			return fmt.Errorf("log ad-hoc exercise %d for session %d: %w", exerciseID, sessionID, err)
+		}
+		return nil
 	}
 
 	existing, err := s.store.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)

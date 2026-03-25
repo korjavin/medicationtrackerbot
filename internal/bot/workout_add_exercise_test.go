@@ -358,3 +358,96 @@ func TestSendExerciseList_HasCancelButton(t *testing.T) {
 		t.Fatal("Timeout waiting for exercise list")
 	}
 }
+
+// TestLibraryExercise_CanBeLoggedViaDoneCallback is the end-to-end regression test
+// for the bug where clicking "Done" on an ad-hoc exercise (added via the library
+// during a session) produced "error logging exercise".
+//
+// Flow: select library exercise → exercise prompt sent → user clicks Done callback
+// → exercise_log row created with exercise_id=0 (ad-hoc).
+func TestLibraryExercise_CanBeLoggedViaDoneCallback(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	userID := int64(123456)
+
+	// Create exercise only in the library (not in any variant)
+	libItem, err := env.s.CreateExerciseLibraryItem(userID, "Kettlebell Swings", 3, 15, nil, nil, "")
+	if err != nil {
+		t.Fatalf("CreateExerciseLibraryItem: %v", err)
+	}
+
+	group, _ := env.s.CreateWorkoutGroup("Test", "", false, userID, "[1]", "09:00", 15)
+	variant, _ := env.s.CreateWorkoutVariant(group.ID, "A", nil, "")
+	session, _ := env.s.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	env.s.StartSession(session.ID)
+
+	drainMessages(env)
+
+	// Step 1: user selects the library exercise — this sends an exercise prompt
+	selectCB := &tgbotapi.CallbackQuery{
+		ID:   "cid1",
+		From: &tgbotapi.User{ID: userID},
+		Message: &tgbotapi.Message{
+			MessageID: 200,
+			Chat:      &tgbotapi.Chat{ID: userID},
+			Text:      "",
+		},
+	}
+	env.b.handleSelectExerciseCallback(selectCB, session.ID, libItem.ID)
+
+	// Drain the exercise prompt message
+	select {
+	case msg := <-env.messageChan:
+		if !strings.Contains(msg, "Kettlebell") {
+			t.Fatalf("Expected exercise prompt with 'Kettlebell', got: %s", msg)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timeout waiting for exercise prompt after select")
+	}
+
+	drainMessages(env)
+
+	// Step 2: user clicks "Done" on the exercise prompt.
+	// The callback data embeds the library item ID (as set by SendExercisePrompt).
+	doneCB := &tgbotapi.CallbackQuery{
+		ID:   "cid2",
+		From: &tgbotapi.User{ID: userID},
+		Message: &tgbotapi.Message{
+			MessageID: 201,
+			Chat:      &tgbotapi.Chat{ID: userID},
+			Text:      "Kettlebell Swings\n3 sets × 15 reps",
+		},
+		Data: fmt.Sprintf("exercise_done_%d_%d", session.ID, libItem.ID),
+	}
+	env.b.handleExerciseCallback(doneCB, doneCB.Data)
+
+	// Step 3: must NOT receive "error logging exercise"
+	select {
+	case msg := <-env.messageChan:
+		if strings.Contains(msg, "Error logging exercise") {
+			t.Errorf("Bug reproduced: got error message: %s", msg)
+		}
+	case <-time.After(1 * time.Second):
+		// No error message is fine; the bot may send a "Completed" edit or nothing.
+	}
+
+	// Step 4: verify the exercise log was actually created
+	logs, err := env.s.GetExerciseLogs(session.ID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	var found bool
+	for _, l := range logs {
+		if l.ExerciseName == "Kettlebell Swings" && l.Status == "completed" {
+			found = true
+			// exercise_id must be 0 for ad-hoc exercises (migration 034 convention)
+			if l.ExerciseID != 0 {
+				t.Errorf("expected exercise_id=0 for ad-hoc log, got %d", l.ExerciseID)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected a completed log for 'Kettlebell Swings', logs: %+v", logs)
+	}
+}
