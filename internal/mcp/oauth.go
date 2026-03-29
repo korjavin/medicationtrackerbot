@@ -158,7 +158,7 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return publicKey, nil
-	}, jwt.WithExpirationRequired())
+	}, jwt.WithExpirationRequired(), jwt.WithIssuer(h.config.PocketIDURL))
 
 	if err != nil {
 		// Debug logging for claims comparison
