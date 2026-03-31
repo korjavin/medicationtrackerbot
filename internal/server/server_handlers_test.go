@@ -1225,3 +1225,56 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthStatus(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	t.Run("unauthenticated without cookie", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/status", nil)
+		w := httptest.NewRecorder()
+
+		srv.Routes().ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+
+		var payload struct {
+			Authenticated bool   `json:"authenticated"`
+			Method        string `json:"method"`
+		}
+		if err := json.NewDecoder(w.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if payload.Authenticated {
+			t.Fatalf("expected unauthenticated response, got %+v", payload)
+		}
+	})
+
+	t.Run("authenticated with valid cookie", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/status", nil)
+		req.AddCookie(&http.Cookie{
+			Name:  "auth_session",
+			Value: createSessionToken("admin@example.com", srv.sessionSecret),
+		})
+		w := httptest.NewRecorder()
+
+		srv.Routes().ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+
+		var payload struct {
+			Authenticated bool   `json:"authenticated"`
+			Method        string `json:"method"`
+		}
+		if err := json.NewDecoder(w.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if !payload.Authenticated || payload.Method != "cookie" {
+			t.Fatalf("expected authenticated cookie response, got %+v", payload)
+		}
+	})
+}
