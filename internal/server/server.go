@@ -343,6 +343,7 @@ func (s *Server) Routes() http.Handler {
 	// Must be explicitly set to true when behind a trusted reverse proxy
 	trustProxy := parseBoolEnv("AUTH_TRUST_PROXY", false)
 	authLimit := rateLimitMiddleware(authLimiter, trustProxy)
+	mux.HandleFunc("/auth/status", s.handleAuthStatus)
 	mux.Handle("/auth/oidc/login", authLimit(http.HandlerFunc(s.handleOIDCLogin)))
 	mux.Handle("/auth/oidc/callback", authLimit(http.HandlerFunc(s.handleOIDCCallback)))
 	// Backward compatibility for older Google-only URLs

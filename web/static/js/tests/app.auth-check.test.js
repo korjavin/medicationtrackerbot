@@ -13,14 +13,20 @@ describe('app.js checkAuth behavior', () => {
     const { window, cleanup } = loadFrontendEnv();
 
     try {
-      window.fetch = vi.fn().mockResolvedValue(createMockResponse({
-        status: 200,
-        json: { cursor: 5, features: { bp: true } }
-      }));
+      window.fetch = vi.fn()
+        .mockResolvedValueOnce(createMockResponse({
+          status: 200,
+          json: { authenticated: true, method: 'cookie' }
+        }))
+        .mockResolvedValueOnce(createMockResponse({
+          status: 200,
+          json: { cursor: 5, features: { bp: true } }
+        }));
 
       const authorized = await window.checkAuth();
 
       expect(authorized).toBe(true);
+      expect(window.fetch).toHaveBeenNthCalledWith(1, '/auth/status', { method: 'GET', credentials: 'same-origin' });
       expect(window.fetch).toHaveBeenCalledWith('/api/bootstrap', { method: 'GET' });
 
       const cachedAuth = JSON.parse(window.localStorage.getItem(AUTH_CACHE_KEY));
@@ -104,17 +110,19 @@ describe('app.js checkAuth behavior', () => {
         value: true
       });
       window.localStorage.removeItem(AUTH_CACHE_KEY);
-      window.fetch = vi.fn().mockResolvedValue(createMockResponse({ status: 401, text: 'unauthorized' }));
+      window.fetch = vi.fn().mockResolvedValue(createMockResponse({
+        status: 200,
+        json: { authenticated: false }
+      }));
 
       const authorized = await window.checkAuth();
 
       expect(authorized).toBe(false);
       const widgetContainer = window.document.getElementById('telegram-login-container');
       expect(widgetContainer).toBeTruthy();
-      const widgetScript = widgetContainer.querySelector('script');
-      expect(widgetScript).toBeTruthy();
-      expect(widgetScript.getAttribute('src')).toContain('telegram-widget.js');
-      expect(widgetScript.getAttribute('data-telegram-login')).toBe('test_bot');
+      const telegramLink = widgetContainer.querySelector('a');
+      expect(telegramLink).toBeTruthy();
+      expect(telegramLink.getAttribute('href')).toBe('https://t.me/test_bot');
     } finally {
       cleanup();
     }

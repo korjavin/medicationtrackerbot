@@ -129,6 +129,7 @@ describe('Service Worker (sw.js) Fetch and Cache Strategies', () => {
             addEventListener: vi.fn(),
             clients: { matchAll: vi.fn(), claim: vi.fn() },
             registration: { showNotification: vi.fn() },
+            location: { origin: 'https://test.com' },
             skipWaiting: vi.fn()
         };
         global.fetch = vi.fn().mockResolvedValue(new Response());
@@ -208,5 +209,17 @@ describe('Service Worker (sw.js) Fetch and Cache Strategies', () => {
         expect(finalResponse.status).toBe(200);
         // It should have cached the fresh network response against APP_SHELL_CACHE_KEY
         expect(mockCacheInstance.put).toHaveBeenCalledWith('/__app_shell__', expect.any(Response));
+    });
+
+    it('bypasses auth navigations so OAuth redirects stay in the browser context', () => {
+        const fetchHandler = global.self.addEventListener.mock.calls.find(c => c[0] === 'fetch')[1];
+
+        const fakeRequest = { url: 'https://test.com/auth/oidc/login', method: 'GET', mode: 'navigate' };
+        const event = { request: fakeRequest, respondWith: vi.fn(), waitUntil: vi.fn() };
+
+        fetchHandler(event);
+
+        expect(event.respondWith).not.toHaveBeenCalled();
+        expect(global.fetch).not.toHaveBeenCalled();
     });
 });

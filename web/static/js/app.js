@@ -194,29 +194,51 @@ async function checkAuth() {
     // Not in Telegram. Check cached auth state first (for offline support)
     const cachedAuth = getCachedAuthState();
 
-    // Try to access API to see if we have valid Session Cookie
+    // Check auth status first so logged-out users don't hit protected endpoints.
     let serverUnavailable = false;
+    let hasSessionCookie = false;
     try {
-        const res = await fetch('/api/bootstrap', { method: 'GET' });
-        if (res.status === 200) {
-            // Authorized via Cookie!
-            const data = await res.json();
-            await applyBootstrapPayload(data);
-            sessionStorage.removeItem('medtracker_auth_reload_in_progress');
-            saveAuthState('cookie');
-
-            return true;
-        } else if (res.status === 401 || res.status === 403) {
-            // Definitely not authorized, clear cache
-            clearAuthState();
-        } else if (res.status >= 500) {
-            // Server error (e.g. 502 from reverse proxy when container is down)
-            console.log('[Auth] Server error', res.status, '- will try cached auth');
+        const authStatusRes = await fetch('/auth/status', {
+            method: 'GET',
+            credentials: 'same-origin'
+        });
+        if (authStatusRes.status === 200) {
+            const authStatus = await authStatusRes.json();
+            hasSessionCookie = !!authStatus.authenticated;
+            if (!hasSessionCookie) {
+                clearAuthState();
+            }
+        } else if (authStatusRes.status >= 500) {
+            console.log('[Auth] Auth status error', authStatusRes.status, '- will try cached auth');
             serverUnavailable = true;
+        } else {
+            clearAuthState();
         }
     } catch (e) {
         console.log("[Auth] Network check failed:", e);
         serverUnavailable = true;
+    }
+
+    if (hasSessionCookie) {
+        try {
+            const res = await fetch('/api/bootstrap', { method: 'GET' });
+            if (res.status === 200) {
+                const data = await res.json();
+                await applyBootstrapPayload(data);
+                sessionStorage.removeItem('medtracker_auth_reload_in_progress');
+                saveAuthState('cookie');
+
+                return true;
+            } else if (res.status === 401 || res.status === 403) {
+                clearAuthState();
+            } else if (res.status >= 500) {
+                console.log('[Auth] Server error', res.status, '- will try cached auth');
+                serverUnavailable = true;
+            }
+        } catch (e) {
+            console.log("[Auth] Bootstrap failed:", e);
+            serverUnavailable = true;
+        }
     }
 
     // Server unavailable or network error — use cached auth if available
@@ -279,26 +301,34 @@ async function checkAuth() {
             location.reload();
         });
     } else {
-        // Normal login page with widgets
+        // Normal login page with standalone login options
         const title = document.createElement('h2');
         title.innerText = "Login to Med Tracker";
         title.style.cssText = "color: var(--text-color, #333); margin-bottom: 10px;";
         loginContainer.appendChild(title);
 
-        // Create a container for the Telegram widget
+        // Telegram login widget requires unsafe-eval, so direct users to open the bot in Telegram.
         const tgWidgetContainer = document.createElement('div');
         tgWidgetContainer.id = 'telegram-login-container';
+        tgWidgetContainer.style.cssText = "display:flex; flex-direction:column; align-items:center; gap:10px;";
 
-        // Add the Telegram widget script
-        const tgScript = document.createElement('script');
-        tgScript.async = true;
-        tgScript.src = "https://telegram.org/js/telegram-widget.js?22";
-        tgScript.setAttribute('data-telegram-login', window.BOT_USERNAME);
-        tgScript.setAttribute('data-size', 'large');
-        tgScript.setAttribute('data-onauth', 'onTelegramAuth(user)');
-        tgScript.setAttribute('data-request-access', 'write');
+        const telegramHint = document.createElement('p');
+        telegramHint.textContent = "Use the Telegram app to open the bot and launch the web app.";
+        telegramHint.style.cssText = "margin:0; color: var(--text-color, #666); text-align:center; max-width: 320px; line-height: 1.5;";
+        tgWidgetContainer.appendChild(telegramHint);
 
-        tgWidgetContainer.appendChild(tgScript);
+        const rawBotUsername = typeof window.BOT_USERNAME === 'string' ? window.BOT_USERNAME.trim() : '';
+        const botUsername = rawBotUsername.replace(/^@+/, '');
+        if (botUsername) {
+            const tgLink = document.createElement('a');
+            tgLink.href = `https://t.me/${encodeURIComponent(botUsername)}`;
+            tgLink.target = '_blank';
+            tgLink.rel = 'noopener noreferrer';
+            tgLink.textContent = "Open in Telegram";
+            tgLink.style.cssText = "display:inline-flex; align-items:center; justify-content:center; padding: 12px 24px; font-size: 16px; background: #2481cc; color: #fff; border-radius: 5px; text-decoration:none;";
+            tgWidgetContainer.appendChild(tgLink);
+        }
+
         loginContainer.appendChild(tgWidgetContainer);
 
         const oidcConfig = window.OIDC_CONFIG || { enabled: false };

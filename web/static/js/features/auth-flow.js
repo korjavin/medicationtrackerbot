@@ -49,6 +49,8 @@ function getCachedAuthState() {
 }
 
 function clearAuthState() {
-    localStorage.removeItem(AUTH_CACHE_KEY);
-    console.log('[Auth] Cleared auth state cache');
+    if (localStorage.getItem(AUTH_CACHE_KEY) !== null) {
+        localStorage.removeItem(AUTH_CACHE_KEY);
+        console.log('[Auth] Cleared auth state cache');
+    }
 }

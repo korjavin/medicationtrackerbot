@@ -231,3 +231,28 @@ func AuthMiddleware(botToken string, sessionSecret string, allowedUserID int64) 
 		})
 	}
 }
+
+func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
+	response := struct {
+		Authenticated bool   `json:"authenticated"`
+		Method        string `json:"method,omitempty"`
+	}{
+		Authenticated: false,
+	}
+
+	if cookie, err := r.Cookie("auth_session"); err == nil {
+		if _, ok := verifySessionToken(cookie.Value, s.sessionSecret); ok {
+			response.Authenticated = true
+			response.Method = "cookie"
+		}
+	}
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
+}

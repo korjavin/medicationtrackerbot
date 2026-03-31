@@ -24,11 +24,6 @@ const STATIC_ASSETS = [
     '/static/manifest.json'
 ];
 
-// External CDN resources to cache (try caching but don't fail if unavailable)
-const EXTERNAL_ASSETS = [
-    'https://telegram.org/js/telegram-web-app.js'
-];
-
 // Install event - cache static assets
 self.addEventListener('install', (event) => {
     console.log('[SW] Installing...');
@@ -45,16 +40,6 @@ self.addEventListener('install', (event) => {
             if (rootResponse) {
                 await cache.put(APP_SHELL_CACHE_KEY, rootResponse);
             }
-
-            // Then try to cache external resources (don't fail if unavailable)
-            console.log('[SW] Attempting to cache external resources');
-            await Promise.allSettled(
-                EXTERNAL_ASSETS.map(url =>
-                    cache.add(url).catch(err => {
-                        console.warn('[SW] Failed to cache external asset:', url, err);
-                    })
-                )
-            );
         } catch (err) {
             console.error('[SW] Failed to cache static assets:', err);
         }
@@ -84,6 +69,11 @@ self.addEventListener('fetch', (event) => {
 
     // Skip non-GET requests
     if (event.request.method !== 'GET') {
+        return;
+    }
+
+    // Let the browser handle cross-origin and auth requests directly.
+    if (url.origin !== self.location.origin || url.pathname.startsWith('/auth/')) {
         return;
     }
 
@@ -244,9 +234,6 @@ function shouldCache(url) {
     if (url.pathname === '/') return true;
     // Don't cache API calls
     if (url.pathname.startsWith('/api/')) return false;
-    // Cache external CDN resources
-    if (url.hostname.includes('cdn.jsdelivr.net')) return true;
-    if (url.hostname.includes('telegram.org')) return true;
 
     return false;
 }
