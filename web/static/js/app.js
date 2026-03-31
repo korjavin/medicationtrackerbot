@@ -317,7 +317,7 @@ async function checkAuth() {
         telegramHint.style.cssText = "margin:0; color: var(--text-color, #666); text-align:center; max-width: 320px; line-height: 1.5;";
         tgWidgetContainer.appendChild(telegramHint);
 
-        const rawBotUsername = typeof window.BOT_USERNAME === 'string' ? window.BOT_USERNAME.trim() : '';
+        const rawBotUsername = typeof window['BOT_USERNAME'] === 'string' ? window['BOT_USERNAME'].trim() : '';
         const botUsername = rawBotUsername.replace(/^@+/, '');
         if (botUsername) {
             const tgLink = document.createElement('a');
