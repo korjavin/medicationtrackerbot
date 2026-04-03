@@ -10,6 +10,7 @@ import (
 // mockExerciseStore implements ExerciseStore for tests.
 type mockExerciseStore struct {
 	exercises    map[int64]*store.WorkoutExercise
+	libraryItems map[int64]*store.ExerciseLibraryItem
 	logs         map[int64]*store.WorkoutExerciseLog // keyed by logID
 	sessionLogs  map[int64][]int64                   // sessionID → []logID
 	nextLogID    int64
@@ -37,10 +38,11 @@ type updateStatusCall struct {
 
 func newMockExerciseStore() *mockExerciseStore {
 	return &mockExerciseStore{
-		exercises:   make(map[int64]*store.WorkoutExercise),
-		logs:        make(map[int64]*store.WorkoutExerciseLog),
-		sessionLogs: make(map[int64][]int64),
-		nextLogID:   1,
+		exercises:    make(map[int64]*store.WorkoutExercise),
+		libraryItems: make(map[int64]*store.ExerciseLibraryItem),
+		logs:         make(map[int64]*store.WorkoutExerciseLog),
+		sessionLogs:  make(map[int64][]int64),
+		nextLogID:    1,
 	}
 }
 
@@ -52,6 +54,17 @@ func (m *mockExerciseStore) addExercise(id int64, name string, sets, repsMin int
 		TargetSets:     sets,
 		TargetRepsMin:  repsMin,
 		TargetWeightKg: weightKg,
+	}
+}
+
+func (m *mockExerciseStore) addLibraryItem(id int64, userID int64, name string, sets, repsMin int, weightKg *float64) {
+	m.libraryItems[id] = &store.ExerciseLibraryItem{
+		ID:              id,
+		UserID:          userID,
+		Name:            name,
+		DefaultSets:     sets,
+		DefaultRepsMin:  repsMin,
+		DefaultWeightKg: weightKg,
 	}
 }
 
@@ -70,6 +83,10 @@ func (m *mockExerciseStore) addLog(sessionID, exerciseID int64, status string) i
 
 func (m *mockExerciseStore) GetWorkoutExercise(id int64) (*store.WorkoutExercise, error) {
 	return m.exercises[id], nil
+}
+
+func (m *mockExerciseStore) GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error) {
+	return m.libraryItems[id], nil
 }
 
 func (m *mockExerciseStore) GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) (*store.WorkoutExerciseLog, error) {
@@ -133,6 +150,7 @@ func (m *mockExerciseStore) GetExerciseLogs(sessionID int64) ([]store.WorkoutExe
 type errExerciseStore struct {
 	*mockExerciseStore
 	errGetExercise          bool
+	errGetLibraryItem       bool
 	errGetLog               bool
 	errListExercises        bool
 	errGetLogs              bool
@@ -146,6 +164,13 @@ func (e *errExerciseStore) GetWorkoutExercise(id int64) (*store.WorkoutExercise,
 		return nil, errors.New("store error")
 	}
 	return e.mockExerciseStore.GetWorkoutExercise(id)
+}
+
+func (e *errExerciseStore) GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error) {
+	if e.errGetLibraryItem {
+		return nil, errors.New("store error")
+	}
+	return e.mockExerciseStore.GetExerciseLibraryItem(id)
 }
 
 func (e *errExerciseStore) GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) (*store.WorkoutExerciseLog, error) {
@@ -448,5 +473,91 @@ func TestCheckSessionCompletion_GetLogsError(t *testing.T) {
 	_, _, _, err := svc.CheckSessionCompletion(100, 1)
 	if err == nil {
 		t.Fatal("expected error when GetExerciseLogs fails")
+	}
+}
+
+// --- Library-based exercise (ad-hoc) logging tests ---
+// These cover the bug where exercises added from the library during a session
+// use exercise_library.id as exerciseID, which doesn't exist in workout_exercises.
+
+func TestLogExercise_LibraryItem_NewLog(t *testing.T) {
+	ms := newMockExerciseStore()
+	weight := 50.0
+	// Library item with ID=20 — NOT present in workout_exercises
+	ms.addLibraryItem(20, 1, "Cable Row", 3, 12, &weight)
+	svc := NewExerciseService(ms)
+
+	if err := svc.LogExercise(1, 20, "completed"); err != nil {
+		t.Fatalf("unexpected error logging library exercise: %v", err)
+	}
+
+	if len(ms.logExerciseCalls) != 1 {
+		t.Fatalf("expected 1 LogExercise store call, got %d", len(ms.logExerciseCalls))
+	}
+	call := ms.logExerciseCalls[0]
+	if call.exerciseID != 20 {
+		t.Errorf("expected exerciseID=20, got %d", call.exerciseID)
+	}
+	if call.status != "completed" {
+		t.Errorf("expected status=completed, got %s", call.status)
+	}
+}
+
+func TestLogExercise_LibraryItem_Skipped(t *testing.T) {
+	ms := newMockExerciseStore()
+	ms.addLibraryItem(21, 1, "Face Pull", 3, 15, nil)
+	svc := NewExerciseService(ms)
+
+	if err := svc.LogExercise(2, 21, "skipped"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(ms.logExerciseCalls) != 1 || ms.logExerciseCalls[0].status != "skipped" {
+		t.Error("expected 1 skipped LogExercise call")
+	}
+}
+
+func TestLogExercise_LibraryItem_SkippedToCompleted(t *testing.T) {
+	ms := newMockExerciseStore()
+	weight := 30.0
+	ms.addLibraryItem(22, 1, "Lateral Raise", 3, 15, &weight)
+	logID := ms.addLog(1, 22, "skipped")
+	svc := NewExerciseService(ms)
+
+	if err := svc.LogExercise(1, 22, "completed"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(ms.logExerciseCalls) != 0 {
+		t.Error("should not create new log when one already exists")
+	}
+	if len(ms.updateExerciseLogCalls) != 1 || ms.updateExerciseLogCalls[0].logID != logID {
+		t.Errorf("expected UpdateExerciseLog call for logID %d", logID)
+	}
+	if len(ms.updateStatusCalls) != 1 || ms.updateStatusCalls[0].status != "completed" {
+		t.Error("expected UpdateExerciseLogStatus call with completed")
+	}
+}
+
+func TestLogExercise_LibraryItem_GetLibraryItemError(t *testing.T) {
+	ms := newMockExerciseStore()
+	// exercise 99 is in neither workout_exercises nor library
+	es := &errExerciseStore{mockExerciseStore: ms, errGetLibraryItem: true}
+	svc := NewExerciseService(es)
+
+	err := svc.LogExercise(1, 99, "completed")
+	if err == nil {
+		t.Fatal("expected error when GetExerciseLibraryItem fails")
+	}
+}
+
+func TestLogExercise_NeitherExerciseNorLibrary(t *testing.T) {
+	ms := newMockExerciseStore()
+	// exercise 999 is in neither table
+	svc := NewExerciseService(ms)
+
+	err := svc.LogExercise(1, 999, "completed")
+	if err == nil {
+		t.Fatal("expected error when exercise is not found anywhere")
 	}
 }

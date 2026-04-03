@@ -25,6 +25,13 @@ describe('bootstrap.js dynamic tab selection', () => {
                 if (url === '/api/bootstrap') {
                     return createMockResponse({ json: bootstrapPayload });
                 }
+                if (url === '/auth/status') {
+                    // Simulate an authenticated session so checkAuth() proceeds to
+                    // fetch /api/bootstrap and apply feature settings (tab visibility).
+                    // Without this, checkAuth() calls document.body.replaceChildren()
+                    // which destroys all tab elements before the test can query them.
+                    return createMockResponse({ json: { authenticated: true } });
+                }
                 return createMockResponse({ json: {} });
             });
 
