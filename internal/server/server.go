@@ -280,6 +280,28 @@ func (s *Server) notify(ctx context.Context, n notifier.Notification) {
 	}
 }
 
+// notifyWithAutoDelete sends a notification through all configured notifiers and
+// schedules automatic deletion after the given delay.
+func (s *Server) notifyWithAutoDelete(ctx context.Context, n notifier.Notification, deleteAfter time.Duration) {
+	for _, nr := range s.notifiers {
+		go func(nr notifier.Notifier) {
+			msgID, err := nr.Send(ctx, s.allowedUserID, n)
+			if err != nil {
+				slog.Error("notification send failed", "notifier", nr, "error", err)
+				return
+			}
+			if msgID == 0 {
+				return
+			}
+			time.AfterFunc(deleteAfter, func() {
+				if err := nr.Delete(context.Background(), s.allowedUserID, msgID); err != nil {
+					slog.Error("auto-delete notification failed", "notifier", nr, "msgID", msgID, "error", err)
+				}
+			})
+		}(nr)
+	}
+}
+
 // noCacheMiddleware adds headers to prevent caching
 func noCacheMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
