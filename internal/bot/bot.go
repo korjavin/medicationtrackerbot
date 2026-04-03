@@ -30,6 +30,8 @@ type Bot struct {
 	reminderSvc   domain.ReminderService
 	food          FoodStore
 	foodAI        domain.FoodAIService
+	activityAI    domain.ActivityAIService
+	activityLog   ActivityLogStore
 	imports       ImportStore
 	allowedUserID int64
 	appDomain     string
@@ -48,7 +50,7 @@ type featureFlags struct {
 	Food       bool
 }
 
-func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAIService) (*Bot, error) {
+func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAIService, activityAI domain.ActivityAIService) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
@@ -77,6 +79,8 @@ func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAI
 		reminderSvc:   domain.NewReminderService(s),
 		food:          s,
 		foodAI:        foodAI,
+		activityAI:    activityAI,
+		activityLog:   s,
 		imports:       s,
 		allowedUserID: allowedUserID,
 		appDomain:     appDomain,
@@ -363,6 +367,12 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			break
 		}
 		b.handleFoodCommand(msg, &msgConfig)
+	case "activity":
+		if !flags.Workout {
+			msgConfig.Text = "⚠️ Workout section is disabled in settings."
+			break
+		}
+		b.handleActivityCommand(msg, &msgConfig)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}

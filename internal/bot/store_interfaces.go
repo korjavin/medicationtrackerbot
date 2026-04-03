@@ -77,6 +77,11 @@ type ImportStore interface {
 	ImportMiBandWorkouts(ctx context.Context, workouts []store.MiBandWorkout, gpsTracks map[int64][]store.MiBandGPSPoint) (int, int, error)
 }
 
+// ActivityLogStore is the subset of store operations needed for ad-hoc activity logging.
+type ActivityLogStore interface {
+	LogExercise(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes string) (int64, error)
+}
+
 // ReminderStore is the subset of store operations needed for reminder operations.
 type ReminderStore interface {
 	SnoozeBPReminder(userID int64) error
