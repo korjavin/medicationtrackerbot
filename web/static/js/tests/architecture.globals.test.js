@@ -116,6 +116,10 @@ describe('Architecture – window globals guard', () => {
                 const charAfterName = source[nameEnd];
                 if (charAfterName === '.' || charAfterName === '?') continue;
                 if (!ALLOWED_GLOBALS.has(name)) {
+                    // Skip == and === comparisons: the match ends at the first '=',
+                    // so if the very next character is also '=', this is a comparison
+                    // (e.g. window.FOO === value) not an assignment.
+                    if (charAfterMatch === '=') continue;
                     violations.push(`${rel}: ${name}`);
                 }
             }
