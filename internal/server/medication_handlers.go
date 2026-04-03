@@ -571,7 +571,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			},
 		}
 
-		s.notify(r.Context(), n)
+		s.notifyWithAutoDelete(r.Context(), n, 15*time.Minute)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
