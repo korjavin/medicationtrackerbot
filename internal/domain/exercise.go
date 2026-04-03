@@ -12,6 +12,7 @@ import (
 // ExerciseStore is the narrow store interface required by ExerciseService.
 type ExerciseStore interface {
 	GetWorkoutExercise(id int64) (*store.WorkoutExercise, error)
+	GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error)
 	GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) (*store.WorkoutExerciseLog, error)
 	LogExercise(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes string) (int64, error)
 	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error
@@ -77,7 +78,23 @@ func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string
 		return fmt.Errorf("get exercise %d: %w", exerciseID, err)
 	}
 	if exercise == nil {
-		return fmt.Errorf("exercise %d not found", exerciseID)
+		// Not found in workout_exercises — check if this is a library-based ad-hoc exercise
+		// added during a session (handleSelectExerciseCallback passes library IDs as exerciseID).
+		libItem, libErr := s.store.GetExerciseLibraryItem(exerciseID)
+		if libErr != nil {
+			return fmt.Errorf("get exercise library item %d: %w", exerciseID, libErr)
+		}
+		if libItem == nil {
+			return fmt.Errorf("exercise %d not found", exerciseID)
+		}
+		exercise = &store.WorkoutExercise{
+			ID:             libItem.ID,
+			ExerciseName:   libItem.Name,
+			TargetSets:     libItem.DefaultSets,
+			TargetRepsMin:  libItem.DefaultRepsMin,
+			TargetRepsMax:  libItem.DefaultRepsMax,
+			TargetWeightKg: libItem.DefaultWeightKg,
+		}
 	}
 
 	existing, err := s.store.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
