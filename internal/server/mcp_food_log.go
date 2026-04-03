@@ -53,9 +53,10 @@ func (s *Server) handleMCPFoodLog(w http.ResponseWriter, r *http.Request) {
 
 	mac := hmac.New(sha256.New, []byte(s.mcpAuditSecret))
 	mac.Write(body)
-	expectedSignature := hex.EncodeToString(mac.Sum(nil))
+	expectedSignatureBytes := mac.Sum(nil)
 
-	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
+	signatureBytes, err := hex.DecodeString(signature)
+	if err != nil || !hmac.Equal(signatureBytes, expectedSignatureBytes) {
 		slog.Warn("[Server] Invalid MCP food log signature")
 		http.Error(w, "Invalid signature", http.StatusUnauthorized)
 		return
