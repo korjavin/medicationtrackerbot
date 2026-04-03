@@ -214,6 +214,162 @@ func (c *Client) parseMealWithRequest(ctx context.Context, reqBody chatCompletio
 	return &mealData, nil
 }
 
+// ActivityExercise holds data for a single parsed exercise.
+type ActivityExercise struct {
+	Name            string   `json:"name"`
+	Sets            *int     `json:"sets"`
+	Reps            *int     `json:"reps"`
+	WeightKg        *float64 `json:"weight_kg"`
+	DurationMinutes *int     `json:"duration_minutes"`
+	Notes           string   `json:"notes"`
+}
+
+// ActivityData holds the parsed workout activity.
+type ActivityData struct {
+	Name      string              `json:"name"`
+	Exercises []ActivityExercise  `json:"exercises"`
+}
+
+var activitySchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"name": map[string]any{"type": "string"},
+		"exercises": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name":             map[string]any{"type": "string"},
+					"sets":             map[string]any{"type": []string{"number", "null"}},
+					"reps":             map[string]any{"type": []string{"number", "null"}},
+					"weight_kg":        map[string]any{"type": []string{"number", "null"}},
+					"duration_minutes": map[string]any{"type": []string{"number", "null"}},
+					"notes":            map[string]any{"type": "string"},
+				},
+				"required":             []string{"name", "sets", "reps", "weight_kg", "duration_minutes", "notes"},
+				"additionalProperties": false,
+			},
+		},
+	},
+	"required":             []string{"name", "exercises"},
+	"additionalProperties": false,
+}
+
+// ParseActivityFromDescription sends a natural language workout description to the AI and extracts exercise data.
+func (c *Client) ParseActivityFromDescription(ctx context.Context, description string) (*ActivityData, error) {
+	systemPrompt := `You are a fitness expert. Parse a free-text workout description and extract:
+- A short descriptive name for the overall session
+- A list of exercises performed
+
+For each exercise include:
+- name: exercise name
+- sets: number of sets (null if not applicable, e.g. cardio)
+- reps: reps per set (null if not applicable)
+- weight_kg: weight used in kg (null if bodyweight or not applicable)
+- duration_minutes: duration in minutes (null if not applicable, e.g. strength exercises)
+- notes: any additional notes (empty string if none)
+
+For cardio/swimming/etc: use duration_minutes, leave sets/reps/weight_kg as null.
+For strength: use sets/reps and optionally weight_kg, leave duration_minutes as null.
+Respond ONLY with the requested JSON schema.`
+
+	reqBody := chatCompletionRequest{
+		Model: c.model,
+		Messages: []chatCompletionMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: description},
+		},
+		Temperature: 0.1,
+		ResponseFormat: &responseFormat{
+			Type: "json_schema",
+			JSONSchema: &jsonSchemaWrap{
+				Name:   "activity_data",
+				Strict: true,
+				Schema: activitySchema,
+			},
+		},
+	}
+
+	data, err := c.parseActivityWithRequest(ctx, reqBody)
+	if err == nil {
+		return data, nil
+	}
+
+	var apiErr *apiError
+	if errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Message), "response_format") {
+		fallbackReq := reqBody
+		fallbackReq.ResponseFormat = nil
+		fallbackReq.Messages = []chatCompletionMessage{
+			{
+				Role: "system",
+				Content: systemPrompt + `
+Return only valid JSON with keys: name, exercises (array of objects with keys: name, sets, reps, weight_kg, duration_minutes, notes).
+Do not wrap the JSON in markdown fences or add explanations.`,
+			},
+			{Role: "user", Content: description},
+		}
+		return c.parseActivityWithRequest(ctx, fallbackReq)
+	}
+
+	return nil, err
+}
+
+func (c *Client) parseActivityWithRequest(ctx context.Context, reqBody chatCompletionRequest) (*ActivityData, error) {
+	reqBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiURL+"/chat/completions", bytes.NewReader(reqBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp chatCompletionResponse
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.Error != nil {
+			return nil, &apiError{Message: errResp.Error.Message}
+		}
+		return nil, fmt.Errorf("API returned status code: %d", resp.StatusCode)
+	}
+
+	var completion chatCompletionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&completion); err != nil {
+		return nil, fmt.Errorf("failed to decode API response: %w", err)
+	}
+
+	if len(completion.Choices) == 0 {
+		return nil, errors.New("API returned no choices")
+	}
+
+	content := completion.Choices[0].Message.Content
+	if content == "" {
+		return nil, errors.New("API returned empty content")
+	}
+
+	var activityData ActivityData
+	if err := json.Unmarshal([]byte(extractJSONContent(content)), &activityData); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON from API content: %w", err)
+	}
+
+	if len(activityData.Exercises) == 0 {
+		return nil, errors.New("AI returned no exercises")
+	}
+
+	return &activityData, nil
+}
+
 func extractJSONContent(content string) string {
 	content = strings.TrimSpace(content)
 	content = strings.TrimPrefix(content, "```json")
