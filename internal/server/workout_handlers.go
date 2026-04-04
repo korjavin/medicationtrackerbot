@@ -504,11 +504,28 @@ func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Reques
 
 		groupName := "Unknown"
 		variantName := "Unknown"
-		if group != nil {
-			groupName = group.Name
-		}
-		if variant != nil {
-			variantName = variant.Name
+		if session.GroupID == -1 {
+			groupName = "Ad-hoc"
+			// Find the biggest exercise by volume (sets * reps * weight)
+			bestName := ""
+			bestVol := -1.0
+			for _, log := range logs {
+				if log.Status == "completed" && log.SetsCompleted != nil && log.RepsCompleted != nil && log.WeightKg != nil {
+					vol := float64(*log.SetsCompleted) * float64(*log.RepsCompleted) * (*log.WeightKg)
+					if vol > bestVol {
+						bestVol = vol
+						bestName = log.ExerciseName
+					}
+				}
+			}
+			variantName = bestName
+		} else {
+			if group != nil {
+				groupName = group.Name
+			}
+			if variant != nil {
+				variantName = variant.Name
+			}
 		}
 
 		completedCount := 0
