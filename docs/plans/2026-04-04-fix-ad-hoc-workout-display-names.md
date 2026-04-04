@@ -36,8 +36,8 @@ Ad-hoc workout sessions currently show as "Unknown - Unknown" in the history lis
 **Files:**
 - Modify: `web/static/js/workout.js`
 
-- [ ] At line 1370, change the unconditional ` - ${s.variant_name}` append to only append ` - ${s.variant_name}` when s.variant_name is non-empty (so ad-hoc with no exercises shows just "Ad-hoc" not "Ad-hoc - ")
-- [ ] Run go test ./... — must pass
+- [x] At line 1370, change the unconditional ` - ${s.variant_name}` append to only append ` - ${s.variant_name}` when s.variant_name is non-empty (so ad-hoc with no exercises shows just "Ad-hoc" not "Ad-hoc - ")
+- [x] Run go test ./... — must pass
 
 ### Task 3: Verify acceptance criteria
 
