@@ -2196,10 +2196,10 @@ async function skipSelectedMedications() {
             }
         }
 
+        loadMeds();
+        loadHistory();
         if (!hasErrors) {
             safeAlert("Skipped!");
-            loadMeds();
-            loadHistory();
         } else {
             safeAlert("Error skipping some medications.");
         }

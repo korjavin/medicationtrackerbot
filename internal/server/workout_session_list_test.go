@@ -73,6 +73,8 @@ func TestHandleListWorkoutSessions_AdHocNames(t *testing.T) {
 		Session     *store.WorkoutSession `json:"session"`
 		GroupName   string                `json:"group_name"`
 		VariantName string                `json:"variant_name"`
+		Exercises   int                   `json:"exercises_count"`
+		Completed   int                   `json:"exercises_completed"`
 	}
 	var results []enrichedResp
 	if err := json.NewDecoder(w.Body).Decode(&results); err != nil {
@@ -125,12 +127,24 @@ func TestHandleListWorkoutSessions_AdHocNames(t *testing.T) {
 	if withExercises.VariantName != "Squats" {
 		t.Errorf("ad-hoc: expected VariantName='Squats' (biggest volume), got %q", withExercises.VariantName)
 	}
+	if withExercises.Exercises != 2 {
+		t.Errorf("ad-hoc: expected exercises_count=2, got %d", withExercises.Exercises)
+	}
+	if withExercises.Completed != 2 {
+		t.Errorf("ad-hoc: expected exercises_completed=2, got %d", withExercises.Completed)
+	}
 
-	// Ad-hoc with no exercises: group='Ad-hoc', variant=''
+	// Ad-hoc with no exercises: group='Ad-hoc', variant='', counts=0
 	if empty.GroupName != "Ad-hoc" {
 		t.Errorf("empty ad-hoc: expected GroupName='Ad-hoc', got %q", empty.GroupName)
 	}
 	if empty.VariantName != "" {
 		t.Errorf("empty ad-hoc: expected VariantName='', got %q", empty.VariantName)
+	}
+	if empty.Exercises != 0 {
+		t.Errorf("empty ad-hoc: expected exercises_count=0, got %d", empty.Exercises)
+	}
+	if empty.Completed != 0 {
+		t.Errorf("empty ad-hoc: expected exercises_completed=0, got %d", empty.Completed)
 	}
 }
