@@ -25,6 +25,7 @@ type MiBandWorkout struct {
 	PauseMs       int64     `json:"pause_ms"`
 	TzOffset      int       `json:"tz_offset"`
 	ImportedAt    time.Time `json:"imported_at"`
+	Source        string    `json:"source"` // "device" or "manual"
 }
 
 // MiBandGPSPoint is a single GPS point belonging to a MiBandWorkout.
@@ -54,16 +55,20 @@ func (s *Store) CheckDuplicateMiBandWorkout(ctx context.Context, userID int64, s
 // InsertMiBandWorkout inserts a single workout (dedup by user_id + source_start_ms).
 // Returns inserted=true if a new row was created, inserted=false if deduplicated.
 func (s *Store) InsertMiBandWorkout(ctx context.Context, w *MiBandWorkout) (bool, error) {
+	src := w.Source
+	if src == "" {
+		src = "device"
+	}
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO miband_workouts
 			(user_id, source_start_ms, source_end_ms, activity_type, activity_name,
 			 duration_sec, distance_m, steps, calories, heart_rate_avg, spo2_avg,
-			 pause_ms, tz_offset)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 pause_ms, tz_offset, source)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id, source_start_ms) DO NOTHING`,
 		w.UserID, w.SourceStartMs, w.SourceEndMs, w.ActivityType, w.ActivityName,
 		w.DurationSec, w.DistanceM, w.Steps, w.Calories, w.HeartRateAvg, w.SpO2Avg,
-		w.PauseMs, w.TzOffset,
+		w.PauseMs, w.TzOffset, src,
 	)
 	if err != nil {
 		return false, err
@@ -101,16 +106,20 @@ func (s *Store) ImportMiBandWorkouts(ctx context.Context, workouts []MiBandWorko
 			return imported, skipped, err
 		}
 
+		src := w.Source
+		if src == "" {
+			src = "device"
+		}
 		res, err := tx.ExecContext(ctx, `
 			INSERT INTO miband_workouts
 				(user_id, source_start_ms, source_end_ms, activity_type, activity_name,
 				 duration_sec, distance_m, steps, calories, heart_rate_avg, spo2_avg,
-				 pause_ms, tz_offset)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				 pause_ms, tz_offset, source)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(user_id, source_start_ms) DO NOTHING`,
 			w.UserID, w.SourceStartMs, w.SourceEndMs, w.ActivityType, w.ActivityName,
 			w.DurationSec, w.DistanceM, w.Steps, w.Calories, w.HeartRateAvg, w.SpO2Avg,
-			w.PauseMs, w.TzOffset,
+			w.PauseMs, w.TzOffset, src,
 		)
 		if err != nil {
 			_ = tx.Rollback()
@@ -177,7 +186,7 @@ func (s *Store) ListMiBandWorkouts(ctx context.Context, userID int64, limit int)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, user_id, source_start_ms, source_end_ms, activity_type, activity_name,
 		       duration_sec, distance_m, steps, calories, heart_rate_avg, spo2_avg,
-		       pause_ms, tz_offset, imported_at
+		       pause_ms, tz_offset, imported_at, source
 		FROM miband_workouts
 		WHERE user_id = ? AND source_start_ms >= ?
 		ORDER BY source_start_ms DESC
@@ -194,7 +203,7 @@ func (s *Store) ListMiBandWorkouts(ctx context.Context, userID int64, limit int)
 			&w.ID, &w.UserID, &w.SourceStartMs, &w.SourceEndMs,
 			&w.ActivityType, &w.ActivityName,
 			&w.DurationSec, &w.DistanceM, &w.Steps, &w.Calories,
-			&w.HeartRateAvg, &w.SpO2Avg, &w.PauseMs, &w.TzOffset, &w.ImportedAt,
+			&w.HeartRateAvg, &w.SpO2Avg, &w.PauseMs, &w.TzOffset, &w.ImportedAt, &w.Source,
 		); err != nil {
 			return nil, err
 		}
@@ -234,12 +243,12 @@ func (s *Store) GetMiBandWorkout(ctx context.Context, id int64) (*MiBandWorkout,
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, user_id, source_start_ms, source_end_ms, activity_type, activity_name,
 		       duration_sec, distance_m, steps, calories, heart_rate_avg, spo2_avg,
-		       pause_ms, tz_offset, imported_at
+		       pause_ms, tz_offset, imported_at, source
 		FROM miband_workouts WHERE id = ?`, id).Scan(
 		&w.ID, &w.UserID, &w.SourceStartMs, &w.SourceEndMs,
 		&w.ActivityType, &w.ActivityName,
 		&w.DurationSec, &w.DistanceM, &w.Steps, &w.Calories,
-		&w.HeartRateAvg, &w.SpO2Avg, &w.PauseMs, &w.TzOffset, &w.ImportedAt,
+		&w.HeartRateAvg, &w.SpO2Avg, &w.PauseMs, &w.TzOffset, &w.ImportedAt, &w.Source,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
