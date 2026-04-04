@@ -1445,14 +1445,15 @@ function _buildMiBandCard(w) {
     const titleLeft = document.createElement('strong');
     titleLeft.textContent = `${meta.icon} ${meta.label}`;
 
+    const isManual = w.source === 'manual';
     const badge = document.createElement('span');
-    badge.textContent = 'Mi Band';
+    badge.textContent = isManual ? 'Manual' : 'Mi Band';
     badge.style.fontSize = '0.7em';
     badge.style.padding = '2px 7px';
     badge.style.borderRadius = '10px';
-    badge.style.background = '#e8f5e9';
-    badge.style.color = '#388e3c';
-    badge.style.border = '1px solid #a5d6a7';
+    badge.style.background = isManual ? '#fff3e0' : '#e8f5e9';
+    badge.style.color = isManual ? '#e65100' : '#388e3c';
+    badge.style.border = isManual ? '1px solid #ffcc80' : '1px solid #a5d6a7';
     badge.style.fontWeight = '600';
     badge.style.letterSpacing = '0.03em';
 

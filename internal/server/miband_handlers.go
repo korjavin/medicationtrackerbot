@@ -48,6 +48,7 @@ func (s *Server) handleListMiBandWorkouts(w http.ResponseWriter, r *http.Request
 		HeartRateAvg  int     `json:"heart_rate_avg"`
 		SpO2Avg       int     `json:"spo2_avg"`
 		SourceStartMs int64   `json:"source_start_ms"`
+		Source        string  `json:"source"`
 	}
 
 	result := make([]enriched, 0, len(workouts))
@@ -74,6 +75,7 @@ func (s *Server) handleListMiBandWorkouts(w http.ResponseWriter, r *http.Request
 			HeartRateAvg:  wo.HeartRateAvg,
 			SpO2Avg:       wo.SpO2Avg,
 			SourceStartMs: wo.SourceStartMs,
+			Source:        wo.Source,
 		})
 	}
 
