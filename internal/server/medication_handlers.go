@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
@@ -73,10 +74,14 @@ func (s *Server) handleSkipMedication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// use domain service to skip so we clean up reminders too
+	// Use the domain service so skip rules stay consistent with the bot flow.
 	_, err = s.medSvc.SkipIntake(req.IntakeID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if errors.Is(err, domain.ErrNotPending) {
+			http.Error(w, "intake is not pending", http.StatusConflict)
+			return
+		}
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 

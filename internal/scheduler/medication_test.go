@@ -104,9 +104,8 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 
 			// Adjust the created_at to be before the scheduled time in the tests
 			// so that it behaves correctly and triggers notifications as before.
-			_, err = db.UpdateMedicationCreatedAt(id, nowTime.Add(-24*time.Hour))
-			if err != nil {
-				t.Logf("UpdateMedicationCreatedAt failed (ignoring if method doesn't exist yet): %v", err)
+			if err := db.UpdateMedicationCreatedAt(id, nowTime.Add(-24*time.Hour)); err != nil {
+				t.Fatalf("UpdateMedicationCreatedAt failed: %v", err)
 			}
 
 			medNameMap[m.Name] = id
