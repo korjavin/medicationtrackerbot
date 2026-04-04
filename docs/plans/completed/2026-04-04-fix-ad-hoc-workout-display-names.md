@@ -45,4 +45,4 @@ Ad-hoc workout sessions currently show as "Unknown - Unknown" in the history lis
 
 ### Task 4: Update documentation
 
-- [ ] Move this plan to docs/plans/completed/
+- [x] Move this plan to docs/plans/completed/
