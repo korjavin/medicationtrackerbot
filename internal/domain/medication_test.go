@@ -240,7 +240,7 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 	}
 }
 
-func TestSkipSupplementIntake(t *testing.T) {
+func TestSkipIntake(t *testing.T) {
 
 	tests := []struct {
 		name            string
@@ -251,33 +251,14 @@ func TestSkipSupplementIntake(t *testing.T) {
 		wantErrContains string
 	}{
 		{
-			name: "supplement intake is skipped",
+			name: "intake is skipped",
 			store: &mockMedicationStore{
 				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
-				getMedicationFn:      func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Supplement: true}, nil },
 				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return []int{200, 201}, nil },
 				skipIntakeFn:         func(id int64) error { return nil },
 			},
 			intakeID:        7,
 			wantReminderIDs: []int{200, 201},
-		},
-		{
-			name: "non-supplement returns ErrNotSupplement",
-			store: &mockMedicationStore{
-				getIntakeFn:     func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
-				getMedicationFn: func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Supplement: false}, nil },
-			},
-			intakeID: 7,
-			wantErr:  ErrNotSupplement,
-		},
-		{
-			name: "nil medication returns ErrNotSupplement",
-			store: &mockMedicationStore{
-				getIntakeFn:     func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
-				getMedicationFn: func(id int64) (*store.Medication, error) { return nil, nil },
-			},
-			intakeID: 7,
-			wantErr:  ErrNotSupplement,
 		},
 		{
 			name: "non-pending intake returns ErrNotPending",
@@ -298,19 +279,9 @@ func TestSkipSupplementIntake(t *testing.T) {
 			wantErr:  ErrNotPending,
 		},
 		{
-			name: "GetMedication error propagates",
-			store: &mockMedicationStore{
-				getIntakeFn:     func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
-				getMedicationFn: func(id int64) (*store.Medication, error) { return nil, errors.New("db error") },
-			},
-			intakeID:        7,
-			wantErrContains: "get medication",
-		},
-		{
 			name: "SkipIntake error propagates",
 			store: &mockMedicationStore{
 				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
-				getMedicationFn:      func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Supplement: true}, nil },
 				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return nil, nil },
 				skipIntakeFn:         func(id int64) error { return errors.New("db error") },
 			},
@@ -321,7 +292,6 @@ func TestSkipSupplementIntake(t *testing.T) {
 			name: "SkipIntake sql.ErrNoRows maps to ErrNotPending",
 			store: &mockMedicationStore{
 				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
-				getMedicationFn:      func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Supplement: true}, nil },
 				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return nil, nil },
 				skipIntakeFn:         func(id int64) error { return sql.ErrNoRows },
 			},
@@ -333,7 +303,7 @@ func TestSkipSupplementIntake(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, err := svc.SkipSupplementIntake( tt.intakeID)
+			ids, err := svc.SkipIntake( tt.intakeID)
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
