@@ -118,7 +118,7 @@ describe('app.js extended behavior coverage', () => {
 
       expect(timeoutSpy).toHaveBeenCalled();
       expect(timeoutSpy.mock.calls[0][1]).toBe(500);
-      expect(showModalSpy).toHaveBeenCalledWith(['1', '2'], ['Aspirin', 'Vitamin D'], '2026-02-27T10:00:00Z');
+      expect(showModalSpy).toHaveBeenCalledWith([1, 2], ['Aspirin', 'Vitamin D'], '2026-02-27T10:00:00Z', 'confirm', []);
 
       timeoutSpy.mockRestore();
     } finally {
