@@ -431,16 +431,10 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		reminders, err := b.medSvc.SkipSupplementIntake(intakeID)
+		reminders, err := b.medSvc.SkipIntake(intakeID)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotPending) {
 				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already processed).")); err != nil {
-					slog.Error("send failed", "error", err)
-				}
-				return
-			}
-			if errors.Is(err, domain.ErrNotSupplement) {
-				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ Skip is available only for supplements.")); err != nil {
 					slog.Error("send failed", "error", err)
 				}
 				return

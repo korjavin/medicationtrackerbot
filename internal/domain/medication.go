@@ -15,9 +15,6 @@ import (
 // ErrNotPending is returned when an intake is not in PENDING state.
 var ErrNotPending = errors.New("intake is not pending")
 
-// ErrNotSupplement is returned when skip is attempted on a non-supplement medication.
-var ErrNotSupplement = errors.New("skip is only available for supplements")
-
 // MedicationStore is the narrow store interface required by MedicationService.
 type MedicationStore interface {
 	GetIntake(id int64) (*store.IntakeLog, error)
@@ -44,10 +41,9 @@ type MedicationService interface {
 	// the confirmed medication is a supplement (for UI purposes).
 	ConfirmIntakeWithCleanup(intakeID int64, takenAt time.Time) (reminderMsgIDs []int, isSupplement bool, err error)
 
-	// SkipSupplementIntake validates the intake is PENDING and the medication is a
-	// supplement, collects reminder message IDs, and marks the intake as skipped.
-	// Returns ErrNotSupplement for non-supplement medications.
-	SkipSupplementIntake(intakeID int64) (reminderMsgIDs []int, err error)
+	// SkipIntake validates the intake is PENDING,
+	// collects reminder message IDs, and marks the intake as skipped.
+	SkipIntake(intakeID int64) (reminderMsgIDs []int, err error)
 
 	// LogMedicationNow creates a new intake and immediately confirms it.
 	// Used for ad-hoc "log now" without a pre-existing pending record.
@@ -114,21 +110,13 @@ func (s *medicationService) ConfirmIntakeWithCleanup(intakeID int64, takenAt tim
 	return reminders, isSupplement, nil
 }
 
-func (s *medicationService) SkipSupplementIntake(intakeID int64) ([]int, error) {
+func (s *medicationService) SkipIntake(intakeID int64) ([]int, error) {
 	intake, err := s.store.GetIntake(intakeID)
 	if err != nil {
 		return nil, fmt.Errorf("get intake %d: %w", intakeID, err)
 	}
 	if intake == nil || intake.Status != "PENDING" {
 		return nil, ErrNotPending
-	}
-
-	med, err := s.store.GetMedication(intake.MedicationID)
-	if err != nil {
-		return nil, fmt.Errorf("get medication %d: %w", intake.MedicationID, err)
-	}
-	if med == nil || !med.Supplement {
-		return nil, ErrNotSupplement
 	}
 
 	reminders, err := s.store.GetIntakeReminders(intakeID)
