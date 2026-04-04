@@ -1367,7 +1367,9 @@ function _buildSessionCard(s) {
     const title = document.createElement('strong');
     title.textContent = `${statusEmoji} ${s.group_name}`;
     left.appendChild(title);
-    left.appendChild(document.createTextNode(` - ${s.variant_name}`));
+    if (s.variant_name) {
+        left.appendChild(document.createTextNode(` - ${s.variant_name}`));
+    }
 
     const details = document.createElement('div');
     details.style.fontSize = '0.85em';

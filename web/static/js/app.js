@@ -750,6 +750,7 @@ function bindNotificationControls() {
     bindClick('med-confirm-dismiss-btn', () => closeMedicationConfirmModal());
     bindClick('med-confirm-action-btn', () => confirmSelectedMedications());
     bindClick('med-confirm-snooze-btn', () => snoozeMedicationConfirm());
+    bindClick('med-confirm-skip-btn', () => skipSelectedMedications());
 
     bindClick('workout-start-now-btn', () => startWorkoutFromModal());
     bindClick('workout-start-snooze-60-btn', () => snoozeWorkout(60));
@@ -2076,6 +2077,20 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
         actionBtn.innerText = "Confirm Selected";
         actionBtn.onclick = confirmSelectedMedications;
         snoozeBtn.style.display = 'inline-block';
+
+        // Show skip button only for PENDING intakes
+        const skipBtn = document.getElementById('med-confirm-skip-btn');
+        if (skipBtn) {
+            skipBtn.style.display = 'inline-block';
+        }
+    }
+
+    // Hide skip button if we're not in 'confirm' mode
+    if (mode !== 'confirm') {
+        const skipBtn = document.getElementById('med-confirm-skip-btn');
+        if (skipBtn) {
+            skipBtn.style.display = 'none';
+        }
     }
 
     const list = document.getElementById('med-confirm-list');
@@ -2134,6 +2149,60 @@ async function confirmSelectedMedications() {
             loadHistory();
         }
 
+        closeMedicationConfirmModal();
+    });
+}
+
+async function skipSelectedMedications() {
+    const checks = document.querySelectorAll('.med-confirm-check:checked');
+    const selectedIndices = Array.from(checks).map(c => parseInt(c.value, 10));
+
+    if (selectedIndices.length === 0) {
+        closeMedicationConfirmModal();
+        return;
+    }
+
+    const btn = document.getElementById('med-confirm-skip-btn');
+    await withSubmit(btn, async () => {
+        let hasErrors = false;
+        for (const idx of selectedIndices) {
+            const medId = Number(pendingMedConfirmIds[idx]);
+            let intakeId = pendingMedConfirmIntakeIds[idx];
+
+            if (!intakeId) {
+                // If opened from a push notification where intakeIds weren't passed directly,
+                // fetch pending intakes for the scheduled time to find the correct intake ID
+                const pendingLogs = await apiCall(`/api/history?days=1`);
+                if (pendingLogs && pendingLogs.length > 0) {
+                    const scheduledTime = new Date(pendingMedConfirmScheduled).getTime();
+                    const log = pendingLogs.find(l =>
+                        l.medication_id === medId &&
+                        l.status === 'PENDING' &&
+                        Math.abs(new Date(l.scheduled_at).getTime() - scheduledTime) < 60000 // Within 1 min
+                    );
+                    if (log) {
+                        intakeId = log.id;
+                    }
+                }
+            }
+
+            if (intakeId) {
+                const res = await apiCall('/api/medications/skip', 'POST', { intake_id: intakeId });
+                if (!res) {
+                    hasErrors = true;
+                }
+            } else {
+                hasErrors = true;
+            }
+        }
+
+        if (!hasErrors) {
+            safeAlert("Skipped!");
+            loadMeds();
+            loadHistory();
+        } else {
+            safeAlert("Error skipping some medications.");
+        }
         closeMedicationConfirmModal();
     });
 }
