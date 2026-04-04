@@ -58,8 +58,6 @@ Examples:
 		return
 	}
 
-	now := time.Unix(int64(msg.Date), 0)
-
 	// Compute total duration from exercises
 	totalDurationSec := 0
 	for _, ex := range parsedActivity.Exercises {
@@ -68,7 +66,10 @@ Examples:
 		}
 	}
 
-	startMs := now.UnixMilli()
+	// Use time.Now() for ms-precision to avoid dedup collisions;
+	// msg.Date has only second resolution so two rapid /activity calls
+	// would collide on the (user_id, source_start_ms) unique index.
+	startMs := time.Now().UnixMilli()
 	endMs := startMs + int64(totalDurationSec)*1000
 
 	workout := store.MiBandWorkout{
@@ -89,6 +90,8 @@ Examples:
 	}
 	if imported == 0 {
 		slog.Warn("activity command: workout was a duplicate (same start timestamp)", "chat_id", msg.Chat.ID)
+		msgConfig.Text = "⚠️ Activity not saved: a duplicate entry with the same timestamp already exists."
+		return
 	}
 
 	// Build summary
