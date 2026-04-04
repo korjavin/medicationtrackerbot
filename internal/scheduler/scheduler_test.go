@@ -225,13 +225,17 @@ func TestCheckSchedule_MultipleMedicationsCreatesMultipleNotifications(t *testin
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
-	db.UpdateMedicationCreatedAt(id1, pastTime.Add(-24*time.Hour))
+	if err := db.UpdateMedicationCreatedAt(id1, pastTime.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateMedicationCreatedAt Med1: %v", err)
+	}
 
 	id2, err := db.CreateMedication("Med2", "10mg", schedule, nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
-	db.UpdateMedicationCreatedAt(id2, pastTime.Add(-24*time.Hour))
+	if err := db.UpdateMedicationCreatedAt(id2, pastTime.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateMedicationCreatedAt Med2: %v", err)
+	}
 
 	err = sched.MedicationChecker.Check(context.Background())
 	if err != nil {
