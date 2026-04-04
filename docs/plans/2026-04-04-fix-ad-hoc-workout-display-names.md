@@ -41,7 +41,7 @@ Ad-hoc workout sessions currently show as "Unknown - Unknown" in the history lis
 
 ### Task 3: Verify acceptance criteria
 
-- [ ] Run full test suite: go test ./...
+- [x] Run full test suite: go test ./...
 
 ### Task 4: Update documentation
 
