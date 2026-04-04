@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // handleStartNextCommand manually starts the next scheduled workout
@@ -180,36 +182,55 @@ func (b *Bot) handleWorkoutStatusCommand(msgConfig *tgbotapi.MessageConfig) {
 	msgConfig.ParseMode = "Markdown"
 }
 
+type historyItem struct {
+	ts      time.Time
+	session *store.WorkoutSession
+	manual  *store.MiBandWorkout
+}
+
 // handleWorkoutHistoryCommand shows recent workout history
 func (b *Bot) handleWorkoutHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
-	sessions, err := b.workouts.GetWorkoutHistory(b.allowedUserID, 10)
+	// Fetch more than needed from each source so the merged+truncated list is correct.
+	const limit = 10
+	sessions, err := b.workouts.GetWorkoutHistory(b.allowedUserID, limit*2)
 	if err != nil {
 		slog.Error("Error getting workout history", "error", err)
 		msgConfig.Text = "❌ Error retrieving workout history."
 		return
 	}
 
-	manualActivities, err := b.imports.ListMiBandWorkouts(context.Background(), b.allowedUserID, 10)
+	miband, err := b.imports.ListMiBandWorkouts(context.Background(), b.allowedUserID, limit*2)
 	if err != nil {
 		slog.Warn("handleWorkoutHistory: failed to fetch manual activities", "error", err)
-		manualActivities = nil
 	}
-	// Keep only manual entries
-	var manual []string
-	for _, w := range manualActivities {
+
+	// Build unified list
+	var items []historyItem
+	for i := range sessions {
+		s := &sessions[i]
+		var ts time.Time
+		if s.StartedAt != nil {
+			ts = *s.StartedAt
+		} else {
+			ts = s.ScheduledDate
+		}
+		items = append(items, historyItem{ts: ts, session: s})
+	}
+	for i := range miband {
+		w := &miband[i]
 		if w.Source != "manual" {
 			continue
 		}
-		t := time.UnixMilli(w.SourceStartMs)
-		line := fmt.Sprintf("✍️ %s — %s", t.Format("02.01"), w.ActivityName)
-		if w.DurationSec > 0 {
-			m := w.DurationSec / 60
-			line += fmt.Sprintf(" (%dm)", m)
-		}
-		manual = append(manual, line)
+		items = append(items, historyItem{ts: time.UnixMilli(w.SourceStartMs), manual: w})
 	}
 
-	if len(sessions) == 0 && len(manual) == 0 {
+	// Sort newest first, then truncate to limit
+	sort.Slice(items, func(i, j int) bool { return items[i].ts.After(items[j].ts) })
+	if len(items) > limit {
+		items = items[:limit]
+	}
+
+	if len(items) == 0 {
 		msgConfig.Text = "📈 **Workout History**\n\nNo workout sessions found yet."
 		return
 	}
@@ -217,70 +238,64 @@ func (b *Bot) handleWorkoutHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 	var sb strings.Builder
 	sb.WriteString("📈 **Workout History** (last 10)\n\n")
 
-	for _, session := range sessions {
-		// Get group and variant names
-		group, _ := b.workouts.GetWorkoutGroup(session.GroupID)
-		variant, _ := b.workouts.GetWorkoutVariant(session.VariantID)
+	var sessionStatuses []domain.SessionStatus
+	for _, item := range items {
+		if item.session != nil {
+			session := item.session
+			// Get group and variant names
+			group, _ := b.workouts.GetWorkoutGroup(session.GroupID)
+			variant, _ := b.workouts.GetWorkoutVariant(session.VariantID)
 
-		groupName := "Unknown"
-		variantName := "Unknown"
-		if group != nil {
-			groupName = group.Name
-		}
-		if variant != nil {
-			variantName = variant.Name
-		}
-
-		statusEmoji := ""
-		switch session.Status {
-		case "completed":
-			statusEmoji = "✅"
-		case "skipped":
-			statusEmoji = "⏭"
-		case "in_progress":
-			statusEmoji = "🏋️"
-		default:
-			statusEmoji = "⏰"
-		}
-
-		dateStr := session.ScheduledDate.Format("02.01")
-
-		fmt.Fprintf(&sb,
-			"%s %s — %s - %s", statusEmoji, dateStr, groupName, variantName)
-
-		// Add exercise completion info if available
-		if session.Status == "completed" {
-			logs, err := b.workouts.GetExerciseLogs(session.ID)
-			if err == nil {
-				completedCount := 0
-				for _, log := range logs {
-					if log.Status == "completed" {
-						completedCount++
-					}
-				}
-				fmt.Fprintf(&sb,
-					" (%d ex.)", completedCount)
+			groupName := "Unknown"
+			variantName := "Unknown"
+			if group != nil {
+				groupName = group.Name
 			}
-		}
+			if variant != nil {
+				variantName = variant.Name
+			}
 
-		sb.WriteString("\n")
-	}
+			statusEmoji := ""
+			switch session.Status {
+			case "completed":
+				statusEmoji = "✅"
+			case "skipped":
+				statusEmoji = "⏭"
+			case "in_progress":
+				statusEmoji = "🏋️"
+			default:
+				statusEmoji = "⏰"
+			}
 
-	// Manual /activity entries
-	if len(manual) > 0 {
-		if len(sessions) > 0 {
-			sb.WriteString("\n**Manual Activities:**\n")
-		}
-		for _, line := range manual {
+			dateStr := session.ScheduledDate.Format("02.01")
+			fmt.Fprintf(&sb, "%s %s — %s - %s", statusEmoji, dateStr, groupName, variantName)
+
+			if session.Status == "completed" {
+				logs, err := b.workouts.GetExerciseLogs(session.ID)
+				if err == nil {
+					completedCount := 0
+					for _, log := range logs {
+						if log.Status == "completed" {
+							completedCount++
+						}
+					}
+					fmt.Fprintf(&sb, " (%d ex.)", completedCount)
+				}
+			}
+
+			sb.WriteString("\n")
+			sessionStatuses = append(sessionStatuses, domain.SessionStatus{Status: session.Status})
+		} else {
+			w := item.manual
+			line := fmt.Sprintf("✍️ %s — %s", item.ts.Format("02.01"), w.ActivityName)
+			if w.DurationSec > 0 {
+				line += fmt.Sprintf(" (%dm)", w.DurationSec/60)
+			}
 			sb.WriteString(line + "\n")
 		}
 	}
 
-	// Calculate streak
-	sessionStatuses := make([]domain.SessionStatus, len(sessions))
-	for i, s := range sessions {
-		sessionStatuses[i] = domain.SessionStatus{Status: s.Status}
-	}
+	// Calculate streak from sessions only
 	streak := domain.CalculateStreak(sessionStatuses)
 
 	if streak > 0 {
