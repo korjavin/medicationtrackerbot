@@ -67,28 +67,7 @@ The web app is for when you want more context: trends, history, editing, plannin
 
 If you want your AI assistant to query your health data directly, run the MCP server as a separate process. It is optional and OAuth-protected.
 
-Start it with:
-
-```bash
-go run ./cmd/mcptool
-```
-
-### MCP configuration
-
-| Variable | Description |
-|---|---|
-| `MCP_DATABASE_PATH` | SQLite path for the MCP process; required |
-| `POCKET_ID_URL` | OAuth issuer used by the MCP server; required |
-| `POCKET_ID_CLIENT_ID` | Pocket ID OIDC client ID; required for OAuth login |
-| `POCKET_ID_CLIENT_SECRET` | Pocket ID OIDC client secret |
-| `MCP_SERVER_URL` | Public MCP base URL; required |
-| `ALLOWED_USER_ID` | Data is queried for this app user ID |
-| `MCP_PORT` | HTTP port, default `8081` |
-| `MCP_ALLOWED_SUBJECT` | Optional subject allowlist |
-| `MCP_MAX_QUERY_DAYS` | Max date-range window, default `90` |
-| `POCKET_ID_JWKS_JSON` | Optional JWKS fallback |
-| `MCP_AUDIT_ENDPOINT` | Optional audit sink on the main app |
-| `MCP_AUDIT_SECRET` | HMAC secret for MCP audit and MCP write-through |
+This means you can analyze your data with commercial models, local models, or any MCP-compatible client you prefer. The point is freedom: your data stays yours, and your AI layer is not tied to a single vendor.
 
 It currently exposes tools for:
 
