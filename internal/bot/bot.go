@@ -154,11 +154,15 @@ func (b *Bot) buildHelpText(flags featureFlags) string {
 	}
 
 	if flags.Workout {
-		sections = append(sections, `**Workout Commands:**
+		workoutSection := `**Workout Commands:**
 /workout - Start an ad-hoc (unscheduled) workout
 /startnext - Manually start next scheduled workout
 /workoutstatus - View today's workout status
-/workouthistory - View recent workouts and your streak 🔥`)
+/workouthistory - View recent workouts and your streak 🔥`
+		if b.activityAI != nil {
+			workoutSection += "\n/activity <description> - Log any activity in natural language\n  Example: /activity 30min morning run"
+		}
+		sections = append(sections, workoutSection)
 	}
 
 	if flags.Food {

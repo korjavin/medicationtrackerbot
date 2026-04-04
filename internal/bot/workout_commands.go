@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -188,7 +189,27 @@ func (b *Bot) handleWorkoutHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 		return
 	}
 
-	if len(sessions) == 0 {
+	manualActivities, err := b.imports.ListMiBandWorkouts(context.Background(), b.allowedUserID, 10)
+	if err != nil {
+		slog.Warn("handleWorkoutHistory: failed to fetch manual activities", "error", err)
+		manualActivities = nil
+	}
+	// Keep only manual entries
+	var manual []string
+	for _, w := range manualActivities {
+		if w.Source != "manual" {
+			continue
+		}
+		t := time.UnixMilli(w.SourceStartMs)
+		line := fmt.Sprintf("✍️ %s — %s", t.Format("02.01"), w.ActivityName)
+		if w.DurationSec > 0 {
+			m := w.DurationSec / 60
+			line += fmt.Sprintf(" (%dm)", m)
+		}
+		manual = append(manual, line)
+	}
+
+	if len(sessions) == 0 && len(manual) == 0 {
 		msgConfig.Text = "📈 **Workout History**\n\nNo workout sessions found yet."
 		return
 	}
@@ -243,6 +264,16 @@ func (b *Bot) handleWorkoutHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 		}
 
 		sb.WriteString("\n")
+	}
+
+	// Manual /activity entries
+	if len(manual) > 0 {
+		if len(sessions) > 0 {
+			sb.WriteString("\n**Manual Activities:**\n")
+		}
+		for _, line := range manual {
+			sb.WriteString(line + "\n")
+		}
 	}
 
 	// Calculate streak
