@@ -506,12 +506,18 @@ func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Reques
 		variantName := "Unknown"
 		if session.GroupID == -1 {
 			groupName = "Ad-hoc"
-			// Find the biggest exercise by volume (sets * reps * weight)
+			// Find the biggest exercise by volume (sets * reps * weight).
+			// For bodyweight exercises (nil WeightKg) use sets*reps as a proxy volume.
 			bestName := ""
 			bestVol := -1.0
 			for _, log := range logs {
-				if log.Status == "completed" && log.SetsCompleted != nil && log.RepsCompleted != nil && log.WeightKg != nil {
-					vol := float64(*log.SetsCompleted) * float64(*log.RepsCompleted) * (*log.WeightKg)
+				if log.Status == "completed" {
+					vol := 0.0
+					if log.SetsCompleted != nil && log.RepsCompleted != nil && log.WeightKg != nil {
+						vol = float64(*log.SetsCompleted) * float64(*log.RepsCompleted) * (*log.WeightKg)
+					} else if log.SetsCompleted != nil && log.RepsCompleted != nil {
+						vol = float64(*log.SetsCompleted) * float64(*log.RepsCompleted)
+					}
 					if vol > bestVol {
 						bestVol = vol
 						bestName = log.ExerciseName
@@ -541,11 +547,15 @@ func (s *Server) handleListWorkoutSessions(w http.ResponseWriter, r *http.Reques
 			}
 		}
 
+		exerciseCount := len(exercises)
+		if session.GroupID == -1 {
+			exerciseCount = len(logs)
+		}
 		enriched = append(enriched, EnrichedSession{
 			Session:     session,
 			GroupName:   groupName,
 			VariantName: variantName,
-			Exercises:   len(exercises),
+			Exercises:   exerciseCount,
 			Completed:   completedCount,
 			TotalVolume: totalVolume,
 		})
