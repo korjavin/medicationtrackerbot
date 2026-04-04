@@ -75,7 +75,7 @@ func (s *Server) handleSkipMedication(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use the domain service so skip rules stay consistent with the bot flow.
-	_, err = s.medSvc.SkipIntake(req.IntakeID)
+	reminders, err := s.medSvc.SkipIntake(req.IntakeID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotPending) {
 			http.Error(w, "intake is not pending", http.StatusConflict)
@@ -84,6 +84,12 @@ func (s *Server) handleSkipMedication(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	for _, msgID := range reminders {
+		s.deleteNotification(r.Context(), msgID)
+	}
+	s.closeNotification(r.Context(), fmt.Sprintf("medication-%d", req.IntakeID))
+	s.closeNotification(r.Context(), fmt.Sprintf("medication-reminder-%d", req.IntakeID))
 
 	w.WriteHeader(http.StatusOK)
 }

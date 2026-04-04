@@ -459,11 +459,18 @@ func TestCheckReminders_SendsReminderForOldPending(t *testing.T) {
 	if !strings.Contains(n.Text, "ReminderMed") {
 		t.Errorf("reminder text should contain med name, got: %s", n.Text)
 	}
-	if len(n.Actions) != 1 {
-		t.Fatalf("expected 1 action, got %d", len(n.Actions))
+	// All pending intakes now get both confirm and skip actions on follow-up reminders.
+	if len(n.Actions) != 2 {
+		t.Fatalf("expected 2 actions (confirm + skip), got %d", len(n.Actions))
 	}
-	if !strings.Contains(n.Actions[0].ID, "confirm_intake:") {
-		t.Errorf("action should be confirm_intake, got %s", n.Actions[0].ID)
+	hasConfirm := false
+	for _, a := range n.Actions {
+		if strings.Contains(a.ID, "confirm_intake:") {
+			hasConfirm = true
+		}
+	}
+	if !hasConfirm {
+		t.Errorf("expected a confirm_intake action, got %v", n.Actions)
 	}
 	if n.Metadata["type"] != "medication_reminder" {
 		t.Errorf("metadata type = %v, want medication_reminder", n.Metadata["type"])
