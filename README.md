@@ -4,7 +4,30 @@ Self-hosted Telegram bot plus local-first web app for personal health tracking.
 
 It stores everything in SQLite, can run with or without Telegram, and exposes an optional OAuth-protected MCP sidecar for AI read access to your data.
 
-## What it does today
+## Why it exists
+
+Most health tracking breaks down in the same way:
+
+- Medications live in one app
+- Blood pressure and weight live in another
+- Food is annoying to log consistently
+- Workouts are either too manual or too generic
+- Reminders are noisy until you ignore them
+- Your own data is trapped in products that do not work together
+
+Medication Tracker Bot is meant to replace that sprawl with one private system you actually keep using.
+
+It gives you a single place to track the boring but important parts of everyday health, without forcing you into someone else's cloud, subscription, or workflow.
+
+## Why this is different
+
+- It is self-hosted, so your health data stays on your infrastructure
+- It works both as a Telegram bot and as a local-first web app
+- It is built for daily use, not just occasional dashboards
+- It handles reminders, snoozes, skips, and follow-through instead of just storing numbers
+- It is open to imports, external device feeds, and AI workflows instead of locking data away
+
+## What you get
 
 - Medication tracking with scheduled, weekly, and as-needed doses
 - Medication intake history, snoozing, skipping, past logging, and CSV export
@@ -25,7 +48,7 @@ It stores everything in SQLite, can run with or without Telegram, and exposes an
 
 ### Telegram
 
-The bot remains the fastest way to log data and receive reminders.
+Telegram is the fastest interface for real life: logging something quickly, responding to a reminder, or checking what is due next.
 
 Current commands include:
 
@@ -54,7 +77,7 @@ Feature-specific commands are hidden automatically when that feature is disabled
 
 ### Web app
 
-The web app is a local-first PWA served by the Go server.
+The web app is for when you want more context: trends, history, editing, planning workouts, food logs, and settings.
 
 - Cached shell with background refresh
 - Offline create/update flows for key tracking actions
@@ -62,20 +85,6 @@ The web app is a local-first PWA served by the Go server.
 - Per-feature toggles for medications, blood pressure, weight, workouts, food, and health
 - Reorderable tabs
 - Real-time refresh through `/api/changes` and `/api/changes/stream`
-
-## Architecture
-
-- `cmd/bot/main.go`: main application entrypoint
-- `cmd/mcptool/main.go`: standalone MCP HTTP server
-- `internal/server`: HTTP handlers, auth, PWA serving, and APIs
-- `internal/bot`: Telegram commands, callbacks, and notification flows
-- `internal/store`: SQLite persistence and migrations
-- `web/static`: web UI, PWA assets, and frontend tests
-
-The main app can run in:
-
-- Web-only mode: omit `TELEGRAM_BOT_TOKEN`
-- Bot + web mode: set Telegram credentials
 
 ## Runtime requirements
 
@@ -85,7 +94,7 @@ The main app can run in:
 
 ## Local development
 
-### Run the main app
+### Quick start
 
 Minimal environment:
 
@@ -109,7 +118,7 @@ Start the app:
 go run ./cmd/bot
 ```
 
-If `TELEGRAM_BOT_TOKEN` is unset, the app starts in web-only mode.
+If `TELEGRAM_BOT_TOKEN` is unset, it starts in web-only mode. If it is set, you get the full bot + web setup.
 
 ### Run tests
 
@@ -125,16 +134,16 @@ Frontend:
 npm test
 ```
 
-## Main application configuration
+## Configuration
 
-### Required
+You do not need much to get started. The only truly required values are:
 
 | Variable | Description |
 |---|---|
 | `SESSION_SECRET` | Secret used to sign browser sessions |
 | `ALLOWED_USER_ID` | Single allowed Telegram user ID; also used as the logical app user ID |
 
-### Core runtime
+The most common runtime variables are:
 
 | Variable | Description |
 |---|---|
@@ -142,9 +151,14 @@ npm test
 | `DB_PATH` | SQLite database path, default `meds.db` |
 | `PORT` | HTTP port, default `8080` |
 | `TZ` | App timezone used by scheduling logic |
-| `AUTH_TRUST_PROXY` | Trust forwarding headers for rate limiting, default `true` |
+| `VAPID_PUBLIC_KEY` | Web push public key |
+| `VAPID_PRIVATE_KEY` | Web push private key |
+| `EXTERNAL_WORKOUT_API_KEY` | Bearer token required by `/api/workout/external` |
+| `OPENAI_API_KEY` | API key for AI food and activity parsing |
+| `OPENAI_URL` | Base URL, default `https://api.openai.com/v1` |
+| `OPENAI_MODEL` | Model name, default `gpt-4o-mini` |
 
-### OIDC and browser login
+### Browser login
 
 | Variable | Description |
 |---|---|
@@ -169,37 +183,20 @@ npm test
 | `GOOGLE_REDIRECT_URL` | Legacy Google login support |
 | `ADMIN_EMAIL` | Legacy Google allowlist and VAPID admin email fallback |
 
-### Notifications and integrations
+### Less common tuning
 
 | Variable | Description |
 |---|---|
-| `VAPID_PUBLIC_KEY` | Web push public key |
-| `VAPID_PRIVATE_KEY` | Web push private key |
+| `AUTH_TRUST_PROXY` | Trust forwarding headers for rate limiting, default `true` |
 | `VAPID_SUBJECT` | Web push subject |
 | `DOMAIN` | Primary app domain, used in notification and setup flows |
 | `APP_DOMAIN` | Alternate app domain variable used by setup pages |
-| `EXTERNAL_WORKOUT_API_KEY` | Bearer token required by `/api/workout/external` |
-
-### AI features
-
-Any of the variables below enable the OpenAI-compatible client; all three can be used together.
-
-| Variable | Description |
-|---|---|
-| `OPENAI_API_KEY` | API key for AI food and activity parsing |
-| `OPENAI_URL` | Base URL, default `https://api.openai.com/v1` |
-| `OPENAI_MODEL` | Model name, default `gpt-4o-mini` |
-
-### Tuning
-
-| Variable | Description |
-|---|---|
 | `FOOD_SEARCH_CACHE_MB` | In-memory cache size for food product search responses, default `40` |
 | `CHANGES_STREAM_MAX_CONN` | Max concurrent `/api/changes/stream` connections, default `40` |
 
 ## MCP server
 
-The MCP server is a separate process that serves health data over HTTP with OAuth protection.
+If you want your AI assistant to query your health data directly, run the MCP server as a separate process. It is optional and OAuth-protected.
 
 Start it with:
 
@@ -224,9 +221,7 @@ go run ./cmd/mcptool
 | `MCP_AUDIT_ENDPOINT` | Optional audit sink on the main app |
 | `MCP_AUDIT_SECRET` | HMAC secret for MCP audit and MCP write-through |
 
-### MCP tools
-
-The server currently exposes tools for:
+It currently exposes tools for:
 
 - Blood pressure
 - Weight
