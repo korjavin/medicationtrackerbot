@@ -86,12 +86,10 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 			actions := []notifier.Action{
 				{ID: "confirm_intake:" + strconv.FormatInt(p.ID, 10), Label: "✅ Confirm Intake"},
 			}
-			if med.Supplement {
-				actions = append(actions, notifier.Action{
-					ID:    "skip_intake:" + strconv.FormatInt(p.ID, 10),
-					Label: "⏭ Skip",
-				})
-			}
+			actions = append(actions, notifier.Action{
+				ID:    "skip_intake:" + strconv.FormatInt(p.ID, 10),
+				Label: "⏭ Skip",
+			})
 			// Show "Silence 24h" button starting from the second reminder (when snoozed_until is already set)
 			if p.SnoozedUntil != nil {
 				actions = append(actions, notifier.Action{
