@@ -100,6 +100,10 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 				continue
 			}
 
+			if target.Before(med.CreatedAt) {
+				continue
+			}
+
 			if now.Before(target) {
 				continue
 			}
@@ -160,13 +164,11 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 				data = "confirm_intake:" + strconv.FormatInt(intakeID, 10)
 			}
 			actions = append(actions, notifier.Action{ID: data, Label: "Take " + m.Name})
-			if m.Supplement {
-				if intakeID := intakeByMedication[m.ID]; intakeID != 0 {
-					actions = append(actions, notifier.Action{
-						ID:    "skip_intake:" + strconv.FormatInt(intakeID, 10),
-						Label: "Skip " + m.Name,
-					})
-				}
+			if intakeID := intakeByMedication[m.ID]; intakeID != 0 {
+				actions = append(actions, notifier.Action{
+					ID:    "skip_intake:" + strconv.FormatInt(intakeID, 10),
+					Label: "Skip " + m.Name,
+				})
 			}
 		}
 		actions = append(actions, notifier.Action{

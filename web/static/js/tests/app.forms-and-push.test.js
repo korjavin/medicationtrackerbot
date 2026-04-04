@@ -106,6 +106,42 @@ describe('app.js form submissions and push modal behavior', () => {
     }
   });
 
+  it('skipSelectedMedications posts selected intake ids using row indices', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const apiCallSpy = vi.fn(async (path, method, body) => {
+        if (path === '/api/medications/skip') return { ok: true, body };
+        return { ok: true };
+      });
+      const loadMedsSpy = vi.fn();
+      const loadHistorySpy = vi.fn();
+      const alertSpy = vi.fn();
+
+      window.apiCall = apiCallSpy;
+      window.loadMeds = loadMedsSpy;
+      window.loadHistory = loadHistorySpy;
+      window.Telegram.WebApp.showAlert = alertSpy;
+
+      window.showMedicationConfirmModal([10, 20], ['A', 'B'], '2026-02-27T10:00:00Z', 'confirm', [100, 200]);
+
+      const checks = document.querySelectorAll('.med-confirm-check');
+      checks[1].checked = false;
+
+      await window.skipSelectedMedications();
+
+      expect(apiCallSpy).toHaveBeenCalledTimes(1);
+      expect(apiCallSpy.mock.calls[0][0]).toBe('/api/medications/skip');
+      expect(apiCallSpy.mock.calls[0][1]).toBe('POST');
+      expect(apiCallSpy.mock.calls[0][2]).toEqual({ intake_id: 100 });
+      expect(loadMedsSpy).toHaveBeenCalledTimes(1);
+      expect(loadHistorySpy).toHaveBeenCalledTimes(1);
+      expect(alertSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('handleBPSubmit posts payload, invalidates bp tag and refreshes list', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 

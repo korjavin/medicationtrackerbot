@@ -279,7 +279,7 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 
 			// Helper to parse potential SQLite formats
 			formats := []string{
-				"2006-01-02 15:04:05.999999999-07:00", // Default driver format
+				"2006-01-02 15:04:05.999999999-07:00",     // Default driver format
 				"2006-01-02 15:04:05.999999999 -0700 MST", // Go String() format
 				"2006-01-02 15:04:05 -0700 MST",           // Go String() format (no nanos)
 				"2006-01-02 15:04:05.999999999",           // No TZ
@@ -351,6 +351,14 @@ func (s *Store) CanDeleteMedication(id int64) (bool, error) {
 func (s *Store) SetMedicationSupplement(id int64, supplement bool) error {
 	_, err := s.db.Exec("UPDATE medications SET supplement = ? WHERE id = ?", supplement, id)
 	return err
+}
+
+func (s *Store) UpdateMedicationCreatedAt(id int64, createdAt time.Time) error {
+	_, err := s.db.Exec("UPDATE medications SET created_at = ? WHERE id = ?", createdAt, id)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // -- Inventory Functions --
@@ -2103,7 +2111,6 @@ func (s *Store) GetHealthEnabled(ctx context.Context) (bool, error) {
 func (s *Store) SetHealthEnabled(ctx context.Context, enabled bool) error {
 	return s.setSettingsBool(ctx, "health_enabled", enabled)
 }
-
 
 func (s *Store) GetTabOrder(ctx context.Context) (string, error) {
 	var tabOrder sql.NullString

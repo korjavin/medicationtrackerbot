@@ -215,9 +215,12 @@ func TestCheckSchedule_SendsNotificationViaMock(t *testing.T) {
 	sched.MedicationChecker.now = func() time.Time { return fakeNow }
 
 	schedule := `{"type":"daily","times":["10:00"]}` // 2 hours before noon
-	_, err := db.CreateMedication("TestMed", "10mg", schedule, nil, nil, "", "")
+	id, err := db.CreateMedication("TestMed", "10mg", schedule, nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
+	}
+	if err := db.UpdateMedicationCreatedAt(id, fakeNow.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())
@@ -295,13 +298,19 @@ func TestCheckSchedule_MultipleMeds_GroupedNotification(t *testing.T) {
 	sched.MedicationChecker.now = func() time.Time { return fakeNow }
 
 	schedule := `{"type":"daily","times":["10:00"]}`
-	_, err := db.CreateMedication("MedA", "5mg", schedule, nil, nil, "", "")
+	idA, err := db.CreateMedication("MedA", "5mg", schedule, nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication A: %v", err)
 	}
-	_, err = db.CreateMedication("MedB", "20mg", schedule, nil, nil, "", "")
+	if err := db.UpdateMedicationCreatedAt(idA, fakeNow.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateMedicationCreatedAt A: %v", err)
+	}
+	idB, err := db.CreateMedication("MedB", "20mg", schedule, nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication B: %v", err)
+	}
+	if err := db.UpdateMedicationCreatedAt(idB, fakeNow.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateMedicationCreatedAt B: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())
@@ -339,8 +348,8 @@ func TestCheckSchedule_MultipleMeds_GroupedNotification(t *testing.T) {
 		t.Errorf("notification should contain both med names, got: %s", n.Text)
 	}
 
-	if len(n.Actions) != 3 {
-		t.Errorf("expected 3 actions, got %d: %v", len(n.Actions), n.Actions)
+	if len(n.Actions) != 5 {
+		t.Errorf("expected 5 actions (take a, skip a, take b, skip b, confirm all), got %d: %v", len(n.Actions), n.Actions)
 	}
 }
 
@@ -354,6 +363,9 @@ func TestCheckSchedule_SupplementHasSkipAction(t *testing.T) {
 	medID, err := db.CreateMedication("Magnesium", "200mg", schedule, nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
+	}
+	if err := db.UpdateMedicationCreatedAt(medID, fakeNow.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 	}
 	if err := db.SetMedicationSupplement(medID, true); err != nil {
 		t.Fatalf("SetMedicationSupplement: %v", err)
@@ -934,9 +946,12 @@ func TestCheckSchedule_StoresIntakeReminderMsgID(t *testing.T) {
 	sched.MedicationChecker.now = func() time.Time { return fakeNow }
 
 	schedule := `{"type":"daily","times":["10:00"]}`
-	_, err := db.CreateMedication("MsgIDMed", "1mg", schedule, nil, nil, "", "")
+	id, err := db.CreateMedication("MsgIDMed", "1mg", schedule, nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
+	}
+	if err := db.UpdateMedicationCreatedAt(id, fakeNow.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
 	}
 
 	err = sched.MedicationChecker.Check(context.Background())

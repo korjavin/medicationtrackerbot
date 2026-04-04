@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -38,6 +39,7 @@ type WorkoutInteractor interface {
 
 type Server struct {
 	meds            MedicationStore
+	medSvc          domain.MedicationService
 	bp              BloodPressureStore
 	weight          WeightStore
 	workouts        WorkoutStore
@@ -195,6 +197,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 
 	srv := &Server{
 		meds:            s,
+		medSvc:          domain.NewMedicationService(s),
 		bp:              s,
 		weight:          s,
 		workouts:        s,
