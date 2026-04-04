@@ -1,204 +1,287 @@
 # Medication Tracker Bot
 
-A private, self-hosted Telegram Mini App for comprehensive health tracking, designed to replace mobile health apps.
+Self-hosted Telegram bot plus local-first web app for personal health tracking.
 
-## The Philosophy: From Fragmented Data to Personal Health Intelligence
+It stores everything in SQLite, can run with or without Telegram, and exposes an optional OAuth-protected MCP sidecar for AI read access to your data.
 
-We built this because health data was everywhere—and nowhere. Medications, blood pressure, weight, and sleep required different apps that didn't talk to each other.
+## What it does today
 
-**MedTrackerBot** unifies this experience:
-1.  **The Hub**: A single source of truth for all your health metrics.
-2.  **Second Memory**: Proactive notifications for meds and workouts, so you don't have to carry the mental load.
-3.  **Interface Choice**: A rich local-first Web App for data lovers, and a distraction-free Chat Interface for minimalists.
-4.  **Simplicity**: Bring your own data (importers included) and keep your favorite tools (like Mi Band).
-5.  **True Ownership**: Self-hosted, single-database ownership with optional, vendor-lock-free backups.
-6.  **Intelligence**: Built-in AI integration (MCP) to turn your data into plain-English insights.
+- Medication tracking with scheduled, weekly, and as-needed doses
+- Medication intake history, snoozing, skipping, past logging, and CSV export
+- Inventory tracking with restocks and low-stock alerts
+- Blood pressure logging, goals, reminders, stats, import, and CSV export
+- Weight logging, goals, reminders, trend tracking, and CSV export
+- Workout planning with groups, variants, exercises, rotation, and workout reminders
+- Workout session logging from Telegram and the web UI, including ad-hoc sessions
+- Mi Band and external workout ingestion through `/api/workout/external`
+- Food logging, daily targets, saved meals, product database, and Open Food Facts search
+- AI-assisted `/food` and `/activity` commands through an OpenAI-compatible API
+- Health overview for sleep, heart rate, SpO2, stress, and steps
+- Web push notifications and offline-first PWA behavior
+- Browser auth through Telegram WebApp validation or OIDC
+- Optional MCP server for querying health data and writing food logs via MCP
 
-## Features
+## Interfaces
 
-- **Food Intake Tracking**:
-    - **Open Food Facts Integration**: Scan or search for products to get nutritional data automatically.
-    - **Macro Tracking**: Monitor Calories, Proteins, Fats, and Carbs.
-    - **Daily Targets**: Set and track nutritional goals.
-- **Workout Tracking**:
-    - **Hierarchical Structure**: Groups → Variants → Exercises.
-    - **Smart Schedules**: Rotating (PPL, PHUL) and non-rotating schedules.
-    - **Live Guidance**: Exercise-by-exercise logging via Telegram.
-    - **Performance Stats**: Streak tracking and completion analytics.
-- **Web App Features**:
-    - **Local First (PWA)**: UI renders instantly from cache; fresh data loads in the background. Blood pressure, weight, and medication confirmations can be recorded offline and sync automatically when connectivity returns.
-    - **Push Notifications**: Receive medication and workout reminders directly on your device.
-    - **Responsive Design**: Optimized for both mobile and desktop browsers.
-- **Medication Management**: Add, edit, archive medications with custom dosages and schedules.
-- **Dose History**:
-    - **Smart Log**: Visually groups medications taken at the same time.
-    - **Filters**: Filter history by date range (24h, 3d, 7d) and specific medication.
-    - **Import**: Tool to import history from Apple Health (via "Health Auto Export" JSON).
-- **Smart Scheduling**:
-    - Supports Daily, Weekly, and As-Needed schedules.
-    - **Active Periods**: Set Start and End dates for medication courses.
-- **Intelligent Sorting**:
-    - Meds sorted by: Pending Now, Recently Taken, As-Needed (by usage), Archived.
-- **Notifications**:
-    - Telegram alerts and **Web Push Notifications**.
-    - Reminders repeat every hour if not confirmed.
-- **Privacy & Security**:
-    - **Authentication**: Telegram Web App validation + Passkeys/OIDC for browser access.
-    - **Self-Hosted**: Your data stays on your server (SQLite).
-    - **Drug Interactions**: Automatic checks using NLM RxNorm API.
+### Telegram
 
-- **Blood Pressure Tracking**:
-    - Log readings, track trends, and export to CSV.
-    - BP classification based on ISH 2020 guidelines.
+The bot remains the fastest way to log data and receive reminders.
 
-- **Weight Tracking**:
-    - Log weight with automatic trend calculation (EMA).
-    - Weekly reminders and CSV export.
+Current commands include:
 
-## Chat Commands
+- `/start`
+- `/help`
+- `/log`
+- `/next`
+- `/stock`
+- `/download`
+- `/bp <systolic> <diastolic> [pulse]`
+- `/bphistory`
+- `/bpstats`
+- `/bpgoal <systolic> <diastolic>`
+- `/weight <kg>`
+- `/weighthistory`
+- `/goal <weight> <date>`
+- `/workout`
+- `/startnext`
+- `/workoutstatus`
+- `/workouthistory`
+- `/intake <carbs> <protein> <fat> <weight> [name]`
+- `/food <description>` when AI is configured
+- `/activity <description>` when AI is configured
 
-### Medication Commands
-- `/start` - Launch the Mini App.
-- `/log` - Log a dose for any medication (great for "As Needed" meds).
-- `/download` - Export medication, blood pressure, and weight history to CSV (select time period).
-- `/help` - Show instructions.
+Feature-specific commands are hidden automatically when that feature is disabled in settings.
 
-### Blood Pressure Commands
-- `/bp <systolic> <diastolic> [pulse]` - Log blood pressure reading.
-  - Example: `/bp 130 80 72` (130/80 mmHg, 72 bpm pulse)
-- `/bphistory` - View blood pressure history.
-- `/bpstats` - View blood pressure statistics (averages, trends).
-- **Reminder Management**: When you receive a BP reminder, you can snooze it for 2 hours or block reminders for 24 hours via Telegram callback buttons.
+### Web app
 
-### Weight Commands
-- `/weight <kg>` - Log weight in kilograms.
-  - Example: `/weight 75.5`
-- `/weighthistory` - View recent weight history (last 10 entries).
-- **Reminder Management**: When you receive a weight reminder, you can snooze it for 2 hours or block reminders for 24 hours via Telegram callback buttons.
+The web app is a local-first PWA served by the Go server.
 
-### Food Commands
-- `/intake <carbs> <protein> <fat> <weight> [name]` - Manually log food intake by macros (per 100g).
-- `/food <description>` - Log food using natural language via AI (e.g., `/food 200g chicken breast with a cup of rice`). Requires configuring an `OPENAI_` environment variable.
+- Cached shell with background refresh
+- Offline create/update flows for key tracking actions
+- Web push subscription management
+- Per-feature toggles for medications, blood pressure, weight, workouts, food, and health
+- Reorderable tabs
+- Real-time refresh through `/api/changes` and `/api/changes/stream`
 
-## Configuration
+## Architecture
 
-The application is configured via Environment Variables:
+- `cmd/bot/main.go`: main application entrypoint
+- `cmd/mcptool/main.go`: standalone MCP HTTP server
+- `internal/server`: HTTP handlers, auth, PWA serving, and APIs
+- `internal/bot`: Telegram commands, callbacks, and notification flows
+- `internal/store`: SQLite persistence and migrations
+- `web/static`: web UI, PWA assets, and frontend tests
+
+The main app can run in:
+
+- Web-only mode: omit `TELEGRAM_BOT_TOKEN`
+- Bot + web mode: set Telegram credentials
+
+## Runtime requirements
+
+- Go `1.26.1`
+- Node.js only if you want to run frontend tests
+- SQLite database file on local disk
+
+## Local development
+
+### Run the main app
+
+Minimal environment:
+
+```bash
+export SESSION_SECRET="$(openssl rand -base64 32)"
+export ALLOWED_USER_ID="<your telegram user id>"
+export TZ="Europe/Berlin"
+```
+
+Optional but commonly needed:
+
+```bash
+export TELEGRAM_BOT_TOKEN="<bot token>"
+export DB_PATH="meds.db"
+export PORT="8080"
+```
+
+Start the app:
+
+```bash
+go run ./cmd/bot
+```
+
+If `TELEGRAM_BOT_TOKEN` is unset, the app starts in web-only mode.
+
+### Run tests
+
+Backend:
+
+```bash
+go test ./...
+```
+
+Frontend:
+
+```bash
+npm test
+```
+
+## Main application configuration
+
+### Required
 
 | Variable | Description |
-|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Your Telegram Bot Token obtained from BotFather |
-| `ALLOWED_USER_ID` | Your Telegram User ID (integer). Only this user can access the bot. |
-| `DB_PATH` | Path to SQLite DB (default: `meds.db`) |
-| `PORT` | HTTP port (default: `8080`) |
-| `TZ` | Timezone (e.g., `Europe/Berlin`). Critical for correct scheduling. |
-| `SESSION_SECRET` | Secret used to sign web auth sessions |
-| `AUTH_TRUST_PROXY` | (Optional) Trust `X-Forwarded-For` / `X-Real-IP` headers for rate limiting (default: `true`) |
-| `EXTERNAL_WORKOUT_API_KEY` | (Optional) Required to use the `/api/workout/external` webhook (e.g. from Mi Notify) |
-| `GOOGLE_CLIENT_ID` | (Optional, legacy) For Google Login in browser |
-| `GOOGLE_CLIENT_SECRET` | (Optional, legacy) For Google Login in browser |
-| `GOOGLE_REDIRECT_URL` | (Optional, legacy) Callback URL (e.g., `https://your-domain.com/auth/google/callback`) |
-| `ADMIN_EMAIL` | (Optional, legacy) Allow Google Login only for this email |
-| `OIDC_ISSUER_URL` | (Optional) OIDC issuer URL (e.g., `https://id.yourdomain.com`) |
-| `OPENAI_API_KEY` | (Optional) API key for AI food logging via the `/food` command |
-| `OPENAI_URL` | (Optional) Base URL for OpenAI-compatible API (default: `https://api.openai.com/v1`) |
-| `OPENAI_MODEL` | (Optional) AI model to use for food logging (default: `gpt-4o-mini`) |
-| `OIDC_CLIENT_ID` | (Optional) OIDC client ID |
-| `OIDC_CLIENT_SECRET` | (Optional) OIDC client secret |
-| `OIDC_REDIRECT_URL` | (Optional) Callback URL (e.g., `https://your-domain.com/auth/oidc/callback`) |
-| `OIDC_ADMIN_EMAIL` | (Optional) Allow OIDC login only for this email |
-| `OIDC_ALLOWED_SUBJECT` | (Optional) Allow OIDC login only for this subject (`sub`) |
-| `OIDC_BUTTON_LABEL` | (Optional) Override OIDC login button label |
-| `OIDC_BUTTON_COLOR` | (Optional) Override OIDC login button background color |
-| `OIDC_BUTTON_TEXT_COLOR` | (Optional) Override OIDC login button text color |
-| `OIDC_SCOPES` | (Optional) Comma/space-separated scopes (default: `openid email profile`) |
-| `OIDC_USERINFO_URL` | (Optional) Override userinfo URL if discovery is not available |
-| `OIDC_AUTH_URL` | (Optional) Override authorization endpoint |
-| `OIDC_TOKEN_URL` | (Optional) Override token endpoint |
+|---|---|
+| `SESSION_SECRET` | Secret used to sign browser sessions |
+| `ALLOWED_USER_ID` | Single allowed Telegram user ID; also used as the logical app user ID |
 
-## Quick Start
+### Core runtime
 
-### Easy Installer (Recommended)
+| Variable | Description |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token; omit for web-only mode |
+| `DB_PATH` | SQLite database path, default `meds.db` |
+| `PORT` | HTTP port, default `8080` |
+| `TZ` | App timezone used by scheduling logic |
+| `AUTH_TRUST_PROXY` | Trust forwarding headers for rate limiting, default `true` |
 
-The easiest way to get started is with our **Automatic Installer**. It handles everything: Docker, Traefik, SSL certificates, and even external authentication with Pocket-ID.
+### OIDC and browser login
 
-```bash
-wget -qO- https://github.com/korjavin/medicationtrackerbot/releases/latest/download/medtracker-installer_linux_amd64.tar.gz | tar xvz && ./medtracker-installer
-```
+| Variable | Description |
+|---|---|
+| `OIDC_ISSUER_URL` | OIDC issuer URL |
+| `OIDC_CLIENT_ID` | OIDC client ID |
+| `OIDC_CLIENT_SECRET` | OIDC client secret |
+| `OIDC_REDIRECT_URL` | OIDC callback URL |
+| `OIDC_ADMIN_EMAIL` | Optional allowed email |
+| `OIDC_ALLOWED_SUBJECT` | Optional allowed OIDC subject |
+| `OIDC_SCOPES` | Optional custom scopes; defaults to `openid email profile` |
+| `OIDC_USERINFO_URL` | Optional explicit userinfo URL |
+| `OIDC_AUTH_URL` | Optional explicit auth URL |
+| `OIDC_TOKEN_URL` | Optional explicit token URL |
+| `OIDC_BUTTON_LABEL` | Optional login button label override |
+| `OIDC_BUTTON_COLOR` | Optional login button color override |
+| `OIDC_BUTTON_TEXT_COLOR` | Optional login button text color override |
+| `POCKET_ID_CLIENT_ID` | Fallback client ID for web login when `OIDC_CLIENT_ID` is unset |
+| `POCKET_ID_CLIENT_SECRET` | Fallback client secret for web login when `OIDC_CLIENT_SECRET` is unset |
+| `POCKET_ID_DOMAIN` | Used to swap to the internal Pocket ID URL inside the Docker stack |
+| `GOOGLE_CLIENT_ID` | Legacy Google login support |
+| `GOOGLE_CLIENT_SECRET` | Legacy Google login support |
+| `GOOGLE_REDIRECT_URL` | Legacy Google login support |
+| `ADMIN_EMAIL` | Legacy Google allowlist and VAPID admin email fallback |
 
-See the [**Quick Installation Guide (install.md)**](install.md) for server recommendations and prerequisites.
-Detailed walkthrough available in [docs/installer.md](docs/installer.md).
+### Notifications and integrations
 
-### Web Interface
+| Variable | Description |
+|---|---|
+| `VAPID_PUBLIC_KEY` | Web push public key |
+| `VAPID_PRIVATE_KEY` | Web push private key |
+| `VAPID_SUBJECT` | Web push subject |
+| `DOMAIN` | Primary app domain, used in notification and setup flows |
+| `APP_DOMAIN` | Alternate app domain variable used by setup pages |
+| `EXTERNAL_WORKOUT_API_KEY` | Bearer token required by `/api/workout/external` |
 
-Access the web interface at your domain (or `http://localhost:8080` locally). The interface is a **Progressive Web App (PWA)** that supports offline access and push notifications.
+### AI features
 
-- **Medications** - Manage medications and intake history.
-- **Food Intake** - Log meals via Open Food Facts search.
-- **Workouts** - Plan and track exercise progress.
-- **Blood Pressure & Weight** - Dashboards with trends and statistics.
+Any of the variables below enable the OpenAI-compatible client; all three can be used together.
 
-### Importing Data
+| Variable | Description |
+|---|---|
+| `OPENAI_API_KEY` | API key for AI food and activity parsing |
+| `OPENAI_URL` | Base URL, default `https://api.openai.com/v1` |
+| `OPENAI_MODEL` | Model name, default `gpt-4o-mini` |
 
-#### Medication History (Apple Health)
-To import history from "Health Auto Export" (Apple Health):
-1.  Export data to JSON.
-2.  Place JSON file in project root.
-3.  Run: `go run cmd/importer/main.go -file export.json -user <your_tg_id> -db meds.db`
+### Tuning
 
-#### Blood Pressure (CSV)
-To import blood pressure data from CSV:
-1.  CSV format: `date,time,systolic,diastolic,pulse`
-2.  Run: `go run cmd/bpimporter/main.go -file bp_data.csv -db meds.db`
+| Variable | Description |
+|---|---|
+| `FOOD_SEARCH_CACHE_MB` | In-memory cache size for food product search responses, default `40` |
+| `CHANGES_STREAM_MAX_CONN` | Max concurrent `/api/changes/stream` connections, default `40` |
 
-Example CSV format:
-```csv
-date,time,systolic,diastolic,pulse
-2024-01-15,08:30,120,80,72
-2024-01-15,20:15,118,78,70
-```
+## MCP server
 
-### Backups & Recovery (Litestream)
+The MCP server is a separate process that serves health data over HTTP with OAuth protection.
 
-The bot includes [Litestream](https://litestream.io/) for real-time SQLite replication to Cloudflare R2 (or any S3-compatible storage).
-
-#### Restore Database from Backup
-To restore your database from the cloud using environment variables from your `.env` or current session:
+Start it with:
 
 ```bash
-docker run --rm \
-  -e LITESTREAM_ACCESS_KEY_ID=$LITESTREAM_ACCESS_KEY_ID \
-  -e LITESTREAM_SECRET_ACCESS_KEY=$LITESTREAM_SECRET_ACCESS_KEY \
-  -e R2_ENDPOINT=$R2_ENDPOINT \
-  -e R2_BUCKET=$R2_BUCKET \
-  -v $(pwd):/app/data \
-  --entrypoint /bin/sh \
-  litestream/litestream:latest \
-  -c 'cat <<EOF > /tmp/litestream.yml
-dbs:
-  - path: /app/data/meds.db
-    replicas:
-      - type: s3
-        bucket: $R2_BUCKET
-        path: medtracker
-        endpoint: $R2_ENDPOINT
-EOF
-litestream restore -config /tmp/litestream.yml -o /app/data/meds.db /app/data/meds.db'
+go run ./cmd/mcptool
 ```
 
-### Blood Pressure Classification (ISH 2020 Guidelines)
+### MCP configuration
 
-The app uses **ISH 2020 (International Society of Hypertension)** guidelines for blood pressure classification, configured for users under 65 years.
+| Variable | Description |
+|---|---|
+| `MCP_DATABASE_PATH` | SQLite path for the MCP process; required |
+| `POCKET_ID_URL` | OAuth issuer used by the MCP server; required |
+| `POCKET_ID_CLIENT_ID` | Pocket ID OIDC client ID; required for OAuth login |
+| `POCKET_ID_CLIENT_SECRET` | Pocket ID OIDC client secret |
+| `MCP_SERVER_URL` | Public MCP base URL; required |
+| `ALLOWED_USER_ID` | Data is queried for this app user ID |
+| `MCP_PORT` | HTTP port, default `8081` |
+| `MCP_ALLOWED_SUBJECT` | Optional subject allowlist |
+| `MCP_MAX_QUERY_DAYS` | Max date-range window, default `90` |
+| `POCKET_ID_JWKS_JSON` | Optional JWKS fallback |
+| `MCP_AUDIT_ENDPOINT` | Optional audit sink on the main app |
+| `MCP_AUDIT_SECRET` | HMAC secret for MCP audit and MCP write-through |
 
-| Category | Systolic (mmHg) | | Diastolic (mmHg) |
-|----------|-----------------|---|------------------|
-| Normal | < 130 | and | < 85 |
-| High-normal | 130-139 | and/or | 85-89 |
-| Grade 1 Hypertension | 140-159 | and/or | 90-99 |
-| Grade 2 Hypertension | ≥ 160 | and/or | ≥ 100 |
+### MCP tools
 
-**Treatment Target (< 65 years):** < 130/80 mmHg if tolerated
+The server currently exposes tools for:
 
-## Security
-- **Telegram Auth**: Validates `WebAppData` signature.
-- **Google Auth**: OIDC flow for browser access outside Telegram.
-- **Access Control**: Strict allowlist based on `ALLOWED_USER_ID` and `ADMIN_EMAIL`.
+- Blood pressure
+- Weight
+- Medication intake history
+- Workout history
+- Sleep logs
+- Food intake
+- Daily steps
+- Health overview
+- Heart rate, SpO2, and stress vitals
+- Food logging write-through when audit/write-back is configured
+
+## Data import and export
+
+### Medication history import
+
+Imports Apple Health JSON exported by Health Auto Export:
+
+```bash
+go run ./cmd/importer -file export.json -user "<telegram user id>" -db meds.db
+```
+
+### Blood pressure import
+
+Imports CSV in `date,time,systolic,diastolic,pulse` format:
+
+```bash
+go run ./cmd/bpimporter -file bp_data.csv -db meds.db
+```
+
+### Exports
+
+- Telegram `/download` exports medication, blood pressure, and weight history
+- Web APIs expose blood pressure and weight CSV export endpoints
+
+## Deployment
+
+For production deployment, use the installer or the published container image.
+
+- Quick guide: [install.md](./install.md)
+- Detailed walkthrough: [docs/installer.md](./docs/installer.md)
+
+The installer can provision:
+
+- The main app container
+- Traefik
+- Pocket ID
+- An optional MCP sidecar
+
+## Security model
+
+- Single-user allowlist enforced with `ALLOWED_USER_ID`
+- Telegram WebApp and Telegram Login Widget validation
+- Optional OIDC browser auth with email and/or subject restriction
+- OAuth-protected MCP endpoint
+- HMAC validation for MCP write-back and audit callbacks
+- Optional external workout ingestion protected by bearer token
+- SQLite stays local to your deployment
