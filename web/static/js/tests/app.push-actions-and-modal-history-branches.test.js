@@ -47,8 +47,30 @@ describe('app.js push actions and modal history branch coverage', () => {
 
       await vi.advanceTimersByTimeAsync(600);
 
-      expect(medsSpy).toHaveBeenCalledWith(['1', '2'], ['Aspirin', 'Magnesium'], '2026-02-28T10:00:00Z');
+      expect(medsSpy).toHaveBeenCalledWith([1, 2], ['Aspirin', 'Magnesium'], '2026-02-28T10:00:00Z', 'confirm', []);
       expect(workoutSpy).toHaveBeenCalledWith('88');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('handlePushAction passes intake_ids as numbers to showMedicationConfirmModal', async () => {
+    const { window, cleanup } = loadFrontendEnv();
+
+    try {
+      const medsSpy = vi.spyOn(window, 'showMedicationConfirmModal').mockImplementation(() => {});
+
+      const medParams = new URLSearchParams({
+        ids: '5,6',
+        names: 'Aspirin,Ibuprofen',
+        scheduled: '2026-03-01T08:00:00Z',
+        intake_ids: '101,202'
+      });
+      window.handlePushAction('medication_confirm', medParams);
+
+      await vi.advanceTimersByTimeAsync(600);
+
+      expect(medsSpy).toHaveBeenCalledWith([5, 6], ['Aspirin', 'Ibuprofen'], '2026-03-01T08:00:00Z', 'confirm', [101, 202]);
     } finally {
       cleanup();
     }
