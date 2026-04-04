@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // handleActivityCommand handles the /activity command using natural language and the AI service.
@@ -57,37 +58,39 @@ Examples:
 		return
 	}
 
-	now := time.Unix(int64(msg.Date), 0)
+	// Compute total duration from exercises
+	totalDurationSec := 0
+	for _, ex := range parsedActivity.Exercises {
+		if ex.DurationMinutes != nil {
+			totalDurationSec += *ex.DurationMinutes * 60
+		}
+	}
 
-	// Create an ad-hoc workout session
-	session, err := b.workoutSvc.CreateAdHocSession(b.allowedUserID, now, now.Format("15:04"))
+	// Use time.Now() for ms-precision to avoid dedup collisions;
+	// msg.Date has only second resolution so two rapid /activity calls
+	// would collide on the (user_id, source_start_ms) unique index.
+	startMs := time.Now().UnixMilli()
+	endMs := startMs + int64(totalDurationSec)*1000
+
+	workout := store.MiBandWorkout{
+		UserID:        b.allowedUserID,
+		SourceStartMs: startMs,
+		SourceEndMs:   endMs,
+		ActivityType:  0, // manual/unknown
+		ActivityName:  parsedActivity.Name,
+		DurationSec:   totalDurationSec,
+		Source:        "manual",
+	}
+
+	imported, _, err := b.imports.ImportMiBandWorkouts(ctx, []store.MiBandWorkout{workout}, nil)
 	if err != nil {
-		slog.Error("activity command: failed to create session", "chat_id", msg.Chat.ID, "error", err)
-		msgConfig.Text = "❌ Error creating workout session."
+		slog.Error("activity command: failed to save workout", "chat_id", msg.Chat.ID, "error", err)
+		msgConfig.Text = "❌ Error saving activity."
 		return
 	}
-
-	// Log each exercise
-	for _, ex := range parsedActivity.Exercises {
-		notes := ex.Notes
-		if ex.DurationMinutes != nil {
-			if notes != "" {
-				notes = fmt.Sprintf("%d min; %s", *ex.DurationMinutes, notes)
-			} else {
-				notes = fmt.Sprintf("%d min", *ex.DurationMinutes)
-			}
-		}
-		if _, err := b.activityLog.LogExercise(session.ID, -1, ex.Name, ex.Sets, ex.Reps, ex.WeightKg, "completed", notes); err != nil {
-			slog.Error("activity command: failed to log exercise", "chat_id", msg.Chat.ID, "exercise", ex.Name, "error", err)
-			msgConfig.Text = "❌ Error saving exercise log."
-			return
-		}
-	}
-
-	// Complete the session
-	if err := b.workoutSvc.CompleteSession(session.ID); err != nil {
-		slog.Error("activity command: failed to complete session", "chat_id", msg.Chat.ID, "session_id", session.ID, "error", err)
-		msgConfig.Text = "❌ Error completing workout session."
+	if imported == 0 {
+		slog.Warn("activity command: workout was a duplicate (same start timestamp)", "chat_id", msg.Chat.ID)
+		msgConfig.Text = "⚠️ Activity not saved: a duplicate entry with the same timestamp already exists."
 		return
 	}
 
