@@ -78,6 +78,7 @@ Examples:
 		ActivityType:  0, // manual/unknown
 		ActivityName:  parsedActivity.Name,
 		DurationSec:   totalDurationSec,
+		Source:        "manual",
 	}
 
 	imported, _, err := b.imports.ImportMiBandWorkouts(ctx, []store.MiBandWorkout{workout}, nil)
