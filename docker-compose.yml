@@ -146,16 +146,25 @@ services:
       - -c
       - |
         cat << EOF > /tmp/litestream.yml
+        retention:
+          enabled: $${LITESTREAM_RETENTION_ENABLED:-false}
+        levels:
+          - interval: $${LITESTREAM_LEVEL_1_INTERVAL:-1h}
+          - interval: $${LITESTREAM_LEVEL_2_INTERVAL:-24h}
+          - interval: $${LITESTREAM_LEVEL_3_INTERVAL:-168h}
+        snapshot:
+          interval: $${LITESTREAM_SNAPSHOT_INTERVAL:-240h}
+          retention: $${LITESTREAM_RETENTION:-1680h}
+        l0-retention: $${LITESTREAM_L0_RETENTION:-30m}
+        l0-retention-check-interval: $${LITESTREAM_L0_RETENTION_CHECK_INTERVAL:-1h}
         dbs:
           - path: /app/data/meds.db
-            replicas:
-              - type: s3
-                bucket: $${R2_BUCKET}
-                path: medtracker
-                endpoint: $${R2_ENDPOINT}
-                sync-interval: $${LITESTREAM_SYNC_INTERVAL:-10h}
-                snapshot-interval: $${LITESTREAM_SNAPSHOT_INTERVAL:-240h}
-                retention: $${LITESTREAM_RETENTION:-1680h}
+            replica:
+              type: s3
+              bucket: $${R2_BUCKET}
+              path: medtracker
+              endpoint: $${R2_ENDPOINT}
+              sync-interval: $${LITESTREAM_SYNC_INTERVAL:-10h}
         EOF
         exec litestream replicate -config /tmp/litestream.yml
     volumes:
@@ -168,6 +177,12 @@ services:
       - LITESTREAM_SYNC_INTERVAL=${LITESTREAM_SYNC_INTERVAL:-10h}
       - LITESTREAM_SNAPSHOT_INTERVAL=${LITESTREAM_SNAPSHOT_INTERVAL:-240h}
       - LITESTREAM_RETENTION=${LITESTREAM_RETENTION:-1680h}
+      - LITESTREAM_RETENTION_ENABLED=${LITESTREAM_RETENTION_ENABLED:-false}
+      - LITESTREAM_LEVEL_1_INTERVAL=${LITESTREAM_LEVEL_1_INTERVAL:-1h}
+      - LITESTREAM_LEVEL_2_INTERVAL=${LITESTREAM_LEVEL_2_INTERVAL:-24h}
+      - LITESTREAM_LEVEL_3_INTERVAL=${LITESTREAM_LEVEL_3_INTERVAL:-168h}
+      - LITESTREAM_L0_RETENTION=${LITESTREAM_L0_RETENTION:-30m}
+      - LITESTREAM_L0_RETENTION_CHECK_INTERVAL=${LITESTREAM_L0_RETENTION_CHECK_INTERVAL:-1h}
     depends_on:
       - medtracker
 
