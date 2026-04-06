@@ -33,6 +33,7 @@ type Bot struct {
 	activityAI    domain.ActivityAIService
 	activityLog   ActivityLogStore
 	imports       ImportStore
+	notes         NoteStore
 	allowedUserID int64
 	appDomain     string
 
@@ -82,6 +83,7 @@ func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAI
 		activityAI:    activityAI,
 		activityLog:   s,
 		imports:       s,
+		notes:         s,
 		allowedUserID: allowedUserID,
 		appDomain:     appDomain,
 		httpClient:    &http.Client{Timeout: 30 * time.Second},
@@ -172,6 +174,8 @@ func (b *Bot) buildHelpText(flags featureFlags) string {
 		}
 		sections = append(sections, foodSection)
 	}
+
+	sections = append(sections, "**Notes:**\n/note <text> - Save a personal diary note\n  Example: /note Feeling tired today")
 
 	sections = append(sections, `**How to use:**
 1. Click the "Menu" button to open the App
@@ -377,6 +381,8 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			break
 		}
 		b.handleActivityCommand(msg, &msgConfig)
+	case "note":
+		b.handleNoteCommand(msg, &msgConfig)
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}
