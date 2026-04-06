@@ -193,3 +193,11 @@ type MiBandStore interface {
 	InsertMiBandWorkout(ctx context.Context, w *store.MiBandWorkout) (bool, error)
 	CheckDuplicateMiBandWorkout(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error)
 }
+
+
+// DiaryNotesStore is the subset of store operations needed for diary note handlers.
+type DiaryNotesStore interface {
+	CreateDiaryNote(ctx context.Context, userID int64, content string) (*store.DiaryNote, error)
+	ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error)
+	DeleteDiaryNote(ctx context.Context, userID, noteID int64) error
+}
