@@ -50,6 +50,7 @@ type Server struct {
 	changes         ChangeStore
 	push            PushStore
 	miband          MiBandStore
+	notes           DiaryNotesStore
 	workout         WorkoutInteractor
 	notifiers       []notifier.Notifier
 	rxnorm          *rxnorm.Client
@@ -208,6 +209,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		changes:         s,
 		push:            s,
 		miband:          s,
+		notes:           s,
 		rxnorm:          rxnorm.New(),
 		botToken:        botToken,
 		sessionSecret:   sessionSecret,
@@ -505,6 +507,9 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/settings/features/{feature}", s.handleSetFeatureEnabled)
 	apiMux.HandleFunc("POST /api/settings/tab-order", s.handleSetTabOrder)
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
+	apiMux.HandleFunc("GET /api/notes", s.handleListNotes)
+	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)
+	apiMux.HandleFunc("DELETE /api/notes/{id}", s.handleDeleteNote)
 
 	// External routes (bypass AuthMiddleware)
 	mux.HandleFunc("POST /api/workout/external", s.externalAPIKeyMiddleware(s.handleExternalWorkout))
