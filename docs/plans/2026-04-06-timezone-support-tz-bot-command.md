@@ -59,11 +59,11 @@ Add per-user timezone tracking to the bot. The /tz command requests Telegram loc
 - Modify: `internal/bot/bot.go`
 - Modify: `internal/bot/handlers.go`
 
-- [ ] Add case "tz" to the command switch: send a message with ReplyKeyboardMarkup containing a KeyboardButton with RequestLocation=true and instructions text
-- [ ] In handleMessage, before the IsCommand check, handle `msg.Location != nil`: call LookupTimezone, call store.RecordTimezone, send confirmation message ("Timezone set to Europe/Berlin. Your workout, BP, and weight reminders are now adjusted. Note: medication times are not affected."), remove keyboard with ReplyKeyboardRemove
-- [ ] Handle lookup error gracefully — send an error message asking to try again
-- [ ] Write bot handler test for /tz command (keyboard sent) and for location message (timezone recorded and confirmed)
-- [ ] run project test suite - must pass before task 4
+- [x] Add case "tz" to the command switch: send a message with ReplyKeyboardMarkup containing a KeyboardButton with RequestLocation=true and instructions text
+- [x] In handleMessage, before the IsCommand check, handle `msg.Location != nil`: call LookupTimezone, call store.RecordTimezone, send confirmation message ("Timezone set to Europe/Berlin. Your workout, BP, and weight reminders are now adjusted. Note: medication times are not affected."), remove keyboard with ReplyKeyboardRemove
+- [x] Handle lookup error gracefully — send an error message asking to try again
+- [x] Write bot handler test for /tz command (keyboard sent) and for location message (timezone recorded and confirmed)
+- [x] run project test suite - must pass before task 4
 
 ### Task 4: Update non-medication schedulers to use user timezone
 

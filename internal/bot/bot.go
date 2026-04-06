@@ -34,6 +34,7 @@ type Bot struct {
 	activityLog   ActivityLogStore
 	imports       ImportStore
 	notes         NoteStore
+	timezone      TimezoneStore
 	allowedUserID int64
 	appDomain     string
 
@@ -84,6 +85,7 @@ func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAI
 		activityLog:   s,
 		imports:       s,
 		notes:         s,
+		timezone:      s,
 		allowedUserID: allowedUserID,
 		appDomain:     appDomain,
 		httpClient:    &http.Client{Timeout: 30 * time.Second},
@@ -221,6 +223,12 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	// Check for document upload (sleep import)
 	if msg.Document != nil {
 		b.handleDocumentUpload(msg)
+		return
+	}
+
+	// Handle location sharing (used by /tz command)
+	if msg.Location != nil {
+		b.handleLocationMessage(msg)
 		return
 	}
 
@@ -383,6 +391,9 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		b.handleActivityCommand(msg, &msgConfig)
 	case "note":
 		b.handleNoteCommand(msg, &msgConfig)
+	case "tz":
+		b.handleTZCommand(msg.Chat.ID)
+		return
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}
