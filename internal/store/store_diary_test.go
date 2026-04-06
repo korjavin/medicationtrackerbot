@@ -123,13 +123,10 @@ func TestListDiaryNotes_CursorPagination(t *testing.T) {
 	s := setupDiaryTestStore(t)
 	ctx := context.Background()
 
-	var ids []int64
 	for i := 0; i < 5; i++ {
-		note, err := s.CreateDiaryNote(ctx, 1, fmt.Sprintf("note %d", i))
-		if err != nil {
+		if _, err := s.CreateDiaryNote(ctx, 1, fmt.Sprintf("note %d", i)); err != nil {
 			t.Fatal(err)
 		}
-		ids = append(ids, note.ID)
 	}
 
 	// Page 1: limit 3, no cursor — expect the 3 newest notes.
