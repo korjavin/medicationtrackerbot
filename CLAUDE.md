@@ -126,6 +126,7 @@ SQLite with 34 goose migrations tracking schema evolution:
 - `push_subscriptions` - Web push notification subscriptions
 - `bp_reminders`, `weight_reminders` - Reminder configuration
 - `change_events` - Server-side change tracking for frontend cache invalidation
+- `diary_notes` - Free-text personal diary notes with timestamps
 
 ### Authentication & Security
 
@@ -522,6 +523,9 @@ If you want to use this pattern for a new component:
 | POST | `/api/food/targets` | Set nutrition targets |
 | GET | `/api/sleep` | Sleep logs |
 | POST | `/api/sleep` | Log sleep |
+| GET | `/api/notes` | List diary notes |
+| POST | `/api/notes` | Create diary note |
+| DELETE | `/api/notes/{id}` | Delete diary note |
 
 ### Workouts
 
