@@ -97,8 +97,7 @@ There are multiple ways to bring existing data in, including Apple Health export
 
 For production deployment, use the installer or the published container image.
 
-- Quick guide: [install.md](./install.md)
-- Detailed walkthrough: [docs/installer.md](./docs/installer.md)
+- Installation guide: [docs/installer.md](./docs/installer.md)
 
 The installer can provision:
 
