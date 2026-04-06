@@ -5,6 +5,10 @@
 // - Tag-based cache invalidation
 (function () {
     const inFlight = new Map();
+    // Tracks a generation counter per cache key. Incremented when a key is
+    // invalidated so that an abandoned in-flight request from before the
+    // invalidation cannot re-cache stale data once it eventually resolves.
+    const fetchGeneration = new Map();
     const keyToTags = new Map();
     const tagToKeys = new Map();
     const CHANGE_CURSOR_KEY = 'medtracker_changes_cursor';
@@ -68,9 +72,15 @@
             registerKeyTags(key, tags);
             if (inFlight.has(key)) return await inFlight.get(key);
 
+            // Capture the current generation for this key so that a cancelled
+            // in-flight (evicted by invalidateByTag) cannot overwrite the cache
+            // with stale data when it eventually resolves.
+            const gen = (fetchGeneration.get(key) || 0) + 1;
+            fetchGeneration.set(key, gen);
+
             const request = (async () => {
                 const fresh = await fetcher();
-                if (hasValue(fresh)) {
+                if (hasValue(fresh) && fetchGeneration.get(key) === gen) {
                     await this.setCached(key, fresh);
                 }
                 return fresh;
@@ -119,6 +129,15 @@
         async invalidateByTag(tag) {
             const keys = tagToKeys.get(tag);
             if (!keys || keys.size === 0) return;
+
+            // Evict any in-flight request so the next fetchFresh call starts a
+            // fresh GET rather than reusing a pre-invalidation promise.
+            // Also increment the generation so that the abandoned in-flight,
+            // when it eventually resolves, cannot re-cache its stale payload.
+            for (const key of keys) {
+                fetchGeneration.set(key, (fetchGeneration.get(key) || 0) + 1);
+                inFlight.delete(key);
+            }
 
             await Promise.all([...keys].map((key) => this.clearCached(key)));
         },
