@@ -1067,3 +1067,100 @@ func (s *Server) handleGetStepHistory(ctx context.Context, req *mcp.CallToolRequ
 
 	return nil, response, nil
 }
+
+// DiaryNoteInput is the input type for the get_diary_notes tool
+type DiaryNoteInput struct {
+	StartDate string `json:"start_date"`
+	EndDate   string `json:"end_date"`
+	Limit     int    `json:"limit"`
+}
+
+// DiaryNoteResult represents a single diary note in the tool response
+type DiaryNoteResult struct {
+	ID        int64  `json:"id"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"created_at"`
+}
+
+// DiaryNoteResponse is the response for the get_diary_notes tool
+type DiaryNoteResponse struct {
+	Notes   []DiaryNoteResult `json:"notes"`
+	Count   int               `json:"count"`
+	Period  string            `json:"period"`
+	Warning string            `json:"warning,omitempty"`
+}
+
+// handleGetDiaryNotes handles the get_diary_notes tool
+func (s *Server) handleGetDiaryNotes(ctx context.Context, req *mcp.CallToolRequest, input DiaryNoteInput) (*mcp.CallToolResult, DiaryNoteResponse, error) {
+	startStr, endStr, argsWarning, err := s.resolveDateRangeArgs(req, input.StartDate, input.EndDate)
+	if err != nil {
+		return nil, DiaryNoteResponse{}, err
+	}
+	startDate, endDate, warning, err := s.parseDateRange(startStr, endStr)
+	if err != nil {
+		return nil, DiaryNoteResponse{}, err
+	}
+	warning = appendWarnings(argsWarning, warning)
+
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	const maxDiaryNotesLimit = 1000
+	if limit > maxDiaryNotesLimit {
+		limit = maxDiaryNotesLimit
+	}
+
+	slog.Info("[MCP] Fetching Diary Notes for date range", "start", startDate, "end", endDate, "limit", limit)
+
+	userID := s.config.UserID
+	// Pass both startDate and endDate to the store so the SQL WHERE clause
+	// applies both filters before LIMIT, preventing the 1000-row ceiling
+	// from silently truncating notes within the requested date range.
+	notes, err := s.data.ListDiaryNotes(ctx, userID, startDate, endDate, limit, 0)
+	if err != nil {
+		slog.Error("[MCP] Failed to fetch diary notes", "error", err)
+		return nil, DiaryNoteResponse{}, err
+	}
+	slog.Info("[MCP] Found diary notes", "count", len(notes))
+
+	var results []DiaryNoteResult
+	for _, n := range notes {
+		results = append(results, DiaryNoteResult{
+			ID:        n.ID,
+			Content:   n.Content,
+			CreatedAt: n.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	slog.Info("[MCP] Diary notes query result",
+		"store_count", len(notes),
+		"returned_count", len(results),
+		"period", formatPeriod(startDate, endDate))
+	if len(results) == 0 {
+		emptyReason := noDataWarning("diary notes", startDate, endDate, len(notes), len(results))
+		warning = appendWarnings(warning, emptyReason)
+		slog.Warn("[MCP] Diary notes query returned zero rows",
+			"user_id", userID,
+			"start", startDate.Format(time.RFC3339),
+			"end", endDate.Format(time.RFC3339),
+			"warning", warning)
+	}
+
+	response := DiaryNoteResponse{
+		Notes:   results,
+		Count:   len(results),
+		Period:  formatPeriod(startDate, endDate),
+		Warning: warning,
+	}
+
+	if s.audit != nil {
+		s.audit.Record(AuditEvent{
+			DataType:  "DiaryNotes",
+			StartDate: startDate,
+			EndDate:   endDate,
+		})
+	}
+
+	return nil, response, nil
+}

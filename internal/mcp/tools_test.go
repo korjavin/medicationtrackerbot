@@ -120,6 +120,88 @@ func TestHandleGetFoodIntakeOmitsTargetWhenNotConfigured(t *testing.T) {
 	}
 }
 
+func TestHandleGetDiaryNotesReturnsNotes(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+
+	// Create two notes within range and one outside
+	if _, err := st.CreateDiaryNote(ctx, 123456, "feeling great today"); err != nil {
+		t.Fatalf("CreateDiaryNote: %v", err)
+	}
+	if _, err := st.CreateDiaryNote(ctx, 123456, "a bit tired"); err != nil {
+		t.Fatalf("CreateDiaryNote: %v", err)
+	}
+
+	now := time.Now()
+	_, resp, err := s.handleGetDiaryNotes(ctx, nil, DiaryNoteInput{
+		StartDate: now.AddDate(0, 0, -7).Format("2006-01-02"),
+		EndDate:   now.AddDate(0, 0, 1).Format("2006-01-02"),
+	})
+	if err != nil {
+		t.Fatalf("handleGetDiaryNotes returned error: %v", err)
+	}
+
+	if resp.Count != 2 {
+		t.Fatalf("expected 2 notes, got %d", resp.Count)
+	}
+	// Notes are newest first; check content
+	found := map[string]bool{}
+	for _, n := range resp.Notes {
+		found[n.Content] = true
+		if n.ID == 0 {
+			t.Error("expected non-zero ID")
+		}
+		if n.CreatedAt == "" {
+			t.Error("expected non-empty CreatedAt")
+		}
+	}
+	if !found["feeling great today"] || !found["a bit tired"] {
+		t.Fatalf("unexpected note contents: %+v", resp.Notes)
+	}
+}
+
+func TestHandleGetDiaryNotesEmptyRange(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+
+	_, resp, err := s.handleGetDiaryNotes(ctx, nil, DiaryNoteInput{
+		StartDate: "2026-01-01",
+		EndDate:   "2026-01-31",
+	})
+	if err != nil {
+		t.Fatalf("handleGetDiaryNotes returned error: %v", err)
+	}
+	if resp.Count != 0 {
+		t.Fatalf("expected 0 notes, got %d", resp.Count)
+	}
+	if resp.Warning == "" {
+		t.Fatal("expected warning for empty result set")
+	}
+}
+
+func TestHandleGetDiaryNotesDefaultLimit(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+
+	if _, err := st.CreateDiaryNote(ctx, 123456, "note one"); err != nil {
+		t.Fatalf("CreateDiaryNote: %v", err)
+	}
+
+	_, resp, err := s.handleGetDiaryNotes(ctx, nil, DiaryNoteInput{})
+	if err != nil {
+		t.Fatalf("handleGetDiaryNotes returned error: %v", err)
+	}
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 note, got %d", resp.Count)
+	}
+}
+
 func TestHandleGetFoodIntakeAcceptsCamelCaseDates(t *testing.T) {
 	s, st := setupFoodMCPTestServer(t)
 	defer st.Close()

@@ -41,6 +41,7 @@ type HealthDataReader interface {
 	GetVitalsSpO2(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsSpO2Log, error)
 	GetVitalsStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error)
 	ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error)
+	ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error)
 }
 
 // Config holds MCP server configuration
@@ -358,6 +359,32 @@ func (s *Server) registerTools() {
 			}`),
 		},
 		s.handleLogFoodIntake,
+	)
+
+	// Diary Notes Tool
+	mcp.AddTool(s.mcpServer,
+		&mcp.Tool{
+			Name:        "get_diary_notes",
+			Description: "Retrieve personal diary notes for a date range. Notes capture mood, feelings, and self-observations. Maximum 90 days per query.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"start_date": {
+						"type": "string",
+						"description": "Start date in YYYY-MM-DD format. Defaults to 90 days before end_date if omitted."
+					},
+					"end_date": {
+						"type": "string",
+						"description": "End date in YYYY-MM-DD format. Defaults to today if omitted."
+					},
+					"limit": {
+						"type": "integer",
+						"description": "Maximum number of notes to return. Defaults to 50."
+					}
+				}
+			}`),
+		},
+		s.handleGetDiaryNotes,
 	)
 
 	// Register Vitals & Health Overview Tools
