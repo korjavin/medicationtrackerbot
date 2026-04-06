@@ -48,10 +48,10 @@ Add per-user timezone tracking to the bot. The /tz command requests Telegram loc
 - Modify: `go.mod`, `go.sum`
 - Create: `internal/tzlookup/tzlookup.go`
 
-- [ ] Run `go get github.com/ringsaturn/tzf` to add the dependency
-- [ ] Create `internal/tzlookup` package with a single exported function `LookupTimezone(lat, lng float64) (string, error)` wrapping the tzf finder
-- [ ] Write a unit test with a known coordinate (e.g. 52.52, 13.40 → Europe/Berlin)
-- [ ] run project test suite - must pass before task 3
+- [x] Run `go get github.com/ringsaturn/tzf` to add the dependency
+- [x] Create `internal/tzlookup` package with a single exported function `LookupTimezone(lat, lng float64) (string, error)` wrapping the tzf finder
+- [x] Write a unit test with a known coordinate (e.g. 52.52, 13.40 → Europe/Berlin)
+- [x] run project test suite - must pass before task 3
 
 ### Task 3: Bot /tz command and location message handler
 
