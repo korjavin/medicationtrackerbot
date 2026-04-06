@@ -2252,3 +2252,23 @@ func (s *Store) DeleteDiaryNote(ctx context.Context, userID, noteID int64) error
 	}
 	return nil
 }
+
+// GetCurrentTimezone returns the timezone string from the most recent timezone_history row,
+// or an empty string if no timezone has been recorded yet.
+func (s *Store) GetCurrentTimezone() (string, error) {
+	var tz string
+	err := s.db.QueryRow(`SELECT timezone FROM timezone_history ORDER BY recorded_at DESC, id DESC LIMIT 1`).Scan(&tz)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return tz, nil
+}
+
+// RecordTimezone inserts a new row into timezone_history with the given timezone string.
+func (s *Store) RecordTimezone(tz string) error {
+	_, err := s.db.Exec(`INSERT INTO timezone_history (timezone) VALUES (?)`, tz)
+	return err
+}

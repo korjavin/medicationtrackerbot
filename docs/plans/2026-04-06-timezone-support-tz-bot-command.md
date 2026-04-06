@@ -36,11 +36,11 @@ Add per-user timezone tracking to the bot. The /tz command requests Telegram loc
 - Create: `internal/store/migrations/043_add_timezone_history.sql`
 - Modify: `internal/store/store.go`
 
-- [ ] Create migration 043 that creates a `timezone_history` table: `id INTEGER PRIMARY KEY AUTOINCREMENT`, `timezone TEXT NOT NULL`, `recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP`
-- [ ] Add `GetCurrentTimezone() (string, error)` to the store — returns the timezone from the most recent row, or empty string if none
-- [ ] Add `RecordTimezone(tz string) error` to the store — inserts a new row
-- [ ] Write store tests: record is inserted, most recent entry is returned, empty string on empty table
-- [ ] run project test suite - must pass before task 2
+- [x] Create migration 043 that creates a `timezone_history` table: `id INTEGER PRIMARY KEY AUTOINCREMENT`, `timezone TEXT NOT NULL`, `recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP`
+- [x] Add `GetCurrentTimezone() (string, error)` to the store — returns the timezone from the most recent row, or empty string if none
+- [x] Add `RecordTimezone(tz string) error` to the store — inserts a new row
+- [x] Write store tests: record is inserted, most recent entry is returned, empty string on empty table
+- [x] run project test suite - must pass before task 2
 
 ### Task 2: Add tzf dependency and geo-to-timezone helper
 
