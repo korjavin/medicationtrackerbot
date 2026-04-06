@@ -213,6 +213,16 @@
             <div id="health-overview-content" class="hidden">
                 <!-- Injected dynamically via app.js -->
             </div>
+
+            <div class="notes-section">
+                <h4>My Notes</h4>
+                <div class="notes-add">
+                    <textarea id="notes-textarea" placeholder="Write a note..." rows="3"></textarea>
+                    <button id="notes-save-btn" class="btn-primary">Save Note</button>
+                </div>
+                <div id="notes-loading" style="display:none;">Loading notes...</div>
+                <ul id="notes-list" class="notes-list"></ul>
+            </div>
         </div>
 
         <div id="settings-view" class="view">
