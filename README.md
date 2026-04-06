@@ -39,6 +39,7 @@ It gives you a single place to track the boring but important parts of everyday 
 - Mi Band and external workout ingestion through `/api/workout/external`
 - Food logging, daily targets, saved meals, product database, and Open Food Facts search
 - AI-assisted `/food` and `/activity` commands through an OpenAI-compatible API
+- Diary notes via `/note` command or the web interface, with AI-readable access through MCP
 - Health overview for sleep, heart rate, SpO2, stress, and steps
 - Web push notifications and offline-first PWA behavior
 - Browser auth through Telegram WebApp validation or OIDC
@@ -80,6 +81,7 @@ It currently exposes tools for:
 - Daily steps
 - Health overview
 - Heart rate, SpO2, and stress vitals
+- Diary notes
 - Food logging write-through when audit/write-back is configured
 
 ## Data import and export

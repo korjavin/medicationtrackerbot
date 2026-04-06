@@ -149,6 +149,13 @@ type FoodTargets struct {
 	Fat      int `json:"fat"`
 }
 
+type DiaryNote struct {
+	ID        int64     `json:"id"`
+	UserID    int64     `json:"-"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // CalculateBPCategory returns the ISH 2020 classification.
 // Deprecated: prefer domain.CalculateBPCategory for new code.
 func CalculateBPCategory(systolic, diastolic int) string {
@@ -2172,4 +2179,76 @@ func (s *Store) setSettingsBool(ctx context.Context, column string, enabled bool
 	query := fmt.Sprintf("UPDATE settings SET %s = ? WHERE id = 1", column) // #nosec G201 -- column validated against allowlist above
 	_, err := s.db.ExecContext(ctx, query, enabled)
 	return err
+}
+
+// CreateDiaryNote inserts a new diary note for the user.
+func (s *Store) CreateDiaryNote(ctx context.Context, userID int64, content string) (*DiaryNote, error) {
+	query := `INSERT INTO diary_notes (user_id, content, created_at) VALUES (?, ?, ?) RETURNING id, user_id, content, created_at`
+	var note DiaryNote
+	err := s.db.QueryRowContext(ctx, query, userID, content, nowFunc()).Scan(&note.ID, &note.UserID, &note.Content, &note.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &note, nil
+}
+
+// ListDiaryNotes returns diary notes for a user, newest first.
+// If since is non-zero, only notes created at or after that time are returned.
+// If until is non-zero, only notes created at or before that time are returned.
+// limit <= 0 means no limit (up to 1000).
+// beforeID, when > 0, acts as a keyset cursor: only notes with id < beforeID are returned,
+// enabling stable pagination even when notes are added or deleted between pages.
+func (s *Store) ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]DiaryNote, error) {
+	query := `SELECT id, user_id, content, created_at FROM diary_notes WHERE user_id = ?`
+	args := []interface{}{userID}
+	if !since.IsZero() {
+		query += " AND created_at >= ?"
+		args = append(args, since)
+	}
+	if !until.IsZero() {
+		query += " AND created_at <= ?"
+		args = append(args, until)
+	}
+	if beforeID > 0 {
+		query += " AND id < ?"
+		args = append(args, beforeID)
+	}
+	query += " ORDER BY id DESC LIMIT ?"
+	if limit > 0 {
+		args = append(args, limit)
+	} else {
+		args = append(args, 1000)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var notes []DiaryNote
+	for rows.Next() {
+		var n DiaryNote
+		if err := rows.Scan(&n.ID, &n.UserID, &n.Content, &n.CreatedAt); err != nil {
+			return nil, err
+		}
+		notes = append(notes, n)
+	}
+	return notes, rows.Err()
+}
+
+// DeleteDiaryNote deletes a diary note by ID, scoped to the user.
+func (s *Store) DeleteDiaryNote(ctx context.Context, userID, noteID int64) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM diary_notes WHERE id = ? AND user_id = ?`, noteID, userID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
