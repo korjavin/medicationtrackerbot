@@ -75,6 +75,7 @@ let settingsTimeInfo = {
     timezone: '',
     serverTime: '',
     serverTimezone: '',
+    serverOffsetMinutes: null,
     serverBaseMs: null,
     syncedAtMs: null
 };
@@ -93,12 +94,38 @@ function formatSettingsDateTime(date, timeZone) {
     }
 }
 
+function parseRFC3339OffsetMinutes(value) {
+    if (!value || typeof value !== 'string') return null;
+    if (value.endsWith('Z')) return 0;
+    const match = value.match(/([+-])(\d{2}):(\d{2})$/);
+    if (!match) return null;
+    const sign = match[1] === '-' ? -1 : 1;
+    return sign * (Number(match[2]) * 60 + Number(match[3]));
+}
+
+function formatFixedOffsetDateTime(date, offsetMinutes) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime()) || typeof offsetMinutes !== 'number') {
+        return 'Unavailable';
+    }
+    const shifted = new Date(date.getTime() + offsetMinutes * 60 * 1000);
+    try {
+        return new Intl.DateTimeFormat(undefined, {
+            dateStyle: 'medium',
+            timeStyle: 'medium',
+            timeZone: 'UTC'
+        }).format(shifted);
+    } catch (_) {
+        return shifted.toISOString().replace('T', ' ').replace('Z', '');
+    }
+}
+
 function updateSettingsTimeInfoState(bundle) {
     settingsTimeInfo.timezone = bundle?.timezone || '';
     settingsTimeInfo.serverTimezone = bundle?.serverTimezone || '';
     if (bundle?.serverTime) {
         const parsed = Date.parse(bundle.serverTime);
         settingsTimeInfo.serverTime = bundle.serverTime;
+        settingsTimeInfo.serverOffsetMinutes = parseRFC3339OffsetMinutes(bundle.serverTime);
         if (!Number.isNaN(parsed)) {
             settingsTimeInfo.serverBaseMs = parsed;
             settingsTimeInfo.syncedAtMs = Date.now();
@@ -131,7 +158,7 @@ function renderSettingsTimeInfo(bundle) {
 
     const serverNow = getLiveServerTime();
     serverTimeValue.textContent = serverNow
-        ? `${formatSettingsDateTime(serverNow)}${settingsTimeInfo.serverTimezone ? ` • ${settingsTimeInfo.serverTimezone}` : ''}`
+        ? `${formatFixedOffsetDateTime(serverNow, settingsTimeInfo.serverOffsetMinutes)}${settingsTimeInfo.serverTimezone ? ` • ${settingsTimeInfo.serverTimezone}` : ''}`
         : 'Unavailable';
 
     timezoneNote.textContent = settingsTimeInfo.timezone
