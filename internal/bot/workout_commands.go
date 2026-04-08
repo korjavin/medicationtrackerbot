@@ -13,10 +13,25 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
+// userLocation returns the time.Location for the stored user timezone,
+// falling back to the system timezone when unavailable or invalid.
+func (b *Bot) userLocation() *time.Location {
+	tz, err := b.timezone.GetCurrentTimezone()
+	if err != nil || tz == "" {
+		return time.Local
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		slog.Warn("Invalid stored timezone, falling back to system TZ", "tz", tz, "error", err)
+		return time.Local
+	}
+	return loc
+}
+
 // handleStartNextCommand manually starts the next scheduled workout
 func (b *Bot) handleStartNextCommand(msgConfig *tgbotapi.MessageConfig) {
-	// Get today's sessions
-	today := time.Now()
+	// Get today's sessions in the user's timezone
+	today := time.Now().In(b.userLocation())
 	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
 
 	// Get all active groups
@@ -96,7 +111,7 @@ func (b *Bot) handleStartNextCommand(msgConfig *tgbotapi.MessageConfig) {
 
 // handleWorkoutStatusCommand shows today's workout status
 func (b *Bot) handleWorkoutStatusCommand(msgConfig *tgbotapi.MessageConfig) {
-	today := time.Now()
+	today := time.Now().In(b.userLocation())
 	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
 
 	// Get all active groups

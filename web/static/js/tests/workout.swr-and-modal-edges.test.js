@@ -49,7 +49,7 @@ describe('workout.js SWR and modal edge branches', () => {
       expect(nextCard.innerHTML).toContain('Snoozed');
 
       window._renderNextWorkout(nextCard, {
-        session: { id: 2, status: 'scheduled', scheduled_date: today, scheduled_time: '09:30' },
+        session: { id: 2, status: 'scheduled', scheduled_date: today, scheduled_time: '09:30', is_today: true },
         group_name: 'Legs',
         variant_name: 'B',
         exercises_count: 6,

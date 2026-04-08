@@ -503,6 +503,8 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/food/settings/toggle", s.handleSetFoodIntakeEnabled)
 	apiMux.HandleFunc("GET /api/food/settings/targets", s.handleGetFoodTargets)
 	apiMux.HandleFunc("POST /api/food/settings/targets", s.handleSetFoodTargets)
+	apiMux.HandleFunc("GET /api/settings", s.handleGetSettings)
+	apiMux.HandleFunc("POST /api/settings", s.handleUpdateSettings)
 	apiMux.HandleFunc("GET /api/settings/features", s.handleGetFeatureSettings)
 	apiMux.HandleFunc("POST /api/settings/features/{feature}", s.handleSetFeatureEnabled)
 	apiMux.HandleFunc("POST /api/settings/tab-order", s.handleSetTabOrder)

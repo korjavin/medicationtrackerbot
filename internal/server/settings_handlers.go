@@ -266,6 +266,11 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	currentTimezone, err := s.settings.GetCurrentTimezone()
+	if err != nil {
+		slog.Error("bootstrap timezone query failed", "error", err)
+	}
+
 	response := map[string]any{
 		"cursor":          bootstrapCursor,
 		"features":        features,
@@ -286,6 +291,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 			"bp_reminder_status":     bpReminderStatus,
 			"weight_reminder_status": weightReminderStatus,
 			"tab_order":              tabOrder,
+			"timezone":               currentTimezone,
 		},
 	}
 
@@ -329,6 +335,40 @@ func (s *Server) handleSetFeatureEnabled(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	tz, err := s.settings.GetCurrentTimezone()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"timezone": tz,
+	})
+}
+
+func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Timezone string `json:"timezone"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Timezone != "" {
+		if _, err := time.LoadLocation(req.Timezone); err != nil {
+			http.Error(w, "Invalid timezone: "+req.Timezone, http.StatusBadRequest)
+			return
+		}
+		if err := s.settings.RecordTimezone(req.Timezone); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusOK)
 }

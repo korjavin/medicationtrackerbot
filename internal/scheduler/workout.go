@@ -33,6 +33,7 @@ type WorkoutStore interface {
 	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
 	SetSessionNotificationMessageID(sessionID int64, msgID int) error
 	UpdateSessionVariant(sessionID int64, variantID int64) error
+	GetCurrentTimezone() (string, error)
 }
 
 // WorkoutChecker checks for scheduled workouts and sends notifications.
@@ -55,10 +56,25 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		return nil
 	}
 
+	// Load user timezone. Only apply if explicitly set — leave time as-is otherwise.
+	var userLoc *time.Location
+	if tz, err := c.store.GetCurrentTimezone(); err != nil {
+		slog.Warn("Failed to get user timezone, falling back to system TZ", "error", err)
+	} else if tz != "" {
+		if loc, err := time.LoadLocation(tz); err != nil {
+			slog.Warn("Invalid user timezone, falling back to system TZ", "tz", tz, "error", err)
+		} else {
+			userLoc = loc
+		}
+	}
+
 	if c.now == nil {
 		c.now = time.Now
 	}
 	now := c.now()
+	if userLoc != nil {
+		now = now.In(userLoc)
+	}
 
 	// 1. Get history to check for InProgress and Stale sessions
 	history, err := c.store.GetWorkoutHistory(c.allowedUserID, 20)

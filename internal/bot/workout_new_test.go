@@ -371,6 +371,7 @@ func TestSelectExerciseCallback_SendsExercisePrompt(t *testing.T) {
 func TestAdHocWorkoutCommand_CreatesSession(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
+	env.b.timezone = &mockTimezoneStore{}
 
 	// Add some exercises so SendExerciseList has something to send
 	group, _ := env.s.CreateWorkoutGroup("Misc", "", false, 123456, "[1]", "09:00", 15)
