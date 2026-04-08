@@ -1393,6 +1393,46 @@ svg.chart-svg {
     color: var(--hint-color);
 }
 
+.setting-info-block {
+    align-items: flex-start;
+}
+
+.settings-info-grid {
+    margin-top: 14px;
+    display: grid;
+    gap: 10px;
+}
+
+.settings-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid color-mix(in srgb, var(--hint-color) 25%, transparent);
+}
+
+.settings-info-row:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+.settings-info-label {
+    color: var(--hint-color);
+    font-size: 13px;
+}
+
+.settings-info-value {
+    text-align: right;
+    font-size: 13px;
+    font-weight: 500;
+    word-break: break-word;
+}
+
+.settings-info-note {
+    margin-top: 12px;
+}
+
 .food-date-nav {
     display: flex;
     gap: 6px;

@@ -214,6 +214,17 @@ func TestHandleGetSettings_Timezone(t *testing.T) {
 	if tz != "" {
 		t.Fatalf("Expected empty timezone, got %q", tz)
 	}
+	serverTime, ok := resp["server_time"].(string)
+	if !ok || serverTime == "" {
+		t.Fatalf("Expected server_time string in response")
+	}
+	if _, err := time.Parse(time.RFC3339, serverTime); err != nil {
+		t.Fatalf("Expected parseable RFC3339 server_time, got %q: %v", serverTime, err)
+	}
+	serverTimezone, ok := resp["server_timezone"].(string)
+	if !ok || serverTimezone == "" {
+		t.Fatalf("Expected server_timezone string in response")
+	}
 
 	// Record a timezone and verify it is returned
 	if err := db.RecordTimezone("America/New_York"); err != nil {
@@ -235,6 +246,10 @@ func TestHandleGetSettings_Timezone(t *testing.T) {
 	tz2, ok := resp2["timezone"].(string)
 	if !ok || tz2 != "America/New_York" {
 		t.Fatalf("Expected America/New_York, got %q", tz2)
+	}
+	serverTime2, ok := resp2["server_time"].(string)
+	if !ok || serverTime2 == "" {
+		t.Fatalf("Expected server_time string in second response")
 	}
 }
 

@@ -52,6 +52,8 @@ function normalizeSettingsBundle(raw) {
         featureSettings: raw?.featureSettings || raw?.features || {},
         tabOrder: tabOrderRaw,
         timezone: raw?.timezone || raw?.settings?.timezone || '',
+        serverTime: raw?.serverTime || raw?.server_time || raw?.settings?.server_time || '',
+        serverTimezone: raw?.serverTimezone || raw?.server_timezone || raw?.settings?.server_timezone || '',
         foodTargets: {
             calories: Number(foodTargetsRaw.calories) || 0,
             carbs: Number(foodTargetsRaw.carbs) || 0,
@@ -68,6 +70,83 @@ function normalizeSettingsBundle(raw) {
         }
     };
 }
+
+let settingsTimeInfo = {
+    timezone: '',
+    serverTime: '',
+    serverTimezone: '',
+    serverBaseMs: null,
+    syncedAtMs: null
+};
+let settingsTimeInfoTimer = null;
+
+function formatSettingsDateTime(date, timeZone) {
+    const options = {
+        dateStyle: 'medium',
+        timeStyle: 'medium'
+    };
+    if (timeZone) options.timeZone = timeZone;
+    try {
+        return new Intl.DateTimeFormat(undefined, options).format(date);
+    } catch (_) {
+        return date.toLocaleString();
+    }
+}
+
+function updateSettingsTimeInfoState(bundle) {
+    settingsTimeInfo.timezone = bundle?.timezone || '';
+    settingsTimeInfo.serverTimezone = bundle?.serverTimezone || '';
+    if (bundle?.serverTime) {
+        const parsed = Date.parse(bundle.serverTime);
+        settingsTimeInfo.serverTime = bundle.serverTime;
+        if (!Number.isNaN(parsed)) {
+            settingsTimeInfo.serverBaseMs = parsed;
+            settingsTimeInfo.syncedAtMs = Date.now();
+        }
+    }
+}
+
+function getLiveServerTime() {
+    if (typeof settingsTimeInfo.serverBaseMs !== 'number' || typeof settingsTimeInfo.syncedAtMs !== 'number') {
+        return null;
+    }
+    return new Date(settingsTimeInfo.serverBaseMs + (Date.now() - settingsTimeInfo.syncedAtMs));
+}
+
+function renderSettingsTimeInfo(bundle) {
+    if (bundle) updateSettingsTimeInfoState(bundle);
+
+    const timezoneValue = document.getElementById('settings-timezone-value');
+    const savedTimeValue = document.getElementById('settings-saved-time-value');
+    const localTimeValue = document.getElementById('settings-local-time-value');
+    const serverTimeValue = document.getElementById('settings-server-time-value');
+    const timezoneNote = document.getElementById('settings-timezone-note');
+    if (!timezoneValue || !savedTimeValue || !localTimeValue || !serverTimeValue || !timezoneNote) return;
+
+    timezoneValue.textContent = settingsTimeInfo.timezone || 'Not set';
+    savedTimeValue.textContent = settingsTimeInfo.timezone
+        ? formatSettingsDateTime(new Date(), settingsTimeInfo.timezone)
+        : 'Unavailable until a timezone is saved';
+    localTimeValue.textContent = formatSettingsDateTime(new Date());
+
+    const serverNow = getLiveServerTime();
+    serverTimeValue.textContent = serverNow
+        ? `${formatSettingsDateTime(serverNow)}${settingsTimeInfo.serverTimezone ? ` • ${settingsTimeInfo.serverTimezone}` : ''}`
+        : 'Unavailable';
+
+    timezoneNote.textContent = settingsTimeInfo.timezone
+        ? 'Saved timezone affects workout, blood pressure, and weight reminders. Medication times are not adjusted yet.'
+        : 'No saved timezone yet. If the browser-detected timezone looks wrong, it will be visible here after the next confirmation.';
+}
+
+function ensureSettingsTimeInfoTimer() {
+    if (settingsTimeInfoTimer) return;
+    settingsTimeInfoTimer = window.setInterval(() => {
+        renderSettingsTimeInfo();
+    }, 1000);
+}
+
+window.renderSettingsTimeInfo = renderSettingsTimeInfo;
 
 function applyTabOrder(orderArray) {
     const container = document.getElementById('tabs');
@@ -810,6 +889,8 @@ async function loadSettings() {
 
         document.getElementById('bp-reminders-toggle').checked = !!bundle.bpReminderStatus.enabled;
         document.getElementById('weight-reminders-toggle').checked = !!bundle.weightReminderStatus.enabled;
+        renderSettingsTimeInfo(bundle);
+        ensureSettingsTimeInfoTimer();
     };
 
     const fetchBundle = async () => {
@@ -823,6 +904,8 @@ async function loadSettings() {
         return {
             featureSettings: featureSettingsRes || {},
             timezone: settingsRes?.timezone || '',
+            serverTime: settingsRes?.server_time || '',
+            serverTimezone: settingsRes?.server_timezone || '',
             foodTargets: {
                 calories: foodTargetsRes?.calories || 0,
                 carbs: foodTargetsRes?.carbs || 0,

@@ -238,6 +238,32 @@
 
             <div id="oidc-setup-container"></div>
 
+            <div class="setting-item setting-info-block">
+                <div style="width: 100%;">
+                    <h3>Time &amp; Timezone</h3>
+                    <p class="setting-desc">Read-only info to verify the detected timezone and compare clocks</p>
+                    <div class="settings-info-grid">
+                        <div class="settings-info-row">
+                            <span class="settings-info-label">Saved Timezone</span>
+                            <span id="settings-timezone-value" class="settings-info-value">Loading...</span>
+                        </div>
+                        <div class="settings-info-row">
+                            <span class="settings-info-label">Time In Saved Timezone</span>
+                            <span id="settings-saved-time-value" class="settings-info-value">Loading...</span>
+                        </div>
+                        <div class="settings-info-row">
+                            <span class="settings-info-label">Browser Local Time</span>
+                            <span id="settings-local-time-value" class="settings-info-value">Loading...</span>
+                        </div>
+                        <div class="settings-info-row">
+                            <span class="settings-info-label">Server Time</span>
+                            <span id="settings-server-time-value" class="settings-info-value">Loading...</span>
+                        </div>
+                    </div>
+                    <p id="settings-timezone-note" class="setting-desc settings-info-note"></p>
+                </div>
+            </div>
+
             <mt-setting-toggle title="Web Push Notifications" description="Browser notifications for medications"
                 input-id="webpush-toggle"></mt-setting-toggle>
             <div id="webpush-status" style="display:none; padding: 8px; margin-top: 8px; border-radius: 4px;"></div>
