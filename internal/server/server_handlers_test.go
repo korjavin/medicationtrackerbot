@@ -56,7 +56,7 @@ func TestHandleRestock(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	count := 10
 	db.SetInventory(medID, &count)
 
@@ -97,7 +97,7 @@ func TestHandleRestock_InvalidQuantity(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	reqBody := map[string]interface{}{"quantity": 0}
 	body, _ := json.Marshal(reqBody)
@@ -117,7 +117,7 @@ func TestHandleGetRestockHistory(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()
 
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	db.AddRestock(medID, 30, "Initial")
 
 	req := httptest.NewRequest("GET", fmt.Sprintf("/api/medications/%d/restocks", medID), nil)
@@ -146,7 +146,7 @@ func TestHandleGetLowStock(t *testing.T) {
 	defer db.Close()
 
 	// Create a medication with low stock
-	medID, _ := db.CreateMedication("LowMed", "10mg", `{"type":"daily","times":["09:00","21:00"]}`, nil, nil, "", "")
+	medID, _ := db.CreateMedication("LowMed", "10mg", `{"type":"daily","times":["09:00","21:00"]}`, nil, nil, "", "", "")
 	count := 3
 	db.SetInventory(medID, &count)
 
@@ -262,7 +262,7 @@ func TestHandleConfirmSchedule_WithIntakeIDs(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	count := 10
 	db.SetInventory(medID, &count)
 
@@ -302,7 +302,7 @@ func TestHandleConfirmSchedule_RevertsAllTakenIntakesWhenEmpty(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID1, _ := db.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID1, _ := db.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	count1 := 10
 	db.SetInventory(medID1, &count1)
@@ -352,8 +352,8 @@ func TestHandleConfirmSchedule_RevertsUncheckedTakenIntake(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID1, _ := db.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
-	medID2, _ := db.CreateMedication("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID1, _ := db.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID2, _ := db.CreateMedication("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	count1 := 10
 	db.SetInventory(medID1, &count1)
@@ -418,8 +418,8 @@ func TestHandleConfirmSchedule_ConfirmsAndRevertsInSameRequest(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID1, _ := db.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
-	medID2, _ := db.CreateMedication("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID1, _ := db.CreateMedication("TestMed1", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	medID2, _ := db.CreateMedication("TestMed2", "20mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	count1 := 10
 	db.SetInventory(medID1, &count1)
@@ -481,7 +481,7 @@ func TestHandleLogPastIntake(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	takenAt := time.Now().Add(-2 * time.Hour)
 	reqBody := map[string]interface{}{

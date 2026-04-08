@@ -18,7 +18,7 @@ func setupBenchStore(tb testing.TB) *Store {
 func BenchmarkAddIntakeReminder(b *testing.B) {
 	db := setupBenchStore(b)
 
-	medID, err := db.CreateMedication("BenchMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "")
+	medID, err := db.CreateMedication("BenchMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
 		b.Fatalf("CreateMedication failed: %v", err)
 	}

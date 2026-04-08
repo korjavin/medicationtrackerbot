@@ -14,7 +14,7 @@ func TestHandleCancelIntake_Success(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	count := 10
 	db.SetInventory(medID, &count)
 
@@ -68,7 +68,7 @@ func TestHandleCancelIntake_NotTaken_Skipped(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID, _ := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 
 	// Create intake but don't confirm it (stays PENDING)
 	intakeID, _ := db.CreateIntake(medID, userID, time.Now())

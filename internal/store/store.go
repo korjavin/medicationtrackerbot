@@ -43,6 +43,7 @@ type Medication struct {
 	RxCUI          string     `json:"rxcui,omitempty"`
 	NormalizedName string     `json:"normalized_name,omitempty"`
 	InventoryCount *int       `json:"inventory_count,omitempty"` // NULL = not tracking
+	TZShiftPolicy  string     `json:"tz_shift_policy"`           // flexible / medium / strict
 }
 
 type Restock struct {
@@ -226,9 +227,12 @@ func (s *Store) Close() error {
 
 // -- Medications CRUD --
 
-func (s *Store) CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string) (int64, error) {
-	res, err := s.db.Exec("INSERT INTO medications (name, dosage, schedule, start_date, end_date, rxcui, normalized_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		name, dosage, schedule, startDate, endDate, rxcui, normalizedName)
+func (s *Store) CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string, tzShiftPolicy string) (int64, error) {
+	if tzShiftPolicy == "" {
+		tzShiftPolicy = "flexible"
+	}
+	res, err := s.db.Exec("INSERT INTO medications (name, dosage, schedule, start_date, end_date, rxcui, normalized_name, tz_shift_policy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		name, dosage, schedule, startDate, endDate, rxcui, normalizedName, tzShiftPolicy)
 	if err != nil {
 		return 0, err
 	}
@@ -237,8 +241,8 @@ func (s *Store) CreateMedication(name, dosage, schedule string, startDate, endDa
 
 func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 	query := `
-		SELECT 
-			m.id, m.name, m.dosage, m.schedule, m.archived, m.supplement, m.start_date, m.end_date, m.created_at, m.rxcui, m.normalized_name, m.inventory_count,
+		SELECT
+			m.id, m.name, m.dosage, m.schedule, m.archived, m.supplement, m.start_date, m.end_date, m.created_at, m.rxcui, m.normalized_name, m.inventory_count, m.tz_shift_policy,
 			MAX(CASE WHEN l.status = 'TAKEN' THEN l.taken_at ELSE NULL END) as last_taken
 		FROM medications m
 		LEFT JOIN intake_log l ON m.id = l.medication_id
@@ -262,7 +266,7 @@ func (s *Store) ListMedications(showArchived bool) ([]Medication, error) {
 		var rxcui, normalizedName sql.NullString
 		var inventoryCount sql.NullInt64
 
-		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.Supplement, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount, &lastTaken); err != nil {
+		if err := rows.Scan(&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.Supplement, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount, &m.TZShiftPolicy, &lastTaken); err != nil {
 			return nil, err
 		}
 
@@ -311,8 +315,8 @@ func (s *Store) GetMedication(id int64) (*Medication, error) {
 	var m Medication
 	var rxcui, normalizedName sql.NullString
 	var inventoryCount sql.NullInt64
-	err := s.db.QueryRow("SELECT id, name, dosage, schedule, archived, supplement, start_date, end_date, created_at, rxcui, normalized_name, inventory_count FROM medications WHERE id = ?", id).Scan(
-		&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.Supplement, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount,
+	err := s.db.QueryRow("SELECT id, name, dosage, schedule, archived, supplement, start_date, end_date, created_at, rxcui, normalized_name, inventory_count, tz_shift_policy FROM medications WHERE id = ?", id).Scan(
+		&m.ID, &m.Name, &m.Dosage, &m.Schedule, &m.Archived, &m.Supplement, &m.StartDate, &m.EndDate, &m.CreatedAt, &rxcui, &normalizedName, &inventoryCount, &m.TZShiftPolicy,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil // Not found
@@ -335,9 +339,12 @@ func (s *Store) GetMedication(id int64) (*Medication, error) {
 	return &m, nil
 }
 
-func (s *Store) UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int) error {
-	_, err := s.db.Exec("UPDATE medications SET name = ?, dosage = ?, schedule = ?, archived = ?, start_date = ?, end_date = ?, rxcui = ?, normalized_name = ?, inventory_count = ? WHERE id = ?",
-		name, dosage, schedule, archived, startDate, endDate, rxcui, normalizedName, inventoryCount, id)
+func (s *Store) UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int, tzShiftPolicy string) error {
+	if tzShiftPolicy == "" {
+		tzShiftPolicy = "flexible"
+	}
+	_, err := s.db.Exec("UPDATE medications SET name = ?, dosage = ?, schedule = ?, archived = ?, start_date = ?, end_date = ?, rxcui = ?, normalized_name = ?, inventory_count = ?, tz_shift_policy = ? WHERE id = ?",
+		name, dosage, schedule, archived, startDate, endDate, rxcui, normalizedName, inventoryCount, tzShiftPolicy, id)
 	return err
 }
 
@@ -2277,5 +2284,193 @@ func (s *Store) RecordTimezone(tz string) error {
 		WHERE COALESCE(
 			(SELECT timezone FROM timezone_history ORDER BY recorded_at DESC, id DESC LIMIT 1),
 			'') != ?`, tz, tz)
+	return err
+}
+
+// -- TZ Transition Plans --
+
+// TZTransitionPlan represents a pending or completed timezone transition plan.
+type TZTransitionPlan struct {
+	ID         int64      `json:"id"`
+	OldTZ      string     `json:"old_tz"`
+	NewTZ      string     `json:"new_tz"`
+	CreatedAt  time.Time  `json:"created_at"`
+	Status     string     `json:"status"` // PENDING_APPROVAL / NOTIFIED / APPROVED / REJECTED / CANCELLED / EXPIRED
+	StepsJSON  string     `json:"steps_json"`
+	InputsJSON string     `json:"inputs_json"`
+	PlanHash   string     `json:"plan_hash"`
+	ApprovedAt *time.Time `json:"approved_at,omitempty"`
+	UserAction string     `json:"user_action,omitempty"`
+}
+
+// TZTransitionStep represents a single dose step in a timezone transition plan.
+type TZTransitionStep struct {
+	ID           int64      `json:"id"`
+	PlanID       int64      `json:"plan_id"`
+	MedicationID int64      `json:"medication_id"`
+	StepNumber   int        `json:"step_number"`
+	ScheduledAt  time.Time  `json:"scheduled_at"`
+	Note         string     `json:"note"`
+	ConsumedAt   *time.Time `json:"consumed_at,omitempty"`
+}
+
+// CreateTZTransitionPlan saves a new timezone transition plan and returns its ID.
+func (s *Store) CreateTZTransitionPlan(plan *TZTransitionPlan) (int64, error) {
+	res, err := s.db.Exec(
+		`INSERT INTO tz_transition_plans (old_tz, new_tz, status, steps_json, inputs_json, plan_hash)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		plan.OldTZ, plan.NewTZ, plan.Status, plan.StepsJSON, plan.InputsJSON, plan.PlanHash,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// GetLatestActiveOrPendingTZTransitionPlan returns the most recent plan in
+// PENDING_APPROVAL, NOTIFIED, or APPROVED status, or nil if none exists.
+func (s *Store) GetLatestActiveOrPendingTZTransitionPlan() (*TZTransitionPlan, error) {
+	var p TZTransitionPlan
+	var approvedAt sql.NullTime
+	var userAction sql.NullString
+	err := s.db.QueryRow(
+		`SELECT id, old_tz, new_tz, created_at, status, steps_json, inputs_json, plan_hash, approved_at, user_action
+		 FROM tz_transition_plans
+		 WHERE status IN ('PENDING_APPROVAL','NOTIFIED','APPROVED')
+		 ORDER BY created_at DESC, id DESC LIMIT 1`,
+	).Scan(&p.ID, &p.OldTZ, &p.NewTZ, &p.CreatedAt, &p.Status, &p.StepsJSON, &p.InputsJSON, &p.PlanHash, &approvedAt, &userAction)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if approvedAt.Valid {
+		p.ApprovedAt = &approvedAt.Time
+	}
+	if userAction.Valid {
+		p.UserAction = userAction.String
+	}
+	return &p, nil
+}
+
+// UpdateTZTransitionPlanStatus atomically transitions a plan's status.
+// If expectedStatus is non-empty, the update only applies when the current status matches.
+func (s *Store) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
+	var err error
+	if expectedStatus != "" {
+		var res sql.Result
+		res, err = s.db.Exec(
+			`UPDATE tz_transition_plans SET status = ?, user_action = ? WHERE id = ? AND status = ?`,
+			newStatus, userAction, id, expectedStatus,
+		)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return nil // no-op: status already changed, idempotent
+		}
+		return nil
+	}
+	_, err = s.db.Exec(
+		`UPDATE tz_transition_plans SET status = ?, user_action = ? WHERE id = ?`,
+		newStatus, userAction, id,
+	)
+	return err
+}
+
+// SetTZTransitionPlanApproved marks a plan as APPROVED and records the approval time.
+func (s *Store) SetTZTransitionPlanApproved(id int64, approvedAt time.Time) error {
+	_, err := s.db.Exec(
+		`UPDATE tz_transition_plans SET status = 'APPROVED', approved_at = ?, user_action = 'approved' WHERE id = ?`,
+		approvedAt, id,
+	)
+	return err
+}
+
+// GetPlanByHash looks up a plan by its inputs hash to enable deduplication.
+func (s *Store) GetPlanByHash(hash string) (*TZTransitionPlan, error) {
+	var p TZTransitionPlan
+	var approvedAt sql.NullTime
+	var userAction sql.NullString
+	err := s.db.QueryRow(
+		`SELECT id, old_tz, new_tz, created_at, status, steps_json, inputs_json, plan_hash, approved_at, user_action
+		 FROM tz_transition_plans WHERE plan_hash = ?
+		 ORDER BY created_at DESC, id DESC LIMIT 1`,
+		hash,
+	).Scan(&p.ID, &p.OldTZ, &p.NewTZ, &p.CreatedAt, &p.Status, &p.StepsJSON, &p.InputsJSON, &p.PlanHash, &approvedAt, &userAction)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if approvedAt.Valid {
+		p.ApprovedAt = &approvedAt.Time
+	}
+	if userAction.Valid {
+		p.UserAction = userAction.String
+	}
+	return &p, nil
+}
+
+// CreateTZTransitionSteps bulk-inserts transition steps for a plan.
+func (s *Store) CreateTZTransitionSteps(steps []TZTransitionStep) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback() //nolint:errcheck
+		}
+	}()
+	stmt, err := tx.Prepare(
+		`INSERT INTO tz_transition_steps (plan_id, medication_id, step_number, scheduled_at, note)
+		 VALUES (?, ?, ?, ?, ?)`,
+	)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, step := range steps {
+		if _, err = stmt.Exec(step.PlanID, step.MedicationID, step.StepNumber, step.ScheduledAt, step.Note); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// GetPendingStepsForPlan returns all unconsumed steps for a given plan, ordered by step_number.
+func (s *Store) GetPendingStepsForPlan(planID int64) ([]TZTransitionStep, error) {
+	rows, err := s.db.Query(
+		`SELECT id, plan_id, medication_id, step_number, scheduled_at, note
+		 FROM tz_transition_steps
+		 WHERE plan_id = ? AND consumed_at IS NULL
+		 ORDER BY step_number ASC`,
+		planID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var steps []TZTransitionStep
+	for rows.Next() {
+		var step TZTransitionStep
+		if err := rows.Scan(&step.ID, &step.PlanID, &step.MedicationID, &step.StepNumber, &step.ScheduledAt, &step.Note); err != nil {
+			return nil, err
+		}
+		steps = append(steps, step)
+	}
+	return steps, nil
+}
+
+// MarkStepConsumed records the consumption time for a transition step.
+func (s *Store) MarkStepConsumed(stepID int64, consumedAt time.Time) error {
+	_, err := s.db.Exec(
+		`UPDATE tz_transition_steps SET consumed_at = ? WHERE id = ?`,
+		consumedAt, stepID,
+	)
 	return err
 }

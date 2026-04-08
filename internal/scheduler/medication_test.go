@@ -97,7 +97,7 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 				}
 			}
 
-			id, err := db.CreateMedication(m.Name, m.Dosage, m.Schedule, sd, ed, "", "")
+			id, err := db.CreateMedication(m.Name, m.Dosage, m.Schedule, sd, ed, "", "", "")
 			if err != nil {
 				t.Fatalf("CreateMedication failed: %v", err)
 			}
