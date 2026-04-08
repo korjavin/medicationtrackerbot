@@ -20,6 +20,7 @@ type BPReminderStore interface {
 	UpdatePreferredReminderHour(userID int64, hour int) error
 	GetDominantBPCategory(ctx context.Context, userID int64) (string, error)
 	UpdateBPReminderNotificationSent(userID int64, messageID *int) error
+	GetCurrentTimezone() (string, error)
 }
 
 // BPReminderChecker checks if any users need BP reminder notifications.
@@ -43,10 +44,25 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		return err
 	}
 
+	// Load user timezone. Only apply if explicitly set — leave time as-is otherwise.
+	var userLoc *time.Location
+	if tz, err := c.store.GetCurrentTimezone(); err != nil {
+		slog.Warn("Failed to get user timezone, falling back to system TZ", "error", err)
+	} else if tz != "" {
+		if loc, err := time.LoadLocation(tz); err != nil {
+			slog.Warn("Invalid user timezone, falling back to system TZ", "tz", tz, "error", err)
+		} else {
+			userLoc = loc
+		}
+	}
+
 	if c.now == nil {
 		c.now = time.Now
 	}
 	now := c.now()
+	if userLoc != nil {
+		now = now.In(userLoc)
+	}
 
 	for _, userID := range userIDs {
 		state, err := c.store.GetBPReminderState(userID)
@@ -103,7 +119,8 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		}
 
 		if state.LastNotificationSentAt != nil {
-			lastSentDay := time.Date(state.LastNotificationSentAt.Year(), state.LastNotificationSentAt.Month(), state.LastNotificationSentAt.Day(), 0, 0, 0, 0, now.Location())
+			lastSentLocal := state.LastNotificationSentAt.In(now.Location())
+			lastSentDay := time.Date(lastSentLocal.Year(), lastSentLocal.Month(), lastSentLocal.Day(), 0, 0, 0, 0, now.Location())
 			if !lastSentDay.Before(todayStart) {
 				continue
 			}
