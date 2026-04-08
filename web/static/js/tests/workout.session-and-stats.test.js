@@ -288,7 +288,7 @@ describe('workout.js session and stats flows', () => {
         }
       ];
 
-      window._renderWorkoutHistory(historyContainer, sessions, miband);
+      window._renderWorkoutHistory(historyContainer, sessions, miband, 'UTC');
 
       const items = Array.from(historyContainer.firstElementChild.children);
 

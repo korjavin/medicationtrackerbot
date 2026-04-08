@@ -44,6 +44,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.onTelegramAuth',            // app.js — OIDC callback injected by Telegram script
     'window.requestTabRefresh',         // app.js — called by data-store.js on change event
     'window.reloadCurrentTab',          // app.js — called by data-store.js + sync.js
+    'window.renderSettingsTimeInfo',    // app.js — renders read-only timezone/server clock info in settings
 
     // Core modules
     'window.apiCallDirect',             // core/api.js — low-level fetch used by data-store.js
