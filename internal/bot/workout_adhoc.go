@@ -11,7 +11,7 @@ import (
 // handleAdHocWorkoutCommand starts an ad-hoc (unscheduled) workout
 func (b *Bot) handleAdHocWorkoutCommand(msgConfig *tgbotapi.MessageConfig) {
 	// Create ad-hoc workout session
-	now := time.Now()
+	now := time.Now().In(b.userLocation())
 	scheduledTime := now.Format("15:04")
 
 	session, err := b.workoutSvc.CreateAdHocSession(b.allowedUserID, now, scheduledTime)
