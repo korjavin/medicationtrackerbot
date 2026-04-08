@@ -19,6 +19,7 @@ import (
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -70,6 +71,7 @@ type Server struct {
 	mcpAuditSecret      string
 	lastMCPNotification time.Time
 	mcpAuditMutex       sync.Mutex
+	tzPlanner           tzreschedule.PlannerService
 }
 
 type rateLimiter struct {
@@ -244,6 +246,11 @@ func (s *Server) SetMCPAuditSecret(secret string) {
 // SetNotifiers configures the notification channels after construction.
 func (s *Server) SetNotifiers(notifiers []notifier.Notifier) {
 	s.notifiers = notifiers
+}
+
+// SetTZPlanner configures the timezone transition plan generator after construction.
+func (s *Server) SetTZPlanner(p tzreschedule.PlannerService) {
+	s.tzPlanner = p
 }
 
 // deleteNotification deletes a previously sent notification from all notifiers.
