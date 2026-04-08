@@ -59,8 +59,8 @@ Add a per-medication `tz_shift_policy` field (flexible/medium/strict) and a time
 - Create: `internal/domain/tzreschedule/engine.go`
 - Create: `internal/domain/tzreschedule/engine_test.go`
 
-- [ ] `policy.go`: define `Policy` type (string const flexible/medium/strict); `MaxShiftPerDose(p Policy) time.Duration` (flexible=full offset in one step, medium=3h, strict=2h); `MinDoseInterval(scheduleIntervalHours int, p Policy) time.Duration` (flexible=60% of interval, medium=65%, strict=70%); `MaxDoseInterval(scheduleIntervalHours int, p Policy) time.Duration` (flexible=200%, medium=175%, strict=150%) — these are hard constraints never violated
-- [ ] `engine.go`:
+- [x] `policy.go`: define `Policy` type (string const flexible/medium/strict); `MaxShiftPerDose(p Policy) time.Duration` (flexible=full offset in one step, medium=3h, strict=2h); `MinDoseInterval(scheduleIntervalHours int, p Policy) time.Duration` (flexible=60% of interval, medium=65%, strict=70%); `MaxDoseInterval(scheduleIntervalHours int, p Policy) time.Duration` (flexible=200%, medium=175%, strict=150%) — these are hard constraints never violated
+- [x] `engine.go`:
   - Define `PlanInput`: `Medications []store.Medication`, `OldTZ string`, `NewTZ string`, `Now time.Time`, `LastIntakePerMedication map[int64]time.Time` (anchor dose — actual last intake from intake_log, not theoretical)
   - Define `TransitionStep{PlanID int64, MedicationID int64, MedName string, StepNumber int, TotalSteps int, ScheduledAt time.Time, Note string}`
   - Define `PlanSummary{Direction string, MaxShiftUsed time.Duration, ViolationsPrevented []string}` returned alongside steps for observability logging
@@ -72,8 +72,8 @@ Add a per-medication `tz_shift_policy` field (flexible/medium/strict) and a time
   - Anchor dose: for strict and medium policies, compute first step's `ScheduledAt` from `LastIntakePerMedication[medID] + normal_interval ± allowed_shift` rather than from theoretical last schedule time
   - Hard constraint enforcement: before finalising each step, verify interval from previous step (or anchor) is >= MinDoseInterval and <= MaxDoseInterval; if violated, adjust step time or insert an extra intermediate step
   - Implement `GeneratePlan(input PlanInput) ([]TransitionStep, PlanSummary, error)` — deterministic, pure function (no side effects, safe to call multiple times)
-- [ ] `engine_test.go`: table-driven and golden-file tests covering: eastbound 6h strict (anchor-based start, 2h steps), westbound 6h medium (3h steps), flexible immediate (single step), weekly med skipped, as-needed skipped, same offset different TZ names yields no steps, hard constraint clamps an overly-short interval, MaxDoseInterval cap respected for strict
-- [ ] Run `go test ./internal/domain/tzreschedule/...` — must pass
+- [x] `engine_test.go`: table-driven and golden-file tests covering: eastbound 6h strict (anchor-based start, 2h steps), westbound 6h medium (3h steps), flexible immediate (single step), weekly med skipped, as-needed skipped, same offset different TZ names yields no steps, hard constraint clamps an overly-short interval, MaxDoseInterval cap respected for strict
+- [x] Run `go test ./internal/domain/tzreschedule/...` — must pass
 
 ### Task 3: Planner service — idempotency, audit, cancellation
 
