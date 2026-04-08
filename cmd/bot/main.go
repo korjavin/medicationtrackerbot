@@ -33,8 +33,8 @@ func main() {
 	}
 
 	sessionSecret := os.Getenv("SESSION_SECRET")
-	if sessionSecret == "" {
-		slog.Error("SESSION_SECRET is required. Generate one with: openssl rand -base64 32")
+	if sessionSecret == "" || len(sessionSecret) < 32 {
+		slog.Error("SESSION_SECRET is required and must be at least 32 characters long. Generate one with: openssl rand -base64 32")
 		os.Exit(1)
 	}
 
