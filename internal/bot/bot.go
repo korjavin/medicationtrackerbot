@@ -34,11 +34,16 @@ type Bot struct {
 	activityLog   ActivityLogStore
 	imports       ImportStore
 	notes         NoteStore
+	timezone      TimezoneStore
 	allowedUserID int64
 	appDomain     string
 
 	workoutMessagesMu sync.Mutex
 	workoutMessages   map[int64]map[int]struct{}
+
+	awaitingLocationMu     sync.Mutex
+	awaitingLocationChatID int64 // non-zero means /tz was invoked in this chat and location is expected
+	awaitingLocationExpiry time.Time
 
 	httpClient *http.Client
 }
@@ -84,6 +89,7 @@ func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAI
 		activityLog:   s,
 		imports:       s,
 		notes:         s,
+		timezone:      s,
 		allowedUserID: allowedUserID,
 		appDomain:     appDomain,
 		httpClient:    &http.Client{Timeout: 30 * time.Second},
@@ -177,6 +183,8 @@ func (b *Bot) buildHelpText(flags featureFlags) string {
 
 	sections = append(sections, "**Notes:**\n/note <text> - Save a personal diary note\n  Example: /note Feeling tired today")
 
+	sections = append(sections, "**Timezone:**\n/tz - Set your timezone by sharing your location (affects workout, BP, and weight reminders)")
+
 	sections = append(sections, `**How to use:**
 1. Click the "Menu" button to open the App
 2. Enable or disable sections in Settings
@@ -221,6 +229,12 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	// Check for document upload (sleep import)
 	if msg.Document != nil {
 		b.handleDocumentUpload(msg)
+		return
+	}
+
+	// Handle location sharing (used by /tz command)
+	if msg.Location != nil {
+		b.handleLocationMessage(msg)
 		return
 	}
 
@@ -383,6 +397,9 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		b.handleActivityCommand(msg, &msgConfig)
 	case "note":
 		b.handleNoteCommand(msg, &msgConfig)
+	case "tz":
+		b.handleTZCommand(msg.Chat.ID)
+		return
 	default:
 		msgConfig.Text = "Unknown command. Try /help."
 	}
