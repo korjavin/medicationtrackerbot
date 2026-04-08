@@ -383,9 +383,21 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid timezone: "+req.Timezone, http.StatusBadRequest)
 			return
 		}
+		// Capture the current timezone before the update so we can detect a change.
+		oldTZ, err := s.settings.GetCurrentTimezone()
+		if err != nil {
+			slog.Error("handleUpdateSettings: GetCurrentTimezone before update failed", "error", err)
+		}
 		if err := s.settings.RecordTimezone(req.Timezone); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		// Trigger plan generation only when the stored timezone string actually changed.
+		if s.tzPlanner != nil && oldTZ != req.Timezone {
+			if err := s.tzPlanner.GenerateIfChanged(oldTZ, req.Timezone, time.Now()); err != nil {
+				slog.Error("handleUpdateSettings: GenerateIfChanged failed", "error", err)
+				// Intentionally not returning an error — plan generation is best-effort.
+			}
 		}
 	}
 	w.WriteHeader(http.StatusOK)

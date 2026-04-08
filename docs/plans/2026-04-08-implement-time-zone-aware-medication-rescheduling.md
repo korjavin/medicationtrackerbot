@@ -81,18 +81,18 @@ Add a per-medication `tz_shift_policy` field (flexible/medium/strict) and a time
 - Create: `internal/domain/tzreschedule/planner.go`
 - Modify: `internal/server/settings_handlers.go`
 
-- [ ] `planner.go`: define `PlannerService` interface with `GenerateIfChanged(oldTZ, newTZ string, now time.Time) error` and `CancelActivePlan(reason string) error`
-- [ ] Implement `GenerateIfChanged`:
+- [x] `planner.go`: define `PlannerService` interface with `GenerateIfChanged(oldTZ, newTZ string, now time.Time) error` and `CancelActivePlan(reason string) error`
+- [x] Implement `GenerateIfChanged`:
   - Compute `inputsJSON` from all active non-archived daily medications (with last intake timestamps loaded from store), oldTZ, newTZ, now; compute `planHash = sha256(inputsJSON)`
   - Idempotency check 1: if `GetPlanByHash(planHash)` returns a recent plan (within 24h), skip silently
   - Idempotency check 2: if `GetLatestActiveOrPendingTZTransitionPlan()` returns a PENDING_APPROVAL / NOTIFIED / APPROVED plan, cancel it first (status → CANCELLED, user_action="superseded") then generate new; this handles TZ-changed-again case
   - Call `engine.GeneratePlan(input)`; if zero steps returned, do nothing
   - Save plan to store as PENDING_APPROVAL, save steps to `tz_transition_steps`
   - Emit structured slog log: `plan_id`, `old_tz`, `new_tz`, `direction`, `meds_count`, `steps_count`, `max_shift_used`, `violations_prevented`
-- [ ] In `settings_handlers.go` `handleUpdateSettings`: capture the current timezone before `RecordTimezone`, then after `RecordTimezone` succeeds read the new current timezone and call `PlannerService.GenerateIfChanged(oldTZ, newTZ, now)` only when the stored timezone string actually changed; errors are logged but do not fail the HTTP response
-- [ ] Explicitly document that this first iteration does not auto-generate plans for DST changes when the stored IANA timezone name is unchanged, because `timezone_history` only records timezone-string changes today
-- [ ] Write unit tests for planner using mock store: same-TZ skips, active plan is cancelled before new one, plan_hash deduplication, last-intake loaded into inputs
-- [ ] Run `go test ./internal/domain/tzreschedule/... ./internal/server/...` — must pass
+- [x] In `settings_handlers.go` `handleUpdateSettings`: capture the current timezone before `RecordTimezone`, then after `RecordTimezone` succeeds read the new current timezone and call `PlannerService.GenerateIfChanged(oldTZ, newTZ, now)` only when the stored timezone string actually changed; errors are logged but do not fail the HTTP response
+- [x] Explicitly document that this first iteration does not auto-generate plans for DST changes when the stored IANA timezone name is unchanged, because `timezone_history` only records timezone-string changes today
+- [x] Write unit tests for planner using mock store: same-TZ skips, active plan is cancelled before new one, plan_hash deduplication, last-intake loaded into inputs
+- [x] Run `go test ./internal/domain/tzreschedule/... ./internal/server/...` — must pass
 
 ### Task 4: Notifier + bot callbacks with risk labeling
 
