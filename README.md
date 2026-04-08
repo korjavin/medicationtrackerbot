@@ -53,6 +53,8 @@ Telegram is the fastest interface for real life: logging something quickly, resp
 
 It supports quick commands for medications, blood pressure, weight, workouts, food, exports, and other everyday actions. Feature-specific commands are hidden automatically when that feature is disabled in settings.
 
+The `/tz` command requests your location to detect your timezone. Workout, BP, and weight reminders adjust to your local time. Medication times are not affected.
+
 ### Web app
 
 The web app is for when you want more context: trends, history, editing, planning workouts, food logs, and settings.
@@ -63,6 +65,7 @@ The web app is for when you want more context: trends, history, editing, plannin
 - Per-feature toggles for medications, blood pressure, weight, workouts, food, and health
 - Reorderable tabs
 - Real-time refresh through `/api/changes` and `/api/changes/stream`
+- Automatic timezone detection on login with user confirmation
 
 ## MCP server
 
