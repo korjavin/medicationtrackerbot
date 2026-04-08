@@ -34,8 +34,12 @@ window.onDataStoreUnauthorized = function () {
     window.location.reload();
 };
 
-async function cacheApiSnapshot(key, value) {
-    await window.DataStore.setCached(key, value);
+async function cacheApiSnapshot(key, value, tags = []) {
+    if (tags.length > 0 && window.DataStore) {
+        await window.DataStore.fetchFresh(key, () => Promise.resolve(value), tags);
+    } else {
+        await window.DataStore.setCached(key, value);
+    }
 }
 
 function normalizeSettingsBundle(raw) {
@@ -47,6 +51,7 @@ function normalizeSettingsBundle(raw) {
     return {
         featureSettings: raw?.featureSettings || raw?.features || {},
         tabOrder: tabOrderRaw,
+        timezone: raw?.timezone || raw?.settings?.timezone || '',
         foodTargets: {
             calories: Number(foodTargetsRaw.calories) || 0,
             carbs: Number(foodTargetsRaw.carbs) || 0,
@@ -158,7 +163,7 @@ async function applyBootstrapPayload(res) {
         bp_reminder_status: res.settings?.bp_reminder_status,
         weight_reminder_status: res.settings?.weight_reminder_status
     });
-    await cacheApiSnapshot('settings_bundle', settingsBundle);
+    await cacheApiSnapshot('settings_bundle', settingsBundle, ['settings', 'food_targets', 'feature_settings']);
 
     return true;
 }
@@ -808,14 +813,16 @@ async function loadSettings() {
     };
 
     const fetchBundle = async () => {
-        const [featureSettingsRes, foodTargetsRes, bpReminderStatus, weightReminderStatus] = await Promise.all([
+        const [featureSettingsRes, foodTargetsRes, bpReminderStatus, weightReminderStatus, settingsRes] = await Promise.all([
             apiCall('/api/settings/features', 'GET'),
             apiCall('/api/food/settings/targets', 'GET'),
             apiCall('/api/bp/reminder/status', 'GET'),
-            apiCall('/api/weight/reminder/status', 'GET')
+            apiCall('/api/weight/reminder/status', 'GET'),
+            apiCall('/api/settings', 'GET')
         ]);
         return {
             featureSettings: featureSettingsRes || {},
+            timezone: settingsRes?.timezone || '',
             foodTargets: {
                 calories: foodTargetsRes?.calories || 0,
                 carbs: foodTargetsRes?.carbs || 0,

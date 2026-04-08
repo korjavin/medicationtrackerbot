@@ -141,13 +141,15 @@ function _renderNextWorkout(container, data) {
     const session = data.session;
     const status = session.status;
     const isSnoozed = session.is_snoozed || false;
-    const date = new Date(session.scheduled_date);
-    const today = new Date();
 
-    // Properly compare dates (year, month, day only)
-    const isToday = date.getFullYear() === today.getFullYear() &&
-        date.getMonth() === today.getMonth() &&
-        date.getDate() === today.getDate();
+    // Use server-provided is_today flag (computed in the stored timezone) to avoid
+    // browser-timezone vs stored-timezone mismatches around midnight.
+    const isToday = session.is_today === true;
+
+    // Parse scheduled_date as local midnight to avoid UTC-to-local offset shifting
+    // the displayed date by one day for users west of UTC.
+    const _dateParts = (session.scheduled_date || '').split('T')[0].split('-').map(Number);
+    const date = _dateParts.length === 3 ? new Date(_dateParts[0], _dateParts[1] - 1, _dateParts[2]) : new Date();
 
     // Determine card styling based on status
     let cardClass = 'next-workout-card';
@@ -1249,12 +1251,25 @@ async function _deleteExerciseLibraryApi(id) {
 async function loadWorkoutHistoryTab() {
     const container = document.getElementById('workout-history-display');
     try {
-        // Fetch both manual sessions and Mi Band outdoor workouts in parallel
+        // Fetch both manual sessions and Mi Band outdoor workouts in parallel.
+        // Also read the cached settings_bundle to get the user's saved timezone so that
+        // skipped-session sort timestamps are interpreted in the same timezone the backend
+        // used when scheduling, not the browser's local timezone.
+        const cachedBundle = window.DataStore
+            ? await window.DataStore.getCached('settings_bundle').catch(() => null)
+            : null;
+        let userTz = cachedBundle?.timezone || '';
+        // If the bundle was cleared by a tag invalidation (e.g. after /tz change),
+        // fall back to a direct settings fetch so the correct timezone is used.
+        if (!userTz) {
+            const fresh = await apiCall('/api/settings', 'GET').catch(() => null);
+            if (fresh?.timezone) userTz = fresh.timezone;
+        }
         const [sessionsResp, mibandResp] = await Promise.all([
             apiCall('/api/workout/sessions?limit=50').catch(() => []),
             apiCall('/api/workout/miband?limit=100').catch(() => [])
         ]);
-        _renderWorkoutHistory(container, sessionsResp || [], mibandResp || []);
+        _renderWorkoutHistory(container, sessionsResp || [], mibandResp || [], userTz);
     } catch (error) {
         console.error('Error loading workout history:', error);
         const message = document.createElement('p');
@@ -1280,7 +1295,26 @@ function _formatDuration(sec) {
     return `${m}min`;
 }
 
-function _renderWorkoutHistory(container, sessions, mibandWorkouts) {
+// Convert a naive local datetime (dateStr "YYYY-MM-DD", timeStr "HH:MM") in a named
+// timezone to a UTC millisecond timestamp.  Falls back to browser-local interpretation
+// when tzName is empty or unrecognised.
+function _naiveDatetimeToUTCMs(dateStr, timeStr, tzName) {
+    const naiveUTCMs = Date.parse(`${dateStr}T${timeStr}:00Z`); // treat as UTC for TZ math
+    if (!tzName) return new Date(`${dateStr}T${timeStr}:00`).getTime(); // browser-local fallback
+    try {
+        // Find what local time the naive-UTC instant corresponds to in tzName, then
+        // compute the difference and apply it to get the true UTC ms.
+        const approxDate = new Date(naiveUTCMs);
+        // 'sv' locale produces "YYYY-MM-DD HH:MM:SS" — easy to re-parse as UTC.
+        const localStr = approxDate.toLocaleString('sv', { timeZone: tzName }).replace(' ', 'T');
+        const diff = naiveUTCMs - Date.parse(localStr + 'Z');
+        return naiveUTCMs + diff;
+    } catch (_) {
+        return naiveUTCMs; // fall back to UTC on error
+    }
+}
+
+function _renderWorkoutHistory(container, sessions, mibandWorkouts, userTz) {
     // Build unified list sorted by date DESC
     const items = [];
 
@@ -1293,9 +1327,12 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts) {
         if (s.session.started_at) {
             ts = new Date(s.session.started_at).getTime();
         } else {
+            // Skipped sessions have no started_at; interpret the scheduled time in the
+            // user's saved timezone (same as the backend uses) so that sort order is
+            // consistent with Mi Band entries that carry absolute UTC timestamps.
             const dateStr = s.session.scheduled_date.split('T')[0];
             const timeStr = s.session.scheduled_time || '00:00';
-            ts = new Date(`${dateStr}T${timeStr}:00`).getTime();
+            ts = _naiveDatetimeToUTCMs(dateStr, timeStr, userTz || '');
         }
         items.push({ type: 'session', ts: ts, data: s });
     });
@@ -1340,7 +1377,10 @@ function _buildSessionCard(s) {
         'skipped': '⏭'
     }[s.session.status] || '⏰';
 
-    const date = new Date(s.session.scheduled_date).toLocaleDateString('en-US', {
+    // Parse only the date part (YYYY-MM-DD) as local midnight to avoid UTC-to-local
+    // offset shifting the displayed date by one day for users west of UTC.
+    const [sYear, sMonth, sDay] = s.session.scheduled_date.split('T')[0].split('-').map(Number);
+    const date = new Date(sYear, sMonth - 1, sDay).toLocaleDateString('en-US', {
         month: 'short', day: 'numeric', year: 'numeric'
     });
 
