@@ -49,6 +49,15 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.Weight < 0 {
+		http.Error(w, "Weight cannot be negative", http.StatusBadRequest)
+		return
+	}
+	if req.Carbs < 0 || req.Protein < 0 || req.Fat < 0 || req.Calories < 0 {
+		http.Error(w, "Nutritional values cannot be negative", http.StatusBadRequest)
+		return
+	}
+
 	foodLog := &store.FoodLog{
 		UserID:    userID,
 		EatenAt:   eatenAt,
@@ -196,6 +205,15 @@ func (s *Server) handleUpdateFoodLog(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid time format", http.StatusBadRequest)
 			return
 		}
+	}
+
+	if req.Weight < 0 {
+		http.Error(w, "Weight cannot be negative", http.StatusBadRequest)
+		return
+	}
+	if req.Carbs < 0 || req.Protein < 0 || req.Fat < 0 || req.Calories < 0 {
+		http.Error(w, "Nutritional values cannot be negative", http.StatusBadRequest)
+		return
 	}
 
 	foodLog := &store.FoodLog{
@@ -505,6 +523,11 @@ func (s *Server) handleUpdateFoodProduct(w http.ResponseWriter, r *http.Request)
 	}
 	if req.Name == "" {
 		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.Carbs100g < 0 || req.Protein100g < 0 || req.Fat100g < 0 || req.EnergyKcal100g < 0 {
+		http.Error(w, "Nutritional values cannot be negative", http.StatusBadRequest)
 		return
 	}
 
