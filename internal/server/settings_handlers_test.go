@@ -190,6 +190,122 @@ func TestHandleChanges(t *testing.T) {
 	}
 }
 
+func TestHandleGetSettings_Timezone(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	// Initially no timezone recorded — should return empty string
+	req := httptest.NewRequest("GET", "/api/settings", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleGetSettings(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+	tz, ok := resp["timezone"].(string)
+	if !ok {
+		t.Fatalf("Expected timezone string in response")
+	}
+	if tz != "" {
+		t.Fatalf("Expected empty timezone, got %q", tz)
+	}
+
+	// Record a timezone and verify it is returned
+	if err := db.RecordTimezone("America/New_York"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+
+	req2 := httptest.NewRequest("GET", "/api/settings", nil)
+	req2 = withUser(req2, 123456)
+	w2 := httptest.NewRecorder()
+	srv.handleGetSettings(w2, req2)
+
+	if w2.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w2.Code)
+	}
+	var resp2 map[string]any
+	if err := json.NewDecoder(w2.Body).Decode(&resp2); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+	tz2, ok := resp2["timezone"].(string)
+	if !ok || tz2 != "America/New_York" {
+		t.Fatalf("Expected America/New_York, got %q", tz2)
+	}
+}
+
+func TestHandleUpdateSettings_ValidTimezone(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	body, _ := json.Marshal(map[string]string{"timezone": "Asia/Tokyo"})
+	req := httptest.NewRequest("POST", "/api/settings", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleUpdateSettings(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+
+	tz, err := db.GetCurrentTimezone()
+	if err != nil {
+		t.Fatalf("GetCurrentTimezone: %v", err)
+	}
+	if tz != "Asia/Tokyo" {
+		t.Fatalf("Expected Asia/Tokyo, got %q", tz)
+	}
+}
+
+func TestHandleUpdateSettings_InvalidTimezone(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	body, _ := json.Marshal(map[string]string{"timezone": "Not/ATimezone"})
+	req := httptest.NewRequest("POST", "/api/settings", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleUpdateSettings(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected status 400, got %d", w.Code)
+	}
+}
+
+func TestHandleBootstrap_IncludesTimezone(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	if err := db.RecordTimezone("Europe/Berlin"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/bootstrap", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleBootstrap(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&payload); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+	settings, ok := payload["settings"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected settings object in bootstrap")
+	}
+	tz, ok := settings["timezone"].(string)
+	if !ok || tz != "Europe/Berlin" {
+		t.Fatalf("Expected Europe/Berlin in bootstrap settings timezone, got %q", tz)
+	}
+}
+
 func TestHandleSetTabOrder(t *testing.T) {
 	srv, db := createFoodTestServer(t)
 	defer db.Close()
