@@ -32,6 +32,27 @@ describe('app.js unit tests', () => {
       expect(normalized.bpReminderStatus.enabled).toBe(true);
       expect(normalized.weightReminderStatus.enabled).toBe(false);
       expect(normalized.timezone).toBe('');
+      expect(normalized.serverTime).toBe('');
+      expect(normalized.serverTimezone).toBe('');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('renders read-only timezone and clock info in settings', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      window.renderSettingsTimeInfo({
+        timezone: 'Europe/Berlin',
+        serverTime: '2026-04-08T12:34:56+04:00',
+        serverTimezone: 'UTC+04:00'
+      });
+
+      expect(document.getElementById('settings-timezone-value').textContent).toBe('Europe/Berlin');
+      expect(document.getElementById('settings-saved-time-value').textContent).not.toBe('');
+      expect(document.getElementById('settings-local-time-value').textContent).not.toBe('');
+      expect(document.getElementById('settings-server-time-value').textContent).toContain('UTC+04:00');
+      expect(document.getElementById('settings-timezone-note').textContent).toContain('Medication times are not adjusted yet');
     } finally {
       cleanup();
     }
