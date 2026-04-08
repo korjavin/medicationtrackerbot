@@ -215,7 +215,7 @@ func TestCheckSchedule_SendsNotificationViaMock(t *testing.T) {
 	sched.MedicationChecker.now = func() time.Time { return fakeNow }
 
 	schedule := `{"type":"daily","times":["10:00"]}` // 2 hours before noon
-	id, err := db.CreateMedication("TestMed", "10mg", schedule, nil, nil, "", "")
+	id, err := db.CreateMedication("TestMed", "10mg", schedule, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
@@ -298,14 +298,14 @@ func TestCheckSchedule_MultipleMeds_GroupedNotification(t *testing.T) {
 	sched.MedicationChecker.now = func() time.Time { return fakeNow }
 
 	schedule := `{"type":"daily","times":["10:00"]}`
-	idA, err := db.CreateMedication("MedA", "5mg", schedule, nil, nil, "", "")
+	idA, err := db.CreateMedication("MedA", "5mg", schedule, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication A: %v", err)
 	}
 	if err := db.UpdateMedicationCreatedAt(idA, fakeNow.Add(-24*time.Hour)); err != nil {
 		t.Fatalf("UpdateMedicationCreatedAt A: %v", err)
 	}
-	idB, err := db.CreateMedication("MedB", "20mg", schedule, nil, nil, "", "")
+	idB, err := db.CreateMedication("MedB", "20mg", schedule, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication B: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestCheckSchedule_SupplementHasSkipAction(t *testing.T) {
 	sched.MedicationChecker.now = func() time.Time { return fakeNow }
 
 	schedule := `{"type":"daily","times":["10:00"]}`
-	medID, err := db.CreateMedication("Magnesium", "200mg", schedule, nil, nil, "", "")
+	medID, err := db.CreateMedication("Magnesium", "200mg", schedule, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
@@ -429,7 +429,7 @@ func TestCheckReminders_SendsReminderForOldPending(t *testing.T) {
 	sched.MedicationReminderChecker.now = func() time.Time { return fakeNow }
 
 	schedule := `{"type":"daily","times":["09:00"]}`
-	medID, err := db.CreateMedication("ReminderMed", "5mg", schedule, nil, nil, "", "")
+	medID, err := db.CreateMedication("ReminderMed", "5mg", schedule, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
@@ -484,7 +484,7 @@ func TestCheckReminders_SupplementHasSkipAction(t *testing.T) {
 	sched.MedicationReminderChecker.now = func() time.Time { return fakeNow }
 
 	schedule := `{"type":"daily","times":["09:00"]}`
-	medID, err := db.CreateMedication("Vitamin D", "1000IU", schedule, nil, nil, "", "")
+	medID, err := db.CreateMedication("Vitamin D", "1000IU", schedule, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
@@ -953,7 +953,7 @@ func TestCheckSchedule_StoresIntakeReminderMsgID(t *testing.T) {
 	sched.MedicationChecker.now = func() time.Time { return fakeNow }
 
 	schedule := `{"type":"daily","times":["10:00"]}`
-	id, err := db.CreateMedication("MsgIDMed", "1mg", schedule, nil, nil, "", "")
+	id, err := db.CreateMedication("MsgIDMed", "1mg", schedule, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
@@ -993,7 +993,7 @@ func TestCheckLowStock_SendsNotificationWhen11AM(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 
 	// Create a daily medication with only 5 units inventory (< 7 days)
-	medID, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "")
+	medID, err := db.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
@@ -1039,7 +1039,7 @@ func TestCheckLowStock_NoNotificationWhenEnoughStock(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 
 	// Create a daily medication with plenty of inventory (50 > 7 days)
-	medID, err := db.CreateMedication("Vitamin", "500mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "")
+	medID, err := db.CreateMedication("Vitamin", "500mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
@@ -1068,7 +1068,7 @@ func TestCheckLowStock_LastCheckUpdatedAfterCheck(t *testing.T) {
 	_ = mock
 
 	// Create low-stock medication
-	medID, err := db.CreateMedication("LowMed", "10mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "")
+	medID, err := db.CreateMedication("LowMed", "10mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}

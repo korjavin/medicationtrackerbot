@@ -93,7 +93,7 @@ func TestHandleStockCommand(t *testing.T) {
 	defer env.teardown()
 
 	// Add a medication with low stock
-	medID, _ := env.s.CreateMedication("Test Med", "10mg", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "")
+	medID, _ := env.s.CreateMedication("Test Med", "10mg", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "", "")
 	count := 5
 	env.s.SetInventory(medID, &count)
 
@@ -122,8 +122,8 @@ func TestHandleLogCommandWithDosage(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	env.s.CreateMedication("Allopurinol AL", "100mg", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "")
-	env.s.CreateMedication("Bisoprolol", "", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "")
+	env.s.CreateMedication("Allopurinol AL", "100mg", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "", "")
+	env.s.CreateMedication("Bisoprolol", "", "{\"type\":\"daily\",\"times\":[\"09:00\"]}", nil, nil, "", "", "")
 
 	msg := &tgbotapi.Message{
 		Chat: &tgbotapi.Chat{ID: 123},

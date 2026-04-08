@@ -10,10 +10,10 @@ import (
 // MedicationStore is the subset of store operations needed for medication handlers.
 type MedicationStore interface {
 	ListMedications(showArchived bool) ([]store.Medication, error)
-	CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string) (int64, error)
+	CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string, tzShiftPolicy string) (int64, error)
 	SetMedicationSupplement(id int64, supplement bool) error
 	GetMedication(id int64) (*store.Medication, error)
-	UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int) error
+	UpdateMedication(id int64, name, dosage, schedule string, archived bool, startDate, endDate *time.Time, rxcui, normalizedName string, inventoryCount *int, tzShiftPolicy string) error
 	DeleteMedication(id int64) error
 	CanDeleteMedication(id int64) (bool, error)
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
