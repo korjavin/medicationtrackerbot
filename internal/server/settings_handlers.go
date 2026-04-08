@@ -345,10 +345,28 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	now := time.Now()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"timezone": tz,
+		"timezone":        tz,
+		"server_time":     now.Format(time.RFC3339),
+		"server_timezone": formatServerTimezone(now),
 	})
+}
+
+func formatServerTimezone(now time.Time) string {
+	name, offsetSeconds := now.Zone()
+	sign := "+"
+	if offsetSeconds < 0 {
+		sign = "-"
+		offsetSeconds = -offsetSeconds
+	}
+	hours := offsetSeconds / 3600
+	minutes := (offsetSeconds % 3600) / 60
+	if name == "" {
+		return fmt.Sprintf("UTC%s%02d:%02d", sign, hours, minutes)
+	}
+	return fmt.Sprintf("%s (UTC%s%02d:%02d)", name, sign, hours, minutes)
 }
 
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
