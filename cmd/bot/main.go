@@ -11,6 +11,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/ai"
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/scheduler"
 	"github.com/korjavin/medicationtrackerbot/internal/server"
@@ -164,6 +165,9 @@ func main() {
 	if mcpAuditSecret := os.Getenv("MCP_AUDIT_SECRET"); mcpAuditSecret != "" {
 		srv.SetMCPAuditSecret(mcpAuditSecret)
 	}
+
+	// Wire the timezone transition planner so that timezone changes trigger plan generation.
+	srv.SetTZPlanner(tzreschedule.NewPlannerService(s))
 
 	// Set workout interactor (only if bot is available)
 	if tgBot != nil {

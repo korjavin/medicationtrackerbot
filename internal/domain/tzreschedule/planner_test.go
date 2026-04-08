@@ -73,17 +73,35 @@ func (m *mockPlannerStore) UpdateTZTransitionPlanStatus(id int64, newStatus, use
 	return nil
 }
 
-func (m *mockPlannerStore) CreateTZTransitionPlan(plan *store.TZTransitionPlan) (int64, error) {
+func (m *mockPlannerStore) GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
+	var pending []store.TZTransitionStep
+	for _, s := range m.steps {
+		if s.PlanID == planID && s.ConsumedAt == nil {
+			pending = append(pending, s)
+		}
+	}
+	return pending, nil
+}
+
+func (m *mockPlannerStore) CreateTZTransitionPlanWithSteps(plan *store.TZTransitionPlan, steps []store.TZTransitionStep) (int64, error) {
+	// Mirror the real store: cancel all active plans within the transaction.
+	for _, p := range m.plans {
+		switch p.Status {
+		case "PENDING_APPROVAL", "NOTIFIED", "APPROVED":
+			p.Status = "CANCELLED"
+			p.UserAction = "superseded"
+		}
+	}
 	plan.ID = m.nextPlanID
 	plan.CreatedAt = time.Now()
 	m.nextPlanID++
 	m.plans = append(m.plans, plan)
-	return plan.ID, nil
-}
-
-func (m *mockPlannerStore) CreateTZTransitionSteps(steps []store.TZTransitionStep) error {
+	// Set the PlanID on each step (mirrors the store's transaction behaviour).
+	for i := range steps {
+		steps[i].PlanID = plan.ID
+	}
 	m.steps = append(m.steps, steps...)
-	return nil
+	return plan.ID, nil
 }
 
 // --- helpers ---
@@ -110,8 +128,12 @@ func takenIntake(medID int64, takenAt time.Time) store.IntakeLog {
 func TestGenerateIfChanged_SameTZ_DoesNothing(t *testing.T) {
 	s := newMockPlannerStore()
 	svc := NewPlannerService(s)
-	if err := svc.GenerateIfChanged("Europe/Berlin", "Europe/Berlin", time.Now()); err != nil {
+	created, err := svc.GenerateIfChanged("Europe/Berlin", "Europe/Berlin", time.Now())
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if created {
+		t.Fatal("expected created=false for same TZ")
 	}
 	if len(s.plans) != 0 {
 		t.Fatalf("expected no plans, got %d", len(s.plans))
@@ -125,8 +147,12 @@ func TestGenerateIfChanged_NoDailyMeds_DoesNothing(t *testing.T) {
 		{ID: 1, Name: "Aspirin", Schedule: `{"type":"as_needed"}`, TZShiftPolicy: "flexible"},
 	}
 	svc := NewPlannerService(s)
-	if err := svc.GenerateIfChanged("UTC", "Asia/Tokyo", time.Now()); err != nil {
+	created, err := svc.GenerateIfChanged("UTC", "Asia/Tokyo", time.Now())
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if created {
+		t.Fatal("expected created=false for as-needed-only meds")
 	}
 	if len(s.plans) != 0 {
 		t.Fatalf("expected no plans for as-needed-only meds, got %d", len(s.plans))
@@ -140,8 +166,12 @@ func TestGenerateIfChanged_CreatesPlan(t *testing.T) {
 	s.intakes[1] = []store.IntakeLog{takenIntake(1, now.Add(-2*time.Hour))}
 
 	svc := NewPlannerService(s)
-	if err := svc.GenerateIfChanged("UTC", "Asia/Tokyo", now); err != nil {
+	created, err := svc.GenerateIfChanged("UTC", "Asia/Tokyo", now)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !created {
+		t.Fatal("expected created=true")
 	}
 	if len(s.plans) != 1 {
 		t.Fatalf("expected 1 plan, got %d", len(s.plans))
@@ -162,16 +192,24 @@ func TestGenerateIfChanged_HashDeduplication(t *testing.T) {
 
 	svc := NewPlannerService(s)
 	// First call — should create.
-	if err := svc.GenerateIfChanged("UTC", "Asia/Tokyo", now); err != nil {
+	created, err := svc.GenerateIfChanged("UTC", "Asia/Tokyo", now)
+	if err != nil {
 		t.Fatalf("first call error: %v", err)
+	}
+	if !created {
+		t.Fatal("expected created=true on first call")
 	}
 	if len(s.plans) != 1 {
 		t.Fatalf("expected 1 plan after first call, got %d", len(s.plans))
 	}
 
 	// Second call with identical inputs within 24h — should be deduped.
-	if err := svc.GenerateIfChanged("UTC", "Asia/Tokyo", now.Add(1*time.Minute)); err != nil {
+	created, err = svc.GenerateIfChanged("UTC", "Asia/Tokyo", now.Add(1*time.Minute))
+	if err != nil {
 		t.Fatalf("second call error: %v", err)
+	}
+	if created {
+		t.Fatal("expected created=false on deduped call")
 	}
 	if len(s.plans) != 1 {
 		t.Fatalf("expected still 1 plan (deduped), got %d", len(s.plans))
@@ -186,7 +224,7 @@ func TestGenerateIfChanged_CancelsActivePlanBeforeCreatingNew(t *testing.T) {
 
 	svc := NewPlannerService(s)
 	// Create first plan (UTC → Tokyo).
-	if err := svc.GenerateIfChanged("UTC", "Asia/Tokyo", now); err != nil {
+	if _, err := svc.GenerateIfChanged("UTC", "Asia/Tokyo", now); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 	firstPlanStatus := s.plans[0].Status
@@ -196,8 +234,11 @@ func TestGenerateIfChanged_CancelsActivePlanBeforeCreatingNew(t *testing.T) {
 	}
 
 	// Simulate second TZ change 2h later with different destination — different hash.
+	// The second call passes "UTC" as oldTZ (the stored value), but GenerateIfChanged
+	// should detect the active PENDING_APPROVAL plan and use its OldTZ ("UTC") as
+	// the real baseline.
 	now2 := now.Add(2 * time.Hour)
-	if err := svc.GenerateIfChanged("UTC", "America/New_York", now2); err != nil {
+	if _, err := svc.GenerateIfChanged("UTC", "America/New_York", now2); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
 
@@ -213,6 +254,46 @@ func TestGenerateIfChanged_CancelsActivePlanBeforeCreatingNew(t *testing.T) {
 	}
 }
 
+func TestGenerateIfChanged_SupersedingUsesActivePlanOldTZ(t *testing.T) {
+	s := newMockPlannerStore()
+	s.medications = []store.Medication{dailyMed(1, "Metoprolol", "09:00", "medium")}
+	now := time.Date(2024, 3, 10, 10, 0, 0, 0, time.UTC)
+	s.intakes[1] = []store.IntakeLog{takenIntake(1, now.Add(-1*time.Hour))}
+
+	svc := NewPlannerService(s)
+
+	// First plan: UTC → Asia/Tokyo (PENDING_APPROVAL). The scheduler stays on UTC.
+	if _, err := svc.GenerateIfChanged("UTC", "Asia/Tokyo", now); err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	if len(s.plans) != 1 || s.plans[0].Status != "PENDING_APPROVAL" {
+		t.Fatalf("expected 1 PENDING_APPROVAL plan, got %d plans", len(s.plans))
+	}
+
+	// Second plan: stored TZ says "Asia/Tokyo" but the scheduler is still on "UTC".
+	// GenerateIfChanged should detect the active plan and use its OldTZ ("UTC") as
+	// the baseline, producing a plan from UTC → America/New_York.
+	now2 := now.Add(2 * time.Hour)
+	if _, err := svc.GenerateIfChanged("Asia/Tokyo", "America/New_York", now2); err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+
+	if len(s.plans) != 2 {
+		t.Fatalf("expected 2 plans, got %d", len(s.plans))
+	}
+	// First plan cancelled.
+	if s.plans[0].Status != "CANCELLED" {
+		t.Fatalf("expected first plan CANCELLED, got %q", s.plans[0].Status)
+	}
+	// Second plan should use OldTZ=UTC (from the first plan), not Asia/Tokyo (stored).
+	if s.plans[1].OldTZ != "UTC" {
+		t.Fatalf("expected second plan OldTZ=UTC, got %q", s.plans[1].OldTZ)
+	}
+	if s.plans[1].NewTZ != "America/New_York" {
+		t.Fatalf("expected second plan NewTZ=America/New_York, got %q", s.plans[1].NewTZ)
+	}
+}
+
 func TestGenerateIfChanged_LastIntakeLoadedIntoInputs(t *testing.T) {
 	s := newMockPlannerStore()
 	s.medications = []store.Medication{dailyMed(1, "Atorvastatin", "21:00", "strict")}
@@ -221,7 +302,7 @@ func TestGenerateIfChanged_LastIntakeLoadedIntoInputs(t *testing.T) {
 
 	svc := NewPlannerService(s)
 	now := anchor.Add(2 * time.Hour)
-	if err := svc.GenerateIfChanged("UTC", "Asia/Tokyo", now); err != nil {
+	if _, err := svc.GenerateIfChanged("UTC", "Asia/Tokyo", now); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(s.plans) == 0 {
@@ -233,6 +314,61 @@ func TestGenerateIfChanged_LastIntakeLoadedIntoInputs(t *testing.T) {
 		if step.ScheduledAt.Before(anchor) {
 			t.Fatalf("step ScheduledAt %v is before anchor %v", step.ScheduledAt, anchor)
 		}
+	}
+}
+
+func TestGenerateIfChanged_FirstSave_SameAsSystemTZ_DoesNothing(t *testing.T) {
+	s := newMockPlannerStore()
+	s.medications = []store.Medication{dailyMed(1, "Lisinopril", "08:00", "flexible")}
+	svc := NewPlannerService(s)
+
+	// When newTZ equals the effective system TZ, no plan should be created.
+	localTZ := time.Local.String()
+	if localTZ == "" || localTZ == "Local" {
+		localTZ = "UTC"
+	}
+	if _, err := svc.GenerateIfChanged("", localTZ, time.Now()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(s.plans) != 0 {
+		t.Fatalf("expected no plans when first-save TZ matches system TZ, got %d", len(s.plans))
+	}
+}
+
+func TestGenerateIfChanged_FirstSave_DiffFromSystemTZ_CreatesPlan(t *testing.T) {
+	s := newMockPlannerStore()
+	s.medications = []store.Medication{dailyMed(1, "Lisinopril", "08:00", "flexible")}
+	now := time.Date(2024, 3, 10, 10, 0, 0, 0, time.UTC)
+	s.intakes[1] = []store.IntakeLog{takenIntake(1, now.Add(-2*time.Hour))}
+
+	localTZ := time.Local.String()
+	if localTZ == "" || localTZ == "Local" {
+		// When the system timezone has no IANA name, plan generation is skipped
+		// to avoid computing transition steps from the wrong baseline offset.
+		svc := NewPlannerService(s)
+		if _, err := svc.GenerateIfChanged("", "Asia/Tokyo", now); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(s.plans) != 0 {
+			t.Fatalf("expected 0 plans when system TZ is unresolvable, got %d", len(s.plans))
+		}
+		return
+	}
+	// Pick a destination TZ that is guaranteed to differ from the system TZ.
+	newTZ := "Asia/Tokyo"
+	if localTZ == "Asia/Tokyo" {
+		newTZ = "America/New_York"
+	}
+
+	svc := NewPlannerService(s)
+	if _, err := svc.GenerateIfChanged("", newTZ, now); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(s.plans) != 1 {
+		t.Fatalf("expected 1 plan for first-save when newTZ differs from system TZ, got %d", len(s.plans))
+	}
+	if s.plans[0].OldTZ != localTZ {
+		t.Errorf("expected OldTZ=%q (system TZ), got %q", localTZ, s.plans[0].OldTZ)
 	}
 }
 

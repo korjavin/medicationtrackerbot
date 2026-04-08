@@ -234,7 +234,7 @@ func TestGeneratePlan_HardConstraintMinInterval(t *testing.T) {
 		t.Fatal("expected steps")
 	}
 	nomInterval := 24 * time.Hour
-	minInterval := tzreschedule.MinDoseInterval(24, tzreschedule.PolicyStrict)
+	minInterval := tzreschedule.MinDoseInterval(24.0, tzreschedule.PolicyStrict)
 	// Check consecutive step gaps.
 	prevAt := lastIntake
 	for _, s := range steps {
@@ -262,7 +262,7 @@ func TestGeneratePlan_HardConstraintMaxInterval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	maxInterval := tzreschedule.MaxDoseInterval(24, tzreschedule.PolicyFlexible)
+	maxInterval := tzreschedule.MaxDoseInterval(24.0, tzreschedule.PolicyFlexible)
 	prevAt := lastIntake
 	for _, s := range steps {
 		gap := s.ScheduledAt.Sub(prevAt)
@@ -321,13 +321,13 @@ func TestPolicyConstants(t *testing.T) {
 		name         string
 		policy       tzreschedule.Policy
 		expectMax    time.Duration
-		intervalH    int
+		intervalH    float64
 		expectMinPct float64
 		expectMaxPct float64
 	}{
-		{"flexible", tzreschedule.PolicyFlexible, 24 * time.Hour, 24, 0.60, 2.00},
-		{"medium", tzreschedule.PolicyMedium, 3 * time.Hour, 24, 0.65, 1.75},
-		{"strict", tzreschedule.PolicyStrict, 2 * time.Hour, 24, 0.70, 1.50},
+		{"flexible", tzreschedule.PolicyFlexible, 24 * time.Hour, 24.0, 0.60, 2.00},
+		{"medium", tzreschedule.PolicyMedium, 3 * time.Hour, 24.0, 0.65, 1.75},
+		{"strict", tzreschedule.PolicyStrict, 2 * time.Hour, 24.0, 0.70, 1.50},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -335,7 +335,7 @@ func TestPolicyConstants(t *testing.T) {
 			if max != tc.expectMax {
 				t.Errorf("MaxShiftPerDose: got %v, want %v", max, tc.expectMax)
 			}
-			base := time.Duration(tc.intervalH) * time.Hour
+			base := time.Duration(tc.intervalH * float64(time.Hour))
 			minI := tzreschedule.MinDoseInterval(tc.intervalH, tc.policy)
 			maxI := tzreschedule.MaxDoseInterval(tc.intervalH, tc.policy)
 			expectedMin := time.Duration(float64(base) * tc.expectMinPct)

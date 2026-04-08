@@ -121,34 +121,34 @@ Add a per-medication `tz_shift_policy` field (flexible/medium/strict) and a time
 **Files:**
 - Modify: `internal/scheduler/medication.go`
 
-- [ ] Load current user timezone via `store.GetCurrentTimezone()`; fall back to `time.Local` if not set
-- [ ] When computing each scheduled dose time, use user timezone (base schedule = user-defined times in user/new TZ)
-- [ ] Before scheduling a dose, call `store.GetLatestActiveOrPendingTZTransitionPlan()`:
+- [x] Load current user timezone via `store.GetCurrentTimezone()`; fall back to `time.Local` if not set
+- [x] When computing each scheduled dose time, use user timezone (base schedule = user-defined times in user/new TZ)
+- [x] Before scheduling a dose, call `store.GetLatestActiveOrPendingTZTransitionPlan()`:
   - If APPROVED plan exists: call `store.GetPendingStepsForPlan(planID)`; if a step for this medication is scheduled within the trigger window (same ±15 min logic as normal), use step's `ScheduledAt` and call `store.MarkStepConsumed(stepID, now)`; log step consumed
   - If all steps for a medication are consumed, resume normal user-TZ scheduling
   - If CANCELLED or EXPIRED plan encountered, ignore it and use normal scheduling
-- [ ] Replace the current "any overdue unscheduled intake" behavior with an explicit due-window rule for both normal schedule targets and approved transition-plan steps, and update tests/docs to match that new rule
-- [ ] Handle partial execution recovery: on each scheduler tick, resume from first unconsumed step (idempotent because `consumed_at` is set)
-- [ ] If a new plan is created while scheduler is running (TZ changed again), the old plan will be CANCELLED — scheduler detects this and falls back to normal scheduling immediately
-- [ ] Update CLAUDE.md: remove "deferred" caveat; note that medication scheduling now uses user TZ via timezone_history, with transition plans bridging TZ changes
-- [ ] Write scheduler tests using golden-file pattern: approved plan → verify step times used; no plan → normal user-TZ scheduling; partially consumed plan → only remaining steps used; CANCELLED plan → normal scheduling
-- [ ] Run `go test ./internal/scheduler/...` — must pass
+- [x] Replace the current "any overdue unscheduled intake" behavior with an explicit due-window rule for both normal schedule targets and approved transition-plan steps, and update tests/docs to match that new rule
+- [x] Handle partial execution recovery: on each scheduler tick, resume from first unconsumed step (idempotent because `consumed_at` is set)
+- [x] If a new plan is created while scheduler is running (TZ changed again), the old plan will be CANCELLED — scheduler detects this and falls back to normal scheduling immediately
+- [x] Update CLAUDE.md: remove "deferred" caveat; note that medication scheduling now uses user TZ via timezone_history, with transition plans bridging TZ changes
+- [x] Write scheduler tests using golden-file pattern: approved plan → verify step times used; no plan → normal user-TZ scheduling; partially consumed plan → only remaining steps used; CANCELLED plan → normal scheduling
+- [x] Run `go test ./internal/scheduler/...` — must pass
 
 ### Task 6: Frontend — expose tz_shift_policy in medication form
 
 **Files:**
 - Modify: `web/static/js/app.js` (medication create/edit form) or whichever feature file owns that form
 
-- [ ] Add `<select>` for "Timezone adjustment policy" to add/edit medication form; options: flexible (default) — "Switch immediately or in one step", medium — "Shift gradually, max 3h per dose", strict — "Very gradual, max 2h per step, no compressed intervals"
-- [ ] Include `tz_shift_policy` in the medication request body for create and update (the current UI uses `POST` for both create and edit)
-- [ ] Pre-select correct option from returned JSON when editing existing medication
-- [ ] Run `go test ./...` — must pass (JS architecture test unchanged; no new globals)
+- [x] Add `<select>` for "Timezone adjustment policy" to add/edit medication form; options: flexible (default) — "Switch immediately or in one step", medium — "Shift gradually, max 3h per dose", strict — "Very gradual, max 2h per step, no compressed intervals"
+- [x] Include `tz_shift_policy` in the medication request body for create and update (the current UI uses `POST` for both create and edit)
+- [x] Pre-select correct option from returned JSON when editing existing medication
+- [x] Run `go test ./...` — must pass (JS architecture test unchanged; no new globals)
 
 ### Task 7: Verify acceptance criteria
 
 **Files:** none new
 
-- [ ] Run `go test ./...`
-- [ ] Run `go vet ./...`
-- [ ] Update CLAUDE.md: document `tz_transition_plans` and `tz_transition_steps` tables in the schema section; document `tz_shift_policy` field; update medication scheduling note
-- [ ] Move this plan to `docs/plans/completed/`
+- [x] Run `go test ./...`
+- [x] Run `go vet ./...`
+- [x] Update CLAUDE.md: document `tz_transition_plans` and `tz_transition_steps` tables in the schema section; document `tz_shift_policy` field; update medication scheduling note
+- [x] Move this plan to `docs/plans/completed/`

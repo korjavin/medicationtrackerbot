@@ -2,6 +2,7 @@ package webpush
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -21,13 +22,13 @@ func TestSendMedicationNotification(t *testing.T) {
 	scheduledTime := time.Now()
 	intakeID := int64(1)
 
-	// Should return nil even if no subscriptions (just doesn't send)
+	// Should return ErrNoSubscriptions when no subscriptions are registered.
 	err = svc.SendMedicationNotification(ctx, userID, med, scheduledTime, intakeID)
-	if err != nil {
-		t.Errorf("Expected nil error, got %v", err)
+	if !errors.Is(err, ErrNoSubscriptions) {
+		t.Errorf("Expected ErrNoSubscriptions, got %v", err)
 	}
 
-	// Test with no VAPID keys
+	// Test with no VAPID keys — early return before subscription check.
 	svcNoKeys := New(s, "", "", "", "", "")
 	err = svcNoKeys.SendMedicationNotification(ctx, userID, med, scheduledTime, intakeID)
 	if err != nil {
@@ -47,8 +48,8 @@ func TestSendLowStockNotification(t *testing.T) {
 	meds := []store.Medication{{Name: "Test Med"}}
 
 	err = svc.SendLowStockNotification(ctx, userID, meds)
-	if err != nil {
-		t.Errorf("Expected nil error, got %v", err)
+	if !errors.Is(err, ErrNoSubscriptions) {
+		t.Errorf("Expected ErrNoSubscriptions, got %v", err)
 	}
 }
 
@@ -66,8 +67,8 @@ func TestSendWorkoutNotification(t *testing.T) {
 	variant := &store.WorkoutVariant{Name: "Variant"}
 
 	err = svc.SendWorkoutNotification(ctx, userID, session, group, variant)
-	if err != nil {
-		t.Errorf("Expected nil error, got %v", err)
+	if !errors.Is(err, ErrNoSubscriptions) {
+		t.Errorf("Expected ErrNoSubscriptions, got %v", err)
 	}
 }
 
@@ -79,8 +80,8 @@ func TestSendBPReminderNotification(t *testing.T) {
 	svc := New(s, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	err = svc.SendBPReminderNotification(context.Background(), 123, true)
-	if err != nil {
-		t.Errorf("Expected nil error, got %v", err)
+	if !errors.Is(err, ErrNoSubscriptions) {
+		t.Errorf("Expected ErrNoSubscriptions, got %v", err)
 	}
 }
 
@@ -92,8 +93,8 @@ func TestSendWeightReminderNotification(t *testing.T) {
 	svc := New(s, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	err = svc.SendWeightReminderNotification(context.Background(), 123)
-	if err != nil {
-		t.Errorf("Expected nil error, got %v", err)
+	if !errors.Is(err, ErrNoSubscriptions) {
+		t.Errorf("Expected ErrNoSubscriptions, got %v", err)
 	}
 }
 
@@ -105,7 +106,7 @@ func TestSendEarlyIntakeConfirmation(t *testing.T) {
 	svc := New(s, "pub", "priv", "subject", "admin@test.com", "example.com")
 
 	err = svc.SendEarlyIntakeConfirmation(context.Background(), 123, []store.Medication{{Name: "Med"}}, time.Now(), time.Now(), []int64{1})
-	if err != nil {
-		t.Errorf("Expected nil error, got %v", err)
+	if !errors.Is(err, ErrNoSubscriptions) {
+		t.Errorf("Expected ErrNoSubscriptions, got %v", err)
 	}
 }

@@ -162,7 +162,7 @@ function renderSettingsTimeInfo(bundle) {
         : 'Unavailable';
 
     timezoneNote.textContent = settingsTimeInfo.timezone
-        ? 'Saved timezone affects workout, blood pressure, and weight reminders. Medication times are not adjusted yet.'
+        ? 'Saved timezone affects all reminders and medication schedules. Changing timezone may trigger a transition plan for gradual dose adjustment.'
         : 'No saved timezone yet. If the browser-detected timezone looks wrong, it will be visible here after the next confirmation.';
 }
 
@@ -1157,6 +1157,7 @@ function showAddModal() {
 
     // Default: Daily, 1 time input
     document.getElementById('schedule-type').value = 'daily';
+    document.getElementById('med-tz-policy').value = 'flexible';
     toggleScheduleFields();
 
     const timeContainer = document.getElementById('time-inputs');
@@ -1236,6 +1237,9 @@ function showEditModal(id) {
             if (span) span.classList.add('selected');
         });
     }
+
+    // Timezone adjustment policy
+    document.getElementById('med-tz-policy').value = med.tz_shift_policy || 'flexible';
 }
 
 function closeModal() {
@@ -1906,6 +1910,8 @@ async function saveMedication() {
         schedule.days = days;
     }
 
+    const tzShiftPolicy = document.getElementById('med-tz-policy').value || 'flexible';
+
     const payload = {
         name,
         dosage,
@@ -1914,7 +1920,8 @@ async function saveMedication() {
         supplement,
         start_date: startDateRaw ? new Date(startDateRaw).toISOString() : null,
         end_date: endDateRaw ? new Date(endDateRaw).toISOString() : null,
-        inventory_count: inventoryCount
+        inventory_count: inventoryCount,
+        tz_shift_policy: tzShiftPolicy
     };
 
     const btn = document.getElementById('med-modal-save-btn');

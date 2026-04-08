@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -15,21 +16,45 @@ import (
 type mockTZPlanNotifierStore struct {
 	plan              *store.TZTransitionPlan
 	getPlanErr        error
+	markNotifiedID    int64
+	markNotifiedOK    bool // return value for MarkPlanNotified
+	markNotifiedErr   error
+	resetToPendingID  int64
+	resetToPendingErr error
+	// Captures calls to UpdateTZTransitionPlanStatus.
+	updatedPlanID     int64
 	updatedStatus     string
 	updatedUserAction string
-	updatedExpected   string
-	updateErr         error
+	// Captures calls to SetTZTransitionPlanApproved.
+	approvedPlanID int64
+	approvedOK     bool
+	approvedErr    error
 }
 
 func (m *mockTZPlanNotifierStore) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
 	return m.plan, m.getPlanErr
 }
 
-func (m *mockTZPlanNotifierStore) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
+func (m *mockTZPlanNotifierStore) MarkPlanNotified(id int64) (bool, error) {
+	m.markNotifiedID = id
+	return m.markNotifiedOK, m.markNotifiedErr
+}
+
+func (m *mockTZPlanNotifierStore) ResetPlanToPending(id int64) error {
+	m.resetToPendingID = id
+	return m.resetToPendingErr
+}
+
+func (m *mockTZPlanNotifierStore) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, _ string) error {
+	m.updatedPlanID = id
 	m.updatedStatus = newStatus
 	m.updatedUserAction = userAction
-	m.updatedExpected = expectedStatus
-	return m.updateErr
+	return nil
+}
+
+func (m *mockTZPlanNotifierStore) SetTZTransitionPlanApproved(id int64, _ time.Time) (bool, error) {
+	m.approvedPlanID = id
+	return m.approvedOK, m.approvedErr
 }
 
 // --- mock notifier ---
@@ -74,19 +99,22 @@ func TestTZPlanNotifier_NoPlan(t *testing.T) {
 	if len(cn.sent) != 0 {
 		t.Errorf("expected 0 notifications, got %d", len(cn.sent))
 	}
-	if ms.updatedStatus != "" {
-		t.Errorf("expected no status update, got %q", ms.updatedStatus)
+	if ms.markNotifiedID != 0 {
+		t.Errorf("expected MarkPlanNotified not called, got ID %d", ms.markNotifiedID)
 	}
 }
 
-func TestTZPlanNotifier_NotifiedPlan_Skipped(t *testing.T) {
-	// Plan is already NOTIFIED — should not trigger a new send.
+func TestTZPlanNotifier_NotifiedPlan_RecentlyCreated_Skipped(t *testing.T) {
+	// Plan is already NOTIFIED but notified recently — should not trigger send or auto-approve.
+	notifiedAt := time.Now().Add(-1 * time.Hour)
 	ms := &mockTZPlanNotifierStore{
 		plan: &store.TZTransitionPlan{
-			ID:     1,
-			OldTZ:  "UTC",
-			NewTZ:  "Europe/Berlin",
-			Status: "NOTIFIED",
+			ID:         1,
+			OldTZ:      "UTC",
+			NewTZ:      "Europe/Berlin",
+			Status:     "NOTIFIED",
+			CreatedAt:  time.Now().Add(-2 * time.Hour),
+			NotifiedAt: &notifiedAt, // notified 1h ago
 		},
 	}
 	cn := &capturingNotifier{}
@@ -99,6 +127,38 @@ func TestTZPlanNotifier_NotifiedPlan_Skipped(t *testing.T) {
 	if len(cn.sent) != 0 {
 		t.Errorf("expected 0 notifications for NOTIFIED plan, got %d", len(cn.sent))
 	}
+	if ms.approvedPlanID != 0 {
+		t.Errorf("expected no auto-approve for recent NOTIFIED plan, got plan ID %d", ms.approvedPlanID)
+	}
+}
+
+func TestTZPlanNotifier_NotifiedPlan_Stale_AutoApproved(t *testing.T) {
+	// Plan has been in NOTIFIED state for more than 48h — should be auto-approved.
+	notifiedAt := time.Now().Add(-49 * time.Hour)
+	ms := &mockTZPlanNotifierStore{
+		plan: &store.TZTransitionPlan{
+			ID:         7,
+			OldTZ:      "UTC",
+			NewTZ:      "Europe/Berlin",
+			Status:     "NOTIFIED",
+			CreatedAt:  time.Now().Add(-50 * time.Hour),
+			NotifiedAt: &notifiedAt, // notified 49h ago
+		},
+		approvedOK: true,
+	}
+	cn := &capturingNotifier{}
+	notif := newTZPlanNotifierWithMocks(ms, cn)
+
+	if err := notif.Check(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ms.approvedPlanID != 7 {
+		t.Errorf("expected auto-approve for stale NOTIFIED plan ID 7, got %d", ms.approvedPlanID)
+	}
+	// No new notification should be sent — auto-approval is silent.
+	if len(cn.sent) != 0 {
+		t.Errorf("expected 0 notifications for auto-approved plan, got %d", len(cn.sent))
+	}
 }
 
 func TestTZPlanNotifier_PendingApproval_SendsNotification(t *testing.T) {
@@ -110,7 +170,9 @@ func TestTZPlanNotifier_PendingApproval_SendsNotification(t *testing.T) {
 			NewTZ:     "Europe/Berlin",
 			Status:    "PENDING_APPROVAL",
 			StepsJSON: stepsJSON,
+			CreatedAt: time.Now(),
 		},
+		markNotifiedOK: true, // CAS succeeds → we win, send notification
 	}
 	cn := &capturingNotifier{}
 	notif := newTZPlanNotifierWithMocks(ms, cn)
@@ -119,6 +181,11 @@ func TestTZPlanNotifier_PendingApproval_SendsNotification(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	time.Sleep(30 * time.Millisecond) // let goroutines finish
+
+	// MarkPlanNotified must have been called before notification was sent.
+	if ms.markNotifiedID != 2 {
+		t.Errorf("expected MarkPlanNotified called with plan ID 2, got %d", ms.markNotifiedID)
+	}
 
 	if len(cn.sent) != 1 {
 		t.Fatalf("expected 1 notification, got %d", len(cn.sent))
@@ -130,8 +197,8 @@ func TestTZPlanNotifier_PendingApproval_SendsNotification(t *testing.T) {
 	if !strings.Contains(sent.Text, "No doses skipped") {
 		t.Errorf("message missing 'No doses skipped': %s", sent.Text)
 	}
-	if !strings.Contains(sent.Text, "No double doses") {
-		t.Errorf("message missing 'No double doses': %s", sent.Text)
+	if !strings.Contains(sent.Text, "Minimum safe interval") {
+		t.Errorf("message missing safety interval claim: %s", sent.Text)
 	}
 	// Per-med section.
 	if !strings.Contains(sent.Text, "Metformin") {
@@ -151,25 +218,44 @@ func TestTZPlanNotifier_PendingApproval_SendsNotification(t *testing.T) {
 	if sent.Actions[1].ID != "tz_plan_reject:2" {
 		t.Errorf("unexpected reject action ID: %s", sent.Actions[1].ID)
 	}
+}
 
-	// Status transition.
-	if ms.updatedStatus != "NOTIFIED" {
-		t.Errorf("expected status to be updated to NOTIFIED, got %q", ms.updatedStatus)
+func TestTZPlanNotifier_PendingApproval_CASLost_NoSend(t *testing.T) {
+	// When MarkPlanNotified returns false (another process won the CAS), no notification should be sent.
+	ms := &mockTZPlanNotifierStore{
+		plan: &store.TZTransitionPlan{
+			ID:        3,
+			OldTZ:     "UTC",
+			NewTZ:     "Europe/Berlin",
+			Status:    "PENDING_APPROVAL",
+			CreatedAt: time.Now(),
+		},
+		markNotifiedOK: false, // CAS fails → another process won
 	}
-	if ms.updatedExpected != "PENDING_APPROVAL" {
-		t.Errorf("expected status guard to be PENDING_APPROVAL, got %q", ms.updatedExpected)
+	cn := &capturingNotifier{}
+	notif := newTZPlanNotifierWithMocks(ms, cn)
+
+	if err := notif.Check(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	if len(cn.sent) != 0 {
+		t.Errorf("expected 0 notifications when CAS lost, got %d", len(cn.sent))
 	}
 }
 
 func TestTZPlanNotifier_NoSteps_MinimalMessage(t *testing.T) {
 	ms := &mockTZPlanNotifierStore{
 		plan: &store.TZTransitionPlan{
-			ID:        3,
+			ID:        4,
 			OldTZ:     "UTC",
 			NewTZ:     "America/New_York",
 			Status:    "PENDING_APPROVAL",
 			StepsJSON: "",
+			CreatedAt: time.Now(),
 		},
+		markNotifiedOK: true,
 	}
 	cn := &capturingNotifier{}
 	notif := newTZPlanNotifierWithMocks(ms, cn)
@@ -206,7 +292,7 @@ func TestFormatTZPlanMessage_SafetyBlock(t *testing.T) {
 	}
 	msg := formatTZPlanMessage(plan, steps)
 
-	checks := []string{"No doses skipped", "No double doses", "Aspirin", "strict — gradual shift"}
+	checks := []string{"No doses skipped", "Minimum safe interval", "Aspirin", "strict — gradual shift"}
 	for _, c := range checks {
 		if !strings.Contains(msg, c) {
 			t.Errorf("message missing %q:\n%s", c, msg)
@@ -245,5 +331,97 @@ func TestFormatDuration(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("formatDuration(%v) = %q, want %q", tc.d, got, tc.want)
 		}
+	}
+}
+
+// --- failing notifiers ---
+
+type failingNotifier struct{}
+
+func (f *failingNotifier) Send(_ context.Context, _ int64, _ notifier.Notification) (int, error) {
+	return 0, fmt.Errorf("telegram send failed")
+}
+
+// noChannelNotifier simulates a notifier that is configured but has no active
+// recipients (e.g. WebPush with no subscriptions).
+type noChannelNotifier struct{}
+
+func (n *noChannelNotifier) Send(_ context.Context, _ int64, _ notifier.Notification) (int, error) {
+	return 0, notifier.ErrNoDeliveryChannel
+}
+func (n *noChannelNotifier) Delete(_ context.Context, _ int64, _ int) error { return nil }
+func (n *noChannelNotifier) CloseNotification(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+
+func (f *failingNotifier) Delete(_ context.Context, _ int64, _ int) error { return nil }
+func (f *failingNotifier) CloseNotification(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+
+func TestTZPlanNotifier_SendFailure_ResetsToPending(t *testing.T) {
+	ms := &mockTZPlanNotifierStore{
+		plan: &store.TZTransitionPlan{
+			ID:        5,
+			OldTZ:     "UTC",
+			NewTZ:     "Europe/Berlin",
+			Status:    "PENDING_APPROVAL",
+			CreatedAt: time.Now(),
+		},
+		markNotifiedOK: true,
+	}
+	fn := &failingNotifier{}
+	notif := &TZPlanNotifier{
+		NotifyHelper: NotifyHelper{
+			notifiers:     []notifier.Notifier{fn},
+			allowedUserID: 42,
+		},
+		store: ms,
+	}
+
+	err := notif.Check(context.Background())
+	if err == nil {
+		t.Error("expected error when notification send fails")
+	}
+	if ms.resetToPendingID != 5 {
+		t.Errorf("expected ResetPlanToPending called with plan ID 5, got %d", ms.resetToPendingID)
+	}
+}
+
+func TestTZPlanNotifier_NoDeliveryChannel_CancelsPlan(t *testing.T) {
+	// When all notifiers return ErrNoDeliveryChannel, the plan must be cancelled
+	// so the medication scheduler uses the new timezone immediately — consistent
+	// with the no-notifiers path where no plan is generated at all.
+	ms := &mockTZPlanNotifierStore{
+		plan: &store.TZTransitionPlan{
+			ID:        6,
+			OldTZ:     "UTC",
+			NewTZ:     "Europe/Berlin",
+			Status:    "PENDING_APPROVAL",
+			CreatedAt: time.Now(),
+		},
+		markNotifiedOK: true,
+	}
+	nc := &noChannelNotifier{}
+	notif := &TZPlanNotifier{
+		NotifyHelper: NotifyHelper{
+			notifiers:     []notifier.Notifier{nc},
+			allowedUserID: 42,
+		},
+		store: ms,
+	}
+
+	err := notif.Check(context.Background())
+	if err != nil {
+		t.Errorf("ErrNoDeliveryChannel should not propagate as error, got: %v", err)
+	}
+	if ms.updatedPlanID != 6 {
+		t.Errorf("expected UpdateTZTransitionPlanStatus called with plan ID 6, got %d", ms.updatedPlanID)
+	}
+	if ms.updatedStatus != "CANCELLED" {
+		t.Errorf("expected plan to be CANCELLED, got %q", ms.updatedStatus)
+	}
+	if ms.updatedUserAction != "no-delivery-channel" {
+		t.Errorf("expected user_action 'no-delivery-channel', got %q", ms.updatedUserAction)
 	}
 }

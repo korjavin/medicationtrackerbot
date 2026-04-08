@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -15,7 +16,15 @@ import (
 // TZPlanNotifierStore is the subset of store operations needed by TZPlanNotifier.
 type TZPlanNotifierStore interface {
 	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
+	// MarkPlanNotified atomically transitions the plan from PENDING_APPROVAL to NOTIFIED.
+	// Returns true if this process won the CAS (notification should be sent).
+	MarkPlanNotified(id int64) (bool, error)
+	// ResetPlanToPending reverts a NOTIFIED plan to PENDING_APPROVAL when notification delivery fails.
+	ResetPlanToPending(id int64) error
+	// UpdateTZTransitionPlanStatus transitions a plan to a new status.
 	UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
+	// SetTZTransitionPlanApproved marks a plan as APPROVED with an approval timestamp.
+	SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error)
 }
 
 // TZPlanNotifier checks for pending timezone transition plans and sends a
@@ -38,15 +47,83 @@ type planStep struct {
 	Note         string    `json:"Note"`
 }
 
-// Check implements Checker. It looks for PENDING_APPROVAL plans and sends a
-// notification, then atomically transitions the status to NOTIFIED to prevent
-// duplicate sends.
+// notifiedPlanExpiryDuration is the maximum time a plan can sit in NOTIFIED status
+// before being auto-approved. If the user doesn't act on the notification within this
+// window, the timezone change proceeds automatically to avoid permanently stuck schedules.
+const notifiedPlanExpiryDuration = 48 * time.Hour
+
+// pendingApprovalExpiryDuration is a safety net for PENDING_APPROVAL plans that
+// could never be delivered (e.g., notifiers become unavailable after plan creation).
+// If a plan stays in PENDING_APPROVAL for this long, it is auto-approved to prevent
+// the medication scheduler from being permanently stuck on the old timezone.
+const pendingApprovalExpiryDuration = 72 * time.Hour
+
+// Check implements Checker. It looks for PENDING_APPROVAL plans and atomically
+// transitions the status to NOTIFIED before sending the notification, to prevent
+// duplicate sends when two scheduler runs overlap. It also auto-approves stale
+// NOTIFIED plans that the user never acted on.
 func (n *TZPlanNotifier) Check(ctx context.Context) error {
 	plan, err := n.store.GetLatestActiveOrPendingTZTransitionPlan()
 	if err != nil {
 		return fmt.Errorf("tz_plan_notifier: GetLatestActive: %w", err)
 	}
-	if plan == nil || plan.Status != "PENDING_APPROVAL" {
+	if plan == nil {
+		return nil
+	}
+
+	// Safety net: auto-approve PENDING_APPROVAL plans that have been stuck for too long
+	// (e.g., notifiers became unavailable after plan creation). Without this, the
+	// medication scheduler would permanently use the old timezone.
+	if plan.Status == "PENDING_APPROVAL" && time.Since(plan.CreatedAt) > pendingApprovalExpiryDuration {
+		slog.Warn("tz_plan_notifier: PENDING_APPROVAL plan expired, auto-approving",
+			"plan_id", plan.ID, "created_at", plan.CreatedAt, "age", time.Since(plan.CreatedAt).String())
+		if ok, approveErr := n.store.SetTZTransitionPlanApproved(plan.ID, time.Now()); approveErr != nil {
+			return fmt.Errorf("tz_plan_notifier: auto-approve stuck pending plan: %w", approveErr)
+		} else if ok {
+			slog.Info("tz_plan_notifier: stuck PENDING_APPROVAL plan auto-approved", "plan_id", plan.ID)
+		}
+		return nil
+	}
+
+	// Auto-approve NOTIFIED plans that have been waiting too long. This prevents
+	// the timezone change from being permanently stuck when the user dismisses
+	// the notification or the action POST fails (e.g., web-only mode).
+	// Use NotifiedAt (when the notification was actually delivered) rather than
+	// CreatedAt, so the 48h approval window starts from delivery, not creation.
+	if plan.Status == "NOTIFIED" && plan.NotifiedAt != nil && time.Since(*plan.NotifiedAt) > notifiedPlanExpiryDuration {
+		slog.Warn("tz_plan_notifier: NOTIFIED plan expired, auto-approving",
+			"plan_id", plan.ID, "notified_at", plan.NotifiedAt, "age", time.Since(*plan.NotifiedAt).String())
+		if ok, approveErr := n.store.SetTZTransitionPlanApproved(plan.ID, time.Now()); approveErr != nil {
+			return fmt.Errorf("tz_plan_notifier: auto-approve expired plan: %w", approveErr)
+		} else if ok {
+			slog.Info("tz_plan_notifier: stale NOTIFIED plan auto-approved", "plan_id", plan.ID)
+		}
+		return nil
+	}
+
+	if plan.Status != "PENDING_APPROVAL" {
+		return nil
+	}
+
+	// If there are no notifiers configured there is no channel through which the
+	// user can receive or approve the plan, so don't transition it to NOTIFIED.
+	// Leave it in PENDING_APPROVAL so the next scheduler run can retry once a
+	// notifier becomes available (e.g. after a push subscription is registered).
+	if len(n.notifiers) == 0 {
+		slog.Warn("tz_plan_notifier: no notifiers configured, cannot deliver plan — leaving in PENDING_APPROVAL",
+			"plan_id", plan.ID)
+		return nil
+	}
+
+	// Atomically claim this plan for notification before sending. If the CAS
+	// fails (another process already moved it to NOTIFIED), skip sending to
+	// avoid duplicate Telegram messages.
+	won, err := n.store.MarkPlanNotified(plan.ID)
+	if err != nil {
+		return fmt.Errorf("tz_plan_notifier: MarkPlanNotified: %w", err)
+	}
+	if !won {
+		// Another process beat us to it; skip.
 		return nil
 	}
 
@@ -68,14 +145,38 @@ func (n *TZPlanNotifier) Check(ctx context.Context) error {
 			{ID: fmt.Sprintf("tz_plan_reject:%d", plan.ID), Label: "❌ Reject"},
 		},
 		Tag: "tz_plan",
+		Metadata: map[string]any{
+			"type":    "tz_plan",
+			"plan_id": plan.ID,
+		},
 	}
 
-	n.Notify(ctx, notification, nil)
-
-	// Atomically transition PENDING_APPROVAL → NOTIFIED to prevent duplicate sends.
-	if err := n.store.UpdateTZTransitionPlanStatus(plan.ID, "NOTIFIED", "", "PENDING_APPROVAL"); err != nil {
-		slog.Error("tz_plan_notifier: failed to transition to NOTIFIED", "plan_id", plan.ID, "error", err)
-		// Non-fatal: the notification was already sent; duplicate protection may fail gracefully.
+	if err := n.NotifySync(ctx, notification, nil); err != nil {
+		if errors.Is(err, notifier.ErrNoDeliveryChannel) {
+			// No delivery channel available (e.g. WebPush configured but no active
+			// subscriptions). Cancel the plan so the medication scheduler uses the
+			// new timezone immediately — consistent with the no-notifiers path in
+			// settings_handlers.go where no plan is generated at all.
+			// Without this, the plan would cycle PENDING→NOTIFIED→PENDING forever
+			// and the scheduler would stay stuck on OldTZ.
+			slog.Warn("tz_plan_notifier: no delivery channel, cancelling plan so new timezone takes effect immediately",
+				"plan_id", plan.ID)
+			if cancelErr := n.store.UpdateTZTransitionPlanStatus(plan.ID, "CANCELLED", "no-delivery-channel", ""); cancelErr != nil {
+				slog.Error("tz_plan_notifier: failed to cancel undeliverable plan",
+					"plan_id", plan.ID, "error", cancelErr)
+			}
+			return nil
+		}
+		// Transient failure: reset plan to PENDING_APPROVAL so the next scheduler
+		// tick can retry. Without this, the plan would be stuck in NOTIFIED forever
+		// because Check() only processes PENDING_APPROVAL plans.
+		slog.Error("tz_plan_notifier: notification send failed, resetting plan to PENDING_APPROVAL",
+			"plan_id", plan.ID, "error", err)
+		if resetErr := n.store.ResetPlanToPending(plan.ID); resetErr != nil {
+			slog.Error("tz_plan_notifier: failed to reset plan status after send failure",
+				"plan_id", plan.ID, "error", resetErr)
+		}
+		return fmt.Errorf("tz_plan_notifier: notification send failed: %w", err)
 	}
 
 	slog.Info("tz_plan_notifier: plan notification sent", "plan_id", plan.ID, "old_tz", plan.OldTZ, "new_tz", plan.NewTZ)
@@ -84,7 +185,7 @@ func (n *TZPlanNotifier) Check(ctx context.Context) error {
 
 // formatTZPlanMessage builds the human-readable Telegram message for a plan.
 func formatTZPlanMessage(plan *store.TZTransitionPlan, steps []planStep) string {
-	direction, offsetAbs := tzDirection(plan.OldTZ, plan.NewTZ)
+	direction, offsetAbs := tzDirection(plan.OldTZ, plan.NewTZ, plan.CreatedAt)
 
 	// Count distinct affected medications.
 	medIDs := make(map[int64]struct{})
@@ -103,9 +204,22 @@ func formatTZPlanMessage(plan *store.TZTransitionPlan, steps []planStep) string 
 	sb.WriteString("\n")
 	fmt.Fprintf(&sb, "Medications affected: %d\n\n", medsCount)
 
+	// Check whether any step has an unresolvable hand-off warning inserted by the engine.
+	hasUnsafeHandoff := false
+	for _, s := range steps {
+		if strings.Contains(s.Note, "review manually") {
+			hasUnsafeHandoff = true
+			break
+		}
+	}
+
 	sb.WriteString("✅ Safety guarantees:\n")
 	sb.WriteString("• No doses skipped\n")
-	sb.WriteString("• No double doses\n")
+	if hasUnsafeHandoff {
+		sb.WriteString("• ⚠️ Interval between last transition dose and first normal dose may be shorter than minimum — review manually\n")
+	} else {
+		sb.WriteString("• Minimum safe interval between doses maintained\n")
+	}
 	if len(steps) > 0 {
 		maxShift := maxStepShift(steps)
 		if maxShift > 0 {
@@ -148,8 +262,10 @@ func formatTZPlanMessage(plan *store.TZTransitionPlan, steps []planStep) string 
 }
 
 // tzDirection returns a human-readable direction string and the absolute offset delta.
-func tzDirection(oldTZ, newTZ string) (string, time.Duration) {
-	now := time.Now()
+// It uses refTime to compute UTC offsets so that DST rules are evaluated at the
+// moment the plan was created rather than at notification time.
+func tzDirection(oldTZ, newTZ string, refTime time.Time) (string, time.Duration) {
+	now := refTime
 	oldLoc, err1 := time.LoadLocation(oldTZ)
 	newLoc, err2 := time.LoadLocation(newTZ)
 	if err1 != nil || err2 != nil {

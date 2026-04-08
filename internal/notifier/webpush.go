@@ -2,6 +2,7 @@ package notifier
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -59,6 +60,12 @@ func (w *WebPush) Send(ctx context.Context, userID int64, n Notification) (int, 
 	}
 
 	if err := w.svc.SendNotification(userID, payload); err != nil {
+		if errors.Is(err, webpush.ErrNoSubscriptions) {
+			// No active push subscriptions: surface as ErrNoDeliveryChannel so
+			// callers (e.g. TZPlanNotifier) can cancel undeliverable plans
+			// instead of entering a tight PENDING→NOTIFIED→PENDING retry loop.
+			return 0, ErrNoDeliveryChannel
+		}
 		return 0, err
 	}
 	// WebPush doesn't support message ID tracking
@@ -71,7 +78,12 @@ func (w *WebPush) Delete(_ context.Context, _ int64, _ int) error {
 }
 
 func (w *WebPush) CloseNotification(ctx context.Context, userID int64, tag string) error {
-	return w.svc.SendCloseNotification(ctx, userID, tag)
+	err := w.svc.SendCloseNotification(ctx, userID, tag)
+	if errors.Is(err, webpush.ErrNoSubscriptions) {
+		// Nothing to close — no active push subscriptions.
+		return nil
+	}
+	return err
 }
 
 // firstLine returns the first non-empty line of s.
