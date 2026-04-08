@@ -51,6 +51,7 @@ describe('app.js unit tests', () => {
       expect(document.getElementById('settings-timezone-value').textContent).toBe('Europe/Berlin');
       expect(document.getElementById('settings-saved-time-value').textContent).not.toBe('');
       expect(document.getElementById('settings-local-time-value').textContent).not.toBe('');
+      expect(document.getElementById('settings-server-time-value').textContent).toContain('12:34:56');
       expect(document.getElementById('settings-server-time-value').textContent).toContain('UTC+04:00');
       expect(document.getElementById('settings-timezone-note').textContent).toContain('Medication times are not adjusted yet');
     } finally {
