@@ -102,19 +102,19 @@ Add a per-medication `tz_shift_policy` field (flexible/medium/strict) and a time
 - Modify: `internal/bot/bot.go` (add callback routing)
 - Modify: `internal/scheduler/scheduler.go` (register notifier in the shared scheduler)
 
-- [ ] `tz_plan_notifier.go`: `Check(ctx)` polls for PENDING_APPROVAL plans; formats Telegram message including:
+- [x] `tz_plan_notifier.go`: `Check(ctx)` polls for PENDING_APPROVAL plans; formats Telegram message including:
   - Header: old TZ → new TZ, direction (eastbound/westbound), total medications affected
   - Safety block: "No doses skipped ✓", "No double doses ✓", "Max shift per step: Xh"
   - Per-medication section with label "(strict — gradual shift)" / "(medium)" / "(flexible — fast switch)": old schedule in old TZ, each transition step with exact timestamp in both old and new TZ local time, final local schedule in new TZ
   - Two inline buttons: `tz_plan_approve:<id>` and `tz_plan_reject:<id>`
   - After send: atomically transition PENDING_APPROVAL → NOTIFIED (prevents duplicate sends)
-- [ ] `tz_plan_callbacks.go`:
+- [x] `tz_plan_callbacks.go`:
   - `handleTZPlanApprove(planID)`: load plan, set APPROVED + approved_at + user_action="approved"; log: `plan_id`, `user_action`, `approved_at`; reply with brief confirmation
   - `handleTZPlanReject(planID)`: set REJECTED + user_action="rejected"; log; reply confirming old schedule retained
-- [ ] Route `tz_plan_approve:` and `tz_plan_reject:` prefixes in bot callback router
-- [ ] Register `tz_plan_notifier.Check` in `internal/scheduler/scheduler.go` (every minute, same pattern as other checkers)
-- [ ] Write tests for message formatting (check safety block and per-med label presence) and callback state transitions
-- [ ] Run `go test ./internal/scheduler/... ./internal/bot/...` — must pass
+- [x] Route `tz_plan_approve:` and `tz_plan_reject:` prefixes in bot callback router
+- [x] Register `tz_plan_notifier.Check` in `internal/scheduler/scheduler.go` (every minute, same pattern as other checkers)
+- [x] Write tests for message formatting (check safety block and per-med label presence) and callback state transitions
+- [x] Run `go test ./internal/scheduler/... ./internal/bot/...` — must pass
 
 ### Task 5: Medication scheduler — timezone-aware + execute transition plan
 

@@ -35,6 +35,7 @@ type Bot struct {
 	imports       ImportStore
 	notes         NoteStore
 	timezone      TimezoneStore
+	tzPlanStore   TZPlanCallbackStore
 	allowedUserID int64
 	appDomain     string
 
@@ -90,6 +91,7 @@ func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAI
 		imports:       s,
 		notes:         s,
 		timezone:      s,
+		tzPlanStore:   s,
 		allowedUserID: allowedUserID,
 		appDomain:     appDomain,
 		httpClient:    &http.Client{Timeout: 30 * time.Second},
@@ -639,6 +641,18 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	} else if data == "weight_confirm" || data == "weight_snooze" || data == "weight_dontbug" {
 		// Weight reminder callbacks
 		b.handleWeightReminderCallback(cb, data)
+	} else if strings.HasPrefix(data, "tz_plan_approve:") {
+		idStr := strings.TrimPrefix(data, "tz_plan_approve:")
+		planID, _ := strconv.ParseInt(idStr, 10, 64)
+		if planID != 0 {
+			b.handleTZPlanApprove(cb, planID)
+		}
+	} else if strings.HasPrefix(data, "tz_plan_reject:") {
+		idStr := strings.TrimPrefix(data, "tz_plan_reject:")
+		planID, _ := strconv.ParseInt(idStr, 10, 64)
+		if planID != 0 {
+			b.handleTZPlanReject(cb, planID)
+		}
 	} else if data == "dismiss_notification" {
 		// Just delete the message
 		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {

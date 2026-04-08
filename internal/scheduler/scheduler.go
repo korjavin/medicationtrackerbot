@@ -34,6 +34,7 @@ type Scheduler struct {
 	WorkoutChecker            *WorkoutChecker
 	BPReminderChecker         *BPReminderChecker
 	WeightReminderChecker     *WeightReminderChecker
+	TZPlanNotifier            *TZPlanNotifier
 }
 
 func New(s *store.Store, allowedUserID int64, notifiers []notifier.Notifier) *Scheduler {
@@ -48,6 +49,7 @@ func New(s *store.Store, allowedUserID int64, notifiers []notifier.Notifier) *Sc
 	workoutChecker := &WorkoutChecker{NotifyHelper: helper, store: s, workoutSvc: workoutsvc.New(s), daysCache: make(map[string][]int)}
 	bpChecker := &BPReminderChecker{store: s, notifiers: notifiers}
 	weightChecker := &WeightReminderChecker{store: s, notifiers: notifiers}
+	tzPlanNotifier := &TZPlanNotifier{NotifyHelper: helper, store: s}
 
 	sched := &Scheduler{
 		MedicationChecker:         medChecker,
@@ -56,6 +58,7 @@ func New(s *store.Store, allowedUserID int64, notifiers []notifier.Notifier) *Sc
 		WorkoutChecker:            workoutChecker,
 		BPReminderChecker:         bpChecker,
 		WeightReminderChecker:     weightChecker,
+		TZPlanNotifier:            tzPlanNotifier,
 
 		entries: []tickerEntry{
 			{name: "medication", checker: medChecker, interval: 1 * time.Minute},
@@ -64,6 +67,7 @@ func New(s *store.Store, allowedUserID int64, notifiers []notifier.Notifier) *Sc
 			{name: "workout", checker: workoutChecker, interval: 1 * time.Minute},
 			{name: "bp_reminder", checker: bpChecker, interval: 15 * time.Minute, initialDelay: 2 * time.Minute},
 			{name: "weight_reminder", checker: weightChecker, interval: 30 * time.Minute, initialDelay: 3 * time.Minute},
+			{name: "tz_plan_notifier", checker: tzPlanNotifier, interval: 1 * time.Minute},
 		},
 	}
 
