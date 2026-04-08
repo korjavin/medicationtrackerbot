@@ -1,3 +1,6 @@
+// NOTE: medication scheduling intentionally uses system TZ (time.Local). Timezone-aware medication
+// scheduling requires a separate strategy to avoid shortening/lengthening dose intervals and will
+// be addressed in a future iteration.
 package scheduler
 
 import (

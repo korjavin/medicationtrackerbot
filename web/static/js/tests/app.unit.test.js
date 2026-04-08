@@ -31,6 +31,7 @@ describe('app.js unit tests', () => {
       expect(normalized.foodTargets).toEqual({ calories: 1700, carbs: 180, protein: 120, fat: 60 });
       expect(normalized.bpReminderStatus.enabled).toBe(true);
       expect(normalized.weightReminderStatus.enabled).toBe(false);
+      expect(normalized.timezone).toBe('');
     } finally {
       cleanup();
     }

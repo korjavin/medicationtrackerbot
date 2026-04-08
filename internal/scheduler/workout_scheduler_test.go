@@ -99,7 +99,13 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 		if input.AlreadyNotified || input.InProgress {
 			today := time.Date(nowTime.Year(), nowTime.Month(), nowTime.Day(), 0, 0, 0, 0, nowTime.Location())
 			if input.SnoozeDurationHours > 0 || input.TimeNow == "2023-10-27T15:05:00Z" || input.StaleDurationHours > 0 || input.InProgress {
-				today = time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.Now().Location())
+				// Use the same base time as the checker's now() to avoid date mismatch when
+				// the test runs close to midnight (time.Now() + snooze duration may cross a day boundary).
+				checkerBase := time.Now().Add(time.Duration(input.SnoozeDurationHours) * time.Hour).Add(2 * time.Minute)
+				if input.SnoozeDurationHours == 0 {
+					checkerBase = time.Now()
+				}
+				today = time.Date(checkerBase.Year(), checkerBase.Month(), checkerBase.Day(), 0, 0, 0, 0, checkerBase.Location())
 			}
 
 			session, err := db.CreateWorkoutSession(group.ID, variant.ID, 123456, today, scheduleTimeString)

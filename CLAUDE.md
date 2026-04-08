@@ -104,6 +104,7 @@ User
 - `mcp/` - Model Context Protocol server implementation
 - `rxnorm/` - Drug interaction checking via NLM API
 - `webpush/` - Web push notification support
+- `tzlookup/` - Geo-to-timezone reverse lookup using `github.com/ringsaturn/tzf`. Exposes `LookupTimezone(lat, lng float64) (string, error)`. Initialized lazily with `sync.Once`; timezone boundary data is embedded in the binary (~5 MB compressed), no external API calls.
 
 **Frontend** (`web/static/`):
 - Vanilla JavaScript (no framework), Dexie.js for IndexedDB
@@ -127,6 +128,7 @@ SQLite with 34 goose migrations tracking schema evolution:
 - `bp_reminders`, `weight_reminders` - Reminder configuration
 - `change_events` - Server-side change tracking for frontend cache invalidation
 - `diary_notes` - Free-text personal diary notes with timestamps
+- `timezone_history` - Per-user timezone history (most recent row is the active timezone). Overrides the `TZ` env var for workout, BP, and weight schedulers only. Medication scheduling intentionally continues to use the system TZ (`TZ` env var) — timezone-aware medication scheduling requires a separate strategy to avoid shortening/lengthening dose intervals and is deferred to a future iteration.
 
 ### Authentication & Security
 
@@ -410,7 +412,7 @@ The frontend uses a multi-file vanilla JS architecture. Each script is loaded in
 15. `features/modal-history.js` — sets up MutationObserver before DOMContentLoaded
 16. `features/deeplink-router.js` — registers `window.handleDeepLinks`
 17. `workout.js`, `push.js`, `app-shell.js` — feature extensions
-18. `features/bootstrap.js` — **must be last**; runs `checkAuth()` to start the app
+18. `features/bootstrap.js` — **must be last**; runs `checkAuth()` to start the app, then calls `maybeUpdateTimezone()` which detects the browser timezone via `Intl.DateTimeFormat`, compares against the stored value from the `settings_bundle` cache, and prompts the user to confirm a change. Best-effort — errors are swallowed so they never block app startup.
 
 #### Global Namespace Policy
 
@@ -551,8 +553,8 @@ If you want to use this pattern for a new component:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/changes` | Change events since cursor (for cache invalidation) |
-| GET | `/api/settings` | User settings |
-| POST | `/api/settings` | Update settings |
+| GET | `/api/settings` | User settings (returns `{"timezone": "..."}`) |
+| POST | `/api/settings` | Update settings (accepts optional `timezone` IANA name; returns 400 for invalid values) |
 | POST | `/api/push/subscribe` | Register push subscription |
 | POST | `/api/push/unsubscribe` | Remove push subscription |
 | GET | `/auth/oidc/login` | OIDC login redirect |

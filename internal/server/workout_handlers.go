@@ -609,6 +609,14 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
+	// Apply user timezone if set, so date boundaries are computed in the user's local time.
+	if s.settings != nil {
+		if tzStr, tzErr := s.settings.GetCurrentTimezone(); tzErr == nil && tzStr != "" {
+			if loc, locErr := time.LoadLocation(tzStr); locErr == nil {
+				now = now.In(loc)
+			}
+		}
+	}
 
 	// PRIORITY 0: Check for active sessions today (notified or in_progress)
 	// This ensures that workouts that have been notified but not yet started/completed
@@ -649,6 +657,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 				"status":         session.Status,
 				"is_snoozed":     session.SnoozedUntil != nil,
 				"snoozed_until":  session.SnoozedUntil,
+				"is_today":       session.ScheduledDate.Format("2006-01-02") == today.Format("2006-01-02"),
 			},
 			GroupName:      groupName,
 			VariantName:    variantName,
@@ -711,6 +720,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 					"status":         earliestSnoozed.Status,
 					"snoozed_until":  earliestSnoozed.SnoozedUntil,
 					"is_snoozed":     true,
+					"is_today":       earliestSnoozed.ScheduledDate.Format("2006-01-02") == today.Format("2006-01-02"),
 				},
 				GroupName:      groupName,
 				VariantName:    variantName,
@@ -907,6 +917,7 @@ func (s *Server) handleGetNextWorkout(w http.ResponseWriter, r *http.Request) {
 			"scheduled_time": nextWorkout.ScheduledTime,
 			"status":         nextWorkout.Status,
 			"is_snoozed":     false,
+			"is_today":       nextWorkout.ScheduledDate.Format("2006-01-02") == today.Format("2006-01-02"),
 		},
 		GroupName:      nextWorkout.GroupName,
 		VariantName:    nextWorkout.VariantName,
