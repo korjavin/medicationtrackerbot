@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -2299,6 +2300,7 @@ type TZTransitionPlan struct {
 	StepsJSON  string     `json:"steps_json"`
 	InputsJSON string     `json:"inputs_json"`
 	PlanHash   string     `json:"plan_hash"`
+	NotifiedAt *time.Time `json:"notified_at,omitempty"`
 	ApprovedAt *time.Time `json:"approved_at,omitempty"`
 	UserAction string     `json:"user_action,omitempty"`
 }
@@ -2331,19 +2333,22 @@ func (s *Store) CreateTZTransitionPlan(plan *TZTransitionPlan) (int64, error) {
 // PENDING_APPROVAL, NOTIFIED, or APPROVED status, or nil if none exists.
 func (s *Store) GetLatestActiveOrPendingTZTransitionPlan() (*TZTransitionPlan, error) {
 	var p TZTransitionPlan
-	var approvedAt sql.NullTime
+	var notifiedAt, approvedAt sql.NullTime
 	var userAction sql.NullString
 	err := s.db.QueryRow(
-		`SELECT id, old_tz, new_tz, created_at, status, steps_json, inputs_json, plan_hash, approved_at, user_action
+		`SELECT id, old_tz, new_tz, created_at, status, steps_json, inputs_json, plan_hash, notified_at, approved_at, user_action
 		 FROM tz_transition_plans
 		 WHERE status IN ('PENDING_APPROVAL','NOTIFIED','APPROVED')
 		 ORDER BY created_at DESC, id DESC LIMIT 1`,
-	).Scan(&p.ID, &p.OldTZ, &p.NewTZ, &p.CreatedAt, &p.Status, &p.StepsJSON, &p.InputsJSON, &p.PlanHash, &approvedAt, &userAction)
+	).Scan(&p.ID, &p.OldTZ, &p.NewTZ, &p.CreatedAt, &p.Status, &p.StepsJSON, &p.InputsJSON, &p.PlanHash, &notifiedAt, &approvedAt, &userAction)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if notifiedAt.Valid {
+		p.NotifiedAt = &notifiedAt.Time
 	}
 	if approvedAt.Valid {
 		p.ApprovedAt = &approvedAt.Time
@@ -2381,30 +2386,191 @@ func (s *Store) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, ex
 }
 
 // SetTZTransitionPlanApproved marks a plan as APPROVED and records the approval time.
-func (s *Store) SetTZTransitionPlanApproved(id int64, approvedAt time.Time) error {
-	_, err := s.db.Exec(
-		`UPDATE tz_transition_plans SET status = 'APPROVED', approved_at = ?, user_action = 'approved' WHERE id = ?`,
+// The update is guarded to only apply when the plan is in PENDING_APPROVAL or NOTIFIED
+// status, preventing stale Telegram callbacks from resurrecting superseded or cancelled plans.
+func (s *Store) SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error) {
+	res, err := s.db.Exec(
+		`UPDATE tz_transition_plans SET status = 'APPROVED', approved_at = ?, user_action = 'approved'
+		 WHERE id = ? AND status IN ('PENDING_APPROVAL', 'NOTIFIED')`,
 		approvedAt, id,
 	)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// SetTZTransitionPlanRejected marks a plan as REJECTED.
+// The update is guarded to only apply when the plan is in PENDING_APPROVAL or NOTIFIED
+// status, preventing stale Telegram callbacks from affecting cancelled or superseded plans.
+func (s *Store) SetTZTransitionPlanRejected(id int64) (bool, error) {
+	res, err := s.db.Exec(
+		`UPDATE tz_transition_plans SET status = 'REJECTED', user_action = 'rejected'
+		 WHERE id = ? AND status IN ('PENDING_APPROVAL', 'NOTIFIED')`,
+		id,
+	)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// RejectTZTransitionPlanAndRevertTimezone atomically marks a plan as REJECTED and
+// reverts the stored timezone back to the plan's OldTZ. This ensures that after
+// rejection the scheduler continues to use the original timezone rather than the
+// newly-stored one. Returns true if the plan was found and updated.
+func (s *Store) RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var oldTZ string
+	err = tx.QueryRow(
+		`SELECT old_tz FROM tz_transition_plans WHERE id = ? AND status IN ('PENDING_APPROVAL', 'NOTIFIED')`,
+		id,
+	).Scan(&oldTZ)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	res, err := tx.Exec(
+		`UPDATE tz_transition_plans SET status = 'REJECTED', user_action = 'rejected'
+		 WHERE id = ? AND status IN ('PENDING_APPROVAL', 'NOTIFIED')`,
+		id,
+	)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return false, nil
+	}
+
+	// Revert timezone_history to oldTZ so the scheduler resumes on the original schedule.
+	_, err = tx.Exec(`
+		INSERT INTO timezone_history (timezone)
+		SELECT ?
+		WHERE COALESCE(
+			(SELECT timezone FROM timezone_history ORDER BY recorded_at DESC, id DESC LIMIT 1),
+			'') != ?`, oldTZ, oldTZ)
+	if err != nil {
+		return false, err
+	}
+
+	return true, tx.Commit()
+}
+
+// MarkPlanNotified atomically transitions a plan from PENDING_APPROVAL to NOTIFIED.
+// Returns true if the transition occurred (this process "won" the CAS), false if the
+// plan was already in a different state (duplicate protection for concurrent schedulers).
+func (s *Store) MarkPlanNotified(id int64) (bool, error) {
+	res, err := s.db.Exec(
+		`UPDATE tz_transition_plans SET status = 'NOTIFIED', notified_at = CURRENT_TIMESTAMP
+		 WHERE id = ? AND status = 'PENDING_APPROVAL'`,
+		id,
+	)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// ResetPlanToPending reverts a NOTIFIED plan back to PENDING_APPROVAL.
+// Used when the notification send fails so the plan can be retried on the next scheduler tick.
+func (s *Store) ResetPlanToPending(id int64) error {
+	_, err := s.db.Exec(
+		`UPDATE tz_transition_plans SET status = 'PENDING_APPROVAL', notified_at = NULL
+		 WHERE id = ? AND status = 'NOTIFIED'`,
+		id,
+	)
 	return err
+}
+
+// CreateTZTransitionPlanWithSteps atomically cancels any active plans and saves
+// a new timezone transition plan together with its steps in a single transaction.
+// This prevents concurrent timezone updates from leaving multiple active plans.
+func (s *Store) CreateTZTransitionPlanWithSteps(plan *TZTransitionPlan, steps []TZTransitionStep) (int64, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback() //nolint:errcheck
+		}
+	}()
+
+	// Cancel all active plans within this transaction to prevent races where
+	// concurrent timezone updates both create active plans.
+	_, err = tx.Exec(
+		`UPDATE tz_transition_plans SET status = 'CANCELLED', user_action = 'superseded'
+		 WHERE status IN ('PENDING_APPROVAL', 'NOTIFIED', 'APPROVED')`,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	res, err := tx.Exec(
+		`INSERT INTO tz_transition_plans (old_tz, new_tz, status, steps_json, inputs_json, plan_hash)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		plan.OldTZ, plan.NewTZ, plan.Status, plan.StepsJSON, plan.InputsJSON, plan.PlanHash,
+	)
+	if err != nil {
+		return 0, err
+	}
+	planID, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+
+	if len(steps) > 0 {
+		stmt, stmtErr := tx.Prepare(
+			`INSERT INTO tz_transition_steps (plan_id, medication_id, step_number, scheduled_at, note)
+			 VALUES (?, ?, ?, ?, ?)`,
+		)
+		if stmtErr != nil {
+			err = stmtErr
+			return 0, err
+		}
+		defer stmt.Close()
+		for _, step := range steps {
+			if _, stepErr := stmt.Exec(planID, step.MedicationID, step.StepNumber, step.ScheduledAt, step.Note); stepErr != nil {
+				err = stepErr
+				return 0, err
+			}
+		}
+	}
+
+	return planID, tx.Commit()
 }
 
 // GetPlanByHash looks up a plan by its inputs hash to enable deduplication.
 func (s *Store) GetPlanByHash(hash string) (*TZTransitionPlan, error) {
 	var p TZTransitionPlan
-	var approvedAt sql.NullTime
+	var notifiedAt, approvedAt sql.NullTime
 	var userAction sql.NullString
 	err := s.db.QueryRow(
-		`SELECT id, old_tz, new_tz, created_at, status, steps_json, inputs_json, plan_hash, approved_at, user_action
+		`SELECT id, old_tz, new_tz, created_at, status, steps_json, inputs_json, plan_hash, notified_at, approved_at, user_action
 		 FROM tz_transition_plans WHERE plan_hash = ?
 		 ORDER BY created_at DESC, id DESC LIMIT 1`,
 		hash,
-	).Scan(&p.ID, &p.OldTZ, &p.NewTZ, &p.CreatedAt, &p.Status, &p.StepsJSON, &p.InputsJSON, &p.PlanHash, &approvedAt, &userAction)
+	).Scan(&p.ID, &p.OldTZ, &p.NewTZ, &p.CreatedAt, &p.Status, &p.StepsJSON, &p.InputsJSON, &p.PlanHash, &notifiedAt, &approvedAt, &userAction)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if notifiedAt.Valid {
+		p.NotifiedAt = &notifiedAt.Time
 	}
 	if approvedAt.Valid {
 		p.ApprovedAt = &approvedAt.Time

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -159,18 +160,8 @@ func stepsForMedication(
 	maxShiftUsed := time.Duration(0)
 
 	for i := 1; i <= numSteps; i++ {
-		// Shift accumulated so far toward newLoc schedule.
-		shiftSoFar := time.Duration(i) * maxShiftAllowed
-		if shiftSoFar > absOffset {
-			shiftSoFar = absOffset
-		}
-		// Naive next time: previous time + nominal interval + directional shift
-		// (eastbound = day shortened, offsetDelta > 0; westbound = day lengthened).
-		naiveNext := prevTime.Add(time.Duration(intervalHours)*time.Hour - offsetDelta/time.Duration(numSteps))
-		_ = naiveNext // replaced by constraint-based approach below
-
 		// Start from anchor + i * interval, then apply partial shift.
-		proposed := anchor.Add(time.Duration(i)*time.Duration(intervalHours)*time.Hour + partialShift(offsetDelta, i, numSteps))
+		proposed := anchor.Add(time.Duration(float64(i)*intervalHours*float64(time.Hour)) + partialShift(offsetDelta, i, numSteps))
 
 		// Hard constraint: enforce min/max interval from previous step.
 		gap := proposed.Sub(prevTime)
@@ -182,7 +173,7 @@ func stepsForMedication(
 			proposed = prevTime.Add(maxInterval)
 		}
 
-		shiftThisStep := proposed.Sub(prevTime) - time.Duration(intervalHours)*time.Hour
+		shiftThisStep := proposed.Sub(prevTime) - time.Duration(intervalHours*float64(time.Hour))
 		if shiftThisStep < 0 {
 			shiftThisStep = -shiftThisStep
 		}
@@ -202,6 +193,55 @@ func stepsForMedication(
 		prevTime = proposed
 	}
 
+	// Validate the hand-off from the last transition step to the first regular dose
+	// in the new timezone. If the anchor deviated from the scheduled time (e.g.
+	// the user took a dose late), the last step can land close to the next normal
+	// dose, causing a near-double-dose. Attempt to adjust the last step earlier
+	// to restore the minimum gap; if that would violate the previous step constraint,
+	// record the conflict as a violation for operator review.
+	if len(steps) > 0 && newLoc != nil {
+		nextNormal := firstNormalDoseAfter(prevTime, cfg, newLoc)
+		if !nextNormal.IsZero() {
+			handoffGap := nextNormal.Sub(prevTime)
+			if handoffGap < minInterval {
+				// Try to push the last step earlier so the gap to the first normal dose
+				// is at least minInterval.
+				adjusted := nextNormal.Add(-minInterval)
+				prevStepTime := anchor
+				if len(steps) > 1 {
+					prevStepTime = steps[len(steps)-2].ScheduledAt
+				}
+				lastIdx := len(steps) - 1
+				if adjusted.After(prevStepTime) && adjusted.Sub(prevStepTime) >= minInterval {
+					// Adjustment is safe: the gap from the previous step to the adjusted
+					// last step still satisfies minInterval.
+					oldScheduledAt := steps[lastIdx].ScheduledAt
+					steps[lastIdx].ScheduledAt = adjusted.UTC()
+					steps[lastIdx].Note = buildNote(med.Name, policy, steps[lastIdx].StepNumber, steps[lastIdx].TotalSteps, adjusted, oldLoc, newLoc)
+					violations = append(violations, fmt.Sprintf(
+						"med %d hand-off: adjusted last step %s → %s to ensure gap to first normal dose ≥ %v",
+						med.ID,
+						oldScheduledAt.UTC().Format("15:04Z"),
+						adjusted.UTC().Format("15:04Z"),
+						minInterval.Round(time.Minute),
+					))
+				} else {
+					violations = append(violations, fmt.Sprintf(
+						"med %d hand-off: gap to first normal dose %v < min %v (last step %s → first normal dose %s); cannot adjust without violating previous step constraint; review manually",
+						med.ID,
+						handoffGap.Round(time.Minute),
+						minInterval.Round(time.Minute),
+						prevTime.UTC().Format("15:04Z"),
+						nextNormal.UTC().Format("15:04Z"),
+					))
+					// Mark the last step so the notifier can detect this unsafe
+					// hand-off and omit the false "safe interval maintained" claim.
+					steps[lastIdx].Note += "; review manually: gap to first normal dose may be too short"
+				}
+			}
+		}
+	}
+
 	return steps, maxShiftUsed, violations, nil
 }
 
@@ -219,11 +259,76 @@ func partialShift(totalDelta time.Duration, stepIdx, numSteps int) time.Duration
 }
 
 // nominalIntervalHours derives the average hours between doses from the schedule.
-func nominalIntervalHours(cfg *store.ScheduleConfig) int {
+func nominalIntervalHours(cfg *store.ScheduleConfig) float64 {
 	if len(cfg.Times) == 0 {
 		return 24
 	}
-	return 24 / len(cfg.Times)
+	if cfg.Type == "weekly" {
+		// For weekly medications the dose repeats once per week per scheduled day/time
+		// combination, so the nominal interval is 7 days divided by the total number
+		// of doses per week (days × times-per-day). If Days is unset, fall back to
+		// treating the medication as once-per-week per time slot.
+		dosesPerWeek := len(cfg.Times)
+		if len(cfg.Days) > 0 {
+			dosesPerWeek = len(cfg.Days) * len(cfg.Times)
+		}
+		interval := 168.0 / float64(dosesPerWeek)
+		if interval < 1 {
+			return 1
+		}
+		return interval
+	}
+	return 24.0 / float64(len(cfg.Times))
+}
+
+// firstNormalDoseAfter returns the next scheduled dose time in newLoc strictly
+// after t, based on the schedule config. Returns zero time if cfg.Times is empty.
+// For weekly medications, the candidate is further advanced to the nearest allowed
+// day-of-week from cfg.Days so the handoff gap check is not skewed by an off-day "tomorrow".
+func firstNormalDoseAfter(t time.Time, cfg *store.ScheduleConfig, newLoc *time.Location) time.Time {
+	tInNew := t.In(newLoc)
+	var earliest time.Time
+	for _, timeStr := range cfg.Times {
+		if len(timeStr) != 5 {
+			continue
+		}
+		hour, _ := strconv.Atoi(timeStr[:2])
+		min, _ := strconv.Atoi(timeStr[3:])
+		candidate := time.Date(tInNew.Year(), tInNew.Month(), tInNew.Day(), hour, min, 0, 0, newLoc)
+		if !candidate.After(t) {
+			candidate = candidate.Add(24 * time.Hour)
+		}
+		// For weekly medications, advance candidate to the next allowed weekday.
+		if cfg.Type == "weekly" && len(cfg.Days) > 0 {
+			candidate = nextAllowedWeekday(candidate, cfg.Days, newLoc)
+		}
+		if earliest.IsZero() || candidate.Before(earliest) {
+			earliest = candidate
+		}
+	}
+	return earliest
+}
+
+// nextAllowedWeekday advances t (preserving its time-of-day) to the nearest
+// future instant where t's weekday is one of the allowed days (0=Sunday…6=Saturday).
+// If t's weekday is already in days the value is returned unchanged.
+func nextAllowedWeekday(t time.Time, days []int, loc *time.Location) time.Time {
+	if len(days) == 0 {
+		return t
+	}
+	tInLoc := t.In(loc)
+	wd := int(tInLoc.Weekday())
+	minOffset := 8 // sentinel > 7
+	for _, d := range days {
+		offset := (d - wd + 7) % 7
+		if offset < minOffset {
+			minOffset = offset
+		}
+	}
+	if minOffset == 0 {
+		return t
+	}
+	return t.AddDate(0, 0, minOffset)
 }
 
 // buildNote constructs a human-readable note for a transition step.

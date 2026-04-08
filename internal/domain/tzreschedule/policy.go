@@ -41,8 +41,8 @@ func MaxShiftPerDose(p Policy) time.Duration {
 // MinDoseInterval returns the minimum allowed gap between two consecutive doses
 // for a medication with the given nominal schedule interval (in hours).
 // This is a hard constraint that must never be violated.
-func MinDoseInterval(scheduleIntervalHours int, p Policy) time.Duration {
-	base := time.Duration(scheduleIntervalHours) * time.Hour
+func MinDoseInterval(scheduleIntervalHours float64, p Policy) time.Duration {
+	base := time.Duration(scheduleIntervalHours * float64(time.Hour))
 	switch p {
 	case PolicyStrict:
 		return time.Duration(float64(base) * 0.70)
@@ -56,8 +56,8 @@ func MinDoseInterval(scheduleIntervalHours int, p Policy) time.Duration {
 // MaxDoseInterval returns the maximum allowed gap between two consecutive doses
 // for a medication with the given nominal schedule interval (in hours).
 // This is a hard constraint that must never be violated.
-func MaxDoseInterval(scheduleIntervalHours int, p Policy) time.Duration {
-	base := time.Duration(scheduleIntervalHours) * time.Hour
+func MaxDoseInterval(scheduleIntervalHours float64, p Policy) time.Duration {
+	base := time.Duration(scheduleIntervalHours * float64(time.Hour))
 	switch p {
 	case PolicyStrict:
 		return time.Duration(float64(base) * 1.50)

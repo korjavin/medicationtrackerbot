@@ -1,13 +1,12 @@
-// NOTE: medication scheduling intentionally uses system TZ (time.Local). Timezone-aware medication
-// scheduling requires a separate strategy to avoid shortening/lengthening dose intervals and will
-// be addressed in a future iteration.
 package scheduler
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
@@ -26,6 +25,12 @@ type MedicationStore interface {
 	GetMedicationsLowOnStock(days int) ([]store.Medication, error)
 	GetDaysOfStockRemaining(med *store.Medication) *float64
 	SnoozeIntake(id int64, snoozeUntil time.Time) error
+	// TZ-aware scheduling
+	GetCurrentTimezone() (string, error)
+	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
+	GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error)
+	MarkStepConsumed(stepID int64, consumedAt time.Time) error
+	UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
 }
 
 // MedicationChecker checks for due medications and sends notifications.
@@ -33,6 +38,13 @@ type MedicationChecker struct {
 	NotifyHelper
 	store MedicationStore
 	now   func() time.Time // injectable clock; defaults to time.Now
+}
+
+// notificationGroup accumulates medications that share a notification target time.
+type notificationGroup struct {
+	Target  time.Time
+	Meds    []store.Medication
+	StepIDs map[int64]int64 // medID → stepID from transition plan (0 = normal schedule)
 }
 
 func (c *MedicationChecker) Check(ctx context.Context) error {
@@ -49,20 +61,135 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 	}
 	now := c.now()
 
+	// Load user timezone; fall back to time.Local if not set or invalid.
+	userLoc := time.Local
+	if tz, tzErr := c.store.GetCurrentTimezone(); tzErr != nil {
+		slog.Warn("medication scheduler: failed to get user timezone, using system TZ", "error", tzErr)
+	} else if tz != "" {
+		if loc, locErr := time.LoadLocation(tz); locErr != nil {
+			slog.Warn("medication scheduler: invalid user timezone, using system TZ", "tz", tz, "error", locErr)
+		} else {
+			userLoc = loc
+		}
+	}
+
+	// Load the latest active transition plan.
+	activePlan, err := c.store.GetLatestActiveOrPendingTZTransitionPlan()
+	if err != nil {
+		slog.Warn("medication scheduler: failed to load transition plan, proceeding without it", "error", err)
+		activePlan = nil
+	}
+
+	// If the plan is awaiting user decision (PENDING_APPROVAL or NOTIFIED), preserve the
+	// old timezone for normal scheduling so doses continue on the existing schedule until
+	// the user explicitly approves or rejects the transition.
+	if activePlan != nil && (activePlan.Status == "PENDING_APPROVAL" || activePlan.Status == "NOTIFIED") {
+		if activePlan.OldTZ == "" {
+			// No timezone was stored before this plan was created; preserve the system
+			// timezone (time.Local) rather than resolving "" to UTC via LoadLocation.
+			userLoc = time.Local
+			slog.Info("medication scheduler: plan awaiting approval, preserving system timezone (no prior TZ stored)",
+				"plan_id", activePlan.ID, "status", activePlan.Status)
+		} else if oldLoc, locErr := time.LoadLocation(activePlan.OldTZ); locErr == nil {
+			userLoc = oldLoc
+			slog.Info("medication scheduler: plan awaiting approval, preserving old timezone",
+				"plan_id", activePlan.ID, "old_tz", activePlan.OldTZ, "status", activePlan.Status)
+		}
+	}
+
+	// Collect pending steps by medication ID for APPROVED plans.
+	pendingStepsByMed := make(map[int64][]store.TZTransitionStep)
+	if activePlan != nil && activePlan.Status == "APPROVED" {
+		steps, err := c.store.GetPendingStepsForPlan(activePlan.ID)
+		if err != nil {
+			// Transient step-load failure: fall back to the plan's old timezone
+			// so medications continue on the pre-transition schedule rather than
+			// jumping to the fully-shifted new timezone.
+			slog.Warn("medication scheduler: failed to load plan steps, using plan old timezone",
+				"plan_id", activePlan.ID, "old_tz", activePlan.OldTZ, "error", err)
+			if activePlan.OldTZ != "" {
+				if oldLoc, locErr := time.LoadLocation(activePlan.OldTZ); locErr == nil {
+					userLoc = oldLoc
+				}
+			}
+			activePlan = nil // prevent step-based scheduling, fall through to normal with old TZ
+		} else if len(steps) == 0 {
+			// All steps consumed — transition is complete. Mark the plan as COMPLETED
+			// so it no longer appears as "active" and doesn't poison the baseline for
+			// future timezone changes.
+			if err := c.store.UpdateTZTransitionPlanStatus(activePlan.ID, "COMPLETED", "all-steps-consumed", "APPROVED"); err != nil {
+				slog.Warn("medication scheduler: failed to mark completed plan", "plan_id", activePlan.ID, "error", err)
+			} else {
+				slog.Info("medication scheduler: transition plan completed, all steps consumed",
+					"plan_id", activePlan.ID)
+			}
+			activePlan = nil // fall through to normal scheduling for all meds
+		} else {
+			for _, step := range steps {
+				pendingStepsByMed[step.MedicationID] = append(pendingStepsByMed[step.MedicationID], step)
+			}
+			slog.Info("medication scheduler: using approved transition plan",
+				"plan_id", activePlan.ID, "meds_with_steps", len(pendingStepsByMed))
+		}
+	}
+
 	meds, err := c.store.ListMedications(false)
 	if err != nil {
 		return err
 	}
 
-	// Group By Target Time
-	type NotificationGroup struct {
-		Target time.Time
-		Meds   []store.Medication
-	}
-
-	groups := make(map[int64]*NotificationGroup)
+	groups := make(map[int64]*notificationGroup)
 
 	for _, med := range meds {
+		// If the APPROVED plan has pending steps for this medication, use them
+		// instead of the normal schedule. This handles both due steps (now >=
+		// step.ScheduledAt) and future steps (not yet due — the med is still
+		// considered "in plan" so we skip normal scheduling for it).
+		if planSteps, inPlan := pendingStepsByMed[med.ID]; inPlan {
+			triggered := false
+			for _, step := range planSteps {
+				if now.Before(step.ScheduledAt) {
+					continue // step not yet due
+				}
+				existing, err := c.store.GetIntakeBySchedule(med.ID, step.ScheduledAt)
+				if err != nil {
+					slog.Error("medication scheduler: error checking step intake existence",
+						"medID", med.ID, "stepID", step.ID, "error", err)
+					continue
+				}
+				if existing != nil {
+					// Intake already created (idempotency): ensure step is marked consumed.
+					if err := c.store.MarkStepConsumed(step.ID, now); err != nil {
+						slog.Warn("medication scheduler: failed to mark already-scheduled step consumed",
+							"stepID", step.ID, "error", err)
+					}
+					continue
+				}
+				// Only trigger one new step per medication per tick to preserve
+				// gradual shifting even after a period of scheduler unavailability.
+				if triggered {
+					break
+				}
+				ts := step.ScheduledAt.Unix()
+				if _, ok := groups[ts]; !ok {
+					groups[ts] = &notificationGroup{
+						Target:  step.ScheduledAt,
+						StepIDs: make(map[int64]int64),
+					}
+				}
+				groups[ts].Meds = append(groups[ts].Meds, med)
+				groups[ts].StepIDs[med.ID] = step.ID
+				triggered = true
+			}
+			// Skip normal scheduling for this medication as long as the plan has
+			// any pending steps (even future ones not yet due). Once all steps are
+			// consumed, GetPendingStepsForPlan returns an empty list, so the med
+			// will no longer appear in pendingStepsByMed and falls through to normal
+			// scheduling on the next tick.
+			continue
+		}
+
+		// --- Normal scheduling path (user-timezone-aware) ---
 		cfg, err := med.ValidSchedule()
 		if err != nil {
 			slog.Warn("Invalid schedule for medication", "medID", med.ID, "error", err)
@@ -73,16 +200,11 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			continue
 		}
 
+		// Use the user's timezone to determine "today" and the weekday.
+		nowInUserLoc := now.In(userLoc)
+
 		if cfg.Type == "weekly" {
-			todayIdx := int(now.Weekday())
-			found := false
-			for _, d := range cfg.Days {
-				if d == todayIdx {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if !slices.Contains(cfg.Days, int(nowInUserLoc.Weekday())) {
 				continue
 			}
 		}
@@ -94,7 +216,10 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			hour, _ := strconv.Atoi(timeStr[:2])
 			minute, _ := strconv.Atoi(timeStr[3:])
 
-			target := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+			// Build target time in the user's timezone so that "09:00" means 09:00
+			// in the user's local time, not the system timezone.
+			target := time.Date(nowInUserLoc.Year(), nowInUserLoc.Month(), nowInUserLoc.Day(),
+				hour, minute, 0, 0, userLoc)
 
 			if med.StartDate != nil && target.Before(*med.StartDate) {
 				continue
@@ -120,12 +245,13 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			if existing == nil {
 				ts := target.Unix()
 				if _, ok := groups[ts]; !ok {
-					groups[ts] = &NotificationGroup{
-						Target: target,
-						Meds:   []store.Medication{},
+					groups[ts] = &notificationGroup{
+						Target:  target,
+						StepIDs: make(map[int64]int64),
 					}
 				}
 				groups[ts].Meds = append(groups[ts].Meds, med)
+				// StepIDs[med.ID] remains 0 (no plan step)
 			}
 		}
 	}
@@ -145,17 +271,30 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			} else {
 				intakeIDs = append(intakeIDs, id)
 				intakeByMedication[med.ID] = id
+
+				// If this dose came from a transition plan step, mark it consumed.
+				if stepID := group.StepIDs[med.ID]; stepID != 0 {
+					if err := c.store.MarkStepConsumed(stepID, now); err != nil {
+						slog.Warn("medication scheduler: failed to mark step consumed",
+							"stepID", stepID, "medID", med.ID, "error", err)
+					} else {
+						slog.Info("medication scheduler: transition step consumed",
+							"stepID", stepID, "medID", med.ID, "scheduledAt", group.Target)
+					}
+				}
 			}
 		}
 
-		text := fmt.Sprintf("💊 Time to take your medications (%s):\n\n", group.Target.Format("15:04"))
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "💊 Time to take your medications (%s):\n\n", group.Target.In(userLoc).Format("15:04"))
 		for _, m := range group.Meds {
 			if m.Dosage != "" {
-				text += fmt.Sprintf("- %s (%s)\n", m.Name, m.Dosage)
+				fmt.Fprintf(&sb, "- %s (%s)\n", m.Name, m.Dosage)
 			} else {
-				text += fmt.Sprintf("- %s\n", m.Name)
+				fmt.Fprintf(&sb, "- %s\n", m.Name)
 			}
 		}
+		text := sb.String()
 
 		// We still send one batched notification for Telegram to avoid spamming the user.
 		// However, for WebPush we will construct individual notifications per medication.
@@ -195,7 +334,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			Text:    text,
 			Actions: actions,
 			Tag:     fmt.Sprintf("medication-%s", group.Target.Format(time.RFC3339)),
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":             "medication_batch", // Changed to medication_batch so WebPush notifier ignores it if we decide to
 				"scheduled_at":     group.Target.Format(time.RFC3339),
 				"medication_ids":   medIDs,
@@ -226,7 +365,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 					{ID: fmt.Sprintf("skip_%d", intakeID), Label: "Skip"},
 				},
 				Tag: fmt.Sprintf("medication-%d", intakeID),
-				Metadata: map[string]interface{}{
+				Metadata: map[string]any{
 					"type":          "medication_individual",
 					"scheduled_at":  group.Target.Format(time.RFC3339),
 					"medication_id": m.ID,

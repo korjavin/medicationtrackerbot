@@ -6,37 +6,27 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // mockTZPlanCallbackStore implements TZPlanCallbackStore for testing.
 type mockTZPlanCallbackStore struct {
-	plan            *store.TZTransitionPlan
-	approvedAt      *time.Time
-	updatedID       int64
-	updatedStatus   string
-	updatedAction   string
-	updatedExpected string
-	approveErr      error
-	updateErr       error
+	approvedAt  *time.Time
+	updatedID   int64
+	rejectedID  int64
+	approveErr  error
+	rejectErr   error
 }
 
-func (m *mockTZPlanCallbackStore) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
-	return m.plan, nil
-}
-
-func (m *mockTZPlanCallbackStore) SetTZTransitionPlanApproved(id int64, at time.Time) error {
+func (m *mockTZPlanCallbackStore) SetTZTransitionPlanApproved(id int64, at time.Time) (bool, error) {
 	m.updatedID = id
 	m.approvedAt = &at
-	return m.approveErr
+	return m.approveErr == nil, m.approveErr
 }
 
-func (m *mockTZPlanCallbackStore) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
+func (m *mockTZPlanCallbackStore) RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error) {
 	m.updatedID = id
-	m.updatedStatus = newStatus
-	m.updatedAction = userAction
-	m.updatedExpected = expectedStatus
-	return m.updateErr
+	m.rejectedID = id
+	return m.rejectErr == nil, m.rejectErr
 }
 
 func makeTZPlanCallbackQuery(planAction string, planID string) *tgbotapi.CallbackQuery {
@@ -88,14 +78,8 @@ func TestHandleTZPlanReject_Success(t *testing.T) {
 	cb := makeTZPlanCallbackQuery("tz_plan_reject", "8")
 	env.b.handleTZPlanReject(cb, 8)
 
-	if ms.updatedID != 8 {
-		t.Errorf("expected plan ID 8 to be rejected, got %d", ms.updatedID)
-	}
-	if ms.updatedStatus != "REJECTED" {
-		t.Errorf("expected status REJECTED, got %q", ms.updatedStatus)
-	}
-	if ms.updatedAction != "rejected" {
-		t.Errorf("expected user_action 'rejected', got %q", ms.updatedAction)
+	if ms.rejectedID != 8 {
+		t.Errorf("expected plan ID 8 to be rejected, got %d", ms.rejectedID)
 	}
 
 	// Should send a confirmation message.
@@ -148,10 +132,56 @@ func TestHandleCallback_TZPlanReject_Routing(t *testing.T) {
 	}
 	env.b.handleCallback(cb)
 
-	if ms.updatedID != 55 {
-		t.Errorf("expected plan 55 rejected via handleCallback, got %d", ms.updatedID)
+	if ms.rejectedID != 55 {
+		t.Errorf("expected plan 55 rejected via handleCallback, got %d", ms.rejectedID)
 	}
-	if ms.updatedStatus != "REJECTED" {
-		t.Errorf("expected REJECTED status, got %q", ms.updatedStatus)
+}
+
+// mockTZPlanCallbackStoreNoRows simulates store methods that affect 0 rows (stale callback).
+type mockTZPlanCallbackStoreNoRows struct{}
+
+func (m *mockTZPlanCallbackStoreNoRows) SetTZTransitionPlanApproved(id int64, at time.Time) (bool, error) {
+	return false, nil
+}
+
+func (m *mockTZPlanCallbackStoreNoRows) RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error) {
+	return false, nil
+}
+
+func TestHandleTZPlanApprove_StaleCallback(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	env.b.tzPlanStore = &mockTZPlanCallbackStoreNoRows{}
+
+	cb := makeTZPlanCallbackQuery("tz_plan_approve", "99")
+	env.b.handleTZPlanApprove(cb, 99)
+
+	select {
+	case body := <-env.messageChan:
+		if !strings.Contains(body, "no longer active") && !strings.Contains(body, "longer active") {
+			t.Errorf("expected 'no longer active' message for stale callback, got: %s", body)
+		}
+	default:
+		t.Error("expected a message to be sent for stale approve callback")
+	}
+}
+
+func TestHandleTZPlanReject_StaleCallback(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	env.b.tzPlanStore = &mockTZPlanCallbackStoreNoRows{}
+
+	cb := makeTZPlanCallbackQuery("tz_plan_reject", "99")
+	env.b.handleTZPlanReject(cb, 99)
+
+	select {
+	case body := <-env.messageChan:
+		if !strings.Contains(body, "no longer active") && !strings.Contains(body, "longer active") {
+			t.Errorf("expected 'no longer active' message for stale callback, got: %s", body)
+		}
+	default:
+		t.Error("expected a message to be sent for stale reject callback")
 	}
 }

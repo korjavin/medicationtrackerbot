@@ -197,6 +197,13 @@ type MiBandStore interface {
 }
 
 
+// TZPlanStore is the subset of store operations needed for timezone plan approval/rejection.
+type TZPlanStore interface {
+	SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error)
+	RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error)
+	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
+}
+
 // DiaryNotesStore is the subset of store operations needed for diary note handlers.
 type DiaryNotesStore interface {
 	CreateDiaryNote(ctx context.Context, userID int64, content string) (*store.DiaryNote, error)

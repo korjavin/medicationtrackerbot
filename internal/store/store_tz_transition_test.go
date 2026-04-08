@@ -202,7 +202,7 @@ func TestSetTZTransitionPlanApproved(t *testing.T) {
 	}
 
 	approvedAt := time.Now().UTC().Truncate(time.Second)
-	if err := s.SetTZTransitionPlanApproved(id, approvedAt); err != nil {
+	if _, err := s.SetTZTransitionPlanApproved(id, approvedAt); err != nil {
 		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
 	}
 

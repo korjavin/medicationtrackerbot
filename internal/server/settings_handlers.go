@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -80,6 +81,16 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []string, erro
 	if err != nil {
 		return time.Time{}, nil, err
 	}
+
+	// Use the user's stored timezone so that schedule times are interpreted
+	// correctly regardless of the server's local timezone.
+	userLoc := now.Location()
+	if tz, tzErr := s.settings.GetCurrentTimezone(); tzErr == nil && tz != "" {
+		if loc, locErr := time.LoadLocation(tz); locErr == nil {
+			userLoc = loc
+		}
+	}
+	now = now.In(userLoc)
 
 	var nextTime time.Time
 	var nextMeds []store.Medication
@@ -383,21 +394,67 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid timezone: "+req.Timezone, http.StatusBadRequest)
 			return
 		}
+		// Serialize timezone updates so that plan generation + RecordTimezone
+		// are never interleaved by a concurrent request.
+		s.tzUpdateMu.Lock()
+		defer s.tzUpdateMu.Unlock()
+
 		// Capture the current timezone before the update so we can detect a change.
 		oldTZ, err := s.settings.GetCurrentTimezone()
 		if err != nil {
 			slog.Error("handleUpdateSettings: GetCurrentTimezone before update failed", "error", err)
-		}
-		if err := s.settings.RecordTimezone(req.Timezone); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Failed to read current timezone", http.StatusInternalServerError)
 			return
 		}
-		// Trigger plan generation only when the stored timezone string actually changed.
-		if s.tzPlanner != nil && oldTZ != req.Timezone {
-			if err := s.tzPlanner.GenerateIfChanged(oldTZ, req.Timezone, time.Now()); err != nil {
-				slog.Error("handleUpdateSettings: GenerateIfChanged failed", "error", err)
-				// Intentionally not returning an error — plan generation is best-effort.
+		// Generate the transition plan BEFORE writing the new timezone so the
+		// scheduler never sees a window where newTZ is stored but no
+		// PENDING_APPROVAL plan exists yet.
+		// Skip plan generation when no notification channel is configured: the user
+		// has no way to receive or approve the plan, so generating it would leave
+		// the medication scheduler permanently stuck on the old timezone.
+		//
+		// Capture the superseded plan's baseline timezone so that if RecordTimezone
+		// fails we can fully revert: GenerateIfChanged cancels the existing plan
+		// internally, so merely cancelling the new plan isn't enough — the scheduler
+		// would fall through to the stored timezone (which may be an unapproved
+		// intermediate value). Reverting to the baseline prevents this.
+		var supersededBaseline string
+		planGenerated := false
+		if s.tzPlanner != nil && len(s.notifiers) > 0 && oldTZ != req.Timezone {
+			// Capture the active plan's OldTZ before GenerateIfChanged cancels it.
+			if s.tzPlanStore != nil {
+				if activePlan, planErr := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan(); planErr == nil && activePlan != nil {
+					supersededBaseline = activePlan.OldTZ
+				}
 			}
+			created, err := s.tzPlanner.GenerateIfChanged(oldTZ, req.Timezone, time.Now())
+			if err != nil {
+				slog.Error("handleUpdateSettings: GenerateIfChanged failed, not recording new timezone", "error", err)
+				http.Error(w, "Failed to generate timezone transition plan", http.StatusInternalServerError)
+				return
+			}
+			planGenerated = created
+		}
+		if err := s.settings.RecordTimezone(req.Timezone); err != nil {
+			// Plan was created but timezone write failed — cancel the orphaned plan
+			// and revert the stored timezone to the baseline that the superseded plan
+			// was protecting, so the scheduler doesn't run on an unapproved timezone.
+			if planGenerated {
+				if cancelErr := s.tzPlanner.CancelActivePlan("record-timezone-failed"); cancelErr != nil {
+					slog.Error("handleUpdateSettings: failed to cancel plan after RecordTimezone failure", "error", cancelErr)
+				}
+			}
+			if supersededBaseline != "" && supersededBaseline != oldTZ {
+				if revertErr := s.settings.RecordTimezone(supersededBaseline); revertErr != nil {
+					slog.Error("handleUpdateSettings: failed to revert timezone to superseded baseline",
+						"baseline", supersededBaseline, "error", revertErr)
+				} else {
+					slog.Info("handleUpdateSettings: reverted stored timezone to superseded plan baseline",
+						"baseline", supersededBaseline)
+				}
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 	}
 	w.WriteHeader(http.StatusOK)
@@ -443,5 +500,51 @@ func (s *Server) handleSetTabOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleTZPlanApprove handles POST /api/tz-plan/{id}/approve.
+// It transitions the plan to APPROVED so the medication scheduler can execute it.
+func (s *Server) handleTZPlanApprove(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	planID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid plan id", http.StatusBadRequest)
+		return
+	}
+	updated, err := s.tzPlanStore.SetTZTransitionPlanApproved(planID, time.Now())
+	if err != nil {
+		slog.Error("handleTZPlanApprove: SetTZTransitionPlanApproved failed", "plan_id", planID, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !updated {
+		http.Error(w, "plan not found or no longer pending", http.StatusConflict)
+		return
+	}
+	slog.Info("tz_plan: approved via web", "plan_id", planID)
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleTZPlanReject handles POST /api/tz-plan/{id}/reject.
+// It transitions the plan to REJECTED and reverts the stored timezone.
+func (s *Server) handleTZPlanReject(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	planID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid plan id", http.StatusBadRequest)
+		return
+	}
+	updated, err := s.tzPlanStore.RejectTZTransitionPlanAndRevertTimezone(planID)
+	if err != nil {
+		slog.Error("handleTZPlanReject: RejectTZTransitionPlanAndRevertTimezone failed", "plan_id", planID, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !updated {
+		http.Error(w, "plan not found or no longer pending", http.StatusConflict)
+		return
+	}
+	slog.Info("tz_plan: rejected via web", "plan_id", planID)
 	w.WriteHeader(http.StatusOK)
 }

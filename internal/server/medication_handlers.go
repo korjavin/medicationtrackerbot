@@ -123,6 +123,12 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Validate tz_shift_policy before hitting the DB.
+	if req.TZShiftPolicy != "" && req.TZShiftPolicy != "flexible" && req.TZShiftPolicy != "medium" && req.TZShiftPolicy != "strict" {
+		http.Error(w, "Invalid tz_shift_policy: must be one of flexible, medium, strict", http.StatusBadRequest)
+		return
+	}
+
 	// 1. Search RxNorm
 	rxcui, normalizedName, _ := s.rxnorm.SearchRxNorm(req.Name)
 
@@ -196,6 +202,12 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Validate tz_shift_policy before hitting the DB.
+	if req.TZShiftPolicy != "" && req.TZShiftPolicy != "flexible" && req.TZShiftPolicy != "medium" && req.TZShiftPolicy != "strict" {
+		http.Error(w, "Invalid tz_shift_policy: must be one of flexible, medium, strict", http.StatusBadRequest)
 		return
 	}
 

@@ -115,7 +115,7 @@ User
 
 ### Database Schema
 
-SQLite with 34 goose migrations tracking schema evolution:
+SQLite with 47 goose migrations tracking schema evolution:
 - `medications`, `intake_log` - Medication management and history
 - `blood_pressure_readings` - BP tracking
 - `weight_logs` - Weight tracking with trend calculation
@@ -128,7 +128,9 @@ SQLite with 34 goose migrations tracking schema evolution:
 - `bp_reminders`, `weight_reminders` - Reminder configuration
 - `change_events` - Server-side change tracking for frontend cache invalidation
 - `diary_notes` - Free-text personal diary notes with timestamps
-- `timezone_history` - Per-user timezone history (most recent row is the active timezone). Overrides the `TZ` env var for workout, BP, and weight schedulers only. Medication scheduling intentionally continues to use the system TZ (`TZ` env var) — timezone-aware medication scheduling requires a separate strategy to avoid shortening/lengthening dose intervals and is deferred to a future iteration.
+- `timezone_history` - Per-user timezone history (most recent row is the active timezone). Overrides the `TZ` env var for all schedulers including medications. Medication scheduling uses the stored user timezone when computing dose times; when no timezone is recorded, falls back to `time.Local` (system TZ via `TZ` env var).
+- `tz_transition_plans` - Timezone transition plans (status: PENDING_APPROVAL / NOTIFIED / APPROVED / REJECTED / CANCELLED / EXPIRED). Generated automatically when the user's stored timezone changes. Must be approved via Telegram before taking effect. Stores a SHA-256 `plan_hash` for idempotency and full `inputs_json` for reproducibility.
+- `tz_transition_steps` - Individual dose steps within a transition plan. Each row has `scheduled_at` and `consumed_at` (NULL until triggered). The medication scheduler uses pending steps instead of normal schedule times when an APPROVED plan exists for a medication; marks each step consumed when the corresponding intake is created.
 
 ### Authentication & Security
 
@@ -174,6 +176,7 @@ Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.Exerci
 - **Schedule Types**: Daily, Weekly, As-Needed with optional Start/End dates
 - **Drug Interactions**: Automatic checking via RxNorm API when adding/unarchiving
 - **Notifications**: Telegram alerts with scheduled time and dosage, hourly retry if not confirmed
+- **Timezone Shift Policy** (`tz_shift_policy`): per-medication field controlling how doses are rescheduled when the user's timezone changes. Values: `flexible` (default — shift immediately in one step), `medium` (shift gradually, max 3h per dose), `strict` (very gradual, max 2h per step). When a timezone change is detected and an active plan is approved, the medication scheduler uses the plan's transition steps instead of normal schedule times until all steps are consumed.
 
 ### Blood Pressure Tracking
 - **Classification**: ISH 2020 guidelines (configurable for age <65)
