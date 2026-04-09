@@ -424,7 +424,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		reminders, isSupp, err := b.medSvc.ConfirmIntakeWithCleanup(intakeID, time.Now())
+		reminders, _, medName, medDosage, err := b.medSvc.ConfirmIntakeWithCleanup(intakeID, time.Now())
 		if err != nil {
 			if errors.Is(err, domain.ErrNotPending) {
 				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
@@ -438,13 +438,16 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 		b.deleteMessagesParallel(cb.Message.Chat.ID, reminders, cb.Message.MessageID)
 
-		callbacksToRemove := []string{data, "silence_intake:" + strconv.FormatInt(intakeID, 10)}
-		if isSupp {
-			callbacksToRemove = append(callbacksToRemove, "skip_intake:"+strconv.FormatInt(intakeID, 10))
+		// Always remove both the confirm and skip buttons for this intake.
+		callbacksToRemove := []string{
+			data,
+			"skip_intake:" + strconv.FormatInt(intakeID, 10),
+			"silence_intake:" + strconv.FormatInt(intakeID, 10),
 		}
-		b.removeButtonsFromCallbackMessage(cb, callbacksToRemove...)
+		b.removeButtonsOrDeleteMessage(cb, callbacksToRemove...)
 
-		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ Marked as taken.")); err != nil {
+		confirmMsg := "✅ " + medLabel(medName, medDosage) + " marked as taken."
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, confirmMsg)); err != nil {
 			slog.Error("send failed", "error", err)
 		}
 	} else if strings.HasPrefix(data, "skip_intake:") {
@@ -454,7 +457,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		reminders, err := b.medSvc.SkipIntake(intakeID)
+		reminders, medName, medDosage, err := b.medSvc.SkipIntake(intakeID)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotPending) {
 				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already processed).")); err != nil {
@@ -468,13 +471,14 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 		b.deleteMessagesParallel(cb.Message.Chat.ID, reminders, cb.Message.MessageID)
 
-		b.removeButtonsFromCallbackMessage(cb,
+		b.removeButtonsOrDeleteMessage(cb,
 			"confirm_intake:"+strconv.FormatInt(intakeID, 10),
 			"skip_intake:"+strconv.FormatInt(intakeID, 10),
 			"silence_intake:"+strconv.FormatInt(intakeID, 10),
 		)
 
-		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⏭ Marked as skipped.")); err != nil {
+		skipMsg := "⏭ " + medLabel(medName, medDosage) + " marked as skipped."
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, skipMsg)); err != nil {
 			slog.Error("send failed", "error", err)
 		}
 	} else if strings.HasPrefix(data, "silence_intake:") {
@@ -514,7 +518,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		reminders, _, err := b.medSvc.ConfirmMedicationByMedID(medID, time.Now())
+		reminders, _, _, _, err := b.medSvc.ConfirmMedicationByMedID(medID, time.Now())
 		if err != nil {
 			if errors.Is(err, domain.ErrNotPending) {
 				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No pending intake found (or already taken).")); err != nil {
@@ -1633,8 +1637,88 @@ func (b *Bot) handleNextIntakeCommand(msgConfig *tgbotapi.MessageConfig) {
 	msgConfig.Text = "" // Don't send the original message config
 }
 
+// medLabel returns "Name (Dosage)" or just "Name" when dosage is empty.
+func medLabel(name, dosage string) string {
+	if name == "" {
+		return "Medication"
+	}
+	if dosage == "" {
+		return name
+	}
+	return name + " (" + dosage + ")"
+}
+
 func (b *Bot) removeButtonFromCallbackMessage(cb *tgbotapi.CallbackQuery, callbackData string) {
 	b.removeButtonsFromCallbackMessage(cb, callbackData)
+}
+
+// removeButtonsOrDeleteMessage removes the specified buttons from the callback message.
+// If no medication action buttons (confirm_intake/skip_intake) remain after removal,
+// the entire message is deleted instead of just updating the keyboard.
+func (b *Bot) removeButtonsOrDeleteMessage(cb *tgbotapi.CallbackQuery, callbackData ...string) {
+	if cb == nil || cb.Message == nil || cb.Message.Chat == nil {
+		return
+	}
+
+	toRemove := make(map[string]struct{}, len(callbackData))
+	for _, cbData := range callbackData {
+		if cbData != "" {
+			toRemove[cbData] = struct{}{}
+		}
+	}
+
+	current := cb.Message.ReplyMarkup.InlineKeyboard
+	if len(current) == 0 {
+		// No markup visible — delete the whole message.
+		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+			slog.Error("delete message failed", "error", err)
+		}
+		return
+	}
+
+	rows := make([][]tgbotapi.InlineKeyboardButton, 0, len(current))
+	for _, row := range current {
+		filtered := make([]tgbotapi.InlineKeyboardButton, 0, len(row))
+		for _, btn := range row {
+			if btn.CallbackData != nil {
+				if _, shouldRemove := toRemove[*btn.CallbackData]; shouldRemove {
+					continue
+				}
+			}
+			filtered = append(filtered, btn)
+		}
+		if len(filtered) > 0 {
+			rows = append(rows, filtered)
+		}
+	}
+
+	// Check whether any medication action buttons remain.
+	hasMedButtons := false
+	for _, row := range rows {
+		for _, btn := range row {
+			if btn.CallbackData != nil {
+				d := *btn.CallbackData
+				if strings.HasPrefix(d, "confirm_intake:") || strings.HasPrefix(d, "skip_intake:") {
+					hasMedButtons = true
+				}
+			}
+		}
+	}
+
+	if !hasMedButtons {
+		// All medications have been handled — delete the notification message.
+		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+			slog.Error("delete message failed", "error", err)
+		}
+		return
+	}
+
+	edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
+		InlineKeyboard: rows,
+	})
+	if _, err := b.api.Send(edit); err != nil {
+		slog.Error("send failed", "error", err)
+	}
 }
 
 func (b *Bot) removeButtonsFromCallbackMessage(cb *tgbotapi.CallbackQuery, callbackData ...string) {
