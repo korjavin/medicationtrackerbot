@@ -37,13 +37,14 @@ type MedicationStore interface {
 type MedicationService interface {
 	// ConfirmIntakeWithCleanup validates the intake is PENDING, collects reminder
 	// message IDs, confirms the intake, and decrements inventory.
-	// Returns the reminder message IDs so the caller can delete them, and whether
-	// the confirmed medication is a supplement (for UI purposes).
-	ConfirmIntakeWithCleanup(intakeID int64, takenAt time.Time) (reminderMsgIDs []int, isSupplement bool, err error)
+	// Returns the reminder message IDs, whether the medication is a supplement,
+	// the medication name and dosage (for display), and any error.
+	ConfirmIntakeWithCleanup(intakeID int64, takenAt time.Time) (reminderMsgIDs []int, isSupplement bool, medName string, medDosage string, err error)
 
 	// SkipIntake validates the intake is PENDING,
 	// collects reminder message IDs, and marks the intake as skipped.
-	SkipIntake(intakeID int64) (reminderMsgIDs []int, err error)
+	// Returns reminder message IDs, medication name and dosage (for display), and any error.
+	SkipIntake(intakeID int64) (reminderMsgIDs []int, medName string, medDosage string, err error)
 
 	// LogMedicationNow creates a new intake and immediately confirms it.
 	// Used for ad-hoc "log now" without a pre-existing pending record.
@@ -57,7 +58,7 @@ type MedicationService interface {
 	// ConfirmMedicationByMedID finds the first pending intake for a medication and confirms it.
 	// Used by the legacy confirm: callback which only carries a medication ID, not an intake ID.
 	// Returns ErrNotPending if no pending intake exists for the medication.
-	ConfirmMedicationByMedID(medID int64, takenAt time.Time) (reminderMsgIDs []int, isSupplement bool, err error)
+	ConfirmMedicationByMedID(medID int64, takenAt time.Time) (reminderMsgIDs []int, isSupplement bool, medName string, medDosage string, err error)
 
 	// SilenceIntake snoozes a pending intake for 24 hours and returns reminder message IDs
 	// so the caller can delete the current reminder message.
@@ -73,21 +74,24 @@ func NewMedicationService(s MedicationStore) MedicationService {
 	return &medicationService{store: s}
 }
 
-func (s *medicationService) ConfirmIntakeWithCleanup(intakeID int64, takenAt time.Time) ([]int, bool, error) {
+func (s *medicationService) ConfirmIntakeWithCleanup(intakeID int64, takenAt time.Time) ([]int, bool, string, string, error) {
 	intake, err := s.store.GetIntake(intakeID)
 	if err != nil {
-		return nil, false, fmt.Errorf("get intake %d: %w", intakeID, err)
+		return nil, false, "", "", fmt.Errorf("get intake %d: %w", intakeID, err)
 	}
 	if intake == nil || intake.Status != "PENDING" {
-		return nil, false, ErrNotPending
+		return nil, false, "", "", ErrNotPending
 	}
 
-	// Determine supplement status for the caller's UI needs (best-effort).
+	// Fetch medication for supplement status and display name/dosage (best-effort).
 	isSupplement := false
+	medName, medDosage := "", ""
 	if med, err := s.store.GetMedication(intake.MedicationID); err != nil {
 		slog.Error("GetMedication for intake failed", "intakeID", intakeID, "error", err)
 	} else if med != nil {
 		isSupplement = med.Supplement
+		medName = med.Name
+		medDosage = med.Dosage
 	}
 
 	reminders, err := s.store.GetIntakeReminders(intakeID)
@@ -97,9 +101,9 @@ func (s *medicationService) ConfirmIntakeWithCleanup(intakeID int64, takenAt tim
 
 	if err := s.store.ConfirmIntake(intakeID, takenAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, false, ErrNotPending
+			return nil, false, "", "", ErrNotPending
 		}
-		return nil, false, fmt.Errorf("confirm intake %d: %w", intakeID, err)
+		return nil, false, "", "", fmt.Errorf("confirm intake %d: %w", intakeID, err)
 	}
 
 	// Inventory decrement is best-effort; a confirmed intake is the source of truth.
@@ -107,16 +111,25 @@ func (s *medicationService) ConfirmIntakeWithCleanup(intakeID int64, takenAt tim
 		slog.Error("DecrementInventory failed", "intakeID", intakeID, "error", err)
 	}
 
-	return reminders, isSupplement, nil
+	return reminders, isSupplement, medName, medDosage, nil
 }
 
-func (s *medicationService) SkipIntake(intakeID int64) ([]int, error) {
+func (s *medicationService) SkipIntake(intakeID int64) ([]int, string, string, error) {
 	intake, err := s.store.GetIntake(intakeID)
 	if err != nil {
-		return nil, fmt.Errorf("get intake %d: %w", intakeID, err)
+		return nil, "", "", fmt.Errorf("get intake %d: %w", intakeID, err)
 	}
 	if intake == nil || intake.Status != "PENDING" {
-		return nil, ErrNotPending
+		return nil, "", "", ErrNotPending
+	}
+
+	// Fetch medication name/dosage for display (best-effort).
+	medName, medDosage := "", ""
+	if med, err := s.store.GetMedication(intake.MedicationID); err != nil {
+		slog.Error("GetMedication for intake failed", "intakeID", intakeID, "error", err)
+	} else if med != nil {
+		medName = med.Name
+		medDosage = med.Dosage
 	}
 
 	reminders, err := s.store.GetIntakeReminders(intakeID)
@@ -126,12 +139,12 @@ func (s *medicationService) SkipIntake(intakeID int64) ([]int, error) {
 
 	if err := s.store.SkipIntake(intakeID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotPending
+			return nil, "", "", ErrNotPending
 		}
-		return nil, fmt.Errorf("skip intake %d: %w", intakeID, err)
+		return nil, "", "", fmt.Errorf("skip intake %d: %w", intakeID, err)
 	}
 
-	return reminders, nil
+	return reminders, medName, medDosage, nil
 }
 
 func (s *medicationService) LogMedicationNow(userID, medID int64) error {
@@ -185,10 +198,10 @@ func (s *medicationService) ConfirmScheduleWithCleanup(userID int64, scheduledAt
 	return allReminders, nil
 }
 
-func (s *medicationService) ConfirmMedicationByMedID(medID int64, takenAt time.Time) ([]int, bool, error) {
+func (s *medicationService) ConfirmMedicationByMedID(medID int64, takenAt time.Time) ([]int, bool, string, string, error) {
 	pending, err := s.store.GetPendingIntakes()
 	if err != nil {
-		return nil, false, fmt.Errorf("get pending intakes: %w", err)
+		return nil, false, "", "", fmt.Errorf("get pending intakes: %w", err)
 	}
 
 	// Find all pending intakes for this medication
@@ -200,7 +213,7 @@ func (s *medicationService) ConfirmMedicationByMedID(medID int64, takenAt time.T
 	}
 
 	if len(matching) == 0 {
-		return nil, false, ErrNotPending
+		return nil, false, "", "", ErrNotPending
 	}
 
 	// Sort by ScheduledAt descending to confirm the most recent pending intake
