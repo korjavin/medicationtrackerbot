@@ -213,7 +213,7 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, isSupp, err := svc.ConfirmIntakeWithCleanup( tt.intakeID, takenAt)
+			ids, isSupp, _, _, err := svc.ConfirmIntakeWithCleanup(tt.intakeID, takenAt)
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
@@ -303,7 +303,7 @@ func TestSkipIntake(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, err := svc.SkipIntake( tt.intakeID)
+			ids, _, _, err := svc.SkipIntake(tt.intakeID)
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
@@ -572,7 +572,7 @@ func TestConfirmMedicationByMedID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, _, err := svc.ConfirmMedicationByMedID( tt.medID, takenAt)
+			ids, _, _, _, err := svc.ConfirmMedicationByMedID(tt.medID, takenAt)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Errorf("want error %v, got %v", tt.wantErr, err)
