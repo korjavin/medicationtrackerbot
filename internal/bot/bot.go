@@ -1669,10 +1669,10 @@ func (b *Bot) removeButtonsOrDeleteMessage(cb *tgbotapi.CallbackQuery, callbackD
 
 	current := cb.Message.ReplyMarkup.InlineKeyboard
 	if len(current) == 0 {
-		// No markup visible — delete the whole message.
-		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
-			slog.Error("delete message failed", "error", err)
-		}
+		// Telegram omitted the current markup from the payload — we cannot tell
+		// which buttons remain, so fall back to only removing the pressed button
+		// rather than risking deletion of a message that still has pending actions.
+		b.removeButtonsFromCallbackMessage(cb, callbackData...)
 		return
 	}
 
