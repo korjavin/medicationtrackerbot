@@ -1,4 +1,5 @@
 :root {
+    /* Telegram theme mirrors */
     --bg-color: var(--tg-theme-bg-color, #fff);
     --text-color: var(--tg-theme-text-color, #000);
     --hint-color: var(--tg-theme-hint-color, #888);
@@ -6,6 +7,82 @@
     --button-color: var(--tg-theme-button-color, #2481cc);
     --button-text-color: var(--tg-theme-button-text-color, #fff);
     --secondary-bg-color: var(--tg-theme-secondary-bg-color, #f0f0f0);
+
+    /* Semantic colors */
+    --color-success: #22c55e;
+    --color-warning: #f59e0b;
+    --color-danger: #ef4444;
+    --color-info: #3b82f6;
+
+    /* BP classification colors */
+    --color-bp-optimal: #22c55e;
+    --color-bp-normal: #4ECDC4;
+    --color-bp-high-normal: #eab308;
+    --color-bp-grade1: #f97316;
+    --color-bp-grade2: #ef4444;
+    --color-bp-grade3: #dc2626;
+
+    /* Chart colors */
+    --color-chart-primary: #667eea;
+    --color-chart-secondary: #764ba2;
+    --color-chart-accent: #4ECDC4;
+    --color-chart-highlight: #ffd700;
+
+    /* Sync status colors */
+    --color-sync-pending: #f59e0b;
+    --color-sync-success: #22c55e;
+    --color-sync-error: #ef4444;
+
+    /* Toast / alert colors */
+    --color-toast-success-bg: #d4edda;
+    --color-toast-success-text: #155724;
+    --color-toast-warning-bg: #fff3cd;
+    --color-toast-warning-text: #856404;
+    --color-toast-error-bg: #f8d7da;
+    --color-toast-error-text: #721c24;
+    --color-toast-info-bg: #e0f2fe;
+    --color-toast-info-text: #0c4a6e;
+
+    /* Overlay / backdrop colors */
+    --color-overlay: rgba(0, 0, 0, 0.5);
+    --color-overlay-light: rgba(0, 0, 0, 0.2);
+
+    /* Spacing tokens */
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 12px;
+    --space-lg: 16px;
+    --space-xl: 24px;
+    --space-2xl: 32px;
+
+    /* Border radius tokens */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 18px;
+    --radius-pill: 999px;
+
+    /* Shadow tokens */
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+
+    /* Typography tokens */
+    --font-size-xs: 11px;
+    --font-size-sm: 13px;
+    --font-size-md: 15px;
+    --font-size-lg: 18px;
+    --font-size-xl: 24px;
+    --font-weight-normal: 400;
+    --font-weight-medium: 500;
+    --font-weight-bold: 600;
+
+    /* Z-index tokens */
+    --z-dropdown: 100;
+    --z-overlay: 1000;
+    --z-modal: 1001;
+    --z-popover: 1002;
+    --z-toast: 1100;
 }
 
 body {

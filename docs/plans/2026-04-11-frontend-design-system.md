@@ -39,14 +39,14 @@ Establish a proper design token system and modernize the visual appearance of th
 ## Implementation Steps
 
 ### Task 1: Define design tokens (CSS custom properties)
-- [ ] Add color tokens to `:root` in `style.css`: `--color-success`, `--color-warning`, `--color-danger`, `--color-info`, and all BP classification colors, chart colors, sync status colors, toast colors
-- [ ] Add spacing tokens: `--space-xs: 4px`, `--space-sm: 8px`, `--space-md: 12px`, `--space-lg: 16px`, `--space-xl: 24px`, `--space-2xl: 32px`
-- [ ] Add border-radius tokens: `--radius-sm: 6px`, `--radius-md: 10px`, `--radius-lg: 14px`, `--radius-xl: 18px`, `--radius-pill: 999px`
-- [ ] Add shadow tokens: `--shadow-sm`, `--shadow-md`, `--shadow-lg` (3 levels)
-- [ ] Add typography tokens: `--font-size-xs: 11px`, `--font-size-sm: 13px`, `--font-size-md: 15px`, `--font-size-lg: 18px`, `--font-size-xl: 24px`, `--font-weight-normal: 400`, `--font-weight-medium: 500`, `--font-weight-bold: 600`
-- [ ] Add z-index tokens: `--z-dropdown: 100`, `--z-overlay: 1000`, `--z-modal: 1001`, `--z-popover: 1002`, `--z-toast: 1100`
-- [ ] Create `tests/architecture.design-tokens.test.js` that verifies `:root` block contains all expected token names
-- [ ] Run tests — must pass before next task
+- [x] Add color tokens to `:root` in `style.css`: `--color-success`, `--color-warning`, `--color-danger`, `--color-info`, and all BP classification colors, chart colors, sync status colors, toast colors
+- [x] Add spacing tokens: `--space-xs: 4px`, `--space-sm: 8px`, `--space-md: 12px`, `--space-lg: 16px`, `--space-xl: 24px`, `--space-2xl: 32px`
+- [x] Add border-radius tokens: `--radius-sm: 6px`, `--radius-md: 10px`, `--radius-lg: 14px`, `--radius-xl: 18px`, `--radius-pill: 999px`
+- [x] Add shadow tokens: `--shadow-sm`, `--shadow-md`, `--shadow-lg` (3 levels)
+- [x] Add typography tokens: `--font-size-xs: 11px`, `--font-size-sm: 13px`, `--font-size-md: 15px`, `--font-size-lg: 18px`, `--font-size-xl: 24px`, `--font-weight-normal: 400`, `--font-weight-medium: 500`, `--font-weight-bold: 600`
+- [x] Add z-index tokens: `--z-dropdown: 100`, `--z-overlay: 1000`, `--z-modal: 1001`, `--z-popover: 1002`, `--z-toast: 1100`
+- [x] Create `tests/architecture.design-tokens.test.js` that verifies `:root` block contains all expected token names
+- [x] Run tests — must pass before next task
 
 ### Task 2: Replace hardcoded colors in CSS with tokens
 - [ ] Replace all hardcoded hex colors in `style.css` with the corresponding CSS variable tokens from Task 1
