@@ -1584,8 +1584,8 @@ function updateFoodSelectUI() {
         if (!actionBtn) {
             actionBtn = document.createElement('button');
             actionBtn.id = 'food-save-meal-floating-btn';
-            actionBtn.className = 'primary shadow';
-            actionBtn.style.cssText = 'position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 1000; border-radius: 20px; padding: 10px 20px;';
+            actionBtn.className = 'btn btn-primary btn-pill';
+            actionBtn.style.cssText = 'position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 1000; box-shadow: var(--shadow-md);';
             actionBtn.addEventListener('click', openFoodSaveMealModal);
 
             // Append to food-view instead of document.body so it is automatically hidden when switching tabs
@@ -1775,13 +1775,12 @@ function renderFoodSummary(summaryEl, label, calories, carbs, protein, fat) {
 
     if (label === 'Daily Total') {
         const selectBtn = document.createElement('button');
-        selectBtn.className = 'secondary small-btn';
+        selectBtn.className = 'btn btn-sm btn-secondary';
         selectBtn.style.margin = '0';
-        selectBtn.style.padding = '4px 8px';
         selectBtn.style.border = '1px solid var(--border-color, #ccc)';
-        
+
         if (foodMultiSelectMode) {
-            selectBtn.classList.replace('secondary', 'primary');
+            selectBtn.classList.replace('btn-secondary', 'btn-primary');
             selectBtn.textContent = 'Cancel';
         } else {
             selectBtn.innerHTML = '&#9745; Select';

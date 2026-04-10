@@ -110,7 +110,7 @@ describe('app.js medication, history and intake flows', () => {
       const soonCard = Array.from(document.querySelectorAll('#med-list .med-item'))
         .find((el) => el.textContent.includes('Soon Med'));
       soonCard.querySelector('.icon-action-btn:not(.delete)').click(); // Edit button
-      soonCard.querySelector('.small-btn').click();
+      soonCard.querySelector('.btn-sm').click();
       soonCard.querySelector('.icon-action-btn.delete').click();
 
       expect(editSpy).toHaveBeenCalledWith(1);

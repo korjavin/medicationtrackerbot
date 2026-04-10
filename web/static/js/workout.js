@@ -1139,9 +1139,7 @@ function _renderExerciseLibrary(container, items) {
         }
 
         const deleteButton = document.createElement('button');
-        deleteButton.className = 'secondary';
-        deleteButton.style.padding = '4px 8px';
-        deleteButton.style.fontSize = '0.85em';
+        deleteButton.className = 'btn btn-sm btn-secondary';
         deleteButton.textContent = 'Delete';
         deleteButton.addEventListener('click', (event) => {
             deleteExerciseLibraryItem(item.id, event);
@@ -1929,7 +1927,7 @@ function closeWorkoutSessionModal() {
 }
 
 async function saveWorkoutSessionDetails() {
-    const saveButton = document.querySelector('#workout-session-modal .actions .primary');
+    const saveButton = document.querySelector('#workout-session-modal .actions .btn-primary');
     const originalText = saveButton.textContent;
 
     try {

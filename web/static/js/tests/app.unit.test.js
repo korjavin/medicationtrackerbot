@@ -137,7 +137,7 @@ describe('app.js unit tests', () => {
 
       foodProductModal.open();
       expect(foodProductModal.classList.contains('hidden')).toBe(false);
-      const foodProductCancelBtn = foodProductModal.querySelector('button.secondary');
+      const foodProductCancelBtn = foodProductModal.querySelector('button.btn-secondary');
       if (foodProductCancelBtn) foodProductCancelBtn.focus();
       foodProductModal.close();
       expect(foodProductModal.classList.contains('hidden')).toBe(true);

@@ -528,7 +528,7 @@ function initOIDCSetupBanner() {
     textWrap.appendChild(desc);
 
     const actionBtn = document.createElement('button');
-    actionBtn.className = 'secondary';
+    actionBtn.className = 'btn btn-secondary';
     actionBtn.style.margin = '0';
     actionBtn.innerText = 'Open';
     actionBtn.onclick = () => window.location.href = '/oidc-setup';
@@ -1402,7 +1402,7 @@ function addTimeInput(value = '') {
 
     const removeButton = document.createElement('button');
     removeButton.type = 'button';
-    removeButton.className = 'remove-time';
+    removeButton.className = 'btn btn-danger btn-icon remove-time';
     removeButton.textContent = '×';
     removeButton.addEventListener('click', () => {
         removeTime(removeButton);
@@ -1604,7 +1604,7 @@ function renderMeds() {
         actions.className = 'med-actions';
         const logBtn = document.createElement('button');
         logBtn.type = 'button';
-        logBtn.className = 'small-btn secondary';
+        logBtn.className = 'btn btn-sm btn-secondary';
         logBtn.textContent = 'Log';
         logBtn.addEventListener('click', () => {
             logMedicationPast(med.id, med.name);
@@ -2088,7 +2088,7 @@ async function renderNextIntakeTrigger() {
 
         const action = document.createElement('button');
         action.type = 'button';
-        action.className = 'btn-pill';
+        action.className = 'btn btn-pill';
         action.style.cssText = 'background: rgba(255,255,255,0.25); color: white; white-space: nowrap;';
         action.textContent = 'Take Now';
         action.addEventListener('click', () => {
