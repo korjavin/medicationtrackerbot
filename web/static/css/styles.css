@@ -47,6 +47,67 @@
     --color-overlay: rgba(0, 0, 0, 0.5);
     --color-overlay-light: rgba(0, 0, 0, 0.2);
 
+    /* BP category badge colors */
+    --color-bp-category-grade1-bg: #ffe5d5;
+    --color-bp-category-grade1-text: #c45a00;
+
+    /* Chart extra colors */
+    --color-chart-plan: #67e8f9;
+
+    /* Inventory badge */
+    --color-inventory-ok: #2d9c93;
+
+    /* Workout card gradients */
+    --color-workout-card-bg-start: #f5f7fa;
+    --color-workout-card-bg-end: #e8ecf1;
+    --color-workout-today-start: #f093fb;
+    --color-workout-today-end: #f5576c;
+    --color-workout-skipped-start: #fff3e0;
+    --color-workout-skipped-end: #ffe0b2;
+    --color-workout-skipped-accent: #e65100;
+
+    /* Status bar - offline */
+    --color-status-offline-bg-start: #fee2e2;
+    --color-status-offline-bg-end: #fecaca;
+    --color-status-offline-text: #991b1b;
+    --color-status-offline-border: #fca5a5;
+
+    /* Status bar - syncing */
+    --color-status-syncing-bg-start: #e0f2fe;
+    --color-status-syncing-bg-end: #bae6fd;
+    --color-status-syncing-text: #0369a1;
+    --color-status-syncing-border: #7dd3fc;
+
+    /* Status bar - pending */
+    --color-status-pending-bg-start: #fef3c7;
+    --color-status-pending-bg-end: #fde68a;
+    --color-status-pending-text: #92400e;
+    --color-status-pending-border: #fcd34d;
+
+    /* Sync toast solid backgrounds */
+    --color-toast-info-solid: #1e40af;
+    --color-toast-success-solid: #059669;
+    --color-toast-error-solid: #dc2626;
+
+    /* Data refresh banner */
+    --color-refresh-btn: #b45309;
+
+    /* UI / borders */
+    --color-border-divider: #ddd;
+    --color-toggle-inactive: #ccc;
+
+    /* Autocomplete */
+    --color-autocomplete-delete: #e53935;
+    --color-autocomplete-delete-light: #ffcdd2;
+
+    /* Food search status */
+    --color-food-status-success: #2e7d32;
+    --color-food-status-empty: #7a6a00;
+    --color-food-status-error: #c62828;
+
+    /* Scanner */
+    --color-scanner-bg: #000;
+
     /* Spacing tokens */
     --space-xs: 4px;
     --space-sm: 8px;
@@ -441,7 +502,7 @@ select {
 }
 
 .remove-time {
-    background: #ff3b30;
+    background: var(--color-danger);
     color: white;
     border: none;
     border-radius: 8px;
@@ -596,23 +657,23 @@ select {
 }
 
 .bp-category.normal {
-    background: #d4edda;
-    color: #155724;
+    background: var(--color-toast-success-bg);
+    color: var(--color-toast-success-text);
 }
 
 .bp-category.highnormal {
-    background: #fff3cd;
-    color: #856404;
+    background: var(--color-toast-warning-bg);
+    color: var(--color-toast-warning-text);
 }
 
 .bp-category.grade1 {
-    background: #ffe5d5;
-    color: #c45a00;
+    background: var(--color-bp-category-grade1-bg);
+    color: var(--color-bp-category-grade1-text);
 }
 
 .bp-category.grade2 {
-    background: #f8d7da;
-    color: #721c24;
+    background: var(--color-toast-error-bg);
+    color: var(--color-toast-error-text);
 }
 
 /* BP Date Groups */
@@ -715,14 +776,14 @@ svg.chart-svg {
 
 .chart-line {
     fill: none;
-    stroke: #4ECDC4;
+    stroke: var(--color-chart-accent);
     stroke-width: 3;
     stroke-linecap: round;
     stroke-linejoin: round;
 }
 
 .chart-point {
-    fill: #4ECDC4;
+    fill: var(--color-chart-accent);
     stroke: var(--bg-color);
     stroke-width: 2;
 }
@@ -746,13 +807,13 @@ svg.chart-svg {
 }
 
 .chart-goal-line {
-    stroke: #22c55e;
+    stroke: var(--color-success);
     stroke-width: 2;
     stroke-dasharray: 6 4;
 }
 
 .chart-plan-line {
-    stroke: #67e8f9;
+    stroke: var(--color-chart-plan);
     stroke-width: 2;
     opacity: 0.7;
 }
@@ -833,63 +894,63 @@ svg.chart-svg {
 }
 
 .bp-chart-systolic {
-    stroke: #22c55e;
+    stroke: var(--color-success);
     stroke-width: 2;
     fill: none;
 }
 
 .bp-chart-diastolic {
-    stroke: #3b82f6;
+    stroke: var(--color-info);
     stroke-width: 2;
     fill: none;
 }
 
 .bp-chart-pulse {
-    stroke: #ef4444;
+    stroke: var(--color-danger);
     stroke-width: 1.5;
     fill: none;
 }
 
 .bp-chart-target {
-    stroke: #f97316;
+    stroke: var(--color-bp-grade1);
     stroke-width: 1.5;
     stroke-dasharray: 6 4;
     opacity: 0.8;
 }
 
 .bp-chart-point-sys {
-    fill: #22c55e;
+    fill: var(--color-success);
 }
 
 .bp-chart-point-dia {
-    fill: #3b82f6;
+    fill: var(--color-info);
 }
 
 .bp-chart-point-pulse {
-    fill: #ef4444;
+    fill: var(--color-danger);
 }
 
 /* BP classification colors for points */
 .bp-chart-point-normal {
-    fill: #22c55e;
+    fill: var(--color-success);
     stroke: var(--bg-color);
     stroke-width: 2;
 }
 
 .bp-chart-point-highnormal {
-    fill: #eab308;
+    fill: var(--color-bp-high-normal);
     stroke: var(--bg-color);
     stroke-width: 2;
 }
 
 .bp-chart-point-grade1 {
-    fill: #f97316;
+    fill: var(--color-bp-grade1);
     stroke: var(--bg-color);
     stroke-width: 2;
 }
 
 .bp-chart-point-grade2 {
-    fill: #ef4444;
+    fill: var(--color-danger);
     stroke: var(--bg-color);
     stroke-width: 2;
 }
@@ -967,13 +1028,13 @@ svg.chart-svg {
     border-radius: 6px;
     font-size: 13px;
     background: rgba(78, 205, 196, 0.15);
-    color: #2d9c93;
+    color: var(--color-inventory-ok);
     margin-top: 6px;
 }
 
 .inventory-badge.low {
     background: rgba(255, 59, 48, 0.15);
-    color: #ff3b30;
+    color: var(--color-danger);
 }
 
 .restock-row {
@@ -1061,7 +1122,7 @@ svg.chart-svg {
     height: 120px;
     margin: 24px 0;
     overflow: hidden;
-    background: linear-gradient(to bottom, #f59e0b, #f59e0b);
+    background: linear-gradient(to bottom, var(--color-warning), var(--color-warning));
     border-radius: 12px;
     cursor: grab;
     user-select: none;
@@ -1172,30 +1233,30 @@ svg.chart-svg {
 
 /* Next Workout Card */
 .next-workout-card {
-    background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+    background: linear-gradient(135deg, var(--color-workout-card-bg-start) 0%, var(--color-workout-card-bg-end) 100%);
     border-radius: 12px;
     padding: 16px;
     margin-bottom: 20px;
-    border-left: 4px solid #667eea;
+    border-left: 4px solid var(--color-chart-primary);
 }
 
 .next-workout-card.notified,
 .next-workout-card.in-progress {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--color-chart-primary) 0%, var(--color-chart-secondary) 100%);
     color: white;
-    border-left: 4px solid #ffd700;
+    border-left: 4px solid var(--color-chart-highlight);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
 .next-workout-card.today {
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    background: linear-gradient(135deg, var(--color-workout-today-start) 0%, var(--color-workout-today-end) 100%);
     color: white;
-    border-left: 4px solid #fff;
+    border-left: 4px solid white;
 }
 
 .next-workout-card.pre-skipped {
-    background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
-    border-left: 4px solid #e65100;
+    background: linear-gradient(135deg, var(--color-workout-skipped-start) 0%, var(--color-workout-skipped-end) 100%);
+    border-left: 4px solid var(--color-workout-skipped-accent);
     opacity: 0.85;
 }
 
@@ -1220,7 +1281,7 @@ svg.chart-svg {
 }
 
 .next-workout-card.pre-skipped .next-workout-status {
-    color: #e65100;
+    color: var(--color-workout-skipped-accent);
 }
 
 .next-workout-date {
@@ -1266,21 +1327,21 @@ svg.chart-svg {
 }
 
 .sync-status-bar.offline {
-    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
-    color: #991b1b;
-    border: 1px solid #fca5a5;
+    background: linear-gradient(135deg, var(--color-status-offline-bg-start) 0%, var(--color-status-offline-bg-end) 100%);
+    color: var(--color-status-offline-text);
+    border: 1px solid var(--color-status-offline-border);
 }
 
 .sync-status-bar.syncing {
-    background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
-    color: #0369a1;
-    border: 1px solid #7dd3fc;
+    background: linear-gradient(135deg, var(--color-status-syncing-bg-start) 0%, var(--color-status-syncing-bg-end) 100%);
+    color: var(--color-status-syncing-text);
+    border: 1px solid var(--color-status-syncing-border);
 }
 
 .sync-status-bar.pending {
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-    color: #92400e;
-    border: 1px solid #fcd34d;
+    background: linear-gradient(135deg, var(--color-status-pending-bg-start) 0%, var(--color-status-pending-bg-end) 100%);
+    color: var(--color-status-pending-text);
+    border: 1px solid var(--color-status-pending-border);
 }
 
 .sync-status-bar.synced {
@@ -1317,15 +1378,15 @@ svg.chart-svg {
 
 /* Pending Sync Indicator on Items */
 .pending-sync {
-    border-left: 4px solid #f59e0b !important;
+    border-left: 4px solid var(--color-sync-pending) !important;
     position: relative;
 }
 
 .sync-pending-badge {
     display: inline-block;
     padding: 2px 6px;
-    background: #fef3c7;
-    color: #92400e;
+    background: var(--color-status-pending-bg-start);
+    color: var(--color-status-pending-text);
     font-size: 10px;
     font-weight: 600;
     border-radius: 4px;
@@ -1359,17 +1420,17 @@ svg.chart-svg {
 }
 
 .sync-toast.info {
-    background: #1e40af;
+    background: var(--color-toast-info-solid);
     color: white;
 }
 
 .sync-toast.success {
-    background: #059669;
+    background: var(--color-toast-success-solid);
     color: white;
 }
 
 .sync-toast.error {
-    background: #dc2626;
+    background: var(--color-toast-error-solid);
     color: white;
 }
 
@@ -1385,9 +1446,9 @@ svg.chart-svg {
     gap: 12px;
     padding: 10px 12px;
     border-radius: 10px;
-    border: 1px solid #fcd34d;
-    background: #fef3c7;
-    color: #92400e;
+    border: 1px solid var(--color-status-pending-border);
+    background: var(--color-status-pending-bg-start);
+    color: var(--color-status-pending-text);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
 }
 
@@ -1398,46 +1459,29 @@ svg.chart-svg {
 .data-refresh-banner button {
     border: none;
     border-radius: 999px;
-    background: #b45309;
-    color: #fff;
+    background: var(--color-refresh-btn);
+    color: white;
     font-weight: 600;
     padding: 6px 14px;
     cursor: pointer;
 }
 
-/* Dark mode adjustments */
+/* Dark mode token overrides */
 @media (prefers-color-scheme: dark) {
-    .sync-status-bar.offline {
-        background: linear-gradient(135deg, #450a0a 0%, #7f1d1d 100%);
-        color: #fecaca;
-        border-color: #b91c1c;
-    }
-
-    .sync-status-bar.syncing {
-        background: linear-gradient(135deg, #0c4a6e 0%, #075985 100%);
-        color: #bae6fd;
-        border-color: #0369a1;
-    }
-
-    .sync-status-bar.pending {
-        background: linear-gradient(135deg, #451a03 0%, #78350f 100%);
-        color: #fde68a;
-        border-color: #b45309;
-    }
-
-    .sync-pending-badge {
-        background: #78350f;
-        color: #fde68a;
-    }
-
-    .data-refresh-banner {
-        background: #451a03;
-        color: #fde68a;
-        border-color: #92400e;
-    }
-
-    .data-refresh-banner button {
-        background: #d97706;
+    :root {
+        --color-status-offline-bg-start: #450a0a;
+        --color-status-offline-bg-end: #7f1d1d;
+        --color-status-offline-text: #fecaca;
+        --color-status-offline-border: #b91c1c;
+        --color-status-syncing-bg-start: #0c4a6e;
+        --color-status-syncing-bg-end: #075985;
+        --color-status-syncing-text: #bae6fd;
+        --color-status-syncing-border: #0369a1;
+        --color-status-pending-bg-start: #451a03;
+        --color-status-pending-bg-end: #78350f;
+        --color-status-pending-text: #fde68a;
+        --color-status-pending-border: #b45309;
+        --color-refresh-btn: #d97706;
     }
 }
 
@@ -1454,7 +1498,7 @@ svg.chart-svg {
 
 .setting-item.setting-item-divider {
     margin-top: 20px;
-    border-top: 1px solid #ddd;
+    border-top: 1px solid var(--color-border-divider);
     padding-top: 20px;
 }
 
@@ -1653,7 +1697,7 @@ svg.chart-svg {
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: #ccc;
+    background-color: var(--color-toggle-inactive);
     transition: .4s;
     border-radius: 34px;
 }
@@ -1821,23 +1865,23 @@ input:checked+.toggle-slider:before {
 }
 
 .autocomplete-action-delete:hover {
-    color: #e53935;
-    border-color: #e53935;
+    color: var(--color-autocomplete-delete);
+    border-color: var(--color-autocomplete-delete);
 }
 
 .autocomplete-items div.autocomplete-item:hover {
     background-color: var(--link-color);
-    color: #ffffff;
+    color: white;
 }
 
 .autocomplete-items div.autocomplete-item:hover .autocomplete-action-btn {
-    color: #ffffff;
+    color: white;
     border-color: rgba(255, 255, 255, 0.5);
 }
 
 .autocomplete-items div.autocomplete-item:hover .autocomplete-action-delete:hover {
-    color: #ffcdd2;
-    border-color: #ffcdd2;
+    color: var(--color-autocomplete-delete-light);
+    border-color: var(--color-autocomplete-delete-light);
 }
 
 .autocomplete-close {
@@ -1885,19 +1929,19 @@ input:checked+.toggle-slider:before {
 
 .autocomplete-active {
     background-color: var(--link-color) !important;
-    color: #ffffff;
+    color: white;
 }
 
 .food-search-status.success {
-    color: #2e7d32;
+    color: var(--color-food-status-success);
 }
 
 .food-search-status.empty {
-    color: #7a6a00;
+    color: var(--color-food-status-empty);
 }
 
 .food-search-status.error {
-    color: #c62828;
+    color: var(--color-food-status-error);
 }
 
 @keyframes food-search-spin {
@@ -1938,7 +1982,7 @@ input:checked+.toggle-slider:before {
     width: 100%;
     min-height: 220px;
     max-height: 52vh;
-    background: #000;
+    background: var(--color-scanner-bg);
     border-radius: 10px;
     margin-bottom: 12px;
     object-fit: cover;

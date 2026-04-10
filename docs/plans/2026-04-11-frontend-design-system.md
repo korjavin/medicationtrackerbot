@@ -49,10 +49,10 @@ Establish a proper design token system and modernize the visual appearance of th
 - [x] Run tests — must pass before next task
 
 ### Task 2: Replace hardcoded colors in CSS with tokens
-- [ ] Replace all hardcoded hex colors in `style.css` with the corresponding CSS variable tokens from Task 1
-- [ ] Preserve Telegram theme variable references (`var(--tg-theme-*)`) — only replace app-specific hardcoded colors
-- [ ] Add test in `tests/architecture.design-tokens.test.js`: scan `style.css` for remaining hardcoded hex values (allowlist only Telegram fallback defaults in `:root`)
-- [ ] Run tests — must pass before next task
+- [x] Replace all hardcoded hex colors in `style.css` with the corresponding CSS variable tokens from Task 1
+- [x] Preserve Telegram theme variable references (`var(--tg-theme-*)`) — only replace app-specific hardcoded colors
+- [x] Add test in `tests/architecture.design-tokens.test.js`: scan `style.css` for remaining hardcoded hex values (allowlist only Telegram fallback defaults in `:root`)
+- [x] Run tests — must pass before next task
 
 ### Task 3: Consolidate button system
 - [ ] Define 4 button base classes: `.btn` (base reset), `.btn-primary`, `.btn-secondary`, `.btn-danger`
