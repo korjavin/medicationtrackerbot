@@ -433,10 +433,44 @@ self.addEventListener('notificationclick', (event) => {
             // Body click -> Open history tab
             event.waitUntil(clients.openWindow('/?tab=history'));
         }
+    } else if (data.type === 'tz_plan') {
+        const planId = data.plan_id;
+        if (action.startsWith('tz_plan_approve:')) {
+            event.waitUntil(handleTZPlanAction(planId, 'approve'));
+        } else if (action.startsWith('tz_plan_reject:')) {
+            event.waitUntil(handleTZPlanAction(planId, 'reject'));
+        } else {
+            // Body click -> Open settings
+            event.waitUntil(clients.openWindow('/?tab=settings'));
+        }
     } else {
         event.waitUntil(clients.openWindow('/'));
     }
 });
+
+async function handleTZPlanAction(planId, action) {
+    try {
+        const response = await fetch(`/api/tz-plan/${planId}/${action}`, { method: 'POST' });
+        if (response.ok) {
+            const label = action === 'approve' ? 'Approved' : 'Rejected';
+            await self.registration.showNotification(`Timezone Plan ${label}`, {
+                body: action === 'approve'
+                    ? 'Medication doses will shift as scheduled.'
+                    : 'Your original medication schedule is retained.',
+                icon: '/static/icons/icon-192.png',
+                tag: 'tz_plan_result'
+            });
+        } else {
+            await self.registration.showNotification('Timezone Plan Action Failed', {
+                body: 'Could not process your response. Please try again in the app.',
+                icon: '/static/icons/icon-192.png',
+                tag: 'tz_plan_result'
+            });
+        }
+    } catch (e) {
+        console.error('[SW] handleTZPlanAction failed', e);
+    }
+}
 
 async function handleCancelIntake(data) {
     // POST to API to cancel

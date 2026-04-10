@@ -109,12 +109,13 @@ func (s *Server) handleListMedications(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name       string     `json:"name"`
-		Dosage     string     `json:"dosage"`
-		Schedule   string     `json:"schedule"`
-		Supplement *bool      `json:"supplement"`
-		StartDate  *time.Time `json:"start_date"`
-		EndDate    *time.Time `json:"end_date"`
+		Name          string     `json:"name"`
+		Dosage        string     `json:"dosage"`
+		Schedule      string     `json:"schedule"`
+		Supplement    *bool      `json:"supplement"`
+		StartDate     *time.Time `json:"start_date"`
+		EndDate       *time.Time `json:"end_date"`
+		TZShiftPolicy string     `json:"tz_shift_policy"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -122,11 +123,17 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Validate tz_shift_policy before hitting the DB.
+	if req.TZShiftPolicy != "" && req.TZShiftPolicy != "flexible" && req.TZShiftPolicy != "medium" && req.TZShiftPolicy != "strict" {
+		http.Error(w, "Invalid tz_shift_policy: must be one of flexible, medium, strict", http.StatusBadRequest)
+		return
+	}
+
 	// 1. Search RxNorm
 	rxcui, normalizedName, _ := s.rxnorm.SearchRxNorm(req.Name)
 
 	// 2. Create in DB
-	id, err := s.meds.CreateMedication(req.Name, req.Dosage, req.Schedule, req.StartDate, req.EndDate, rxcui, normalizedName)
+	id, err := s.meds.CreateMedication(req.Name, req.Dosage, req.Schedule, req.StartDate, req.EndDate, rxcui, normalizedName, req.TZShiftPolicy)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -190,10 +197,17 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 		StartDate      *time.Time `json:"start_date"`
 		EndDate        *time.Time `json:"end_date"`
 		InventoryCount *int       `json:"inventory_count"`
+		TZShiftPolicy  string     `json:"tz_shift_policy"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Validate tz_shift_policy before hitting the DB.
+	if req.TZShiftPolicy != "" && req.TZShiftPolicy != "flexible" && req.TZShiftPolicy != "medium" && req.TZShiftPolicy != "strict" {
+		http.Error(w, "Invalid tz_shift_policy: must be one of flexible, medium, strict", http.StatusBadRequest)
 		return
 	}
 
@@ -222,7 +236,7 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	if err := s.meds.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate, rxcui, normalizedName, req.InventoryCount); err != nil {
+	if err := s.meds.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate, rxcui, normalizedName, req.InventoryCount, req.TZShiftPolicy); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

@@ -400,7 +400,7 @@ func TestHandleGetMedicationIntake_WithData(t *testing.T) {
 		t.Fatalf("SetMedicationEnabled: %v", err)
 	}
 
-	medID, err := st.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "")
+	medID, err := st.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication: %v", err)
 	}
@@ -443,8 +443,8 @@ func TestHandleGetMedicationIntake_FilterByName(t *testing.T) {
 	}
 
 	// Create two medications
-	med1ID, _ := st.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "")
-	med2ID, _ := st.CreateMedication("Ibuprofen", "200mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "")
+	med1ID, _ := st.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
+	med2ID, _ := st.CreateMedication("Ibuprofen", "200mg", `{"type":"daily","times":["08:00"]}`, nil, nil, "", "", "")
 
 	scheduledAt := time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC)
 	id1, _ := st.CreateIntake(med1ID, 123456, scheduledAt)

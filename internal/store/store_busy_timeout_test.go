@@ -41,7 +41,7 @@ func TestAddIntakeReminderConcurrentFileDB(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "")
+	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication failed: %v", err)
 	}

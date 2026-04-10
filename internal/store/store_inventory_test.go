@@ -17,7 +17,7 @@ func setupInventoryTestStore(t *testing.T) *Store {
 
 func createTestMedication(t *testing.T, s *Store, name, schedule string) int64 {
 	t.Helper()
-	id, err := s.CreateMedication(name, "10mg", schedule, nil, nil, "", "")
+	id, err := s.CreateMedication(name, "10mg", schedule, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("Failed to create medication %s: %v", name, err)
 	}

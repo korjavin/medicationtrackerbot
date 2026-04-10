@@ -19,6 +19,7 @@ import (
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/rxnorm"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -70,6 +71,9 @@ type Server struct {
 	mcpAuditSecret      string
 	lastMCPNotification time.Time
 	mcpAuditMutex       sync.Mutex
+	tzUpdateMu          sync.Mutex
+	tzPlanner           tzreschedule.PlannerService
+	tzPlanStore         TZPlanStore
 }
 
 type rateLimiter struct {
@@ -210,6 +214,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		push:            s,
 		miband:          s,
 		notes:           s,
+		tzPlanStore:     s,
 		rxnorm:          rxnorm.New(),
 		botToken:        botToken,
 		sessionSecret:   sessionSecret,
@@ -244,6 +249,11 @@ func (s *Server) SetMCPAuditSecret(secret string) {
 // SetNotifiers configures the notification channels after construction.
 func (s *Server) SetNotifiers(notifiers []notifier.Notifier) {
 	s.notifiers = notifiers
+}
+
+// SetTZPlanner configures the timezone transition plan generator after construction.
+func (s *Server) SetTZPlanner(p tzreschedule.PlannerService) {
+	s.tzPlanner = p
 }
 
 // deleteNotification deletes a previously sent notification from all notifiers.
@@ -508,6 +518,8 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/settings/features", s.handleGetFeatureSettings)
 	apiMux.HandleFunc("POST /api/settings/features/{feature}", s.handleSetFeatureEnabled)
 	apiMux.HandleFunc("POST /api/settings/tab-order", s.handleSetTabOrder)
+	apiMux.HandleFunc("POST /api/tz-plan/{id}/approve", s.handleTZPlanApprove)
+	apiMux.HandleFunc("POST /api/tz-plan/{id}/reject", s.handleTZPlanReject)
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
 	apiMux.HandleFunc("GET /api/notes", s.handleListNotes)
 	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)

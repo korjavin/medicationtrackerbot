@@ -3,17 +3,24 @@ package webpush
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SherClockHolmes/webpush-go"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
+
+// ErrNoSubscriptions is returned by SendNotification when the user has no
+// active push subscriptions. Callers that treat delivery to zero recipients
+// as a hard failure (e.g. the TZ plan notifier) can check for this error.
+var ErrNoSubscriptions = errors.New("webpush: no active push subscriptions")
 
 type Service struct {
 	store           *store.Store
@@ -236,7 +243,7 @@ func (s *Service) sendToUser(userID int64, payload NotificationPayload) error {
 	}
 
 	if len(subs) == 0 {
-		return nil
+		return ErrNoSubscriptions
 	}
 
 	payloadBytes, err := json.Marshal(payload)
@@ -244,17 +251,42 @@ func (s *Service) sendToUser(userID int64, payload NotificationPayload) error {
 		return err
 	}
 
-	// Send to all user subscriptions
+	// Send to all user subscriptions and wait for results.
+	// Return an error only if every subscription fails, so that a single stale
+	// endpoint does not suppress delivery to working endpoints.
+	var (
+		mu           sync.Mutex
+		successCount int
+		lastErr      error
+		wg           sync.WaitGroup
+	)
 	for _, sub := range subs {
+		wg.Add(1)
 		go func(subscription store.PushSubscription) {
-			s.sendToSubscription(subscription, payloadBytes)
+			defer wg.Done()
+			if err := s.sendToSubscription(subscription, payloadBytes); err != nil {
+				mu.Lock()
+				lastErr = err
+				mu.Unlock()
+				return
+			}
+			mu.Lock()
+			successCount++
+			mu.Unlock()
 		}(sub)
 	}
+	wg.Wait()
 
+	if successCount == 0 {
+		if lastErr != nil {
+			return lastErr
+		}
+		return fmt.Errorf("webpush: all subscription sends failed")
+	}
 	return nil
 }
 
-func (s *Service) sendToSubscription(sub store.PushSubscription, payload []byte) {
+func (s *Service) sendToSubscription(sub store.PushSubscription, payload []byte) error {
 	wpSub := &webpush.Subscription{
 		Endpoint: sub.Endpoint,
 		Keys: webpush.Keys{
@@ -310,7 +342,7 @@ func (s *Service) sendToSubscription(sub store.PushSubscription, payload []byte)
 	})
 	if err != nil {
 		slog.Error("WebPush error", "endpoint", sub.Endpoint, "error", err)
-		return
+		return err
 	}
 	defer resp.Body.Close()
 
@@ -320,6 +352,7 @@ func (s *Service) sendToSubscription(sub store.PushSubscription, payload []byte)
 		if err := s.store.DisablePushSubscription(sub.Endpoint); err != nil {
 			slog.Error("Failed to disable subscription", "error", err)
 		}
+		return fmt.Errorf("webpush: subscription gone: %s", sub.Endpoint)
 	} else if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		// Read response body for error details
 		bodyBytes, readErr := io.ReadAll(resp.Body)
@@ -328,7 +361,9 @@ func (s *Service) sendToSubscription(sub store.PushSubscription, payload []byte)
 		} else {
 			slog.Warn("WebPush unexpected status", "statusCode", resp.StatusCode, "endpoint", sub.Endpoint)
 		}
+		return fmt.Errorf("webpush: unexpected status %d for %s", resp.StatusCode, sub.Endpoint)
 	}
+	return nil
 }
 
 // SendEarlyIntakeConfirmation sends a confirmation notification when user takes medication early

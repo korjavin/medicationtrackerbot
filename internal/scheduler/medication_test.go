@@ -32,7 +32,8 @@ func (m *MockNotifier) CloseNotification(ctx context.Context, userID int64, tag 
 }
 
 type medicationScenarioInput struct {
-	Medications []struct {
+	UserTimezone string `json:"user_timezone"` // optional; if set, recorded in timezone_history
+	Medications  []struct {
 		Name      string  `json:"name"`
 		Dosage    string  `json:"dosage"`
 		Schedule  string  `json:"schedule"`
@@ -75,6 +76,12 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 			t.Fatalf("SetMedicationEnabled failed: %v", err)
 		}
 
+		if input.UserTimezone != "" {
+			if err := db.RecordTimezone(input.UserTimezone); err != nil {
+				t.Fatalf("RecordTimezone failed: %v", err)
+			}
+		}
+
 		nowTime, err := time.Parse(time.RFC3339, input.TimeNow)
 		if err != nil {
 			t.Fatalf("Failed to parse TimeNow: %v", err)
@@ -97,7 +104,7 @@ func TestMedicationCheckerScenarios(t *testing.T) {
 				}
 			}
 
-			id, err := db.CreateMedication(m.Name, m.Dosage, m.Schedule, sd, ed, "", "")
+			id, err := db.CreateMedication(m.Name, m.Dosage, m.Schedule, sd, ed, "", "", "")
 			if err != nil {
 				t.Fatalf("CreateMedication failed: %v", err)
 			}
