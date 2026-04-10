@@ -61,7 +61,7 @@ func TestHandleBootstrap(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	if _, err := db.CreateMedication("Bootstrap Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", ""); err != nil {
+	if _, err := db.CreateMedication("Bootstrap Med", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", ""); err != nil {
 		t.Fatalf("CreateMedication failed: %v", err)
 	}
 

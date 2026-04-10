@@ -33,7 +33,7 @@ func TestDeleteMessageUsesRequest(t *testing.T) {
 	defer env.teardown()
 
 	// Set up: create medication + intake + reminder record
-	medID, err := env.s.CreateMedication("Candecor", "16mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "")
+	medID, err := env.s.CreateMedication("Candecor", "16mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication failed: %v", err)
 	}

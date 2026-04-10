@@ -29,17 +29,17 @@ func TestHandleListMedications(t *testing.T) {
 	defer db.Close()
 
 	// 1. Create test data
-	_, err := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "")
+	_, err := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("Failed to create med: %v", err)
 	}
-	idB, err := db.CreateMedication("Med B", "20mg", "Wait", nil, nil, "", "")
+	idB, err := db.CreateMedication("Med B", "20mg", "Wait", nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("Failed to create med: %v", err)
 	}
 
 	// Archive one
-	err = db.UpdateMedication(idB, "Med B", "20mg", "Wait", true, nil, nil, "", "", nil)
+	err = db.UpdateMedication(idB, "Med B", "20mg", "Wait", true, nil, nil, "", "", nil, "")
 	if err != nil {
 		t.Fatalf("Failed to archive med: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestHandleUpdateMedication(t *testing.T) {
 	defer db.Close()
 
 	// Setup: Create a medication
-	id, _ := db.CreateMedication("Old Name", "10mg", "Wait", nil, nil, "", "")
+	id, _ := db.CreateMedication("Old Name", "10mg", "Wait", nil, nil, "", "", "")
 
 	// Test: Update it
 	reqBody := map[string]interface{}{
@@ -183,8 +183,8 @@ func TestHandleDeleteMedication(t *testing.T) {
 	defer db.Close()
 
 	// Setup: Create a medication without history and archive it
-	id, _ := db.CreateMedication("To Delete", "10mg", "Wait", nil, nil, "", "")
-	err := db.UpdateMedication(id, "To Delete", "10mg", "Wait", true, nil, nil, "", "", nil)
+	id, _ := db.CreateMedication("To Delete", "10mg", "Wait", nil, nil, "", "", "")
+	err := db.UpdateMedication(id, "To Delete", "10mg", "Wait", true, nil, nil, "", "", nil, "")
 	if err != nil {
 		t.Fatalf("Failed to archive med: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestHandleDeleteMedication(t *testing.T) {
 	}
 
 	// Setup: Create an active medication without history
-	idActive, _ := db.CreateMedication("Active Med", "10mg", "Wait", nil, nil, "", "")
+	idActive, _ := db.CreateMedication("Active Med", "10mg", "Wait", nil, nil, "", "", "")
 
 	// Test: Delete it should fail because it's not archived
 	urlActive := fmt.Sprintf("/api/medications/%d", idActive)
@@ -230,7 +230,7 @@ func TestHandleDeleteMedication(t *testing.T) {
 	}
 
 	// Setup: Create a medication with history
-	id2, _ := db.CreateMedication("With History", "10mg", "Wait", nil, nil, "", "")
+	id2, _ := db.CreateMedication("With History", "10mg", "Wait", nil, nil, "", "", "")
 	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
 	_, _ = db.CreateIntake(id2, 12345, scheduled)
 
@@ -258,7 +258,7 @@ func TestHandleSnoozeMedication(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "")
+	medID, _ := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "", "")
 	intakeID, _ := db.CreateIntake(medID, userID, time.Now())
 
 	reqBody := map[string]interface{}{
@@ -289,7 +289,7 @@ func TestHandleSkipMedication(t *testing.T) {
 	defer db.Close()
 
 	userID := int64(123456)
-	medID, _ := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "")
+	medID, _ := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "", "")
 	intakeID, _ := db.CreateIntake(medID, userID, time.Now())
 
 	reqBody := map[string]interface{}{
@@ -334,7 +334,7 @@ func TestHandleUpdateIntake(t *testing.T) {
 	defer db.Close()
 
 	// 1. Setup Data
-	medID, _ := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "")
+	medID, _ := db.CreateMedication("Med A", "10mg", "Wait", nil, nil, "", "", "")
 	userID := int64(123456)
 	schedule := time.Now().Add(-1 * time.Hour)
 	intakeID, _ := db.CreateIntake(medID, userID, schedule)

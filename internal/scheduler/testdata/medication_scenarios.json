@@ -3,6 +3,7 @@
     "name": "Pending intakes within window",
     "description": "Checks if intakes scheduled within the 15-minute window trigger notifications",
     "input": {
+      "user_timezone": "UTC",
       "medications": [
         {
           "name": "Aspirin",
@@ -23,6 +24,7 @@
     "name": "Already notified intakes",
     "description": "Ensures no duplicate notifications are sent for already notified intakes",
     "input": {
+      "user_timezone": "UTC",
       "medications": [
         {
           "name": "Aspirin",
@@ -49,6 +51,7 @@
     "name": "No upcoming intakes",
     "description": "Verifies no notifications are sent when no intakes are scheduled nearby",
     "input": {
+      "user_timezone": "UTC",
       "medications": [
         {
           "name": "Aspirin",

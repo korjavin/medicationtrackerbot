@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
@@ -29,6 +30,39 @@ func (h *NotifyHelper) Notify(ctx context.Context, n notifier.Notification, stor
 			}
 		}(nr)
 	}
+}
+
+// NotifySync sends a notification through all notifiers synchronously.
+// Returns nil if at least one notifier succeeds. Returns the last error if all fail.
+// If all notifiers fail with ErrNoDeliveryChannel, that sentinel is returned.
+// If any notifier fails with a different (transient) error, that error is returned
+// instead — so callers don't mistake a partial outage for "no delivery channel at all".
+func (h *NotifyHelper) NotifySync(ctx context.Context, n notifier.Notification, storeMsgID func(int)) error {
+	var lastTransientErr error
+	successCount := 0
+	allNoChannel := true
+	for _, nr := range h.notifiers {
+		msgID, err := nr.Send(ctx, h.allowedUserID, n)
+		if err != nil {
+			slog.Error("Notification send failed", "notifier", nr, "error", err)
+			if !errors.Is(err, notifier.ErrNoDeliveryChannel) {
+				allNoChannel = false
+				lastTransientErr = err
+			}
+			continue
+		}
+		successCount++
+		if msgID != 0 && storeMsgID != nil {
+			storeMsgID(msgID)
+		}
+	}
+	if successCount == 0 && len(h.notifiers) > 0 {
+		if allNoChannel {
+			return notifier.ErrNoDeliveryChannel
+		}
+		return lastTransientErr
+	}
+	return nil
 }
 
 // DeleteNotification deletes a previously sent notification from all notifiers.

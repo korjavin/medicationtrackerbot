@@ -12,7 +12,7 @@ func TestHandleCallback_SkipIntake(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
 
-	medID, err := env.s.CreateMedication("Magnesium", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID, err := env.s.CreateMedication("Magnesium", "200mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication failed: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestHandleCallback_SkipIntake_NonSupplement(t *testing.T) {
 	defer env.teardown()
 
 	// Non-supplement medication: skip must work since the supplement restriction was removed
-	medID, err := env.s.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "")
+	medID, err := env.s.CreateMedication("Aspirin", "100mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateMedication failed: %v", err)
 	}
