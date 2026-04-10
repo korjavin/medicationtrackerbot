@@ -287,6 +287,98 @@ describe('Architecture – design tokens', () => {
         }
     });
 
+    it('button system classes are defined in CSS', () => {
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+
+        const requiredButtonClasses = [
+            '.btn',
+            '.btn-primary',
+            '.btn-secondary',
+            '.btn-danger',
+            '.btn-danger-outline',
+            '.btn-ghost',
+            '.btn-sm',
+            '.btn-lg',
+            '.btn-pill',
+            '.btn-icon',
+            '.btn-fab',
+            '.btn-link',
+        ];
+
+        const missing = requiredButtonClasses.filter(cls => {
+            // Match class selector at start of line or after comma/space
+            const escaped = cls.replace('.', '\\.');
+            const re = new RegExp(`(?:^|[,\\s])${escaped}(?:[\\s,.:{[>~+]|$)`, 'm');
+            return !re.test(css);
+        });
+
+        if (missing.length > 0) {
+            throw new Error(
+                `Missing button system classes in styles.css:\n\n` +
+                missing.map(c => `  • ${c}`).join('\n')
+            );
+        }
+    });
+
+    it('no legacy button class names remain in CSS', () => {
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+
+        // Old button class names that should have been migrated
+        const legacyClasses = [
+            /(?:^|[,\s])\.primary(?=[\s,.:{[>~+]|$)/m,
+            /(?:^|[,\s])\.secondary(?=[\s,.:{[>~+]|$)/m,
+            /(?:^|[,\s])\.btn-add(?=[\s,.:{[>~+]|$)/m,
+            /(?:^|[,\s])\.small-btn(?=[\s,.:{[>~+]|$)/m,
+            /(?:^|[,\s])\.danger(?=[\s,.:{[>~+]|$)/m,
+            /(?:^|[,\s])\.text-btn(?=[\s,.:{[>~+]|$)/m,
+        ];
+
+        const found = [];
+        for (const re of legacyClasses) {
+            const match = css.match(re);
+            if (match) {
+                found.push(match[0].trim());
+            }
+        }
+
+        if (found.length > 0) {
+            throw new Error(
+                `Legacy button classes still defined in styles.css (should use new .btn system):\n\n` +
+                found.map(c => `  • ${c}`).join('\n')
+            );
+        }
+    });
+
+    it('no legacy button class names in index.html (except as part of new system)', () => {
+        const htmlPath = path.join(REPO_ROOT, 'web/static/index.html');
+        const html = fs.readFileSync(htmlPath, 'utf8');
+
+        // These old class names should not appear standalone in class attributes
+        const legacyPatterns = [
+            { name: 'class="primary"', re: /class="primary"/g },
+            { name: 'class="secondary"', re: /class="secondary"/g },
+            { name: 'class="danger"', re: /class="danger"/g },
+            { name: 'class="text-btn"', re: /class="text-btn"/g },
+            { name: 'class="small-btn"', re: /class="small-btn"/g },
+            { name: 'class="btn-add"', re: /class="btn-add"/g },
+        ];
+
+        const violations = [];
+        for (const { name, re } of legacyPatterns) {
+            if (re.test(html)) {
+                violations.push(name);
+            }
+        }
+
+        if (violations.length > 0) {
+            throw new Error(
+                `Legacy button class patterns found in index.html:\n\n` +
+                violations.map(v => `  • ${v}`).join('\n') +
+                `\n\nMigrate to new .btn system (e.g. class="btn btn-primary").`
+            );
+        }
+    });
+
     it('Telegram theme mirrors are preserved in :root', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
         const rootBlock = extractRootBlock(css);

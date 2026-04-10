@@ -55,14 +55,14 @@ Establish a proper design token system and modernize the visual appearance of th
 - [x] Run tests — must pass before next task
 
 ### Task 3: Consolidate button system
-- [ ] Define 4 button base classes: `.btn` (base reset), `.btn-primary`, `.btn-secondary`, `.btn-danger`
-- [ ] Define 3 size modifiers: `.btn-sm`, `.btn-md` (default), `.btn-lg`
-- [ ] Define shape modifiers: `.btn-pill`, `.btn-icon` (square icon-only)
-- [ ] Migrate existing 14 button classes to use the new system — update CSS selectors
-- [ ] Update all JS files that create buttons dynamically to use new class names
-- [ ] Update `index.html` button references
-- [ ] Add test: scan CSS for old button class names (should not exist except as aliases during migration)
-- [ ] Run tests — must pass before next task
+- [x] Define 4 button base classes: `.btn` (base reset), `.btn-primary`, `.btn-secondary`, `.btn-danger`
+- [x] Define 3 size modifiers: `.btn-sm`, `.btn-md` (default), `.btn-lg`
+- [x] Define shape modifiers: `.btn-pill`, `.btn-icon` (square icon-only)
+- [x] Migrate existing 14 button classes to use the new system — update CSS selectors
+- [x] Update all JS files that create buttons dynamically to use new class names
+- [x] Update `index.html` button references
+- [x] Add test: scan CSS for old button class names (should not exist except as aliases during migration)
+- [x] Run tests — must pass before next task
 
 ### Task 4: Replace spacing/radius/shadow hardcoded values in CSS
 - [ ] Replace padding/margin/gap values in `style.css` with spacing tokens (map each value to nearest token)
