@@ -128,8 +128,8 @@ Establish a proper design token system and modernize the visual appearance of th
 - [x] Verify test coverage meets project standard
 
 ### Task 11: [Final] Update documentation
-- [ ] Update CLAUDE.md if new CSS patterns or conventions need documenting
-- [ ] Add design token reference comment block at top of `style.css`
+- [x] Update CLAUDE.md if new CSS patterns or conventions need documenting
+- [x] Add design token reference comment block at top of `style.css`
 
 ## Technical Details
 
