@@ -44,14 +44,14 @@ Make the web app truly local-first: instant render from cached data, full offlin
 ### Task 1: Precache all static assets in Service Worker
 The SW `STATIC_ASSETS` array lists only 6 JS files but the app has ~25. Missing files fail to load offline.
 
-- [ ] Add all missing JS files to `STATIC_ASSETS` in `web/static/sw.js`:
+- [x] Add all missing JS files to `STATIC_ASSETS` in `web/static/sw.js`:
   - `core/utils.js`, `core/api.js`, `core/app-kernel.js`, `core/store.js`, `core/modal-manager.js`, `core/modal-controller.js`
   - `components/mt-elements.js`, `components/empty-state.js`, `components/stat-card.js`, `components/action-row.js`
   - `features/bp.js`, `features/weight.js`, `features/food.js`, `features/health.js`, `features/settings.js`, `features/auth-flow.js`, `features/bootstrap.js`, `features/deeplink-router.js`, `features/modal-history.js`, `features/tabs-dnd.js`
   - `app-shell.js`
-- [ ] Add vendor files if missing (check `index.html` for all `<script>` tags)
-- [ ] Write test verifying STATIC_ASSETS covers all scripts loaded by index.html
-- [ ] Run tests — must pass before next task
+- [x] Add vendor files if missing (check `index.html` for all `<script>` tags)
+- [x] Write test verifying STATIC_ASSETS covers all scripts loaded by index.html
+- [x] Run tests — must pass before next task
 
 ### Task 2: SW intercepts `/api/bootstrap` with stale-while-revalidate
 Instead of network-first (current), serve cached bootstrap instantly and refresh in background. Notify app when fresh data differs.
