@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#2481cc">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -31,13 +31,13 @@
 <body>
     <div id="app">
         <div id="tabs">
-            <button class="tab active" data-tab="bp">🩸</button>
-            <button class="tab" data-tab="weight">⚖️</button>
-            <button class="tab" data-tab="workouts">🏋️</button>
-            <button class="tab" data-tab="food">🍽️</button>
-            <button class="tab" data-tab="health">😴</button>
-            <button class="tab" data-tab="meds">💊</button>
-            <button class="tab" data-tab="settings">⚙️</button>
+            <button class="tab active" data-tab="bp" aria-label="Blood Pressure"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21c-4-4-8-7.5-8-11a5 5 0 0 1 9-3h0a5 5 0 0 1 9 3c0 3.5-4 7-8 11z"/><path d="M12 11v4"/><path d="M10 13h4"/></svg></button>
+            <button class="tab" data-tab="weight" aria-label="Weight"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M7 8V6a5 5 0 0 1 10 0v2"/><circle cx="12" cy="15" r="2"/></svg></button>
+            <button class="tab" data-tab="workouts" aria-label="Workouts"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5v14"/><path d="M18 5v14"/><path d="M6 12h12"/><rect x="2" y="7" width="4" height="10" rx="1"/><rect x="18" y="7" width="4" height="10" rx="1"/></svg></button>
+            <button class="tab" data-tab="food" aria-label="Food"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M4 6c0 5 3 8 8 8s8-3 8-8"/><path d="M12 14v7"/><path d="M8 21h8"/></svg></button>
+            <button class="tab" data-tab="health" aria-label="Health"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/></svg></button>
+            <button class="tab" data-tab="meds" aria-label="Medications"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="2" width="15" height="20" rx="3"/><path d="M4.5 12h15"/><circle cx="12" cy="7" r="1.5"/></svg></button>
+            <button class="tab" data-tab="settings" aria-label="Settings"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
         </div>
 
         <div id="meds-view" class="view active">
@@ -67,13 +67,13 @@
                 <div id="med-list">
                     <!-- Meds injected here -->
                 </div>
-                <button id="add-btn">+ Add Medication</button>
+                <button id="add-btn" class="btn btn-primary btn-pill btn-fab btn-lg">+ Add Medication</button>
             </div>
         </div>
 
         <div id="bp-view" class="view">
             <h3>Blood Pressure Readings</h3>
-            <button id="add-bp-btn" class="btn-add">+ Record BP</button>
+            <button id="add-bp-btn" class="btn btn-primary btn-pill btn-fab btn-lg">+ Record BP</button>
             <div id="bpChart"></div>
             <div id="bp-averages"></div>
             <ul id="bp-list"></ul>
@@ -81,7 +81,7 @@
 
         <div id="weight-view" class="view">
             <h3>Weight Tracking</h3>
-            <button id="add-weight-btn" class="btn-add">+ Log Weight</button>
+            <button id="add-weight-btn" class="btn btn-primary btn-pill btn-fab btn-lg">+ Log Weight</button>
             <div id="weightChart"></div>
             <div id="weight-stats"></div>
             <ul id="weight-list"></ul>
@@ -103,7 +103,7 @@
                 <!-- Next Workout Card -->
                 <div id="next-workout-card"></div>
 
-                <button id="start-adhoc-workout-btn" class="btn-add">💪 Start Ad-hoc Workout</button>
+                <button id="start-adhoc-workout-btn" class="btn btn-primary btn-pill btn-fab btn-lg">💪 Start Ad-hoc Workout</button>
                 <div id="workout-history-display">
                     Loading...
                 </div>
@@ -111,7 +111,7 @@
 
             <!-- Groups Management View -->
             <div id="workout-groups-tab" class="workout-tab-content">
-                <button id="add-workout-group-btn" class="btn-add">+ Add Workout Group</button>
+                <button id="add-workout-group-btn" class="btn btn-primary btn-pill btn-fab btn-lg">+ Add Workout Group</button>
                 <div id="workout-groups-list">
                     Loading workout groups...
                 </div>
@@ -119,7 +119,7 @@
 
             <!-- Exercises Library View -->
             <div id="workout-exercises-tab" class="workout-tab-content">
-                <button id="add-exercise-library-btn" class="btn-add">+ Add Exercise</button>
+                <button id="add-exercise-library-btn" class="btn btn-primary btn-pill btn-fab btn-lg">+ Add Exercise</button>
                 <div id="exercise-library-list">
                     Loading exercise library...
                 </div>
@@ -153,11 +153,11 @@
 
             <div id="food-log-tab" class="food-tab-content active">
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <button id="add-food-btn" class="btn-add" style="margin-bottom: 0; flex: 1;">+ Log Food</button>
+                    <button id="add-food-btn" class="btn btn-primary btn-pill btn-fab btn-lg" style="margin-bottom: 0; flex: 1;">+ Log Food</button>
                 </div>
 
                 <div class="food-date-nav">
-                    <button id="food-date-prev-btn" class="secondary food-date-shift-btn"
+                    <button id="food-date-prev-btn" class="btn btn-secondary food-date-shift-btn"
                         aria-label="Previous day">←</button>
                     <div style="position: relative; flex: 1;">
                         <input type="date" id="food-date-filter" style="width: 100%; box-sizing: border-box;">
@@ -166,8 +166,8 @@
                             style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--secondary-bg-color); color: var(--text-color); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 14px; pointer-events: none; border: 1px solid var(--border-color); border-radius: 8px;">
                         </div>
                     </div>
-                    <button id="food-date-next-btn" class="secondary food-date-shift-btn" aria-label="Next day">→</button>
-                    <button id="food-today-btn" class="food-today-chip" style="display: none;">Today</button>
+                    <button id="food-date-next-btn" class="btn btn-secondary food-date-shift-btn" aria-label="Next day">→</button>
+                    <button id="food-today-btn" class="food-today-chip hidden">Today</button>
                 </div>
 
                 <div id="food-target-progress" class="food-target-progress hidden"></div>
@@ -190,18 +190,18 @@
             <div id="food-fooddb-tab" class="food-tab-content">
                 <input type="text" id="fooddb-search" class="input-field" placeholder="Search products..." style="margin-bottom: 10px;">
                 <div class="fooddb-sort-controls" style="margin-bottom: 15px;">
-                    <button class="btn btn-small fooddb-sort-btn active" data-sort="usage">Most Used</button>
-                    <button class="btn btn-small fooddb-sort-btn" data-sort="last_used">Recently Used</button>
-                    <button class="btn btn-small fooddb-sort-btn" data-sort="name">A-Z</button>
+                    <button class="btn btn-sm btn-secondary btn-pill fooddb-sort-btn active" data-sort="usage">Most Used</button>
+                    <button class="btn btn-sm btn-secondary btn-pill fooddb-sort-btn" data-sort="last_used">Recently Used</button>
+                    <button class="btn btn-sm btn-secondary btn-pill fooddb-sort-btn" data-sort="name">A-Z</button>
                 </div>
                 <div id="fooddb-list">
                     <!-- Products injected here -->
                 </div>
-                <div id="fooddb-pagination" class="fooddb-pagination-controls" style="display: none;">
+                <div id="fooddb-pagination" class="fooddb-pagination-controls hidden">
                     <span id="fooddb-page-info">Showing 0-0 of 0</span>
                     <div class="pagination-buttons">
-                        <button id="fooddb-prev-btn" class="btn btn-small">Prev</button>
-                        <button id="fooddb-next-btn" class="btn btn-small">Next</button>
+                        <button id="fooddb-prev-btn" class="btn btn-sm btn-secondary">Prev</button>
+                        <button id="fooddb-next-btn" class="btn btn-sm btn-secondary">Next</button>
                     </div>
                 </div>
             </div>
@@ -218,7 +218,7 @@
                 <h4>My Notes</h4>
                 <div class="notes-add">
                     <textarea id="notes-textarea" placeholder="Write a note..." rows="3"></textarea>
-                    <button id="notes-save-btn" class="btn-primary">Save Note</button>
+                    <button id="notes-save-btn" class="btn btn-primary">Save Note</button>
                 </div>
                 <div id="notes-loading" style="display:none;">Loading notes...</div>
                 <ul id="notes-list" class="notes-list"></ul>
@@ -321,7 +321,7 @@
                             <input type="number" id="food-target-fat" min="0" placeholder="60">
                         </div>
                     </div>
-                    <button id="save-food-targets-btn" class="secondary" style="margin: 0;">Save Targets</button>
+                    <button id="save-food-targets-btn" class="btn btn-secondary" style="margin: 0;">Save Targets</button>
                 </div>
             </div>
 
@@ -330,9 +330,9 @@
                     <h3>Test Notifications</h3>
                     <p class="setting-desc">Simulate upcoming notifications</p>
                 </div>
-                <button id="test-med-notification-btn" class="secondary" style="margin: 0;">Test
+                <button id="test-med-notification-btn" class="btn btn-secondary" style="margin: 0;">Test
                     Meds</button>
-                <button id="test-bp-notification-btn" class="secondary" style="margin: 0; margin-left: 10px;">Test
+                <button id="test-bp-notification-btn" class="btn btn-secondary" style="margin: 0; margin-left: 10px;">Test
                     BP</button>
             </div>
             <div style="text-align:center;color:var(--hint-color);font-size:10px;padding:20px 10px 10px;">
@@ -347,8 +347,8 @@
         <div class="modal-header">
             <h3 id="workout-group-modal-title">Add Workout Group</h3>
             <div class="actions">
-                <button id="workout-group-cancel-btn" class="secondary">Cancel</button>
-                <button id="workout-group-save-btn" class="primary">Save</button>
+                <button id="workout-group-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button id="workout-group-save-btn" class="btn btn-primary">Save</button>
             </div>
         </div>
 
@@ -393,7 +393,7 @@
         <div id="workout-variants-section"
             style="display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
             <h4>Workout Variants</h4>
-            <button id="add-variant-btn" class="primary" style="margin-bottom: 10px;">+ Add Variant</button>
+            <button id="add-variant-btn" class="btn btn-primary" style="margin-bottom: 10px;">+ Add Variant</button>
             <div id="workout-variants-list"></div>
         </div>
 
@@ -401,7 +401,7 @@
         <div id="workout-group-flat-exercises-section"
             style="display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
             <h4>Exercises</h4>
-            <button id="add-flat-exercise-btn" class="primary" style="margin-bottom: 10px;">+ Add
+            <button id="add-flat-exercise-btn" class="btn btn-primary" style="margin-bottom: 10px;">+ Add
                 Exercise</button>
             <div id="workout-group-flat-exercises-list"></div>
         </div>
@@ -412,8 +412,8 @@
         <div class="modal-header">
             <h3 id="workout-variant-modal-title">Add Variant</h3>
             <div class="actions">
-                <button id="variant-cancel-btn" class="secondary">Cancel</button>
-                <button id="variant-save-btn" class="primary">Save</button>
+                <button id="variant-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button id="variant-save-btn" class="btn btn-primary">Save</button>
             </div>
         </div>
 
@@ -431,7 +431,7 @@
         <div id="workout-exercises-section"
             style="display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
             <h4>Exercises</h4>
-            <button id="variant-add-exercise-btn" class="primary" style="margin-bottom: 10px;">+ Add
+            <button id="variant-add-exercise-btn" class="btn btn-primary" style="margin-bottom: 10px;">+ Add
                 Exercise</button>
             <div id="workout-exercises-list"></div>
         </div>
@@ -442,8 +442,8 @@
         <div class="modal-header">
             <h3 id="workout-exercise-modal-title">Add Exercise</h3>
             <div class="actions">
-                <button id="exercise-cancel-btn" class="secondary">Cancel</button>
-                <button id="exercise-save-btn" class="primary">Save</button>
+                <button id="exercise-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button id="exercise-save-btn" class="btn btn-primary">Save</button>
             </div>
         </div>
 
@@ -480,8 +480,8 @@
         <div class="modal-header">
             <h3 id="exercise-library-modal-title">Add Exercise</h3>
             <div class="actions">
-                <button id="exercise-library-cancel-btn" class="secondary">Cancel</button>
-                <button id="exercise-library-save-btn" class="primary">Save</button>
+                <button id="exercise-library-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button id="exercise-library-save-btn" class="btn btn-primary">Save</button>
             </div>
         </div>
 
@@ -518,10 +518,9 @@
         <div class="modal-header">
             <h3 id="miband-workout-modal-title">Mi Band Workout</h3>
             <div class="actions">
-                <button id="miband-workout-delete-btn" class="secondary"
-                    style="color: #d32f2f; border-color: #ffcccb;">Delete</button>
-                <button id="miband-workout-cancel-btn" class="secondary">Cancel</button>
-                <button id="miband-workout-save-btn" class="primary">Save Changes</button>
+                <button id="miband-workout-delete-btn" class="btn btn-danger-outline">Delete</button>
+                <button id="miband-workout-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button id="miband-workout-save-btn" class="btn btn-primary">Save Changes</button>
             </div>
         </div>
         <input type="hidden" id="miband-workout-id">
@@ -562,10 +561,9 @@
         <div class="modal-header">
             <h3 id="workout-session-modal-title">Workout Details</h3>
             <div class="actions">
-                <button id="workout-session-delete-btn" class="secondary"
-                    style="color: #d32f2f; border-color: #ffcccb;">Delete</button>
-                <button id="workout-session-cancel-btn" class="secondary">Cancel</button>
-                <button id="workout-session-save-btn" class="primary">Save Changes</button>
+                <button id="workout-session-delete-btn" class="btn btn-danger-outline">Delete</button>
+                <button id="workout-session-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button id="workout-session-save-btn" class="btn btn-primary">Save Changes</button>
             </div>
         </div>
         <div id="workout-session-info"
@@ -576,8 +574,8 @@
         </div>
 
         <div style="margin-top: 15px; text-align: center;">
-            <button id="workout-session-add-exercise-btn" class="secondary"
-                style="width: 100%; border: 1px dashed #667eea; color: #667eea;">+ Add Exercise</button>
+            <button id="workout-session-add-exercise-btn" class="btn btn-secondary"
+                style="width: 100%; border: 1px dashed var(--color-chart-primary); color: var(--color-chart-primary);">+ Add Exercise</button>
         </div>
 
     </mt-modal>
@@ -587,8 +585,8 @@
         <div class="modal-header">
             <h3>Add Exercise to Session</h3>
             <div class="actions">
-                <button id="session-add-exercise-cancel-btn" class="secondary">Cancel</button>
-                <button id="session-add-exercise-save-btn" class="primary">Add</button>
+                <button id="session-add-exercise-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button id="session-add-exercise-save-btn" class="btn btn-primary">Add</button>
             </div>
         </div>
 
@@ -627,8 +625,8 @@
         <div class="modal-header">
             <h3 id="food-modal-title">Log Food</h3>
             <div class="actions">
-                <button id="food-modal-cancel-btn" class="secondary">Cancel</button>
-                <button id="food-modal-save-btn" class="primary">Save</button>
+                <button id="food-modal-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button id="food-modal-save-btn" class="btn btn-primary">Save</button>
             </div>
         </div>
         <input type="hidden" id="food-id">
@@ -703,8 +701,8 @@
         <div class="modal-header">
             <h3 id="food-scanner-title">Scan Barcode / QR</h3>
             <div class="actions">
-                <button type="button" id="food-scanner-use-photo-btn" class="secondary">Use Photo</button>
-                <button type="button" id="food-scanner-close-btn" class="secondary">Close</button>
+                <button type="button" id="food-scanner-use-photo-btn" class="btn btn-secondary">Use Photo</button>
+                <button type="button" id="food-scanner-close-btn" class="btn btn-secondary">Close</button>
             </div>
         </div>
         <p id="food-scanner-status" class="food-scanner-status">Point camera at barcode or QR.</p>
@@ -715,8 +713,8 @@
         <div class="modal-header">
             <h3>Edit Product</h3>
             <div class="actions">
-                <button id="food-product-cancel-btn" class="secondary">Cancel</button>
-                <button id="food-product-save-btn" class="primary">Save</button>
+                <button id="food-product-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button id="food-product-save-btn" class="btn btn-primary">Save</button>
             </div>
         </div>
         <input type="hidden" id="food-product-id">
@@ -762,8 +760,8 @@
         <div class="modal-header">
             <h3>Save as Meal</h3>
             <div class="actions">
-                <button id="food-save-meal-cancel-btn" class="secondary">Cancel</button>
-                <button id="food-save-meal-confirm-btn" class="primary">Save</button>
+                <button id="food-save-meal-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button id="food-save-meal-confirm-btn" class="btn btn-primary">Save</button>
             </div>
         </div>
         <p style="margin-bottom: 10px; font-size: 0.9em; color: var(--hint-color);">
@@ -781,8 +779,8 @@
         <div class="modal-header">
             <h3>Add Medication</h3>
             <div class="actions">
-                <button id="med-modal-cancel-btn" class="secondary">Cancel</button>
-                <button id="med-modal-save-btn" class="primary">Save</button>
+                <button id="med-modal-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button id="med-modal-save-btn" class="btn btn-primary">Save</button>
             </div>
         </div>
         <input type="text" id="med-name" placeholder="Name (e.g. Aspirin)">
@@ -814,10 +812,10 @@
             <div id="time-inputs">
                 <div class="time-row">
                     <input type="time" class="med-time-input">
-                    <button class="remove-time" id="initial-remove-time-btn">×</button>
+                    <button class="btn btn-danger btn-icon remove-time" id="initial-remove-time-btn">×</button>
                 </div>
             </div>
-            <button class="small-btn" id="add-time-btn">+ Add Time</button>
+            <button class="btn btn-link" id="add-time-btn">+ Add Time</button>
         </div>
 
         <div class="form-row">
@@ -843,7 +841,7 @@
                         <label for="restock-qty">Quick Restock:</label>
                         <div class="restock-row">
                             <input type="number" id="restock-qty" min="1" placeholder="Qty">
-                            <button type="button" class="small-btn" id="restock-add-btn">+ Add</button>
+                            <button type="button" class="btn btn-link" id="restock-add-btn">+ Add</button>
                         </div>
                     </div>
                     <div id="restock-history" class="restock-history"></div>
@@ -876,8 +874,8 @@
         <div class="modal-header">
             <h3 id="bp-modal-title">Record Blood Pressure</h3>
             <div class="actions">
-                <button type="button" id="bp-modal-cancel-btn" class="secondary">Cancel</button>
-                <button type="submit" form="bp-form" class="primary">Save</button>
+                <button type="button" id="bp-modal-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button type="submit" form="bp-form" class="btn btn-primary">Save</button>
             </div>
         </div>
         <form id="bp-form">
@@ -926,8 +924,8 @@
         <div class="modal-header">
             <h3>Log Weight</h3>
             <div class="actions">
-                <button type="button" id="weight-modal-cancel-btn" class="secondary">Cancel</button>
-                <button type="submit" form="weight-form" class="primary">Save</button>
+                <button type="button" id="weight-modal-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button type="submit" form="weight-form" class="btn btn-primary">Save</button>
             </div>
         </div>
         <form id="weight-form">
@@ -962,8 +960,8 @@
         <div class="modal-header">
             <h3 id="med-confirm-title">Time for Meds!</h3>
             <div class="actions">
-                <button id="med-confirm-dismiss-btn" class="secondary">Dismiss</button>
-                <button id="med-confirm-action-btn" class="primary">Confirm
+                <button id="med-confirm-dismiss-btn" class="btn btn-secondary">Dismiss</button>
+                <button id="med-confirm-action-btn" class="btn btn-primary">Confirm
                     Selected</button>
             </div>
         </div>
@@ -979,8 +977,8 @@
             <!-- Checkboxes injected here -->
         </div>
         <div class="actions" style="display: flex; gap: 10px; justify-content: space-between;">
-            <button id="med-confirm-snooze-btn" class="secondary" style="flex: 1;">Snooze 10m</button>
-            <button id="med-confirm-skip-btn" class="secondary" style="flex: 1; border-color: #ffcccb; color: #d32f2f;">Skip</button>
+            <button id="med-confirm-snooze-btn" class="btn btn-secondary" style="flex: 1;">Snooze 10m</button>
+            <button id="med-confirm-skip-btn" class="btn btn-danger-outline" style="flex: 1;">Skip</button>
         </div>
     </mt-modal>
 
@@ -990,14 +988,14 @@
         <p id="workout-start-subtitle" style="color: #666; margin-bottom: 20px;"></p>
 
         <div class="actions" style="flex-direction: column; gap: 10px;">
-            <button id="workout-start-now-btn" class="primary" style="width: 100%;">Start Workout</button>
-            <button id="workout-start-snooze-60-btn" class="secondary" style="width: 100%;">Snooze 1 hour</button>
-            <button id="workout-start-snooze-120-btn" class="secondary" style="width: 100%;">Snooze 2 hours</button>
-            <button id="workout-start-skip-btn" class="danger"
-                style="width: 100%; border-color: #ffcccb; color: #d32f2f;">Skip Workout</button>
+            <button id="workout-start-now-btn" class="btn btn-primary" style="width: 100%;">Start Workout</button>
+            <button id="workout-start-snooze-60-btn" class="btn btn-secondary" style="width: 100%;">Snooze 1 hour</button>
+            <button id="workout-start-snooze-120-btn" class="btn btn-secondary" style="width: 100%;">Snooze 2 hours</button>
+            <button id="workout-start-skip-btn" class="btn btn-danger-outline"
+                style="width: 100%;">Skip Workout</button>
         </div>
         <div style="margin-top: 15px; text-align: center;">
-            <button id="workout-start-dismiss-btn" class="text-btn" style="color: #999;">Dismiss</button>
+            <button id="workout-start-dismiss-btn" class="btn btn-ghost">Dismiss</button>
         </div>
     </mt-modal>
 

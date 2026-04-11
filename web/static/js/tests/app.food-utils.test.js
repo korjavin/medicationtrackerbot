@@ -285,7 +285,7 @@ describe('app.js food helpers', () => {
 
       expect(label.textContent).toBe('Today');
       expect(nextBtn.disabled).toBe(true);
-      expect(todayBtn.style.display).toBe('none');
+      expect(todayBtn.classList.contains('hidden')).toBe(true);
 
       // Test "Yesterday"
       filter.value = window.toISODateLocal(yesterday);
@@ -293,7 +293,7 @@ describe('app.js food helpers', () => {
 
       expect(label.textContent).toBe('Yesterday');
       expect(nextBtn.disabled).toBe(false);
-      expect(todayBtn.style.display).toBe('inline-flex');
+      expect(todayBtn.classList.contains('hidden')).toBe(false);
 
     } finally {
       cleanup();

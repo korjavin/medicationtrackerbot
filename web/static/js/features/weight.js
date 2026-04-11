@@ -338,7 +338,7 @@ function renderWeightChart(logs, goalData) {
 
     if (!logs || logs.length === 0) {
         const noDataSpan = document.createElement('span');
-        noDataSpan.style.cssText = "color:var(--hint-color);font-size:14px;";
+        noDataSpan.className = 'no-data-msg';
         noDataSpan.textContent = "No data available";
         container.appendChild(noDataSpan);
         return;
@@ -359,7 +359,7 @@ function renderWeightChart(logs, goalData) {
 
     if (periodLogs.length === 0) {
         const noPeriodSpan = document.createElement('span');
-        noPeriodSpan.style.cssText = "color:var(--hint-color);font-size:14px;";
+        noPeriodSpan.className = 'no-data-msg';
         noPeriodSpan.textContent = "No data in current period";
         container.replaceChildren(noPeriodSpan);
         return;
@@ -700,10 +700,8 @@ async function _renderWeightData(logsRes, goalRes) {
     }
 
     if (allLogs.length === 0 && logsRes === null) {
-        const errLi = document.createElement('li');
-        errLi.style.cssText = 'text-align:center;color:var(--hint-color);padding:20px;';
-        errLi.textContent = 'Failed to load weight logs';
-        list.replaceChildren(errLi);
+        list.replaceChildren(createEmptyState('Failed to load weight logs'));
+
         return;
     }
 
