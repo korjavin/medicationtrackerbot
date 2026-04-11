@@ -118,6 +118,8 @@ self.addEventListener('fetch', (event) => {
             caches.open(DYNAMIC_CACHE).then(async (cache) => {
                 const cachedResponse = await cache.match(event.request);
                 if (cachedResponse) {
+                    // Clone for comparison before respondWith consumes the body
+                    const cachedClone = cachedResponse.clone();
                     // Serve cached immediately, revalidate in background
                     event.waitUntil(
                         fetch(event.request)
@@ -125,7 +127,7 @@ self.addEventListener('fetch', (event) => {
                                 if (freshResponse.ok) {
                                     // Compare fresh vs cached — only notify clients if data changed
                                     const freshText = await freshResponse.clone().text();
-                                    const cachedText = await cachedResponse.clone().text();
+                                    const cachedText = await cachedClone.text();
                                     await cache.put(event.request, freshResponse.clone());
                                     if (freshText !== cachedText) {
                                         const freshData = JSON.parse(freshText);
