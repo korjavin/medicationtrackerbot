@@ -1255,12 +1255,6 @@ func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPS
 
 	return result, nil
 }
-
-func truncateToDayUTC(t time.Time) time.Time {
-	utc := t.UTC()
-	return time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
-}
-
 // truncateToDay returns midnight (start of day) in the given timezone.
 // This ensures day boundaries respect the user's local calendar, e.g. a reading
 // at 00:30 Europe/Berlin is on the correct local day, not the previous UTC day.
