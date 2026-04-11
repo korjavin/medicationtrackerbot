@@ -60,10 +60,10 @@ Validate, harden, and document the BP daily-weighted averaging algorithm in `Get
 - [x] Run `go test ./internal/store/...` — must pass before next task
 
 ### Task 3: Add algorithm documentation
-- [ ] Add block comment above `GetBPDailyWeightedStats` explaining the two-stage algorithm, why each day gets equal weight, and how measurement-frequency bias is mitigated
-- [ ] Add inline comments at key points: day aggregation loop, same-timestamp skip, day-boundary capping, period averaging
-- [ ] Document the timezone-aware day truncation behavior
-- [ ] Run `go test ./...` — must pass before next task
+- [x] Add block comment above `GetBPDailyWeightedStats` explaining the two-stage algorithm, why each day gets equal weight, and how measurement-frequency bias is mitigated
+- [x] Add inline comments at key points: day aggregation loop, same-timestamp skip, day-boundary capping, period averaging
+- [x] Document the timezone-aware day truncation behavior
+- [x] Run `go test ./...` — must pass before next task
 
 ### Task 4: Verify acceptance criteria
 - [ ] Verify all new tests pass and cover the user's real-world scenarios
