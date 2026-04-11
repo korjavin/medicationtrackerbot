@@ -559,7 +559,7 @@ document.getElementById('webpush-toggle').addEventListener('change', async funct
 
     if (this.checked) {
         status.innerText = "Requesting permission...";
-        status.className = "info";
+        status.className = '';
         const success = await window.MedTrackerPush.subscribe();
         if (success) {
             status.innerText = "Notifications enabled";
