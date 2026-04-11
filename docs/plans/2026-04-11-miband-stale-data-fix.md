@@ -110,13 +110,13 @@ Vitals tables (`vitals_heart`, `vitals_spo2`, `vitals_stress`) use millisecond-p
 - [x] Run `go test ./internal/store/...` — must pass before next task
 
 ### Task 4: Verify acceptance criteria
-- [ ] Verify all three import functions update stale data on re-import
-- [ ] Verify sleep logs only update when new data has higher total_minutes
-- [ ] Verify no duplicate rows are created in any table
-- [ ] Verify GPS tracks are not duplicated
-- [ ] Verify existing tests still pass (dedup behavior preserved for truly identical data)
-- [ ] Run full test suite (`go test ./...`)
-- [ ] Run `go vet ./...`
+- [x] Verify all three import functions update stale data on re-import
+- [x] Verify sleep logs only update when new data has higher total_minutes
+- [x] Verify no duplicate rows are created in any table
+- [x] Verify GPS tracks are not duplicated
+- [x] Verify existing tests still pass (dedup behavior preserved for truly identical data)
+- [x] Run full test suite (`go test ./...`)
+- [x] Run `go vet ./...`
 
 ### Task 5: [Final] Update documentation
 - [ ] Update CLAUDE.md import section if needed
