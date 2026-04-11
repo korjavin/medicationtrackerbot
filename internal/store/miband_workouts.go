@@ -1,10 +1,10 @@
 package store
 
 import (
-	"strings"
-
 	"context"
 	"database/sql"
+	"errors"
+	"strings"
 	"time"
 )
 
@@ -52,20 +52,164 @@ func (s *Store) CheckDuplicateMiBandWorkout(ctx context.Context, userID int64, s
 	return count > 0, nil
 }
 
-// InsertMiBandWorkout inserts a single workout (dedup by user_id + source_start_ms).
-// Returns inserted=true if a new row was created, inserted=false if deduplicated.
+// InsertMiBandWorkout inserts or updates a single workout (keyed by user_id + source_start_ms).
+// Returns inserted=true if a new row was created, inserted=false if an existing row was updated or no-op.
 func (s *Store) InsertMiBandWorkout(ctx context.Context, w *MiBandWorkout) (bool, error) {
 	src := w.Source
 	if src == "" {
 		src = "device"
 	}
-	res, err := s.db.ExecContext(ctx, `
+
+	// Use BEGIN IMMEDIATE to acquire write lock before SELECT, preventing TOCTOU race.
+	// A deferred transaction (BeginTx nil) only acquires a SHARED lock on SELECT,
+	// allowing another writer to insert between SELECT and UPSERT.
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return false, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			// Use context.Background: cleanup must execute even if the caller's context is canceled,
+			// otherwise the IMMEDIATE transaction can strand and hold the SQLite write lock.
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
+	// Check existence inside the IMMEDIATE transaction — write lock prevents race.
+	var existingID int64
+	err = conn.QueryRowContext(ctx, `
+		SELECT id FROM miband_workouts WHERE user_id = ? AND source_start_ms = ?`,
+		w.UserID, w.SourceStartMs).Scan(&existingID)
+	isNew := errors.Is(err, sql.ErrNoRows)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+
+	res, err := conn.ExecContext(ctx, `
 		INSERT INTO miband_workouts
 			(user_id, source_start_ms, source_end_ms, activity_type, activity_name,
 			 duration_sec, distance_m, steps, calories, heart_rate_avg, spo2_avg,
 			 pause_ms, tz_offset, source)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(user_id, source_start_ms) DO NOTHING`,
+		ON CONFLICT(user_id, source_start_ms) DO UPDATE SET
+			source_end_ms=excluded.source_end_ms,
+			activity_type=CASE WHEN excluded.activity_type != 0 THEN excluded.activity_type ELSE miband_workouts.activity_type END,
+			activity_name=CASE WHEN excluded.activity_name != '' THEN excluded.activity_name ELSE miband_workouts.activity_name END,
+			duration_sec=CASE WHEN excluded.duration_sec != 0 THEN excluded.duration_sec ELSE miband_workouts.duration_sec END,
+			distance_m=CASE WHEN excluded.distance_m != 0 THEN excluded.distance_m ELSE miband_workouts.distance_m END,
+			steps=CASE WHEN excluded.steps != 0 THEN excluded.steps ELSE miband_workouts.steps END,
+			calories=CASE WHEN excluded.calories != 0 THEN excluded.calories ELSE miband_workouts.calories END,
+			heart_rate_avg=CASE WHEN excluded.heart_rate_avg != 0 THEN excluded.heart_rate_avg ELSE miband_workouts.heart_rate_avg END,
+			spo2_avg=CASE WHEN excluded.spo2_avg != 0 THEN excluded.spo2_avg ELSE miband_workouts.spo2_avg END,
+			pause_ms=CASE WHEN excluded.pause_ms != 0 THEN excluded.pause_ms ELSE miband_workouts.pause_ms END,
+			tz_offset=CASE WHEN excluded.tz_offset != 0 THEN excluded.tz_offset ELSE miband_workouts.tz_offset END,
+			source=CASE WHEN excluded.source != '' THEN excluded.source ELSE miband_workouts.source END
+		WHERE COALESCE(excluded.source_end_ms, 0) >= COALESCE(miband_workouts.source_end_ms, 0)`,
+		w.UserID, w.SourceStartMs, w.SourceEndMs, w.ActivityType, w.ActivityName,
+		w.DurationSec, w.DistanceM, w.Steps, w.Calories, w.HeartRateAvg, w.SpO2Avg,
+		w.PauseMs, w.TzOffset, src,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	if isNew {
+		w.ID, _ = res.LastInsertId()
+	} else {
+		w.ID = existingID
+	}
+
+	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
+		return false, err
+	}
+	committed = true
+
+	return isNew, nil
+}
+
+// ImportMiBandWorkouts inserts or updates workouts (keyed by user_id + source_start_ms).
+// GPS tracks are only inserted for new workouts (not re-imported on update).
+// Returns (imported, skipped, error). imported counts only new inserts;
+// updates to existing rows (richer data) are silent (neither imported nor skipped).
+func (s *Store) ImportMiBandWorkouts(ctx context.Context, workouts []MiBandWorkout, gpsTracks map[int64][]MiBandGPSPoint) (int, int, error) {
+	imported := 0
+	skipped := 0
+
+	for i := range workouts {
+		w := &workouts[i]
+
+		isNew, err := s.importSingleWorkout(ctx, w, gpsTracks)
+		if err != nil {
+			return imported, skipped, err
+		}
+		if isNew {
+			imported++
+		} else {
+			skipped++
+		}
+	}
+
+	return imported, skipped, nil
+}
+
+// importSingleWorkout handles a single workout within ImportMiBandWorkouts.
+// Returns isNew=true if a new row was inserted, false if updated/skipped.
+func (s *Store) importSingleWorkout(ctx context.Context, w *MiBandWorkout, gpsTracks map[int64][]MiBandGPSPoint) (bool, error) {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return false, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
+	var existingID int64
+	err = conn.QueryRowContext(ctx, `
+		SELECT id FROM miband_workouts WHERE user_id = ? AND source_start_ms = ?`,
+		w.UserID, w.SourceStartMs).Scan(&existingID)
+	isNew := errors.Is(err, sql.ErrNoRows)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+
+	src := w.Source
+	if src == "" {
+		src = "device"
+	}
+	res, err := conn.ExecContext(ctx, `
+		INSERT INTO miband_workouts
+			(user_id, source_start_ms, source_end_ms, activity_type, activity_name,
+			 duration_sec, distance_m, steps, calories, heart_rate_avg, spo2_avg,
+			 pause_ms, tz_offset, source)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(user_id, source_start_ms) DO UPDATE SET
+			source_end_ms=excluded.source_end_ms,
+			activity_type=CASE WHEN excluded.activity_type != 0 THEN excluded.activity_type ELSE miband_workouts.activity_type END,
+			activity_name=CASE WHEN excluded.activity_name != '' THEN excluded.activity_name ELSE miband_workouts.activity_name END,
+			duration_sec=CASE WHEN excluded.duration_sec != 0 THEN excluded.duration_sec ELSE miband_workouts.duration_sec END,
+			distance_m=CASE WHEN excluded.distance_m != 0 THEN excluded.distance_m ELSE miband_workouts.distance_m END,
+			steps=CASE WHEN excluded.steps != 0 THEN excluded.steps ELSE miband_workouts.steps END,
+			calories=CASE WHEN excluded.calories != 0 THEN excluded.calories ELSE miband_workouts.calories END,
+			heart_rate_avg=CASE WHEN excluded.heart_rate_avg != 0 THEN excluded.heart_rate_avg ELSE miband_workouts.heart_rate_avg END,
+			spo2_avg=CASE WHEN excluded.spo2_avg != 0 THEN excluded.spo2_avg ELSE miband_workouts.spo2_avg END,
+			pause_ms=CASE WHEN excluded.pause_ms != 0 THEN excluded.pause_ms ELSE miband_workouts.pause_ms END,
+			tz_offset=CASE WHEN excluded.tz_offset != 0 THEN excluded.tz_offset ELSE miband_workouts.tz_offset END,
+			source=CASE WHEN excluded.source != '' THEN excluded.source ELSE miband_workouts.source END
+		WHERE COALESCE(excluded.source_end_ms, 0) >= COALESCE(miband_workouts.source_end_ms, 0)`,
 		w.UserID, w.SourceStartMs, w.SourceEndMs, w.ActivityType, w.ActivityName,
 		w.DurationSec, w.DistanceM, w.Steps, w.Calories, w.HeartRateAvg, w.SpO2Avg,
 		w.PauseMs, w.TzOffset, src,
@@ -78,155 +222,103 @@ func (s *Store) InsertMiBandWorkout(ctx context.Context, w *MiBandWorkout) (bool
 	if err != nil {
 		return false, err
 	}
-
 	if rowsAffected == 0 {
+		// WHERE clause rejected — existing data is newer. Rollback via defer.
 		return false, nil
 	}
 
-	lastID, err := res.LastInsertId()
-	if err == nil {
-		w.ID = lastID
+	workoutID, err := res.LastInsertId()
+	if err != nil {
+		return false, err
 	}
 
-	return true, nil
+	if isNew {
+		if err := s.insertGPSBatched(ctx, conn, workoutID, gpsTracks[w.SourceStartMs]); err != nil {
+			return false, err
+		}
+	}
+
+	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
+		return false, err
+	}
+	committed = true
+
+	return isNew, nil
 }
 
-// ImportMiBandWorkouts inserts workouts that don't already exist (dedup by user_id + source_start_ms).
-// GPS tracks are inserted inside the same transaction.
-// Returns (imported, skipped, error).
-func (s *Store) ImportMiBandWorkouts(ctx context.Context, workouts []MiBandWorkout, gpsTracks map[int64][]MiBandGPSPoint) (int, int, error) {
-	imported := 0
-	skipped := 0
-
-	for i := range workouts {
-		w := &workouts[i]
-
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return imported, skipped, err
-		}
-
-		src := w.Source
-		if src == "" {
-			src = "device"
-		}
-		res, err := tx.ExecContext(ctx, `
-			INSERT INTO miband_workouts
-				(user_id, source_start_ms, source_end_ms, activity_type, activity_name,
-				 duration_sec, distance_m, steps, calories, heart_rate_avg, spo2_avg,
-				 pause_ms, tz_offset, source)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(user_id, source_start_ms) DO NOTHING`,
-			w.UserID, w.SourceStartMs, w.SourceEndMs, w.ActivityType, w.ActivityName,
-			w.DurationSec, w.DistanceM, w.Steps, w.Calories, w.HeartRateAvg, w.SpO2Avg,
-			w.PauseMs, w.TzOffset, src,
-		)
-		if err != nil {
-			_ = tx.Rollback()
-			return imported, skipped, err
-		}
-
-		rowsAffected, err := res.RowsAffected()
-		if err != nil {
-			_ = tx.Rollback()
-			return imported, skipped, err
-		}
-
-		if rowsAffected == 0 {
-			_ = tx.Rollback()
-			skipped++
-			continue
-		}
-
-		workoutID, err := res.LastInsertId()
-		if err != nil {
-			_ = tx.Rollback()
-			return imported, skipped, err
-		}
-
-		// Insert GPS track points if any
-		if pts, ok := gpsTracks[w.SourceStartMs]; ok && len(pts) > 0 {
-			batchSize := 50
-
-			// Build the base query string for exactly batchSize once
-			var fullBatchBuilder strings.Builder
-			fullBatchBuilder.Grow(115 + batchSize*25)
-			fullBatchBuilder.WriteString("INSERT INTO miband_gps_tracks (workout_id, point_index, ts_ms, latitude, longitude, altitude, is_pause) VALUES ")
-			for i := 0; i < batchSize; i++ {
-				if i > 0 {
-					fullBatchBuilder.WriteString(", ")
-				}
-				fullBatchBuilder.WriteString("(?, ?, ?, ?, ?, ?, ?)")
-			}
-			fullBatchQuery := fullBatchBuilder.String()
-			fullStmt, err := tx.PrepareContext(ctx, fullBatchQuery)
-			if err != nil {
-				_ = tx.Rollback()
-				return imported, skipped, err
-			}
-
-			args := make([]interface{}, batchSize*7)
-			for start := 0; start < len(pts); start += batchSize {
-				end := start + batchSize
-				isFullBatch := true
-
-				if end > len(pts) {
-					end = len(pts)
-					isFullBatch = false
-				}
-
-				batchPts := pts[start:end]
-
-				for i, pt := range batchPts {
-					isPause := 0
-					if pt.IsPause {
-						isPause = 1
-					}
-					idx := i * 7
-					args[idx] = workoutID
-					args[idx+1] = start + i
-					args[idx+2] = pt.TsMs
-					args[idx+3] = pt.Latitude
-					args[idx+4] = pt.Longitude
-					args[idx+5] = pt.Altitude
-					args[idx+6] = isPause
-				}
-
-				if isFullBatch {
-					if _, err := fullStmt.ExecContext(ctx, args...); err != nil {
-						_ = fullStmt.Close()
-						_ = tx.Rollback()
-						return imported, skipped, err
-					}
-				} else {
-					// Remainder batch
-					remainder := end - start
-					var remBuilder strings.Builder
-					remBuilder.Grow(115 + remainder*25)
-					remBuilder.WriteString("INSERT INTO miband_gps_tracks (workout_id, point_index, ts_ms, latitude, longitude, altitude, is_pause) VALUES ")
-					for i := 0; i < remainder; i++ {
-						if i > 0 {
-							remBuilder.WriteString(", ")
-						}
-						remBuilder.WriteString("(?, ?, ?, ?, ?, ?, ?)")
-					}
-					if _, err := tx.ExecContext(ctx, remBuilder.String(), args[:remainder*7]...); err != nil {
-						_ = fullStmt.Close()
-						_ = tx.Rollback()
-						return imported, skipped, err
-					}
-				}
-			}
-			_ = fullStmt.Close()
-		}
-
-		if err := tx.Commit(); err != nil {
-			return imported, skipped, err
-		}
-		imported++
+// insertGPSBatched inserts GPS track points in batches within an existing transaction.
+func (s *Store) insertGPSBatched(ctx context.Context, conn *sql.Conn, workoutID int64, pts []MiBandGPSPoint) error {
+	if len(pts) == 0 {
+		return nil
 	}
 
-	return imported, skipped, nil
+	batchSize := 50
+
+	var fullBatchBuilder strings.Builder
+	fullBatchBuilder.Grow(115 + batchSize*25)
+	fullBatchBuilder.WriteString("INSERT INTO miband_gps_tracks (workout_id, point_index, ts_ms, latitude, longitude, altitude, is_pause) VALUES ")
+	for i := 0; i < batchSize; i++ {
+		if i > 0 {
+			fullBatchBuilder.WriteString(", ")
+		}
+		fullBatchBuilder.WriteString("(?, ?, ?, ?, ?, ?, ?)")
+	}
+	fullBatchQuery := fullBatchBuilder.String()
+	fullStmt, err := conn.PrepareContext(ctx, fullBatchQuery)
+	if err != nil {
+		return err
+	}
+	defer fullStmt.Close()
+
+	args := make([]interface{}, batchSize*7)
+	for start := 0; start < len(pts); start += batchSize {
+		end := start + batchSize
+		isFullBatch := true
+
+		if end > len(pts) {
+			end = len(pts)
+			isFullBatch = false
+		}
+
+		batchPts := pts[start:end]
+
+		for i, pt := range batchPts {
+			isPause := 0
+			if pt.IsPause {
+				isPause = 1
+			}
+			idx := i * 7
+			args[idx] = workoutID
+			args[idx+1] = start + i
+			args[idx+2] = pt.TsMs
+			args[idx+3] = pt.Latitude
+			args[idx+4] = pt.Longitude
+			args[idx+5] = pt.Altitude
+			args[idx+6] = isPause
+		}
+
+		if isFullBatch {
+			if _, err := fullStmt.ExecContext(ctx, args...); err != nil {
+				return err
+			}
+		} else {
+			remainder := end - start
+			var remBuilder strings.Builder
+			remBuilder.Grow(115 + remainder*25)
+			remBuilder.WriteString("INSERT INTO miband_gps_tracks (workout_id, point_index, ts_ms, latitude, longitude, altitude, is_pause) VALUES ")
+			for i := 0; i < remainder; i++ {
+				if i > 0 {
+					remBuilder.WriteString(", ")
+				}
+				remBuilder.WriteString("(?, ?, ?, ?, ?, ?, ?)")
+			}
+			if _, err := conn.ExecContext(ctx, remBuilder.String(), args[:remainder*7]...); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // ListMiBandWorkouts returns the most recent outdoor workouts for the given user (last 90 days).

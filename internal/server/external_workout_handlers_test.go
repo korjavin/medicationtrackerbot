@@ -133,7 +133,7 @@ func TestHandleExternalWorkout(t *testing.T) {
 			},
 			wantStatus:    http.StatusOK,
 			wantRespKey:   "status",
-			wantRespValue: "duplicate",
+			wantRespValue: "exists",
 		},
 		{
 			name:       "valid request - deduplicated workout (fuzzy seconds)",
@@ -150,7 +150,7 @@ func TestHandleExternalWorkout(t *testing.T) {
 			},
 			wantStatus:    http.StatusOK,
 			wantRespKey:   "status",
-			wantRespValue: "duplicate",
+			wantRespValue: "exists",
 		},
 		{
 			name:       "timestamp in ms",

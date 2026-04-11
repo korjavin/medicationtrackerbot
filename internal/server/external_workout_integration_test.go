@@ -78,8 +78,8 @@ func TestExternalWorkoutIntegration_FuzzyDedup(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
-	if resp["status"] != "duplicate" {
-		t.Errorf("expected status=duplicate, got %v", resp["status"])
+	if resp["status"] != "exists" {
+		t.Errorf("expected status=exists, got %v", resp["status"])
 	}
 
 	// 3. Verify no second row was created
