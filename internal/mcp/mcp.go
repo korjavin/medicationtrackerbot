@@ -160,7 +160,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "get_blood_pressure",
-			Description: "Retrieve blood pressure readings for a date range. Returns systolic, diastolic, pulse, and category for each reading. Maximum 90 days per query.",
+			Description: "Retrieve blood pressure readings for a date range. Returns systolic, diastolic, pulse, and category for each reading. Includes diary notes from the same period for context. Pass exclude_notes=true to suppress. Maximum 90 days per query.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -171,6 +171,10 @@ func (s *Server) registerTools() {
 					"end_date": {
 						"type": "string",
 						"description": "End date in YYYY-MM-DD format. Defaults to today if omitted."
+					},
+					"exclude_notes": {
+						"type": "boolean",
+						"description": "If true, omit diary notes from the response. Defaults to false."
 					}
 				}
 			}`),
@@ -182,7 +186,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "get_weight",
-			Description: "Retrieve weight logs for a date range. Returns weight, trend, and body fat if available. Maximum 90 days per query.",
+			Description: "Retrieve weight logs for a date range. Returns weight, trend, and body fat if available. Includes diary notes from the same period for context. Pass exclude_notes=true to suppress. Maximum 90 days per query.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -193,6 +197,10 @@ func (s *Server) registerTools() {
 					"end_date": {
 						"type": "string",
 						"description": "End date in YYYY-MM-DD format. Defaults to today if omitted."
+					},
+					"exclude_notes": {
+						"type": "boolean",
+						"description": "If true, omit diary notes from the response. Defaults to false."
 					}
 				}
 			}`),
@@ -204,7 +212,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "get_medication_intake",
-			Description: "Retrieve medication intake history for a date range. Returns medication names, dosages, scheduled and taken times, and status. Maximum 90 days per query.",
+			Description: "Retrieve medication intake history for a date range. Returns medication names, dosages, scheduled and taken times, and status. Includes diary notes from the same period for context. Pass exclude_notes=true to suppress. Maximum 90 days per query.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -219,6 +227,10 @@ func (s *Server) registerTools() {
 					"medication_name": {
 						"type": "string",
 						"description": "Optional filter by medication name (case-insensitive partial match)."
+					},
+					"exclude_notes": {
+						"type": "boolean",
+						"description": "If true, omit diary notes from the response. Defaults to false."
 					}
 				}
 			}`),
@@ -230,7 +242,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "get_workout_history",
-			Description: "Retrieve workout session history for a date range. Returns both manual gym workouts (with sets/reps) and outdoor Mi Band workouts (cycling, walking, etc. with distance/calories/heart rate). Maximum 90 days per query.",
+			Description: "Retrieve workout session history for a date range. Returns both manual gym workouts (with sets/reps) and outdoor Mi Band workouts (cycling, walking, etc. with distance/calories/heart rate). Includes diary notes from the same period for context. Pass exclude_notes=true to suppress. Maximum 90 days per query.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -245,6 +257,10 @@ func (s *Server) registerTools() {
 					"include_exercises": {
 						"type": "boolean",
 						"description": "If true, include detailed exercise logs for manual gym workout sessions. Defaults to false."
+					},
+					"exclude_notes": {
+						"type": "boolean",
+						"description": "If true, omit diary notes from the response. Defaults to false."
 					}
 				}
 			}`),
@@ -256,7 +272,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "get_sleep_logs",
-			Description: "Retrieve sleep logs for a date range. Returns sleep phases, duration, and health metrics. Maximum 90 days per query.",
+			Description: "Retrieve sleep logs for a date range. Returns sleep phases, duration, and health metrics. Includes diary notes from the same period for context. Pass exclude_notes=true to suppress. Maximum 90 days per query.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -267,6 +283,10 @@ func (s *Server) registerTools() {
 					"end_date": {
 						"type": "string",
 						"description": "End date in YYYY-MM-DD format. Defaults to today if omitted."
+					},
+					"exclude_notes": {
+						"type": "boolean",
+						"description": "If true, omit diary notes from the response. Defaults to false."
 					}
 				}
 			}`),
@@ -278,7 +298,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "get_food_intake",
-			Description: "Retrieve food intake logs for a date range. Returns eaten time, meal type, food name, and macros (calories/carbs/protein/fat), plus optional configured daily target if set. Maximum MCP_MAX_QUERY_DAYS per query (default 90).",
+			Description: "Retrieve food intake logs for a date range. Returns eaten time, meal type, food name, and macros (calories/carbs/protein/fat), plus optional configured daily target if set. Includes diary notes from the same period for context. Pass exclude_notes=true to suppress. Maximum MCP_MAX_QUERY_DAYS per query (default 90).",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -289,6 +309,10 @@ func (s *Server) registerTools() {
 					"end_date": {
 						"type": "string",
 						"description": "End date in YYYY-MM-DD format. Defaults to today if omitted."
+					},
+					"exclude_notes": {
+						"type": "boolean",
+						"description": "If true, omit diary notes from the response. Defaults to false."
 					}
 				}
 			}`),
@@ -300,7 +324,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "get_step_history",
-			Description: "Retrieve daily step counts, calories, and distance for a date range. Maximum 90 days per query.",
+			Description: "Retrieve daily step counts, calories, and distance for a date range. Includes diary notes from the same period for context. Pass exclude_notes=true to suppress. Maximum 90 days per query.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -311,6 +335,10 @@ func (s *Server) registerTools() {
 					"end_date": {
 						"type": "string",
 						"description": "End date in YYYY-MM-DD format. Defaults to today if omitted."
+					},
+					"exclude_notes": {
+						"type": "boolean",
+						"description": "If true, omit diary notes from the response. Defaults to false."
 					}
 				}
 			}`),

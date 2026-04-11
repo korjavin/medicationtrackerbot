@@ -27,10 +27,11 @@ type StressResult struct {
 }
 
 type VitalsResponse struct {
-	Logs    interface{} `json:"logs"`
-	Count   int         `json:"count"`
-	Period  string      `json:"period"`
-	Warning string      `json:"warning,omitempty"`
+	Logs         interface{}   `json:"logs"`
+	Count        int           `json:"count"`
+	Period       string        `json:"period"`
+	ContextNotes []ContextNote `json:"context_notes,omitempty"`
+	Warning      string        `json:"warning,omitempty"`
 }
 
 // handleGetVitalsHeart handles the get_vitals_heart tool
@@ -73,6 +74,10 @@ func (s *Server) handleGetVitalsHeart(ctx context.Context, req *mcp.CallToolRequ
 		Count:   len(results),
 		Period:  formatPeriod(startDate, endDate),
 		Warning: warning,
+	}
+
+	if shouldIncludeNotes(input.ExcludeNotes) {
+		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
 	}
 
 	if s.audit != nil {
@@ -123,6 +128,10 @@ func (s *Server) handleGetVitalsSpO2(ctx context.Context, req *mcp.CallToolReque
 		Count:   len(results),
 		Period:  formatPeriod(startDate, endDate),
 		Warning: warning,
+	}
+
+	if shouldIncludeNotes(input.ExcludeNotes) {
+		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
 	}
 
 	if s.audit != nil {
@@ -176,6 +185,10 @@ func (s *Server) handleGetVitalsStress(ctx context.Context, req *mcp.CallToolReq
 		Warning: warning,
 	}
 
+	if shouldIncludeNotes(input.ExcludeNotes) {
+		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
+	}
+
 	if s.audit != nil {
 		s.audit.Record(AuditEvent{
 			DataType:  "Vitals",
@@ -189,14 +202,15 @@ func (s *Server) handleGetVitalsStress(ctx context.Context, req *mcp.CallToolReq
 
 // handleGetHealthOverview handles the get_health_overview tool
 type HealthOverviewResponse struct {
-	AverageHeartRate int    `json:"average_heart_rate"`
-	AverageSpO2      int    `json:"average_spo2"`
-	AverageStress    int    `json:"average_stress"`
-	CountHeart       int    `json:"count_heart"`
-	CountSpO2        int    `json:"count_spo2"`
-	CountStress      int    `json:"count_stress"`
-	Period           string `json:"period"`
-	Warning          string `json:"warning,omitempty"`
+	AverageHeartRate int           `json:"average_heart_rate"`
+	AverageSpO2      int           `json:"average_spo2"`
+	AverageStress    int           `json:"average_stress"`
+	CountHeart       int           `json:"count_heart"`
+	CountSpO2        int           `json:"count_spo2"`
+	CountStress      int           `json:"count_stress"`
+	Period           string        `json:"period"`
+	ContextNotes     []ContextNote `json:"context_notes,omitempty"`
+	Warning          string        `json:"warning,omitempty"`
 }
 
 func (s *Server) handleGetHealthOverview(ctx context.Context, req *mcp.CallToolRequest, input DateRangeInput) (*mcp.CallToolResult, HealthOverviewResponse, error) {
@@ -249,6 +263,10 @@ func (s *Server) handleGetHealthOverview(ctx context.Context, req *mcp.CallToolR
 		Warning:          warning,
 	}
 
+	if shouldIncludeNotes(input.ExcludeNotes) {
+		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
+	}
+
 	if s.audit != nil {
 		s.audit.Record(AuditEvent{
 			DataType:  "Vitals",
@@ -264,7 +282,7 @@ func registerVitalsTools(mcpServer *mcp.Server, s *Server) {
 	mcp.AddTool(mcpServer,
 		&mcp.Tool{
 			Name:        "get_health_overview",
-			Description: "Retrieve an aggregated overview of vitals (Heart Rate, SpO2, Stress) across a date range. Maximum 90 days per query.",
+			Description: "Retrieve an aggregated overview of vitals (Heart Rate, SpO2, Stress) across a date range. Includes diary notes from the same period for context. Pass exclude_notes=true to suppress. Maximum 90 days per query.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -275,6 +293,10 @@ func registerVitalsTools(mcpServer *mcp.Server, s *Server) {
 					"end_date": {
 						"type": "string",
 						"description": "End date in YYYY-MM-DD format."
+					},
+					"exclude_notes": {
+						"type": "boolean",
+						"description": "If true, omit diary notes from the response. Defaults to false."
 					}
 				}
 			}`),
@@ -285,7 +307,7 @@ func registerVitalsTools(mcpServer *mcp.Server, s *Server) {
 	mcp.AddTool(mcpServer,
 		&mcp.Tool{
 			Name:        "get_vitals_heart",
-			Description: "Retrieve detailed heart rate vitals for a date range. Returns specific data points.",
+			Description: "Retrieve detailed heart rate vitals for a date range. Returns specific data points. Includes diary notes from the same period for context. Pass exclude_notes=true to suppress.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -296,6 +318,10 @@ func registerVitalsTools(mcpServer *mcp.Server, s *Server) {
 					"end_date": {
 						"type": "string",
 						"description": "End date in YYYY-MM-DD format."
+					},
+					"exclude_notes": {
+						"type": "boolean",
+						"description": "If true, omit diary notes from the response. Defaults to false."
 					}
 				}
 			}`),
@@ -306,7 +332,7 @@ func registerVitalsTools(mcpServer *mcp.Server, s *Server) {
 	mcp.AddTool(mcpServer,
 		&mcp.Tool{
 			Name:        "get_vitals_spo2",
-			Description: "Retrieve detailed SpO2 (blood oxygen) vitals for a date range. Returns specific data points.",
+			Description: "Retrieve detailed SpO2 (blood oxygen) vitals for a date range. Returns specific data points. Includes diary notes from the same period for context. Pass exclude_notes=true to suppress.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -317,6 +343,10 @@ func registerVitalsTools(mcpServer *mcp.Server, s *Server) {
 					"end_date": {
 						"type": "string",
 						"description": "End date in YYYY-MM-DD format."
+					},
+					"exclude_notes": {
+						"type": "boolean",
+						"description": "If true, omit diary notes from the response. Defaults to false."
 					}
 				}
 			}`),
@@ -327,7 +357,7 @@ func registerVitalsTools(mcpServer *mcp.Server, s *Server) {
 	mcp.AddTool(mcpServer,
 		&mcp.Tool{
 			Name:        "get_vitals_stress",
-			Description: "Retrieve detailed stress vitals for a date range. Returns specific data points.",
+			Description: "Retrieve detailed stress vitals for a date range. Returns specific data points. Includes diary notes from the same period for context. Pass exclude_notes=true to suppress.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -338,6 +368,10 @@ func registerVitalsTools(mcpServer *mcp.Server, s *Server) {
 					"end_date": {
 						"type": "string",
 						"description": "End date in YYYY-MM-DD format."
+					},
+					"exclude_notes": {
+						"type": "boolean",
+						"description": "If true, omit diary notes from the response. Defaults to false."
 					}
 				}
 			}`),
