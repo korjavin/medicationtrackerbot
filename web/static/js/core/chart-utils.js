@@ -285,6 +285,84 @@ window.ChartUtils = (() => {
         return [...aggregated, ...recent].sort((a, b) => a.date - b.date);
     }
 
+    /**
+     * Largest-Triangle-Three-Buckets (LTTB) downsampling.
+     *
+     * Reduces point count while preserving the visual shape of the data.
+     * Always keeps the first and last points; selects the most visually
+     * significant point from each bucket based on triangle area.
+     *
+     * @param {number[][]} points - Array of [x, y] coordinate pairs
+     * @param {number} targetCount - Desired number of output points
+     * @returns {number[][]} Downsampled array of [x, y] pairs
+     */
+    function lttbDownsample(points, targetCount) {
+        if (!points || points.length <= targetCount || targetCount < 2) {
+            return points || [];
+        }
+
+        const len = points.length;
+        const sampled = [points[0]]; // Always keep first point
+
+        // Number of buckets for intermediate points
+        const bucketCount = targetCount - 2;
+        const bucketSize = (len - 2) / bucketCount;
+
+        let prevSelected = 0; // Index of previously selected point
+
+        for (let i = 0; i < bucketCount; i++) {
+            // Current bucket range (indices into points, offset by 1 to skip first point)
+            const bucketStart = Math.floor(i * bucketSize) + 1;
+            const bucketEnd = Math.min(Math.floor((i + 1) * bucketSize) + 1, len - 1);
+
+            // Next bucket average (or last point for the final bucket)
+            let nextAvgX = 0;
+            let nextAvgY = 0;
+            const nextBucketStart = Math.floor((i + 1) * bucketSize) + 1;
+            const nextBucketEnd = i + 1 < bucketCount
+                ? Math.min(Math.floor((i + 2) * bucketSize) + 1, len - 1)
+                : len; // Last bucket uses the last point
+            const nextCount = nextBucketEnd - nextBucketStart;
+
+            if (nextCount > 0) {
+                for (let j = nextBucketStart; j < nextBucketEnd; j++) {
+                    nextAvgX += points[j][0];
+                    nextAvgY += points[j][1];
+                }
+                nextAvgX /= nextCount;
+                nextAvgY /= nextCount;
+            } else {
+                // Fallback to last point
+                nextAvgX = points[len - 1][0];
+                nextAvgY = points[len - 1][1];
+            }
+
+            // Find point in current bucket with largest triangle area
+            let maxArea = -1;
+            let bestIdx = bucketStart;
+            const ax = points[prevSelected][0];
+            const ay = points[prevSelected][1];
+
+            for (let j = bucketStart; j < bucketEnd; j++) {
+                // Triangle area (doubled, sign doesn't matter — we want max absolute)
+                const area = Math.abs(
+                    (ax - nextAvgX) * (points[j][1] - ay) -
+                    (ax - points[j][0]) * (nextAvgY - ay)
+                );
+                if (area > maxArea) {
+                    maxArea = area;
+                    bestIdx = j;
+                }
+            }
+
+            sampled.push(points[bestIdx]);
+            prevSelected = bestIdx;
+        }
+
+        sampled.push(points[len - 1]); // Always keep last point
+        return sampled;
+    }
+
     return {
         catmullRomSpline,
         calculateYAxisTicks,
@@ -292,5 +370,6 @@ window.ChartUtils = (() => {
         animateLine,
         createLastValueDot,
         aggregateToDaily,
+        lttbDownsample,
     };
 })();

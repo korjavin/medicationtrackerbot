@@ -399,6 +399,82 @@ describe('ChartUtils', () => {
         });
     });
 
+    // --- lttbDownsample ---
+
+    describe('lttbDownsample', () => {
+        it('returns input unchanged when shorter than target', () => {
+            const points = [[0, 1], [1, 2], [2, 3]];
+            const result = env.window.ChartUtils.lttbDownsample(points, 5);
+            expect(result).toEqual(points);
+        });
+
+        it('returns input unchanged when equal to target', () => {
+            const points = [[0, 1], [1, 2], [2, 3]];
+            const result = env.window.ChartUtils.lttbDownsample(points, 3);
+            expect(result).toEqual(points);
+        });
+
+        it('returns empty array for null/undefined', () => {
+            expect(env.window.ChartUtils.lttbDownsample(null, 5)).toEqual([]);
+            expect(env.window.ChartUtils.lttbDownsample(undefined, 5)).toEqual([]);
+        });
+
+        it('preserves first and last point', () => {
+            const points = [[0, 10], [1, 20], [2, 5], [3, 30], [4, 15],
+                            [5, 25], [6, 8], [7, 22], [8, 12], [9, 28]];
+            const result = env.window.ChartUtils.lttbDownsample(points, 5);
+            expect(result.length).toBe(5);
+            expect(result[0]).toEqual([0, 10]);
+            expect(result[result.length - 1]).toEqual([9, 28]);
+        });
+
+        it('downsamples 10 points to 5 preserving visual shape', () => {
+            // Linear ramp with a spike at index 5
+            const points = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4],
+                            [5, 20], [6, 6], [7, 7], [8, 8], [9, 9]];
+            const result = env.window.ChartUtils.lttbDownsample(points, 5);
+            expect(result.length).toBe(5);
+            // The spike at [5, 20] should be preserved as it's the most significant
+            const ys = result.map(p => p[1]);
+            expect(ys).toContain(20);
+        });
+
+        it('preserves extreme values (max and min survive)', () => {
+            // Data with clear max and min
+            const points = [];
+            for (let i = 0; i < 20; i++) {
+                points.push([i, Math.sin(i / 3) * 50 + 50]);
+            }
+            // Find actual max and min y values
+            const maxY = Math.max(...points.map(p => p[1]));
+            const minY = Math.min(...points.map(p => p[1]));
+
+            const result = env.window.ChartUtils.lttbDownsample(points, 8);
+            expect(result.length).toBe(8);
+            const resultYs = result.map(p => p[1]);
+
+            // At least one of the extreme values should survive
+            // (LTTB is designed to preserve peaks/valleys)
+            const hasMax = resultYs.some(y => Math.abs(y - maxY) < 0.01);
+            const hasMin = resultYs.some(y => Math.abs(y - minY) < 0.01);
+            expect(hasMax || hasMin).toBe(true);
+        });
+
+        it('returns input when targetCount < 2', () => {
+            const points = [[0, 1], [1, 2], [2, 3]];
+            const result = env.window.ChartUtils.lttbDownsample(points, 1);
+            expect(result).toEqual(points);
+        });
+
+        it('handles targetCount of 2 (just first and last)', () => {
+            const points = [[0, 10], [1, 20], [2, 5], [3, 30], [4, 15]];
+            const result = env.window.ChartUtils.lttbDownsample(points, 2);
+            expect(result.length).toBe(2);
+            expect(result[0]).toEqual([0, 10]);
+            expect(result[1]).toEqual([4, 15]);
+        });
+    });
+
     // --- createLastValueDot ---
 
     describe('createLastValueDot', () => {

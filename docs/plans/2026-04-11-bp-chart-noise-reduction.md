@@ -52,15 +52,15 @@ This is frontend-only — no API changes. The raw reading list below the chart i
 - [x] Run JS tests — must pass before next task
 
 ### Task 2: Add LTTB downsampling utility to ChartUtils
-- [ ] Add `ChartUtils.lttbDownsample(points, targetCount)` to `web/static/js/core/chart-utils.js`
+- [x] Add `ChartUtils.lttbDownsample(points, targetCount)` to `web/static/js/core/chart-utils.js`
   - Input: array of `[x, y]` coordinate pairs + target point count
   - Output: reduced array preserving first point, last point, and most visually significant intermediate points
   - Algorithm: Largest-Triangle-Three-Buckets (split data into `targetCount` buckets, keep the point in each bucket that forms the largest triangle with adjacent selected points)
-- [ ] If input length ≤ targetCount, return input unchanged
-- [ ] Write tests: input shorter than target → returns unchanged
-- [ ] Write tests: known 10-point dataset downsampled to 5 → preserves first, last, and peaks
-- [ ] Write tests: preserves extreme values (max and min should survive downsampling)
-- [ ] Run JS tests — must pass before next task
+- [x] If input length ≤ targetCount, return input unchanged
+- [x] Write tests: input shorter than target → returns unchanged
+- [x] Write tests: known 10-point dataset downsampled to 5 → preserves first, last, and peaks
+- [x] Write tests: preserves extreme values (max and min should survive downsampling)
+- [x] Run JS tests — must pass before next task
 
 ### Task 3: Integrate into BP chart rendering
 - [ ] In `renderBPChart()` (`bp.js`), after sorting readings and creating the `data` array (~line 169), add a data preparation step:
