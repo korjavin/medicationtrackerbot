@@ -27,7 +27,7 @@ async function apiCallDirect(endpoint, method = "GET", body = null) {
         }
     }
 
-    if (!res.ok) { const txt = await res.text(); throw new Error(txt); }
+    if (!res.ok) { const txt = await res.text(); const err = new Error(txt); err.status = res.status; throw err; }
     let result;
     if (res.status === 204 || method === "DELETE") {
         result = true;

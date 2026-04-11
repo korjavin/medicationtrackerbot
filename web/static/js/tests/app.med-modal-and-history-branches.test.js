@@ -184,9 +184,9 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       document.getElementById('schedule-type').value = 'as_needed';
       window.toggleScheduleFields();
 
-      window.apiCallDirect = vi.fn().mockRejectedValue(
-        new Error('Medication with this name and dosage already exists')
-      );
+      const dupError = new Error('Medication with this name and dosage already exists');
+      dupError.status = 409;
+      window.apiCallDirect = vi.fn().mockRejectedValue(dupError);
       window.closeModal = vi.fn();
       window.loadMeds = vi.fn();
 
