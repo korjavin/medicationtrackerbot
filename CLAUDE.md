@@ -616,10 +616,12 @@ The app is single-user, self-hosted, and runs primarily inside Telegram's WebVie
 7. Add scheduler logic if reminders needed in `internal/scheduler/`
 
 ### Adding MCP Tools
-1. Add tool definition in `internal/mcp/tools.go`
+1. Add tool definition in `internal/mcp/tools.go` (granular tools) or a dedicated file (composite tools, e.g. `cardiovascular.go`, `fitness.go`)
 2. Implement handler function
-3. Register tool in server initialization
-4. Update `.env.mcp.example` if config needed
+3. Register tool in server initialization (`internal/mcp/mcp.go`)
+4. For read tools: include context notes via `notes_helper.go` (`fetchContextNotes` / `shouldIncludeNotes`); support `exclude_notes` parameter
+5. Update `.env.mcp.example` if config needed
+6. **Naming**: `get_*` for granular read tools, `log_*` for write tools, `analyze_*` for composite read tools
 
 ### Modifying Workout Rotation Logic
 - Core logic in `internal/store/workout.go` (AdvanceRotation method)
