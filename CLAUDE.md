@@ -200,7 +200,9 @@ Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.Exerci
 ### MCP Server
 - **Purpose**: Provides read-only access to health data for AI assistants (Claude)
 - **Authentication**: OAuth via Pocket-ID
-- **Tools**: Query medication intake, BP readings, sleep logs, weight, workout history
+- **Tools**: 13 granular tools (get_blood_pressure, get_weight, get_medication_intake, etc.) + 2 composite analysis tools
+- **Composite Tools**: `analyze_cardiovascular` (BP + meds + sleep + HR + SpO2 + notes) and `analyze_fitness` (workouts + steps + nutrition totals + weight + notes) — return cross-domain data in a single call
+- **Context Notes**: All read tools automatically include diary notes from the queried date range. Pass `exclude_notes=true` to suppress.
 - **Configuration**: Separate from main bot, runs on different port
 
 #### MCP Server Deployment
