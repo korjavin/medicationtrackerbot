@@ -117,15 +117,15 @@ Establish a proper design token system and modernize the visual appearance of th
 - [x] Run tests — must pass before next task
 
 ### Task 10: Verify acceptance criteria
-- [ ] Verify all 48 hardcoded colors replaced with tokens
-- [ ] Verify all 14 button classes consolidated to new system
-- [ ] Verify all 67+ inline styles migrated to CSS classes
-- [ ] Verify 7 emoji icons replaced with SVG
-- [ ] Verify `user-scalable=no` removed
-- [ ] Verify all tab buttons have `aria-label`
-- [ ] Run full test suite: `go test ./...`
-- [ ] Run architecture tests
-- [ ] Verify test coverage meets project standard
+- [x] Verify all 48 hardcoded colors replaced with tokens
+- [x] Verify all 14 button classes consolidated to new system
+- [x] Verify all 67+ inline styles migrated to CSS classes
+- [x] Verify 7 emoji icons replaced with SVG
+- [x] Verify `user-scalable=no` removed
+- [x] Verify all tab buttons have `aria-label`
+- [x] Run full test suite: `go test ./...`
+- [x] Run architecture tests
+- [x] Verify test coverage meets project standard
 
 ### Task 11: [Final] Update documentation
 - [ ] Update CLAUDE.md if new CSS patterns or conventions need documenting
