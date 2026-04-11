@@ -880,3 +880,82 @@ func TestHandleLogFoodIntake_InvalidDate(t *testing.T) {
 	}
 }
 
+// --- context_notes injection tests ---
+
+func TestHandleGetBloodPressure_IncludesContextNotes(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetBloodPressureEnabled(ctx, true); err != nil {
+		t.Fatalf("SetBloodPressureEnabled: %v", err)
+	}
+
+	// Create a diary note
+	if _, err := st.CreateDiaryNote(ctx, 123456, "started new medication today"); err != nil {
+		t.Fatalf("CreateDiaryNote: %v", err)
+	}
+
+	// Create a BP reading in the same range
+	pulse := 72
+	now := time.Now()
+	_, err := st.CreateBloodPressureReading(ctx, &store.BloodPressure{
+		UserID:     123456,
+		MeasuredAt: now,
+		Systolic:   130,
+		Diastolic:  85,
+		Pulse:      &pulse,
+		Category:   "high-normal",
+	})
+	if err != nil {
+		t.Fatalf("CreateBloodPressureReading: %v", err)
+	}
+
+	_, resp, err := s.handleGetBloodPressure(ctx, nil, DateRangeInput{
+		StartDate: now.AddDate(0, 0, -7).Format("2006-01-02"),
+		EndDate:   now.AddDate(0, 0, 1).Format("2006-01-02"),
+	})
+	if err != nil {
+		t.Fatalf("handleGetBloodPressure error: %v", err)
+	}
+
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 reading, got %d", resp.Count)
+	}
+	if len(resp.ContextNotes) != 1 {
+		t.Fatalf("expected 1 context note, got %d", len(resp.ContextNotes))
+	}
+	if resp.ContextNotes[0].Content != "started new medication today" {
+		t.Errorf("expected note content 'started new medication today', got %q", resp.ContextNotes[0].Content)
+	}
+}
+
+func TestHandleGetBloodPressure_ExcludeNotesOmitsContextNotes(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetBloodPressureEnabled(ctx, true); err != nil {
+		t.Fatalf("SetBloodPressureEnabled: %v", err)
+	}
+
+	// Create a diary note
+	if _, err := st.CreateDiaryNote(ctx, 123456, "some note"); err != nil {
+		t.Fatalf("CreateDiaryNote: %v", err)
+	}
+
+	now := time.Now()
+	_, resp, err := s.handleGetBloodPressure(ctx, nil, DateRangeInput{
+		StartDate:    now.AddDate(0, 0, -7).Format("2006-01-02"),
+		EndDate:      now.AddDate(0, 0, 1).Format("2006-01-02"),
+		ExcludeNotes: true,
+	})
+	if err != nil {
+		t.Fatalf("handleGetBloodPressure error: %v", err)
+	}
+
+	if len(resp.ContextNotes) != 0 {
+		t.Fatalf("expected no context notes with exclude_notes=true, got %d", len(resp.ContextNotes))
+	}
+}
+

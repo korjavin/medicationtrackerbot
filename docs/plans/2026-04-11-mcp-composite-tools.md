@@ -55,14 +55,14 @@ All 13 existing tools remain for backward compatibility and granular queries.
 - [x] Run `go test ./internal/mcp/...` — must pass before next task
 
 ### Task 2: Inject context_notes into existing tool responses
-- [ ] Add `exclude_notes` optional boolean parameter to all existing read tools (get_blood_pressure, get_weight, get_medication_intake, get_workout_history, get_sleep_logs, get_food_intake, get_step_history, get_vitals_heart, get_vitals_spo2, get_vitals_stress, get_health_overview)
-- [ ] Add `context_notes` field to each tool's response struct (array of `{content, created_at}`)
-- [ ] In each tool handler, after the main query, call `fetchContextNotes()` and include in response (unless `exclude_notes=true`)
-- [ ] Update tool descriptions to mention: "Includes diary notes from the same period for context. Pass exclude_notes=true to suppress."
-- [ ] Do NOT add notes to `get_diary_notes` itself (redundant) or `log_food_intake` (write tool)
-- [ ] Write test: get_blood_pressure response includes `context_notes` by default
-- [ ] Write test: get_blood_pressure with `exclude_notes=true` omits `context_notes`
-- [ ] Run `go test ./internal/mcp/...` — must pass before next task
+- [x] Add `exclude_notes` optional boolean parameter to all existing read tools (get_blood_pressure, get_weight, get_medication_intake, get_workout_history, get_sleep_logs, get_food_intake, get_step_history, get_vitals_heart, get_vitals_spo2, get_vitals_stress, get_health_overview)
+- [x] Add `context_notes` field to each tool's response struct (array of `{content, created_at}`)
+- [x] In each tool handler, after the main query, call `fetchContextNotes()` and include in response (unless `exclude_notes=true`)
+- [x] Update tool descriptions to mention: "Includes diary notes from the same period for context. Pass exclude_notes=true to suppress."
+- [x] Do NOT add notes to `get_diary_notes` itself (redundant) or `log_food_intake` (write tool)
+- [x] Write test: get_blood_pressure response includes `context_notes` by default
+- [x] Write test: get_blood_pressure with `exclude_notes=true` omits `context_notes`
+- [x] Run `go test ./internal/mcp/...` — must pass before next task
 
 ### Task 3: Add analyze_cardiovascular composite tool
 - [ ] Register new tool `analyze_cardiovascular` in `mcp.go`
