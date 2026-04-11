@@ -379,6 +379,159 @@ describe('Architecture – design tokens', () => {
         }
     });
 
+    it('no hardcoded px values in spacing/radius/shadow/font-size/z-index properties outside :root', () => {
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        const lines = css.split('\n');
+
+        // Track whether we are inside :root or dark-mode :root override
+        let insideRoot = false;
+        let braceDepth = 0;
+        let inDarkMedia = false;
+        let darkMediaDepth = 0;
+
+        // Properties that should use design tokens instead of hardcoded px values
+        const spacingPropRe = /^\s*(padding|margin|gap)\s*:/i;
+        const radiusPropRe = /^\s*border-radius\s*:/i;
+        const shadowPropRe = /^\s*box-shadow\s*:/i;
+        const fontSizePropRe = /^\s*font-size\s*:/i;
+        const zIndexPropRe = /^\s*z-index\s*:/i;
+
+        // Match hardcoded px values (but not 0px, or values inside var())
+        const hardcodedPxRe = /(?<!\w)(\d+)px\b/g;
+
+        // Allowlisted px values that don't have matching tokens or are acceptable
+        const spacingAllowlist = new Set([0, 1, 2, 3, 80, 90, 40, 100, 120, 200, 250, 400]);
+        const radiusAllowlist = new Set([0]);
+        const fontSizeAllowlist = new Set([0, 48]); // 48px is a special display size
+        const zIndexAllowlist = new Set([0, 10, 1003, 1200]); // local stacking, scanner, banner
+
+        const violations = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const lineNum = i + 1;
+
+            // Track :root block
+            if (/^:root\s*\{/.test(line.trim())) {
+                insideRoot = true;
+                braceDepth = 1;
+                continue;
+            }
+            if (insideRoot) {
+                for (const ch of line) {
+                    if (ch === '{') braceDepth++;
+                    if (ch === '}') braceDepth--;
+                }
+                if (braceDepth <= 0) insideRoot = false;
+                continue;
+            }
+
+            // Track dark-mode :root
+            if (/prefers-color-scheme:\s*dark/.test(line)) {
+                inDarkMedia = true;
+                darkMediaDepth = 0;
+                for (const ch of line) {
+                    if (ch === '{') darkMediaDepth++;
+                    if (ch === '}') darkMediaDepth--;
+                }
+                continue;
+            }
+            if (inDarkMedia) {
+                for (const ch of line) {
+                    if (ch === '{') darkMediaDepth++;
+                    if (ch === '}') darkMediaDepth--;
+                }
+                if (darkMediaDepth <= 0) inDarkMedia = false;
+                continue;
+            }
+
+            // Skip lines that already use var() for the value
+            if (/var\(--/.test(line)) {
+                // Check if there are ALSO hardcoded px values mixed in (compound values)
+                const withoutVars = line.replace(/var\([^)]*\)/g, '');
+                if (!hardcodedPxRe.test(withoutVars)) continue;
+                // Reset regex lastIndex for reuse below
+                hardcodedPxRe.lastIndex = 0;
+            }
+
+            // Skip comment lines
+            if (/^\s*\/?\*/.test(line) || /^\s*\/\//.test(line)) continue;
+
+            // Check each property type
+            let propType = null;
+            let allowlist = null;
+
+            if (spacingPropRe.test(line)) {
+                propType = 'spacing';
+                allowlist = spacingAllowlist;
+            } else if (radiusPropRe.test(line)) {
+                propType = 'border-radius';
+                allowlist = radiusAllowlist;
+            } else if (shadowPropRe.test(line)) {
+                propType = 'box-shadow';
+                allowlist = new Set([0]);
+            } else if (fontSizePropRe.test(line)) {
+                propType = 'font-size';
+                allowlist = fontSizeAllowlist;
+            } else if (zIndexPropRe.test(line)) {
+                propType = 'z-index';
+                allowlist = zIndexAllowlist;
+            }
+
+            if (!propType) continue;
+
+            // For z-index, check raw numeric values (not px)
+            if (propType === 'z-index') {
+                const zMatch = line.match(/z-index\s*:\s*(\d+)/);
+                if (zMatch && !allowlist.has(parseInt(zMatch[1], 10)) && !line.includes('var(')) {
+                    violations.push({ line: lineNum, text: line.trim(), type: propType });
+                }
+                continue;
+            }
+
+            // For box-shadow, check if it has hardcoded rgba/px and isn't using var()
+            // Allow colored shadows (non-black rgba) as they are design-specific
+            if (propType === 'box-shadow') {
+                if (!line.includes('var(') && /\d+px/.test(line) && line.trim() !== 'box-shadow: none;') {
+                    // Skip colored shadows (rgba with non-zero R/G/B channels)
+                    const rgbaMatch = line.match(/rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+                    if (rgbaMatch && (parseInt(rgbaMatch[1]) > 0 || parseInt(rgbaMatch[2]) > 0 || parseInt(rgbaMatch[3]) > 0)) {
+                        continue;
+                    }
+                    violations.push({ line: lineNum, text: line.trim(), type: propType });
+                }
+                continue;
+            }
+
+            // Extract the value part (after the colon)
+            const colonIdx = line.indexOf(':');
+            if (colonIdx === -1) continue;
+            const valuePart = line.slice(colonIdx + 1).replace(/var\([^)]*\)/g, '');
+
+            const matches = [...valuePart.matchAll(hardcodedPxRe)];
+            const badValues = matches.filter(m => !allowlist.has(parseInt(m[1], 10)));
+
+            if (badValues.length > 0) {
+                violations.push({
+                    line: lineNum,
+                    text: line.trim(),
+                    type: propType,
+                    values: badValues.map(m => m[0]),
+                });
+            }
+        }
+
+        if (violations.length > 0) {
+            const report = violations
+                .map(v => `  L${v.line} [${v.type}]: ${v.text}`)
+                .join('\n');
+            throw new Error(
+                `Found ${violations.length} lines with hardcoded values that should use design tokens:\n\n${report}\n\n` +
+                `Replace these with CSS custom property tokens (e.g., var(--space-lg), var(--radius-md)).`
+            );
+        }
+    });
+
     it('Telegram theme mirrors are preserved in :root', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
         const rootBlock = extractRootBlock(css);
