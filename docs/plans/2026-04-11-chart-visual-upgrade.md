@@ -81,14 +81,14 @@ Polish all SVG charts (BP, Weight, Health vitals/sleep/steps) with gradient fill
 - [x] Run tests — must pass before next task
 
 ### Task 4: Refine grid lines across all charts
-- [ ] Add CSS class `.chart-grid-refined` with `stroke-opacity: 0.08; stroke-dasharray: none` (solid, very subtle)
-- [ ] Update `renderBPChart()` grid lines to use `.chart-grid-refined` class
-- [ ] Update `renderWeightChart()` grid lines to use `.chart-grid-refined` class
-- [ ] Update `renderVitalsLineChart()` grid lines to use refined style
-- [ ] Update `renderSleepChart()` grid lines to use refined style
-- [ ] Update `renderStepsChart()` grid lines to use refined style
-- [ ] Remove outermost grid lines (top/bottom boundaries) in all charts to eliminate "box" feel
-- [ ] Run architecture tests — must pass before next task
+- [x] Add CSS class `.chart-grid-refined` with `stroke-opacity: 0.08; stroke-dasharray: none` (solid, very subtle)
+- [x] Update `renderBPChart()` grid lines to use `.chart-grid-refined` class
+- [x] Update `renderWeightChart()` grid lines to use `.chart-grid-refined` class
+- [x] Update `renderVitalsLineChart()` grid lines to use refined style
+- [x] Update `renderSleepChart()` grid lines to use refined style
+- [x] Update `renderStepsChart()` grid lines to use refined style
+- [x] Remove outermost grid lines (top/bottom boundaries) in all charts to eliminate "box" feel
+- [x] Run architecture tests — must pass before next task
 
 ### Task 5: Add last-value emphasis to line charts
 - [ ] Add CSS class `.chart-point-latest` with `r: 6` and pulse animation keyframes in styles.css

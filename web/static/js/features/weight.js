@@ -348,17 +348,8 @@ function renderWeightChart(logs, goalData) {
     svg.setAttribute("viewBox", `0 0 ${totalWidth} ${chartHeight + 30}`);
 
     // Y-Axis grid lines and labels
-    yTicks.forEach(val => {
+    yTicks.forEach((val, idx) => {
         const y = yScale(val);
-
-        // Grid line
-        const gridLine = document.createElementNS(svgNs, "line");
-        gridLine.setAttribute("x1", leftPadding);
-        gridLine.setAttribute("y1", y);
-        gridLine.setAttribute("x2", totalWidth - rightPadding);
-        gridLine.setAttribute("y2", y);
-        gridLine.setAttribute("class", "chart-grid");
-        svg.appendChild(gridLine);
 
         // Label
         const text = document.createElementNS(svgNs, "text");
@@ -368,6 +359,16 @@ function renderWeightChart(logs, goalData) {
         text.setAttribute("style", "text-anchor: end; fill: var(--hint-color); font-size: 12px;");
         text.textContent = val.toFixed(0);
         svg.appendChild(text);
+
+        // Skip outermost grid lines to avoid box feel
+        if (idx === 0 || idx === yTicks.length - 1) return;
+        const gridLine = document.createElementNS(svgNs, "line");
+        gridLine.setAttribute("x1", leftPadding);
+        gridLine.setAttribute("y1", y);
+        gridLine.setAttribute("x2", totalWidth - rightPadding);
+        gridLine.setAttribute("y2", y);
+        gridLine.setAttribute("class", "chart-grid-refined");
+        svg.appendChild(gridLine);
     });
 
     // Goal line (horizontal green line with label)
