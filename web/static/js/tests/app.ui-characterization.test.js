@@ -123,7 +123,7 @@ describe('app.js UI characterization', () => {
       expect(invalidateSpy).toHaveBeenCalledWith(['settings', 'feature_settings']);
 
       await window.toggleFeatureSetting('bp', true);
-      expect(document.querySelector('.tab[data-tab="bp"]').style.display).toBe('inline-block');
+      expect(document.querySelector('.tab[data-tab="bp"]').style.display).toBe('');
     } finally {
       cleanup();
     }
