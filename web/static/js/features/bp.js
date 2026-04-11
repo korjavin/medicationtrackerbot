@@ -334,8 +334,9 @@ function renderBPChart(readings, goalData) {
         svg.appendChild(pulsePath);
     }
 
-    // Draw color-coded points for systolic
-    data.forEach(d => {
+    // Draw color-coded points for systolic (all except last)
+    data.forEach((d, i) => {
+        if (i === data.length - 1) return; // last point handled below
         const x = xScaleByDate(d.date);
         const y = yScale(d.sys);
         const color = getClassColor(d.category);
@@ -350,8 +351,9 @@ function renderBPChart(readings, goalData) {
         svg.appendChild(circle);
     });
 
-    // Draw color-coded points for diastolic
-    data.forEach(d => {
+    // Draw color-coded points for diastolic (all except last)
+    data.forEach((d, i) => {
+        if (i === data.length - 1) return; // last point handled below
         const x = xScaleByDate(d.date);
         const y = yScale(d.dia);
         const color = getClassColor(d.category);
@@ -365,6 +367,35 @@ function renderBPChart(readings, goalData) {
         circle.setAttribute("stroke-width", "2");
         svg.appendChild(circle);
     });
+
+    // Last-value emphasis for systolic and diastolic
+    {
+        const last = data[data.length - 1];
+        const lastColor = getClassColor(last.category);
+        const lastSysX = xScaleByDate(last.date);
+        const lastSysY = yScale(last.sys);
+        const lastDiaY = yScale(last.dia);
+
+        svg.appendChild(window.ChartUtils.createLastValueDot(svgNs, svg, lastSysX, lastSysY, lastColor));
+        svg.appendChild(window.ChartUtils.createLastValueDot(svgNs, svg, lastSysX, lastDiaY, lastColor));
+
+        // Value labels for latest reading
+        const sysLabel = document.createElementNS(svgNs, "text");
+        sysLabel.setAttribute("x", lastSysX);
+        sysLabel.setAttribute("y", lastSysY - 12);
+        sysLabel.setAttribute("class", "chart-label");
+        sysLabel.setAttribute("style", "text-anchor: middle; fill: " + lastColor + "; font-weight: bold; font-size: 11px;");
+        sysLabel.textContent = last.sys;
+        svg.appendChild(sysLabel);
+
+        const diaLabel = document.createElementNS(svgNs, "text");
+        diaLabel.setAttribute("x", lastSysX);
+        diaLabel.setAttribute("y", lastDiaY + 16);
+        diaLabel.setAttribute("class", "chart-label");
+        diaLabel.setAttribute("style", "text-anchor: middle; fill: " + lastColor + "; font-weight: bold; font-size: 11px;");
+        diaLabel.textContent = last.dia;
+        svg.appendChild(diaLabel);
+    }
 
     // Date labels
     const firstLabel = document.createElementNS(svgNs, "text");

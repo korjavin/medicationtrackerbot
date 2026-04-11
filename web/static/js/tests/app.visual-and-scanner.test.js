@@ -180,9 +180,9 @@ describe('app.js charts, scanner and visualization helpers', () => {
       // BP chart uses spline paths (not line segments) for systolic and diastolic
       const chartPaths = bpChart.querySelectorAll('path.chart-line');
       expect(chartPaths.length).toBeGreaterThanOrEqual(2); // systolic + diastolic (+ optional pulse)
-      // Verify no <line> segments for data series (only grid/average lines remain)
+      // Verify no <line> segments for data series (only grid/average/target lines remain)
       const dataLines = Array.from(bpChart.querySelectorAll('line')).filter(
-        l => !l.classList.contains('chart-grid') && !l.classList.contains('bp-chart-avg-line')
+        l => !l.classList.contains('chart-grid') && !l.classList.contains('chart-grid-refined') && !l.classList.contains('bp-chart-avg-line') && !l.classList.contains('bp-chart-target')
       );
       expect(dataLines.length).toBe(0);
 

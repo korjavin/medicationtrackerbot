@@ -91,14 +91,14 @@ Polish all SVG charts (BP, Weight, Health vitals/sleep/steps) with gradient fill
 - [x] Run architecture tests — must pass before next task
 
 ### Task 5: Add last-value emphasis to line charts
-- [ ] Add CSS class `.chart-point-latest` with `r: 6` and pulse animation keyframes in styles.css
-- [ ] Add `@keyframes chart-pulse { 0%,100% { opacity: 0.4; r: 10; } 50% { opacity: 0; r: 16; } }` for subtle ring pulse
-- [ ] In `renderWeightChart()`: make last data point use `.chart-point-latest` with value label (already has label — add pulse ring)
-- [ ] In `renderBPChart()`: add larger last systolic + diastolic points with value labels showing latest sys/dia reading
-- [ ] In `renderVitalsLineChart()`: add emphasis on rightmost data point
-- [ ] Ensure pulse animation uses CSS only (no JS animation loops)
-- [ ] Write test verifying `.chart-point-latest` and `@keyframes chart-pulse` exist in styles.css
-- [ ] Run tests — must pass before next task
+- [x] Add CSS class `.chart-point-latest` with `r: 6` and pulse animation keyframes in styles.css
+- [x] Add `@keyframes chart-pulse { 0%,100% { opacity: 0.4; r: 10; } 50% { opacity: 0; r: 16; } }` for subtle ring pulse
+- [x] In `renderWeightChart()`: make last data point use `.chart-point-latest` with value label (already has label — add pulse ring)
+- [x] In `renderBPChart()`: add larger last systolic + diastolic points with value labels showing latest sys/dia reading
+- [x] In `renderVitalsLineChart()`: add emphasis on rightmost data point
+- [x] Ensure pulse animation uses CSS only (no JS animation loops)
+- [x] Write test verifying `.chart-point-latest` and `@keyframes chart-pulse` exist in styles.css
+- [x] Run tests — must pass before next task
 
 ### Task 6: Add line draw animation on chart load
 - [ ] Add CSS class `.chart-line-animated` with `stroke-dasharray`/`stroke-dashoffset` animation in styles.css

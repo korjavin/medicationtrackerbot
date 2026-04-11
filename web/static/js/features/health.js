@@ -195,6 +195,14 @@
             pathObj.setAttribute("stroke-width", "2"); pathObj.setAttribute("stroke-linecap", "round"); pathObj.setAttribute("stroke-linejoin", "round");
             svg.appendChild(pathObj);
         });
+        // Last-value emphasis on rightmost data point
+        if (data.length > 0) {
+            const lastPt = data[data.length - 1];
+            const lastX = getX(lastPt.timestamp);
+            const lastY = getY(lastPt.avg);
+            svg.appendChild(window.ChartUtils.createLastValueDot(svgNs, svg, lastX, lastY, color));
+        }
+
         const labelCount = 4;
         for (let i = 0; i <= labelCount; i++) {
             const ts = minTime + (timeRange * (i / labelCount)), dt = new Date(ts), txt = `${dt.getMonth() + 1}/${dt.getDate()}`;

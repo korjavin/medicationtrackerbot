@@ -201,6 +201,31 @@ describe('ChartUtils', () => {
         });
     });
 
+    // --- last-value emphasis CSS ---
+
+    describe('last-value emphasis CSS', () => {
+        it('.chart-point-latest class exists in styles.css', () => {
+            const css = fs.readFileSync(CSS_PATH, 'utf8');
+            expect(css).toMatch(/\.chart-point-latest\s*\{/);
+        });
+
+        it('.chart-point-pulse class exists in styles.css', () => {
+            const css = fs.readFileSync(CSS_PATH, 'utf8');
+            expect(css).toMatch(/\.chart-point-pulse\s*\{/);
+        });
+
+        it('@keyframes chart-pulse exists in styles.css', () => {
+            const css = fs.readFileSync(CSS_PATH, 'utf8');
+            expect(css).toMatch(/@keyframes\s+chart-pulse/);
+        });
+
+        it('prefers-reduced-motion disables chart-pulse animation', () => {
+            const css = fs.readFileSync(CSS_PATH, 'utf8');
+            expect(css).toContain('prefers-reduced-motion');
+            expect(css).toContain('.chart-point-pulse');
+        });
+    });
+
     // --- createLastValueDot ---
 
     describe('createLastValueDot', () => {
