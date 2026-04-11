@@ -49,15 +49,15 @@ Validate, harden, and document the BP daily-weighted averaging algorithm in `Get
 - [x] Run `go test ./internal/store/...` — must pass before next task
 
 ### Task 2: Fix day boundary to use user timezone
-- [ ] Add a `truncateToDay(t time.Time, loc *time.Location) time.Time` function that truncates to day start in the given timezone (replaces UTC-only truncation)
-- [ ] Modify `GetBPDailyWeightedStats` to accept a `*time.Location` parameter (or load timezone inside the function via `s.GetCurrentTimezone()`)
-- [ ] Update `truncateToDayUTC` calls within the function to use `truncateToDay(t, loc)` instead
-- [ ] Fall back to UTC when no timezone is stored (backward compatible)
-- [ ] Update `handleGetBPStats` in `bp_handlers.go` to pass the timezone (or let the store function load it internally)
-- [ ] Write test `TestBPStats_TimezoneAwareDayBoundary`: user in "Asia/Tokyo" (UTC+9), readings at 23:30 and 00:30 local time should be on different local days (same UTC day)
-- [ ] Write test `TestBPStats_NoTimezoneFallsBackToUTC`: no timezone stored, verify behavior matches current UTC-based logic
-- [ ] Verify all existing 6 tests still pass (they use UTC implicitly, should be unchanged with UTC fallback)
-- [ ] Run `go test ./internal/store/...` — must pass before next task
+- [x] Add a `truncateToDay(t time.Time, loc *time.Location) time.Time` function that truncates to day start in the given timezone (replaces UTC-only truncation)
+- [x] Modify `GetBPDailyWeightedStats` to accept a `*time.Location` parameter (or load timezone inside the function via `s.GetCurrentTimezone()`)
+- [x] Update `truncateToDayUTC` calls within the function to use `truncateToDay(t, loc)` instead
+- [x] Fall back to UTC when no timezone is stored (backward compatible)
+- [x] Update `handleGetBPStats` in `bp_handlers.go` to pass the timezone (or let the store function load it internally)
+- [x] Write test `TestBPStats_TimezoneAwareDayBoundary`: user in "Asia/Tokyo" (UTC+9), readings at 23:30 and 00:30 local time should be on different local days (same UTC day)
+- [x] Write test `TestBPStats_NoTimezoneFallsBackToUTC`: no timezone stored, verify behavior matches current UTC-based logic
+- [x] Verify all existing 6 tests still pass (they use UTC implicitly, should be unchanged with UTC fallback)
+- [x] Run `go test ./internal/store/...` — must pass before next task
 
 ### Task 3: Add algorithm documentation
 - [ ] Add block comment above `GetBPDailyWeightedStats` explaining the two-stage algorithm, why each day gets equal weight, and how measurement-frequency bias is mitigated

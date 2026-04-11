@@ -1094,9 +1094,16 @@ type BPStats struct {
 // It weights each reading by the time until the next reading, computes a per-day
 // time-weighted average, then averages daily averages across the period.
 func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPStats, error) {
-	now := nowFunc().UTC()
+	loc := time.UTC
+	if tzStr, err := s.GetCurrentTimezone(); err == nil && tzStr != "" {
+		if parsed, err := time.LoadLocation(tzStr); err == nil {
+			loc = parsed
+		}
+	}
+
+	now := nowFunc().In(loc)
 	maxDays := 60
-	windowStart := truncateToDayUTC(now.AddDate(0, 0, -maxDays))
+	windowStart := truncateToDay(now.AddDate(0, 0, -maxDays), loc)
 
 	var readings []BloodPressure
 	{
@@ -1137,17 +1144,17 @@ func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPS
 		if i+1 < len(readings) && readings[i+1].MeasuredAt.Equal(readings[i].MeasuredAt) {
 			continue
 		}
-		start := readings[i].MeasuredAt.UTC()
+		start := readings[i].MeasuredAt.In(loc)
 		if start.After(now) {
 			continue
 		}
-		dayStart := truncateToDayUTC(start)
-		dayEnd := dayStart.Add(24 * time.Hour)
+		dayStart := truncateToDay(start, loc)
+		dayEnd := dayStart.AddDate(0, 0, 1)
 
 		end := dayEnd
 		if i+1 < len(readings) {
-			next := readings[i+1].MeasuredAt.UTC()
-			if truncateToDayUTC(next).Equal(dayStart) {
+			next := readings[i+1].MeasuredAt.In(loc)
+			if truncateToDay(next, loc).Equal(dayStart) {
 				end = next
 			}
 		}
@@ -1173,12 +1180,12 @@ func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPS
 	}
 
 	buildStats := func(periodDays int) *BPPeriodStats {
-		periodStart := truncateToDayUTC(now.AddDate(0, 0, -periodDays))
+		periodStart := truncateToDay(now.AddDate(0, 0, -periodDays), loc)
 		var sumSys, sumDia float64
 		var days int
 
 		for day, agg := range dayAggs {
-			if day.Before(periodStart) || day.After(truncateToDayUTC(now)) {
+			if day.Before(periodStart) || day.After(truncateToDay(now, loc)) {
 				continue
 			}
 			if agg.durSec <= 0 {
@@ -1197,7 +1204,7 @@ func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPS
 
 		readingsCount := 0
 		for _, bp := range readings {
-			measured := bp.MeasuredAt.UTC()
+			measured := bp.MeasuredAt.In(loc)
 			if measured.Before(periodStart) || measured.After(now) {
 				continue
 			}
@@ -1223,6 +1230,11 @@ func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPS
 func truncateToDayUTC(t time.Time) time.Time {
 	utc := t.UTC()
 	return time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func truncateToDay(t time.Time, loc *time.Location) time.Time {
+	local := t.In(loc)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
 }
 
 // -- Weight Tracking --

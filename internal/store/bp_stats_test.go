@@ -586,6 +586,134 @@ func absDiff(a, b int) int {
 	return b - a
 }
 
+func TestBPStats_TimezoneAwareDayBoundary(t *testing.T) {
+	db, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	userID := int64(1)
+
+	// Set user timezone to Asia/Tokyo (UTC+9)
+	_, err = db.db.ExecContext(ctx,
+		"INSERT INTO timezone_history (timezone, recorded_at) VALUES (?, ?)",
+		"Asia/Tokyo", time.Now())
+	if err != nil {
+		t.Fatalf("failed to insert timezone: %v", err)
+	}
+
+	tokyo, _ := time.LoadLocation("Asia/Tokyo")
+
+	// "now" is 2025-01-10 12:00 Tokyo time
+	fixedNow := time.Date(2025, 1, 10, 12, 0, 0, 0, tokyo)
+	origNow := nowFunc
+	nowFunc = func() time.Time { return fixedNow }
+	t.Cleanup(func() { nowFunc = origNow })
+
+	add := func(ts time.Time, sys, dia int) {
+		t.Helper()
+		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+			UserID:     userID,
+			MeasuredAt: ts,
+			Systolic:   sys,
+			Diastolic:  dia,
+		})
+		if err != nil {
+			t.Fatalf("failed to insert reading: %v", err)
+		}
+	}
+
+	// Reading at 2025-01-08 23:30 Tokyo = 2025-01-08 14:30 UTC
+	// Reading at 2025-01-09 00:30 Tokyo = 2025-01-08 15:30 UTC
+	// In UTC these are the SAME day (Jan 8). In Tokyo they are DIFFERENT days (Jan 8 vs Jan 9).
+	add(time.Date(2025, 1, 8, 23, 30, 0, 0, tokyo), 160, 100)
+	add(time.Date(2025, 1, 9, 0, 30, 0, 0, tokyo), 110, 70)
+
+	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	if err != nil {
+		t.Fatalf("failed to get stats: %v", err)
+	}
+	if stats.Stats14 == nil {
+		t.Fatalf("expected stats_14 to be present")
+	}
+
+	// With timezone-aware boundaries: 2 days, each with 1 reading
+	if stats.Stats14.Days != 2 {
+		t.Fatalf("expected 2 days (timezone-aware), got %d", stats.Stats14.Days)
+	}
+
+	// Period average = equal weight per day: (160+110)/2 = 135, (100+70)/2 = 85
+	expectedSys := int(math.Round((160 + 110) / 2.0))
+	expectedDia := int(math.Round((100 + 70) / 2.0))
+	if stats.Stats14.Systolic != expectedSys || stats.Stats14.Diastolic != expectedDia {
+		t.Fatalf("unexpected averages: got %d/%d want %d/%d",
+			stats.Stats14.Systolic, stats.Stats14.Diastolic, expectedSys, expectedDia)
+	}
+}
+
+func TestBPStats_NoTimezoneFallsBackToUTC(t *testing.T) {
+	db, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	userID := int64(1)
+
+	// No timezone stored — should fall back to UTC
+
+	fixedNow := time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC)
+	origNow := nowFunc
+	nowFunc = func() time.Time { return fixedNow }
+	t.Cleanup(func() { nowFunc = origNow })
+
+	add := func(ts time.Time, sys, dia int) {
+		t.Helper()
+		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+			UserID:     userID,
+			MeasuredAt: ts,
+			Systolic:   sys,
+			Diastolic:  dia,
+		})
+		if err != nil {
+			t.Fatalf("failed to insert reading: %v", err)
+		}
+	}
+
+	// Two readings on the same UTC day, different hours
+	add(time.Date(2025, 1, 9, 8, 0, 0, 0, time.UTC), 120, 80)
+	add(time.Date(2025, 1, 9, 20, 0, 0, 0, time.UTC), 140, 90)
+
+	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	if err != nil {
+		t.Fatalf("failed to get stats: %v", err)
+	}
+	if stats.Stats14 == nil {
+		t.Fatalf("expected stats_14 to be present")
+	}
+
+	// Both readings on same UTC day = 1 day
+	if stats.Stats14.Days != 1 {
+		t.Fatalf("expected 1 day (UTC fallback), got %d", stats.Stats14.Days)
+	}
+
+	// Time-weighted: 12h at 120/80, then 4h at 140/90 (capped at end of day)
+	dur1 := 12.0 * 3600 // 08:00 to 20:00
+	dur2 := 4.0 * 3600  // 20:00 to 00:00 (end of day)
+	avgSys := (dur1*120 + dur2*140) / (dur1 + dur2)
+	avgDia := (dur1*80 + dur2*90) / (dur1 + dur2)
+	expectedSys := int(math.Round(avgSys))
+	expectedDia := int(math.Round(avgDia))
+
+	if stats.Stats14.Systolic != expectedSys || stats.Stats14.Diastolic != expectedDia {
+		t.Fatalf("unexpected averages: got %d/%d want %d/%d",
+			stats.Stats14.Systolic, stats.Stats14.Diastolic, expectedSys, expectedDia)
+	}
+}
+
 func TestGetBPDailyWeightedStats_PartialPeriodOnlyIn60Days(t *testing.T) {
 	db, err := New(":memory:")
 	if err != nil {
