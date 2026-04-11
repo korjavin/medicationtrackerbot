@@ -74,13 +74,13 @@ Establish a proper design token system and modernize the visual appearance of th
 - [x] Run tests — must pass before next task
 
 ### Task 5: Migrate inline styles from app.js to CSS classes
-- [ ] Audit all `style.cssText`, `style.property`, and inline `style=` in `app.js`
-- [ ] Create utility classes in `style.css` for repeated patterns: `.flex-between`, `.flex-center`, `.text-center`, `.text-hint`, `.empty-state`, `.hidden`, `.mt-sm`, `.mb-md`, etc.
-- [ ] Create component classes for domain-specific patterns: `.med-item-header`, `.intake-log-entry`, `.stat-value`, etc.
-- [ ] Replace all inline style assignments in `app.js` with `classList.add()` / `className` assignments
-- [ ] Verify no `style.cssText` or `style.` property assignments remain in `app.js` (except `style.display` for show/hide if needed)
-- [ ] Add test: grep `app.js` for `\.style\.` and `\.style\s*=` — must return zero matches (or allowlisted exceptions)
-- [ ] Run tests — must pass before next task
+- [x] Audit all `style.cssText`, `style.property`, and inline `style=` in `app.js`
+- [x] Create utility classes in `style.css` for repeated patterns: `.flex-between`, `.flex-center`, `.text-center`, `.text-hint`, `.empty-state`, `.hidden`, `.mt-sm`, `.mb-md`, etc.
+- [x] Create component classes for domain-specific patterns: `.med-item-header`, `.intake-log-entry`, `.stat-value`, etc.
+- [x] Replace all inline style assignments in `app.js` with `classList.add()` / `className` assignments
+- [x] Verify no `style.cssText` or `style.` property assignments remain in `app.js` (except `style.display` for show/hide if needed)
+- [x] Add test: grep `app.js` for `\.style\.` and `\.style\s*=` — must return zero matches (or allowlisted exceptions)
+- [x] Run tests — must pass before next task
 
 ### Task 6: Migrate inline styles from food.js
 - [ ] Audit all 56 inline style assignments in `features/food.js`
