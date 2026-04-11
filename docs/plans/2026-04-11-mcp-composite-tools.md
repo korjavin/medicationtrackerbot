@@ -89,10 +89,10 @@ All 13 existing tools remain for backward compatibility and granular queries.
 - [x] Run `go test ./internal/mcp/...` — must pass before next task
 
 ### Task 4: Add analyze_fitness composite tool
-- [ ] Register new tool `analyze_fitness` in `mcp.go`
-- [ ] Parameters: `start_date`, `end_date`, `days`
-- [ ] Tool description: "Comprehensive fitness and nutrition analysis. Returns workout sessions (gym and outdoor), daily step counts, daily calorie/protein/carb/fat totals (food names omitted for privacy), weight trend, and personal diary notes — all in one call. Use this for questions about training, nutrition balance, weight progress, or activity levels."
-- [ ] Response structure:
+- [x] Register new tool `analyze_fitness` in `mcp.go`
+- [x] Parameters: `start_date`, `end_date`, `days`
+- [x] Tool description: "Comprehensive fitness and nutrition analysis. Returns workout sessions (gym and outdoor), daily step counts, daily calorie/protein/carb/fat totals (food names omitted for privacy), weight trend, and personal diary notes — all in one call. Use this for questions about training, nutrition balance, weight progress, or activity levels."
+- [x] Response structure:
   ```
   AnalyzeFitnessResponse {
       period: string
@@ -104,13 +104,13 @@ All 13 existing tools remain for backward compatibility and granular queries.
       warning: optional string
   }
   ```
-- [ ] For nutrition: query food logs, aggregate by day, return only totals (no food item names/details)
-- [ ] Respect feature gates per domain
-- [ ] Add audit logging for "FitnessAnalysis" data type
-- [ ] Write test: composite tool returns data from all domains
-- [ ] Write test: nutrition daily_totals contains only aggregated numbers, no food names
-- [ ] Write test: feature gate disabling food omits nutrition section
-- [ ] Run `go test ./internal/mcp/...` — must pass before next task
+- [x] For nutrition: query food logs, aggregate by day, return only totals (no food item names/details)
+- [x] Respect feature gates per domain
+- [x] Add audit logging for "FitnessAnalysis" data type
+- [x] Write test: composite tool returns data from all domains
+- [x] Write test: nutrition daily_totals contains only aggregated numbers, no food names
+- [x] Write test: feature gate disabling food omits nutrition section
+- [x] Run `go test ./internal/mcp/...` — must pass before next task
 
 ### Task 5: Verify acceptance criteria
 - [ ] Verify all 13 existing tools still work and now include `context_notes`
