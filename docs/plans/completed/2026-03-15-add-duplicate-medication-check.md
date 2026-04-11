@@ -51,4 +51,4 @@ Before creating a new medication, check if one with the same name (case-insensit
 
 ### Task 4: Update documentation
 
-- [ ] Move this plan to `docs/plans/completed/`
+- [x] Move this plan to `docs/plans/completed/`
