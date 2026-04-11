@@ -83,11 +83,11 @@ Establish a proper design token system and modernize the visual appearance of th
 - [x] Run tests — must pass before next task
 
 ### Task 6: Migrate inline styles from food.js
-- [ ] Audit all 56 inline style assignments in `features/food.js`
-- [ ] Create CSS classes for food-specific patterns: `.food-item`, `.food-macro-label`, `.food-summary-row`, `.food-empty`, etc.
-- [ ] Replace all inline style assignments with CSS classes
-- [ ] Add test: grep `food.js` for `\.style\.` — must return zero matches (or allowlisted exceptions)
-- [ ] Run tests — must pass before next task
+- [x] Audit all 56 inline style assignments in `features/food.js`
+- [x] Create CSS classes for food-specific patterns: `.food-group-time`, `.food-group-totals`, `.food-log-item`, `.food-checkbox-wrap`, `.food-checkbox`, `.food-item-body`, `.food-item-meta`, `.food-action-icons`, `.food-floating-btn`, `.food-meal-header`, `.food-meal-info`, `.food-meal-name`, `.food-meal-actions`, `.food-nutrition-row`, `.food-summary-wrapper`, `.food-summary-details`, `.food-select-btn`, `.food-db-actions-row`, `.food-db-info`, `.food-db-name`, `.food-db-macros`, `.food-db-meta`, `.food-meal-badge`
+- [x] Replace all inline style assignments with CSS classes
+- [x] Add test: grep `food.js` for `\.style\.` — must return zero matches (or allowlisted exceptions for dynamic progress bar width/background)
+- [x] Run tests — must pass before next task
 
 ### Task 7: Migrate inline styles from bp.js, weight.js, and remaining JS files
 - [ ] Audit and migrate inline styles in `features/bp.js`
