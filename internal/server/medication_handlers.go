@@ -129,6 +129,19 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Check for duplicate medication (same name + dosage, including archived)
+	allMeds, err := s.meds.ListMedications(true)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, m := range allMeds {
+		if strings.EqualFold(m.Name, req.Name) && m.Dosage == req.Dosage {
+			http.Error(w, "Medication with this name and dosage already exists", http.StatusConflict)
+			return
+		}
+	}
+
 	// 1. Search RxNorm
 	rxcui, normalizedName, _ := s.rxnorm.SearchRxNorm(req.Name)
 

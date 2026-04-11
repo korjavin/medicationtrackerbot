@@ -122,6 +122,66 @@ func TestHandleCreateMedication(t *testing.T) {
 	}
 }
 
+func TestHandleCreateMedication_Duplicate(t *testing.T) {
+	srv, db := createTestServer(t)
+	defer db.Close()
+
+	// Create initial medication
+	_, err := db.CreateMedication("Aspirin", "100mg", "daily", nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("Failed to create med: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		medName    string
+		dosage     string
+		wantStatus int
+	}{
+		{"exact duplicate", "Aspirin", "100mg", http.StatusConflict},
+		{"case-insensitive duplicate", "aspirin", "100mg", http.StatusConflict},
+		{"same name different dosage", "Aspirin", "200mg", http.StatusOK},
+		{"different name same dosage", "Ibuprofen", "100mg", http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reqBody := map[string]interface{}{
+				"name":     tt.medName,
+				"dosage":   tt.dosage,
+				"schedule": "daily",
+			}
+			body, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/medications", bytes.NewReader(body))
+			w := httptest.NewRecorder()
+
+			srv.handleCreateMedication(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("Expected status %d, got %d. Body: %s", tt.wantStatus, w.Code, w.Body.String())
+			}
+		})
+	}
+
+	// Also test duplicate against archived medication
+	idArchived, _ := db.CreateMedication("ArchivedMed", "50mg", "daily", nil, nil, "", "", "")
+	_ = db.UpdateMedication(idArchived, "ArchivedMed", "50mg", "daily", true, nil, nil, "", "", nil, "")
+
+	reqBody := map[string]interface{}{
+		"name":     "archivedmed",
+		"dosage":   "50mg",
+		"schedule": "daily",
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "/api/medications", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleCreateMedication(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("Expected 409 for archived duplicate, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleCreateMedication_InvalidJSON(t *testing.T) {
 	srv, db := createTestServer(t)
 	defer db.Close()

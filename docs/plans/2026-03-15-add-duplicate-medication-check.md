@@ -25,11 +25,11 @@ Before creating a new medication, check if one with the same name (case-insensit
 - Modify: `internal/server/medication_handlers.go`
 - Modify: `internal/server/medication_handlers_test.go`
 
-- [ ] In `handleCreateMedication`, after decoding the request and before calling `s.meds.CreateMedication`, call `s.meds.ListMedications(true)` to get all medications including archived
-- [ ] Loop through the list and compare name (strings.EqualFold) and dosage (exact match) with the request values
-- [ ] If a match is found, return HTTP 409 Conflict with a descriptive message: `"Medication with this name and dosage already exists"`
-- [ ] Write test `TestHandleCreateMedication_Duplicate` in `internal/server/medication_handlers_test.go` that creates a medication, then tries to create one with the same name/dosage, and expects HTTP 409
-- [ ] Run `go test ./internal/server/...` - must pass
+- [x] In `handleCreateMedication`, after decoding the request and before calling `s.meds.CreateMedication`, call `s.meds.ListMedications(true)` to get all medications including archived
+- [x] Loop through the list and compare name (strings.EqualFold) and dosage (exact match) with the request values
+- [x] If a match is found, return HTTP 409 Conflict with a descriptive message: `"Medication with this name and dosage already exists"`
+- [x] Write test `TestHandleCreateMedication_Duplicate` in `internal/server/medication_handlers_test.go` that creates a medication, then tries to create one with the same name/dosage, and expects HTTP 409
+- [x] Run `go test ./internal/server/...` - must pass
 
 ### Task 2: Surface the error in the frontend
 
