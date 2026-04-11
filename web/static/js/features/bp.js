@@ -130,10 +130,8 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
     }
 
     if (allReadings.length === 0 && readingsRes === null) {
-        const errLi = document.createElement('li');
-        errLi.style.cssText = 'text-align:center;color:var(--hint-color);padding:20px;';
-        errLi.textContent = 'Failed to load readings';
-        list.replaceChildren(errLi);
+        list.replaceChildren(createEmptyState('Failed to load readings'));
+
         return;
     }
 
@@ -158,7 +156,7 @@ function renderBPChart(readings, goalData) {
 
     if (!readings || readings.length === 0) {
         const noDataSpan = document.createElement('span');
-        noDataSpan.style.cssText = "color:var(--hint-color);font-size:14px;";
+        noDataSpan.className = 'no-data-msg';
         noDataSpan.textContent = "No data available";
         container.appendChild(noDataSpan);
         return;
@@ -437,9 +435,7 @@ function renderBPReadings(readings) {
         header.textContent = headerText;
 
         const groupList = document.createElement('ul');
-        groupList.style.listStyle = 'none';
-        groupList.style.padding = '0';
-        groupList.style.margin = '0';
+        groupList.className = 'list-reset';
         groupItem.appendChild(header);
         groupItem.appendChild(groupList);
 

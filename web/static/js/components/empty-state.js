@@ -12,8 +12,8 @@
  */
 function createEmptyState(message, { tag = 'li', className } = {}) {
     const el = document.createElement(tag);
-    el.style.cssText = 'text-align:center;color:var(--hint-color);padding:20px;';
-    if (className) el.className = className;
+    el.className = className ? `empty-state-msg ${className}` : 'empty-state-msg';
+
     el.textContent = message;
     return el;
 }

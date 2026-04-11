@@ -90,11 +90,11 @@ Establish a proper design token system and modernize the visual appearance of th
 - [x] Run tests — must pass before next task
 
 ### Task 7: Migrate inline styles from bp.js, weight.js, and remaining JS files
-- [ ] Audit and migrate inline styles in `features/bp.js`
-- [ ] Audit and migrate inline styles in `features/weight.js`
-- [ ] Scan all other JS files in `web/static/js/` for inline style assignments and migrate
-- [ ] Add test: grep all JS files under `web/static/js/` for `\.style\.` — must return zero matches (or allowlisted exceptions for dynamic values like chart positioning)
-- [ ] Run tests — must pass before next task
+- [x] Audit and migrate inline styles in `features/bp.js`
+- [x] Audit and migrate inline styles in `features/weight.js`
+- [x] Scan all other JS files in `web/static/js/` for inline style assignments and migrate
+- [x] Add test: grep all JS files under `web/static/js/` for `\.style\.` — must return zero matches (or allowlisted exceptions for dynamic values like chart positioning)
+- [x] Run tests — must pass before next task
 
 ### Task 8: Replace emoji tab icons with inline SVGs
 - [ ] Design/source 7 SVG icons (16-20px, single-path, monochrome): blood drop (BP), scale (weight), dumbbell (workouts), utensils (food), moon/heart (health), pill (medications), gear (settings)

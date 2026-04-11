@@ -83,7 +83,7 @@ const SyncDebug = {
 
         const panel = document.createElement('div');
         panel.id = 'sync-debug-panel';
-        panel.style.cssText = 'display:none;position:fixed;bottom:0;left:0;right:0;max-height:40vh;background:rgba(0,0,0,0.9);color:#0f0;font-family:monospace;font-size:11px;overflow-y:auto;z-index:9999;padding:8px;';
+        panel.className = 'sync-debug-panel';
         panel.innerHTML = `
             <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
                 <strong>Sync Debug Log</strong>
@@ -212,7 +212,7 @@ const SyncManager = {
 
         // Make status bar clickable to show debug panel
         statusBar.onclick = () => SyncDebug.toggle();
-        statusBar.style.cursor = 'pointer';
+        statusBar.classList.add('cursor-pointer');
 
         if (!status.isOnline) {
             statusBar.className = 'sync-status-bar offline';

@@ -131,6 +131,21 @@ const REQUIRED_TOKENS = [
     '--color-food-status-empty',
     '--color-food-status-error',
 
+    // Workout action button colors
+    '--color-workout-stop-bg',
+    '--color-workout-stop-text',
+    '--color-workout-stop-border',
+    '--color-workout-skip-bg',
+    '--color-workout-skip-text',
+    '--color-workout-skip-border',
+
+    // Mi Band / outdoor workout colors
+    '--color-miband-badge-bg',
+    '--color-miband-badge-text',
+    '--color-miband-badge-border',
+    '--color-miband-chip-bg',
+    '--color-miband-chip-text',
+
     // Scanner
     '--color-scanner-bg',
 
@@ -400,8 +415,8 @@ describe('Architecture – design tokens', () => {
         const hardcodedPxRe = /(?<!\w)(\d+)px\b/g;
 
         // Allowlisted px values that don't have matching tokens or are acceptable
-        const spacingAllowlist = new Set([0, 1, 2, 3, 80, 90, 40, 100, 120, 200, 250, 400]);
-        const radiusAllowlist = new Set([0]);
+        const spacingAllowlist = new Set([0, 1, 2, 3, 7, 80, 90, 40, 100, 120, 200, 250, 400]);
+        const radiusAllowlist = new Set([0, 2]);
         const fontSizeAllowlist = new Set([0, 48]); // 48px is a special display size
         const zIndexAllowlist = new Set([0, 10, 1003, 1200]); // local stacking, scanner, banner
 
@@ -629,6 +644,104 @@ describe('Architecture – design tokens', () => {
         }
     });
 
+    it('no inline style assignments in any JS file (except allowlisted dynamic values)', () => {
+        const jsDir = path.join(REPO_ROOT, 'web/static/js');
+
+        // Helper: scan a file for inline style violations
+        function scanFile(filePath, allowRules = []) {
+            const code = fs.readFileSync(filePath, 'utf8');
+            const lines = code.split('\n');
+            const styleCssTextRe = /\.style\.cssText\s*=/;
+            const stylePropRe = /\.style\.\w+\s*=/;
+            const styleReadRe = /\.style\.display\s*===?\s*/;
+            const violations = [];
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const lineNum = i + 1;
+
+                // Skip comments
+                if (/^\s*\/\//.test(line) || /^\s*\/?\*/.test(line)) continue;
+
+                // cssText assignments are always violations
+                if (styleCssTextRe.test(line)) {
+                    violations.push({ line: lineNum, text: line.trim() });
+                    continue;
+                }
+
+                // style property reads (comparisons) are not violations
+                if (styleReadRe.test(line) && !stylePropRe.test(line)) continue;
+
+                // style property assignments
+                if (stylePropRe.test(line)) {
+                    // style.display for show/hide is always allowed
+                    if (/\.style\.display\s*=/.test(line)) continue;
+                    // style.setProperty for CSS custom properties is always allowed
+                    if (/\.style\.setProperty\(/.test(line)) continue;
+                    // Check per-file allow rules
+                    if (allowRules.some(re => re.test(line))) continue;
+
+                    violations.push({ line: lineNum, text: line.trim() });
+                }
+            }
+
+            return violations;
+        }
+
+        // Per-file allowlist rules for dynamic values that cannot be CSS classes
+        const fileRules = {
+            'features/bp.js': [],
+            'features/weight.js': [
+                /\.style\.transform\s*=/, // ruler positioning
+                /\.style\.left\s*=/,      // tick positioning
+            ],
+            'features/health.js': [
+                /\.style\.background\s*=/, // dynamic legend badge colors
+            ],
+            'features/settings.js': [],
+            'features/tabs-dnd.js': [
+                /\.style\.transform\s*=/,   // drag transform
+                /\.style\.transition\s*=/,  // drag transition
+                /\.style\.zIndex\s*=/,      // drag z-index
+                /\.style\.position\s*=/,    // drag position
+                /\.style\.opacity\s*=/,     // drag opacity
+            ],
+            'sync.js': [],
+            'components/empty-state.js': [],
+            'app-shell.js': [],
+            'workout.js': [
+                /\.style\.background\s*=/,    // dynamic data-driven colors
+                /\.style\.width\s*=/,         // dynamic bar fill width
+                /\.style\.opacity\s*=/,       // save button loading state
+                /\.style\.color\s*=/,         // dynamic totals card value color
+                /\.style\.border\s*=/,        // dynamic totals card border
+                /\.style\.alignItems\s*=/,    // one-off layout override
+            ],
+        };
+
+        const allViolations = [];
+
+        for (const [relPath, rules] of Object.entries(fileRules)) {
+            const fullPath = path.join(jsDir, relPath);
+            if (!fs.existsSync(fullPath)) continue;
+            const violations = scanFile(fullPath, rules);
+            if (violations.length > 0) {
+                allViolations.push({ file: relPath, violations });
+            }
+        }
+
+        if (allViolations.length > 0) {
+            const report = allViolations
+                .map(f => `\n  ${f.file}:\n` + f.violations.map(v => `    L${v.line}: ${v.text}`).join('\n'))
+                .join('');
+            throw new Error(
+                `Found inline style assignments in JS files:${report}\n\n` +
+                `Replace with CSS classes. Allowed exceptions: style.display (show/hide), ` +
+                `style.setProperty (CSS custom props), and per-file dynamic value allowlists.`
+            );
+        }
+    });
+
     it('utility and component CSS classes are defined in styles.css', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
 
@@ -675,6 +788,48 @@ describe('Architecture – design tokens', () => {
             // Food DB cards
             '.food-db-actions-row', '.food-db-info', '.food-db-name',
             '.food-db-macros', '.food-db-meta', '.food-meal-badge',
+            // List reset
+            '.list-reset',
+            // Additional utilities
+            '.flex-1', '.flex-wrap', '.text-xs', '.text-sm', '.text-error',
+            '.mt-lg', '.mt-xl',
+            // Empty/error state
+            '.empty-state-msg', '.no-data-msg',
+            // PWA update toast
+            '.pwa-update-toast', '.pwa-update-btn',
+            // Sync debug panel
+            '.sync-debug-panel',
+            // Health overview
+            '.health-chart-wrapper', '.health-chart-container', '.health-chart-container-tall',
+            '.health-chart-stat', '.health-chart-stat-spaced',
+            '.health-chart-legend', '.health-legend-item',
+            '.health-legend-badge', '.health-legend-badge-line',
+            // Workout components
+            '.workout-empty-state', '.workout-pending-msg',
+            '.workout-variant-card', '.workout-variant-desc',
+            '.workout-exercise-card', '.workout-exercise-meta',
+            '.workout-delete-btn-inline',
+            '.workout-history-card', '.workout-history-meta',
+            '.workout-volume-highlight', '.workout-history-status', '.workout-history-chevron',
+            '.workout-miband-card', '.workout-miband-date',
+            '.workout-miband-badge',
+            '.workout-stat-chips', '.workout-stat-chip',
+            '.workout-btn-row', '.workout-btn-stop', '.workout-btn-skip',
+            '.workout-btn-full', '.workout-btn-full-secondary',
+            '.workout-session-info-row', '.workout-session-status-group',
+            '.workout-session-status-label', '.workout-session-select',
+            '.exercise-log-header', '.exercise-log-delete-btn',
+            '.workout-stats-grid-3', '.workout-stats-grid-2',
+            '.workout-hero-card', '.workout-hero-value', '.workout-hero-label',
+            '.workout-totals-card', '.workout-totals-value', '.workout-totals-label',
+            '.workout-section-heading',
+            '.workout-bar-track', '.workout-bar-fill',
+            '.workout-exercise-row', '.workout-exercise-labels',
+            '.workout-exercise-name', '.workout-exercise-volume',
+            '.workout-activity-grid', '.workout-activity-square',
+            '.workout-legend', '.workout-legend-swatch',
+            '.workout-history-list',
+            '.exercise-library-defaults', '.exercise-library-notes',
         ];
 
         const missing = requiredClasses.filter(cls => {

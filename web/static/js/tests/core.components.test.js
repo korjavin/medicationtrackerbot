@@ -29,7 +29,7 @@ describe('createEmptyState', () => {
             const el = window.createEmptyState('No data');
             expect(el.tagName).toBe('LI');
             expect(el.textContent).toBe('No data');
-            expect(el.style.textAlign).toBe('center');
+            expect(el.className).toContain('empty-state-msg');
         } finally {
             cleanup();
         }
