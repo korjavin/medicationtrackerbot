@@ -108,14 +108,14 @@ Several endpoints return empty/error offline. Ensure every `loadSWR` consumer ha
 ### Task 6: Offline status UI improvements
 Make the offline state clear but non-intrusive. Users should know they're offline but not be blocked.
 
-- [ ] When offline, show a persistent slim banner (not the full status bar) at top: "Offline — showing cached data"
+- [x] When offline, show a persistent slim banner (not the full status bar) at top: "Offline — showing cached data"
   - Use CSS class, not inline styles
   - Dismiss automatically when back online
-- [ ] Disable (grey out, don't hide) write buttons for unsupported offline operations (food, sleep, notes, workouts)
+- [x] Disable (grey out, don't hide) write buttons for unsupported offline operations (food, sleep, notes, workouts)
   - Show tooltip: "Available when online"
-- [ ] For supported offline writes (BP, weight, medication confirm): show "(saved locally)" confirmation instead of success
-- [ ] Write tests for offline banner show/hide, button disable states
-- [ ] Run tests — must pass before next task
+- [x] For supported offline writes (BP, weight, medication confirm): show "(saved locally)" confirmation instead of success
+- [x] Write tests for offline banner show/hide, button disable states
+- [x] Run tests — must pass before next task
 
 ### Task 7: Verify acceptance criteria
 - [ ] Verify all requirements from Overview are implemented
