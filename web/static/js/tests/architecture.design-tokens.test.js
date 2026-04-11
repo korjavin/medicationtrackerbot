@@ -586,6 +586,49 @@ describe('Architecture – design tokens', () => {
         }
     });
 
+    it('no inline style assignments in food.js (except dynamic progress bar values)', () => {
+        const foodPath = path.join(REPO_ROOT, 'web/static/js/features/food.js');
+        const foodJs = fs.readFileSync(foodPath, 'utf8');
+        const lines = foodJs.split('\n');
+
+        const styleCssTextRe = /\.style\.cssText\s*=/;
+        const stylePropRe = /\.style\.\w+\s*=/;
+        // Allowlisted: dynamic progress bar width and background color
+        const widthDynamicRe = /\.style\.width\s*=\s*`/;
+        const backgroundDynamicRe = /\.style\.background\s*=/;
+
+        const violations = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const lineNum = i + 1;
+
+            if (/^\s*\/\//.test(line) || /^\s*\/?\*/.test(line)) continue;
+
+            if (styleCssTextRe.test(line)) {
+                violations.push({ line: lineNum, text: line.trim() });
+                continue;
+            }
+
+            if (stylePropRe.test(line)) {
+                if (widthDynamicRe.test(line)) continue;
+                if (backgroundDynamicRe.test(line)) continue;
+                violations.push({ line: lineNum, text: line.trim() });
+            }
+        }
+
+        if (violations.length > 0) {
+            const report = violations
+                .map(v => `  L${v.line}: ${v.text}`)
+                .join('\n');
+            throw new Error(
+                `Found ${violations.length} inline style assignments in food.js:\n\n${report}\n\n` +
+                `Replace with CSS classes. Allowed exceptions: style.width (dynamic progress), ` +
+                `style.background (dynamic color).`
+            );
+        }
+    });
+
     it('utility and component CSS classes are defined in styles.css', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
 
@@ -618,6 +661,20 @@ describe('Architecture – design tokens', () => {
             '.chart-disclaimer',
             // SVG
             '.svg-chart',
+            // Food log items
+            '.food-group-time', '.food-group-totals', '.food-log-item',
+            '.food-checkbox-wrap', '.food-checkbox', '.food-item-body',
+            '.food-item-meta', '.food-action-icons',
+            // Food floating button
+            '.food-floating-btn',
+            // Food meal cards
+            '.food-meal-header', '.food-meal-info', '.food-meal-name',
+            '.food-meal-actions', '.food-nutrition-row',
+            // Food summary
+            '.food-summary-wrapper', '.food-summary-details', '.food-select-btn',
+            // Food DB cards
+            '.food-db-actions-row', '.food-db-info', '.food-db-name',
+            '.food-db-macros', '.food-db-meta', '.food-meal-badge',
         ];
 
         const missing = requiredClasses.filter(cls => {
