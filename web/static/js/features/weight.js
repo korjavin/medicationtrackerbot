@@ -489,6 +489,7 @@ function renderWeightChart(logs, goalData) {
     pathLine.setAttribute("stroke-width", "3");
     pathLine.setAttribute("fill", "none");
     svg.appendChild(pathLine);
+    window.ChartUtils.animateLine(pathLine);
 
     // Data points (all except last)
     points.forEach((p, i) => {

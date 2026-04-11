@@ -309,6 +309,7 @@ function renderBPChart(readings, goalData) {
     sysPath.setAttribute("fill", "none");
     sysPath.classList.add("chart-line");
     svg.appendChild(sysPath);
+    window.ChartUtils.animateLine(sysPath);
 
     // Smooth spline path for diastolic
     const diaPath = document.createElementNS(svgNs, "path");
@@ -318,6 +319,7 @@ function renderBPChart(readings, goalData) {
     diaPath.setAttribute("fill", "none");
     diaPath.classList.add("chart-line");
     svg.appendChild(diaPath);
+    window.ChartUtils.animateLine(diaPath);
 
     // Smooth spline path for pulse (if data has pulse readings)
     const pulseData = data.filter(d => d.pulse);
@@ -332,6 +334,7 @@ function renderBPChart(readings, goalData) {
         pulsePath.setAttribute("fill", "none");
         pulsePath.classList.add("chart-line");
         svg.appendChild(pulsePath);
+        window.ChartUtils.animateLine(pulsePath);
     }
 
     // Draw color-coded points for systolic (all except last)

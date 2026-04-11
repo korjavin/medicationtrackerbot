@@ -194,6 +194,7 @@
             pathObj.setAttribute("d", p); pathObj.setAttribute("fill", "none"); pathObj.setAttribute("stroke", color);
             pathObj.setAttribute("stroke-width", "2"); pathObj.setAttribute("stroke-linecap", "round"); pathObj.setAttribute("stroke-linejoin", "round");
             svg.appendChild(pathObj);
+            window.ChartUtils.animateLine(pathObj);
         });
         // Last-value emphasis on rightmost data point
         if (data.length > 0) {
@@ -286,6 +287,7 @@
             const pathData = hrPoints.map((p, i) => (i === 0 ? `M ${p.x},${p.y}` : `L ${p.x},${p.y}`)).join(" ");
             pathLine.setAttribute("d", pathData); pathLine.setAttribute("fill", "none"); pathLine.setAttribute("stroke", "#ff3b30"); pathLine.setAttribute("stroke-width", "2");
             svg.appendChild(pathLine);
+            window.ChartUtils.animateLine(pathLine);
         }
         hrPoints.forEach(p => {
             const cOut = document.createElementNS("http://www.w3.org/2000/svg", "circle"); cOut.setAttribute("cx", p.x); cOut.setAttribute("cy", p.y); cOut.setAttribute("r", "4"); cOut.setAttribute("fill", "var(--bg-color)"); svg.appendChild(cOut);
