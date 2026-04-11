@@ -66,12 +66,12 @@ Validate, harden, and document the BP daily-weighted averaging algorithm in `Get
 - [x] Run `go test ./...` — must pass before next task
 
 ### Task 4: Verify acceptance criteria
-- [ ] Verify all new tests pass and cover the user's real-world scenarios
-- [ ] Verify timezone fix works for non-UTC timezones
-- [ ] Verify UTC fallback preserves backward compatibility
-- [ ] Run full test suite (`go test ./...`)
-- [ ] Run `go vet ./...`
-- [ ] Verify existing BP stats API response format unchanged
+- [x] Verify all new tests pass and cover the user's real-world scenarios
+- [x] Verify timezone fix works for non-UTC timezones
+- [x] Verify UTC fallback preserves backward compatibility
+- [x] Run full test suite (`go test ./...`)
+- [x] Run `go vet ./...`
+- [x] Verify existing BP stats API response format unchanged
 
 ### Task 5: [Final] Update documentation
 - [ ] Update CLAUDE.md if needed (mention timezone-aware BP averaging)
