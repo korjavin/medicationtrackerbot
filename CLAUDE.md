@@ -366,6 +366,7 @@ MCP_AUDIT_SECRET=secure-shared-secret
 - Offline sync retry: `SyncManager` in `sync.js` retries failed syncs with exponential backoff (5s base, 300s cap). Resets on success or `online` event. Status bar shows retry countdown.
 - **Tab Reordering:** Drag-and-drop functionality in `tabs-dnd.js` allows custom tab layouts, persisted via `tab_order` in the bootstrap payload and cached in `settings_bundle`.
 - **Tab Icons:** Inline SVGs (stroke-based, `currentColor`) replace emoji icons. All tab buttons have `aria-label` attributes.
+- **Health Sub-Tabs:** Health view has two sub-tabs — "Overview" (vitals/sleep/steps charts) and "Notes" (diary notes). Uses `bindTabGroup()` / `activateTabGroup()` pattern (same as Food tab). Notes load lazily on first sub-tab click; default active sub-tab is Overview.
 
 #### Design Token System
 
