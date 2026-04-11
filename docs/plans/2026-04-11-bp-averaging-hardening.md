@@ -42,11 +42,11 @@ Validate, harden, and document the BP daily-weighted averaging algorithm in `Get
 ## Implementation Steps
 
 ### Task 1: Add scenario-specific tests for existing algorithm
-- [ ] Add test `TestBPStats_FrequentHighBPDayVsSparseNormal`: 3 normal days with 1 reading each (120/80), 1 high-BP day with 5 readings (150/95 area), verify period average is close to 127 (not inflated by the 5 readings)
-- [ ] Add test `TestBPStats_SingleReadingPerDay`: 5 days each with exactly 1 reading at different times, verify each day's average equals its single reading value
-- [ ] Add test `TestBPStats_LongGapBetweenDays`: readings on day 1 and day 10 only, verify both days contribute equally to the 14-day average
-- [ ] Add test `TestBPStats_ManyReadingsInShortBurst`: 10 readings within 30 minutes on one day, 1 reading on another day, verify the burst day doesn't dominate
-- [ ] Run `go test ./internal/store/...` — must pass before next task
+- [x] Add test `TestBPStats_FrequentHighBPDayVsSparseNormal`: 3 normal days with 1 reading each (120/80), 1 high-BP day with 5 readings (150/95 area), verify period average is close to 127 (not inflated by the 5 readings)
+- [x] Add test `TestBPStats_SingleReadingPerDay`: 5 days each with exactly 1 reading at different times, verify each day's average equals its single reading value
+- [x] Add test `TestBPStats_LongGapBetweenDays`: readings on day 1 and day 10 only, verify both days contribute equally to the 14-day average
+- [x] Add test `TestBPStats_ManyReadingsInShortBurst`: 10 readings within 30 minutes on one day, 1 reading on another day, verify the burst day doesn't dominate
+- [x] Run `go test ./internal/store/...` — must pass before next task
 
 ### Task 2: Fix day boundary to use user timezone
 - [ ] Add a `truncateToDay(t time.Time, loc *time.Location) time.Time` function that truncates to day start in the given timezone (replaces UTC-only truncation)
