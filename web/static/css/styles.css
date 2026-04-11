@@ -951,6 +951,13 @@ svg.chart-svg {
     stroke-dasharray: 4 4;
 }
 
+.chart-grid-refined {
+    stroke: var(--hint-color);
+    stroke-width: 0.5;
+    stroke-opacity: 0.08;
+    stroke-dasharray: none;
+}
+
 .chart-goal-line {
     stroke: var(--color-success);
     stroke-width: 2;

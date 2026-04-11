@@ -157,12 +157,14 @@
             text.setAttribute("text-anchor", "end"); text.setAttribute("fill", "var(--hint-color)");
             text.setAttribute("font-size", "10px"); text.textContent = val;
             svg.appendChild(text);
-            const gridLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-            gridLine.setAttribute("x1", leftPadding); gridLine.setAttribute("y1", y);
-            gridLine.setAttribute("x2", leftPadding + chartWidth); gridLine.setAttribute("y2", y);
-            gridLine.setAttribute("stroke", "var(--hint-color)");
-            gridLine.setAttribute("stroke-opacity", i === 0 ? "0.6" : "0.2");
-            svg.appendChild(gridLine);
+            // Skip outermost grid lines to avoid box feel
+            if (i > 0 && i < ySteps) {
+                const gridLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                gridLine.setAttribute("x1", leftPadding); gridLine.setAttribute("y1", y);
+                gridLine.setAttribute("x2", leftPadding + chartWidth); gridLine.setAttribute("y2", y);
+                gridLine.setAttribute("class", "chart-grid-refined");
+                svg.appendChild(gridLine);
+            }
         }
         const getX = (ts) => leftPadding + ((ts - minTime) / timeRange) * chartWidth;
         const getY = (val) => {
@@ -239,7 +241,7 @@
             line.setAttribute("stroke", "var(--hint-color)"); svg.appendChild(line);
             const gridLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
             gridLine.setAttribute("x1", leftPadding); gridLine.setAttribute("y1", y); gridLine.setAttribute("x2", leftPadding + chartWidth); gridLine.setAttribute("y2", y);
-            gridLine.setAttribute("stroke", "var(--hint-color)"); gridLine.setAttribute("stroke-opacity", "0.2"); svg.appendChild(gridLine);
+            gridLine.setAttribute("class", "chart-grid-refined"); svg.appendChild(gridLine);
         });
         const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         let hrPoints = [];
@@ -312,10 +314,13 @@
             text.setAttribute("x", leftPadding - 8); text.setAttribute("y", y + 4); text.setAttribute("text-anchor", "end");
             text.setAttribute("fill", "var(--hint-color)"); text.setAttribute("font-size", "10px"); text.textContent = valStr;
             svg.appendChild(text);
-            const gridLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-            gridLine.setAttribute("x1", leftPadding); gridLine.setAttribute("y1", y); gridLine.setAttribute("x2", leftPadding + chartWidth); gridLine.setAttribute("y2", y);
-            gridLine.setAttribute("stroke", "var(--hint-color)"); gridLine.setAttribute("stroke-opacity", i === 0 ? "0.6" : "0.2");
-            svg.appendChild(gridLine);
+            // Skip outermost grid lines to avoid box feel
+            if (i > 0 && i < ySteps) {
+                const gridLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                gridLine.setAttribute("x1", leftPadding); gridLine.setAttribute("y1", y); gridLine.setAttribute("x2", leftPadding + chartWidth); gridLine.setAttribute("y2", y);
+                gridLine.setAttribute("class", "chart-grid-refined");
+                svg.appendChild(gridLine);
+            }
         }
         const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         stats.forEach((dayStat, i) => {

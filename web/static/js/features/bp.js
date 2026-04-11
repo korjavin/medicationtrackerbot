@@ -232,7 +232,11 @@ function renderBPChart(readings, goalData) {
     svg.setAttribute("viewBox", `0 0 ${totalWidth} ${chartHeight + 20}`);
 
     // Y-Axis Labels at regular intervals
+    const bpTickVals = [];
     for (let val = Math.ceil(effectiveMin / yInterval) * yInterval; val <= effectiveMax; val += yInterval) {
+        bpTickVals.push(val);
+    }
+    bpTickVals.forEach((val, idx) => {
         const y = yScale(val);
         const text = document.createElementNS(svgNs, "text");
         text.setAttribute("x", leftPadding - 5);
@@ -242,14 +246,16 @@ function renderBPChart(readings, goalData) {
         text.textContent = val;
         svg.appendChild(text);
 
+        // Skip outermost grid lines to avoid box feel
+        if (idx === 0 || idx === bpTickVals.length - 1) return;
         const gridLine = document.createElementNS(svgNs, "line");
         gridLine.setAttribute("x1", leftPadding);
         gridLine.setAttribute("y1", y);
         gridLine.setAttribute("x2", totalWidth - 10);
         gridLine.setAttribute("y2", y);
-        gridLine.setAttribute("class", "chart-grid");
+        gridLine.setAttribute("class", "chart-grid-refined");
         svg.appendChild(gridLine);
-    }
+    });
 
     // Draw average lines (dotted)
     const avgSysY = yScale(avgSys);
