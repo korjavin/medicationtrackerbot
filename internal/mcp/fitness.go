@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sort"
 	"strings"
@@ -84,20 +85,35 @@ func (s *Server) handleAnalyzeFitness(ctx context.Context, req *sdkmcp.CallToolR
 		slog.Warn("[MCP] FitnessAnalysis: failed to check workout feature", "error", err)
 		unavailable = append(unavailable, "workouts (error checking feature)")
 	} else if wkEnabled {
-		response.Workouts = s.fetchWorkoutsSection(ctx, userID, startDate, endDate)
+		wk, err := s.fetchWorkoutsSection(ctx, userID, startDate, endDate)
+		if err != nil {
+			unavailable = append(unavailable, "workouts (query failed)")
+		} else {
+			response.Workouts = wk
+		}
 	} else {
 		unavailable = append(unavailable, "workouts (feature disabled)")
 	}
 
 	// Steps (no feature gate)
-	response.Steps = s.fetchStepsSection(ctx, userID, startDate, endDate)
+	steps, err := s.fetchStepsSection(ctx, userID, startDate, endDate)
+	if err != nil {
+		unavailable = append(unavailable, "steps (query failed)")
+	} else {
+		response.Steps = steps
+	}
 
 	// Nutrition
 	if foodEnabled, err := s.data.GetFoodIntakeEnabled(ctx); err != nil {
 		slog.Warn("[MCP] FitnessAnalysis: failed to check food intake feature", "error", err)
 		unavailable = append(unavailable, "nutrition (error checking feature)")
 	} else if foodEnabled {
-		response.Nutrition = s.fetchNutritionSection(ctx, userID, startDate, endDate)
+		nut, err := s.fetchNutritionSection(ctx, userID, startDate, endDate)
+		if err != nil {
+			unavailable = append(unavailable, "nutrition (query failed)")
+		} else {
+			response.Nutrition = nut
+		}
 	} else {
 		unavailable = append(unavailable, "nutrition (feature disabled)")
 	}
@@ -107,14 +123,26 @@ func (s *Server) handleAnalyzeFitness(ctx context.Context, req *sdkmcp.CallToolR
 		slog.Warn("[MCP] FitnessAnalysis: failed to check weight feature", "error", err)
 		unavailable = append(unavailable, "weight (error checking feature)")
 	} else if weightEnabled {
-		response.Weight = s.fetchWeightSection(ctx, userID, startDate, endDate)
+		wt, err := s.fetchWeightSection(ctx, userID, startDate, endDate)
+		if err != nil {
+			unavailable = append(unavailable, "weight (query failed)")
+		} else {
+			response.Weight = wt
+		}
 	} else {
 		unavailable = append(unavailable, "weight (feature disabled)")
 	}
 
 	// Diary Notes
 	if shouldIncludeNotes(input.ExcludeNotes) {
-		response.DiaryNotes = s.fetchContextNotes(ctx, startDate, endDate)
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.DiaryNotes = notes
+		if truncated {
+			warning = appendWarnings(warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			warning = appendWarnings(warning, notesWarn)
+		}
 	}
 
 	if len(unavailable) > 0 {
@@ -134,11 +162,11 @@ func (s *Server) handleAnalyzeFitness(ctx context.Context, req *sdkmcp.CallToolR
 	return nil, response, nil
 }
 
-func (s *Server) fetchWorkoutsSection(ctx context.Context, userID int64, startDate, endDate time.Time) *WorkoutsSection {
+func (s *Server) fetchWorkoutsSection(ctx context.Context, userID int64, startDate, endDate time.Time) (*WorkoutsSection, error) {
 	sessions, err := s.data.GetWorkoutHistory(userID, 1000)
 	if err != nil {
 		slog.Warn("[MCP] FitnessAnalysis: failed to fetch workouts", "error", err)
-		return nil
+		return nil, err
 	}
 
 	var results []WorkoutSessionResult
@@ -188,50 +216,52 @@ func (s *Server) fetchWorkoutsSection(ctx context.Context, userID int64, startDa
 
 	// Include MiBand workouts
 	mibandWorkouts, err := s.data.ListMiBandWorkouts(ctx, userID, 1000)
-	if err == nil {
-		for _, wo := range mibandWorkouts {
-			startTime := time.UnixMilli(wo.SourceStartMs).UTC()
-			endTime := time.UnixMilli(wo.SourceEndMs).UTC()
-			if wo.TzOffset != 0 {
-				loc := time.FixedZone("local", wo.TzOffset)
-				startTime = startTime.In(loc)
-				endTime = endTime.In(loc)
-			}
-
-			if startTime.Before(startDate) || startTime.After(endDate) {
-				continue
-			}
-
-			totalSessions++
-			completedSessions++
-
-			startedStr := startTime.Format("2006-01-02 15:04")
-			completedStr := endTime.Format("2006-01-02 15:04")
-
-			result := WorkoutSessionResult{
-				Type:          "miband",
-				GroupName:     wo.ActivityName,
-				ScheduledDate: startTime.Format("2006-01-02"),
-				Status:        "completed",
-				StartedAt:     &startedStr,
-				CompletedAt:   &completedStr,
-				DurationSec:   &wo.DurationSec,
-				DistanceM:     &wo.DistanceM,
-			}
-			if wo.Steps > 0 {
-				s := wo.Steps
-				result.Steps = &s
-			}
-			if wo.Calories > 0 {
-				c := wo.Calories
-				result.Calories = &c
-			}
-			if wo.HeartRateAvg > 0 {
-				hr := wo.HeartRateAvg
-				result.HeartRateAvg = &hr
-			}
-			results = append(results, result)
+	if err != nil {
+		slog.Warn("[MCP] FitnessAnalysis: failed to fetch MiBand workouts", "error", err)
+		return nil, fmt.Errorf("fetch MiBand workouts: %w", err)
+	}
+	for _, wo := range mibandWorkouts {
+		startTime := time.UnixMilli(wo.SourceStartMs).UTC()
+		endTime := time.UnixMilli(wo.SourceEndMs).UTC()
+		if wo.TzOffset != 0 {
+			loc := time.FixedZone("local", wo.TzOffset)
+			startTime = startTime.In(loc)
+			endTime = endTime.In(loc)
 		}
+
+		if startTime.Before(startDate) || startTime.After(endDate) {
+			continue
+		}
+
+		totalSessions++
+		completedSessions++
+
+		startedStr := startTime.Format("2006-01-02 15:04")
+		completedStr := endTime.Format("2006-01-02 15:04")
+
+		result := WorkoutSessionResult{
+			Type:          "miband",
+			GroupName:     wo.ActivityName,
+			ScheduledDate: startTime.Format("2006-01-02"),
+			Status:        "completed",
+			StartedAt:     &startedStr,
+			CompletedAt:   &completedStr,
+			DurationSec:   &wo.DurationSec,
+			DistanceM:     &wo.DistanceM,
+		}
+		if wo.Steps > 0 {
+			s := wo.Steps
+			result.Steps = &s
+		}
+		if wo.Calories > 0 {
+			c := wo.Calories
+			result.Calories = &c
+		}
+		if wo.HeartRateAvg > 0 {
+			hr := wo.HeartRateAvg
+			result.HeartRateAvg = &hr
+		}
+		results = append(results, result)
 	}
 
 	// Sort by date descending
@@ -256,14 +286,14 @@ func (s *Server) fetchWorkoutsSection(ctx context.Context, userID int64, startDa
 		Sessions:       results,
 		TotalSessions:  totalSessions,
 		CompletionRate: completionRate,
-	}
+	}, nil
 }
 
-func (s *Server) fetchStepsSection(ctx context.Context, userID int64, startDate, endDate time.Time) *StepsSection {
+func (s *Server) fetchStepsSection(ctx context.Context, userID int64, startDate, endDate time.Time) (*StepsSection, error) {
 	stats, err := s.data.GetDayStats(ctx, userID, startDate)
 	if err != nil {
 		slog.Warn("[MCP] FitnessAnalysis: failed to fetch steps", "error", err)
-		return nil
+		return nil, err
 	}
 
 	var results []StepHistoryResult
@@ -294,10 +324,10 @@ func (s *Server) fetchStepsSection(ctx context.Context, userID int64, startDate,
 	return &StepsSection{
 		Daily:         results,
 		AvgDailySteps: avgSteps,
-	}
+	}, nil
 }
 
-func (s *Server) fetchNutritionSection(ctx context.Context, userID int64, startDate, endDate time.Time) *NutritionSection {
+func (s *Server) fetchNutritionSection(ctx context.Context, userID int64, startDate, endDate time.Time) (*NutritionSection, error) {
 	// Aggregate food logs by day, returning only totals (no food names for privacy)
 	// Fetch all logs in one query instead of day-by-day
 	// Count calendar days using date arithmetic (not duration) to avoid DST off-by-one errors
@@ -310,7 +340,7 @@ func (s *Server) fetchNutritionSection(ctx context.Context, userID int64, startD
 	allLogs, err := s.data.GetFoodLogs(ctx, userID, endDate, totalDays)
 	if err != nil {
 		slog.Warn("[MCP] FitnessAnalysis: failed to fetch food logs", "error", err)
-		return nil
+		return nil, err
 	}
 
 	// Group logs by day
@@ -353,14 +383,14 @@ func (s *Server) fetchNutritionSection(ctx context.Context, userID int64, startD
 		DailyTotals:      dailyTotals,
 		AvgDailyCalories: avgCalories,
 		AvgDailyProtein:  avgProtein,
-	}
+	}, nil
 }
 
-func (s *Server) fetchWeightSection(ctx context.Context, userID int64, startDate, endDate time.Time) *WeightSection {
+func (s *Server) fetchWeightSection(ctx context.Context, userID int64, startDate, endDate time.Time) (*WeightSection, error) {
 	logs, err := s.data.GetWeightLogs(ctx, userID, startDate)
 	if err != nil {
 		slog.Warn("[MCP] FitnessAnalysis: failed to fetch weight", "error", err)
-		return nil
+		return nil, err
 	}
 
 	var results []WeightResult
@@ -403,7 +433,7 @@ func (s *Server) fetchWeightSection(ctx context.Context, userID int64, startDate
 		}
 	}
 
-	return section
+	return section, nil
 }
 
 // registerFitnessTool registers the analyze_fitness composite tool
@@ -417,7 +447,7 @@ func registerFitnessTool(mcpServer *sdkmcp.Server, s *Server) {
 				"properties": {
 					"start_date": {
 						"type": "string",
-						"description": "Start date in YYYY-MM-DD format. Defaults to 30 days before end_date if both start_date and days are omitted."
+						"description": "Start date in YYYY-MM-DD format. Defaults to 90 days before end_date if both start_date and days are omitted."
 					},
 					"end_date": {
 						"type": "string",

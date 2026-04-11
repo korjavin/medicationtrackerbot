@@ -297,8 +297,8 @@ func TestAnalyzeCardiovascular_DaysShorthand(t *testing.T) {
 		t.Fatalf("handleAnalyzeCardiovascular: %v", err)
 	}
 
-	if resp.Period != "2026-03-09 to 2026-03-16" {
-		t.Errorf("expected period 2026-03-09 to 2026-03-16, got %s", resp.Period)
+	if resp.Period != "2026-03-10 to 2026-03-16" {
+		t.Errorf("expected period 2026-03-10 to 2026-03-16, got %s", resp.Period)
 	}
 }
 
