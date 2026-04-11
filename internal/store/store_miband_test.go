@@ -144,7 +144,8 @@ func TestImportMiBandWorkouts_Basic(t *testing.T) {
 }
 
 func TestImportMiBandWorkouts_Deduplication(t *testing.T) {
-	// Importing the same backup twice must not create duplicates.
+	// Importing the same backup twice must not create duplicate rows.
+	// With UPSERT, the second import updates the existing row (counted as imported).
 	db := setupMiBandTestStore(t)
 	ctx := context.Background()
 	userID := int64(42)
@@ -173,25 +174,158 @@ func TestImportMiBandWorkouts_Deduplication(t *testing.T) {
 		t.Errorf("first import: expected 0 skipped, got %d", skipped)
 	}
 
-	// Second import of same data
+	// Second import of same data — UPSERT updates in-place, counted as imported
 	imported, skipped, err = db.ImportMiBandWorkouts(ctx, workouts, nil)
 	if err != nil {
 		t.Fatalf("second import: %v", err)
 	}
-	if imported != 0 {
-		t.Errorf("second import: expected 0 imported (duplicate), got %d", imported)
+	if imported != 1 {
+		t.Errorf("second import: expected 1 imported (upsert), got %d", imported)
 	}
-	if skipped != 1 {
-		t.Errorf("second import: expected 1 skipped (duplicate), got %d", skipped)
+	if skipped != 0 {
+		t.Errorf("second import: expected 0 skipped, got %d", skipped)
 	}
 
-	// Only 1 record in DB
+	// Only 1 record in DB (no duplicates)
 	result, err := db.ListMiBandWorkouts(ctx, userID, 10)
 	if err != nil {
 		t.Fatalf("ListMiBandWorkouts: %v", err)
 	}
 	if len(result) != 1 {
 		t.Errorf("expected 1 workout after dedup, got %d", len(result))
+	}
+}
+
+func TestInsertMiBandWorkout_UpsertUpdatesFields(t *testing.T) {
+	db := setupMiBandTestStore(t)
+	ctx := context.Background()
+	userID := int64(42)
+	startMs := recentMs(5)
+
+	w := &MiBandWorkout{
+		UserID:        userID,
+		SourceStartMs: startMs,
+		SourceEndMs:   startMs + 3600000,
+		ActivityType:  12,
+		ActivityName:  "running",
+		DurationSec:   3600,
+		DistanceM:     3000,
+		Steps:         1000,
+		Calories:      200,
+		HeartRateAvg:  130,
+	}
+
+	// First insert
+	inserted, err := db.InsertMiBandWorkout(ctx, w)
+	if err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	if !inserted {
+		t.Error("expected first insert to return true")
+	}
+	firstID := w.ID
+
+	// Second insert with updated values
+	w2 := &MiBandWorkout{
+		UserID:        userID,
+		SourceStartMs: startMs,
+		SourceEndMs:   startMs + 7200000,
+		ActivityType:  12,
+		ActivityName:  "running",
+		DurationSec:   7200,
+		DistanceM:     8000,
+		Steps:         5000,
+		Calories:      500,
+		HeartRateAvg:  145,
+	}
+	inserted, err = db.InsertMiBandWorkout(ctx, w2)
+	if err != nil {
+		t.Fatalf("second insert: %v", err)
+	}
+	if inserted {
+		t.Error("expected second insert to return false (update, not new)")
+	}
+
+	// Verify the row was updated
+	result, err := db.ListMiBandWorkouts(ctx, userID, 10)
+	if err != nil {
+		t.Fatalf("ListMiBandWorkouts: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workout, got %d", len(result))
+	}
+	if result[0].Steps != 5000 {
+		t.Errorf("expected steps=5000 after upsert, got %d", result[0].Steps)
+	}
+	if result[0].DistanceM != 8000 {
+		t.Errorf("expected distance=8000 after upsert, got %f", result[0].DistanceM)
+	}
+	if result[0].Calories != 500 {
+		t.Errorf("expected calories=500 after upsert, got %d", result[0].Calories)
+	}
+	if result[0].ID != firstID {
+		t.Errorf("expected ID to remain %d, got %d", firstID, result[0].ID)
+	}
+}
+
+func TestImportMiBandWorkouts_UpsertUpdatesFields(t *testing.T) {
+	db := setupMiBandTestStore(t)
+	ctx := context.Background()
+	userID := int64(42)
+	startMs := recentMs(5)
+
+	// First import: partial data (mid-day snapshot)
+	workouts := []MiBandWorkout{
+		{
+			UserID:        userID,
+			SourceStartMs: startMs,
+			SourceEndMs:   startMs + 3600000,
+			ActivityType:  12,
+			ActivityName:  "cycling",
+			DurationSec:   3600,
+			DistanceM:     10000,
+			Steps:         1000,
+			Calories:      300,
+		},
+	}
+	imported, _, err := db.ImportMiBandWorkouts(ctx, workouts, nil)
+	if err != nil {
+		t.Fatalf("first import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("first import: expected 1, got %d", imported)
+	}
+
+	// Second import: complete data (end-of-day)
+	workouts[0].Steps = 5000
+	workouts[0].Calories = 800
+	workouts[0].DistanceM = 25000
+	workouts[0].DurationSec = 7200
+
+	imported, _, err = db.ImportMiBandWorkouts(ctx, workouts, nil)
+	if err != nil {
+		t.Fatalf("second import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("second import: expected 1 (upsert), got %d", imported)
+	}
+
+	// Verify updated values
+	result, err := db.ListMiBandWorkouts(ctx, userID, 10)
+	if err != nil {
+		t.Fatalf("ListMiBandWorkouts: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workout, got %d", len(result))
+	}
+	if result[0].Steps != 5000 {
+		t.Errorf("expected steps=5000, got %d", result[0].Steps)
+	}
+	if result[0].Calories != 800 {
+		t.Errorf("expected calories=800, got %d", result[0].Calories)
+	}
+	if result[0].DistanceM != 25000 {
+		t.Errorf("expected distance=25000, got %f", result[0].DistanceM)
 	}
 }
 

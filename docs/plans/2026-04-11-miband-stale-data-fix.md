@@ -84,7 +84,7 @@ Vitals tables (`vitals_heart`, `vitals_spo2`, `vitals_stress`) use millisecond-p
 - [x] Run `go test ./internal/store/...` — must pass before next task
 
 ### Task 3: Fix InsertMiBandWorkout and ImportMiBandWorkouts to UPSERT
-- [ ] In `InsertMiBandWorkout()` (`miband_workouts.go:62-68`), change SQL from:
+- [x] In `InsertMiBandWorkout()` (`miband_workouts.go:62-68`), change SQL from:
   ```sql
   ON CONFLICT(user_id, source_start_ms) DO NOTHING
   ```
@@ -100,14 +100,14 @@ Vitals tables (`vitals_heart`, `vitals_spo2`, `vitals_stress`) use millisecond-p
     spo2_avg=excluded.spo2_avg,
     pause_ms=excluded.pause_ms
   ```
-- [ ] Apply the same UPSERT change to `ImportMiBandWorkouts()` (`miband_workouts.go:113-119`)
-- [ ] For `InsertMiBandWorkout()`: when UPSERT updates (rowsAffected=1 but no new ID), handle the `LastInsertId()` case — it may return the existing row's ID or 0; verify behavior
-- [ ] For `ImportMiBandWorkouts()`: when UPSERT updates an existing row, skip GPS track re-insertion (GPS points are immutable from the device, no need to re-import)
-- [ ] Update `handleExternalWorkout()` in `external_workout_handlers.go`: the fuzzy duplicate check (~line 109) should still work, but verify that the "duplicate" response now reflects "updated" vs "truly duplicate" semantics
-- [ ] Write test: insert workout with steps=1000, import again with steps=5000, verify updated
-- [ ] Write test: import same workout twice with identical data, verify single row
-- [ ] Write test: verify GPS tracks are not duplicated on re-import
-- [ ] Run `go test ./internal/store/...` — must pass before next task
+- [x] Apply the same UPSERT change to `ImportMiBandWorkouts()` (`miband_workouts.go:113-119`)
+- [x] For `InsertMiBandWorkout()`: when UPSERT updates (rowsAffected=1 but no new ID), handle the `LastInsertId()` case — it may return the existing row's ID or 0; verify behavior
+- [x] For `ImportMiBandWorkouts()`: when UPSERT updates an existing row, skip GPS track re-insertion (GPS points are immutable from the device, no need to re-import)
+- [x] Update `handleExternalWorkout()` in `external_workout_handlers.go`: the fuzzy duplicate check (~line 109) should still work, but verify that the "duplicate" response now reflects "updated" vs "truly duplicate" semantics
+- [x] Write test: insert workout with steps=1000, import again with steps=5000, verify updated
+- [x] Write test: import same workout twice with identical data, verify single row
+- [x] Write test: verify GPS tracks are not duplicated on re-import
+- [x] Run `go test ./internal/store/...` — must pass before next task
 
 ### Task 4: Verify acceptance criteria
 - [ ] Verify all three import functions update stale data on re-import
