@@ -72,13 +72,13 @@ Polish all SVG charts (BP, Weight, Health vitals/sleep/steps) with gradient fill
 - [x] Run architecture tests — must pass before next task
 
 ### Task 3: Smooth BP chart lines with splines
-- [ ] In `renderBPChart()`: replace straight `<line>` segments for systolic with a single spline path using `ChartUtils.catmullRomSpline()`
-- [ ] In `renderBPChart()`: replace straight `<line>` segments for diastolic with a single spline path
-- [ ] Preserve color-coding: apply a single dominant color to each spline path (use classification of latest reading, or most frequent classification)
-- [ ] Keep individual data points as color-coded circles (existing behavior)
-- [ ] Verify pulse line (if present) also uses spline smoothing
-- [ ] Write test verifying BP chart produces `<path>` elements (not `<line>`) when rendered
-- [ ] Run tests — must pass before next task
+- [x] In `renderBPChart()`: replace straight `<line>` segments for systolic with a single spline path using `ChartUtils.catmullRomSpline()`
+- [x] In `renderBPChart()`: replace straight `<line>` segments for diastolic with a single spline path
+- [x] Preserve color-coding: apply a single dominant color to each spline path (use classification of latest reading, or most frequent classification)
+- [x] Keep individual data points as color-coded circles (existing behavior)
+- [x] Verify pulse line (if present) also uses spline smoothing
+- [x] Write test verifying BP chart produces `<path>` elements (not `<line>`) when rendered
+- [x] Run tests — must pass before next task
 
 ### Task 4: Refine grid lines across all charts
 - [ ] Add CSS class `.chart-grid-refined` with `stroke-opacity: 0.08; stroke-dasharray: none` (solid, very subtle)

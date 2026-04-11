@@ -177,6 +177,15 @@ describe('app.js charts, scanner and visualization helpers', () => {
       expect(bpChart.querySelector('svg')).toBeTruthy();
       expect(bpChart.querySelectorAll('circle').length).toBeGreaterThan(2);
 
+      // BP chart uses spline paths (not line segments) for systolic and diastolic
+      const chartPaths = bpChart.querySelectorAll('path.chart-line');
+      expect(chartPaths.length).toBeGreaterThanOrEqual(2); // systolic + diastolic (+ optional pulse)
+      // Verify no <line> segments for data series (only grid/average lines remain)
+      const dataLines = Array.from(bpChart.querySelectorAll('line')).filter(
+        l => !l.classList.contains('chart-grid') && !l.classList.contains('bp-chart-avg-line')
+      );
+      expect(dataLines.length).toBe(0);
+
       window.renderBPAverages({
         stats_14: { days: 12, systolic: 123, diastolic: 79 },
         stats_30: { days: 28, systolic: 126, diastolic: 81 }
