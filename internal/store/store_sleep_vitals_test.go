@@ -397,6 +397,70 @@ func TestImportSleepLogsUpsertNoDowngrade(t *testing.T) {
 	}
 }
 
+func TestImportSleepLogsBackfillAwakeAndTurnOver(t *testing.T) {
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	totalMinutes := 480
+
+	// First import: has total_minutes but no awake_minutes or turn_over_count
+	initial := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 7, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+			TotalMinutes:   &totalMinutes,
+		},
+	}
+	_, _, err := db.ImportSleepLogs(ctx, userID, initial)
+	if err != nil {
+		t.Fatalf("First import: %v", err)
+	}
+
+	awake := 30
+	turnOver := 12
+
+	// Second import: same total_minutes, but adds awake_minutes and turn_over_count
+	backfill := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 7, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+			TotalMinutes:   &totalMinutes,
+			AwakeMinutes:   &awake,
+			TurnOverCount:  &turnOver,
+		},
+	}
+	imported, skipped, err := db.ImportSleepLogs(ctx, userID, backfill)
+	if err != nil {
+		t.Fatalf("Second import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("Expected 1 imported (backfill update), got %d", imported)
+	}
+	if skipped != 0 {
+		t.Errorf("Expected 0 skipped, got %d", skipped)
+	}
+
+	result, err := db.GetSleepLogs(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetSleepLogs: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 sleep log, got %d", len(result))
+	}
+	sl := result[0]
+	if sl.AwakeMinutes == nil || *sl.AwakeMinutes != 30 {
+		t.Errorf("Expected awake_minutes=30, got %v", sl.AwakeMinutes)
+	}
+	if sl.TurnOverCount == nil || *sl.TurnOverCount != 12 {
+		t.Errorf("Expected turn_over_count=12, got %v", sl.TurnOverCount)
+	}
+}
+
 func TestImportVitalsHeart(t *testing.T) {
 	db := setupSleepVitalsTestStore(t)
 	ctx := context.Background()
@@ -650,16 +714,16 @@ func TestImportDayStatsDuplicates(t *testing.T) {
 		t.Errorf("Expected 1 imported, got %d", imported)
 	}
 
-	// Import again — UPSERT counts re-imports as imported (rowsAffected=1)
+	// Import again — identical data is now skipped (WHERE clause rejects no-op updates)
 	imported, skipped, err := db.ImportDayStats(ctx, userID, stats)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
 	}
-	if imported != 1 {
-		t.Errorf("Expected 1 imported (upsert), got %d", imported)
+	if imported != 0 {
+		t.Errorf("Expected 0 imported (identical replay), got %d", imported)
 	}
-	if skipped != 0 {
-		t.Errorf("Expected 0 skipped, got %d", skipped)
+	if skipped != 1 {
+		t.Errorf("Expected 1 skipped, got %d", skipped)
 	}
 
 	// Still only 1 row
@@ -717,6 +781,49 @@ func TestImportDayStatsUpsertUpdatesValues(t *testing.T) {
 	}
 	if result[0].Distance != 5500 {
 		t.Errorf("Expected distance=5500, got %d", result[0].Distance)
+	}
+}
+
+func TestImportDayStatsStaleDataProtection(t *testing.T) {
+	// Importing an older backup after a complete one must NOT overwrite higher values.
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	// Import complete data (end-of-day snapshot)
+	complete := []DayStat{
+		{Day: "2025-01-10", Steps: 8000, Calories: 2200, Distance: 5500},
+	}
+	_, _, err := db.ImportDayStats(ctx, userID, complete)
+	if err != nil {
+		t.Fatalf("First import (complete): %v", err)
+	}
+
+	// Import stale partial data (mid-day snapshot from older backup)
+	stale := []DayStat{
+		{Day: "2025-01-10", Steps: 2000, Calories: 800, Distance: 1500},
+	}
+	_, _, err = db.ImportDayStats(ctx, userID, stale)
+	if err != nil {
+		t.Fatalf("Second import (stale): %v", err)
+	}
+
+	// Verify complete values are preserved (MAX used, not overwritten)
+	result, err := db.GetDayStats(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetDayStats: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result))
+	}
+	if result[0].Steps != 8000 {
+		t.Errorf("stale data overwrote steps: expected 8000, got %d", result[0].Steps)
+	}
+	if result[0].Calories != 2200 {
+		t.Errorf("stale data overwrote calories: expected 2200, got %d", result[0].Calories)
+	}
+	if result[0].Distance != 5500 {
+		t.Errorf("stale data overwrote distance: expected 5500, got %d", result[0].Distance)
 	}
 }
 
