@@ -98,6 +98,7 @@
 
     /* Chart extra colors */
     --color-chart-plan: #67e8f9;
+    --color-chart-gradient-opacity: 0.25;
 
     /* Inventory badge */
     --color-inventory-ok: #2d9c93;
@@ -940,6 +941,12 @@ svg.chart-svg {
 .chart-label {
     font-size: var(--font-size-xs);
     fill: var(--hint-color);
+    text-anchor: middle;
+}
+
+.chart-label-emphasis {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-bold);
     text-anchor: middle;
 }
 

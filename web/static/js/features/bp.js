@@ -384,16 +384,16 @@ function renderBPChart(readings, goalData) {
         const sysLabel = document.createElementNS(svgNs, "text");
         sysLabel.setAttribute("x", lastSysX);
         sysLabel.setAttribute("y", lastSysY - 12);
-        sysLabel.setAttribute("class", "chart-label");
-        sysLabel.setAttribute("style", "text-anchor: middle; fill: " + lastColor + "; font-weight: bold; font-size: 11px;");
+        sysLabel.setAttribute("class", "chart-label-emphasis");
+        sysLabel.setAttribute("fill", lastColor);
         sysLabel.textContent = last.sys;
         svg.appendChild(sysLabel);
 
         const diaLabel = document.createElementNS(svgNs, "text");
         diaLabel.setAttribute("x", lastSysX);
         diaLabel.setAttribute("y", lastDiaY + 16);
-        diaLabel.setAttribute("class", "chart-label");
-        diaLabel.setAttribute("style", "text-anchor: middle; fill: " + lastColor + "; font-weight: bold; font-size: 11px;");
+        diaLabel.setAttribute("class", "chart-label-emphasis");
+        diaLabel.setAttribute("fill", lastColor);
         diaLabel.textContent = last.dia;
         svg.appendChild(diaLabel);
     }

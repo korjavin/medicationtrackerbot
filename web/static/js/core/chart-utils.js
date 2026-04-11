@@ -66,6 +66,17 @@ window.ChartUtils = (() => {
             return [mid - 5, mid, mid + 5];
         }
 
+        // Small ranges (1-19): use unit-based intervals to avoid empty ticks
+        if (range < 20) {
+            const interval = range <= 5 ? 1 : 2;
+            const start = Math.floor(yMin);
+            const ticks = [];
+            for (let val = start; val <= Math.ceil(yMax); val += interval) {
+                ticks.push(val);
+            }
+            return ticks;
+        }
+
         // Try 5-unit intervals first
         const interval5 = 5;
         const ticks5 = Math.ceil(range / interval5);

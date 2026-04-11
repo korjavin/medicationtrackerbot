@@ -238,8 +238,9 @@ function renderSleepChart(stats) {
     const spacing = (chartWidth - (barWidth * stats.length)) / (stats.length || 1);
     const colors = { deep: '#5a2d9c', light: '#2481cc', rem: '#c161d9', awake: '#e5b220' };
     const yAxisLabels = [1, 3, 5, 8, 10];
-    yAxisLabels.forEach(h => {
-        const mins = h * 60; if (mins > maxMins + 60) return;
+    const visibleLabels = yAxisLabels.filter(h => h * 60 <= maxMins + 60);
+    visibleLabels.forEach((h, idx) => {
+        const mins = h * 60;
         const y = topPadding + chartHeight - (mins / maxMins) * chartHeight;
         const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
         text.setAttribute("x", leftPadding - 8); text.setAttribute("y", y + 4);
@@ -249,9 +250,12 @@ function renderSleepChart(stats) {
         const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
         line.setAttribute("x1", leftPadding); line.setAttribute("y1", y); line.setAttribute("x2", leftPadding - 3); line.setAttribute("y2", y);
         line.setAttribute("stroke", "var(--hint-color)"); svg.appendChild(line);
-        const gridLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        gridLine.setAttribute("x1", leftPadding); gridLine.setAttribute("y1", y); gridLine.setAttribute("x2", leftPadding + chartWidth); gridLine.setAttribute("y2", y);
-        gridLine.setAttribute("class", "chart-grid-refined"); svg.appendChild(gridLine);
+        // Skip outermost grid lines to avoid box feel
+        if (idx > 0 && idx < visibleLabels.length - 1) {
+            const gridLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            gridLine.setAttribute("x1", leftPadding); gridLine.setAttribute("y1", y); gridLine.setAttribute("x2", leftPadding + chartWidth); gridLine.setAttribute("y2", y);
+            gridLine.setAttribute("class", "chart-grid-refined"); svg.appendChild(gridLine);
+        }
     });
     const daysMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     let hrPoints = [];

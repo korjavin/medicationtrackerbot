@@ -113,6 +113,19 @@ describe('ChartUtils', () => {
             expect(ticks.length).toBeGreaterThan(0);
             expect(ticks.length).toBeLessThan(20);
         });
+
+        it('returns non-empty ticks for narrow ranges (1-5)', () => {
+            // Regression: range=3 with fractional bounds previously returned empty
+            const ticks = env.window.ChartUtils.calculateYAxisTicks(80.1, 83.1);
+            expect(ticks.length).toBeGreaterThanOrEqual(2);
+        });
+
+        it('uses unit intervals for very narrow ranges', () => {
+            const ticks = env.window.ChartUtils.calculateYAxisTicks(70.5, 73.5);
+            expect(ticks.length).toBeGreaterThanOrEqual(3);
+            // Should have integer ticks like [70, 71, 72, 73]
+            ticks.forEach(t => expect(Number.isInteger(t)).toBe(true));
+        });
     });
 
     // --- createGradient ---
