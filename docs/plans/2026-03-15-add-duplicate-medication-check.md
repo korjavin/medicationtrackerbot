@@ -36,9 +36,9 @@ Before creating a new medication, check if one with the same name (case-insensit
 **Files:**
 - Modify: `web/static/app.js` (medication creation form submit handler)
 
-- [ ] Find the medication creation form submission code that calls POST `/api/medications`
-- [ ] If the response is 409, show a user-friendly error message (e.g. using the existing `safeAlert` or inline form error) instead of a generic failure
-- [ ] Run `go test ./...` - must pass
+- [x] Find the medication creation form submission code that calls POST `/api/medications`
+- [x] If the response is 409, show a user-friendly error message (e.g. using the existing `safeAlert` or inline form error) instead of a generic failure
+- [x] Run `go test ./...` - must pass
 
 ### Task 3: Verify acceptance criteria
 
