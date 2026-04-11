@@ -127,10 +127,10 @@ self.addEventListener('fetch', (event) => {
                                 if (freshResponse.ok) {
                                     // Compare fresh vs cached — only notify clients if data changed
                                     const freshText = await freshResponse.clone().text();
+                                    const freshData = JSON.parse(freshText); // Validate JSON before caching
                                     const cachedText = await cachedClone.text();
                                     await cache.put(event.request, freshResponse.clone());
                                     if (freshText !== cachedText) {
-                                        const freshData = JSON.parse(freshText);
                                         const clients = await self.clients.matchAll();
                                         clients.forEach((client) => {
                                             client.postMessage({ type: 'BOOTSTRAP_UPDATED', data: freshData });
@@ -149,7 +149,7 @@ self.addEventListener('fetch', (event) => {
                             cache.put(event.request, response.clone());
                         }
                         if (response.status >= 500) {
-                            return cache.match(event.request).then(cached => cached || response);
+                            return response;
                         }
                         return response;
                     })

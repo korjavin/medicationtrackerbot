@@ -354,11 +354,10 @@ async function checkAuth() {
         console.log('[Auth] Cached auth + active SW — verifying session');
         let rendered = false;
         let hardAuthReject = false;
-        let authCheckFailed = false;
         try {
             // Parallel fetch: bootstrap (may come from SW cache) + auth check
             const [bootstrapRes, authRes] = await Promise.all([
-                fetch('/api/bootstrap', { method: 'GET' }),
+                fetch('/api/bootstrap', { method: 'GET', credentials: 'same-origin' }),
                 fetch('/auth/status', { method: 'GET', credentials: 'same-origin' })
                     .catch(() => null) // Network error — treat as offline
             ]);
