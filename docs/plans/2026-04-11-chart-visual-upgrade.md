@@ -101,15 +101,15 @@ Polish all SVG charts (BP, Weight, Health vitals/sleep/steps) with gradient fill
 - [x] Run tests — must pass before next task
 
 ### Task 6: Add line draw animation on chart load
-- [ ] Add CSS class `.chart-line-animated` with `stroke-dasharray`/`stroke-dashoffset` animation in styles.css
-- [ ] Add `@keyframes chart-draw { to { stroke-dashoffset: 0; } }` with `0.6s ease-out forwards`
-- [ ] In `ChartUtils.animateLine()`: call `getTotalLength()`, set CSS custom property `--line-length`, add `.chart-line-animated` class
-- [ ] Apply `ChartUtils.animateLine()` to weight chart main line path
-- [ ] Apply to BP chart systolic and diastolic spline paths
-- [ ] Apply to vitals chart line paths
-- [ ] Add `prefers-reduced-motion: reduce` media query that disables animation (sets `animation: none`)
-- [ ] Write test for `animateLine()` (sets correct attributes on path element)
-- [ ] Run full test suite — must pass before next task
+- [x] Add CSS class `.chart-line-animated` with `stroke-dasharray`/`stroke-dashoffset` animation in styles.css
+- [x] Add `@keyframes chart-draw { to { stroke-dashoffset: 0; } }` with `0.6s ease-out forwards`
+- [x] In `ChartUtils.animateLine()`: call `getTotalLength()`, set CSS custom property `--line-length`, add `.chart-line-animated` class
+- [x] Apply `ChartUtils.animateLine()` to weight chart main line path
+- [x] Apply to BP chart systolic and diastolic spline paths
+- [x] Apply to vitals chart line paths
+- [x] Add `prefers-reduced-motion: reduce` media query that disables animation (sets `animation: none`)
+- [x] Write test for `animateLine()` (sets correct attributes on path element)
+- [x] Run full test suite — must pass before next task
 
 ### Task 7: Verify acceptance criteria
 - [ ] Verify all 5 improvements implemented: gradients, smooth BP, grid refinement, last-value emphasis, draw animation

@@ -226,6 +226,32 @@ describe('ChartUtils', () => {
         });
     });
 
+    // --- draw animation CSS ---
+
+    describe('draw animation CSS', () => {
+        it('.chart-line-animated class exists in styles.css', () => {
+            const css = fs.readFileSync(CSS_PATH, 'utf8');
+            expect(css).toMatch(/\.chart-line-animated\s*\{/);
+        });
+
+        it('.chart-line-animated uses stroke-dasharray and stroke-dashoffset', () => {
+            const css = fs.readFileSync(CSS_PATH, 'utf8');
+            expect(css).toContain('stroke-dasharray: var(--line-length)');
+            expect(css).toContain('stroke-dashoffset: var(--line-length)');
+        });
+
+        it('@keyframes chart-draw exists in styles.css', () => {
+            const css = fs.readFileSync(CSS_PATH, 'utf8');
+            expect(css).toMatch(/@keyframes\s+chart-draw/);
+        });
+
+        it('prefers-reduced-motion disables chart-line-animated animation', () => {
+            const css = fs.readFileSync(CSS_PATH, 'utf8');
+            expect(css).toContain('prefers-reduced-motion');
+            expect(css).toContain('.chart-line-animated');
+        });
+    });
+
     // --- createLastValueDot ---
 
     describe('createLastValueDot', () => {
