@@ -93,10 +93,9 @@ func (s *Store) InsertMiBandWorkout(ctx context.Context, w *MiBandWorkout) (bool
 		return false, err
 	}
 
-	lastID, err := res.LastInsertId()
-	if err == nil && lastID != 0 {
-		w.ID = lastID
-	} else if !isNew {
+	if isNew {
+		w.ID, _ = res.LastInsertId()
+	} else {
 		w.ID = existingID
 	}
 

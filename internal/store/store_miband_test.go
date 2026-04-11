@@ -411,7 +411,7 @@ func TestImportMiBandWorkouts_GPSNotDuplicatedOnReimport(t *testing.T) {
 		t.Fatalf("first import: %v", err)
 	}
 
-	// Second import: workout is skipped, GPS must not be re-inserted
+	// Second import: workout is upserted (updated in place), GPS must not be re-inserted
 	if _, _, err := db.ImportMiBandWorkouts(ctx, workouts, gps); err != nil {
 		t.Fatalf("second import: %v", err)
 	}
