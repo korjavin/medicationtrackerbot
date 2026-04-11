@@ -7,6 +7,7 @@ import { JSDOM } from 'jsdom';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
+const CSS_PATH = path.join(REPO_ROOT, 'web/static/css/styles.css');
 
 function loadChartUtils() {
     const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', {
@@ -188,6 +189,15 @@ describe('ChartUtils', () => {
 
             expect(mockPath.style.getPropertyValue('--line-length')).toBe('42');
             expect(mockPath.classList.contains('chart-line-animated')).toBe(true);
+        });
+    });
+
+    // --- gradient CSS token ---
+
+    describe('gradient CSS token', () => {
+        it('--color-chart-gradient-opacity is defined in styles.css :root', () => {
+            const css = fs.readFileSync(CSS_PATH, 'utf8');
+            expect(css).toContain('--color-chart-gradient-opacity');
         });
     });
 

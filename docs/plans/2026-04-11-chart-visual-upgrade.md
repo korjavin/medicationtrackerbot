@@ -63,13 +63,13 @@ Polish all SVG charts (BP, Weight, Health vitals/sleep/steps) with gradient fill
 - [x] Run `go test ./...` and JS architecture tests — must pass before next task
 
 ### Task 2: Add gradient fills to weight and BP charts
-- [ ] In `renderWeightChart()`: replace flat `rgba(59, 130, 246, 0.1)` fill with `ChartUtils.createGradient()` using `#3b82f6` at 0.25 opacity
-- [ ] In `renderBPChart()`: add gradient fill area under systolic line using BP classification color blend at 0.15 opacity
-- [ ] In `renderVitalsLineChart()`: replace flat `fill-opacity: 0.2` with `ChartUtils.createGradient()` using the parameterized color
-- [ ] Add CSS token `--color-chart-gradient-opacity: 0.25` in `:root` for consistent gradient strength
-- [ ] Verify gradient renders correctly with both light and dark Telegram themes
-- [ ] Write test verifying gradient CSS token exists in styles.css
-- [ ] Run architecture tests — must pass before next task
+- [x] In `renderWeightChart()`: replace flat `rgba(59, 130, 246, 0.1)` fill with `ChartUtils.createGradient()` using `#3b82f6` at 0.25 opacity
+- [x] In `renderBPChart()`: add gradient fill area under systolic line using BP classification color blend at 0.15 opacity
+- [x] In `renderVitalsLineChart()`: replace flat `fill-opacity: 0.2` with `ChartUtils.createGradient()` using the parameterized color
+- [x] Add CSS token `--color-chart-gradient-opacity: 0.25` in `:root` for consistent gradient strength
+- [x] Verify gradient renders correctly with both light and dark Telegram themes
+- [x] Write test verifying gradient CSS token exists in styles.css
+- [x] Run architecture tests — must pass before next task
 
 ### Task 3: Smooth BP chart lines with splines
 - [ ] In `renderBPChart()`: replace straight `<line>` segments for systolic with a single spline path using `ChartUtils.catmullRomSpline()`

@@ -468,15 +468,16 @@ function renderWeightChart(logs, goalData) {
     // Smoothed weight curve using Catmull-Rom splines
     const smoothPath = window.ChartUtils.catmullRomSpline(points, 15);
 
-    // Area under curve
+    // Area under curve with gradient fill
     const firstPoint = points[0];
     const lastPoint = points[points.length - 1];
     const areaPath = `${smoothPath} L ${lastPoint[0]},${chartHeight} L ${firstPoint[0]},${chartHeight} Z`;
 
+    window.ChartUtils.createGradient(svgNs, svg, 'grad-weight', '#3b82f6', 0.25);
     const pathArea = document.createElementNS(svgNs, "path");
     pathArea.setAttribute("d", areaPath);
     pathArea.setAttribute("class", "chart-area");
-    pathArea.setAttribute("fill", "rgba(59, 130, 246, 0.1)");
+    pathArea.setAttribute("fill", "url(#grad-weight)");
     svg.appendChild(pathArea);
 
     // Weight line

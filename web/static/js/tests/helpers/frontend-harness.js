@@ -18,6 +18,7 @@ const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
 const APP_KERNEL_JS = path.join(REPO_ROOT, 'web/static/js/core/app-kernel.js');
 const STORE_JS = path.join(REPO_ROOT, 'web/static/js/core/store.js');
 const MODAL_CONTROLLER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-controller.js');
+const CHART_UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/chart-utils.js');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
 const FOOD_JS = path.join(REPO_ROOT, 'web/static/js/features/food.js');
@@ -134,6 +135,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalWithSourceURL(window, fs.readFileSync(APP_KERNEL_JS, 'utf8'), APP_KERNEL_JS);
   evalWithSourceURL(window, fs.readFileSync(STORE_JS, 'utf8'), STORE_JS);
   evalWithSourceURL(window, fs.readFileSync(MODAL_CONTROLLER_JS, 'utf8'), MODAL_CONTROLLER_JS);
+  evalWithSourceURL(window, fs.readFileSync(CHART_UTILS_JS, 'utf8'), CHART_UTILS_JS);
 
   const dataStoreSource = fs.readFileSync(DATA_STORE_JS, 'utf8');
   evalWithSourceURL(window, dataStoreSource, DATA_STORE_JS);
