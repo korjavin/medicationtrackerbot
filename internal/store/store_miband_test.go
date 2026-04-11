@@ -144,7 +144,8 @@ func TestImportMiBandWorkouts_Basic(t *testing.T) {
 }
 
 func TestImportMiBandWorkouts_Deduplication(t *testing.T) {
-	// Importing the same backup twice must not create duplicates.
+	// Importing the same backup twice must not create duplicate rows.
+	// With UPSERT, the second import updates the existing row (counted as imported).
 	db := setupMiBandTestStore(t)
 	ctx := context.Background()
 	userID := int64(42)
@@ -173,25 +174,356 @@ func TestImportMiBandWorkouts_Deduplication(t *testing.T) {
 		t.Errorf("first import: expected 0 skipped, got %d", skipped)
 	}
 
-	// Second import of same data
+	// Second import of same data — exact replay reports the record as existing (skipped).
 	imported, skipped, err = db.ImportMiBandWorkouts(ctx, workouts, nil)
 	if err != nil {
 		t.Fatalf("second import: %v", err)
 	}
 	if imported != 0 {
-		t.Errorf("second import: expected 0 imported (duplicate), got %d", imported)
+		t.Errorf("second import: expected 0 imported (replay), got %d", imported)
 	}
 	if skipped != 1 {
-		t.Errorf("second import: expected 1 skipped (duplicate), got %d", skipped)
+		t.Errorf("second import: expected 1 skipped (existing record), got %d", skipped)
 	}
 
-	// Only 1 record in DB
+	// Only 1 record in DB (no duplicates)
 	result, err := db.ListMiBandWorkouts(ctx, userID, 10)
 	if err != nil {
 		t.Fatalf("ListMiBandWorkouts: %v", err)
 	}
 	if len(result) != 1 {
 		t.Errorf("expected 1 workout after dedup, got %d", len(result))
+	}
+}
+
+func TestInsertMiBandWorkout_UpsertUpdatesFields(t *testing.T) {
+	db := setupMiBandTestStore(t)
+	ctx := context.Background()
+	userID := int64(42)
+	startMs := recentMs(5)
+
+	w := &MiBandWorkout{
+		UserID:        userID,
+		SourceStartMs: startMs,
+		SourceEndMs:   startMs + 3600000,
+		ActivityType:  12,
+		ActivityName:  "running",
+		DurationSec:   3600,
+		DistanceM:     3000,
+		Steps:         1000,
+		Calories:      200,
+		HeartRateAvg:  130,
+	}
+
+	// First insert
+	inserted, err := db.InsertMiBandWorkout(ctx, w)
+	if err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	if !inserted {
+		t.Error("expected first insert to return true")
+	}
+	firstID := w.ID
+
+	// Second insert with updated values
+	w2 := &MiBandWorkout{
+		UserID:        userID,
+		SourceStartMs: startMs,
+		SourceEndMs:   startMs + 7200000,
+		ActivityType:  12,
+		ActivityName:  "running",
+		DurationSec:   7200,
+		DistanceM:     8000,
+		Steps:         5000,
+		Calories:      500,
+		HeartRateAvg:  145,
+	}
+	inserted, err = db.InsertMiBandWorkout(ctx, w2)
+	if err != nil {
+		t.Fatalf("second insert: %v", err)
+	}
+	if inserted {
+		t.Error("expected second insert to return false (update, not new)")
+	}
+
+	// Verify the row was updated
+	result, err := db.ListMiBandWorkouts(ctx, userID, 10)
+	if err != nil {
+		t.Fatalf("ListMiBandWorkouts: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workout, got %d", len(result))
+	}
+	if result[0].Steps != 5000 {
+		t.Errorf("expected steps=5000 after upsert, got %d", result[0].Steps)
+	}
+	if result[0].DistanceM != 8000 {
+		t.Errorf("expected distance=8000 after upsert, got %f", result[0].DistanceM)
+	}
+	if result[0].Calories != 500 {
+		t.Errorf("expected calories=500 after upsert, got %d", result[0].Calories)
+	}
+	if result[0].ID != firstID {
+		t.Errorf("expected ID to remain %d, got %d", firstID, result[0].ID)
+	}
+}
+
+func TestImportMiBandWorkouts_UpsertUpdatesFields(t *testing.T) {
+	db := setupMiBandTestStore(t)
+	ctx := context.Background()
+	userID := int64(42)
+	startMs := recentMs(5)
+
+	// First import: partial data (mid-day snapshot)
+	workouts := []MiBandWorkout{
+		{
+			UserID:        userID,
+			SourceStartMs: startMs,
+			SourceEndMs:   startMs + 3600000,
+			ActivityType:  12,
+			ActivityName:  "cycling",
+			DurationSec:   3600,
+			DistanceM:     10000,
+			Steps:         1000,
+			Calories:      300,
+		},
+	}
+	imported, _, err := db.ImportMiBandWorkouts(ctx, workouts, nil)
+	if err != nil {
+		t.Fatalf("first import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("first import: expected 1, got %d", imported)
+	}
+
+	// Second import: complete data (end-of-day) with later end time
+	workouts[0].SourceEndMs = startMs + 7200000 // later end time triggers conditional UPSERT
+	workouts[0].Steps = 5000
+	workouts[0].Calories = 800
+	workouts[0].DistanceM = 25000
+	workouts[0].DurationSec = 7200
+
+	imported, _, err = db.ImportMiBandWorkouts(ctx, workouts, nil)
+	if err != nil {
+		t.Fatalf("second import: %v", err)
+	}
+	if imported != 0 {
+		t.Errorf("second import: expected 0 (update, not new), got %d", imported)
+	}
+
+	// Verify updated values
+	result, err := db.ListMiBandWorkouts(ctx, userID, 10)
+	if err != nil {
+		t.Fatalf("ListMiBandWorkouts: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workout, got %d", len(result))
+	}
+	if result[0].Steps != 5000 {
+		t.Errorf("expected steps=5000, got %d", result[0].Steps)
+	}
+	if result[0].Calories != 800 {
+		t.Errorf("expected calories=800, got %d", result[0].Calories)
+	}
+	if result[0].DistanceM != 25000 {
+		t.Errorf("expected distance=25000, got %f", result[0].DistanceM)
+	}
+}
+
+func TestInsertMiBandWorkout_StaleDataProtection(t *testing.T) {
+	// Importing an older backup after a complete one must NOT overwrite with stale values.
+	db := setupMiBandTestStore(t)
+	ctx := context.Background()
+	userID := int64(42)
+	startMs := recentMs(5)
+
+	// First insert: complete workout (later end time, higher values)
+	complete := &MiBandWorkout{
+		UserID: userID, SourceStartMs: startMs, SourceEndMs: startMs + 7200000,
+		ActivityType: 12, ActivityName: "running",
+		DurationSec: 7200, DistanceM: 8000, Steps: 5000, Calories: 500, HeartRateAvg: 145,
+	}
+	inserted, err := db.InsertMiBandWorkout(ctx, complete)
+	if err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	if !inserted {
+		t.Error("expected first insert to return true")
+	}
+
+	// Second insert: stale partial data (earlier end time, lower values)
+	stale := &MiBandWorkout{
+		UserID: userID, SourceStartMs: startMs, SourceEndMs: startMs + 3600000,
+		ActivityType: 12, ActivityName: "running",
+		DurationSec: 3600, DistanceM: 3000, Steps: 1000, Calories: 200, HeartRateAvg: 130,
+	}
+	inserted, err = db.InsertMiBandWorkout(ctx, stale)
+	if err != nil {
+		t.Fatalf("second insert: %v", err)
+	}
+	if inserted {
+		t.Error("expected second insert to return false")
+	}
+
+	// Verify complete values are preserved (not overwritten by stale data)
+	result, err := db.ListMiBandWorkouts(ctx, userID, 10)
+	if err != nil {
+		t.Fatalf("ListMiBandWorkouts: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workout, got %d", len(result))
+	}
+	if result[0].Steps != 5000 {
+		t.Errorf("stale data overwrote steps: expected 5000, got %d", result[0].Steps)
+	}
+	if result[0].DistanceM != 8000 {
+		t.Errorf("stale data overwrote distance: expected 8000, got %f", result[0].DistanceM)
+	}
+	if result[0].SourceEndMs != startMs+7200000 {
+		t.Errorf("stale data overwrote source_end_ms: expected %d, got %d", startMs+7200000, result[0].SourceEndMs)
+	}
+}
+
+func TestImportMiBandWorkouts_StaleDataProtection(t *testing.T) {
+	// Importing an older backup after a complete one must NOT overwrite with stale values.
+	db := setupMiBandTestStore(t)
+	ctx := context.Background()
+	userID := int64(42)
+	startMs := recentMs(5)
+
+	// First import: complete workout
+	complete := []MiBandWorkout{{
+		UserID: userID, SourceStartMs: startMs, SourceEndMs: startMs + 7200000,
+		ActivityType: 12, ActivityName: "cycling",
+		DurationSec: 7200, DistanceM: 25000, Steps: 5000, Calories: 800,
+	}}
+	imported, _, err := db.ImportMiBandWorkouts(ctx, complete, nil)
+	if err != nil {
+		t.Fatalf("first import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("first import: expected 1, got %d", imported)
+	}
+
+	// Second import: stale partial data (earlier end time)
+	stale := []MiBandWorkout{{
+		UserID: userID, SourceStartMs: startMs, SourceEndMs: startMs + 3600000,
+		ActivityType: 12, ActivityName: "cycling",
+		DurationSec: 3600, DistanceM: 10000, Steps: 1000, Calories: 300,
+	}}
+	_, _, err = db.ImportMiBandWorkouts(ctx, stale, nil)
+	if err != nil {
+		t.Fatalf("second import: %v", err)
+	}
+
+	// Verify complete values are preserved
+	result, err := db.ListMiBandWorkouts(ctx, userID, 10)
+	if err != nil {
+		t.Fatalf("ListMiBandWorkouts: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workout, got %d", len(result))
+	}
+	if result[0].Steps != 5000 {
+		t.Errorf("stale data overwrote steps: expected 5000, got %d", result[0].Steps)
+	}
+	if result[0].DistanceM != 25000 {
+		t.Errorf("stale data overwrote distance: expected 25000, got %f", result[0].DistanceM)
+	}
+	if result[0].Calories != 800 {
+		t.Errorf("stale data overwrote calories: expected 800, got %d", result[0].Calories)
+	}
+}
+
+func TestInsertMiBandWorkout_ZeroMetricsDoNotOverwrite(t *testing.T) {
+	// A resend with same end_time but zero metrics must NOT zero out stored values.
+	db := setupMiBandTestStore(t)
+	ctx := context.Background()
+	userID := int64(42)
+	startMs := recentMs(5)
+
+	// First insert with full metrics
+	w := &MiBandWorkout{
+		UserID: userID, SourceStartMs: startMs, SourceEndMs: startMs + 3600000,
+		ActivityType: 12, ActivityName: "running",
+		DurationSec: 3600, DistanceM: 5000, Steps: 4000, Calories: 300, HeartRateAvg: 140,
+	}
+	_, err := db.InsertMiBandWorkout(ctx, w)
+	if err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+
+	// Second insert: same timestamps but zero metrics (simulates incomplete webhook resend)
+	w2 := &MiBandWorkout{
+		UserID: userID, SourceStartMs: startMs, SourceEndMs: startMs + 3600000,
+		ActivityName: "running",
+		// DurationSec, DistanceM, Steps, Calories all default to 0
+	}
+	_, err = db.InsertMiBandWorkout(ctx, w2)
+	if err != nil {
+		t.Fatalf("second insert: %v", err)
+	}
+
+	result, _ := db.ListMiBandWorkouts(ctx, userID, 1)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workout, got %d", len(result))
+	}
+	if result[0].DurationSec != 3600 {
+		t.Errorf("zero-metric resend overwrote duration: expected 3600, got %d", result[0].DurationSec)
+	}
+	if result[0].DistanceM != 5000 {
+		t.Errorf("zero-metric resend overwrote distance: expected 5000, got %f", result[0].DistanceM)
+	}
+	if result[0].Steps != 4000 {
+		t.Errorf("zero-metric resend overwrote steps: expected 4000, got %d", result[0].Steps)
+	}
+	if result[0].Calories != 300 {
+		t.Errorf("zero-metric resend overwrote calories: expected 300, got %d", result[0].Calories)
+	}
+}
+
+func TestImportMiBandWorkouts_ZeroMetricsDoNotOverwrite(t *testing.T) {
+	// Same test for the batch import path.
+	db := setupMiBandTestStore(t)
+	ctx := context.Background()
+	userID := int64(42)
+	startMs := recentMs(5)
+
+	workouts := []MiBandWorkout{{
+		UserID: userID, SourceStartMs: startMs, SourceEndMs: startMs + 3600000,
+		ActivityType: 12, ActivityName: "cycling",
+		DurationSec: 1800, DistanceM: 8000, Steps: 2000, Calories: 400,
+	}}
+	_, _, err := db.ImportMiBandWorkouts(ctx, workouts, nil)
+	if err != nil {
+		t.Fatalf("first import: %v", err)
+	}
+
+	// Re-import with same end time but zeroed metrics
+	workouts[0].DurationSec = 0
+	workouts[0].DistanceM = 0
+	workouts[0].Steps = 0
+	workouts[0].Calories = 0
+	_, _, err = db.ImportMiBandWorkouts(ctx, workouts, nil)
+	if err != nil {
+		t.Fatalf("second import: %v", err)
+	}
+
+	result, _ := db.ListMiBandWorkouts(ctx, userID, 1)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workout, got %d", len(result))
+	}
+	if result[0].DurationSec != 1800 {
+		t.Errorf("zero-metric resend overwrote duration: expected 1800, got %d", result[0].DurationSec)
+	}
+	if result[0].DistanceM != 8000 {
+		t.Errorf("zero-metric resend overwrote distance: expected 8000, got %f", result[0].DistanceM)
+	}
+	if result[0].Steps != 2000 {
+		t.Errorf("zero-metric resend overwrote steps: expected 2000, got %d", result[0].Steps)
+	}
+	if result[0].Calories != 400 {
+		t.Errorf("zero-metric resend overwrote calories: expected 400, got %d", result[0].Calories)
 	}
 }
 
@@ -277,7 +609,7 @@ func TestImportMiBandWorkouts_GPSNotDuplicatedOnReimport(t *testing.T) {
 		t.Fatalf("first import: %v", err)
 	}
 
-	// Second import: workout is skipped, GPS must not be re-inserted
+	// Second import: workout is upserted (updated in place), GPS must not be re-inserted
 	if _, _, err := db.ImportMiBandWorkouts(ctx, workouts, gps); err != nil {
 		t.Fatalf("second import: %v", err)
 	}
