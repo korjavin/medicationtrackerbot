@@ -390,7 +390,7 @@ async function checkAuth() {
         if (hardAuthReject) {
             console.log('[Auth] Session invalid — clearing cache');
             clearAuthState();
-            clearSwBootstrapCache();
+            await clearSwBootstrapCache();
             // Fall through to blocking auth flow below
         } else {
             if (!rendered) {
