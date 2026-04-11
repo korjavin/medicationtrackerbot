@@ -58,6 +58,12 @@ const REQUIRED_TOKENS = [
     '--color-chart-accent',
     '--color-chart-highlight',
 
+    // Hero card gradient stops
+    '--color-hero-pink-start',
+    '--color-hero-pink-end',
+    '--color-hero-blue-start',
+    '--color-hero-blue-end',
+
     // Sync status colors
     '--color-sync-pending',
     '--color-sync-success',
@@ -705,11 +711,9 @@ describe('Architecture – design tokens', () => {
                 /\.style\.opacity\s*=/,     // drag opacity
             ],
             'workout.js': [
-                /\.style\.background\s*=/,    // dynamic data-driven colors
+                /\.style\.background\s*=/,    // dynamic data-driven colors (heatmap squares, legend swatches)
                 /\.style\.width\s*=/,         // dynamic bar fill width
                 /\.style\.opacity\s*=/,       // save button loading state
-                /\.style\.color\s*=/,         // dynamic totals card value color
-                /\.style\.border\s*=/,        // dynamic totals card border
             ],
         };
 
@@ -753,6 +757,53 @@ describe('Architecture – design tokens', () => {
                 `Found inline style assignments in JS files:${report}\n\n` +
                 `Replace with CSS classes. Allowed exceptions: style.display (show/hide), ` +
                 `style.setProperty (CSS custom props), and per-file dynamic value allowlists.`
+            );
+        }
+    });
+
+    it('no inline style= attributes in HTML strings in JS files', () => {
+        const jsDir = path.join(REPO_ROOT, 'web/static/js');
+
+        function collectJsFiles(dir, base) {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            let files = [];
+            for (const entry of entries) {
+                const rel = base ? `${base}/${entry.name}` : entry.name;
+                if (entry.isDirectory()) {
+                    if (entry.name === 'tests' || entry.name === 'core') continue;
+                    files = files.concat(collectJsFiles(path.join(dir, entry.name), rel));
+                } else if (entry.name.endsWith('.js')) {
+                    files.push(rel);
+                }
+            }
+            return files;
+        }
+
+        const jsFiles = collectJsFiles(jsDir, '');
+        const inlineStyleRe = /style\s*=\s*["']/;
+        const allViolations = [];
+
+        for (const relPath of jsFiles) {
+            const fullPath = path.join(jsDir, relPath);
+            const code = fs.readFileSync(fullPath, 'utf8');
+            const lines = code.split('\n');
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (/^\s*\/\//.test(line) || /^\s*\/?\*/.test(line)) continue;
+                if (inlineStyleRe.test(line)) {
+                    allViolations.push({ file: relPath, line: i + 1, text: line.trim() });
+                }
+            }
+        }
+
+        if (allViolations.length > 0) {
+            const report = allViolations
+                .map(v => `  ${v.file}:${v.line}: ${v.text}`)
+                .join('\n');
+            throw new Error(
+                `Found inline style= attributes in HTML strings:\n${report}\n\n` +
+                `Use CSS classes instead of inline style attributes in innerHTML/template strings.`
             );
         }
     });
@@ -845,6 +896,13 @@ describe('Architecture – design tokens', () => {
             '.workout-legend', '.workout-legend-swatch',
             '.workout-history-list',
             '.exercise-library-defaults', '.exercise-library-notes',
+            // Food product link
+            '.food-product-link',
+            // Sync hint
+            '.sync-hint-dim',
+            // Workout hero/totals modifier classes
+            '.workout-hero-card--weeks', '.workout-hero-card--sessions', '.workout-hero-card--completion',
+            '.workout-totals-card--success', '.workout-totals-card--warning',
         ];
 
         const missing = requiredClasses.filter(cls => {

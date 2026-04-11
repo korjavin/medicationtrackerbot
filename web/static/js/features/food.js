@@ -1234,7 +1234,7 @@ function editFoodLog(id) {
     const linkContainer = document.getElementById('food-product-link-container');
     if (log.product_id) {
         const linkText = log.is_meal ? '→ View Meal' : '→ View in Products';
-        linkContainer.innerHTML = `<a href="#" onclick="navigateToFoodProduct(event, ${log.product_id}, ${log.is_meal ? 'true' : 'false'})" style="color: var(--primary-color); text-decoration: none;">${linkText}</a>`;
+        linkContainer.innerHTML = `<a href="#" onclick="navigateToFoodProduct(event, ${log.product_id}, ${log.is_meal ? 'true' : 'false'})" class="food-product-link">${linkText}</a>`;
         linkContainer.classList.remove('hidden');
     } else {
         linkContainer.innerHTML = '';

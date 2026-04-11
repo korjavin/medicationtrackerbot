@@ -235,22 +235,22 @@ function _renderNextWorkout(container, data) {
     if (status === 'in_progress') {
         const row = document.createElement('div');
         row.className = 'workout-btn-row';
-        row.appendChild(createButton('🏋️ Continue', 'btn-pill flex-1', showWorkoutSessionModal));
-        row.appendChild(createButton('🛑 Stop', 'btn-pill flex-1 workout-btn-stop', cancelWorkoutSession));
+        row.appendChild(createButton('🏋️ Continue', 'btn btn-pill flex-1', showWorkoutSessionModal));
+        row.appendChild(createButton('🛑 Stop', 'btn btn-pill flex-1 workout-btn-stop', cancelWorkoutSession));
         card.appendChild(row);
     } else if (status === 'pre_skipped') {
-        card.appendChild(createButton('↩ Cancel Skip', 'btn-pill workout-btn-full', cancelPreSkipWorkoutSession));
+        card.appendChild(createButton('↩ Cancel Skip', 'btn btn-pill workout-btn-full', cancelPreSkipWorkoutSession));
         if (isRotating) {
-            card.appendChild(createButton('↻ Next Variant', 'btn-pill workout-btn-full-secondary', nextWorkoutVariant));
+            card.appendChild(createButton('↻ Next Variant', 'btn btn-pill workout-btn-full-secondary', nextWorkoutVariant));
         }
     } else {
         const row = document.createElement('div');
         row.className = 'workout-btn-row';
-        row.appendChild(createButton('🏋️ Start Workout', 'btn-pill flex-1', startWorkoutSession));
-        row.appendChild(createButton('⏭ Skip', 'btn-pill flex-1 workout-btn-skip', preSkipWorkoutSession));
+        row.appendChild(createButton('🏋️ Start Workout', 'btn btn-pill flex-1', startWorkoutSession));
+        row.appendChild(createButton('⏭ Skip', 'btn btn-pill flex-1 workout-btn-skip', preSkipWorkoutSession));
         card.appendChild(row);
         if (isRotating) {
-            card.appendChild(createButton('↻ Next Variant', 'btn-pill workout-btn-full-secondary', nextWorkoutVariant));
+            card.appendChild(createButton('↻ Next Variant', 'btn btn-pill workout-btn-full-secondary', nextWorkoutVariant));
         }
     }
 
@@ -1913,10 +1913,9 @@ function _renderWorkoutStats(container, stats) {
     const topGrid = document.createElement('div');
     topGrid.className = 'workout-stats-grid-3';
 
-    const buildHeroCard = (background, valueText, labelText) => {
+    const buildHeroCard = (variantClass, valueText, labelText) => {
         const card = document.createElement('div');
-        card.className = 'workout-hero-card';
-        card.style.background = background;
+        card.className = `workout-hero-card ${variantClass}`;
 
         const value = document.createElement('div');
         value.className = 'workout-hero-value';
@@ -1931,22 +1930,20 @@ function _renderWorkoutStats(container, stats) {
         return card;
     };
 
-    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #667eea 0%, #764ba2 100%)', String(stats.active_weeks || 0), '🔥 Active Weeks'));
-        topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', String(stats.total_sessions || 0), '🏆 30-Day Sessions'));
-    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', `${Math.round(stats.completion_rate || 0)}%`, '💪 30-Day'));
+    topGrid.appendChild(buildHeroCard('workout-hero-card--weeks', String(stats.active_weeks || 0), '🔥 Active Weeks'));
+    topGrid.appendChild(buildHeroCard('workout-hero-card--sessions', String(stats.total_sessions || 0), '🏆 30-Day Sessions'));
+    topGrid.appendChild(buildHeroCard('workout-hero-card--completion', `${Math.round(stats.completion_rate || 0)}%`, '💪 30-Day'));
     root.appendChild(topGrid);
 
     const totalsGrid = document.createElement('div');
     totalsGrid.className = 'workout-stats-grid-2';
 
-    const buildTotalsCard = (background, borderColor, valueColor, valueText, labelText) => {
+    const buildTotalsCard = (variantClass, valueText, labelText) => {
         const card = document.createElement('div');
-        card.className = 'workout-totals-card';
-        card.style.border = `1.5px solid ${borderColor}`;
+        card.className = `workout-totals-card ${variantClass}`;
 
         const value = document.createElement('div');
         value.className = 'workout-totals-value';
-        value.style.color = valueColor;
         value.textContent = valueText;
 
         const label = document.createElement('div');
@@ -1958,8 +1955,8 @@ function _renderWorkoutStats(container, stats) {
         return card;
     };
 
-    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #f0fff4)', '#28a745', '#28a745', String(stats.completed_sessions || 0), 'Done'));
-    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #fffbf0)', '#ffc107', '#ffc107', String(stats.skipped_sessions || 0), 'Skipped'));
+    totalsGrid.appendChild(buildTotalsCard('workout-totals-card--success', String(stats.completed_sessions || 0), 'Done'));
+    totalsGrid.appendChild(buildTotalsCard('workout-totals-card--warning', String(stats.skipped_sessions || 0), 'Skipped'));
     root.appendChild(totalsGrid);
 
     if (stats.top_exercises && stats.top_exercises.length > 0) {

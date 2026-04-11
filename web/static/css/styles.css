@@ -67,6 +67,12 @@
     --color-chart-accent: #4ECDC4;
     --color-chart-highlight: #ffd700;
 
+    /* Hero card gradient stops */
+    --color-hero-pink-start: #f093fb;
+    --color-hero-pink-end: #f5576c;
+    --color-hero-blue-start: #4facfe;
+    --color-hero-blue-end: #00f2fe;
+
     /* Sync status colors */
     --color-sync-pending: #f59e0b;
     --color-sync-success: #22c55e;
@@ -2281,6 +2287,11 @@ input:checked+.toggle-slider:before {
     gap: var(--space-sm);
 }
 
+.food-product-link {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
 /* Food floating action button */
 .food-floating-btn {
     position: fixed;
@@ -2911,6 +2922,11 @@ input:checked+.toggle-slider:before {
     opacity: 0.7;
 }
 
+.sync-hint-dim {
+    font-size: var(--font-size-xs);
+    opacity: 0.5;
+}
+
 /* ========== Settings Status ========== */
 
 .settings-status {
@@ -3248,6 +3264,18 @@ input:checked+.toggle-slider:before {
     text-align: center;
 }
 
+.workout-hero-card--weeks {
+    background: linear-gradient(135deg, var(--color-chart-primary) 0%, var(--color-chart-secondary) 100%);
+}
+
+.workout-hero-card--sessions {
+    background: linear-gradient(135deg, var(--color-hero-pink-start) 0%, var(--color-hero-pink-end) 100%);
+}
+
+.workout-hero-card--completion {
+    background: linear-gradient(135deg, var(--color-hero-blue-start) 0%, var(--color-hero-blue-end) 100%);
+}
+
 .workout-hero-value {
     font-size: 2.4em;
     font-weight: var(--font-weight-bold);
@@ -3266,6 +3294,24 @@ input:checked+.toggle-slider:before {
     text-align: center;
     background: var(--secondary-bg-color);
     border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.workout-totals-card--success {
+    background: color-mix(in srgb, var(--color-success) 8%, var(--secondary-bg-color));
+    border-color: var(--color-success);
+}
+
+.workout-totals-card--success .workout-totals-value {
+    color: var(--color-success);
+}
+
+.workout-totals-card--warning {
+    background: color-mix(in srgb, var(--color-warning) 10%, var(--secondary-bg-color));
+    border-color: var(--color-warning);
+}
+
+.workout-totals-card--warning .workout-totals-value {
+    color: var(--color-warning);
 }
 
 .workout-totals-value {
