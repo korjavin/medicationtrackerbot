@@ -73,8 +73,16 @@ describe('sync.js fallback branch coverage', () => {
       const result = await window.offlineAwareApiCall('/api/bp?days=7', 'GET');
 
       expect(window.MedTrackerDB.BPStore.getAll).toHaveBeenCalledTimes(1);
-      // Only synced rows returned — renderers prepend pending/rejected separately
+      // All local records returned — pending writes + any with server IDs
       expect(result).toEqual([
+        {
+          id: 'local_3',
+          localId: 3,
+          serverId: null,
+          systolic: 150,
+          syncStatus: 'pending',
+          isLocal: true
+        },
         {
           id: 55,
           localId: 5,
