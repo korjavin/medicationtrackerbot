@@ -41,7 +41,7 @@ Vitals tables (`vitals_heart`, `vitals_spo2`, `vitals_stress`) use millisecond-p
 ## Implementation Steps
 
 ### Task 1: Fix ImportDayStats to UPSERT
-- [ ] In `ImportDayStats()` (`store.go:1455-1457`), change SQL from:
+- [x] In `ImportDayStats()` (`store.go:1455-1457`), change SQL from:
   ```sql
   INSERT OR IGNORE INTO day_stats (user_id, day, steps, calories, distance) VALUES (?, ?, ?, ?, ?)
   ```
@@ -50,11 +50,11 @@ Vitals tables (`vitals_heart`, `vitals_spo2`, `vitals_stress`) use millisecond-p
   INSERT INTO day_stats (user_id, day, steps, calories, distance) VALUES (?, ?, ?, ?, ?)
   ON CONFLICT(user_id, day) DO UPDATE SET steps=excluded.steps, calories=excluded.calories, distance=excluded.distance
   ```
-- [ ] Update the `imported`/`skipped` counting logic: `RowsAffected()` returns 1 for both INSERT and UPDATE with SQLite UPSERT, so track "updated" separately if needed, or accept that `imported` now includes updates
-- [ ] Write test: insert day_stats with steps=2000, import again with steps=8000, verify steps=8000 in DB
-- [ ] Write test: import same data twice, verify no duplicate rows created
-- [ ] Write test: import two different days, verify both exist independently
-- [ ] Run `go test ./internal/store/...` — must pass before next task
+- [x] Update the `imported`/`skipped` counting logic: `RowsAffected()` returns 1 for both INSERT and UPDATE with SQLite UPSERT, so track "updated" separately if needed, or accept that `imported` now includes updates
+- [x] Write test: insert day_stats with steps=2000, import again with steps=8000, verify steps=8000 in DB
+- [x] Write test: import same data twice, verify no duplicate rows created
+- [x] Write test: import two different days, verify both exist independently
+- [x] Run `go test ./internal/store/...` — must pass before next task
 
 ### Task 2: Fix ImportSleepLogs to conditionally UPSERT
 - [ ] In `ImportSleepLogs()` (`store.go:1412-1428`), change SQL from:
