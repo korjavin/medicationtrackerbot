@@ -77,15 +77,15 @@ Move the diary notes from being a hardcoded section at the bottom of the Health 
 - [x] Run architecture tests — must pass before next task
 
 ### Task 3: Verify acceptance criteria
-- [ ] Verify Health tab shows "Overview" and "Notes" sub-tabs
-- [ ] Verify Overview sub-tab is active by default
-- [ ] Verify clicking "Notes" shows the notes section, hides overview
-- [ ] Verify clicking "Overview" shows charts, hides notes
-- [ ] Verify notes CRUD still works (add, delete, load)
-- [ ] Verify health overview charts still render correctly
-- [ ] Verify switching to another main tab and back preserves active sub-tab
-- [ ] Run full JS architecture tests (design tokens, globals)
-- [ ] Run `go test ./...` (no Go changes expected, but verify nothing broke)
+- [x] Verify Health tab shows "Overview" and "Notes" sub-tabs
+- [x] Verify Overview sub-tab is active by default
+- [x] Verify clicking "Notes" shows the notes section, hides overview
+- [x] Verify clicking "Overview" shows charts, hides notes
+- [x] Verify notes CRUD still works (add, delete, load)
+- [x] Verify health overview charts still render correctly
+- [x] Verify switching to another main tab and back preserves active sub-tab
+- [x] Run full JS architecture tests (design tokens, globals)
+- [x] Run `go test ./...` (no Go changes expected, but verify nothing broke)
 
 ### Task 4: [Final] Update documentation
 - [ ] Update CLAUDE.md health-view section if needed
