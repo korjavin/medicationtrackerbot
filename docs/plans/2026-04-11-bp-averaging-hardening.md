@@ -74,7 +74,7 @@ Validate, harden, and document the BP daily-weighted averaging algorithm in `Get
 - [x] Verify existing BP stats API response format unchanged
 
 ### Task 5: [Final] Update documentation
-- [ ] Update CLAUDE.md if needed (mention timezone-aware BP averaging)
+- [x] Update CLAUDE.md if needed (mention timezone-aware BP averaging)
 
 ## Technical Details
 
