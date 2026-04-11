@@ -273,9 +273,9 @@ describe('app.js charts, scanner and visualization helpers', () => {
     const { window, cleanup } = loadFrontendEnv();
 
     try {
-      expect(window.catmullRomSpline([[10, 20]])).toBe('M 10,20');
-      expect(window.catmullRomSpline([[10, 20], [30, 40]])).toBe('M 10,20 L 30,40');
-      expect(window.catmullRomSpline([[0, 0], [10, 10], [20, 5]])).toContain('L');
+      expect(window.ChartUtils.catmullRomSpline([[10, 20]])).toBe('M 10,20');
+      expect(window.ChartUtils.catmullRomSpline([[10, 20], [30, 40]])).toBe('M 10,20 L 30,40');
+      expect(window.ChartUtils.catmullRomSpline([[0, 0], [10, 10], [20, 5]])).toContain('L');
 
       expect(window.linearRegression([{ x: 0, y: 100 }, { x: 2, y: 96 }])).toEqual({
         slope: -2,
@@ -283,8 +283,8 @@ describe('app.js charts, scanner and visualization helpers', () => {
       });
       expect(window.linearRegression([{ x: 0, y: 1 }])).toBeNull();
 
-      expect(window.calculateYAxisTicks(72, 98)).toEqual([75, 80, 85, 90, 95]);
-      expect(window.calculateYAxisTicks(72, 180).length).toBeGreaterThan(4);
+      expect(window.ChartUtils.calculateYAxisTicks(72, 98)).toEqual([75, 80, 85, 90, 95]);
+      expect(window.ChartUtils.calculateYAxisTicks(72, 180).length).toBeGreaterThan(4);
 
       expect(window.calculateWeightStats([], { goal: 70 })).toBeNull();
 

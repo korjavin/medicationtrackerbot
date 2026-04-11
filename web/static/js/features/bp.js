@@ -270,6 +270,23 @@ function renderBPChart(readings, goalData) {
     avgDiaLine.setAttribute("class", "bp-chart-avg-line");
     svg.appendChild(avgDiaLine);
 
+    // Gradient fill area under systolic line
+    if (data.length >= 2) {
+        const lastReading = data[data.length - 1];
+        const sysGradColor = getClassColor(lastReading.category);
+        window.ChartUtils.createGradient(svgNs, svg, 'grad-bp-sys', sysGradColor, 0.15);
+        let sysAreaD = `M ${xScaleByDate(data[0].date)},${yScale(data[0].sys)}`;
+        for (let i = 1; i < data.length; i++) {
+            sysAreaD += ` L ${xScaleByDate(data[i].date)},${yScale(data[i].sys)}`;
+        }
+        sysAreaD += ` L ${xScaleByDate(data[data.length - 1].date)},${chartHeight}`;
+        sysAreaD += ` L ${xScaleByDate(data[0].date)},${chartHeight} Z`;
+        const sysArea = document.createElementNS(svgNs, "path");
+        sysArea.setAttribute("d", sysAreaD);
+        sysArea.setAttribute("fill", "url(#grad-bp-sys)");
+        svg.appendChild(sysArea);
+    }
+
     // Draw color-coded line segments for systolic
     for (let i = 0; i < data.length - 1; i++) {
         const x1 = xScaleByDate(data[i].date);

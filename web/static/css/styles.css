@@ -98,6 +98,7 @@
 
     /* Chart extra colors */
     --color-chart-plan: #67e8f9;
+    --color-chart-gradient-opacity: 0.25;
 
     /* Inventory badge */
     --color-inventory-ok: #2d9c93;

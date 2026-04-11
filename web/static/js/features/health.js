@@ -169,12 +169,15 @@
             const clamped = Math.max(yMin, Math.min(yMax, val));
             return topPadding + chartHeight - ((clamped - yMin) / valRange) * chartHeight;
         };
-        const areaPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const svgNs = "http://www.w3.org/2000/svg";
+        const gradId = 'grad-vitals-' + containerId.replace(/[^a-zA-Z0-9]/g, '');
+        window.ChartUtils.createGradient(svgNs, svg, gradId, color, 0.25);
+        const areaPath = document.createElementNS(svgNs, "path");
         let dArea = "";
         data.forEach((pt, i) => { const cx = getX(pt.timestamp), cy = getY(pt.max); dArea += (i === 0 ? `M ${cx},${cy}` : ` L ${cx},${cy}`); });
         for (let i = data.length - 1; i >= 0; i--) { const cx = getX(data[i].timestamp), cy = getY(data[i].min); dArea += ` L ${cx},${cy}`; }
         dArea += " Z";
-        areaPath.setAttribute("d", dArea); areaPath.setAttribute("fill", color); areaPath.setAttribute("fill-opacity", "0.2");
+        areaPath.setAttribute("d", dArea); areaPath.setAttribute("fill", `url(#${gradId})`);
         svg.appendChild(areaPath);
         let currentPath = "", paths = [], lastTs = null;
         data.forEach((pt, i) => {

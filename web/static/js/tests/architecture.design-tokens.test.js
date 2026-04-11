@@ -89,6 +89,7 @@ const REQUIRED_TOKENS = [
 
     // Chart extra colors
     '--color-chart-plan',
+    '--color-chart-gradient-opacity',
 
     // Inventory badge
     '--color-inventory-ok',
