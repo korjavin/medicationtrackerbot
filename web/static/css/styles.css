@@ -105,6 +105,21 @@
     --color-food-status-empty: #7a6a00;
     --color-food-status-error: #c62828;
 
+    /* Workout action button colors */
+    --color-workout-stop-bg: #ffebee;
+    --color-workout-stop-text: #c62828;
+    --color-workout-stop-border: #ef9a9a;
+    --color-workout-skip-bg: #fff3e0;
+    --color-workout-skip-text: #e65100;
+    --color-workout-skip-border: #ffcc80;
+
+    /* Mi Band / outdoor workout colors */
+    --color-miband-badge-bg: #e8f5e9;
+    --color-miband-badge-text: #388e3c;
+    --color-miband-badge-border: #a5d6a7;
+    --color-miband-chip-bg: #e8f5e9;
+    --color-miband-chip-text: #2e7d32;
+
     /* Scanner */
     --color-scanner-bg: #000;
 
@@ -2678,4 +2693,556 @@ input:checked+.toggle-slider:before {
 /* SVG charts */
 .svg-chart {
     overflow: visible;
+}
+
+/* ========== List Reset ========== */
+
+.list-reset {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+/* ========== Additional Utilities ========== */
+
+.flex-1 {
+    flex: 1;
+}
+
+.flex-wrap {
+    flex-wrap: wrap;
+}
+
+.text-xs {
+    font-size: var(--font-size-xs);
+}
+
+.text-sm {
+    font-size: var(--font-size-sm);
+}
+
+.text-error {
+    color: var(--color-danger);
+}
+
+.mt-lg {
+    margin-top: var(--space-lg);
+}
+
+.mt-xl {
+    margin-top: var(--space-xl);
+}
+
+/* ========== Empty/Error State (shared) ========== */
+
+.empty-state-msg {
+    text-align: center;
+    color: var(--hint-color);
+    padding: var(--space-xl);
+}
+
+.no-data-msg {
+    color: var(--hint-color);
+    font-size: var(--font-size-sm);
+}
+
+/* ========== PWA Update Toast ========== */
+
+.pwa-update-toast {
+    position: fixed;
+    top: var(--space-xl);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(102, 126, 234, 0.95);
+    color: white;
+    padding: var(--space-md) var(--space-xl);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    z-index: var(--z-toast);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    display: flex;
+    gap: var(--space-md);
+    align-items: center;
+}
+
+.pwa-update-btn {
+    background: rgba(255, 255, 255, 0.25);
+    color: inherit;
+    border: none;
+    padding: var(--space-sm) var(--space-lg);
+    border-radius: var(--radius-sm);
+    font-weight: var(--font-weight-bold);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+/* ========== Sync Debug Panel ========== */
+
+.sync-debug-panel {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-height: 40vh;
+    background: rgba(0, 0, 0, 0.9);
+    color: var(--color-success);
+    font-family: monospace;
+    font-size: var(--font-size-xs);
+    overflow-y: auto;
+    z-index: var(--z-toast);
+    padding: var(--space-sm);
+}
+
+/* ========== Settings Status ========== */
+
+.settings-status {
+    display: none;
+}
+
+.settings-status.visible {
+    display: block;
+}
+
+/* ========== Health Overview ========== */
+
+.health-chart-wrapper {
+    margin-top: var(--space-xl);
+    padding: var(--space-md) 0;
+}
+
+.health-chart-wrapper h3 {
+    margin-bottom: var(--space-xs);
+}
+
+.health-chart-container {
+    height: 200px;
+    width: 100%;
+}
+
+.health-chart-container-tall {
+    height: 250px;
+    width: 100%;
+}
+
+.health-chart-stat {
+    font-size: var(--font-size-xs);
+    color: var(--hint-color);
+    text-align: center;
+    margin-top: var(--space-xs);
+}
+
+.health-chart-stat-spaced {
+    font-size: var(--font-size-xs);
+    color: var(--hint-color);
+    text-align: center;
+    margin-top: var(--space-md);
+}
+
+.health-chart-legend {
+    font-size: var(--font-size-xs);
+    display: flex;
+    justify-content: center;
+    gap: var(--space-md);
+    margin-top: var(--space-xs);
+    color: var(--hint-color);
+}
+
+.health-legend-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.health-legend-badge {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+}
+
+.health-legend-badge-line {
+    display: inline-block;
+    width: 10px;
+    height: 2px;
+}
+
+/* ========== Workout Components ========== */
+
+.workout-empty-state {
+    text-align: center;
+    color: var(--hint-color);
+    padding: var(--space-2xl) var(--space-lg);
+}
+
+.workout-pending-msg {
+    color: var(--hint-color);
+    font-size: 0.9em;
+}
+
+.workout-group-card {
+    margin-bottom: var(--space-lg);
+}
+
+.workout-group-schedule {
+    font-size: 0.9em;
+    color: var(--hint-color);
+}
+
+.workout-variant-card {
+    background: var(--secondary-bg-color, #f8f9fa);
+    padding: var(--space-md);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-sm);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.workout-variant-desc {
+    font-size: 0.85em;
+    color: var(--hint-color);
+}
+
+.workout-exercise-card {
+    background: var(--secondary-bg-color, #f0f4ff);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-sm);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.workout-exercise-meta {
+    font-size: 0.85em;
+    color: var(--hint-color);
+}
+
+.workout-delete-btn-inline {
+    position: static;
+    margin-left: var(--space-md);
+}
+
+.workout-history-card {
+    background: var(--secondary-bg-color, #f8f9fa);
+    padding: var(--space-md);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.workout-history-card:hover,
+.workout-history-card:active {
+    background: var(--secondary-bg-color, #f0f0f0);
+    filter: brightness(0.97);
+}
+
+.workout-history-meta {
+    font-size: 0.85em;
+    color: var(--hint-color);
+    margin-top: var(--space-xs);
+}
+
+.workout-volume-highlight {
+    color: var(--color-chart-primary, #667eea);
+    font-weight: var(--font-weight-bold);
+}
+
+.workout-history-status {
+    text-align: right;
+    font-size: 0.85em;
+    color: var(--color-chart-primary, #667eea);
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.workout-history-chevron {
+    font-size: 1.2em;
+}
+
+.workout-miband-card {
+    background: var(--secondary-bg-color, #f0f7f0);
+    padding: var(--space-md);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--color-success);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.workout-miband-card:hover,
+.workout-miband-card:active {
+    filter: brightness(0.97);
+}
+
+.workout-miband-date {
+    font-size: 0.82em;
+    color: var(--hint-color);
+    margin-top: 2px;
+}
+
+.workout-miband-badge {
+    font-size: 0.7em;
+    padding: 2px 7px;
+    border-radius: var(--radius-md);
+    background: var(--color-miband-badge-bg);
+    color: var(--color-miband-badge-text);
+    border: 1px solid var(--color-miband-badge-border);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.03em;
+}
+
+.workout-miband-badge--manual {
+    background: var(--color-workout-skip-bg);
+    color: var(--color-workout-skip-text);
+    border-color: var(--color-workout-skip-border);
+}
+
+.workout-stat-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+}
+
+.workout-stat-chip {
+    font-size: 0.82em;
+    padding: 2px var(--space-sm);
+    border-radius: var(--radius-md);
+    background: var(--color-miband-chip-bg);
+    color: var(--color-miband-chip-text);
+}
+
+.workout-btn-row {
+    display: flex;
+    gap: var(--space-md);
+    margin-top: var(--space-md);
+}
+
+.workout-btn-stop {
+    background-color: var(--color-workout-stop-bg);
+    color: var(--color-workout-stop-text);
+    border: 1px solid var(--color-workout-stop-border);
+}
+
+.workout-btn-skip {
+    background-color: var(--color-workout-skip-bg);
+    color: var(--color-workout-skip-text);
+    border: 1px solid var(--color-workout-skip-border);
+}
+
+.workout-btn-full {
+    margin-top: var(--space-md);
+    width: 100%;
+    background-color: var(--button-color, #5288c1);
+    color: white;
+}
+
+.workout-btn-full-secondary {
+    margin-top: var(--space-sm);
+    width: 100%;
+    background-color: var(--secondary-bg-color, #f0f0f0);
+    color: var(--text-color, #000);
+    box-shadow: none;
+}
+
+/* Workout session info */
+.workout-session-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-md);
+}
+
+.workout-session-status-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.workout-session-status-label {
+    font-size: 0.9em;
+    color: var(--hint-color);
+    margin: 0;
+}
+
+.workout-session-select {
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border-divider, #ddd);
+}
+
+/* Workout exercise log entry */
+.exercise-log-entry.unsaved {
+    opacity: 0.6;
+}
+
+.exercise-log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.exercise-log-delete-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.2em;
+    padding: var(--space-xs) var(--space-sm);
+    color: var(--color-danger);
+}
+
+.exercise-log-unsaved-hint {
+    font-size: 0.75em;
+    color: var(--hint-color);
+    margin-bottom: var(--space-xs);
+}
+
+/* Workout stats */
+.workout-stats-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-md);
+    margin-bottom: var(--space-md);
+}
+
+.workout-stats-grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-md);
+}
+
+.workout-hero-card {
+    color: white;
+    padding: var(--space-lg) var(--space-sm);
+    border-radius: var(--radius-md);
+    text-align: center;
+}
+
+.workout-hero-value {
+    font-size: 2.4em;
+    font-weight: var(--font-weight-bold);
+    line-height: 1.1;
+}
+
+.workout-hero-label {
+    font-size: 0.78em;
+    opacity: 0.92;
+    margin-top: var(--space-xs);
+}
+
+.workout-totals-card {
+    padding: var(--space-lg) var(--space-sm);
+    border-radius: var(--radius-sm);
+    text-align: center;
+    background: var(--secondary-bg-color);
+}
+
+.workout-totals-value {
+    font-size: 1.7em;
+    font-weight: var(--font-weight-bold);
+}
+
+.workout-totals-label {
+    font-size: 0.78em;
+    color: var(--hint-color);
+    margin-top: 2px;
+}
+
+.workout-section-heading {
+    font-size: 0.75em;
+    font-weight: var(--font-weight-bold);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--hint-color);
+    margin-bottom: var(--space-md);
+}
+
+.workout-bar-track {
+    background: var(--secondary-bg-color, rgba(0, 0, 0, 0.07));
+    border-radius: var(--radius-sm);
+    height: 5px;
+    overflow: hidden;
+}
+
+.workout-bar-fill {
+    background: linear-gradient(90deg, var(--color-chart-primary), var(--color-chart-secondary));
+    height: 100%;
+    border-radius: var(--radius-sm);
+    transition: width 0.4s;
+}
+
+.workout-exercise-row {
+    margin-bottom: var(--space-md);
+}
+
+.workout-exercise-labels {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: var(--space-xs);
+}
+
+.workout-exercise-name {
+    font-size: 0.9em;
+    font-weight: var(--font-weight-medium);
+}
+
+.workout-exercise-volume {
+    font-size: 0.8em;
+    color: var(--hint-color);
+}
+
+.workout-activity-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+
+.workout-activity-square {
+    width: 26px;
+    height: 26px;
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+}
+
+.workout-legend {
+    display: flex;
+    gap: var(--space-md);
+    margin-top: var(--space-sm);
+    font-size: 0.72em;
+    color: var(--hint-color);
+}
+
+.workout-legend-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    vertical-align: middle;
+    margin-right: 3px;
+}
+
+.workout-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+/* Exercise library item */
+.exercise-library-item {
+    cursor: pointer;
+}
+
+.exercise-library-defaults {
+    font-size: 0.9em;
+    color: var(--hint-color);
+}
+
+.exercise-library-notes {
+    font-size: 0.85em;
+    color: var(--hint-color);
+    margin-top: 2px;
 }

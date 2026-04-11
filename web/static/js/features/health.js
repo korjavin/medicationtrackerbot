@@ -5,15 +5,14 @@
         const renderVitalGroup = (id, title, history, color, min, max, stat7d, stat30d, unit) => {
             if (history && history.length > 0) {
                 const wrapper = document.createElement('div');
-                wrapper.style.cssText = 'margin-top: 25px; padding: 10px 0;';
+                wrapper.className = 'health-chart-wrapper';
                 const h3 = document.createElement('h3');
-                h3.style.marginBottom = '5px';
                 h3.textContent = title;
                 const chartContainer = document.createElement('div');
                 chartContainer.id = id + 'ChartContainer';
-                chartContainer.style.cssText = 'height: 200px; width: 100%;';
+                chartContainer.className = 'health-chart-container';
                 const statDiv = document.createElement('div');
-                statDiv.style.cssText = 'font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 5px;';
+                statDiv.className = 'health-chart-stat';
                 statDiv.textContent = `${stat7d} ${unit} (7d avg) | ${stat30d} ${unit} (30d avg)`;
                 wrapper.appendChild(h3);
                 wrapper.appendChild(chartContainer);
@@ -25,21 +24,21 @@
 
         if (data.sleep_stats_7d && data.sleep_stats_7d.length > 0) {
             const wrapper = document.createElement('div');
-            wrapper.style.cssText = 'margin-top: 25px; padding: 10px 0;';
+            wrapper.className = 'health-chart-wrapper';
             const h3 = document.createElement('h3');
-            h3.style.marginBottom = '5px';
             h3.textContent = 'Sleep';
             const chartContainer = document.createElement('div');
             chartContainer.id = 'sleepChartContainer';
-            chartContainer.style.cssText = 'height: 250px; width: 100%;';
+            chartContainer.className = 'health-chart-container-tall';
             const legend = document.createElement('div');
-            legend.style.cssText = 'font-size: 11px; display: flex; justify-content: center; gap: 10px; margin-top: 5px; color: var(--hint-color);';
+            legend.className = 'health-chart-legend';
 
             const createLegendItem = (color, text, isLine = false) => {
                 const item = document.createElement('div');
-                item.style.cssText = 'display:flex; align-items:center; gap:4px;';
+                item.className = 'health-legend-item';
                 const badge = document.createElement('span');
-                badge.style.cssText = isLine ? `display:inline-block; width:10px; height:2px; background:${color};` : `display:inline-block; width:10px; height:10px; background:${color}; border-radius:2px;`;
+                badge.className = isLine ? 'health-legend-badge-line' : 'health-legend-badge';
+                badge.style.background = color;
                 item.appendChild(badge);
                 item.appendChild(document.createTextNode(text));
                 return item;
@@ -52,7 +51,7 @@
             legend.appendChild(createLegendItem('#ff3b30', 'HR', true));
 
             const statDiv = document.createElement('div');
-            statDiv.style.cssText = 'font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 10px;';
+            statDiv.className = 'health-chart-stat-spaced';
             statDiv.textContent = `${data.average_sleep_hours_7d.toFixed(1)} hrs (7d avg) | ${data.average_sleep_hours_30d.toFixed(1)} hrs (30d avg)`;
 
             wrapper.appendChild(h3);
@@ -65,15 +64,14 @@
 
         if (data.step_stats_7d && data.step_stats_7d.length > 0) {
             const wrapper = document.createElement('div');
-            wrapper.style.cssText = 'margin-top: 25px; padding: 10px 0;';
+            wrapper.className = 'health-chart-wrapper';
             const h3 = document.createElement('h3');
-            h3.style.marginBottom = '5px';
             h3.textContent = 'Steps';
             const chartContainer = document.createElement('div');
             chartContainer.id = 'stepsChartContainer';
-            chartContainer.style.cssText = 'height: 250px; width: 100%;';
+            chartContainer.className = 'health-chart-container-tall';
             const statDiv = document.createElement('div');
-            statDiv.style.cssText = 'font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 10px;';
+            statDiv.className = 'health-chart-stat-spaced';
             statDiv.textContent = `${data.average_steps_7d.toLocaleString()} steps (7d avg) | ${data.average_steps_30d.toLocaleString()} steps (30d avg)`;
             wrapper.appendChild(h3);
             wrapper.appendChild(chartContainer);
@@ -87,14 +85,14 @@
         renderVitalGroup('stress', 'Stress Level', data.stress_history_7d, '#ff9500', 0, 100, data.average_stress_7d, data.average_stress_30d, '/ 100');
 
         const disclaimer = document.createElement('p');
-        disclaimer.style.cssText = 'font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 30px;';
+        disclaimer.className = 'chart-disclaimer';
         disclaimer.textContent = 'This data is gathered from your synced .nxk backups.';
         content.appendChild(disclaimer);
     }
 
     function renderHealthOverviewError(content) {
         const errP = document.createElement('p');
-        errP.style.color = 'red';
+        errP.className = 'text-danger';
         errP.textContent = 'Failed to load health metrics';
         content.replaceChildren(errP);
         content.classList.remove('hidden');
@@ -147,7 +145,7 @@
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         svg.setAttribute("width", "100%"); svg.setAttribute("height", "100%");
         svg.setAttribute("viewBox", `0 0 ${totalWidth} ${container.clientHeight}`);
-        svg.style.overflow = "visible";
+        svg.classList.add('svg-chart');
         const minTime = data[0].timestamp, maxTime = data[data.length - 1].timestamp;
         const timeRange = Math.max(maxTime - minTime, 1), valRange = Math.max(yMax - yMin, 1);
         const ySteps = 4;
@@ -220,7 +218,7 @@
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         svg.setAttribute("width", "100%"); svg.setAttribute("height", "100%");
         svg.setAttribute("viewBox", `0 0 ${totalWidth} ${container.clientHeight}`);
-        svg.style.overflow = "visible";
+        svg.classList.add('svg-chart');
         const barWidth = Math.min((chartWidth / stats.length) * 0.8, 40);
         const spacing = (chartWidth - (barWidth * stats.length)) / (stats.length || 1);
         const colors = { deep: '#5a2d9c', light: '#2481cc', rem: '#c161d9', awake: '#e5b220' };
@@ -298,7 +296,7 @@
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         svg.setAttribute("width", "100%"); svg.setAttribute("height", "100%");
         svg.setAttribute("viewBox", `0 0 ${totalWidth} ${container.clientHeight}`);
-        svg.style.overflow = "visible";
+        svg.classList.add('svg-chart');
         const barWidth = Math.min((chartWidth / stats.length) * 0.8, 40);
         const spacing = (chartWidth - (barWidth * stats.length)) / (stats.length || 1);
         const stepColor = '#34c759';
