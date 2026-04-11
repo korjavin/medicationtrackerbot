@@ -85,9 +85,9 @@ const SyncDebug = {
         panel.id = 'sync-debug-panel';
         panel.className = 'sync-debug-panel';
         panel.innerHTML = `
-            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+            <div class="sync-debug-header">
                 <strong>Sync Debug Log</strong>
-                <button onclick="SyncDebug.toggle()" style="background:#333;color:#fff;border:none;padding:4px 8px;border-radius:4px;">Close</button>
+                <button onclick="SyncDebug.toggle()" class="sync-debug-close">Close</button>
             </div>
             <div class="debug-content"></div>
         `;
@@ -212,24 +212,23 @@ const SyncManager = {
 
         // Make status bar clickable to show debug panel
         statusBar.onclick = () => SyncDebug.toggle();
-        statusBar.classList.add('cursor-pointer');
 
         if (!status.isOnline) {
             statusBar.className = 'sync-status-bar offline cursor-pointer';
-            statusBar.innerHTML = '<span class="sync-icon">&#x1F4F4;</span> Offline - changes saved locally <span style="font-size:10px;opacity:0.7">(tap for logs)</span>';
+            statusBar.innerHTML = '<span class="sync-icon">&#x1F4F4;</span> Offline - changes saved locally <span class="sync-hint">(tap for logs)</span>';
             statusBar.style.display = 'flex';
         } else if (status.isSyncing) {
             statusBar.className = 'sync-status-bar syncing cursor-pointer';
-            statusBar.innerHTML = '<span class="sync-icon spinning">&#x21BB;</span> Syncing... <span style="font-size:10px;opacity:0.7">(tap for logs)</span>';
+            statusBar.innerHTML = '<span class="sync-icon spinning">&#x21BB;</span> Syncing... <span class="sync-hint">(tap for logs)</span>';
             statusBar.style.display = 'flex';
         } else if (status.pendingCount > 0) {
             statusBar.className = 'sync-status-bar pending cursor-pointer';
-            statusBar.innerHTML = `<span class="sync-icon">&#x23F3;</span> ${status.pendingCount} item${status.pendingCount > 1 ? 's' : ''} pending sync <span style="font-size:10px;opacity:0.7">(tap for logs)</span>`;
+            statusBar.innerHTML = `<span class="sync-icon">&#x23F3;</span> ${status.pendingCount} item${status.pendingCount > 1 ? 's' : ''} pending sync <span class="sync-hint">(tap for logs)</span>`;
             statusBar.style.display = 'flex';
         } else {
             // Show a minimal "synced" indicator that can still be tapped for debug
             statusBar.className = 'sync-status-bar synced cursor-pointer';
-            statusBar.innerHTML = '<span style="font-size:10px;opacity:0.5">&#x2705; Synced (tap for debug)</span>';
+            statusBar.innerHTML = '<span class="sync-hint" style="opacity:0.5">&#x2705; Synced (tap for debug)</span>';
             statusBar.style.display = 'flex';
         }
     },
