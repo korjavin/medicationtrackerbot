@@ -45,7 +45,7 @@ window.initServiceWorker = function () {
 
 window.showUpdateToast = function (worker, registration) {
     const toast = document.createElement('div');
-    toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(102,126,234,0.95);color:white;padding:12px 20px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:99999;font-size:14px;font-weight:500;display:flex;gap:12px;align-items:center;';
+    toast.className = 'pwa-update-toast';
     toast.id = 'pwa-update-toast';
 
     const text = document.createElement('span');
@@ -54,7 +54,7 @@ window.showUpdateToast = function (worker, registration) {
     const btn = document.createElement('button');
     btn.textContent = 'Update';
     btn.id = 'pwa-update-btn';
-    btn.style.cssText = 'background:rgba(255,255,255,0.25);color:inherit;border:none;padding:6px 14px;border-radius:8px;font-weight:600;cursor:pointer;white-space:nowrap;';
+    btn.className = 'pwa-update-btn';
     btn.onclick = () => {
         btn.textContent = 'Updating…';
         btn.disabled = true;

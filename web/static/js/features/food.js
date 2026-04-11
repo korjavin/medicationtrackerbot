@@ -1133,7 +1133,7 @@ function updateFoodDateNav() {
 
     const isTodayOrFuture = date.getTime() >= today.getTime();
     nextBtn.disabled = isTodayOrFuture;
-    todayBtn.style.display = isTodayOrFuture ? 'none' : 'inline-flex';
+    todayBtn.classList.toggle('hidden', isTodayOrFuture);
 }
 
 function goFoodToday() {
@@ -1234,7 +1234,7 @@ function editFoodLog(id) {
     const linkContainer = document.getElementById('food-product-link-container');
     if (log.product_id) {
         const linkText = log.is_meal ? '→ View Meal' : '→ View in Products';
-        linkContainer.innerHTML = `<a href="#" onclick="navigateToFoodProduct(event, ${log.product_id}, ${log.is_meal ? 'true' : 'false'})" style="color: var(--primary-color); text-decoration: none;">${linkText}</a>`;
+        linkContainer.innerHTML = `<a href="#" onclick="navigateToFoodProduct(event, ${log.product_id}, ${log.is_meal ? 'true' : 'false'})" class="food-product-link">${linkText}</a>`;
         linkContainer.classList.remove('hidden');
     } else {
         linkContainer.innerHTML = '';
@@ -1439,8 +1439,7 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
 
     if (!groups || groups.length === 0) {
         const empty = document.createElement('p');
-        empty.className = 'hint';
-        empty.style.textAlign = 'center';
+        empty.className = 'hint text-center';
         empty.textContent = 'No food logs for this day.';
         list.appendChild(empty);
     } else {
@@ -1458,10 +1457,10 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
             const title = document.createElement('strong');
             title.textContent = group.name;
             const time = document.createElement('span');
-            time.style.cssText = 'font-weight:normal; color:var(--hint-color);';
+            time.className = 'food-group-time';
             time.textContent = `(${group.time})`;
             const totals = document.createElement('span');
-            totals.style.cssText = 'margin-left:auto; font-size:0.9em;';
+            totals.className = 'food-group-totals';
             totals.textContent = `${Math.round(group.calories)} kcal (C:${Math.round(group.carbs)} P:${Math.round(group.protein)} F:${Math.round(group.fat)})`;
             header.appendChild(title);
             header.appendChild(time);
@@ -1472,15 +1471,14 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
                 currentFoodLogs[log.id] = log;
 
                 const item = document.createElement('div');
-                item.className = 'history-item';
-                item.style.cssText = 'padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer; display: flex; align-items: center;';
+                item.className = 'history-item food-log-item';
 
                 if (foodMultiSelectMode) {
                     const checkboxDiv = document.createElement('div');
-                    checkboxDiv.style.cssText = 'margin-right: 10px; flex-shrink: 0;';
+                    checkboxDiv.className = 'food-checkbox-wrap';
                     const cb = document.createElement('input');
                     cb.type = 'checkbox';
-                    cb.style.cssText = 'width: 18px; height: 18px; cursor: pointer;';
+                    cb.className = 'food-checkbox';
                     cb.checked = foodSelectedLogIds.has(log.id);
                     cb.addEventListener('click', (e) => {
                         e.stopPropagation();
@@ -1502,10 +1500,9 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
                 }
 
                 const itemBody = document.createElement('div');
-                itemBody.style.flex = '1';
-                itemBody.style.overflow = 'hidden';
+                itemBody.className = 'food-item-body';
                 const name = document.createElement('div');
-                name.style.fontWeight = '500';
+                name.className = 'fw-medium';
 
                 if (log.is_meal) {
                     name.textContent = '🍽 ' + (log.name || 'Food');
@@ -1513,14 +1510,13 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
                     name.textContent = log.name || 'Food';
                 }
                 const meta = document.createElement('div');
-                meta.style.cssText = 'font-size:0.85em; color:var(--hint-color);';
+                meta.className = 'food-item-meta';
                 meta.textContent = `${Math.round(log.weight)}g • ${Math.round(log.calories)} kcal`;
                 itemBody.appendChild(name);
                 itemBody.appendChild(meta);
 
                 const actionIcons = document.createElement('div');
-                actionIcons.style.display = 'flex';
-                actionIcons.style.gap = '8px';
+                actionIcons.className = 'food-action-icons';
 
                 const editButton = createEditButton((event) => {
                     event.stopPropagation();
@@ -1552,17 +1548,17 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
 
     if (period === 'week' || period === '2weeks') {
         const stats = weekStats;
-        summary.style.display = 'block';
+        summary.classList.remove('hidden');
         const label = period === 'week' ? '7-Day Total' : '14-Day Total';
         renderFoodSummary(summary, label, Math.round(stats?.calories || 0), Math.round(stats?.carbs || 0), Math.round(stats?.protein || 0), Math.round(stats?.fat || 0));
         renderFoodTargetProgress(Math.round(stats?.calories || 0), Math.round(stats?.carbs || 0), Math.round(stats?.protein || 0), Math.round(stats?.fat || 0), period);
     } else {
         if (groups && groups.length > 0) {
-            summary.style.display = 'block';
+            summary.classList.remove('hidden');
             renderFoodSummary(summary, 'Daily Total', Math.round(dayCals), Math.round(dayCarbs), Math.round(dayProt), Math.round(dayFat));
             renderFoodTargetProgress(Math.round(dayCals), Math.round(dayCarbs), Math.round(dayProt), Math.round(dayFat), period);
         } else {
-            summary.style.display = 'none';
+            summary.classList.add('hidden');
             renderFoodTargetProgress(0, 0, 0, 0, period);
         }
     }
@@ -1584,8 +1580,7 @@ function updateFoodSelectUI() {
         if (!actionBtn) {
             actionBtn = document.createElement('button');
             actionBtn.id = 'food-save-meal-floating-btn';
-            actionBtn.className = 'primary shadow';
-            actionBtn.style.cssText = 'position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 1000; border-radius: 20px; padding: 10px 20px;';
+            actionBtn.className = 'btn btn-primary btn-pill food-floating-btn';
             actionBtn.addEventListener('click', openFoodSaveMealModal);
 
             // Append to food-view instead of document.body so it is automatically hidden when switching tabs
@@ -1597,10 +1592,10 @@ function updateFoodSelectUI() {
             }
         }
         actionBtn.textContent = `Save as Meal (${foodSelectedLogIds.size})`;
-        actionBtn.style.display = 'block';
+        actionBtn.classList.remove('hidden');
     } else {
         if (actionBtn) {
-            actionBtn.style.display = 'none';
+            actionBtn.classList.add('hidden');
         }
     }
 }
@@ -1679,24 +1674,19 @@ async function loadMyMeals() {
         card.className = 'food-db-card';
         
         const mainRow = document.createElement('div');
-        mainRow.style.cssText = 'display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;';
+        mainRow.className = 'food-meal-header';
 
         const info = document.createElement('div');
-        info.style.flex = '1';
-        info.style.minWidth = '0';
         info.className = 'food-meal-info';
 
         const name = document.createElement('div');
         name.className = 'food-meal-name';
-        name.style.fontWeight = '600';
-        name.style.fontSize = '1.1em';
         name.textContent = decodeFoodDisplayText(meal.name);
         info.appendChild(name);
         mainRow.appendChild(info);
 
         const actions = document.createElement('div');
         actions.className = 'food-meal-actions';
-        actions.style.cssText = 'display: flex; gap: 8px; flex-shrink: 0;';
 
         const editBtn = createEditButton(() => showEditFoodProductModal(meal));
 
@@ -1739,7 +1729,7 @@ async function loadMyMeals() {
         }
 
         const nutritionRow = document.createElement('div');
-        nutritionRow.style.cssText = 'font-size: 0.9em; margin-bottom: 10px; display: flex; gap: 15px; color: var(--text-color);';
+        nutritionRow.className = 'food-nutrition-row';
         nutritionRow.innerHTML = `
             <span><strong>${Math.round(totalCals)}</strong> kcal</span>
             <span>C: <strong>${totalCarbs}</strong>g</span>
@@ -1759,14 +1749,12 @@ function renderFoodSummary(summaryEl, label, calories, carbs, protein, fat) {
     summaryEl.replaceChildren();
 
     const wrapper = document.createElement('div');
-    wrapper.style.display = 'flex';
-    wrapper.style.justifyContent = 'space-between';
-    wrapper.style.alignItems = 'center';
+    wrapper.className = 'food-summary-wrapper';
 
     const textGroup = document.createElement('div');
     const text = document.createTextNode(`${label}: ${Math.round(calories)} kcal `);
     const details = document.createElement('span');
-    details.style.cssText = 'font-weight:normal; font-size:0.9em; margin-left:10px;';
+    details.className = 'food-summary-details';
     details.textContent = `(C:${Math.round(carbs * 10) / 10} P:${Math.round(protein)} F:${Math.round(fat * 10) / 10})`;
     textGroup.appendChild(text);
     textGroup.appendChild(details);
@@ -1775,13 +1763,10 @@ function renderFoodSummary(summaryEl, label, calories, carbs, protein, fat) {
 
     if (label === 'Daily Total') {
         const selectBtn = document.createElement('button');
-        selectBtn.className = 'secondary small-btn';
-        selectBtn.style.margin = '0';
-        selectBtn.style.padding = '4px 8px';
-        selectBtn.style.border = '1px solid var(--border-color, #ccc)';
-        
+        selectBtn.className = 'btn btn-sm btn-secondary food-select-btn';
+
         if (foodMultiSelectMode) {
-            selectBtn.classList.replace('secondary', 'primary');
+            selectBtn.classList.replace('btn-secondary', 'btn-primary');
             selectBtn.textContent = 'Cancel';
         } else {
             selectBtn.innerHTML = '&#9745; Select';
@@ -1988,7 +1973,7 @@ function renderFoodDBList(products, total) {
 
     if (products.length === 0) {
         list.innerHTML = '<p class="hint">No products found.</p>';
-        pagination.style.display = total > 0 ? 'flex' : 'none';
+        pagination.classList.toggle('hidden', total <= 0);
         pageInfo.textContent = `Showing 0 of ${total}`;
         prevBtn.disabled = foodDBPage === 0;
         nextBtn.disabled = true;
@@ -2006,22 +1991,17 @@ function renderFoodDBList(products, total) {
 
         const topRow = document.createElement('div');
         topRow.className = 'food-db-actions-row';
-        topRow.style.cssText = 'display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;';
 
         const info = document.createElement('div');
         info.className = 'food-db-info';
-        info.style.flex = '1';
-        info.style.minWidth = '0';
 
         const name = document.createElement('div');
         name.className = 'food-db-name';
-        name.style.cssText = 'font-weight: 600; font-size: 1.1em; margin-bottom: 4px; color: var(--text-color);';
         name.textContent = decodeFoodDisplayText(p.name);
         info.appendChild(name);
 
         const macros = document.createElement('div');
         macros.className = 'food-db-macros';
-        macros.style.cssText = 'font-size: 0.9em; color: var(--hint-color);';
         const c100 = Math.round(p.carbs_100g * 10) / 10;
         const p100 = Math.round(p.protein_100g); // Rounded to integer
         const f100 = Math.round(p.fat_100g * 10) / 10;
@@ -2032,8 +2012,6 @@ function renderFoodDBList(products, total) {
 
         const actions = document.createElement('div');
         actions.className = 'food-db-actions';
-        actions.style.flexShrink = '0';
-        actions.style.marginLeft = '12px';
 
         const editBtn = createEditButton((e) => {
             e.stopPropagation();
@@ -2052,7 +2030,6 @@ function renderFoodDBList(products, total) {
 
         const meta = document.createElement('div');
         meta.className = 'food-db-meta';
-        meta.style.cssText = 'font-size: 0.8em; color: var(--hint-color); border-top: 1px solid rgba(0,0,0,0.03); padding-top: 8px; display: flex; gap: 12px;';
         
         const usage = document.createElement('span');
         usage.textContent = `Used: ${p.usage_count || 1}x`;
@@ -2067,7 +2044,7 @@ function renderFoodDBList(products, total) {
 
         if (p.is_meal) {
             const label = document.createElement('span');
-            label.style.cssText = 'background: rgba(36, 129, 204, 0.1); color: var(--link-color); padding: 1px 6px; border-radius: 4px; font-weight: 600; font-size: 0.9em; margin-left: auto;';
+            label.className = 'food-meal-badge';
             label.textContent = 'MEAL';
             meta.appendChild(label);
         }
@@ -2081,7 +2058,7 @@ function renderFoodDBList(products, total) {
     const start = foodDBPage * limit + 1;
     const end = Math.min((foodDBPage + 1) * limit, total);
 
-    pagination.style.display = total > 0 ? 'flex' : 'none';
+    pagination.classList.toggle('hidden', total <= 0);
     pageInfo.textContent = `Showing ${start}-${end} of ${total}`;
 
     prevBtn.disabled = foodDBPage === 0;

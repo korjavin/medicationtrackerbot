@@ -22,7 +22,7 @@
         if (!tabName) return;
         const tabButton = document.querySelector(`.tab[data-tab="${tabName}"]`);
         if (tabButton) {
-            tabButton.style.display = enabled ? 'inline-block' : 'none';
+            tabButton.style.display = enabled ? '' : 'none';
         }
     }
 
@@ -214,22 +214,22 @@
             status.style.display = 'block';
             if (!window.MedTrackerPush) {
                 status.textContent = 'Push is unavailable';
-                status.style.color = 'red';
+                status.className = 'status-error';
                 this.checked = false;
                 return;
             }
 
             if (this.checked) {
                 status.textContent = 'Requesting permission...';
-                status.style.color = '';
+                status.className = '';
                 const success = await window.MedTrackerPush.subscribe();
                 status.textContent = success ? 'Notifications enabled' : 'Failed to enable notifications';
-                status.style.color = success ? 'green' : 'red';
+                status.className = success ? 'status-success' : 'status-error';
                 if (!success) this.checked = false;
             } else {
                 const success = await window.MedTrackerPush.unsubscribe();
                 status.textContent = success ? 'Notifications disabled' : 'Failed to disable notifications';
-                status.style.color = success ? 'gray' : 'red';
+                status.className = success ? 'status-muted' : 'status-error';
                 if (!success) this.checked = true;
             }
 

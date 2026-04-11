@@ -207,7 +207,7 @@ function _renderNextWorkout(container, data) {
 
     const info = document.createElement('div');
     info.className = 'next-workout-info';
-    info.style.cursor = 'pointer';
+    info.classList.add('cursor-pointer');
     info.title = 'View/edit planned exercises';
     info.addEventListener('click', () => {
         openNextWorkoutEditModal(variantId, groupId);
@@ -221,12 +221,11 @@ function _renderNextWorkout(container, data) {
     info.appendChild(subtitle);
     card.appendChild(info);
 
-    const createButton = (label, className, onClick, styles = {}) => {
+    const createButton = (label, className, onClick) => {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = className;
         button.textContent = label;
-        Object.assign(button.style, styles);
         button.addEventListener('click', () => {
             onClick(session.id);
         });
@@ -235,54 +234,23 @@ function _renderNextWorkout(container, data) {
 
     if (status === 'in_progress') {
         const row = document.createElement('div');
-        row.style.display = 'flex';
-        row.style.gap = '10px';
-        row.style.marginTop = '12px';
-        row.appendChild(createButton('🏋️ Continue', 'btn-pill', showWorkoutSessionModal, { flex: '1' }));
-        row.appendChild(createButton('🛑 Stop', 'btn-pill', cancelWorkoutSession, {
-            flex: '1',
-            backgroundColor: '#ffebee',
-            color: '#c62828',
-            border: '1px solid #ef9a9a'
-        }));
+        row.className = 'workout-btn-row';
+        row.appendChild(createButton('🏋️ Continue', 'btn btn-pill flex-1', showWorkoutSessionModal));
+        row.appendChild(createButton('🛑 Stop', 'btn btn-pill flex-1 workout-btn-stop', cancelWorkoutSession));
         card.appendChild(row);
     } else if (status === 'pre_skipped') {
-        card.appendChild(createButton('↩ Cancel Skip', 'btn-pill', cancelPreSkipWorkoutSession, {
-            marginTop: '12px',
-            width: '100%',
-            backgroundColor: 'var(--button-color, #5288c1)',
-            color: 'white'
-        }));
+        card.appendChild(createButton('↩ Cancel Skip', 'btn btn-pill workout-btn-full', cancelPreSkipWorkoutSession));
         if (isRotating) {
-            card.appendChild(createButton('↻ Next Variant', 'btn-pill', nextWorkoutVariant, {
-                marginTop: '8px',
-                width: '100%',
-                backgroundColor: 'var(--secondary-bg-color, #f0f0f0)',
-                color: 'var(--text-color, #000)',
-                boxShadow: 'none'
-            }));
+            card.appendChild(createButton('↻ Next Variant', 'btn btn-pill workout-btn-full-secondary', nextWorkoutVariant));
         }
     } else {
         const row = document.createElement('div');
-        row.style.display = 'flex';
-        row.style.gap = '10px';
-        row.style.marginTop = '12px';
-        row.appendChild(createButton('🏋️ Start Workout', 'btn-pill', startWorkoutSession, { flex: '1' }));
-        row.appendChild(createButton('⏭ Skip', 'btn-pill', preSkipWorkoutSession, {
-            flex: '1',
-            backgroundColor: '#fff3e0',
-            color: '#e65100',
-            border: '1px solid #ffcc80'
-        }));
+        row.className = 'workout-btn-row';
+        row.appendChild(createButton('🏋️ Start Workout', 'btn btn-pill flex-1', startWorkoutSession));
+        row.appendChild(createButton('⏭ Skip', 'btn btn-pill flex-1 workout-btn-skip', preSkipWorkoutSession));
         card.appendChild(row);
         if (isRotating) {
-            card.appendChild(createButton('↻ Next Variant', 'btn-pill', nextWorkoutVariant, {
-                marginTop: '8px',
-                width: '100%',
-                backgroundColor: 'var(--secondary-bg-color, #f0f0f0)',
-                color: 'var(--text-color, #000)',
-                boxShadow: 'none'
-            }));
+            card.appendChild(createButton('↻ Next Variant', 'btn btn-pill workout-btn-full-secondary', nextWorkoutVariant));
         }
     }
 
@@ -333,7 +301,7 @@ async function loadWorkoutGroups() {
             console.error('Error loading workout groups:', error);
             if (!cached) {
                 const message = document.createElement('p');
-                message.style.color = 'red';
+                message.className = 'text-danger';
                 message.textContent = 'Error loading workout groups';
                 container.replaceChildren(message);
             }
@@ -349,9 +317,7 @@ function _renderWorkoutGroups(container, groups) {
 
     if (!groups || groups.length === 0) {
         const empty = doc.createElement('p');
-        empty.style.textAlign = 'center';
-        empty.style.color = 'var(--hint-color)';
-        empty.style.padding = '40px';
+        empty.className = 'workout-empty-state';
         empty.textContent = 'No workout groups yet. Click "+ Add Workout Group" to get started!';
         container.replaceChildren(empty);
         return;
@@ -370,12 +336,10 @@ function _renderWorkoutGroups(container, groups) {
         const daysText = daysArray.map((day) => daysMap[day]).join(', ');
 
         const card = doc.createElement('div');
-        card.className = 'med-item';
-        card.style.marginBottom = '15px';
+        card.className = 'med-item workout-group-card';
 
         const info = doc.createElement('div');
-        info.className = 'med-info';
-        info.style.cursor = 'pointer';
+        info.className = 'med-info cursor-pointer';
         info.addEventListener('click', () => {
             showEditWorkoutGroupModal(group.id);
         });
@@ -390,8 +354,7 @@ function _renderWorkoutGroups(container, groups) {
         description.textContent = group.description || '';
 
         const schedule = doc.createElement('p');
-        schedule.style.fontSize = '0.9em';
-        schedule.style.color = '#666';
+        schedule.className = 'workout-group-schedule';
         schedule.appendChild(doc.createTextNode(`📅 ${daysText} at ${group.scheduled_time}`));
         schedule.appendChild(doc.createElement('br'));
         schedule.appendChild(doc.createTextNode(`🔔 ${group.notification_advance_minutes} min before`));
@@ -414,8 +377,7 @@ function setFlatExercisesPendingSaveMessage() {
     const container = document.getElementById('workout-group-flat-exercises-list');
     if (!container) return;
     const message = document.createElement('p');
-    message.style.color = 'var(--hint-color)';
-    message.style.fontSize = '0.9em';
+    message.className = 'workout-pending-msg';
     message.textContent = 'Save this group first to add exercises.';
     container.replaceChildren(message);
 }
@@ -627,8 +589,7 @@ async function loadVariantsForGroup(groupId) {
 
         if (!variants || variants.length === 0) {
             const empty = document.createElement('p');
-            empty.style.color = 'var(--hint-color)';
-            empty.style.fontSize = '0.9em';
+            empty.className = 'workout-pending-msg';
             empty.textContent = 'No variants yet. Add one to get started!';
             container.replaceChildren(empty);
             return;
@@ -639,17 +600,10 @@ async function loadVariantsForGroup(groupId) {
             const rotationText = variant.rotation_order !== null ? ` (Order: ${variant.rotation_order})` : '';
 
             const card = document.createElement('div');
-            card.style.background = '#f8f9fa';
-            card.style.padding = '10px';
-            card.style.borderRadius = '6px';
-            card.style.marginBottom = '8px';
-            card.style.display = 'flex';
-            card.style.justifyContent = 'space-between';
-            card.style.alignItems = 'center';
+            card.className = 'workout-variant-card';
 
             const info = document.createElement('div');
-            info.style.cursor = 'pointer';
-            info.style.flex = '1';
+            info.className = 'cursor-pointer flex-1';
             info.addEventListener('click', () => {
                 showEditVariantModal(variant.id);
             });
@@ -663,8 +617,7 @@ async function loadVariantsForGroup(groupId) {
 
             if (variant.description) {
                 const description = document.createElement('div');
-                description.style.fontSize = '0.85em';
-                description.style.color = '#666';
+                description.className = 'workout-variant-desc';
                 description.textContent = variant.description;
                 info.appendChild(description);
             }
@@ -672,8 +625,7 @@ async function loadVariantsForGroup(groupId) {
             const deleteBtn = createDeleteButton((event) => {
                 deleteVariant(variant.id, event);
             });
-            deleteBtn.style.position = 'static';
-            deleteBtn.style.marginLeft = '10px';
+            deleteBtn.classList.add('workout-delete-btn-inline');
 
             card.appendChild(info);
             card.appendChild(deleteBtn);
@@ -682,7 +634,7 @@ async function loadVariantsForGroup(groupId) {
     } catch (error) {
         console.error('Error loading variants:', error);
         const message = document.createElement('p');
-        message.style.color = 'red';
+        message.className = 'text-danger';
         message.textContent = 'Error loading variants';
         container.replaceChildren(message);
     }
@@ -810,8 +762,7 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
 
         if (!exercises || exercises.length === 0) {
             const empty = document.createElement('p');
-            empty.style.color = 'var(--hint-color)';
-            empty.style.fontSize = '0.9em';
+            empty.className = 'workout-pending-msg';
             empty.textContent = 'No exercises yet. Add one!';
             container.replaceChildren(empty);
             return;
@@ -827,17 +778,10 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
             const weightText = ex.target_weight_kg ? ` @ ${ex.target_weight_kg}kg` : '';
 
             const card = document.createElement('div');
-            card.style.background = '#f0f4ff';
-            card.style.padding = '8px 10px';
-            card.style.borderRadius = '6px';
-            card.style.marginBottom = '6px';
-            card.style.display = 'flex';
-            card.style.justifyContent = 'space-between';
-            card.style.alignItems = 'center';
+            card.className = 'workout-exercise-card';
 
             const info = document.createElement('div');
-            info.style.cursor = 'pointer';
-            info.style.flex = '1';
+            info.className = 'cursor-pointer flex-1';
             info.addEventListener('click', () => {
                 showEditExerciseModal(ex.id);
             });
@@ -846,8 +790,7 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
             title.textContent = `${ex.order_index + 1}. ${ex.exercise_name}`;
 
             const meta = document.createElement('div');
-            meta.style.fontSize = '0.85em';
-            meta.style.color = '#666';
+            meta.className = 'workout-exercise-meta';
             meta.textContent = `${ex.target_sets} sets × ${repsText} reps${weightText}`;
 
             info.appendChild(title);
@@ -856,8 +799,7 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
             const deleteBtn = createDeleteButton((event) => {
                 deleteExercise(ex.id, event);
             });
-            deleteBtn.style.position = 'static';
-            deleteBtn.style.marginLeft = '10px';
+            deleteBtn.classList.add('workout-delete-btn-inline');
 
             card.appendChild(info);
             card.appendChild(deleteBtn);
@@ -866,7 +808,7 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
     } catch (error) {
         console.error('Error loading exercises:', error);
         const message = document.createElement('p');
-        message.style.color = 'red';
+        message.className = 'text-danger';
         message.textContent = 'Error loading exercises';
         container.replaceChildren(message);
     }
@@ -1078,7 +1020,7 @@ async function loadExerciseLibrary() {
             console.error('Error loading exercise library:', error);
             if (!cached) {
                 const message = document.createElement('p');
-                message.style.color = 'red';
+                message.className = 'text-danger';
                 message.textContent = 'Error loading exercise library';
                 container.replaceChildren(message);
             }
@@ -1089,8 +1031,7 @@ async function loadExerciseLibrary() {
 function _renderExerciseLibrary(container, items) {
     if (!items || items.length === 0) {
         const empty = document.createElement('p');
-        empty.style.textAlign = 'center';
-        empty.style.color = 'var(--hint-color)';
+        empty.className = 'text-center text-hint';
         empty.textContent = 'No exercises in library yet. Add your first exercise!';
         container.replaceChildren(empty);
         return;
@@ -1107,23 +1048,19 @@ function _renderExerciseLibrary(container, items) {
 
         const card = document.createElement('div');
         card.className = 'exercise-library-item';
-        card.style.cursor = 'pointer';
         card.addEventListener('click', () => {
             showEditExerciseLibraryModal(item.id);
         });
 
         const row = document.createElement('div');
-        row.style.display = 'flex';
-        row.style.justifyContent = 'space-between';
-        row.style.alignItems = 'center';
+        row.className = 'flex-between';
 
         const details = document.createElement('div');
         const title = document.createElement('strong');
         title.textContent = item.name || '';
 
         const defaults = document.createElement('div');
-        defaults.style.fontSize = '0.9em';
-        defaults.style.color = 'var(--hint-color)';
+        defaults.className = 'exercise-library-defaults';
         defaults.textContent = `${item.default_sets} sets x ${repsStr} reps${weightStr}`;
 
         details.appendChild(title);
@@ -1131,17 +1068,13 @@ function _renderExerciseLibrary(container, items) {
 
         if (item.notes) {
             const notes = document.createElement('div');
-            notes.style.fontSize = '0.85em';
-            notes.style.color = 'var(--hint-color)';
-            notes.style.marginTop = '2px';
+            notes.className = 'exercise-library-notes';
             notes.textContent = item.notes;
             details.appendChild(notes);
         }
 
         const deleteButton = document.createElement('button');
-        deleteButton.className = 'secondary';
-        deleteButton.style.padding = '4px 8px';
-        deleteButton.style.fontSize = '0.85em';
+        deleteButton.className = 'btn btn-sm btn-secondary';
         deleteButton.textContent = 'Delete';
         deleteButton.addEventListener('click', (event) => {
             deleteExerciseLibraryItem(item.id, event);
@@ -1273,7 +1206,7 @@ async function loadWorkoutHistoryTab() {
     } catch (error) {
         console.error('Error loading workout history:', error);
         const message = document.createElement('p');
-        message.style.color = 'red';
+        message.className = 'text-danger';
         message.textContent = 'Error loading history';
         container.replaceChildren(message);
     }
@@ -1347,18 +1280,14 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts, userTz) {
 
     if (items.length === 0) {
         const empty = document.createElement('p');
-        empty.style.textAlign = 'center';
-        empty.style.color = 'var(--hint-color)';
-        empty.style.padding = '40px';
+        empty.className = 'workout-empty-state';
         empty.textContent = 'No workout history yet';
         container.replaceChildren(empty);
         return;
     }
 
     const root = document.createElement('div');
-    root.style.display = 'flex';
-    root.style.flexDirection = 'column';
-    root.style.gap = '10px';
+    root.className = 'workout-history-list';
 
     items.forEach(item => {
         if (item.type === 'session') {
@@ -1389,19 +1318,11 @@ function _buildSessionCard(s) {
         : '';
 
     const card = document.createElement('div');
-    card.style.background = '#f8f9fa';
-    card.style.padding = '12px';
-    card.style.borderRadius = '8px';
-    card.style.cursor = 'pointer';
-    card.style.transition = 'background 0.2s';
+    card.className = 'workout-history-card';
     card.addEventListener('click', () => showWorkoutSessionModal(s.session.id));
-    card.addEventListener('mouseover', () => { card.style.background = '#f0f0f0'; });
-    card.addEventListener('mouseout', () => { card.style.background = '#f8f9fa'; });
 
     const row = document.createElement('div');
-    row.style.display = 'flex';
-    row.style.justifyContent = 'space-between';
-    row.style.alignItems = 'start';
+    row.className = 'flex-between items-start';
 
     const left = document.createElement('div');
     const title = document.createElement('strong');
@@ -1412,9 +1333,7 @@ function _buildSessionCard(s) {
     }
 
     const details = document.createElement('div');
-    details.style.fontSize = '0.85em';
-    details.style.color = '#666';
-    details.style.marginTop = '4px';
+    details.className = 'workout-history-meta';
 
     const timeText = s.session.started_at
         ? new Date(s.session.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -1427,22 +1346,17 @@ function _buildSessionCard(s) {
     if (volumeText) {
         details.appendChild(document.createElement('br'));
         const volume = document.createElement('strong');
-        volume.style.color = '#667eea';
+        volume.className = 'workout-volume-highlight';
         volume.textContent = volumeText;
         details.appendChild(volume);
     }
     left.appendChild(details);
 
     const right = document.createElement('div');
-    right.style.textAlign = 'right';
-    right.style.fontSize = '0.85em';
-    right.style.color = '#667eea';
-    right.style.display = 'flex';
-    right.style.alignItems = 'center';
-    right.style.gap = '4px';
+    right.className = 'workout-history-status';
     right.appendChild(document.createTextNode(s.session.status));
     const chevron = document.createElement('span');
-    chevron.style.fontSize = '1.2em';
+    chevron.className = 'workout-history-chevron';
     chevron.textContent = '›';
     right.appendChild(chevron);
 
@@ -1473,16 +1387,11 @@ function _buildMiBandCard(w) {
     if (w.calories > 0) chips.push(`🔥 ${w.calories} kcal`);
 
     const card = document.createElement('div');
-    card.style.background = '#f0f7f0';
-    card.style.padding = '12px';
-    card.style.borderRadius = '8px';
-    card.style.borderLeft = '3px solid #4caf50';
+    card.className = 'workout-miband-card';
 
     // Title row
     const titleRow = document.createElement('div');
-    titleRow.style.display = 'flex';
-    titleRow.style.justifyContent = 'space-between';
-    titleRow.style.alignItems = 'center';
+    titleRow.className = 'flex-between';
 
     const titleLeft = document.createElement('strong');
     titleLeft.textContent = `${meta.icon} ${meta.label}`;
@@ -1490,14 +1399,7 @@ function _buildMiBandCard(w) {
     const isManual = w.source === 'manual';
     const badge = document.createElement('span');
     badge.textContent = isManual ? 'Manual' : 'Mi Band';
-    badge.style.fontSize = '0.7em';
-    badge.style.padding = '2px 7px';
-    badge.style.borderRadius = '10px';
-    badge.style.background = isManual ? '#fff3e0' : '#e8f5e9';
-    badge.style.color = isManual ? '#e65100' : '#388e3c';
-    badge.style.border = isManual ? '1px solid #ffcc80' : '1px solid #a5d6a7';
-    badge.style.fontWeight = '600';
-    badge.style.letterSpacing = '0.03em';
+    badge.className = isManual ? 'workout-miband-badge workout-miband-badge--manual' : 'workout-miband-badge';
 
     titleRow.appendChild(titleLeft);
     titleRow.appendChild(badge);
@@ -1505,34 +1407,21 @@ function _buildMiBandCard(w) {
 
     // Date line
     const dateEl = document.createElement('div');
-    dateEl.style.fontSize = '0.82em';
-    dateEl.style.color = '#666';
-    dateEl.style.marginTop = '2px';
+    dateEl.className = 'workout-miband-date';
     dateEl.textContent = `${dateStr} at ${timeStr}`;
     card.appendChild(dateEl);
 
     // Stats chips
     const chipsEl = document.createElement('div');
-    chipsEl.style.display = 'flex';
-    chipsEl.style.flexWrap = 'wrap';
-    chipsEl.style.gap = '6px';
-    chipsEl.style.marginTop = '8px';
+    chipsEl.className = 'workout-stat-chips';
     chips.forEach(text => {
         const chip = document.createElement('span');
         chip.textContent = text;
-        chip.style.fontSize = '0.82em';
-        chip.style.padding = '2px 8px';
-        chip.style.borderRadius = '12px';
-        chip.style.background = '#e8f5e9';
-        chip.style.color = '#2e7d32';
+        chip.className = 'workout-stat-chip';
         chipsEl.appendChild(chip);
     });
     card.appendChild(chipsEl);
 
-    card.style.cursor = 'pointer';
-    card.style.transition = 'background 0.2s';
-    card.addEventListener('mouseover', () => { card.style.background = '#e8f5e9'; });
-    card.addEventListener('mouseout', () => { card.style.background = '#f0f7f0'; });
     card.addEventListener('click', () => showMiBandWorkoutModal(w));
 
     return card;
@@ -1631,10 +1520,7 @@ let originalSessionStatus = null;
 
 function renderWorkoutSessionInfo(infoContainer, session) {
     const root = document.createElement('div');
-    root.style.display = 'flex';
-    root.style.justifyContent = 'space-between';
-    root.style.alignItems = 'center';
-    root.style.marginBottom = '10px';
+    root.className = 'workout-session-info-row';
 
     const left = document.createElement('div');
     const time = document.createElement('strong');
@@ -1646,21 +1532,15 @@ function renderWorkoutSessionInfo(infoContainer, session) {
     left.appendChild(document.createTextNode(new Date(session.scheduled_date).toLocaleDateString()));
 
     const right = document.createElement('div');
-    right.style.display = 'flex';
-    right.style.alignItems = 'center';
-    right.style.gap = '8px';
+    right.className = 'workout-session-status-group';
 
     const label = document.createElement('label');
-    label.style.fontSize = '0.9em';
-    label.style.color = '#666';
-    label.style.margin = '0';
+    label.className = 'workout-session-status-label';
     label.textContent = 'Status:';
 
     const select = document.createElement('select');
     select.id = 'session-status-select';
-    select.style.padding = '4px 8px';
-    select.style.borderRadius = '4px';
-    select.style.border = '1px solid #ddd';
+    select.className = 'workout-session-select';
 
     const statusOptions = [
         { value: 'in_progress', label: '🏋️ In Progress' },
@@ -1687,8 +1567,7 @@ function renderWorkoutSessionInfo(infoContainer, session) {
 function renderWorkoutSessionLogs(logsContainer) {
     if (!Array.isArray(currentSessionLogs) || currentSessionLogs.length === 0) {
         const empty = document.createElement('p');
-        empty.style.textAlign = 'center';
-        empty.style.color = '#888';
+        empty.className = 'text-center text-hint';
         empty.textContent = 'No exercises logged';
         logsContainer.replaceChildren(empty);
         return;
@@ -1701,28 +1580,20 @@ function renderWorkoutSessionLogs(logsContainer) {
         const entry = document.createElement('div');
         entry.className = 'exercise-log-entry';
         entry.id = `exercise-log-${index}`;
-        entry.style.position = 'relative';
         if (isUnsaved && !log._dirty) {
-            entry.style.opacity = '0.6';
+            entry.classList.add('unsaved');
         }
 
         const headerRow = document.createElement('div');
-        headerRow.style.display = 'flex';
-        headerRow.style.justifyContent = 'space-between';
-        headerRow.style.alignItems = 'center';
+        headerRow.className = 'exercise-log-header';
 
         const title = document.createElement('h4');
-        title.style.margin = '0';
+        title.className = 'm-0';
         title.textContent = log.exercise_name || '';
 
         const deleteButton = document.createElement('button');
         deleteButton.title = 'Remove exercise';
-        deleteButton.style.background = 'none';
-        deleteButton.style.border = 'none';
-        deleteButton.style.cursor = 'pointer';
-        deleteButton.style.fontSize = '1.2em';
-        deleteButton.style.padding = '4px 8px';
-        deleteButton.style.color = '#c62828';
+        deleteButton.className = 'exercise-log-delete-btn';
         deleteButton.textContent = '🗑️';
         deleteButton.addEventListener('click', () => {
             deleteExerciseLog(index);
@@ -1735,9 +1606,6 @@ function renderWorkoutSessionLogs(logsContainer) {
         if (isUnsaved && !log._dirty) {
             const hint = document.createElement('div');
             hint.className = 'exercise-log-unsaved-hint';
-            hint.style.fontSize = '0.75em';
-            hint.style.color = '#888';
-            hint.style.marginBottom = '4px';
             hint.textContent = 'Not yet logged — edit to include';
             entry.appendChild(hint);
         }
@@ -1877,7 +1745,7 @@ function updateLocalLog(index, field, value) {
     // Update visual state — remove dim styling
     const el = document.getElementById(`exercise-log-${index}`);
     if (el) {
-        el.style.opacity = '1';
+        el.classList.remove('unsaved');
         const hint = el.querySelector('.exercise-log-unsaved-hint');
         if (hint) hint.remove();
     }
@@ -1929,7 +1797,7 @@ function closeWorkoutSessionModal() {
 }
 
 async function saveWorkoutSessionDetails() {
-    const saveButton = document.querySelector('#workout-session-modal .actions .primary');
+    const saveButton = document.querySelector('#workout-session-modal .actions .btn-primary');
     const originalText = saveButton.textContent;
 
     try {
@@ -2017,7 +1885,7 @@ async function loadWorkoutStatsTab() {
             console.error('Error loading stats:', error);
             if (!cached) {
                 const message = document.createElement('p');
-                message.style.color = 'red';
+                message.className = 'text-danger';
                 message.textContent = 'Error loading statistics';
                 container.replaceChildren(message);
             }
@@ -2028,8 +1896,7 @@ async function loadWorkoutStatsTab() {
 function _renderWorkoutStats(container, stats) {
     if (!stats) {
         const empty = document.createElement('p');
-        empty.style.textAlign = 'center';
-        empty.style.color = 'var(--hint-color)';
+        empty.className = 'text-center text-hint';
         empty.textContent = 'No statistics available yet';
         container.replaceChildren(empty);
         return;
@@ -2044,29 +1911,18 @@ function _renderWorkoutStats(container, stats) {
     const root = document.createElement('div');
 
     const topGrid = document.createElement('div');
-    topGrid.style.display = 'grid';
-    topGrid.style.gridTemplateColumns = 'repeat(3, 1fr)';
-    topGrid.style.gap = '10px';
-    topGrid.style.marginBottom = '12px';
+    topGrid.className = 'workout-stats-grid-3';
 
-    const buildHeroCard = (background, valueText, labelText) => {
+    const buildHeroCard = (variantClass, valueText, labelText) => {
         const card = document.createElement('div');
-        card.style.background = background;
-        card.style.color = 'white';
-        card.style.padding = '18px 8px';
-        card.style.borderRadius = '12px';
-        card.style.textAlign = 'center';
+        card.className = `workout-hero-card ${variantClass}`;
 
         const value = document.createElement('div');
-        value.style.fontSize = '2.4em';
-        value.style.fontWeight = 'bold';
-        value.style.lineHeight = '1.1';
+        value.className = 'workout-hero-value';
         value.textContent = valueText;
 
         const label = document.createElement('div');
-        label.style.fontSize = '0.78em';
-        label.style.opacity = '0.92';
-        label.style.marginTop = '5px';
+        label.className = 'workout-hero-label';
         label.textContent = labelText;
 
         card.appendChild(value);
@@ -2074,34 +1930,24 @@ function _renderWorkoutStats(container, stats) {
         return card;
     };
 
-    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #667eea 0%, #764ba2 100%)', String(stats.active_weeks || 0), '🔥 Active Weeks'));
-        topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', String(stats.total_sessions || 0), '🏆 30-Day Sessions'));
-    topGrid.appendChild(buildHeroCard('linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', `${Math.round(stats.completion_rate || 0)}%`, '💪 30-Day'));
+    topGrid.appendChild(buildHeroCard('workout-hero-card--weeks', String(stats.active_weeks || 0), '🔥 Active Weeks'));
+    topGrid.appendChild(buildHeroCard('workout-hero-card--sessions', String(stats.total_sessions || 0), '🏆 30-Day Sessions'));
+    topGrid.appendChild(buildHeroCard('workout-hero-card--completion', `${Math.round(stats.completion_rate || 0)}%`, '💪 30-Day'));
     root.appendChild(topGrid);
 
     const totalsGrid = document.createElement('div');
-    totalsGrid.style.display = 'grid';
-    totalsGrid.style.gridTemplateColumns = 'repeat(2, 1fr)';
-    totalsGrid.style.gap = '10px';
+    totalsGrid.className = 'workout-stats-grid-2';
 
-    const buildTotalsCard = (background, borderColor, valueColor, valueText, labelText) => {
+    const buildTotalsCard = (variantClass, valueText, labelText) => {
         const card = document.createElement('div');
-        card.style.background = background;
-        card.style.padding = '14px 8px';
-        card.style.borderRadius = '8px';
-        card.style.textAlign = 'center';
-        card.style.border = `1.5px solid ${borderColor}`;
+        card.className = `workout-totals-card ${variantClass}`;
 
         const value = document.createElement('div');
-        value.style.fontSize = '1.7em';
-        value.style.fontWeight = 'bold';
-        value.style.color = valueColor;
+        value.className = 'workout-totals-value';
         value.textContent = valueText;
 
         const label = document.createElement('div');
-        label.style.fontSize = '0.78em';
-        label.style.color = 'var(--hint-color)';
-        label.style.marginTop = '2px';
+        label.className = 'workout-totals-label';
         label.textContent = labelText;
 
         card.appendChild(value);
@@ -2109,23 +1955,18 @@ function _renderWorkoutStats(container, stats) {
         return card;
     };
 
-    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #f0fff4)', '#28a745', '#28a745', String(stats.completed_sessions || 0), 'Done'));
-    totalsGrid.appendChild(buildTotalsCard('var(--secondary-bg-color, #fffbf0)', '#ffc107', '#ffc107', String(stats.skipped_sessions || 0), 'Skipped'));
+    totalsGrid.appendChild(buildTotalsCard('workout-totals-card--success', String(stats.completed_sessions || 0), 'Done'));
+    totalsGrid.appendChild(buildTotalsCard('workout-totals-card--warning', String(stats.skipped_sessions || 0), 'Skipped'));
     root.appendChild(totalsGrid);
 
     if (stats.top_exercises && stats.top_exercises.length > 0) {
         const maxVol = stats.top_exercises[0].total_volume_kg || 1;
         const medals = ['🥇', '🥈', '🥉'];
         const section = document.createElement('div');
-        section.style.marginTop = '20px';
+        section.className = 'mt-lg';
 
         const heading = document.createElement('div');
-        heading.style.fontSize = '0.75em';
-        heading.style.fontWeight = '600';
-        heading.style.textTransform = 'uppercase';
-        heading.style.letterSpacing = '1px';
-        heading.style.color = 'var(--hint-color)';
-        heading.style.marginBottom = '10px';
+        heading.className = 'workout-section-heading';
         heading.textContent = 'Top Exercises · Volume';
         section.appendChild(heading);
 
@@ -2135,39 +1976,28 @@ function _renderWorkoutStats(container, stats) {
             const maxW = ex.max_weight_kg > 0 ? `${ex.max_weight_kg} kg max` : '';
 
             const row = document.createElement('div');
-            row.style.marginBottom = '10px';
+            row.className = 'workout-exercise-row';
 
             const labels = document.createElement('div');
-            labels.style.display = 'flex';
-            labels.style.justifyContent = 'space-between';
-            labels.style.alignItems = 'baseline';
-            labels.style.marginBottom = '4px';
+            labels.className = 'workout-exercise-labels';
 
             const name = document.createElement('span');
-            name.style.fontSize = '0.9em';
-            name.style.fontWeight = '500';
+            name.className = 'workout-exercise-name';
             name.textContent = `${medal} ${ex.exercise_name}`;
 
             const meta = document.createElement('span');
-            meta.style.fontSize = '0.8em';
-            meta.style.color = 'var(--hint-color)';
+            meta.className = 'workout-exercise-volume';
             meta.textContent = `${formatVolume(ex.total_volume_kg)}${maxW ? ` · ${maxW}` : ''}`;
 
             labels.appendChild(name);
             labels.appendChild(meta);
 
             const barTrack = document.createElement('div');
-            barTrack.style.background = 'var(--secondary-bg-color, rgba(0,0,0,0.07))';
-            barTrack.style.borderRadius = '4px';
-            barTrack.style.height = '5px';
-            barTrack.style.overflow = 'hidden';
+            barTrack.className = 'workout-bar-track';
 
             const barFill = document.createElement('div');
-            barFill.style.background = 'linear-gradient(90deg, #667eea, #764ba2)';
+            barFill.className = 'workout-bar-fill';
             barFill.style.width = `${pct}%`;
-            barFill.style.height = '100%';
-            barFill.style.borderRadius = '4px';
-            barFill.style.transition = 'width 0.4s';
 
             barTrack.appendChild(barFill);
             row.appendChild(labels);
@@ -2180,22 +2010,15 @@ function _renderWorkoutStats(container, stats) {
 
     if (stats.weekly_activity && stats.weekly_activity.length > 0) {
         const section = document.createElement('div');
-        section.style.marginTop = '20px';
+        section.className = 'mt-lg';
 
         const heading = document.createElement('div');
-        heading.style.fontSize = '0.75em';
-        heading.style.fontWeight = '600';
-        heading.style.textTransform = 'uppercase';
-        heading.style.letterSpacing = '1px';
-        heading.style.color = 'var(--hint-color)';
-        heading.style.marginBottom = '10px';
+        heading.className = 'workout-section-heading';
         heading.textContent = '12-Week Activity';
         section.appendChild(heading);
 
         const squares = document.createElement('div');
-        squares.style.display = 'flex';
-        squares.style.flexWrap = 'wrap';
-        squares.style.gap = '4px';
+        squares.className = 'workout-activity-grid';
 
         stats.weekly_activity.forEach((w) => {
             const total = w.completed + w.skipped;
@@ -2211,31 +2034,19 @@ function _renderWorkoutStats(container, stats) {
 
             const square = document.createElement('div');
             square.title = `${label}: ${w.completed} done, ${w.skipped} skipped`;
-            square.style.width = '26px';
-            square.style.height = '26px';
-            square.style.borderRadius = '4px';
+            square.className = 'workout-activity-square';
             square.style.background = bg;
-            square.style.flexShrink = '0';
             squares.appendChild(square);
         });
 
         const legend = document.createElement('div');
-        legend.style.display = 'flex';
-        legend.style.gap = '12px';
-        legend.style.marginTop = '8px';
-        legend.style.fontSize = '0.72em';
-        legend.style.color = 'var(--hint-color)';
+        legend.className = 'workout-legend';
 
         const createLegendItem = (color, text) => {
             const item = document.createElement('span');
             const swatch = document.createElement('span');
-            swatch.style.display = 'inline-block';
-            swatch.style.width = '10px';
-            swatch.style.height = '10px';
-            swatch.style.borderRadius = '2px';
+            swatch.className = 'workout-legend-swatch';
             swatch.style.background = color;
-            swatch.style.verticalAlign = 'middle';
-            swatch.style.marginRight = '3px';
             item.appendChild(swatch);
             item.appendChild(document.createTextNode(text));
             return item;

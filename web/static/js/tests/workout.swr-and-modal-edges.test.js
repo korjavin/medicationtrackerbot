@@ -206,7 +206,7 @@ describe('workout.js SWR and modal edge branches', () => {
 
       const container = document.getElementById('exercise-library-list');
       const card = container.querySelector('.exercise-library-item');
-      const deleteButton = container.querySelector('.exercise-library-item .secondary');
+      const deleteButton = container.querySelector('.exercise-library-item .btn-secondary');
 
       expect(card).toBeTruthy();
       expect(deleteButton).toBeTruthy();

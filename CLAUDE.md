@@ -353,6 +353,19 @@ MCP_AUDIT_SECRET=secure-shared-secret
 - IndexedDB (`db.js`): write-ahead queue for offline writes + generic `api_cache` for SWR
 - Treat HTTP 502/503/504 as "offline" — `navigator.onLine` stays true behind reverse proxies
 - **Tab Reordering:** Drag-and-drop functionality in `tabs-dnd.js` allows custom tab layouts, persisted via `tab_order` in the bootstrap payload and cached in `settings_bundle`.
+- **Tab Icons:** Inline SVGs (stroke-based, `currentColor`) replace emoji icons. All tab buttons have `aria-label` attributes.
+
+#### Design Token System
+
+The frontend uses a CSS custom property (design token) system defined in `:root` of `web/static/css/styles.css`. See the comment block at the top of that file for the full reference.
+
+Key rules:
+- **No hardcoded colors in CSS** — use `--color-*` tokens. Architecture tests enforce this.
+- **No inline styles in JS** — use CSS classes. Architecture tests scan all JS files for `.style.` assignments.
+- **Button system**: `.btn` base + `.btn-primary`/`.btn-secondary`/`.btn-danger` variants + `.btn-sm`/`.btn-lg` sizes + `.btn-pill`/`.btn-icon` shapes.
+- **Spacing/radius/shadow/typography/z-index** all use tokens (`--space-*`, `--radius-*`, `--shadow-*`, `--font-size-*`, `--z-*`).
+- **Utility classes** available: `.flex-row`, `.flex-between`, `.flex-center`, `.text-hint`, `.text-center`, `.hidden`, `.empty-state`, spacing helpers (`.mt-sm`, `.mb-md`, etc.).
+- Architecture tests in `web/static/js/tests/architecture.design-tokens.test.js` enforce token usage.
 
 #### Data Flow Diagrams
 
