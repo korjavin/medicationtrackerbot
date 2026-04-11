@@ -756,7 +756,7 @@ func (s *Server) handleGetNextIntake(w http.ResponseWriter, r *http.Request) {
 // isDuplicateMedicationError checks whether err is a SQLite UNIQUE constraint
 // violation on the medications name+dosage index.
 func isDuplicateMedicationError(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
+	return err != nil && strings.Contains(err.Error(), "idx_medications_name_dosage")
 }
 
 func (s *Server) handleLogPastIntake(w http.ResponseWriter, r *http.Request) {
