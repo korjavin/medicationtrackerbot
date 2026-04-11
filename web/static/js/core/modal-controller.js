@@ -11,10 +11,19 @@
  */
 async function withSubmit(btn, asyncFn) {
     if (btn && btn.disabled) return;
-    if (btn) btn.disabled = true;
+    if (btn) {
+        btn.disabled = true;
+        btn.setAttribute('data-submit-in-flight', 'true');
+    }
     try {
         await asyncFn();
     } finally {
-        if (btn) btn.disabled = false;
+        if (btn) {
+            btn.removeAttribute('data-submit-in-flight');
+            // Don't re-enable buttons that were disabled by offline mode
+            if (!btn.hasAttribute('data-offline-disabled')) {
+                btn.disabled = false;
+            }
+        }
     }
 }

@@ -221,11 +221,17 @@ function _renderNextWorkout(container, data) {
     info.appendChild(subtitle);
     card.appendChild(info);
 
+    const isOffline = window.SyncManager && !window.SyncManager.isOnline;
     const createButton = (label, className, onClick) => {
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = className;
+        button.className = className + ' workout-action-btn';
         button.textContent = label;
+        if (isOffline) {
+            button.classList.add('offline-disabled');
+            button.setAttribute('data-offline-disabled', 'true');
+            button.disabled = true;
+        }
         button.addEventListener('click', () => {
             onClick(session.id);
         });
@@ -269,7 +275,8 @@ async function openNextWorkoutEditModal(variantId, groupId) {
 
 async function nextWorkoutVariant(sessionId) {
     try {
-        await apiCall(`/api/workout/sessions/${sessionId}/next-variant`, 'POST');
+        const result = await apiCall(`/api/workout/sessions/${sessionId}/next-variant`, 'POST');
+        if (result === null) return;
         await loadNextWorkout();
     } catch (error) {
         console.error('Error switching to next variant:', error);
@@ -301,8 +308,8 @@ async function loadWorkoutGroups() {
             console.error('Error loading workout groups:', error);
             if (!cached) {
                 const message = document.createElement('p');
-                message.className = 'text-danger';
-                message.textContent = 'Error loading workout groups';
+                message.className = 'text-hint';
+                message.textContent = 'No cached data \u2014 will load when online';
                 container.replaceChildren(message);
             }
         }
@@ -1020,8 +1027,8 @@ async function loadExerciseLibrary() {
             console.error('Error loading exercise library:', error);
             if (!cached) {
                 const message = document.createElement('p');
-                message.className = 'text-danger';
-                message.textContent = 'Error loading exercise library';
+                message.className = 'text-hint';
+                message.textContent = 'No cached data \u2014 will load when online';
                 container.replaceChildren(message);
             }
         }
@@ -1823,16 +1830,18 @@ async function saveWorkoutSessionDetails() {
 
         // Save status if changed
         if (statusChanged && currentSessionData) {
-            await apiCall(`/api/workout/sessions/status?id=${currentSessionData.id}`, 'PUT', {
+            const statusResult = await apiCall(`/api/workout/sessions/status?id=${currentSessionData.id}`, 'PUT', {
                 status: newStatus
             });
+            if (statusResult === null) return;
         }
 
         // Save each log — only save new entries that the user actually edited (_dirty)
         for (const log of currentSessionLogs) {
+            let logResult;
             if (log.id && log.id > 0) {
                 // Existing log — always update
-                await apiCall('/api/workout/sessions/logs/update', 'POST', {
+                logResult = await apiCall('/api/workout/sessions/logs/update', 'POST', {
                     id: log.id,
                     sets_completed: Math.round(log.sets_completed),
                     reps_completed: Math.round(log.reps_completed),
@@ -1841,7 +1850,7 @@ async function saveWorkoutSessionDetails() {
                 });
             } else if (log._dirty) {
                 // New log that user actually edited — create it
-                await apiCall('/api/workout/sessions/logs/create', 'POST', {
+                logResult = await apiCall('/api/workout/sessions/logs/create', 'POST', {
                     session_id: currentSessionData.id,
                     exercise_id: log.exercise_id,
                     exercise_name: log.exercise_name,
@@ -1852,6 +1861,7 @@ async function saveWorkoutSessionDetails() {
                     notes: log.notes || ''
                 });
             }
+            if (logResult === null) return;
             // Skip: id===0 && !_dirty — pre-filled but untouched, don't save
         }
 
@@ -1862,8 +1872,10 @@ async function saveWorkoutSessionDetails() {
         const message = error.message || 'Error saving workout details. Please try again.';
         safeAlert('❌ ' + message);
     } finally {
-        // Re-enable button
-        saveButton.disabled = false;
+        // Re-enable button (unless offline mode disabled it)
+        if (!saveButton.hasAttribute('data-offline-disabled')) {
+            saveButton.disabled = false;
+        }
         saveButton.textContent = originalText;
         saveButton.style.opacity = '1';
     }
@@ -1885,8 +1897,8 @@ async function loadWorkoutStatsTab() {
             console.error('Error loading stats:', error);
             if (!cached) {
                 const message = document.createElement('p');
-                message.className = 'text-danger';
-                message.textContent = 'Error loading statistics';
+                message.className = 'text-hint';
+                message.textContent = 'No cached data \u2014 will load when online';
                 container.replaceChildren(message);
             }
         }
@@ -2102,7 +2114,8 @@ async function startWorkoutSession(sessionId) {
         if (!ok) return;
 
         try {
-            await apiCall(`/api/workout/sessions/${sessionId}/start`, 'POST');
+            const result = await apiCall(`/api/workout/sessions/${sessionId}/start`, 'POST');
+            if (result === null) return;
 
             // Show success message
             safeAlert('✅ Workout started! You can now log exercises.');
@@ -2120,7 +2133,8 @@ async function cancelWorkoutSession(sessionId) {
     await safeConfirm('Finish this workout now? It will be marked as completed.', async (ok) => {
         if (ok) {
             try {
-                await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
+                const result = await apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
+                if (result === null) return;
                 loadNextWorkout();
                 loadWorkoutHistoryTab(); // Refresh history if visible
             } catch (e) {
@@ -2136,7 +2150,8 @@ async function preSkipWorkoutSession(sessionId) {
         if (!ok) return;
 
         try {
-            await apiCall(`/api/workout/sessions/${sessionId}/preskip`, 'POST');
+            const result = await apiCall(`/api/workout/sessions/${sessionId}/preskip`, 'POST');
+            if (result === null) return;
             loadNextWorkout();
         } catch (error) {
             console.error('Error pre-skipping workout:', error);
@@ -2147,7 +2162,8 @@ async function preSkipWorkoutSession(sessionId) {
 
 async function cancelPreSkipWorkoutSession(sessionId) {
     try {
-        await apiCall(`/api/workout/sessions/${sessionId}/cancel-preskip`, 'POST');
+        const result = await apiCall(`/api/workout/sessions/${sessionId}/cancel-preskip`, 'POST');
+        if (result === null) return;
         loadNextWorkout();
     } catch (error) {
         console.error('Error cancelling pre-skip:', error);
@@ -2265,7 +2281,7 @@ async function saveNewSessionExercise() {
     }
 
     try {
-        await apiCall('/api/workout/sessions/logs/create', 'POST', {
+        const result = await apiCall('/api/workout/sessions/logs/create', 'POST', {
             session_id: currentSessionData.id,
             exercise_id: parseInt(exerciseId),
             exercise_name: name,
@@ -2275,6 +2291,7 @@ async function saveNewSessionExercise() {
             status: 'completed',
             notes: notes
         });
+        if (result === null) return;
 
         closeAddExerciseToSessionModal();
         // Refresh session modal

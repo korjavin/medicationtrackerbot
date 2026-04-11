@@ -76,3 +76,19 @@ function createSyncBadge() {
     badge.textContent = 'Pending';
     return badge;
 }
+
+/**
+ * Create a "Failed" sync badge shown on permanently rejected items.
+ *
+ * @param {string} [errorMessage] - Optional error details shown as tooltip
+ * @returns {HTMLSpanElement}
+ */
+function createSyncRejectedBadge(errorMessage) {
+    const badge = document.createElement('span');
+    badge.className = 'sync-rejected-badge';
+    badge.textContent = 'Failed';
+    if (errorMessage) {
+        badge.title = errorMessage;
+    }
+    return badge;
+}

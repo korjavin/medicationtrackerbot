@@ -198,6 +198,8 @@ function applyTabOrder(orderArray) {
 }
 
 // Apply bootstrap payload and warm caches so first tab render can use local data.
+// Idempotent: safe to call multiple times (e.g. once from SW cache, once from
+// fresh network response via BOOTSTRAP_UPDATED). Every field is a full replacement.
 async function applyBootstrapPayload(res) {
     if (!res) return false;
 
@@ -287,6 +289,45 @@ async function loadInitData() {
     }
 }
 
+// Background auth verification for non-blocking cached-auth path.
+// Fires /auth/status without blocking the UI. If the session has expired,
+// clears auth state and reloads so the user sees the login screen.
+function verifyAuthInBackground() {
+    fetch('/auth/status', { method: 'GET', credentials: 'same-origin' })
+        .then(res => {
+            if (res.status === 200) {
+                return res.json().then(data => {
+                    if (!data.authenticated) {
+                        console.log('[Auth] Background check: session expired');
+                        clearAuthState();
+                        clearSwBootstrapCache().then(() => location.reload());
+                    }
+                });
+            } else if (res.status < 500) {
+                // 4xx (not server error) means auth is invalid
+                console.log('[Auth] Background check: auth invalid', res.status);
+                clearAuthState();
+                clearSwBootstrapCache().then(() => location.reload());
+            }
+            // 5xx — server is down, keep using cached auth silently
+        })
+        .catch(() => {
+            // Network error — server unreachable, keep using cached auth
+        });
+}
+
+// Clear the SW dynamic cache bootstrap entry so stale user data
+// is not served after logout or session expiry.
+function clearSwBootstrapCache() {
+    return caches.keys().then(names => {
+        const dynamicName = names.find(n => n.startsWith('medtracker-dynamic-'));
+        if (!dynamicName) return;
+        return caches.open(dynamicName).then(cache =>
+            cache.delete(new Request('/api/bootstrap'))
+        );
+    }).catch(() => { /* best-effort */ });
+}
+
 // Check Auth Environment
 async function checkAuth() {
     if (userInitData) {
@@ -305,7 +346,78 @@ async function checkAuth() {
     // Not in Telegram. Check cached auth state first (for offline support)
     const cachedAuth = getCachedAuthState();
 
-    // Check auth status first so logged-out users don't hit protected endpoints.
+    // Fast path: if we have cached auth and SW is active, fetch bootstrap
+    // and auth status in parallel. The SW may serve a cached bootstrap
+    // (stale-while-revalidate), so we must verify the session is still valid
+    // before rendering to prevent briefly showing another user's cached data.
+    if (cachedAuth && cachedAuth.authenticated && navigator.serviceWorker && navigator.serviceWorker.controller) {
+        console.log('[Auth] Cached auth + active SW — verifying session');
+        let rendered = false;
+        let hardAuthReject = false;
+        try {
+            // Parallel fetch: bootstrap (may come from SW cache) + auth check
+            const [bootstrapRes, authRes] = await Promise.all([
+                fetch('/api/bootstrap', { method: 'GET', credentials: 'same-origin' }),
+                fetch('/auth/status', { method: 'GET', credentials: 'same-origin' })
+                    .catch(() => null) // Network error — treat as offline
+            ]);
+
+            // Check auth status first — if session is invalid, don't render cached data
+            if (authRes && authRes.status === 200) {
+                const authData = await authRes.json();
+                if (!authData.authenticated) {
+                    hardAuthReject = true;
+                }
+            } else if (authRes && authRes.status < 500) {
+                // 4xx — definitive auth rejection
+                hardAuthReject = true;
+            }
+            // authRes null (network error) or 5xx — server unreachable, allow cached render
+
+            if (!hardAuthReject && bootstrapRes.status === 200) {
+                const data = await bootstrapRes.json();
+                await applyBootstrapPayload(data);
+                sessionStorage.removeItem('medtracker_auth_reload_in_progress');
+                saveAuthState('cookie');
+                rendered = true;
+            } else if (bootstrapRes.status === 401 || bootstrapRes.status === 403) {
+                hardAuthReject = true;
+            }
+        } catch (_) {
+            // Network error on bootstrap — fall through to cache-only path below
+        }
+
+        if (hardAuthReject) {
+            console.log('[Auth] Session invalid — clearing cache');
+            clearAuthState();
+            await clearSwBootstrapCache();
+            // Fall through to blocking auth flow below
+        } else {
+            if (!rendered) {
+                // SW cache miss or network error — load from IndexedDB cache directly
+                if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
+                    const cached = await window.MedTrackerDB.MedicationStore.getCache();
+                    if (cached) {
+                        medications = cached;
+                        initialAuthLoad = true;
+                    }
+                }
+                if (window.DataStore) {
+                    const cachedBundle = await window.DataStore.getCached('settings_bundle');
+                    if (cachedBundle && Array.isArray(cachedBundle.tabOrder)) {
+                        applyTabOrder(cachedBundle.tabOrder);
+                    }
+                }
+                sessionStorage.removeItem('medtracker_auth_reload_in_progress');
+            }
+
+            // Continue verifying in background for long-running sessions
+            verifyAuthInBackground();
+            return true;
+        }
+    }
+
+    // No cached auth or no SW — blocking auth flow (first visit or cache cleared)
     let serverUnavailable = false;
     let hasSessionCookie = false;
     try {
@@ -647,6 +759,11 @@ navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', e
         // Reload data if visible
         loadMeds();
         loadHistory();
+    } else if (event.data.type === 'BOOTSTRAP_UPDATED' && event.data.data) {
+        // Fresh bootstrap data arrived from SW background revalidation
+        applyBootstrapPayload(event.data.data).then(() => {
+            reloadCurrentTab();
+        });
     }
 });
 
@@ -955,8 +1072,9 @@ async function loadSettings() {
             fetcher: fetchBundle,
             onCached: applyBundle,
             onFresh: applyBundle,
-            onError: async (error) => {
+            onError: async (error, cached) => {
                 console.error('Failed to load settings:', error);
+                if (cached) applyBundle(cached);
             }
         });
     } catch (error) {
@@ -1945,7 +2063,9 @@ async function saveMedication() {
             return;
         }
 
-        if (res && res.warning) {
+        if (res === null) return; // offline or error — apiCall already showed alert
+
+        if (res.warning) {
             safeAlert("⚠️ " + res.warning);
         }
 
@@ -1999,6 +2119,7 @@ async function _archiveMedApi(id) {
     };
 
     const res = await apiCall(`/api/medications/${id}`, 'POST', payload);
+    if (res === null) return; // Offline or error — apiCall already alerted if needed
     if (res && res.warning) {
         safeAlert("⚠️ " + res.warning);
     }
@@ -2634,9 +2755,13 @@ async function loadNotes() {
                 _notesPendingFresh = { data: fresh, generation: _notesGeneration };
             }
         },
-        onError: async (e) => {
+        onError: async (e, cached) => {
             console.error('Failed to load notes:', e);
             if (loading) loading.style.display = 'none';
+            if (!cached) {
+                const list = document.getElementById('notes-list');
+                if (list) list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+            }
         }
     });
 

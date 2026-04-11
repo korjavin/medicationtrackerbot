@@ -211,6 +211,164 @@ describe('Service Worker (sw.js) Fetch and Cache Strategies', () => {
         expect(mockCacheInstance.put).toHaveBeenCalledWith('/__app_shell__', expect.any(Response));
     });
 
+    describe('Bootstrap SWR (stale-while-revalidate)', () => {
+        function getFetchHandler() {
+            return global.self.addEventListener.mock.calls.find(c => c[0] === 'fetch')[1];
+        }
+
+        function makeBootstrapRequest() {
+            const req = {
+                url: 'https://test.com/api/bootstrap',
+                method: 'GET',
+                mode: 'cors',
+                clone: () => req
+            };
+            return req;
+        }
+
+        it('returns cached bootstrap immediately and revalidates in background', async () => {
+            const fetchHandler = getFetchHandler();
+            const cachedData = { medications: [], cursor: 1 };
+            const freshData = { medications: [{ id: 1 }], cursor: 2 };
+
+            const cachedResponse = new Response(JSON.stringify(cachedData), {
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const freshResponse = new Response(JSON.stringify(freshData), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' }
+            });
+            // Make freshResponse.ok return true
+            Object.defineProperty(freshResponse, 'ok', { value: true });
+
+            mockCacheInstance.match.mockResolvedValue(cachedResponse);
+            global.self.clients.matchAll.mockResolvedValue([{ postMessage: vi.fn() }]);
+            global.fetch.mockResolvedValue(freshResponse);
+
+            const fakeRequest = makeBootstrapRequest();
+            const event = { request: fakeRequest, respondWith: vi.fn(), waitUntil: vi.fn() };
+
+            fetchHandler(event);
+
+            // Should call respondWith (SWR path)
+            expect(event.respondWith).toHaveBeenCalled();
+            const resolved = await event.respondWith.mock.calls[0][0];
+
+            // Should return the cached response immediately
+            expect(resolved).toBe(cachedResponse);
+
+            // Should have fired a background revalidation
+            expect(event.waitUntil).toHaveBeenCalled();
+
+            // Wait for background fetch to complete
+            await event.waitUntil.mock.calls[0][0];
+            await new Promise(r => setTimeout(r, 0));
+
+            // Should have fetched from network
+            expect(global.fetch).toHaveBeenCalledWith(fakeRequest);
+
+            // Should have updated the cache
+            expect(mockCacheInstance.put).toHaveBeenCalled();
+
+            // Should have notified clients with BOOTSTRAP_UPDATED
+            const clients = await global.self.clients.matchAll();
+            expect(clients[0].postMessage).toHaveBeenCalledWith({
+                type: 'BOOTSTRAP_UPDATED',
+                data: freshData
+            });
+        });
+
+        it('falls through to network-first when no cached bootstrap exists', async () => {
+            const fetchHandler = getFetchHandler();
+            const freshData = { medications: [{ id: 1 }], cursor: 1 };
+            const freshResponse = new Response(JSON.stringify(freshData), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' }
+            });
+            Object.defineProperty(freshResponse, 'ok', { value: true });
+
+            mockCacheInstance.match.mockResolvedValue(null); // No cache
+            global.fetch.mockResolvedValue(freshResponse);
+
+            const fakeRequest = makeBootstrapRequest();
+            const event = { request: fakeRequest, respondWith: vi.fn(), waitUntil: vi.fn() };
+
+            fetchHandler(event);
+
+            const resolved = await event.respondWith.mock.calls[0][0];
+
+            // Should return the network response
+            expect(resolved).toBe(freshResponse);
+
+            // Should have cached the response
+            expect(mockCacheInstance.put).toHaveBeenCalledWith(fakeRequest, expect.any(Response));
+        });
+
+        it('returns offline error when no cache and network fails', async () => {
+            const fetchHandler = getFetchHandler();
+
+            mockCacheInstance.match.mockResolvedValue(null); // No cache
+            global.fetch.mockRejectedValue(new TypeError('network error'));
+
+            const fakeRequest = makeBootstrapRequest();
+            const event = { request: fakeRequest, respondWith: vi.fn(), waitUntil: vi.fn() };
+
+            fetchHandler(event);
+
+            const resolved = await event.respondWith.mock.calls[0][0];
+
+            expect(resolved.status).toBe(503);
+            const body = await resolved.json();
+            expect(body.error).toBe('offline');
+        });
+
+        it('serves cached bootstrap when background revalidation fails (offline)', async () => {
+            const fetchHandler = getFetchHandler();
+            const cachedData = { medications: [], cursor: 1 };
+            const cachedResponse = new Response(JSON.stringify(cachedData), {
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            mockCacheInstance.match.mockResolvedValue(cachedResponse);
+            global.fetch.mockRejectedValue(new TypeError('network error'));
+
+            const fakeRequest = makeBootstrapRequest();
+            const event = { request: fakeRequest, respondWith: vi.fn(), waitUntil: vi.fn() };
+
+            fetchHandler(event);
+
+            const resolved = await event.respondWith.mock.calls[0][0];
+
+            // Should still return cached response
+            expect(resolved).toBe(cachedResponse);
+
+            // Background revalidation should not throw (caught internally)
+            await event.waitUntil.mock.calls[0][0];
+            // No clients notified since fetch failed
+            expect(global.self.clients.matchAll).not.toHaveBeenCalled();
+        });
+
+        it('handles 500 response on cache miss by returning error', async () => {
+            const fetchHandler = getFetchHandler();
+            const errorResponse = new Response('Internal Server Error', { status: 502 });
+            Object.defineProperty(errorResponse, 'ok', { value: false });
+
+            mockCacheInstance.match.mockResolvedValue(null); // No cache
+            global.fetch.mockResolvedValue(errorResponse);
+
+            const fakeRequest = makeBootstrapRequest();
+            const event = { request: fakeRequest, respondWith: vi.fn(), waitUntil: vi.fn() };
+
+            fetchHandler(event);
+
+            const resolved = await event.respondWith.mock.calls[0][0];
+
+            // With no cache available, should fall through and return the error response
+            // (cache.match returns null for the 500 fallback too)
+            expect(resolved.status).toBe(502);
+        });
+    });
+
     it('bypasses auth navigations so OAuth redirects stay in the browser context', () => {
         const fetchHandler = global.self.addEventListener.mock.calls.find(c => c[0] === 'fetch')[1];
 

@@ -93,8 +93,8 @@ function renderHealthOverviewContent(content, data) {
 
 function renderHealthOverviewError(content) {
     const errP = document.createElement('p');
-    errP.className = 'text-danger';
-    errP.textContent = 'Failed to load health metrics';
+    errP.className = 'text-hint';
+    errP.textContent = 'No cached data \u2014 will load when online';
     content.replaceChildren(errP);
     content.classList.remove('hidden');
 }
