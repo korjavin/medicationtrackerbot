@@ -81,17 +81,17 @@ Currently `checkAuth()` awaits network for `/api/bootstrap`. Make it use SW-cach
 ### Task 4: Exponential backoff retry for offline sync
 Currently `SyncManager.syncAll()` runs once on `online` event, no retry on failure.
 
-- [ ] Add retry state to `SyncManager` in `sync.js`:
+- [x] Add retry state to `SyncManager` in `sync.js`:
   - `retryDelayMs` starting at 5000, doubling each failure, capped at 300000 (5 min)
   - `retryTimer` reference for cleanup
   - Reset delay to 5000 on any successful sync
-- [ ] After `syncAll()` completes with pending items still remaining (partial failure):
+- [x] After `syncAll()` completes with pending items still remaining (partial failure):
   - Schedule `setTimeout(syncAll, retryDelayMs)` with doubled delay
   - Cancel pending retry if `syncAll()` called externally (online event, manual)
-- [ ] On `online` event: reset backoff, trigger immediate `syncAll()`
-- [ ] Update `updateStatusBar()` to show retry countdown when retrying
-- [ ] Write tests for retry scheduling: backoff doubling, cap at 5min, reset on success, cancel on manual sync
-- [ ] Run tests — must pass before next task
+- [x] On `online` event: reset backoff, trigger immediate `syncAll()`
+- [x] Update `updateStatusBar()` to show retry countdown when retrying
+- [x] Write tests for retry scheduling: backoff doubling, cap at 5min, reset on success, cancel on manual sync
+- [x] Run tests — must pass before next task
 
 ### Task 5: Offline read fallbacks for all data types
 Several endpoints return empty/error offline. Ensure every `loadSWR` consumer handles the offline case gracefully.
