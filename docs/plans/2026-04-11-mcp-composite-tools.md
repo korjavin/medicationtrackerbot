@@ -113,14 +113,14 @@ All 13 existing tools remain for backward compatibility and granular queries.
 - [x] Run `go test ./internal/mcp/...` — must pass before next task
 
 ### Task 5: Verify acceptance criteria
-- [ ] Verify all 13 existing tools still work and now include `context_notes`
-- [ ] Verify `exclude_notes=true` suppresses notes on all tools
-- [ ] Verify `analyze_cardiovascular` returns cross-domain data in one call
-- [ ] Verify `analyze_fitness` returns cross-domain data with macro totals (no food names)
-- [ ] Verify feature gates work correctly for both composite tools
-- [ ] Verify audit logging records events for new tools
-- [ ] Run full test suite (`go test ./...`)
-- [ ] Run `go vet ./...`
+- [x] Verify all 13 existing tools still work and now include `context_notes`
+- [x] Verify `exclude_notes=true` suppresses notes on all tools
+- [x] Verify `analyze_cardiovascular` returns cross-domain data in one call
+- [x] Verify `analyze_fitness` returns cross-domain data with macro totals (no food names)
+- [x] Verify feature gates work correctly for both composite tools
+- [x] Verify audit logging records events for new tools
+- [x] Run full test suite (`go test ./...`)
+- [x] Run `go vet ./...`
 
 ### Task 6: [Final] Update documentation
 - [ ] Update CLAUDE.md MCP section with new composite tools
