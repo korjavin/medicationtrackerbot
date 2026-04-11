@@ -123,7 +123,7 @@ func TestImportSleepLogsDuplicates(t *testing.T) {
 		t.Errorf("Expected 1 imported, got %d", imported)
 	}
 
-	// Import same again (INSERT OR IGNORE)
+	// Import same again (conditional UPSERT — no update since total_minutes not greater)
 	imported, skipped, err := db.ImportSleepLogs(ctx, userID, logs)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
@@ -139,6 +139,64 @@ func TestImportSleepLogsDuplicates(t *testing.T) {
 	result, _ := db.GetSleepLogs(ctx, userID, time.Time{})
 	if len(result) != 1 {
 		t.Errorf("Expected 1 log after duplicate import, got %d", len(result))
+	}
+}
+
+func TestImportSleepLogsUpsertNullToNonNull(t *testing.T) {
+	// When a sleep log is first imported without total_minutes (NULL),
+	// a re-import with a non-NULL total_minutes must update the row.
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	// First import: no total_minutes (NULL)
+	logs := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 7, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+		},
+	}
+	imported, _, err := db.ImportSleepLogs(ctx, userID, logs)
+	if err != nil {
+		t.Fatalf("First import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("Expected 1 imported, got %d", imported)
+	}
+
+	// Second import: with total_minutes
+	totalMinutes := 480
+	lightMinutes := 200
+	deepMinutes := 120
+	logs[0].TotalMinutes = &totalMinutes
+	logs[0].LightMinutes = &lightMinutes
+	logs[0].DeepMinutes = &deepMinutes
+	imported, skipped, err := db.ImportSleepLogs(ctx, userID, logs)
+	if err != nil {
+		t.Fatalf("Second import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("Expected 1 imported (NULL -> non-NULL upgrade), got %d", imported)
+	}
+	if skipped != 0 {
+		t.Errorf("Expected 0 skipped, got %d", skipped)
+	}
+
+	// Verify values updated
+	result, err := db.GetSleepLogs(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetSleepLogs: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 sleep log, got %d", len(result))
+	}
+	if result[0].TotalMinutes == nil || *result[0].TotalMinutes != 480 {
+		t.Errorf("Expected total_minutes=480, got %v", result[0].TotalMinutes)
+	}
+	if result[0].LightMinutes == nil || *result[0].LightMinutes != 200 {
+		t.Errorf("Expected light_minutes=200, got %v", result[0].LightMinutes)
 	}
 }
 
@@ -178,6 +236,228 @@ func TestGetSleepLogsSinceFilter(t *testing.T) {
 	}
 	if !strings.Contains(result[0].Day, "2025-01-10") {
 		t.Errorf("Expected day to contain '2025-01-10', got %q", result[0].Day)
+	}
+}
+
+func TestImportSleepLogsUpsertUpdatesWhenMoreComplete(t *testing.T) {
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	totalPartial := 120
+	lightPartial := 60
+	deepPartial := 30
+	remPartial := 20
+	awakePartial := 10
+
+	// Import partial sleep data (mid-day snapshot)
+	partial := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 3, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+			LightMinutes:   &lightPartial,
+			DeepMinutes:    &deepPartial,
+			REMMinutes:     &remPartial,
+			AwakeMinutes:   &awakePartial,
+			TotalMinutes:   &totalPartial,
+		},
+	}
+	_, _, err := db.ImportSleepLogs(ctx, userID, partial)
+	if err != nil {
+		t.Fatalf("First import: %v", err)
+	}
+
+	totalComplete := 480
+	lightComplete := 200
+	deepComplete := 120
+	remComplete := 100
+	awakeComplete := 60
+	hrComplete := 58
+	spo2Complete := 96
+
+	// Import complete sleep data (end-of-day snapshot)
+	complete := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 7, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+			LightMinutes:   &lightComplete,
+			DeepMinutes:    &deepComplete,
+			REMMinutes:     &remComplete,
+			AwakeMinutes:   &awakeComplete,
+			TotalMinutes:   &totalComplete,
+			HeartRateAvg:   &hrComplete,
+			SpO2Avg:        &spo2Complete,
+		},
+	}
+	imported, skipped, err := db.ImportSleepLogs(ctx, userID, complete)
+	if err != nil {
+		t.Fatalf("Second import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("Expected 1 imported (upsert update), got %d", imported)
+	}
+	if skipped != 0 {
+		t.Errorf("Expected 0 skipped, got %d", skipped)
+	}
+
+	// Verify values updated
+	result, err := db.GetSleepLogs(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetSleepLogs: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 sleep log, got %d", len(result))
+	}
+	sl := result[0]
+	if sl.TotalMinutes == nil || *sl.TotalMinutes != 480 {
+		t.Errorf("Expected total_minutes=480, got %v", sl.TotalMinutes)
+	}
+	if sl.LightMinutes == nil || *sl.LightMinutes != 200 {
+		t.Errorf("Expected light_minutes=200, got %v", sl.LightMinutes)
+	}
+	if sl.DeepMinutes == nil || *sl.DeepMinutes != 120 {
+		t.Errorf("Expected deep_minutes=120, got %v", sl.DeepMinutes)
+	}
+	if sl.HeartRateAvg == nil || *sl.HeartRateAvg != 58 {
+		t.Errorf("Expected heart_rate_avg=58, got %v", sl.HeartRateAvg)
+	}
+}
+
+func TestImportSleepLogsUpsertNoDowngrade(t *testing.T) {
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	totalComplete := 480
+	lightComplete := 200
+	deepComplete := 120
+
+	// Import complete data first
+	complete := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 7, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+			LightMinutes:   &lightComplete,
+			DeepMinutes:    &deepComplete,
+			TotalMinutes:   &totalComplete,
+		},
+	}
+	_, _, err := db.ImportSleepLogs(ctx, userID, complete)
+	if err != nil {
+		t.Fatalf("First import: %v", err)
+	}
+
+	totalPartial := 120
+	lightPartial := 60
+	deepPartial := 30
+
+	// Import partial data (should NOT downgrade)
+	partial := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 3, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+			LightMinutes:   &lightPartial,
+			DeepMinutes:    &deepPartial,
+			TotalMinutes:   &totalPartial,
+		},
+	}
+	imported, skipped, err := db.ImportSleepLogs(ctx, userID, partial)
+	if err != nil {
+		t.Fatalf("Second import: %v", err)
+	}
+	if imported != 0 {
+		t.Errorf("Expected 0 imported (no downgrade), got %d", imported)
+	}
+	if skipped != 1 {
+		t.Errorf("Expected 1 skipped, got %d", skipped)
+	}
+
+	// Verify original values preserved
+	result, err := db.GetSleepLogs(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetSleepLogs: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 sleep log, got %d", len(result))
+	}
+	sl := result[0]
+	if sl.TotalMinutes == nil || *sl.TotalMinutes != 480 {
+		t.Errorf("Expected total_minutes=480 (preserved), got %v", sl.TotalMinutes)
+	}
+	if sl.LightMinutes == nil || *sl.LightMinutes != 200 {
+		t.Errorf("Expected light_minutes=200 (preserved), got %v", sl.LightMinutes)
+	}
+}
+
+func TestImportSleepLogsBackfillAwakeAndTurnOver(t *testing.T) {
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	totalMinutes := 480
+
+	// First import: has total_minutes but no awake_minutes or turn_over_count
+	initial := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 7, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+			TotalMinutes:   &totalMinutes,
+		},
+	}
+	_, _, err := db.ImportSleepLogs(ctx, userID, initial)
+	if err != nil {
+		t.Fatalf("First import: %v", err)
+	}
+
+	awake := 30
+	turnOver := 12
+
+	// Second import: same total_minutes, but adds awake_minutes and turn_over_count
+	backfill := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 7, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+			TotalMinutes:   &totalMinutes,
+			AwakeMinutes:   &awake,
+			TurnOverCount:  &turnOver,
+		},
+	}
+	imported, skipped, err := db.ImportSleepLogs(ctx, userID, backfill)
+	if err != nil {
+		t.Fatalf("Second import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("Expected 1 imported (backfill update), got %d", imported)
+	}
+	if skipped != 0 {
+		t.Errorf("Expected 0 skipped, got %d", skipped)
+	}
+
+	result, err := db.GetSleepLogs(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetSleepLogs: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 sleep log, got %d", len(result))
+	}
+	sl := result[0]
+	if sl.AwakeMinutes == nil || *sl.AwakeMinutes != 30 {
+		t.Errorf("Expected awake_minutes=30, got %v", sl.AwakeMinutes)
+	}
+	if sl.TurnOverCount == nil || *sl.TurnOverCount != 12 {
+		t.Errorf("Expected turn_over_count=12, got %v", sl.TurnOverCount)
 	}
 }
 
@@ -434,16 +714,149 @@ func TestImportDayStatsDuplicates(t *testing.T) {
 		t.Errorf("Expected 1 imported, got %d", imported)
 	}
 
-	// Import again
+	// Import again — identical data is now skipped (WHERE clause rejects no-op updates)
 	imported, skipped, err := db.ImportDayStats(ctx, userID, stats)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
 	}
 	if imported != 0 {
-		t.Errorf("Expected 0 imported on duplicate, got %d", imported)
+		t.Errorf("Expected 0 imported (identical replay), got %d", imported)
 	}
 	if skipped != 1 {
 		t.Errorf("Expected 1 skipped, got %d", skipped)
+	}
+
+	// Still only 1 row
+	result, err := db.GetDayStats(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetDayStats: %v", err)
+	}
+	if len(result) != 1 {
+		t.Errorf("Expected 1 stat after duplicate import, got %d", len(result))
+	}
+}
+
+func TestImportDayStatsUpsertUpdatesValues(t *testing.T) {
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	// Import partial data (mid-day snapshot)
+	partial := []DayStat{
+		{Day: "2025-01-10", Steps: 2000, Calories: 800, Distance: 1500},
+	}
+	_, _, err := db.ImportDayStats(ctx, userID, partial)
+	if err != nil {
+		t.Fatalf("First import: %v", err)
+	}
+
+	// Import complete data (end-of-day snapshot)
+	complete := []DayStat{
+		{Day: "2025-01-10", Steps: 8000, Calories: 2200, Distance: 5500},
+	}
+	imported, skipped, err := db.ImportDayStats(ctx, userID, complete)
+	if err != nil {
+		t.Fatalf("Second import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("Expected 1 imported (upsert), got %d", imported)
+	}
+	if skipped != 0 {
+		t.Errorf("Expected 0 skipped, got %d", skipped)
+	}
+
+	// Verify values updated
+	result, err := db.GetDayStats(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetDayStats: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result))
+	}
+	if result[0].Steps != 8000 {
+		t.Errorf("Expected steps=8000, got %d", result[0].Steps)
+	}
+	if result[0].Calories != 2200 {
+		t.Errorf("Expected calories=2200, got %d", result[0].Calories)
+	}
+	if result[0].Distance != 5500 {
+		t.Errorf("Expected distance=5500, got %d", result[0].Distance)
+	}
+}
+
+func TestImportDayStatsStaleDataProtection(t *testing.T) {
+	// Importing an older backup after a complete one must NOT overwrite higher values.
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	// Import complete data (end-of-day snapshot)
+	complete := []DayStat{
+		{Day: "2025-01-10", Steps: 8000, Calories: 2200, Distance: 5500},
+	}
+	_, _, err := db.ImportDayStats(ctx, userID, complete)
+	if err != nil {
+		t.Fatalf("First import (complete): %v", err)
+	}
+
+	// Import stale partial data (mid-day snapshot from older backup)
+	stale := []DayStat{
+		{Day: "2025-01-10", Steps: 2000, Calories: 800, Distance: 1500},
+	}
+	_, _, err = db.ImportDayStats(ctx, userID, stale)
+	if err != nil {
+		t.Fatalf("Second import (stale): %v", err)
+	}
+
+	// Verify complete values are preserved (MAX used, not overwritten)
+	result, err := db.GetDayStats(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetDayStats: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result))
+	}
+	if result[0].Steps != 8000 {
+		t.Errorf("stale data overwrote steps: expected 8000, got %d", result[0].Steps)
+	}
+	if result[0].Calories != 2200 {
+		t.Errorf("stale data overwrote calories: expected 2200, got %d", result[0].Calories)
+	}
+	if result[0].Distance != 5500 {
+		t.Errorf("stale data overwrote distance: expected 5500, got %d", result[0].Distance)
+	}
+}
+
+func TestImportDayStatsUpsertDifferentDays(t *testing.T) {
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	// Import day 1
+	day1 := []DayStat{
+		{Day: "2025-01-10", Steps: 5000, Calories: 1800, Distance: 3000},
+	}
+	_, _, err := db.ImportDayStats(ctx, userID, day1)
+	if err != nil {
+		t.Fatalf("First import: %v", err)
+	}
+
+	// Import day 2 (different day)
+	day2 := []DayStat{
+		{Day: "2025-01-11", Steps: 10000, Calories: 2500, Distance: 7000},
+	}
+	_, _, err = db.ImportDayStats(ctx, userID, day2)
+	if err != nil {
+		t.Fatalf("Second import: %v", err)
+	}
+
+	// Both days exist
+	result, err := db.GetDayStats(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetDayStats: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("Expected 2 rows, got %d", len(result))
 	}
 }
 

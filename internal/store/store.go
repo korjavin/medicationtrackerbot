@@ -1409,7 +1409,7 @@ func (s *Store) ImportSleepLogs(ctx context.Context, userID int64, logs []SleepL
 
 		batch := logs[i:end]
 
-		query := `INSERT OR IGNORE INTO sleep_logs (user_id, start_time, end_time,
+		query := `INSERT INTO sleep_logs (user_id, start_time, end_time,
 			 timezone_offset, day, light_minutes, deep_minutes, rem_minutes,
 			 awake_minutes, total_minutes, turn_over_count, heart_rate_avg,
 			 spo2_avg, user_modified, notes) VALUES `
@@ -1426,6 +1426,26 @@ func (s *Store) ImportSleepLogs(ctx context.Context, userID int64, logs []SleepL
 		}
 
 		query += strings.Join(placeholders, ", ")
+		query += ` ON CONFLICT(user_id, start_time) DO UPDATE SET
+			end_time=excluded.end_time,
+			light_minutes=COALESCE(excluded.light_minutes, sleep_logs.light_minutes),
+			deep_minutes=COALESCE(excluded.deep_minutes, sleep_logs.deep_minutes),
+			rem_minutes=COALESCE(excluded.rem_minutes, sleep_logs.rem_minutes),
+			awake_minutes=COALESCE(excluded.awake_minutes, sleep_logs.awake_minutes),
+			total_minutes=excluded.total_minutes,
+			turn_over_count=COALESCE(excluded.turn_over_count, sleep_logs.turn_over_count),
+			heart_rate_avg=COALESCE(excluded.heart_rate_avg, sleep_logs.heart_rate_avg),
+			spo2_avg=COALESCE(excluded.spo2_avg, sleep_logs.spo2_avg)
+		  WHERE excluded.total_minutes > COALESCE(sleep_logs.total_minutes, 0)
+		     OR (excluded.total_minutes = COALESCE(sleep_logs.total_minutes, 0) AND (
+		         (excluded.light_minutes IS NOT NULL AND sleep_logs.light_minutes IS NULL)
+		      OR (excluded.deep_minutes IS NOT NULL AND sleep_logs.deep_minutes IS NULL)
+		      OR (excluded.rem_minutes IS NOT NULL AND sleep_logs.rem_minutes IS NULL)
+		      OR (excluded.awake_minutes IS NOT NULL AND sleep_logs.awake_minutes IS NULL)
+		      OR (excluded.turn_over_count IS NOT NULL AND sleep_logs.turn_over_count IS NULL)
+		      OR (excluded.heart_rate_avg IS NOT NULL AND sleep_logs.heart_rate_avg IS NULL)
+		      OR (excluded.spo2_avg IS NOT NULL AND sleep_logs.spo2_avg IS NULL)
+		     ))`
 
 		res, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
@@ -1453,8 +1473,15 @@ func (s *Store) ImportDayStats(ctx context.Context, userID int64, stats []DaySta
 	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.PrepareContext(ctx,
-		`INSERT OR IGNORE INTO day_stats (user_id, day, steps, calories, distance)
-		 VALUES (?, ?, ?, ?, ?)`)
+		`INSERT INTO day_stats (user_id, day, steps, calories, distance)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(user_id, day) DO UPDATE SET
+		   steps=MAX(COALESCE(day_stats.steps, 0), COALESCE(excluded.steps, 0)),
+		   calories=MAX(COALESCE(day_stats.calories, 0), COALESCE(excluded.calories, 0)),
+		   distance=MAX(COALESCE(day_stats.distance, 0), COALESCE(excluded.distance, 0))
+		 WHERE COALESCE(excluded.steps, 0) > COALESCE(day_stats.steps, 0)
+		    OR COALESCE(excluded.calories, 0) > COALESCE(day_stats.calories, 0)
+		    OR COALESCE(excluded.distance, 0) > COALESCE(day_stats.distance, 0)`)
 	if err != nil {
 		return 0, 0, err
 	}
