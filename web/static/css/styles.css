@@ -1,3 +1,42 @@
+/*
+ * Design Token System
+ * ===================
+ * This stylesheet uses CSS custom properties (design tokens) organized into:
+ *
+ * COLORS:
+ *   --color-{semantic}              Semantic: success, warning, danger, info
+ *   --color-bp-{level}              BP classification: optimal, normal, high-normal, grade1-3
+ *   --color-chart-{role}            Chart: primary, secondary, accent, highlight, plan
+ *   --color-sync-{state}            Sync status: pending, success, error
+ *   --color-toast-{type}-{part}     Toast notifications: success/warning/error/info bg/text/solid
+ *   --color-status-{state}-{part}   Status bar: offline/syncing/pending bg-start/bg-end/text/border
+ *   --color-workout-{variant}       Workout cards and action buttons
+ *
+ * SPACING:       --space-{xs|sm|md|lg|xl|2xl}     4/8/12/16/24/32px
+ * BORDER RADIUS: --radius-{sm|md|lg|xl|pill}      6/10/14/18/999px
+ * SHADOWS:       --shadow-{sm|md|lg}              3 elevation levels
+ * TYPOGRAPHY:    --font-size-{xs|sm|md|lg|xl}     11/13/15/18/24px
+ *                --font-weight-{normal|medium|bold} 400/500/600
+ * Z-INDEX:       --z-{dropdown|overlay|modal|popover|toast} 100-1100
+ *
+ * BUTTONS:
+ *   Base:  .btn (reset)  Variants: .btn-primary, .btn-secondary, .btn-danger
+ *   Sizes: .btn-sm, .btn-md (default), .btn-lg
+ *   Shape: .btn-pill, .btn-icon
+ *
+ * UTILITIES:
+ *   Layout:  .flex-row, .flex-col, .flex-between, .flex-center, .flex-wrap
+ *   Spacing: .mt-{size}, .mb-{size}, .p-{size}, .gap-{size}
+ *   Text:    .text-center, .text-hint, .text-sm, .text-bold, .text-danger
+ *   Display: .hidden, .block, .inline-flex
+ *   State:   .empty-state, .loading-state
+ *
+ * RULES:
+ *   - No hardcoded hex colors outside :root — use tokens
+ *   - No inline style assignments in JS — use CSS classes
+ *   - Telegram theme vars (--tg-theme-*) are mirrored in :root with fallbacks
+ */
+
 :root {
     /* Telegram theme mirrors */
     --bg-color: var(--tg-theme-bg-color, #fff);
