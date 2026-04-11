@@ -116,6 +116,11 @@ const SyncManager = {
     isOnline: navigator.onLine,
     isSyncing: false,
     statusCallbacks: [],
+    retryDelayMs: 5000,
+    retryTimer: null,
+    retryScheduledAt: null,
+    RETRY_INITIAL_MS: 5000,
+    RETRY_MAX_MS: 300000,
 
     // Initialize sync manager
     init() {
@@ -153,10 +158,43 @@ const SyncManager = {
         SyncDebug.info('SyncManager initialized', { online: this.isOnline });
     },
 
+    // Cancel any pending retry timer
+    cancelRetry() {
+        if (this.retryTimer) {
+            clearTimeout(this.retryTimer);
+            this.retryTimer = null;
+            this.retryScheduledAt = null;
+            SyncDebug.info('Retry timer cancelled');
+        }
+    },
+
+    // Reset backoff delay to initial value
+    resetBackoff() {
+        this.retryDelayMs = this.RETRY_INITIAL_MS;
+    },
+
+    // Schedule a retry with exponential backoff
+    scheduleRetry() {
+        this.cancelRetry();
+        const delay = this.retryDelayMs;
+        this.retryScheduledAt = Date.now() + delay;
+        SyncDebug.info('Scheduling retry', { delayMs: delay });
+        this.retryTimer = setTimeout(() => {
+            this.retryTimer = null;
+            this.retryScheduledAt = null;
+            this.syncAll();
+        }, delay);
+        // Double the delay for next time, capped at max
+        this.retryDelayMs = Math.min(this.retryDelayMs * 2, this.RETRY_MAX_MS);
+        this.updateStatus();
+    },
+
     // Handle coming online
     handleOnline() {
         SyncDebug.info('Network: back online');
         this.isOnline = true;
+        this.cancelRetry();
+        this.resetBackoff();
         this.updateStatus();
         this.syncAll();
 
@@ -223,7 +261,12 @@ const SyncManager = {
             statusBar.style.display = 'flex';
         } else if (status.pendingCount > 0) {
             statusBar.className = 'sync-status-bar pending cursor-pointer';
-            statusBar.innerHTML = `<span class="sync-icon">&#x23F3;</span> ${status.pendingCount} item${status.pendingCount > 1 ? 's' : ''} pending sync <span class="sync-hint">(tap for logs)</span>`;
+            let retryInfo = '';
+            if (this.retryScheduledAt) {
+                const secsLeft = Math.max(0, Math.ceil((this.retryScheduledAt - Date.now()) / 1000));
+                retryInfo = ` · retry in ${secsLeft}s`;
+            }
+            statusBar.innerHTML = `<span class="sync-icon">&#x23F3;</span> ${status.pendingCount} item${status.pendingCount > 1 ? 's' : ''} pending sync${retryInfo} <span class="sync-hint">(tap for logs)</span>`;
             statusBar.style.display = 'flex';
         } else {
             // Show a minimal "synced" indicator that can still be tapped for debug
@@ -239,6 +282,9 @@ const SyncManager = {
             SyncDebug.info('syncAll skipped', { online: this.isOnline, syncing: this.isSyncing });
             return;
         }
+
+        // Cancel any pending retry since we're syncing now
+        this.cancelRetry();
 
         SyncDebug.info('Starting full sync...');
         this.isSyncing = true;
@@ -256,6 +302,20 @@ const SyncManager = {
         } finally {
             this.isSyncing = false;
             this.updateStatus();
+
+            // Check if there are still pending items and schedule retry
+            const bpPending = await window.MedTrackerDB.BPStore.getPendingCount();
+            const weightPending = await window.MedTrackerDB.WeightStore.getPendingCount();
+            const intakePending = window.MedTrackerDB.IntakeQueueStore
+                ? await window.MedTrackerDB.IntakeQueueStore.getPendingCount() : 0;
+            const totalPending = bpPending + weightPending + intakePending;
+
+            if (totalPending > 0 && this.isOnline) {
+                SyncDebug.info('Pending items remain after sync, scheduling retry', { pending: totalPending });
+                this.scheduleRetry();
+            } else if (totalPending === 0) {
+                this.resetBackoff();
+            }
         }
     },
 
