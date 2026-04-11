@@ -300,10 +300,13 @@ func (s *Server) fetchStepsSection(ctx context.Context, userID int64, startDate,
 func (s *Server) fetchNutritionSection(ctx context.Context, userID int64, startDate, endDate time.Time) *NutritionSection {
 	// Aggregate food logs by day, returning only totals (no food names for privacy)
 	// Fetch all logs in one query instead of day-by-day
-	// Use calendar-day arithmetic to avoid DST off-by-one errors
+	// Count calendar days using date arithmetic (not duration) to avoid DST off-by-one errors
 	startDay := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, startDate.Location())
 	endDay := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 0, 0, 0, 0, endDate.Location())
-	totalDays := int(endDay.Sub(startDay).Hours()/24) + 1
+	totalDays := 0
+	for d := startDay; !d.After(endDay); d = d.AddDate(0, 0, 1) {
+		totalDays++
+	}
 	allLogs, err := s.data.GetFoodLogs(ctx, userID, endDate, totalDays)
 	if err != nil {
 		slog.Warn("[MCP] FitnessAnalysis: failed to fetch food logs", "error", err)
@@ -408,7 +411,7 @@ func registerFitnessTool(mcpServer *sdkmcp.Server, s *Server) {
 	sdkmcp.AddTool(mcpServer,
 		&sdkmcp.Tool{
 			Name:        "analyze_fitness",
-			Description: "Comprehensive fitness and nutrition analysis. Returns workout sessions (gym and outdoor), daily step counts, daily calorie/protein/carb/fat totals (food names omitted for privacy), weight trend, and personal diary notes — all in one call. Use this for questions about training, nutrition balance, weight progress, or activity levels.",
+			Description: "Comprehensive fitness and nutrition analysis. Returns workout sessions (gym and outdoor), daily step counts, daily calorie/protein/carb/fat totals (food names omitted for privacy), weight trend, and personal diary notes — all in one call. Maximum 90 days per query. Use this for questions about training, nutrition balance, weight progress, or activity levels.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
