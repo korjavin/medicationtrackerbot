@@ -65,10 +65,10 @@ All 13 existing tools remain for backward compatibility and granular queries.
 - [x] Run `go test ./internal/mcp/...` — must pass before next task
 
 ### Task 3: Add analyze_cardiovascular composite tool
-- [ ] Register new tool `analyze_cardiovascular` in `mcp.go`
-- [ ] Parameters: `start_date`, `end_date` (same defaults as other tools), `days` as shorthand (e.g., `days=30` → last 30 days)
-- [ ] Tool description: "Comprehensive cardiovascular health analysis. Returns blood pressure readings with daily averages, active medications and adherence, sleep duration and quality, heart rate and SpO2 trends, and personal diary notes — all in one call. Use this for any question about blood pressure, heart health, medication effects, or sleep quality."
-- [ ] Response structure:
+- [x] Register new tool `analyze_cardiovascular` in `mcp.go`
+- [x] Parameters: `start_date`, `end_date` (same defaults as other tools), `days` as shorthand (e.g., `days=30` → last 30 days)
+- [x] Tool description: "Comprehensive cardiovascular health analysis. Returns blood pressure readings with daily averages, active medications and adherence, sleep duration and quality, heart rate and SpO2 trends, and personal diary notes — all in one call. Use this for any question about blood pressure, heart health, medication effects, or sleep quality."
+- [x] Response structure:
   ```
   AnalyzeCardiovascularResponse {
       period: string
@@ -81,12 +81,12 @@ All 13 existing tools remain for backward compatibility and granular queries.
       warning: optional string
   }
   ```
-- [ ] Respect feature gates: if BP is disabled, omit `blood_pressure` section (don't error)
-- [ ] Add audit logging for "CardiovascularAnalysis" data type
-- [ ] Write test: composite tool returns data from all domains
-- [ ] Write test: feature gate disabling BP omits that section but includes others
-- [ ] Write test: empty date range returns empty sections, not errors
-- [ ] Run `go test ./internal/mcp/...` — must pass before next task
+- [x] Respect feature gates: if BP is disabled, omit `blood_pressure` section (don't error)
+- [x] Add audit logging for "CardiovascularAnalysis" data type
+- [x] Write test: composite tool returns data from all domains
+- [x] Write test: feature gate disabling BP omits that section but includes others
+- [x] Write test: empty date range returns empty sections, not errors
+- [x] Run `go test ./internal/mcp/...` — must pass before next task
 
 ### Task 4: Add analyze_fitness composite tool
 - [ ] Register new tool `analyze_fitness` in `mcp.go`

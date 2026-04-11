@@ -42,6 +42,7 @@ type HealthDataReader interface {
 	GetVitalsStress(ctx context.Context, userID int64, start, end time.Time) ([]store.VitalsStressLog, error)
 	ListMiBandWorkouts(ctx context.Context, userID int64, limit int) ([]store.MiBandWorkout, error)
 	ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error)
+	ListMedications(showArchived bool) ([]store.Medication, error)
 }
 
 // Config holds MCP server configuration
@@ -417,6 +418,9 @@ func (s *Server) registerTools() {
 
 	// Register Vitals & Health Overview Tools
 	registerVitalsTools(s.mcpServer, s)
+
+	// Register Composite Analysis Tools
+	registerCardiovascularTool(s.mcpServer, s)
 }
 
 // parseDateRange parses and validates the date range, enforcing the max query days limit
