@@ -1930,10 +1930,19 @@ async function saveMedication() {
     const btn = document.getElementById('med-modal-save-btn');
     await withSubmit(btn, async () => {
         let res;
-        if (editingMedId) {
-            res = await apiCall(`/api/medications/${editingMedId}`, 'POST', payload);
-        } else {
-            res = await apiCall('/api/medications', 'POST', payload);
+        try {
+            if (editingMedId) {
+                res = await apiCallDirect(`/api/medications/${editingMedId}`, 'POST', payload);
+            } else {
+                res = await apiCallDirect('/api/medications', 'POST', payload);
+            }
+        } catch (e) {
+            if (e.message && e.message.includes('already exists')) {
+                safeAlert("A medication with this name and dosage already exists. Please use a different name or dosage.");
+            } else {
+                safeAlert("Error: " + e.message);
+            }
+            return;
         }
 
         if (res && res.warning) {
