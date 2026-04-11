@@ -119,7 +119,7 @@ Vitals tables (`vitals_heart`, `vitals_spo2`, `vitals_stress`) use millisecond-p
 - [x] Run `go vet ./...`
 
 ### Task 5: [Final] Update documentation
-- [ ] Update CLAUDE.md import section if needed
+- [x] Update CLAUDE.md import section if needed (reviewed — CLAUDE.md has no Mi Band import documentation to update; SQL-level changes are implementation details)
 
 ## Technical Details
 
