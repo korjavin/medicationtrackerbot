@@ -228,7 +228,7 @@ const SyncManager = {
         } else {
             // Show a minimal "synced" indicator that can still be tapped for debug
             statusBar.className = 'sync-status-bar synced cursor-pointer';
-            statusBar.innerHTML = '<span class="sync-hint" style="opacity:0.5">&#x2705; Synced (tap for debug)</span>';
+            statusBar.innerHTML = '<span class="sync-hint-dim">&#x2705; Synced (tap for debug)</span>';
             statusBar.style.display = 'flex';
         }
     },
