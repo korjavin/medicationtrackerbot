@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#2481cc">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -31,13 +31,13 @@
 <body>
     <div id="app">
         <div id="tabs">
-            <button class="tab active" data-tab="bp">🩸</button>
-            <button class="tab" data-tab="weight">⚖️</button>
-            <button class="tab" data-tab="workouts">🏋️</button>
-            <button class="tab" data-tab="food">🍽️</button>
-            <button class="tab" data-tab="health">😴</button>
-            <button class="tab" data-tab="meds">💊</button>
-            <button class="tab" data-tab="settings">⚙️</button>
+            <button class="tab active" data-tab="bp" aria-label="Blood Pressure"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21c-4-4-8-7.5-8-11a5 5 0 0 1 9-3h0a5 5 0 0 1 9 3c0 3.5-4 7-8 11z"/><path d="M12 11v4"/><path d="M10 13h4"/></svg></button>
+            <button class="tab" data-tab="weight" aria-label="Weight"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M7 8V6a5 5 0 0 1 10 0v2"/><circle cx="12" cy="15" r="2"/></svg></button>
+            <button class="tab" data-tab="workouts" aria-label="Workouts"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5v14"/><path d="M18 5v14"/><path d="M6 12h12"/><rect x="2" y="7" width="4" height="10" rx="1"/><rect x="18" y="7" width="4" height="10" rx="1"/></svg></button>
+            <button class="tab" data-tab="food" aria-label="Food"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M4 6c0 5 3 8 8 8s8-3 8-8"/><path d="M12 14v7"/><path d="M8 21h8"/></svg></button>
+            <button class="tab" data-tab="health" aria-label="Health"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/></svg></button>
+            <button class="tab" data-tab="meds" aria-label="Medications"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="2" width="15" height="20" rx="3"/><path d="M4.5 12h15"/><circle cx="12" cy="7" r="1.5"/></svg></button>
+            <button class="tab" data-tab="settings" aria-label="Settings"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
         </div>
 
         <div id="meds-view" class="view active">

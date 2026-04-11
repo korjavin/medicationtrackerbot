@@ -97,13 +97,13 @@ Establish a proper design token system and modernize the visual appearance of th
 - [x] Run tests — must pass before next task
 
 ### Task 8: Replace emoji tab icons with inline SVGs
-- [ ] Design/source 7 SVG icons (16-20px, single-path, monochrome): blood drop (BP), scale (weight), dumbbell (workouts), utensils (food), moon/heart (health), pill (medications), gear (settings)
-- [ ] Replace emoji text in tab buttons in `index.html` with inline SVG elements
-- [ ] Add `aria-label` attributes to each tab button (e.g., `aria-label="Blood Pressure"`)
-- [ ] Style SVGs to use `currentColor` so they inherit `color` from `.tab` / `.tab.active` CSS
-- [ ] Ensure tab active/inactive states work with SVG icons (color transitions)
-- [ ] Remove `user-scalable=no` from viewport meta tag
-- [ ] Run tests — must pass before next task
+- [x] Design/source 7 SVG icons (16-20px, single-path, monochrome): blood drop (BP), scale (weight), dumbbell (workouts), utensils (food), moon/heart (health), pill (medications), gear (settings)
+- [x] Replace emoji text in tab buttons in `index.html` with inline SVG elements
+- [x] Add `aria-label` attributes to each tab button (e.g., `aria-label="Blood Pressure"`)
+- [x] Style SVGs to use `currentColor` so they inherit `color` from `.tab` / `.tab.active` CSS
+- [x] Ensure tab active/inactive states work with SVG icons (color transitions)
+- [x] Remove `user-scalable=no` from viewport meta tag
+- [x] Run tests — must pass before next task
 
 ### Task 9: Visual polish — cards, spacing, and hierarchy
 - [ ] Increase base card padding from 16px to `var(--space-lg)` and card gap from 12px to `var(--space-md)`
