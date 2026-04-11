@@ -98,6 +98,7 @@
 
     /* Chart extra colors */
     --color-chart-plan: #67e8f9;
+    --color-chart-gradient-opacity: 0.25;
 
     /* Inventory badge */
     --color-inventory-ok: #2d9c93;
@@ -943,11 +944,53 @@ svg.chart-svg {
     text-anchor: middle;
 }
 
+.chart-label-emphasis {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-bold);
+    text-anchor: middle;
+}
+
 .chart-grid {
     stroke: var(--hint-color);
     stroke-width: 0.5;
     opacity: 0.2;
     stroke-dasharray: 4 4;
+}
+
+.chart-grid-refined {
+    stroke: var(--hint-color);
+    stroke-width: 0.5;
+    stroke-opacity: 0.08;
+    stroke-dasharray: none;
+}
+
+.chart-point-latest {
+    stroke: var(--bg-color);
+    stroke-width: 2;
+}
+
+.chart-point-pulse {
+    animation: chart-pulse 2s ease-in-out infinite;
+}
+
+@keyframes chart-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0; }
+}
+
+.chart-line-animated {
+    stroke-dasharray: var(--line-length);
+    stroke-dashoffset: var(--line-length);
+    animation: chart-draw 0.6s ease-out forwards;
+}
+
+@keyframes chart-draw {
+    to { stroke-dashoffset: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chart-point-pulse { animation: none; opacity: 0.3; }
+    .chart-line-animated { animation: none; stroke-dashoffset: 0; }
 }
 
 .chart-goal-line {

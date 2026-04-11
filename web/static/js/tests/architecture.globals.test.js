@@ -49,6 +49,7 @@ const ALLOWED_GLOBALS = new Set([
     // Core modules
     'window.apiCallDirect',             // core/api.js — low-level fetch used by data-store.js
     'window.AppKernel',                 // core/app-kernel.js — module registry
+    'window.ChartUtils',               // core/chart-utils.js — shared SVG chart utilities
     'window.ModalManager',              // core/modal-manager.js — modal lifecycle façade
     'window.AppStore',                  // core/store.js — ephemeral UI state
 
