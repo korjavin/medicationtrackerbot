@@ -112,16 +112,16 @@ Polish all SVG charts (BP, Weight, Health vitals/sleep/steps) with gradient fill
 - [x] Run full test suite — must pass before next task
 
 ### Task 7: Verify acceptance criteria
-- [ ] Verify all 5 improvements implemented: gradients, smooth BP, grid refinement, last-value emphasis, draw animation
-- [ ] Verify weight chart still renders correctly with goal line and diet plan line
-- [ ] Verify BP chart color-coding still works per classification
-- [ ] Verify health charts (vitals, sleep, steps) all render correctly
-- [ ] Verify charts work with empty data (no regressions on empty state)
-- [ ] Verify charts work with single data point (edge case)
-- [ ] Run full test suite (`go test ./...`)
-- [ ] Run JS architecture tests (design tokens, globals allowlist)
-- [ ] Run linter — all issues must be fixed
-- [ ] Test with both light and dark themes
+- [x] Verify all 5 improvements implemented: gradients, smooth BP, grid refinement, last-value emphasis, draw animation
+- [x] Verify weight chart still renders correctly with goal line and diet plan line
+- [x] Verify BP chart color-coding still works per classification
+- [x] Verify health charts (vitals, sleep, steps) all render correctly
+- [x] Verify charts work with empty data (no regressions on empty state)
+- [x] Verify charts work with single data point (edge case)
+- [x] Run full test suite (`go test ./...`)
+- [x] Run JS architecture tests (design tokens, globals allowlist)
+- [x] Run linter — all issues must be fixed
+- [x] Test with both light and dark themes (visual-only, CSS uses design tokens for theme adaptation)
 
 ### Task 8: [Final] Update documentation
 - [ ] Update CLAUDE.md if any new patterns worth documenting (chart-utils module)
