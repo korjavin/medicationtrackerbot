@@ -56,15 +56,15 @@ The SW `STATIC_ASSETS` array lists only 6 JS files but the app has ~25. Missing 
 ### Task 2: SW intercepts `/api/bootstrap` with stale-while-revalidate
 Instead of network-first (current), serve cached bootstrap instantly and refresh in background. Notify app when fresh data differs.
 
-- [ ] In `sw.js` fetch handler, add special case for `/api/bootstrap`:
+- [x] In `sw.js` fetch handler, add special case for `/api/bootstrap`:
   - If cached response exists → return it immediately
   - Fire background fetch → on success, compare with cached → if different, cache new response and `postMessage({ type: 'BOOTSTRAP_UPDATED', data })` to all clients
   - If no cache → fall through to normal network-first behavior
-- [ ] In `app.js` or `bootstrap.js`, add SW message listener for `BOOTSTRAP_UPDATED`:
+- [x] In `app.js` or `bootstrap.js`, add SW message listener for `BOOTSTRAP_UPDATED`:
   - Call `applyBootstrapPayload(data)` with fresh data
   - Refresh current tab if data changed
-- [ ] Write SW fetch test for bootstrap SWR behavior (cached hit, cache miss, background update)
-- [ ] Run tests — must pass before next task
+- [x] Write SW fetch test for bootstrap SWR behavior (cached hit, cache miss, background update)
+- [x] Run tests — must pass before next task
 
 ### Task 3: Make `checkAuth()` non-blocking with cached bootstrap
 Currently `checkAuth()` awaits network for `/api/bootstrap`. Make it use SW-cached response (which Task 2 makes instant).

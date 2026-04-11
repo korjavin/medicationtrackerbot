@@ -112,6 +112,52 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
+    // Bootstrap endpoint — stale-while-revalidate for instant app startup
+    if (url.pathname === '/api/bootstrap') {
+        event.respondWith(
+            caches.open(DYNAMIC_CACHE).then(async (cache) => {
+                const cachedResponse = await cache.match(event.request);
+                if (cachedResponse) {
+                    // Serve cached immediately, revalidate in background
+                    event.waitUntil(
+                        fetch(event.request)
+                            .then(async (freshResponse) => {
+                                if (freshResponse.ok) {
+                                    await cache.put(event.request, freshResponse.clone());
+                                    // Notify clients that fresh bootstrap data is available
+                                    const clients = await self.clients.matchAll();
+                                    const freshData = await freshResponse.json();
+                                    clients.forEach((client) => {
+                                        client.postMessage({ type: 'BOOTSTRAP_UPDATED', data: freshData });
+                                    });
+                                }
+                            })
+                            .catch(() => { /* offline — cached response already served */ })
+                    );
+                    return cachedResponse;
+                }
+                // No cache — fall through to network-first (same as general API handler)
+                return fetch(event.request)
+                    .then((response) => {
+                        if (response.ok) {
+                            cache.put(event.request, response.clone());
+                        }
+                        if (response.status >= 500) {
+                            return cache.match(event.request).then(cached => cached || response);
+                        }
+                        return response;
+                    })
+                    .catch(() => {
+                        return new Response(
+                            JSON.stringify({ error: 'offline', message: 'You are offline' }),
+                            { status: 503, headers: { 'Content-Type': 'application/json' } }
+                        );
+                    });
+            })
+        );
+        return;
+    }
+
     // API calls - network first with cache fallback for GET requests
     if (url.pathname.startsWith('/api/')) {
         event.respondWith(

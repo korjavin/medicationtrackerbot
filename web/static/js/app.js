@@ -647,6 +647,11 @@ navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', e
         // Reload data if visible
         loadMeds();
         loadHistory();
+    } else if (event.data.type === 'BOOTSTRAP_UPDATED' && event.data.data) {
+        // Fresh bootstrap data arrived from SW background revalidation
+        applyBootstrapPayload(event.data.data).then(() => {
+            reloadCurrentTab();
+        });
     }
 });
 
