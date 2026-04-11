@@ -50,7 +50,7 @@ Move the diary notes from being a hardcoded section at the bottom of the Health 
 - [x] Run architecture tests — must pass before next task
 
 ### Task 2: Add sub-tab switching logic in JS
-- [ ] In the JS code that handles health tab initialization (likely `app.js` where `loadHealthOverview` and `loadNotes` are called), add `bindTabGroup()` for health tabs:
+- [x] In the JS code that handles health tab initialization (likely `app.js` where `loadHealthOverview` and `loadNotes` are called), add `bindTabGroup()` for health tabs:
   ```js
   bindTabGroup({
       container: document.querySelector('.health-tabs'),
@@ -58,7 +58,7 @@ Move the diary notes from being a hardcoded section at the bottom of the Health 
       onTabSelect: switchHealthTab
   });
   ```
-- [ ] Create `switchHealthTab(tab)` function:
+- [x] Create `switchHealthTab(tab)` function:
   ```js
   function switchHealthTab(tab) {
       const activated = activateTabGroup(tab, {
@@ -71,10 +71,10 @@ Move the diary notes from being a hardcoded section at the bottom of the Health 
       else if (tab === 'notes') { loadNotes(); }
   }
   ```
-- [ ] Update the main tab switch handler: when the Health main tab is selected, call `loadHealthOverview()` only (not `loadNotes()` — notes load lazily when their sub-tab is clicked)
-- [ ] If `loadNotes()` is currently called when health tab activates, remove that call — it should only trigger via the Notes sub-tab
-- [ ] Verify sub-tab state persists when switching away from Health and back (the active sub-tab should remain)
-- [ ] Run architecture tests — must pass before next task
+- [x] Update the main tab switch handler: when the Health main tab is selected, call `loadHealthOverview()` only (not `loadNotes()` — notes load lazily when their sub-tab is clicked)
+- [x] If `loadNotes()` is currently called when health tab activates, remove that call — it should only trigger via the Notes sub-tab
+- [x] Verify sub-tab state persists when switching away from Health and back (the active sub-tab should remain)
+- [x] Run architecture tests — must pass before next task
 
 ### Task 3: Verify acceptance criteria
 - [ ] Verify Health tab shows "Overview" and "Notes" sub-tabs
