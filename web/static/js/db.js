@@ -100,7 +100,7 @@ const BPStore = {
         });
     },
 
-    // Mark reading as having sync error
+    // Mark reading as having sync error (transient — will be retried)
     async markError(localId, errorMessage) {
         await db.bp_readings.update(localId, {
             syncStatus: 'error',
@@ -108,14 +108,27 @@ const BPStore = {
         });
     },
 
-    // Get all pending readings that need to be synced
+    // Mark reading as permanently rejected (4xx — will NOT be retried)
+    async markRejected(localId, errorMessage) {
+        await db.bp_readings.update(localId, {
+            syncStatus: 'rejected',
+            errorMessage
+        });
+    },
+
+    // Get all readings that need to be synced (pending or transient error)
     async getPending() {
         const pending = await db.bp_readings
             .where('syncStatus')
             .equals('pending')
             .toArray();
-        dbLog('BP getPending', { count: pending.length });
-        return pending;
+        const errored = await db.bp_readings
+            .where('syncStatus')
+            .equals('error')
+            .toArray();
+        const all = pending.concat(errored);
+        dbLog('BP getPending', { count: all.length });
+        return all;
     },
 
     // Get all readings (both pending and synced) for display
@@ -182,11 +195,34 @@ const BPStore = {
         await db.bp_readings.clear();
     },
 
-    // Get count of pending items
+    // Get count of items needing sync (pending or previously failed)
     async getPendingCount() {
-        return await db.bp_readings
+        const pending = await db.bp_readings
             .where('syncStatus')
             .equals('pending')
+            .count();
+        const errored = await db.bp_readings
+            .where('syncStatus')
+            .equals('error')
+            .count();
+        return pending + errored;
+    },
+
+    // Get permanently rejected items for display
+    async getRejected() {
+        const items = await db.bp_readings
+            .where('syncStatus')
+            .equals('rejected')
+            .toArray();
+        dbLog('BP getRejected', { count: items.length });
+        return items;
+    },
+
+    // Get count of permanently rejected items
+    async getRejectedCount() {
+        return await db.bp_readings
+            .where('syncStatus')
+            .equals('rejected')
             .count();
     }
 };
@@ -215,7 +251,7 @@ const WeightStore = {
         });
     },
 
-    // Mark log as having sync error
+    // Mark log as having sync error (transient — will be retried)
     async markError(localId, errorMessage) {
         await db.weight_logs.update(localId, {
             syncStatus: 'error',
@@ -223,14 +259,27 @@ const WeightStore = {
         });
     },
 
-    // Get all pending logs that need to be synced
+    // Mark log as permanently rejected (4xx — will NOT be retried)
+    async markRejected(localId, errorMessage) {
+        await db.weight_logs.update(localId, {
+            syncStatus: 'rejected',
+            errorMessage
+        });
+    },
+
+    // Get all logs that need to be synced (pending or transient error)
     async getPending() {
         const pending = await db.weight_logs
             .where('syncStatus')
             .equals('pending')
             .toArray();
-        dbLog('Weight getPending', { count: pending.length });
-        return pending;
+        const errored = await db.weight_logs
+            .where('syncStatus')
+            .equals('error')
+            .toArray();
+        const all = pending.concat(errored);
+        dbLog('Weight getPending', { count: all.length });
+        return all;
     },
 
     // Get all logs (both pending and synced) for display
@@ -297,11 +346,34 @@ const WeightStore = {
         await db.weight_logs.clear();
     },
 
-    // Get count of pending items
+    // Get count of items needing sync (pending or previously failed)
     async getPendingCount() {
-        return await db.weight_logs
+        const pending = await db.weight_logs
             .where('syncStatus')
             .equals('pending')
+            .count();
+        const errored = await db.weight_logs
+            .where('syncStatus')
+            .equals('error')
+            .count();
+        return pending + errored;
+    },
+
+    // Get permanently rejected items for display
+    async getRejected() {
+        const items = await db.weight_logs
+            .where('syncStatus')
+            .equals('rejected')
+            .toArray();
+        dbLog('Weight getRejected', { count: items.length });
+        return items;
+    },
+
+    // Get count of permanently rejected items
+    async getRejectedCount() {
+        return await db.weight_logs
+            .where('syncStatus')
+            .equals('rejected')
             .count();
     },
 
@@ -460,8 +532,13 @@ const IntakeQueueStore = {
             .where('syncStatus')
             .equals('pending')
             .toArray();
-        dbLog('Intake getPending', { count: pending.length });
-        return pending;
+        const errored = await db.intake_queue
+            .where('syncStatus')
+            .equals('error')
+            .toArray();
+        const all = pending.concat(errored);
+        dbLog('Intake getPending', { count: all.length });
+        return all;
     },
 
     async markSynced(localId) {
@@ -475,10 +552,29 @@ const IntakeQueueStore = {
         });
     },
 
+    async markRejected(localId, errorMessage) {
+        await db.intake_queue.update(localId, {
+            syncStatus: 'rejected',
+            errorMessage
+        });
+    },
+
     async getPendingCount() {
-        return await db.intake_queue
+        const pending = await db.intake_queue
             .where('syncStatus')
             .equals('pending')
+            .count();
+        const errored = await db.intake_queue
+            .where('syncStatus')
+            .equals('error')
+            .count();
+        return pending + errored;
+    },
+
+    async getRejectedCount() {
+        return await db.intake_queue
+            .where('syncStatus')
+            .equals('rejected')
             .count();
     },
 

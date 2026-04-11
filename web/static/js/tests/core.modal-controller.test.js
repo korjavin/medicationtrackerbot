@@ -40,27 +40,30 @@ describe('withSubmit', () => {
         }
     });
 
-    it('disables button while asyncFn runs, re-enables after', async () => {
+    it('disables button and sets in-flight attr while asyncFn runs, cleans up after', async () => {
         const { window, cleanup } = loadController();
         try {
             const btn = window.document.createElement('button');
             const states = [];
             await window.withSubmit(btn, async () => {
                 states.push(btn.disabled);
+                states.push(btn.hasAttribute('data-submit-in-flight'));
             });
-            expect(states).toEqual([true]);
+            expect(states).toEqual([true, true]);
             expect(btn.disabled).toBe(false);
+            expect(btn.hasAttribute('data-submit-in-flight')).toBe(false);
         } finally {
             cleanup();
         }
     });
 
-    it('re-enables button even when asyncFn throws', async () => {
+    it('re-enables button and clears in-flight attr even when asyncFn throws', async () => {
         const { window, cleanup } = loadController();
         try {
             const btn = window.document.createElement('button');
             await window.withSubmit(btn, async () => { throw new Error('boom'); }).catch(() => {});
             expect(btn.disabled).toBe(false);
+            expect(btn.hasAttribute('data-submit-in-flight')).toBe(false);
         } finally {
             cleanup();
         }

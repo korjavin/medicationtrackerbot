@@ -1,6 +1,29 @@
 // Sync Layer for Med Tracker
 // Handles online/offline detection and background synchronization
 
+// Detect permanent (non-retriable) sync errors.
+// apiCallDirect attaches the HTTP status code as err.status.
+// 4xx errors (client errors) are generally permanent — retrying won't help.
+// However, 401/403 are auth expiry errors — they resolve after re-login,
+// and 429 is rate limiting — both resolve on their own,
+// so they are treated as transient to avoid stranding offline writes.
+// Network errors and 5xx are transient — retry with backoff.
+function isPermanentSyncError(err) {
+    if (!err) return false;
+    // apiCallDirect sets err.status for HTTP errors
+    if (typeof err.status === 'number') {
+        // 401/403 = auth expired, will succeed after re-login → transient
+        if (err.status === 401 || err.status === 403) return false;
+        // 429 = rate limited by reverse proxy, transient
+        if (err.status === 429) return false;
+        // 408 = request timeout, transient
+        if (err.status === 408) return false;
+        return err.status >= 400 && err.status < 500;
+    }
+    // No status code → network error or internal throw → transient
+    return false;
+}
+
 // Debug logger - visible in Telegram WebApp where console isn't accessible
 const SyncDebug = {
     enabled: true,
@@ -116,6 +139,11 @@ const SyncManager = {
     isOnline: navigator.onLine,
     isSyncing: false,
     statusCallbacks: [],
+    retryDelayMs: 5000,
+    retryTimer: null,
+    retryScheduledAt: null,
+    RETRY_INITIAL_MS: 5000,
+    RETRY_MAX_MS: 300000,
 
     // Initialize sync manager
     init() {
@@ -149,14 +177,49 @@ const SyncManager = {
         }
 
         // Update UI
+        this.updateOfflineBanner(!this.isOnline);
         this.updateStatus();
         SyncDebug.info('SyncManager initialized', { online: this.isOnline });
+    },
+
+    // Cancel any pending retry timer
+    cancelRetry() {
+        if (this.retryTimer) {
+            clearTimeout(this.retryTimer);
+            this.retryTimer = null;
+            this.retryScheduledAt = null;
+            SyncDebug.info('Retry timer cancelled');
+        }
+    },
+
+    // Reset backoff delay to initial value
+    resetBackoff() {
+        this.retryDelayMs = this.RETRY_INITIAL_MS;
+    },
+
+    // Schedule a retry with exponential backoff
+    scheduleRetry() {
+        this.cancelRetry();
+        const delay = this.retryDelayMs;
+        this.retryScheduledAt = Date.now() + delay;
+        SyncDebug.info('Scheduling retry', { delayMs: delay });
+        this.retryTimer = setTimeout(() => {
+            this.retryTimer = null;
+            this.retryScheduledAt = null;
+            this.syncAll();
+        }, delay);
+        // Double the delay for next time, capped at max
+        this.retryDelayMs = Math.min(this.retryDelayMs * 2, this.RETRY_MAX_MS);
+        this.updateStatus();
     },
 
     // Handle coming online
     handleOnline() {
         SyncDebug.info('Network: back online');
         this.isOnline = true;
+        this.cancelRetry();
+        this.resetBackoff();
+        this.updateOfflineBanner(false);
         this.updateStatus();
         this.syncAll();
 
@@ -174,7 +237,86 @@ const SyncManager = {
     handleOffline() {
         SyncDebug.warn('Network: gone offline');
         this.isOnline = false;
+        this.updateOfflineBanner(true);
         this.updateStatus();
+    },
+
+    // Show/hide offline banner and disable unsupported write buttons
+    updateOfflineBanner(offline) {
+        const banner = document.getElementById('offline-banner');
+        if (banner) {
+            if (offline) {
+                banner.classList.remove('hidden');
+            } else {
+                banner.classList.add('hidden');
+            }
+        }
+
+        // Buttons that require online (no offline write support)
+        const offlineUnsupported = [
+            'add-btn',
+            'med-modal-save-btn',
+            'add-food-btn',
+            'notes-save-btn',
+            'start-adhoc-workout-btn',
+            'add-workout-group-btn',
+            'add-exercise-library-btn',
+            'workout-group-save-btn',
+            'variant-save-btn',
+            'exercise-save-btn',
+            'exercise-library-save-btn',
+            'food-modal-save-btn',
+            'food-product-save-btn',
+            'workout-session-save-btn',
+            'workout-session-delete-btn',
+            'workout-session-add-exercise-btn',
+            'session-add-exercise-save-btn'
+        ];
+
+        for (const id of offlineUnsupported) {
+            const btn = document.getElementById(id);
+            if (!btn) continue;
+
+            if (offline) {
+                btn.classList.add('offline-disabled');
+                btn.setAttribute('data-offline-disabled', 'true');
+                btn.disabled = true;
+                // Add tooltip right after the button if not already present
+                if (!btn.nextElementSibling || !btn.nextElementSibling.classList.contains('offline-disabled-tooltip')) {
+                    const tip = document.createElement('span');
+                    tip.className = 'offline-disabled-tooltip';
+                    tip.textContent = 'Available when online';
+                    btn.insertAdjacentElement('afterend', tip);
+                }
+            } else {
+                btn.classList.remove('offline-disabled');
+                btn.removeAttribute('data-offline-disabled');
+                // Don't re-enable buttons that are mid-submit (withSubmit guard)
+                if (!btn.hasAttribute('data-submit-in-flight')) {
+                    btn.disabled = false;
+                }
+                if (btn.nextElementSibling && btn.nextElementSibling.classList.contains('offline-disabled-tooltip')) {
+                    btn.nextElementSibling.remove();
+                }
+            }
+        }
+
+        // Also disable/enable dynamically-created workout action buttons
+        const dynamicBtns = document.querySelectorAll('.workout-action-btn');
+        for (const btn of dynamicBtns) {
+            if (offline) {
+                btn.classList.add('offline-disabled');
+                btn.setAttribute('data-offline-disabled', 'true');
+                btn.disabled = true;
+            } else {
+                btn.classList.remove('offline-disabled');
+                btn.removeAttribute('data-offline-disabled');
+                // Don't re-enable buttons that are mid-submit (withSubmit guard)
+                if (!btn.hasAttribute('data-submit-in-flight')) {
+                    btn.disabled = false;
+                }
+            }
+        }
     },
 
     // Register callback for status updates
@@ -182,7 +324,7 @@ const SyncManager = {
         this.statusCallbacks.push(callback);
     },
 
-    // Update status in UI
+    // Update status in UI. Returns totalPending count.
     async updateStatus() {
         const bpPending = await window.MedTrackerDB.BPStore.getPendingCount();
         const weightPending = await window.MedTrackerDB.WeightStore.getPendingCount();
@@ -190,10 +332,17 @@ const SyncManager = {
             ? await window.MedTrackerDB.IntakeQueueStore.getPendingCount() : 0;
         const totalPending = bpPending + weightPending + intakePending;
 
+        const bpRejected = await window.MedTrackerDB.BPStore.getRejectedCount();
+        const weightRejected = await window.MedTrackerDB.WeightStore.getRejectedCount();
+        const intakeRejected = window.MedTrackerDB.IntakeQueueStore
+            ? await window.MedTrackerDB.IntakeQueueStore.getRejectedCount() : 0;
+        const totalRejected = bpRejected + weightRejected + intakeRejected;
+
         const status = {
             isOnline: this.isOnline,
             isSyncing: this.isSyncing,
             pendingCount: totalPending,
+            rejectedCount: totalRejected,
             bpPending,
             weightPending
         };
@@ -203,6 +352,7 @@ const SyncManager = {
 
         // Update status bar UI
         this.updateStatusBar(status);
+        return totalPending;
     },
 
     // Update the status bar in the UI
@@ -221,9 +371,27 @@ const SyncManager = {
             statusBar.className = 'sync-status-bar syncing cursor-pointer';
             statusBar.innerHTML = '<span class="sync-icon spinning">&#x21BB;</span> Syncing... <span class="sync-hint">(tap for logs)</span>';
             statusBar.style.display = 'flex';
+        } else if (status.pendingCount > 0 && status.rejectedCount > 0) {
+            statusBar.className = 'sync-status-bar error cursor-pointer';
+            let retryInfo = '';
+            if (this.retryScheduledAt) {
+                const secsLeft = Math.max(0, Math.ceil((this.retryScheduledAt - Date.now()) / 1000));
+                retryInfo = ` · retry in ${secsLeft}s`;
+            }
+            statusBar.innerHTML = `<span class="sync-icon">&#x26A0;</span> ${status.rejectedCount} failed, ${status.pendingCount} pending${retryInfo} <span class="sync-hint">(tap for details)</span>`;
+            statusBar.style.display = 'flex';
         } else if (status.pendingCount > 0) {
             statusBar.className = 'sync-status-bar pending cursor-pointer';
-            statusBar.innerHTML = `<span class="sync-icon">&#x23F3;</span> ${status.pendingCount} item${status.pendingCount > 1 ? 's' : ''} pending sync <span class="sync-hint">(tap for logs)</span>`;
+            let retryInfo = '';
+            if (this.retryScheduledAt) {
+                const secsLeft = Math.max(0, Math.ceil((this.retryScheduledAt - Date.now()) / 1000));
+                retryInfo = ` · retry in ${secsLeft}s`;
+            }
+            statusBar.innerHTML = `<span class="sync-icon">&#x23F3;</span> ${status.pendingCount} item${status.pendingCount > 1 ? 's' : ''} pending sync${retryInfo} <span class="sync-hint">(tap for logs)</span>`;
+            statusBar.style.display = 'flex';
+        } else if (status.rejectedCount > 0) {
+            statusBar.className = 'sync-status-bar error cursor-pointer';
+            statusBar.innerHTML = `<span class="sync-icon">&#x26A0;</span> ${status.rejectedCount} item${status.rejectedCount > 1 ? 's' : ''} failed to sync <span class="sync-hint">(tap for details)</span>`;
             statusBar.style.display = 'flex';
         } else {
             // Show a minimal "synced" indicator that can still be tapped for debug
@@ -240,6 +408,9 @@ const SyncManager = {
             return;
         }
 
+        // Cancel any pending retry since we're syncing now
+        this.cancelRetry();
+
         SyncDebug.info('Starting full sync...');
         this.isSyncing = true;
         this.updateStatus();
@@ -255,7 +426,14 @@ const SyncManager = {
             SyncDebug.error('Error during sync', { error: err.message });
         } finally {
             this.isSyncing = false;
-            this.updateStatus();
+            const totalPending = await this.updateStatus();
+
+            if (totalPending > 0 && this.isOnline) {
+                SyncDebug.info('Pending items remain after sync, scheduling retry', { pending: totalPending });
+                this.scheduleRetry();
+            } else if (totalPending === 0) {
+                this.resetBackoff();
+            }
         }
     },
 
@@ -299,7 +477,12 @@ const SyncManager = {
                 }
             } catch (err) {
                 SyncDebug.error(`BP sync failed for ${reading.localId}`, { error: err.message });
-                await window.MedTrackerDB.BPStore.markError(reading.localId, err.message);
+                if (isPermanentSyncError(err)) {
+                    SyncDebug.warn(`BP ${reading.localId} rejected permanently`, { error: err.message });
+                    await window.MedTrackerDB.BPStore.markRejected(reading.localId, err.message);
+                } else {
+                    await window.MedTrackerDB.BPStore.markError(reading.localId, err.message);
+                }
             }
         }
 
@@ -342,7 +525,12 @@ const SyncManager = {
                 }
             } catch (err) {
                 SyncDebug.error(`Weight sync failed for ${log.localId}`, { error: err.message });
-                await window.MedTrackerDB.WeightStore.markError(log.localId, err.message);
+                if (isPermanentSyncError(err)) {
+                    SyncDebug.warn(`Weight ${log.localId} rejected permanently`, { error: err.message });
+                    await window.MedTrackerDB.WeightStore.markRejected(log.localId, err.message);
+                } else {
+                    await window.MedTrackerDB.WeightStore.markError(log.localId, err.message);
+                }
             }
         }
 
@@ -382,7 +570,12 @@ const SyncManager = {
                 }
             } catch (err) {
                 SyncDebug.error(`Intake sync failed for ${entry.localId}`, { error: err.message });
-                await window.MedTrackerDB.IntakeQueueStore.markError(entry.localId, err.message);
+                if (isPermanentSyncError(err)) {
+                    SyncDebug.warn(`Intake ${entry.localId} rejected permanently`, { error: err.message });
+                    await window.MedTrackerDB.IntakeQueueStore.markRejected(entry.localId, err.message);
+                } else {
+                    await window.MedTrackerDB.IntakeQueueStore.markError(entry.localId, err.message);
+                }
             }
         }
 
@@ -446,10 +639,9 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
         if (endpoint === '/api/medications/confirm-schedule' && method === 'POST') {
             return await handleOfflineIntakeWrite(body);
         }
-        // Other endpoints don't support offline writes - silently fail
-        // The calling code will handle the null return appropriately
+        // Other endpoints don't support offline writes — throw so apiCall shows an alert
         SyncDebug.warn('Endpoint does not support offline writes', { endpoint });
-        return null;
+        throw new Error('This action requires an internet connection');
     }
 
     // Try the network request
@@ -517,7 +709,7 @@ async function handleOfflineBPWrite(body) {
     SyncManager.registerBackgroundSync('sync-bp-readings');
 
     // Show toast
-    SyncManager.showToast('Saved offline - will sync when online', 'info');
+    SyncManager.showToast('BP reading saved locally — will sync when online', 'info');
 
     // Update status
     SyncManager.updateStatus();
@@ -542,7 +734,7 @@ async function handleOfflineWeightWrite(body) {
     SyncManager.registerBackgroundSync('sync-weight-logs');
 
     // Show toast
-    SyncManager.showToast('Saved offline - will sync when online', 'info');
+    SyncManager.showToast('Weight saved locally — will sync when online', 'info');
 
     // Update status
     SyncManager.updateStatus();
@@ -556,23 +748,25 @@ async function handleOfflineWeightWrite(body) {
     };
 }
 
-// Handle offline BP read
+// Handle offline BP read — return pending/rejected local writes.
+// Server-synced data is served by the SW dynamic cache; IndexedDB only holds
+// records created offline that haven't been synced yet.
 async function handleOfflineBPRead(endpoint) {
     const readings = await window.MedTrackerDB.BPStore.getAll();
     return readings.map(r => ({
         id: r.serverId || `local_${r.localId}`,
         ...r,
-        isLocal: r.syncStatus !== 'synced'
+        isLocal: !r.serverId
     }));
 }
 
-// Handle offline weight read
+// Handle offline weight read — return pending/rejected local writes.
 async function handleOfflineWeightRead(endpoint) {
     const logs = await window.MedTrackerDB.WeightStore.getAll();
     return logs.map(l => ({
         id: l.serverId || `local_${l.localId}`,
         ...l,
-        isLocal: l.syncStatus !== 'synced'
+        isLocal: !l.serverId
     }));
 }
 
@@ -637,7 +831,7 @@ async function handleOfflineIntakeWrite(body) {
     SyncManager.registerBackgroundSync('sync-intake-logs');
 
     // Show toast
-    SyncManager.showToast('Intake saved offline - will sync when online', 'info');
+    SyncManager.showToast('Medication confirmed locally — will sync when online', 'info');
 
     // Update status
     SyncManager.updateStatus();
@@ -652,17 +846,23 @@ async function handleOfflineIntakeWrite(body) {
 
 // Check if error is a network error or server unavailable
 function isNetworkError(err) {
+    if (!err) return false;
+    // All fetch API network failures are TypeErrors; when the browser
+    // reports offline, treat any TypeError as a network error regardless
+    // of the message text (different browsers/WebViews use different wording).
+    if (err instanceof TypeError && !navigator.onLine) return true;
+    const msg = err.message || '';
     return (
-        err instanceof TypeError && err.message.includes('fetch') ||
-        err.message === 'Network request failed' ||
-        err.message === 'Failed to fetch' ||
-        err.name === 'TypeError' && !navigator.onLine ||
+        (err instanceof TypeError && msg.includes('fetch')) ||
+        msg === 'Network request failed' ||
+        msg === 'Failed to fetch' ||
         isServerError(err)
     );
 }
 
 // Check if error indicates server is down (5xx from reverse proxy)
 function isServerError(err) {
+    if (typeof err.status === 'number' && err.status >= 500) return true;
     const msg = err.message || '';
     return (
         msg.includes('Bad Gateway') ||

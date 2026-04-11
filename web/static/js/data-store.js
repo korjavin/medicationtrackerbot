@@ -120,7 +120,7 @@
                 if (onError) {
                     await onError(error, cached);
                 } else {
-                    throw error;
+                    console.warn(`[DataStore] loadSWR fetch failed for key="${key}", using cached data`, error);
                 }
                 return { cached, fresh: null, error };
             }

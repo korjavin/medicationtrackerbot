@@ -80,11 +80,14 @@ async function loadBPReadings() {
         key: 'bp',
         tags: ['bp'],
         fetcher: async () => {
-            const [readingsRes, goalRes, statsRes] = await Promise.all([
+            const [readingsResult, goalResult, statsResult] = await Promise.allSettled([
                 apiCall('/api/bp?days=60'),
                 apiCall('/api/bp/goal'),
                 apiCall('/api/bp/stats')
             ]);
+            const readingsRes = readingsResult.status === 'fulfilled' ? readingsResult.value : null;
+            const goalRes = goalResult.status === 'fulfilled' ? goalResult.value : null;
+            const statsRes = statsResult.status === 'fulfilled' ? statsResult.value : null;
             if (readingsRes === null) return null;
             return { readingsRes, goalRes, statsRes };
         },
@@ -97,7 +100,7 @@ async function loadBPReadings() {
         onError: async (e, cached) => {
             console.error('Failed to load BP data:', e);
             if (!cached) {
-                list.replaceChildren(createEmptyState('Failed to load readings'));
+                list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
             }
         }
     });
@@ -123,14 +126,29 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
                 notes: r.notes,
                 isLocal: true
             }));
-            allReadings = [...pendingFormatted, ...allReadings];
+            const rejectedReadings = await window.MedTrackerDB.BPStore.getRejected();
+            const rejectedFormatted = rejectedReadings.map(r => ({
+                id: `local_${r.localId}`,
+                localId: r.localId,
+                measured_at: r.measured_at,
+                systolic: r.systolic,
+                diastolic: r.diastolic,
+                pulse: r.pulse,
+                site: r.site,
+                position: r.position,
+                notes: r.notes,
+                isLocal: true,
+                isRejected: true,
+                errorMessage: r.errorMessage
+            }));
+            allReadings = [...pendingFormatted, ...rejectedFormatted, ...allReadings];
         } catch (e) {
             console.error('Failed to get pending BP readings:', e);
         }
     }
 
     if (allReadings.length === 0 && readingsRes === null) {
-        list.replaceChildren(createEmptyState('Failed to load readings'));
+        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
 
         return;
     }
@@ -522,7 +540,9 @@ function renderBPReadings(readings) {
             values.appendChild(sys);
             values.appendChild(dia);
 
-            if (r.isLocal) {
+            if (r.isRejected) {
+                values.appendChild(createSyncRejectedBadge(r.errorMessage));
+            } else if (r.isLocal) {
                 values.appendChild(createSyncBadge());
             }
 

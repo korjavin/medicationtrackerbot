@@ -9,7 +9,11 @@ async function apiCallDirect(endpoint, method = "GET", body = null) {
     if (body) headers["Content-Type"] = "application/json";
 
     const res = await fetch(endpoint, { method, headers, body: body ? JSON.stringify(body) : null });
-    if (res.status === 401 || res.status === 403) { throw new Error("Unauthorized"); }
+    if (res.status === 401 || res.status === 403) {
+        const err = new Error("Unauthorized");
+        err.status = res.status;
+        throw err;
+    }
 
     if (!res.ok) {
         const txt = await res.text();
@@ -24,7 +28,9 @@ async function apiCallDirect(endpoint, method = "GET", body = null) {
                 if (e.message === 'Network request failed') throw e;
             }
         }
-        const err = new Error(txt); err.status = res.status; throw err;
+        const err = new Error(txt || 'Service Unavailable');
+        err.status = res.status;
+        throw err;
     }
     let result;
     if (res.status === 204 || method === "DELETE") {

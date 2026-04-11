@@ -603,10 +603,12 @@ async function loadWeightLogs() {
         key: 'weight',
         tags: ['weight'],
         fetcher: async () => {
-            const [logsRes, goalRes] = await Promise.all([
+            const [logsResult, goalResult] = await Promise.allSettled([
                 apiCall('/api/weight?days=35'),
                 apiCall('/api/weight/goal')
             ]);
+            const logsRes = logsResult.status === 'fulfilled' ? logsResult.value : null;
+            const goalRes = goalResult.status === 'fulfilled' ? goalResult.value : null;
             if (logsRes === null) return null;
             return { logsRes, goalRes };
         },
@@ -619,7 +621,7 @@ async function loadWeightLogs() {
         onError: async (e, cached) => {
             console.error('Failed to load weight data:', e);
             if (!cached) {
-                list.replaceChildren(createEmptyState('Failed to load weight logs'));
+                list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
             }
         }
     });
@@ -641,14 +643,25 @@ async function _renderWeightData(logsRes, goalRes) {
                 notes: l.notes,
                 isLocal: true
             }));
-            allLogs = [...pendingFormatted, ...allLogs];
+            const rejectedLogs = await window.MedTrackerDB.WeightStore.getRejected();
+            const rejectedFormatted = rejectedLogs.map(l => ({
+                id: `local_${l.localId}`,
+                localId: l.localId,
+                measured_at: l.measured_at,
+                weight: l.weight,
+                notes: l.notes,
+                isLocal: true,
+                isRejected: true,
+                errorMessage: l.errorMessage
+            }));
+            allLogs = [...pendingFormatted, ...rejectedFormatted, ...allLogs];
         } catch (e) {
             console.error('Failed to get pending weight logs:', e);
         }
     }
 
     if (allLogs.length === 0 && logsRes === null) {
-        list.replaceChildren(createEmptyState('Failed to load weight logs'));
+        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
 
         return;
     }
@@ -687,7 +700,9 @@ function renderWeightLogs(logs) {
         const value = document.createElement('div');
         value.className = 'weight-value';
         value.appendChild(document.createTextNode(`${w.weight.toFixed(1)} kg `));
-        if (w.isLocal) {
+        if (w.isRejected) {
+            value.appendChild(createSyncRejectedBadge(w.errorMessage));
+        } else if (w.isLocal) {
             value.appendChild(createSyncBadge());
         }
 

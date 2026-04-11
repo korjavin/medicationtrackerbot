@@ -66,12 +66,14 @@ describe('sync.js fallback branch coverage', () => {
       window.SyncManager.isOnline = true;
       window.apiCallDirect = vi.fn().mockRejectedValue(new Error('502 Bad Gateway'));
       window.MedTrackerDB.BPStore.getAll = vi.fn().mockResolvedValue([
-        { localId: 3, serverId: null, systolic: 150, syncStatus: 'pending' }
+        { localId: 3, serverId: null, systolic: 150, syncStatus: 'pending' },
+        { localId: 5, serverId: 55, systolic: 130, syncStatus: 'synced' }
       ]);
 
       const result = await window.offlineAwareApiCall('/api/bp?days=7', 'GET');
 
       expect(window.MedTrackerDB.BPStore.getAll).toHaveBeenCalledTimes(1);
+      // All local records returned — pending writes + any with server IDs
       expect(result).toEqual([
         {
           id: 'local_3',
@@ -80,6 +82,14 @@ describe('sync.js fallback branch coverage', () => {
           systolic: 150,
           syncStatus: 'pending',
           isLocal: true
+        },
+        {
+          id: 55,
+          localId: 5,
+          serverId: 55,
+          systolic: 130,
+          syncStatus: 'synced',
+          isLocal: false
         }
       ]);
     } finally {

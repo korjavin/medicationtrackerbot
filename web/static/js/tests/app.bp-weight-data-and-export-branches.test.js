@@ -36,7 +36,7 @@ describe('app.js BP/weight data and export branch coverage', () => {
       });
 
       await window.loadBPReadings();
-      expect(document.getElementById('bp-list').innerHTML).toContain('Failed to load readings');
+      expect(document.getElementById('bp-list').innerHTML).toContain('No cached data');
 
       const renderSpy = vi.spyOn(window, '_renderBPData').mockResolvedValue(undefined);
       window.apiCall = vi.fn(async (endpoint) => {
@@ -155,7 +155,7 @@ describe('app.js BP/weight data and export branch coverage', () => {
       });
 
       await window.loadWeightLogs();
-      expect(document.getElementById('weight-list').innerHTML).toContain('Failed to load weight logs');
+      expect(document.getElementById('weight-list').innerHTML).toContain('No cached data');
 
       const renderWeightSpy = vi.spyOn(window, '_renderWeightData').mockResolvedValue(undefined);
       window.apiCall = vi.fn(async (endpoint) => {
@@ -177,7 +177,8 @@ describe('app.js BP/weight data and export branch coverage', () => {
         WeightStore: {
           getPending: vi.fn().mockResolvedValue([
             { localId: 55, measured_at: isoWithOffsetHours(-2), weight: 81.2, notes: 'pending note' }
-          ])
+          ]),
+          getRejected: vi.fn().mockResolvedValue([])
         }
       };
       await window._renderWeightData(
@@ -189,7 +190,7 @@ describe('app.js BP/weight data and export branch coverage', () => {
 
       window.MedTrackerDB = null;
       await window._renderWeightData(null, {});
-      expect(document.getElementById('weight-list').innerHTML).toContain('Failed to load weight logs');
+      expect(document.getElementById('weight-list').innerHTML).toContain('No cached data');
 
       const manyLogs = Array.from({ length: 31 }, (_, i) => ({
         id: i + 1,

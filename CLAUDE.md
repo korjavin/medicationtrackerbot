@@ -111,6 +111,11 @@ User
 - Local First architecture with four layers: Service Worker → IndexedDB → SyncManager → SWR DataStore
 - Offline writes supported for BP, weight, and medication confirmations
 - Stale-While-Revalidate caching with tag-based invalidation via polling (`/api/changes`)
+- SW precaches all static assets (~25 JS files, CSS, vendor libs, icons, manifest) — full offline app shell
+- `/api/bootstrap` uses stale-while-revalidate in SW: cached response served instantly, background revalidation notifies clients via `postMessage({ type: 'BOOTSTRAP_UPDATED' })`
+- `checkAuth()` is non-blocking: uses SW-cached bootstrap for instant render, validates auth in background
+- Exponential backoff retry for offline sync queue (5s → 10s → ... → 300s cap, resets on success)
+- Offline UI: slim banner ("Offline — showing cached data"), disabled buttons for unsupported writes, "(saved locally)" confirmations for offline-capable writes
 - Telegram WebApp JS SDK for theme integration
 
 ### Database Schema
@@ -348,13 +353,16 @@ MCP_AUDIT_SECRET=secure-shared-secret
 ### Web Frontend Integration
 - Frontend uses `window.Telegram.WebApp.initData` for auth
 - Theme adapts to Telegram theme params via CSS variables
-- Service worker (`sw.js`) for PWA and offline support
+- Service worker (`sw.js`) for PWA, offline support, and instant app startup
+- SW precache strategy: all static assets listed in `STATIC_ASSETS` array, validated by architecture test (`architecture.sw-precache.test.js`). `/api/bootstrap` uses stale-while-revalidate; all other API GETs use network-first with cache fallback.
 - Cache busting via timestamp replacement in Dockerfile
 - Local First: `offlineAwareApiCall()` in `sync.js` is the main entry point for all API calls
-- SWR caching: `loadSWR()` in `data-store.js` returns cached data immediately, refreshes in background
+- SWR caching: `loadSWR()` in `data-store.js` returns cached data immediately, refreshes in background. On fetch failure with no `onError` handler, defaults to rendering cached data with a console warning.
 - Change detection: polls `/api/changes?since=` every 30s (SSE disabled due to HTTP/2 proxy issues)
 - IndexedDB (`db.js`): write-ahead queue for offline writes + generic `api_cache` for SWR
 - Treat HTTP 502/503/504 as "offline" — `navigator.onLine` stays true behind reverse proxies
+- Auth state cache (`features/auth-flow.js`): localStorage-based UX cache (30-day TTL) allows non-blocking `checkAuth()` for non-Telegram auth paths. Not a security mechanism — real auth uses HttpOnly cookies.
+- Offline sync retry: `SyncManager` in `sync.js` retries failed syncs with exponential backoff (5s base, 300s cap). Resets on success or `online` event. Status bar shows retry countdown.
 - **Tab Reordering:** Drag-and-drop functionality in `tabs-dnd.js` allows custom tab layouts, persisted via `tab_order` in the bootstrap payload and cached in `settings_bundle`.
 - **Tab Icons:** Inline SVGs (stroke-based, `currentColor`) replace emoji icons. All tab buttons have `aria-label` attributes.
 
@@ -574,6 +582,7 @@ If you want to use this pattern for a new component:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/changes` | Change events since cursor (for cache invalidation) |
+| GET | `/auth/status` | Check if session is authenticated (returns `{"authenticated": bool}`) |
 | GET | `/api/settings` | User settings (returns `{"timezone": "..."}`) |
 | POST | `/api/settings` | Update settings (accepts optional `timezone` IANA name; returns 400 for invalid values) |
 | POST | `/api/push/subscribe` | Register push subscription |
