@@ -419,16 +419,17 @@ The frontend uses a multi-file vanilla JS architecture. Each script is loaded in
 6. `core/app-kernel.js` — no deps; provides `window.AppKernel` module registry
 7. `core/store.js` — no deps; provides `window.AppStore` pub/sub state
 8. `core/modal-controller.js` — no deps; provides `withSubmit` double-submit guard
-9. `db.js` — must load before sync.js; sets up Dexie/IndexedDB stores (`window.MedTrackerDB`)
-10. `sync.js` — depends on `db.js`; provides `offlineAwareApiCall` and `SyncManager`
-11. `data-store.js` — depends on `window.MedTrackerDB` (db.js) for cache storage; uses `window.apiCallDirect` (core/api.js) lazily at change-poll time
-12. `app.js` — depends on `DataStore`, `ModalManager`, `apiCall`; defines domain UI and `checkAuth`
-13. `features/food.js`, `features/bp.js`, `features/weight.js` — domain feature modules extracted from app.js
-14. `features/auth-flow.js` — provides auth-cache helpers called by `checkAuth()` in app.js
-15. `features/modal-history.js` — sets up MutationObserver before DOMContentLoaded
-16. `features/deeplink-router.js` — registers `window.handleDeepLinks`
-17. `workout.js`, `push.js`, `app-shell.js` — feature extensions
-18. `features/bootstrap.js` — **must be last**; runs `checkAuth()` to start the app, then calls `maybeUpdateTimezone()` which detects the browser timezone via `Intl.DateTimeFormat`, compares against the stored value from the `settings_bundle` cache, and prompts the user to confirm a change. Best-effort — errors are swallowed so they never block app startup.
+9. `core/chart-utils.js` — no deps; provides `window.ChartUtils` (splines, gradients, animations)
+10. `db.js` — must load before sync.js; sets up Dexie/IndexedDB stores (`window.MedTrackerDB`)
+11. `sync.js` — depends on `db.js`; provides `offlineAwareApiCall` and `SyncManager`
+12. `data-store.js` — depends on `window.MedTrackerDB` (db.js) for cache storage; uses `window.apiCallDirect` (core/api.js) lazily at change-poll time
+13. `app.js` — depends on `DataStore`, `ModalManager`, `apiCall`; defines domain UI and `checkAuth`
+14. `features/food.js`, `features/bp.js`, `features/weight.js` — domain feature modules extracted from app.js
+15. `features/auth-flow.js` — provides auth-cache helpers called by `checkAuth()` in app.js
+16. `features/modal-history.js` — sets up MutationObserver before DOMContentLoaded
+17. `features/deeplink-router.js` — registers `window.handleDeepLinks`
+18. `workout.js`, `push.js`, `app-shell.js` — feature extensions
+19. `features/bootstrap.js` — **must be last**; runs `checkAuth()` to start the app, then calls `maybeUpdateTimezone()` which detects the browser timezone via `Intl.DateTimeFormat`, compares against the stored value from the `settings_bundle` cache, and prompts the user to confirm a change. Best-effort — errors are swallowed so they never block app startup.
 
 #### Global Namespace Policy
 
@@ -438,6 +439,7 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 |--------|--------|-------------|
 | `window.AppKernel` | `core/app-kernel.js` | module registry |
 | `window.AppStore` | `core/store.js` | app.js, feature modules |
+| `window.ChartUtils` | `core/chart-utils.js` | bp.js, weight.js, health.js |
 | `window.ModalManager` | `core/modal-manager.js` | app.js |
 | `window.apiCallDirect` | `core/api.js` | data-store.js (change polling) |
 | `window.userInitData` | `app.js` | feature files (bp.js, weight.js) |
