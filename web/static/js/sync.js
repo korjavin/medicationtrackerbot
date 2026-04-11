@@ -864,6 +864,7 @@ function isNetworkError(err) {
 
 // Check if error indicates server is down (5xx from reverse proxy)
 function isServerError(err) {
+    if (typeof err.status === 'number' && err.status >= 500) return true;
     const msg = err.message || '';
     return (
         msg.includes('Bad Gateway') ||
