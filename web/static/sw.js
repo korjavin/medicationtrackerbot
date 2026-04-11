@@ -8,14 +8,44 @@ const APP_SHELL_CACHE_KEY = '/__app_shell__';
 const STATIC_ASSETS = [
     '/',
     '/static/css/styles.css',
-    '/static/js/app.js',
-    '/static/js/workout.js',
+    // Core modules
+    '/static/js/core/utils.js',
+    '/static/js/core/api.js',
+    '/static/js/core/app-kernel.js',
+    '/static/js/core/store.js',
+    '/static/js/core/modal-manager.js',
+    '/static/js/core/modal-controller.js',
+    '/static/js/core/chart-utils.js',
+    // Components
+    '/static/js/components/mt-elements.js',
+    '/static/js/components/empty-state.js',
+    '/static/js/components/stat-card.js',
+    '/static/js/components/action-row.js',
+    // Infrastructure
     '/static/js/db.js',
     '/static/js/sync.js',
     '/static/js/data-store.js',
+    '/static/js/app.js',
+    '/static/js/workout.js',
     '/static/js/push.js',
+    '/static/js/app-shell.js',
+    // Features
+    '/static/js/features/food.js',
+    '/static/js/features/bp.js',
+    '/static/js/features/weight.js',
+    '/static/js/features/health.js',
+    '/static/js/features/settings.js',
+    '/static/js/features/auth-flow.js',
+    '/static/js/features/modal-history.js',
+    '/static/js/features/deeplink-router.js',
+    '/static/js/features/tabs-dnd.js',
+    '/static/js/features/bootstrap.js',
+    // Config
+    '/static/config.js',
+    // Vendor
     '/static/vendor/dexie.min.js',
     '/static/vendor/zxing.min.js',
+    // Icons & manifest
     '/static/icons/icon-192.png',
     '/static/icons/icon-512.png',
     '/static/icons/favicon.ico',
@@ -165,8 +195,9 @@ self.addEventListener('fetch', (event) => {
     }
 
     // Static assets - cache first, then network
+    // Use ignoreSearch so precached assets (no query string) match versioned requests (?v=...)
     event.respondWith(
-        caches.match(event.request)
+        caches.match(event.request, { ignoreSearch: true })
             .then((cachedResponse) => {
                 if (cachedResponse) {
                     // Return cached version, but also update cache in background
