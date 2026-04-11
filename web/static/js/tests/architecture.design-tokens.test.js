@@ -846,6 +846,93 @@ describe('Architecture – design tokens', () => {
         }
     });
 
+    it('tab buttons use inline SVG icons instead of emoji', () => {
+        const htmlPath = path.join(REPO_ROOT, 'web/static/index.html');
+        const html = fs.readFileSync(htmlPath, 'utf8');
+
+        // All 7 tab buttons should contain an <svg> element
+        const tabButtons = html.match(/<button\s+class="tab[^"]*"\s+data-tab="[^"]*"[^>]*>[\s\S]*?<\/button>/g);
+        expect(tabButtons).not.toBeNull();
+        expect(tabButtons.length).toBe(7);
+
+        const tabsWithoutSvg = [];
+        const tabsWithoutAriaLabel = [];
+
+        for (const btn of tabButtons) {
+            const tabMatch = btn.match(/data-tab="([^"]+)"/);
+            const tabName = tabMatch ? tabMatch[1] : 'unknown';
+
+            if (!/<svg[\s>]/.test(btn)) {
+                tabsWithoutSvg.push(tabName);
+            }
+            if (!/aria-label="[^"]+"/.test(btn)) {
+                tabsWithoutAriaLabel.push(tabName);
+            }
+        }
+
+        if (tabsWithoutSvg.length > 0) {
+            throw new Error(
+                `Tab buttons missing SVG icons (still using emoji?):\n` +
+                tabsWithoutSvg.map(t => `  • ${t}`).join('\n')
+            );
+        }
+        if (tabsWithoutAriaLabel.length > 0) {
+            throw new Error(
+                `Tab buttons missing aria-label attributes:\n` +
+                tabsWithoutAriaLabel.map(t => `  • ${t}`).join('\n')
+            );
+        }
+    });
+
+    it('viewport meta tag does not contain user-scalable=no', () => {
+        const htmlPath = path.join(REPO_ROOT, 'web/static/index.html');
+        const html = fs.readFileSync(htmlPath, 'utf8');
+
+        const viewportMatch = html.match(/<meta\s+name="viewport"\s+content="([^"]+)"/);
+        expect(viewportMatch).not.toBeNull();
+
+        if (viewportMatch[1].includes('user-scalable=no')) {
+            throw new Error(
+                'viewport meta tag still contains user-scalable=no — remove it for accessibility'
+            );
+        }
+    });
+
+    it('tab SVG icons use currentColor for theme integration', () => {
+        const htmlPath = path.join(REPO_ROOT, 'web/static/index.html');
+        const html = fs.readFileSync(htmlPath, 'utf8');
+
+        const svgsInTabs = html.match(/<button\s+class="tab[^"]*"[^>]*>[\s\S]*?<svg[\s\S]*?<\/svg>/g);
+        expect(svgsInTabs).not.toBeNull();
+
+        const violations = [];
+        for (const svg of svgsInTabs) {
+            const tabMatch = svg.match(/data-tab="([^"]+)"/);
+            const tabName = tabMatch ? tabMatch[1] : 'unknown';
+
+            if (!/stroke="currentColor"/.test(svg)) {
+                violations.push(tabName);
+            }
+        }
+
+        if (violations.length > 0) {
+            throw new Error(
+                `Tab SVG icons not using stroke="currentColor" (won't inherit theme colors):\n` +
+                violations.map(t => `  • ${t}`).join('\n')
+            );
+        }
+    });
+
+    it('.tab svg CSS rules are defined in styles.css', () => {
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+
+        if (!/\.tab\s+svg\s*\{/.test(css)) {
+            throw new Error(
+                'Missing .tab svg CSS rule in styles.css — SVG icons need size and display styling'
+            );
+        }
+    });
+
     it('Telegram theme mirrors are preserved in :root', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
         const rootBlock = extractRootBlock(css);
