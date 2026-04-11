@@ -270,7 +270,11 @@ func (s *Server) fetchStepsSection(ctx context.Context, userID int64, startDate,
 	totalSteps := 0
 	for _, st := range stats {
 		t, err := time.Parse("2006-01-02", st.Day)
-		if err == nil && t.After(endDate) {
+		if err != nil {
+			slog.Warn("[MCP] FitnessAnalysis: skipping step entry with invalid date", "day", st.Day, "error", err)
+			continue
+		}
+		if t.After(endDate) {
 			continue
 		}
 		results = append(results, StepHistoryResult{
@@ -296,7 +300,10 @@ func (s *Server) fetchStepsSection(ctx context.Context, userID int64, startDate,
 func (s *Server) fetchNutritionSection(ctx context.Context, userID int64, startDate, endDate time.Time) *NutritionSection {
 	// Aggregate food logs by day, returning only totals (no food names for privacy)
 	// Fetch all logs in one query instead of day-by-day
-	totalDays := int(endDate.Sub(startDate).Hours()/24) + 1
+	// Use calendar-day arithmetic to avoid DST off-by-one errors
+	startDay := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, startDate.Location())
+	endDay := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 0, 0, 0, 0, endDate.Location())
+	totalDays := int(endDay.Sub(startDay).Hours()/24) + 1
 	allLogs, err := s.data.GetFoodLogs(ctx, userID, endDate, totalDays)
 	if err != nil {
 		slog.Warn("[MCP] FitnessAnalysis: failed to fetch food logs", "error", err)

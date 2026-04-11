@@ -843,7 +843,10 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 	var results []FoodIntakeResult
 
 	// Fetch all food logs in a single query instead of day-by-day
-	totalDays := int(endDate.Sub(startDate).Hours()/24) + 1
+	// Use calendar-day arithmetic to avoid DST off-by-one errors
+	startDay := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, startDate.Location())
+	endDay := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 0, 0, 0, 0, endDate.Location())
+	totalDays := int(endDay.Sub(startDay).Hours()/24) + 1
 	logs, err := s.data.GetFoodLogs(ctx, userID, endDate, totalDays)
 	if err != nil {
 		return nil, FoodIntakeResponse{}, fmt.Errorf("failed to fetch food logs: %w", err)
@@ -1049,7 +1052,11 @@ func (s *Server) handleGetStepHistory(ctx context.Context, req *mcp.CallToolRequ
 	var results []StepHistoryResult
 	for _, l := range logs {
 		t, err := time.Parse("2006-01-02", l.Day)
-		if err == nil && t.After(endDate) {
+		if err != nil {
+			slog.Warn("[MCP] skipping step entry with invalid date", "day", l.Day, "error", err)
+			continue
+		}
+		if t.After(endDate) {
 			continue
 		}
 
