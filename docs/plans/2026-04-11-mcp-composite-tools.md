@@ -123,9 +123,9 @@ All 13 existing tools remain for backward compatibility and granular queries.
 - [x] Run `go vet ./...`
 
 ### Task 6: [Final] Update documentation
-- [ ] Update CLAUDE.md MCP section with new composite tools
-- [ ] Update `.env.mcp.example` if any new config needed
-- [ ] Update MCP tool list in README if applicable
+- [x] Update CLAUDE.md MCP section with new composite tools
+- [x] Update `.env.mcp.example` if any new config needed
+- [x] Update MCP tool list in README if applicable
 
 ## Technical Details
 
