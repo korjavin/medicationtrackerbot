@@ -362,7 +362,7 @@ Key rules:
 - **Button system**: `.btn` base + `.btn-primary`/`.btn-secondary`/`.btn-danger` variants + `.btn-sm`/`.btn-lg` sizes + `.btn-pill`/`.btn-icon` shapes.
 - **Spacing/radius/shadow/typography/z-index** all use tokens (`--space-*`, `--radius-*`, `--shadow-*`, `--font-size-*`, `--z-*`).
 - **Utility classes** available: `.flex-row`, `.flex-between`, `.flex-center`, `.text-hint`, `.text-center`, `.hidden`, `.empty-state`, spacing helpers (`.mt-sm`, `.mb-md`, etc.).
-- Architecture tests in `tests/architecture.design-tokens.test.js` enforce token usage.
+- Architecture tests in `web/static/js/tests/architecture.design-tokens.test.js` enforce token usage.
 
 #### Data Flow Diagrams
 

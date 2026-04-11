@@ -215,20 +215,20 @@ const SyncManager = {
         statusBar.classList.add('cursor-pointer');
 
         if (!status.isOnline) {
-            statusBar.className = 'sync-status-bar offline';
+            statusBar.className = 'sync-status-bar offline cursor-pointer';
             statusBar.innerHTML = '<span class="sync-icon">&#x1F4F4;</span> Offline - changes saved locally <span style="font-size:10px;opacity:0.7">(tap for logs)</span>';
             statusBar.style.display = 'flex';
         } else if (status.isSyncing) {
-            statusBar.className = 'sync-status-bar syncing';
+            statusBar.className = 'sync-status-bar syncing cursor-pointer';
             statusBar.innerHTML = '<span class="sync-icon spinning">&#x21BB;</span> Syncing... <span style="font-size:10px;opacity:0.7">(tap for logs)</span>';
             statusBar.style.display = 'flex';
         } else if (status.pendingCount > 0) {
-            statusBar.className = 'sync-status-bar pending';
+            statusBar.className = 'sync-status-bar pending cursor-pointer';
             statusBar.innerHTML = `<span class="sync-icon">&#x23F3;</span> ${status.pendingCount} item${status.pendingCount > 1 ? 's' : ''} pending sync <span style="font-size:10px;opacity:0.7">(tap for logs)</span>`;
             statusBar.style.display = 'flex';
         } else {
             // Show a minimal "synced" indicator that can still be tapped for debug
-            statusBar.className = 'sync-status-bar synced';
+            statusBar.className = 'sync-status-bar synced cursor-pointer';
             statusBar.innerHTML = '<span style="font-size:10px;opacity:0.5">&#x2705; Synced (tap for debug)</span>';
             statusBar.style.display = 'flex';
         }
