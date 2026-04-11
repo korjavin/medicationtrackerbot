@@ -48,19 +48,19 @@ Polish all SVG charts (BP, Weight, Health vitals/sleep/steps) with gradient fill
 ## Implementation Steps
 
 ### Task 1: Extract shared chart utilities to core/chart-utils.js
-- [ ] Create `web/static/js/core/chart-utils.js` with module comment header
-- [ ] Move `catmullRomSpline(points, segments)` from `weight.js:196-226` into chart-utils.js as `window.ChartUtils.catmullRomSpline`
-- [ ] Move `calculateYAxisTicks(yMin, yMax)` from `weight.js:228-260` into chart-utils.js
-- [ ] Add `ChartUtils.createGradient(svgNs, svg, id, color, opacity)` — creates `<linearGradient>` with top stop at given opacity and bottom stop at 0
-- [ ] Add `ChartUtils.animateLine(pathElement)` — measures `getTotalLength()`, sets `stroke-dasharray`/`stroke-dashoffset`, triggers draw animation
-- [ ] Add `ChartUtils.createLastValueDot(svgNs, svg, cx, cy, color)` — creates larger circle (r=6) with pulse animation class
-- [ ] Update `weight.js` to call `window.ChartUtils.catmullRomSpline` and `window.ChartUtils.calculateYAxisTicks` instead of local functions
-- [ ] Add `<script src="/static/js/core/chart-utils.js">` to `index.html` BEFORE feature scripts (after `core/modal-controller.js`, before `db.js`)
-- [ ] Update `window.*` globals allowlist in `tests/architecture.globals.test.js` for `window.ChartUtils`
-- [ ] Write tests for `catmullRomSpline()` (returns valid SVG path, handles edge cases: 0, 1, 2 points)
-- [ ] Write tests for `createGradient()` (returns gradient element with correct stops)
-- [ ] Write tests for `calculateYAxisTicks()` (correct tick values for various ranges)
-- [ ] Run `go test ./...` and JS architecture tests — must pass before next task
+- [x] Create `web/static/js/core/chart-utils.js` with module comment header
+- [x] Move `catmullRomSpline(points, segments)` from `weight.js:196-226` into chart-utils.js as `window.ChartUtils.catmullRomSpline`
+- [x] Move `calculateYAxisTicks(yMin, yMax)` from `weight.js:228-260` into chart-utils.js
+- [x] Add `ChartUtils.createGradient(svgNs, svg, id, color, opacity)` — creates `<linearGradient>` with top stop at given opacity and bottom stop at 0
+- [x] Add `ChartUtils.animateLine(pathElement)` — measures `getTotalLength()`, sets `stroke-dasharray`/`stroke-dashoffset`, triggers draw animation
+- [x] Add `ChartUtils.createLastValueDot(svgNs, svg, cx, cy, color)` — creates larger circle (r=6) with pulse animation class
+- [x] Update `weight.js` to call `window.ChartUtils.catmullRomSpline` and `window.ChartUtils.calculateYAxisTicks` instead of local functions
+- [x] Add `<script src="/static/js/core/chart-utils.js">` to `index.html` BEFORE feature scripts (after `core/modal-controller.js`, before `db.js`)
+- [x] Update `window.*` globals allowlist in `tests/architecture.globals.test.js` for `window.ChartUtils`
+- [x] Write tests for `catmullRomSpline()` (returns valid SVG path, handles edge cases: 0, 1, 2 points)
+- [x] Write tests for `createGradient()` (returns gradient element with correct stops)
+- [x] Write tests for `calculateYAxisTicks()` (correct tick values for various ranges)
+- [x] Run `go test ./...` and JS architecture tests — must pass before next task
 
 ### Task 2: Add gradient fills to weight and BP charts
 - [ ] In `renderWeightChart()`: replace flat `rgba(59, 130, 246, 0.1)` fill with `ChartUtils.createGradient()` using `#3b82f6` at 0.25 opacity

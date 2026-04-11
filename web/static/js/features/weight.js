@@ -192,39 +192,6 @@ function updateRulerPosition(weight) {
 
 // =================== Helper Functions for Enhanced Weight Chart ===================
 
-// Catmull-Rom spline interpolation for smooth curves
-function catmullRomSpline(points, segments = 20) {
-    if (points.length < 2) return `M ${points[0][0]},${points[0][1]}`;
-    if (points.length === 2) return `M ${points[0][0]},${points[0][1]} L ${points[1][0]},${points[1][1]}`;
-
-    let path = `M ${points[0][0]},${points[0][1]}`;
-
-    for (let i = 0; i < points.length - 1; i++) {
-        const p0 = points[Math.max(i - 1, 0)];
-        const p1 = points[i];
-        const p2 = points[i + 1];
-        const p3 = points[Math.min(i + 2, points.length - 1)];
-
-        for (let t = 0; t <= segments; t++) {
-            const tt = t / segments;
-            const tt2 = tt * tt;
-            const tt3 = tt2 * tt;
-
-            const q0 = -tt3 + 2 * tt2 - tt;
-            const q1 = 3 * tt3 - 5 * tt2 + 2;
-            const q2 = -3 * tt3 + 4 * tt2 + tt;
-            const q3 = tt3 - tt2;
-
-            const x = 0.5 * (p0[0] * q0 + p1[0] * q1 + p2[0] * q2 + p3[0] * q3);
-            const y = 0.5 * (p0[1] * q0 + p1[1] * q1 + p2[1] * q2 + p3[1] * q3);
-
-            path += ` L ${x},${y}`;
-        }
-    }
-
-    return path;
-}
-
 // Linear regression for trend calculation
 function linearRegression(dataPoints) {
     if (dataPoints.length < 2) return null;
@@ -247,34 +214,7 @@ function linearRegression(dataPoints) {
     return { slope, intercept };
 }
 
-// Calculate appropriate Y-axis tick values
-function calculateYAxisTicks(yMin, yMax) {
-    const range = yMax - yMin;
-    const targetTicks = 6; // Aim for 5-7 ticks
-
-    // Try 5kg intervals first
-    const interval5 = 5;
-    const ticks5 = Math.ceil(range / interval5);
-
-    if (ticks5 >= 4 && ticks5 <= 8) {
-        // 5kg intervals work well
-        const start = Math.floor(yMin / interval5) * interval5;
-        const ticks = [];
-        for (let val = start; val <= yMax; val += interval5) {
-            if (val >= yMin) ticks.push(val);
-        }
-        return ticks;
-    }
-
-    // Otherwise, use proportional division
-    const niceInterval = Math.ceil(range / targetTicks / 5) * 5; // Round to nearest 5
-    const start = Math.floor(yMin / niceInterval) * niceInterval;
-    const ticks = [];
-    for (let val = start; val <= yMax; val += niceInterval) {
-        if (val >= yMin) ticks.push(val);
-    }
-    return ticks;
-}
+// catmullRomSpline and calculateYAxisTicks moved to core/chart-utils.js
 
 // Calculate weight statistics
 function calculateWeightStats(logs, goalData) {
@@ -390,7 +330,7 @@ function renderWeightChart(logs, goalData) {
     }
 
     // Calculate Y-axis ticks
-    const yTicks = calculateYAxisTicks(yMin, yMax);
+    const yTicks = window.ChartUtils.calculateYAxisTicks(yMin, yMax);
 
     // Date range
     const dateRange = chartEndDate - chartStartDate;
@@ -526,7 +466,7 @@ function renderWeightChart(logs, goalData) {
     const points = data.map(d => [xScaleByDate(d.date), yScale(d.weight)]);
 
     // Smoothed weight curve using Catmull-Rom splines
-    const smoothPath = catmullRomSpline(points, 15);
+    const smoothPath = window.ChartUtils.catmullRomSpline(points, 15);
 
     // Area under curve
     const firstPoint = points[0];
