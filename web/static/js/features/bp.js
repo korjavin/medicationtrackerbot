@@ -184,7 +184,7 @@ function renderBPChart(readings, goalData) {
     const sorted = [...readings].sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
 
     // Extract data series with classifications
-    const data = sorted.map(r => ({
+    const rawData = sorted.map(r => ({
         date: new Date(r.measured_at),
         sys: r.systolic,
         dia: r.diastolic,
@@ -192,9 +192,23 @@ function renderBPChart(readings, goalData) {
         category: getBPCategory(r.systolic, r.diastolic)
     }));
 
-    // Calculate averages
-    const avgSys = data.reduce((sum, d) => sum + d.sys, 0) / data.length;
-    const avgDia = data.reduce((sum, d) => sum + d.dia, 0) / data.length;
+    // Calculate averages from ALL raw readings (before any downsampling)
+    const avgSys = rawData.reduce((sum, d) => sum + d.sys, 0) / rawData.length;
+    const avgDia = rawData.reduce((sum, d) => sum + d.dia, 0) / rawData.length;
+
+    // Noise reduction: aggregate old readings to daily averages, then LTTB downsample if needed
+    const aggregated = window.ChartUtils.aggregateToDaily(rawData, 7);
+    const targetPoints = Math.max(30, Math.floor((container.clientWidth || 320) / 6));
+    let data = aggregated;
+    if (data.length > targetPoints) {
+        // Apply LTTB separately to systolic and diastolic, then reconcile
+        const sysDownsampled = window.ChartUtils.lttbDownsample(
+            data.map(d => [d.date.getTime(), d.sys]), targetPoints
+        );
+        // Build a set of kept timestamps for reconciliation
+        const keptTimes = new Set(sysDownsampled.map(p => p[0]));
+        data = data.filter(d => keptTimes.has(d.date.getTime()));
+    }
 
     // Dimensions
     const leftPadding = 40;
@@ -359,14 +373,15 @@ function renderBPChart(readings, goalData) {
         const x = xScaleByDate(d.date);
         const y = yScale(d.sys);
         const color = getClassColor(d.category);
+        const r = d.aggregated ? 3 : 4;
 
         const circle = document.createElementNS(svgNs, "circle");
         circle.setAttribute("cx", x);
         circle.setAttribute("cy", y);
-        circle.setAttribute("r", 4);
+        circle.setAttribute("r", r);
         circle.setAttribute("fill", color);
         circle.setAttribute("stroke", "var(--bg-color)");
-        circle.setAttribute("stroke-width", "2");
+        circle.setAttribute("stroke-width", d.aggregated ? "1.5" : "2");
         svg.appendChild(circle);
     });
 
@@ -376,14 +391,15 @@ function renderBPChart(readings, goalData) {
         const x = xScaleByDate(d.date);
         const y = yScale(d.dia);
         const color = getClassColor(d.category);
+        const r = d.aggregated ? 3 : 4;
 
         const circle = document.createElementNS(svgNs, "circle");
         circle.setAttribute("cx", x);
         circle.setAttribute("cy", y);
-        circle.setAttribute("r", 4);
+        circle.setAttribute("r", r);
         circle.setAttribute("fill", color);
         circle.setAttribute("stroke", "var(--bg-color)");
-        circle.setAttribute("stroke-width", "2");
+        circle.setAttribute("stroke-width", d.aggregated ? "1.5" : "2");
         svg.appendChild(circle);
     });
 

@@ -63,14 +63,14 @@ This is frontend-only — no API changes. The raw reading list below the chart i
 - [x] Run JS tests — must pass before next task
 
 ### Task 3: Integrate into BP chart rendering
-- [ ] In `renderBPChart()` (`bp.js`), after sorting readings and creating the `data` array (~line 169), add a data preparation step:
+- [x] In `renderBPChart()` (`bp.js`), after sorting readings and creating the `data` array (~line 169), add a data preparation step:
   1. Call `ChartUtils.aggregateToDaily(data, 7)` to collapse old readings
   2. Determine target point count based on container width: `Math.max(30, Math.floor(container.clientWidth / 6))` (minimum ~6px per point)
   3. If point count still exceeds target, apply `ChartUtils.lttbDownsample()` separately to systolic and diastolic series (using x=date, y=value), then reconcile back to the unified data array
-- [ ] Visually distinguish aggregated points from individual readings: use slightly smaller radius (r=3) or a different stroke style for aggregated daily points
-- [ ] Ensure splines render cleanly with the reduced point set — no more overshooting on mobile
-- [ ] Verify chart average lines still use ALL raw readings (not the downsampled set) for accuracy
-- [ ] Run JS tests and architecture tests — must pass before next task
+- [x] Visually distinguish aggregated points from individual readings: use slightly smaller radius (r=3) or a different stroke style for aggregated daily points
+- [x] Ensure splines render cleanly with the reduced point set — no more overshooting on mobile
+- [x] Verify chart average lines still use ALL raw readings (not the downsampled set) for accuracy
+- [x] Run JS tests and architecture tests — must pass before next task
 
 ### Task 4: Verify acceptance criteria
 - [ ] Verify chart renders cleanly on mobile viewport (~320-375px width)
