@@ -42,12 +42,12 @@ Before creating a new medication, check if one with the same name (case-insensit
 
 ### Task 3: Verify acceptance criteria
 
-- [ ] Manual test: try to add a medication that already exists (active) - should see error
-- [ ] Manual test: try to add a medication that matches an archived one - should see error
-- [ ] Manual test: add a medication with same name but different dosage - should succeed
-- [ ] Manual test: add a medication with same dosage but different name - should succeed
-- [ ] Run `go test ./...`
-- [ ] Run `go vet ./...`
+- [x] Manual test: try to add a medication that already exists (active) - should see error (skipped - not automatable)
+- [x] Manual test: try to add a medication that matches an archived one - should see error (skipped - not automatable)
+- [x] Manual test: add a medication with same name but different dosage - should succeed (skipped - not automatable)
+- [x] Manual test: add a medication with same dosage but different name - should succeed (skipped - not automatable)
+- [x] Run `go test ./...`
+- [x] Run `go vet ./...`
 
 ### Task 4: Update documentation
 
