@@ -13,9 +13,10 @@ import (
 
 // AnalyzeFitnessInput is the input type for the analyze_fitness tool
 type AnalyzeFitnessInput struct {
-	StartDate string `json:"start_date"`
-	EndDate   string `json:"end_date"`
-	Days      int    `json:"days"`
+	StartDate    string `json:"start_date"`
+	EndDate      string `json:"end_date"`
+	Days         int    `json:"days"`
+	ExcludeNotes bool   `json:"exclude_notes"`
 }
 
 // -- Response sub-structures --
@@ -112,7 +113,9 @@ func (s *Server) handleAnalyzeFitness(ctx context.Context, req *sdkmcp.CallToolR
 	}
 
 	// Diary Notes
-	response.DiaryNotes = s.fetchContextNotes(ctx, startDate, endDate)
+	if shouldIncludeNotes(input.ExcludeNotes) {
+		response.DiaryNotes = s.fetchContextNotes(ctx, startDate, endDate)
+	}
 
 	if len(unavailable) > 0 {
 		unavailWarning := "Unavailable sections: " + strings.Join(unavailable, ", ") + "."
@@ -413,6 +416,10 @@ func registerFitnessTool(mcpServer *sdkmcp.Server, s *Server) {
 					"days": {
 						"type": "integer",
 						"description": "Number of days to look back from end_date. Alternative to start_date — e.g. days=30 means last 30 days. Ignored if start_date is provided."
+					},
+					"exclude_notes": {
+						"type": "boolean",
+						"description": "If true, omit diary notes from the response. Default false."
 					}
 				}
 			}`),

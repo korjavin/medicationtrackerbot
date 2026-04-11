@@ -841,51 +841,45 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 	userID := s.config.UserID
 
 	var results []FoodIntakeResult
-	var storeCount int
 
-	current := startDate
-	for !current.After(endDate) {
-		logs, err := s.data.GetFoodLogs(ctx, userID, current, 1)
-		if err != nil {
-			return nil, FoodIntakeResponse{}, fmt.Errorf("failed to fetch food logs for %s: %w", current.Format("2006-01-02"), err)
+	// Fetch all food logs in a single query instead of day-by-day
+	totalDays := int(endDate.Sub(startDate).Hours()/24) + 1
+	logs, err := s.data.GetFoodLogs(ctx, userID, endDate, totalDays)
+	if err != nil {
+		return nil, FoodIntakeResponse{}, fmt.Errorf("failed to fetch food logs: %w", err)
+	}
+
+	// Helper to determine meal name based on time
+	getMealName := func(t time.Time) string {
+		hour := t.Hour()
+		if hour >= 5 && hour < 11 {
+			return "Breakfast"
+		} else if hour >= 11 && hour < 16 {
+			return "Lunch"
+		} else if hour >= 16 && hour < 22 {
+			return "Dinner"
 		}
-		storeCount += len(logs)
+		return "Snack"
+	}
 
-		// Helper to determine meal name based on time
-		getMealName := func(t time.Time) string {
-			hour := t.Hour()
-			if hour >= 5 && hour < 11 {
-				return "Breakfast"
-			} else if hour >= 11 && hour < 16 {
-				return "Lunch"
-			} else if hour >= 16 && hour < 22 {
-				return "Dinner"
-			}
-			return "Snack"
+	for _, l := range logs {
+		res := FoodIntakeResult{
+			EatenAt:  l.EatenAt.Format("2006-01-02 15:04"),
+			Meal:     getMealName(l.EatenAt),
+			Name:     l.Name,
+			Weight:   l.Weight,
+			Calories: l.Calories,
+			Carbs:    l.Carbs,
+			Protein:  l.Protein,
+			Fat:      l.Fat,
 		}
-
-		for _, l := range logs {
-			res := FoodIntakeResult{
-				EatenAt:  l.EatenAt.Format("2006-01-02 15:04"),
-				Meal:     getMealName(l.EatenAt),
-				Name:     l.Name,
-				Weight:   l.Weight,
-				Calories: l.Calories,
-				Carbs:    l.Carbs,
-				Protein:  l.Protein,
-				Fat:      l.Fat,
-			}
-			results = append(results, res)
-		}
-
-		current = current.Add(24 * time.Hour)
+		results = append(results, res)
 	}
 	slog.Info("[MCP] Food intake query result",
-		"store_count", storeCount,
 		"returned_count", len(results),
 		"period", formatPeriod(startDate, endDate))
 	if len(results) == 0 {
-		reason := noDataWarning("food intake logs", startDate, endDate, storeCount, len(results))
+		reason := noDataWarning("food intake logs", startDate, endDate, len(logs), len(results))
 		warning = appendWarnings(warning, reason)
 		slog.Warn("[MCP] Food intake query returned zero rows",
 			"user_id", userID,
