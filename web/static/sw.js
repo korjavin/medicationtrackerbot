@@ -123,13 +123,17 @@ self.addEventListener('fetch', (event) => {
                         fetch(event.request)
                             .then(async (freshResponse) => {
                                 if (freshResponse.ok) {
+                                    // Compare fresh vs cached — only notify clients if data changed
+                                    const freshText = await freshResponse.clone().text();
+                                    const cachedText = await cachedResponse.clone().text();
                                     await cache.put(event.request, freshResponse.clone());
-                                    // Notify clients that fresh bootstrap data is available
-                                    const clients = await self.clients.matchAll();
-                                    const freshData = await freshResponse.json();
-                                    clients.forEach((client) => {
-                                        client.postMessage({ type: 'BOOTSTRAP_UPDATED', data: freshData });
-                                    });
+                                    if (freshText !== cachedText) {
+                                        const freshData = JSON.parse(freshText);
+                                        const clients = await self.clients.matchAll();
+                                        clients.forEach((client) => {
+                                            client.postMessage({ type: 'BOOTSTRAP_UPDATED', data: freshData });
+                                        });
+                                    }
                                 }
                             })
                             .catch(() => { /* offline — cached response already served */ })

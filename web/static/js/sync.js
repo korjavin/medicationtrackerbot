@@ -273,7 +273,7 @@ const SyncManager = {
         this.statusCallbacks.push(callback);
     },
 
-    // Update status in UI
+    // Update status in UI. Returns totalPending count.
     async updateStatus() {
         const bpPending = await window.MedTrackerDB.BPStore.getPendingCount();
         const weightPending = await window.MedTrackerDB.WeightStore.getPendingCount();
@@ -294,6 +294,7 @@ const SyncManager = {
 
         // Update status bar UI
         this.updateStatusBar(status);
+        return totalPending;
     },
 
     // Update the status bar in the UI
@@ -354,14 +355,7 @@ const SyncManager = {
             SyncDebug.error('Error during sync', { error: err.message });
         } finally {
             this.isSyncing = false;
-            this.updateStatus();
-
-            // Check if there are still pending items and schedule retry
-            const bpPending = await window.MedTrackerDB.BPStore.getPendingCount();
-            const weightPending = await window.MedTrackerDB.WeightStore.getPendingCount();
-            const intakePending = window.MedTrackerDB.IntakeQueueStore
-                ? await window.MedTrackerDB.IntakeQueueStore.getPendingCount() : 0;
-            const totalPending = bpPending + weightPending + intakePending;
+            const totalPending = await this.updateStatus();
 
             if (totalPending > 0 && this.isOnline) {
                 SyncDebug.info('Pending items remain after sync, scheduling retry', { pending: totalPending });
@@ -765,11 +759,12 @@ async function handleOfflineIntakeWrite(body) {
 
 // Check if error is a network error or server unavailable
 function isNetworkError(err) {
+    if (!err) return false;
+    const msg = err.message || '';
     return (
-        err instanceof TypeError && err.message.includes('fetch') ||
-        err.message === 'Network request failed' ||
-        err.message === 'Failed to fetch' ||
-        err.name === 'TypeError' && !navigator.onLine ||
+        (err instanceof TypeError && msg.includes('fetch')) ||
+        msg === 'Network request failed' ||
+        msg === 'Failed to fetch' ||
         isServerError(err)
     );
 }
