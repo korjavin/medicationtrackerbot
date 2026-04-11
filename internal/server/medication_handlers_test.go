@@ -122,6 +122,72 @@ func TestHandleCreateMedication(t *testing.T) {
 	}
 }
 
+func TestHandleCreateMedication_Duplicate(t *testing.T) {
+	srv, db := createTestServer(t)
+	defer db.Close()
+
+	// Create initial medication
+	_, err := db.CreateMedication("Aspirin", "100mg", "daily", nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("Failed to create med: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		medName    string
+		dosage     string
+		wantStatus int
+	}{
+		{"exact duplicate", "Aspirin", "100mg", http.StatusConflict},
+		{"case-insensitive duplicate", "aspirin", "100mg", http.StatusConflict},
+		{"same name different dosage", "Aspirin", "200mg", http.StatusOK},
+		{"different name same dosage", "Ibuprofen", "100mg", http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reqBody := map[string]interface{}{
+				"name":     tt.medName,
+				"dosage":   tt.dosage,
+				"schedule": "daily",
+			}
+			body, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/medications", bytes.NewReader(body))
+			w := httptest.NewRecorder()
+
+			srv.handleCreateMedication(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("Expected status %d, got %d. Body: %s", tt.wantStatus, w.Code, w.Body.String())
+			}
+			if tt.wantStatus == http.StatusConflict {
+				body := strings.TrimSpace(w.Body.String())
+				if body != "Medication with this name and dosage already exists" {
+					t.Errorf("Expected duplicate error message, got: %s", body)
+				}
+			}
+		})
+	}
+
+	// Also test duplicate against archived medication
+	idArchived, _ := db.CreateMedication("ArchivedMed", "50mg", "daily", nil, nil, "", "", "")
+	_ = db.UpdateMedication(idArchived, "ArchivedMed", "50mg", "daily", true, nil, nil, "", "", nil, "")
+
+	reqBody := map[string]interface{}{
+		"name":     "archivedmed",
+		"dosage":   "50mg",
+		"schedule": "daily",
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "/api/medications", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleCreateMedication(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("Expected 409 for archived duplicate, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleCreateMedication_InvalidJSON(t *testing.T) {
 	srv, db := createTestServer(t)
 	defer db.Close()
@@ -176,6 +242,52 @@ func TestHandleUpdateMedication(t *testing.T) {
 	if !med.Supplement {
 		t.Errorf("Expected supplement=true after update, got false")
 	}
+}
+
+func TestHandleUpdateMedication_Duplicate(t *testing.T) {
+	srv, db := createTestServer(t)
+	defer db.Close()
+
+	// Create two medications
+	idA, _ := db.CreateMedication("Aspirin", "100mg", "daily", nil, nil, "", "", "")
+	idB, _ := db.CreateMedication("Ibuprofen", "200mg", "daily", nil, nil, "", "", "")
+
+	// Test: renaming B to match A's name+dosage should return 409
+	reqBody := map[string]interface{}{
+		"name":     "aspirin",
+		"dosage":   "100mg",
+		"schedule": "daily",
+		"archived": false,
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/medications/%d", idB), bytes.NewReader(body))
+	req.SetPathValue("id", fmt.Sprintf("%d", idB))
+	w := httptest.NewRecorder()
+	srv.handleUpdateMedication(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("Expected 409 when renaming to match existing, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Test: updating A while keeping its own name+dosage should succeed (self-exclusion)
+	reqBody = map[string]interface{}{
+		"name":     "Aspirin",
+		"dosage":   "100mg",
+		"schedule": "weekly",
+		"archived": false,
+	}
+	body, _ = json.Marshal(reqBody)
+	req = httptest.NewRequest("POST", fmt.Sprintf("/api/medications/%d", idA), bytes.NewReader(body))
+	req.SetPathValue("id", fmt.Sprintf("%d", idA))
+	w = httptest.NewRecorder()
+	srv.handleUpdateMedication(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200 when updating self with same name+dosage, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	_ = idA // suppress unused warning
+	_ = idB
 }
 
 func TestHandleDeleteMedication(t *testing.T) {

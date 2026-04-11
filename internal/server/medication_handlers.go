@@ -129,12 +129,30 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Check for duplicate medication (same name + dosage, including archived)
+	allMeds, err := s.meds.ListMedications(true)
+	if err != nil {
+		slog.Error("list medications for duplicate check", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	for _, m := range allMeds {
+		if strings.EqualFold(m.Name, req.Name) && m.Dosage == req.Dosage {
+			http.Error(w, "Medication with this name and dosage already exists", http.StatusConflict)
+			return
+		}
+	}
+
 	// 1. Search RxNorm
 	rxcui, normalizedName, _ := s.rxnorm.SearchRxNorm(req.Name)
 
 	// 2. Create in DB
 	id, err := s.meds.CreateMedication(req.Name, req.Dosage, req.Schedule, req.StartDate, req.EndDate, rxcui, normalizedName, req.TZShiftPolicy)
 	if err != nil {
+		if isDuplicateMedicationError(err) {
+			http.Error(w, "Medication with this name and dosage already exists", http.StatusConflict)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -211,6 +229,20 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Check for duplicate medication (same name + dosage, excluding self)
+	allMeds, err := s.meds.ListMedications(true)
+	if err != nil {
+		slog.Error("list medications for duplicate check", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	for _, m := range allMeds {
+		if m.ID != id && strings.EqualFold(m.Name, req.Name) && m.Dosage == req.Dosage {
+			http.Error(w, "Medication with this name and dosage already exists", http.StatusConflict)
+			return
+		}
+	}
+
 	// Search RxNorm (Always update on edit to handle renames or missing data)
 	rxcui, normalizedName, _ := s.rxnorm.SearchRxNorm(req.Name)
 
@@ -237,6 +269,10 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := s.meds.UpdateMedication(id, req.Name, req.Dosage, req.Schedule, req.Archived, req.StartDate, req.EndDate, rxcui, normalizedName, req.InventoryCount, req.TZShiftPolicy); err != nil {
+		if isDuplicateMedicationError(err) {
+			http.Error(w, "Medication with this name and dosage already exists", http.StatusConflict)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -715,6 +751,12 @@ func (s *Server) handleGetNextIntake(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		slog.Error("encode response", "error", err)
 	}
+}
+
+// isDuplicateMedicationError checks whether err is a SQLite UNIQUE constraint
+// violation on the medications name+dosage index.
+func isDuplicateMedicationError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "idx_medications_name_dosage")
 }
 
 func (s *Server) handleLogPastIntake(w http.ResponseWriter, r *http.Request) {

@@ -114,11 +114,11 @@ func (s *Server) handleExternalWorkout(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if isDuplicate {
-			slog.Info("[external-workout] skipped duplicate workout (fuzzy check)", "workoutType", payload.WorkoutType, "startMs", startMs)
+			slog.Info("[external-workout] workout already exists (fuzzy check)", "workoutType", payload.WorkoutType, "startMs", startMs)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"status": "duplicate",
+				"status": "exists",
 			})
 			return
 		}
@@ -151,10 +151,10 @@ func (s *Server) handleExternalWorkout(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if !inserted {
-		slog.Info("[external-workout] skipped duplicate workout", "activityName", workout.ActivityName, "startMs", workout.SourceStartMs)
+		slog.Info("[external-workout] workout already exists", "activityName", workout.ActivityName, "startMs", workout.SourceStartMs)
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"status": "duplicate",
+			"status": "exists",
 		})
 		return
 	}

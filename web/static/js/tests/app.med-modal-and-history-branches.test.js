@@ -125,14 +125,14 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       document.getElementById('med-track-inventory').checked = true;
       document.getElementById('med-inventory-count').value = '40';
 
-      window.apiCall = vi.fn().mockResolvedValue({ warning: 'duplicate schedule' });
+      window.apiCallDirect = vi.fn().mockResolvedValue({ warning: 'duplicate schedule' });
       window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
       window.DataStore.invalidateKey = vi.fn().mockResolvedValue(undefined);
       window.closeModal = vi.fn();
       window.loadMeds = vi.fn();
 
       await window.saveMedication();
-      expect(window.apiCall).toHaveBeenCalledWith('/api/medications', 'POST', expect.objectContaining({
+      expect(window.apiCallDirect).toHaveBeenCalledWith('/api/medications', 'POST', expect.objectContaining({
         name: 'My Med',
         dosage: '20mg',
         inventory_count: 40,
@@ -156,16 +156,46 @@ describe('app.js medication modal CRUD and history edge branches', () => {
       window.showEditModal(55);
       document.getElementById('med-name').value = 'Editable Updated';
       document.getElementById('schedule-type').value = 'as_needed';
-      window.apiCall = vi.fn().mockResolvedValue({});
+      window.apiCallDirect = vi.fn().mockResolvedValue({});
       window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
       window.DataStore.invalidateKey = vi.fn().mockResolvedValue(undefined);
       window.closeModal = vi.fn();
       window.loadMeds = vi.fn();
 
       await window.saveMedication();
-      expect(window.apiCall).toHaveBeenCalledWith('/api/medications/55', 'POST', expect.objectContaining({
+      expect(window.apiCallDirect).toHaveBeenCalledWith('/api/medications/55', 'POST', expect.objectContaining({
         name: 'Editable Updated'
       }));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('saveMedication shows friendly error on 409 duplicate', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const alertSpy = vi.fn();
+      window.Telegram.WebApp.showAlert = alertSpy;
+
+      window.showAddModal();
+      document.getElementById('med-name').value = 'Aspirin';
+      document.getElementById('med-dosage').value = '100mg';
+      document.getElementById('schedule-type').value = 'as_needed';
+      window.toggleScheduleFields();
+
+      const dupError = new Error('Medication with this name and dosage already exists');
+      dupError.status = 409;
+      window.apiCallDirect = vi.fn().mockRejectedValue(dupError);
+      window.closeModal = vi.fn();
+      window.loadMeds = vi.fn();
+
+      await window.saveMedication();
+      expect(alertSpy).toHaveBeenCalledWith(
+        'A medication with this name and dosage already exists. Please use a different name or dosage.'
+      );
+      expect(window.closeModal).not.toHaveBeenCalled();
+      expect(window.loadMeds).not.toHaveBeenCalled();
     } finally {
       cleanup();
     }

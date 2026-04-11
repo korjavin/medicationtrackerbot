@@ -86,6 +86,10 @@ It currently exposes tools for:
 - Heart rate, SpO2, and stress vitals
 - Diary notes
 - Food logging write-through when audit/write-back is configured
+- Composite cardiovascular analysis (BP + medications + sleep + HR + SpO2 + diary notes in one call)
+- Composite fitness analysis (workouts + steps + daily nutrition totals + weight + diary notes in one call)
+
+All read tools automatically include diary notes from the queried date range for context. Pass `exclude_notes=true` to suppress.
 
 ## Data import and export
 

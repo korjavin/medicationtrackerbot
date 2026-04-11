@@ -14,8 +14,9 @@ import (
 
 // DateRangeInput is a common input type for date range queries
 type DateRangeInput struct {
-	StartDate string `json:"start_date"`
-	EndDate   string `json:"end_date"`
+	StartDate    string `json:"start_date"`
+	EndDate      string `json:"end_date"`
+	ExcludeNotes bool   `json:"exclude_notes"`
 }
 
 func (s *Server) ensureFeatureEnabled(ctx context.Context, feature string) error {
@@ -129,10 +130,11 @@ type BloodPressureResult struct {
 
 // BloodPressureResponse is the response for the get_blood_pressure tool
 type BloodPressureResponse struct {
-	Readings []BloodPressureResult `json:"readings"`
-	Count    int                   `json:"count"`
-	Period   string                `json:"period"`
-	Warning  string                `json:"warning,omitempty"`
+	Readings     []BloodPressureResult `json:"readings"`
+	Count        int                   `json:"count"`
+	Period       string                `json:"period"`
+	ContextNotes []ContextNote         `json:"context_notes,omitempty"`
+	Warning      string                `json:"warning,omitempty"`
 }
 
 // handleGetBloodPressure handles the get_blood_pressure tool
@@ -205,6 +207,17 @@ func (s *Server) handleGetBloodPressure(ctx context.Context, req *mcp.CallToolRe
 		Warning:  warning,
 	}
 
+	if shouldIncludeNotes(input.ExcludeNotes) {
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
+	}
+
 	if s.audit != nil {
 		s.audit.Record(AuditEvent{
 			DataType:  "Blood Pressure",
@@ -227,10 +240,11 @@ type WeightResult struct {
 
 // WeightResponse is the response for the get_weight tool
 type WeightResponse struct {
-	Logs    []WeightResult `json:"logs"`
-	Count   int            `json:"count"`
-	Period  string         `json:"period"`
-	Warning string         `json:"warning,omitempty"`
+	Logs         []WeightResult `json:"logs"`
+	Count        int            `json:"count"`
+	Period       string         `json:"period"`
+	ContextNotes []ContextNote  `json:"context_notes,omitempty"`
+	Warning      string         `json:"warning,omitempty"`
 }
 
 // handleGetWeight handles the get_weight tool
@@ -295,6 +309,17 @@ func (s *Server) handleGetWeight(ctx context.Context, req *mcp.CallToolRequest, 
 		Warning: warning,
 	}
 
+	if shouldIncludeNotes(input.ExcludeNotes) {
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
+	}
+
 	if s.audit != nil {
 		s.audit.Record(AuditEvent{
 			DataType:  "Weight",
@@ -311,6 +336,7 @@ type MedicationIntakeInput struct {
 	StartDate      string `json:"start_date"`
 	EndDate        string `json:"end_date"`
 	MedicationName string `json:"medication_name"`
+	ExcludeNotes   bool   `json:"exclude_notes"`
 }
 
 // MedicationIntakeResult represents a medication intake for the tool response
@@ -324,10 +350,11 @@ type MedicationIntakeResult struct {
 
 // MedicationIntakeResponse is the response for the get_medication_intake tool
 type MedicationIntakeResponse struct {
-	Intakes []MedicationIntakeResult `json:"intakes"`
-	Count   int                      `json:"count"`
-	Period  string                   `json:"period"`
-	Warning string                   `json:"warning,omitempty"`
+	Intakes      []MedicationIntakeResult `json:"intakes"`
+	Count        int                      `json:"count"`
+	Period       string                   `json:"period"`
+	ContextNotes []ContextNote            `json:"context_notes,omitempty"`
+	Warning      string                   `json:"warning,omitempty"`
 }
 
 // handleGetMedicationIntake handles the get_medication_intake tool
@@ -406,6 +433,17 @@ func (s *Server) handleGetMedicationIntake(ctx context.Context, req *mcp.CallToo
 		Warning: warning,
 	}
 
+	if shouldIncludeNotes(input.ExcludeNotes) {
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
+	}
+
 	if s.audit != nil {
 		s.audit.Record(AuditEvent{
 			DataType:  "Medications",
@@ -422,6 +460,7 @@ type WorkoutHistoryInput struct {
 	StartDate        string `json:"start_date"`
 	EndDate          string `json:"end_date"`
 	IncludeExercises bool   `json:"include_exercises"`
+	ExcludeNotes     bool   `json:"exclude_notes"`
 }
 
 // ExerciseLogResult represents an exercise log for the tool response
@@ -457,13 +496,13 @@ type WorkoutSessionResult struct {
 
 // WorkoutHistoryResponse is the response for the get_workout_history tool
 type WorkoutHistoryResponse struct {
-	Sessions []WorkoutSessionResult `json:"sessions"`
-	Count    int                    `json:"count"`
-	Period   string                 `json:"period"`
-	Warning  string                 `json:"warning,omitempty"`
+	Sessions     []WorkoutSessionResult `json:"sessions"`
+	Count        int                    `json:"count"`
+	Period       string                 `json:"period"`
+	ContextNotes []ContextNote          `json:"context_notes,omitempty"`
+	Warning      string                 `json:"warning,omitempty"`
 }
 
-// handleGetWorkoutHistory handles the get_workout_history tool
 // handleGetWorkoutHistory handles the get_workout_history tool
 func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolRequest, input WorkoutHistoryInput) (*mcp.CallToolResult, WorkoutHistoryResponse, error) {
 	if err := s.ensureFeatureEnabled(ctx, "workout"); err != nil {
@@ -649,6 +688,17 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 		Warning:  strings.TrimSpace(warning),
 	}
 
+	if shouldIncludeNotes(input.ExcludeNotes) {
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
+	}
+
 	if s.audit != nil {
 		s.audit.Record(AuditEvent{
 			DataType:  "Workouts",
@@ -681,10 +731,11 @@ type SleepLogResult struct {
 
 // SleepLogResponse is the response for the get_sleep_logs tool
 type SleepLogResponse struct {
-	Logs    []SleepLogResult `json:"logs"`
-	Count   int              `json:"count"`
-	Period  string           `json:"period"`
-	Warning string           `json:"warning,omitempty"`
+	Logs         []SleepLogResult `json:"logs"`
+	Count        int              `json:"count"`
+	Period       string           `json:"period"`
+	ContextNotes []ContextNote    `json:"context_notes,omitempty"`
+	Warning      string           `json:"warning,omitempty"`
 }
 
 // handleGetSleepLogs handles the get_sleep_logs tool
@@ -752,6 +803,17 @@ func (s *Server) handleGetSleepLogs(ctx context.Context, req *mcp.CallToolReques
 		Warning: warning,
 	}
 
+	if shouldIncludeNotes(input.ExcludeNotes) {
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
+	}
+
 	if s.audit != nil {
 		s.audit.Record(AuditEvent{
 			DataType:  "Sleep",
@@ -777,11 +839,12 @@ type FoodIntakeResult struct {
 
 // FoodIntakeResponse is the response for the get_food_intake tool
 type FoodIntakeResponse struct {
-	Logs    []FoodIntakeResult `json:"logs"`
-	Count   int                `json:"count"`
-	Period  string             `json:"period"`
-	Target  *FoodTargetResult  `json:"target,omitempty"`
-	Warning string             `json:"warning,omitempty"`
+	Logs         []FoodIntakeResult `json:"logs"`
+	Count        int                `json:"count"`
+	Period       string             `json:"period"`
+	Target       *FoodTargetResult  `json:"target,omitempty"`
+	ContextNotes []ContextNote      `json:"context_notes,omitempty"`
+	Warning      string             `json:"warning,omitempty"`
 }
 
 // FoodTargetResult represents configured daily nutrition targets
@@ -813,51 +876,51 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 	userID := s.config.UserID
 
 	var results []FoodIntakeResult
-	var storeCount int
 
-	current := startDate
-	for !current.After(endDate) {
-		logs, err := s.data.GetFoodLogs(ctx, userID, current, 1)
-		if err != nil {
-			return nil, FoodIntakeResponse{}, fmt.Errorf("failed to fetch food logs for %s: %w", current.Format("2006-01-02"), err)
+	// Fetch all food logs in a single query instead of day-by-day
+	// Count calendar days using date arithmetic (not duration) to avoid DST off-by-one errors
+	startDay := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, startDate.Location())
+	endDay := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 0, 0, 0, 0, endDate.Location())
+	totalDays := 0
+	for d := startDay; !d.After(endDay); d = d.AddDate(0, 0, 1) {
+		totalDays++
+	}
+	logs, err := s.data.GetFoodLogs(ctx, userID, endDate, totalDays)
+	if err != nil {
+		return nil, FoodIntakeResponse{}, fmt.Errorf("failed to fetch food logs: %w", err)
+	}
+
+	// Helper to determine meal name based on time
+	getMealName := func(t time.Time) string {
+		hour := t.Hour()
+		if hour >= 5 && hour < 11 {
+			return "Breakfast"
+		} else if hour >= 11 && hour < 16 {
+			return "Lunch"
+		} else if hour >= 16 && hour < 22 {
+			return "Dinner"
 		}
-		storeCount += len(logs)
+		return "Snack"
+	}
 
-		// Helper to determine meal name based on time
-		getMealName := func(t time.Time) string {
-			hour := t.Hour()
-			if hour >= 5 && hour < 11 {
-				return "Breakfast"
-			} else if hour >= 11 && hour < 16 {
-				return "Lunch"
-			} else if hour >= 16 && hour < 22 {
-				return "Dinner"
-			}
-			return "Snack"
+	for _, l := range logs {
+		res := FoodIntakeResult{
+			EatenAt:  l.EatenAt.Format("2006-01-02 15:04"),
+			Meal:     getMealName(l.EatenAt),
+			Name:     l.Name,
+			Weight:   l.Weight,
+			Calories: l.Calories,
+			Carbs:    l.Carbs,
+			Protein:  l.Protein,
+			Fat:      l.Fat,
 		}
-
-		for _, l := range logs {
-			res := FoodIntakeResult{
-				EatenAt:  l.EatenAt.Format("2006-01-02 15:04"),
-				Meal:     getMealName(l.EatenAt),
-				Name:     l.Name,
-				Weight:   l.Weight,
-				Calories: l.Calories,
-				Carbs:    l.Carbs,
-				Protein:  l.Protein,
-				Fat:      l.Fat,
-			}
-			results = append(results, res)
-		}
-
-		current = current.Add(24 * time.Hour)
+		results = append(results, res)
 	}
 	slog.Info("[MCP] Food intake query result",
-		"store_count", storeCount,
 		"returned_count", len(results),
 		"period", formatPeriod(startDate, endDate))
 	if len(results) == 0 {
-		reason := noDataWarning("food intake logs", startDate, endDate, storeCount, len(results))
+		reason := noDataWarning("food intake logs", startDate, endDate, len(logs), len(results))
 		warning = appendWarnings(warning, reason)
 		slog.Warn("[MCP] Food intake query returned zero rows",
 			"user_id", userID,
@@ -886,6 +949,17 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 		Period:  formatPeriod(startDate, endDate),
 		Target:  target,
 		Warning: warning,
+	}
+
+	if shouldIncludeNotes(input.ExcludeNotes) {
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
 	}
 
 	if s.audit != nil {
@@ -991,10 +1065,11 @@ type StepHistoryResult struct {
 
 // StepHistoryResponse is the response for the get_step_history tool
 type StepHistoryResponse struct {
-	Logs    []StepHistoryResult `json:"logs"`
-	Count   int                 `json:"count"`
-	Period  string              `json:"period"`
-	Warning string              `json:"warning,omitempty"`
+	Logs         []StepHistoryResult `json:"logs"`
+	Count        int                 `json:"count"`
+	Period       string              `json:"period"`
+	ContextNotes []ContextNote       `json:"context_notes,omitempty"`
+	Warning      string              `json:"warning,omitempty"`
 }
 
 // handleGetStepHistory handles the get_step_history tool
@@ -1022,7 +1097,11 @@ func (s *Server) handleGetStepHistory(ctx context.Context, req *mcp.CallToolRequ
 	var results []StepHistoryResult
 	for _, l := range logs {
 		t, err := time.Parse("2006-01-02", l.Day)
-		if err == nil && t.After(endDate) {
+		if err != nil {
+			slog.Warn("[MCP] skipping step entry with invalid date", "day", l.Day, "error", err)
+			continue
+		}
+		if t.After(endDate) {
 			continue
 		}
 
@@ -1055,6 +1134,17 @@ func (s *Server) handleGetStepHistory(ctx context.Context, req *mcp.CallToolRequ
 		Count:   len(results),
 		Period:  formatPeriod(startDate, endDate),
 		Warning: warning,
+	}
+
+	if shouldIncludeNotes(input.ExcludeNotes) {
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
 	}
 
 	if s.audit != nil {
