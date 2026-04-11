@@ -1738,7 +1738,7 @@ svg.chart-svg {
     height: 24px;
     padding: 0 var(--space-sm);
     border-radius: var(--radius-md);
-    display: none;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     background-color: var(--secondary-bg-color);
