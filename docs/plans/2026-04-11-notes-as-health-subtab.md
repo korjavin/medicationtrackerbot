@@ -35,19 +35,19 @@ Move the diary notes from being a hardcoded section at the bottom of the Health 
 ## Implementation Steps
 
 ### Task 1: Add sub-tab HTML structure to health view
-- [ ] In `index.html`, inside `#health-view`, add a `.health-tabs` container with two buttons BEFORE `#health-overview-content`:
+- [x] In `index.html`, inside `#health-view`, add a `.health-tabs` container with two buttons BEFORE `#health-overview-content`:
   ```html
   <div class="health-tabs">
       <button class="health-tab active" data-tab="overview">Overview</button>
       <button class="health-tab" data-tab="notes">Notes</button>
   </div>
   ```
-- [ ] Wrap the existing `#health-overview-content` and `#health-overview-loading` in a new `<div id="health-overview-tab" class="health-tab-content active">`
-- [ ] Wrap the existing `.notes-section` div in a new `<div id="health-notes-tab" class="health-tab-content">` (not active by default)
-- [ ] Remove the `<h3>Health Overview</h3>` standalone heading — the sub-tab label "Overview" replaces it
-- [ ] Add CSS rules for `.health-tabs` and `.health-tab` following the existing `.food-tabs` / `.food-tab` pattern in styles.css (add `.health-tabs` and `.health-tab` to the existing comma-separated selectors)
-- [ ] Add `.health-tab-content` to the existing `.food-tab-content` visibility rules
-- [ ] Run architecture tests — must pass before next task
+- [x] Wrap the existing `#health-overview-content` and `#health-overview-loading` in a new `<div id="health-overview-tab" class="health-tab-content active">`
+- [x] Wrap the existing `.notes-section` div in a new `<div id="health-notes-tab" class="health-tab-content">` (not active by default)
+- [x] Remove the `<h3>Health Overview</h3>` standalone heading — the sub-tab label "Overview" replaces it
+- [x] Add CSS rules for `.health-tabs` and `.health-tab` following the existing `.food-tabs` / `.food-tab` pattern in styles.css (add `.health-tabs` and `.health-tab` to the existing comma-separated selectors)
+- [x] Add `.health-tab-content` to the existing `.food-tab-content` visibility rules
+- [x] Run architecture tests — must pass before next task
 
 ### Task 2: Add sub-tab switching logic in JS
 - [ ] In the JS code that handles health tab initialization (likely `app.js` where `loadHealthOverview` and `loadNotes` are called), add `bindTabGroup()` for health tabs:
