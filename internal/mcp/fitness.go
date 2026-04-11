@@ -292,38 +292,42 @@ func (s *Server) fetchStepsSection(ctx context.Context, userID int64, startDate,
 
 func (s *Server) fetchNutritionSection(ctx context.Context, userID int64, startDate, endDate time.Time) *NutritionSection {
 	// Aggregate food logs by day, returning only totals (no food names for privacy)
+	// Fetch all logs in one query instead of day-by-day
+	totalDays := int(endDate.Sub(startDate).Hours()/24) + 1
+	allLogs, err := s.data.GetFoodLogs(ctx, userID, endDate, totalDays)
+	if err != nil {
+		slog.Warn("[MCP] FitnessAnalysis: failed to fetch food logs", "error", err)
+		return nil
+	}
+
+	// Group logs by day
+	dayMap := make(map[string]*NutritionDailyTotal)
+	for _, l := range allLogs {
+		day := l.EatenAt.Format("2006-01-02")
+		dt, ok := dayMap[day]
+		if !ok {
+			dt = &NutritionDailyTotal{Date: day}
+			dayMap[day] = dt
+		}
+		dt.Calories += l.Calories
+		dt.ProteinG += l.Protein
+		dt.CarbsG += l.Carbs
+		dt.FatG += l.Fat
+	}
+
+	// Collect and sort daily totals
 	var dailyTotals []NutritionDailyTotal
 	totalCalories := 0
 	totalProtein := 0
-	daysWithData := 0
-
-	current := startDate
-	for !current.After(endDate) {
-		logs, err := s.data.GetFoodLogs(ctx, userID, current, 1)
-		if err != nil {
-			slog.Warn("[MCP] FitnessAnalysis: failed to fetch food logs", "error", err, "date", current.Format("2006-01-02"))
-			current = current.AddDate(0, 0, 1)
-			continue
-		}
-
-		if len(logs) > 0 {
-			dayTotal := NutritionDailyTotal{
-				Date: current.Format("2006-01-02"),
-			}
-			for _, l := range logs {
-				dayTotal.Calories += l.Calories
-				dayTotal.ProteinG += l.Protein
-				dayTotal.CarbsG += l.Carbs
-				dayTotal.FatG += l.Fat
-			}
-			dailyTotals = append(dailyTotals, dayTotal)
-			totalCalories += dayTotal.Calories
-			totalProtein += dayTotal.ProteinG
-			daysWithData++
-		}
-
-		current = current.AddDate(0, 0, 1)
+	for _, dt := range dayMap {
+		dailyTotals = append(dailyTotals, *dt)
+		totalCalories += dt.Calories
+		totalProtein += dt.ProteinG
 	}
+	sort.Slice(dailyTotals, func(i, j int) bool {
+		return dailyTotals[i].Date < dailyTotals[j].Date
+	})
+	daysWithData := len(dailyTotals)
 
 	avgCalories := 0
 	avgProtein := 0
