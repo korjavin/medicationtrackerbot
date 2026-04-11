@@ -88,7 +88,7 @@ Move the diary notes from being a hardcoded section at the bottom of the Health 
 - [x] Run `go test ./...` (no Go changes expected, but verify nothing broke)
 
 ### Task 4: [Final] Update documentation
-- [ ] Update CLAUDE.md health-view section if needed
+- [x] Update CLAUDE.md health-view section if needed
 
 ## Technical Details
 
