@@ -91,7 +91,12 @@ func (s *Server) handleAnalyzeCardiovascular(ctx context.Context, req *sdkmcp.Ca
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to check BP feature", "error", err)
 		unavailable = append(unavailable, "blood_pressure (error checking feature)")
 	} else if bpEnabled {
-		response.BloodPressure = s.fetchBPSection(ctx, userID, startDate, endDate)
+		bp, err := s.fetchBPSection(ctx, userID, startDate, endDate)
+		if err != nil {
+			unavailable = append(unavailable, "blood_pressure (query failed)")
+		} else {
+			response.BloodPressure = bp
+		}
 	} else {
 		unavailable = append(unavailable, "blood_pressure (feature disabled)")
 	}
@@ -101,23 +106,50 @@ func (s *Server) handleAnalyzeCardiovascular(ctx context.Context, req *sdkmcp.Ca
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to check medication feature", "error", err)
 		unavailable = append(unavailable, "medications (error checking feature)")
 	} else if medEnabled {
-		response.Medications = s.fetchMedicationsSection(startDate, endDate)
+		meds, err := s.fetchMedicationsSection(startDate, endDate)
+		if err != nil {
+			unavailable = append(unavailable, "medications (query failed)")
+		} else {
+			response.Medications = meds
+		}
 	} else {
 		unavailable = append(unavailable, "medications (feature disabled)")
 	}
 
 	// Sleep (no feature gate)
-	response.Sleep = s.fetchSleepSection(ctx, userID, startDate, endDate)
+	sleep, err := s.fetchSleepSection(ctx, userID, startDate, endDate)
+	if err != nil {
+		unavailable = append(unavailable, "sleep (query failed)")
+	} else {
+		response.Sleep = sleep
+	}
 
 	// Heart Rate
-	response.HeartRate = s.fetchHeartRateSection(ctx, userID, startDate, endDate)
+	hr, err := s.fetchHeartRateSection(ctx, userID, startDate, endDate)
+	if err != nil {
+		unavailable = append(unavailable, "heart_rate (query failed)")
+	} else {
+		response.HeartRate = hr
+	}
 
 	// SpO2
-	response.SpO2 = s.fetchSpO2Section(ctx, userID, startDate, endDate)
+	spo2, err := s.fetchSpO2Section(ctx, userID, startDate, endDate)
+	if err != nil {
+		unavailable = append(unavailable, "spo2 (query failed)")
+	} else {
+		response.SpO2 = spo2
+	}
 
 	// Diary Notes
 	if shouldIncludeNotes(input.ExcludeNotes) {
-		response.DiaryNotes = s.fetchContextNotes(ctx, startDate, endDate)
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.DiaryNotes = notes
+		if truncated {
+			warning = appendWarnings(warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			warning = appendWarnings(warning, notesWarn)
+		}
 	}
 
 	if len(unavailable) > 0 {
@@ -137,25 +169,29 @@ func (s *Server) handleAnalyzeCardiovascular(ctx context.Context, req *sdkmcp.Ca
 	return nil, response, nil
 }
 
-// resolveCompositeRange resolves start/end date from input, supporting the `days` shorthand
+// resolveCompositeRange resolves start/end date from input, supporting the `days` shorthand.
+// Alias normalization runs first so that camelCase aliases (startDate/endDate) are resolved
+// before the days shorthand is applied.
 func (s *Server) resolveCompositeRange(req *sdkmcp.CallToolRequest, startStr, endStr string, days int) (time.Time, time.Time, string, error) {
-	// If days is provided and start_date is not, use days as a shorthand
-	if days > 0 && startStr == "" {
-		now := time.Now()
-		if endStr == "" {
-			endStr = now.Format("2006-01-02")
-		}
-		endParsed, err := time.ParseInLocation("2006-01-02", endStr, now.Location())
-		if err != nil {
-			return time.Time{}, time.Time{}, "", fmt.Errorf("invalid end_date %q: expected YYYY-MM-DD", endStr)
-		}
-		startStr = endParsed.AddDate(0, 0, -days).Format("2006-01-02")
-	}
-
+	// First, resolve compatibility aliases (startDate → start_date, endDate → end_date)
 	resolvedStart, resolvedEnd, argsWarning, err := s.resolveDateRangeArgs(req, startStr, endStr)
 	if err != nil {
 		return time.Time{}, time.Time{}, "", err
 	}
+
+	// If days is provided and start_date is not (even after alias resolution), use days as a shorthand
+	if days > 0 && resolvedStart == "" {
+		now := time.Now()
+		if resolvedEnd == "" {
+			resolvedEnd = now.Format("2006-01-02")
+		}
+		endParsed, err := time.ParseInLocation("2006-01-02", resolvedEnd, now.Location())
+		if err != nil {
+			return time.Time{}, time.Time{}, "", fmt.Errorf("invalid end_date %q: expected YYYY-MM-DD", resolvedEnd)
+		}
+		resolvedStart = endParsed.AddDate(0, 0, -(days - 1)).Format("2006-01-02")
+	}
+
 	startDate, endDate, warning, err := s.parseDateRange(resolvedStart, resolvedEnd)
 	if err != nil {
 		return time.Time{}, time.Time{}, "", err
@@ -164,11 +200,11 @@ func (s *Server) resolveCompositeRange(req *sdkmcp.CallToolRequest, startStr, en
 	return startDate, endDate, warning, nil
 }
 
-func (s *Server) fetchBPSection(ctx context.Context, userID int64, startDate, endDate time.Time) *BPSection {
+func (s *Server) fetchBPSection(ctx context.Context, userID int64, startDate, endDate time.Time) (*BPSection, error) {
 	readings, err := s.data.GetBloodPressureReadings(ctx, userID, startDate)
 	if err != nil {
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to fetch BP", "error", err)
-		return nil
+		return nil, err
 	}
 
 	var results []BloodPressureResult
@@ -206,15 +242,15 @@ func (s *Server) fetchBPSection(ctx context.Context, userID int64, startDate, en
 		AvgSystolic:  avgSys,
 		AvgDiastolic: avgDia,
 		DaysMeasured: len(daysSet),
-	}
+	}, nil
 }
 
-func (s *Server) fetchMedicationsSection(startDate, endDate time.Time) *MedicationsSection {
+func (s *Server) fetchMedicationsSection(startDate, endDate time.Time) (*MedicationsSection, error) {
 	// Active medications
 	meds, err := s.data.ListMedications(false)
 	if err != nil {
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to fetch medications", "error", err)
-		return nil
+		return nil, err
 	}
 
 	var activeMeds []ActiveMedicationResult
@@ -230,7 +266,7 @@ func (s *Server) fetchMedicationsSection(startDate, endDate time.Time) *Medicati
 	intakes, err := s.data.GetIntakesSince(startDate)
 	if err != nil {
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to fetch intakes", "error", err)
-		return &MedicationsSection{Active: activeMeds}
+		return nil, fmt.Errorf("fetch medication intakes: %w", err)
 	}
 
 	var intakeResults []MedicationIntakeResult
@@ -238,10 +274,6 @@ func (s *Server) fetchMedicationsSection(startDate, endDate time.Time) *Medicati
 	for _, intake := range intakes {
 		if intake.ScheduledAt.After(endDate) {
 			continue
-		}
-		totalIntakes++
-		if intake.Status == "taken" || intake.Status == "confirmed" {
-			takenIntakes++
 		}
 
 		var takenAt *string
@@ -256,6 +288,18 @@ func (s *Server) fetchMedicationsSection(startDate, endDate time.Time) *Medicati
 			TakenAt:        takenAt,
 			Status:         intake.Status,
 		})
+
+		// Count resolved intakes (TAKEN, SKIPPED, MISSED) in adherence.
+		// For PENDING intakes: only exclude those scheduled in the future (not yet due).
+		// Overdue PENDING intakes (scheduled in the past, never confirmed/skipped) should
+		// count against adherence since the user missed acting on them.
+		if intake.Status == "PENDING" && intake.ScheduledAt.After(time.Now()) {
+			continue
+		}
+		totalIntakes++
+		if intake.Status == "TAKEN" {
+			takenIntakes++
+		}
 	}
 
 	adherence := 0.0
@@ -267,14 +311,14 @@ func (s *Server) fetchMedicationsSection(startDate, endDate time.Time) *Medicati
 		Active:        activeMeds,
 		IntakeLog:     intakeResults,
 		AdherenceRate: adherence,
-	}
+	}, nil
 }
 
-func (s *Server) fetchSleepSection(ctx context.Context, userID int64, startDate, endDate time.Time) *SleepSection {
+func (s *Server) fetchSleepSection(ctx context.Context, userID int64, startDate, endDate time.Time) (*SleepSection, error) {
 	logs, err := s.data.GetSleepLogs(ctx, userID, startDate)
 	if err != nil {
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to fetch sleep", "error", err)
-		return nil
+		return nil, err
 	}
 
 	var results []SleepLogResult
@@ -319,17 +363,17 @@ func (s *Server) fetchSleepSection(ctx context.Context, userID int64, startDate,
 		Logs:           results,
 		AvgDurationMin: avgDuration,
 		AvgDeepMin:     avgDeep,
-	}
+	}, nil
 }
 
-func (s *Server) fetchHeartRateSection(ctx context.Context, userID int64, startDate, endDate time.Time) *HeartRateSection {
+func (s *Server) fetchHeartRateSection(ctx context.Context, userID int64, startDate, endDate time.Time) (*HeartRateSection, error) {
 	logs, err := s.data.GetVitalsHeart(ctx, userID, startDate, endDate)
 	if err != nil {
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to fetch heart rate", "error", err)
-		return nil
+		return nil, err
 	}
 	if len(logs) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	sum, minV, maxV := 0, logs[0].Value, logs[0].Value
@@ -348,17 +392,17 @@ func (s *Server) fetchHeartRateSection(ctx context.Context, userID int64, startD
 		Min:           minV,
 		Max:           maxV,
 		ReadingsCount: len(logs),
-	}
+	}, nil
 }
 
-func (s *Server) fetchSpO2Section(ctx context.Context, userID int64, startDate, endDate time.Time) *SpO2Section {
+func (s *Server) fetchSpO2Section(ctx context.Context, userID int64, startDate, endDate time.Time) (*SpO2Section, error) {
 	logs, err := s.data.GetVitalsSpO2(ctx, userID, startDate, endDate)
 	if err != nil {
 		slog.Warn("[MCP] CardiovascularAnalysis: failed to fetch SpO2", "error", err)
-		return nil
+		return nil, err
 	}
 	if len(logs) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	sum, minV := 0, logs[0].Value
@@ -373,7 +417,7 @@ func (s *Server) fetchSpO2Section(ctx context.Context, userID int64, startDate, 
 		Avg:           sum / len(logs),
 		Min:           minV,
 		ReadingsCount: len(logs),
-	}
+	}, nil
 }
 
 // registerCardiovascularTool registers the analyze_cardiovascular composite tool
@@ -387,7 +431,7 @@ func registerCardiovascularTool(mcpServer *sdkmcp.Server, s *Server) {
 				"properties": {
 					"start_date": {
 						"type": "string",
-						"description": "Start date in YYYY-MM-DD format. Defaults to 30 days before end_date if both start_date and days are omitted."
+						"description": "Start date in YYYY-MM-DD format. Defaults to 90 days before end_date if both start_date and days are omitted."
 					},
 					"end_date": {
 						"type": "string",

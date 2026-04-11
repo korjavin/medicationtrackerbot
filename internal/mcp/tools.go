@@ -208,7 +208,14 @@ func (s *Server) handleGetBloodPressure(ctx context.Context, req *mcp.CallToolRe
 	}
 
 	if shouldIncludeNotes(input.ExcludeNotes) {
-		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
 	}
 
 	if s.audit != nil {
@@ -303,7 +310,14 @@ func (s *Server) handleGetWeight(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 
 	if shouldIncludeNotes(input.ExcludeNotes) {
-		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
 	}
 
 	if s.audit != nil {
@@ -420,7 +434,14 @@ func (s *Server) handleGetMedicationIntake(ctx context.Context, req *mcp.CallToo
 	}
 
 	if shouldIncludeNotes(input.ExcludeNotes) {
-		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
 	}
 
 	if s.audit != nil {
@@ -668,7 +689,14 @@ func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolR
 	}
 
 	if shouldIncludeNotes(input.ExcludeNotes) {
-		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
 	}
 
 	if s.audit != nil {
@@ -776,7 +804,14 @@ func (s *Server) handleGetSleepLogs(ctx context.Context, req *mcp.CallToolReques
 	}
 
 	if shouldIncludeNotes(input.ExcludeNotes) {
-		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
 	}
 
 	if s.audit != nil {
@@ -917,7 +952,14 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 	}
 
 	if shouldIncludeNotes(input.ExcludeNotes) {
-		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
 	}
 
 	if s.audit != nil {
@@ -1095,7 +1137,14 @@ func (s *Server) handleGetStepHistory(ctx context.Context, req *mcp.CallToolRequ
 	}
 
 	if shouldIncludeNotes(input.ExcludeNotes) {
-		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
 	}
 
 	if s.audit != nil {

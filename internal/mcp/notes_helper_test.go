@@ -23,8 +23,14 @@ func TestFetchContextNotesReturnsNotesInRange(t *testing.T) {
 	}
 
 	now := time.Now()
-	notes := s.fetchContextNotes(ctx, now.AddDate(0, 0, -7), now.AddDate(0, 0, 1))
+	notes, truncated, warnMsg := s.fetchContextNotes(ctx, now.AddDate(0, 0, -7), now.AddDate(0, 0, 1))
 
+	if truncated {
+		t.Error("expected truncated=false for 2 notes")
+	}
+	if warnMsg != "" {
+		t.Errorf("expected no warning, got %q", warnMsg)
+	}
 	if len(notes) != 2 {
 		t.Fatalf("expected 2 notes, got %d", len(notes))
 	}
@@ -45,9 +51,15 @@ func TestFetchContextNotesReturnsNilWhenEmpty(t *testing.T) {
 	start, _ := time.Parse("2006-01-02", "2020-01-01")
 	end, _ := time.Parse("2006-01-02", "2020-01-31")
 
-	notes := s.fetchContextNotes(ctx, start, end)
+	notes, truncated, warnMsg := s.fetchContextNotes(ctx, start, end)
 	if notes != nil {
 		t.Fatalf("expected nil for empty notes, got %v", notes)
+	}
+	if truncated {
+		t.Error("expected truncated=false for empty notes")
+	}
+	if warnMsg != "" {
+		t.Errorf("expected no warning, got %q", warnMsg)
 	}
 }
 
@@ -66,7 +78,7 @@ func TestFetchContextNotesExcludesOutOfRange(t *testing.T) {
 	start, _ := time.Parse("2006-01-02", "2020-01-01")
 	end, _ := time.Parse("2006-01-02", "2020-01-31")
 
-	notes := s.fetchContextNotes(ctx, start, end)
+	notes, _, _ := s.fetchContextNotes(ctx, start, end)
 	if notes != nil {
 		t.Fatalf("expected nil for out-of-range notes, got %d notes", len(notes))
 	}
@@ -94,7 +106,7 @@ func TestFetchContextNotesOtherUserExcluded(t *testing.T) {
 	}
 
 	now := time.Now()
-	notes := s.fetchContextNotes(ctx, now.AddDate(0, 0, -7), now.AddDate(0, 0, 1))
+	notes, _, _ := s.fetchContextNotes(ctx, now.AddDate(0, 0, -7), now.AddDate(0, 0, 1))
 	if notes != nil {
 		t.Fatalf("expected nil, got %d notes from other user", len(notes))
 	}

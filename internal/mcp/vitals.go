@@ -77,7 +77,14 @@ func (s *Server) handleGetVitalsHeart(ctx context.Context, req *mcp.CallToolRequ
 	}
 
 	if shouldIncludeNotes(input.ExcludeNotes) {
-		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
 	}
 
 	if s.audit != nil {
@@ -131,7 +138,14 @@ func (s *Server) handleGetVitalsSpO2(ctx context.Context, req *mcp.CallToolReque
 	}
 
 	if shouldIncludeNotes(input.ExcludeNotes) {
-		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
 	}
 
 	if s.audit != nil {
@@ -186,7 +200,14 @@ func (s *Server) handleGetVitalsStress(ctx context.Context, req *mcp.CallToolReq
 	}
 
 	if shouldIncludeNotes(input.ExcludeNotes) {
-		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
 	}
 
 	if s.audit != nil {
@@ -264,7 +285,14 @@ func (s *Server) handleGetHealthOverview(ctx context.Context, req *mcp.CallToolR
 	}
 
 	if shouldIncludeNotes(input.ExcludeNotes) {
-		response.ContextNotes = s.fetchContextNotes(ctx, startDate, endDate)
+		notes, truncated, notesWarn := s.fetchContextNotes(ctx, startDate, endDate)
+		response.ContextNotes = notes
+		if truncated {
+			response.Warning = appendWarnings(response.Warning, notesTruncatedWarning)
+		}
+		if notesWarn != "" {
+			response.Warning = appendWarnings(response.Warning, notesWarn)
+		}
 	}
 
 	if s.audit != nil {
