@@ -233,7 +233,11 @@ window.ChartUtils = (() => {
         const aggregated = [];
         for (const [, dayReadings] of oldByDay) {
             if (dayReadings.length === 1) {
-                aggregated.push({ ...dayReadings[0], aggregated: true });
+                aggregated.push({
+                    ...dayReadings[0],
+                    category: _classifyBP(dayReadings[0].sys, dayReadings[0].dia),
+                    aggregated: true,
+                });
                 continue;
             }
 
@@ -262,9 +266,17 @@ window.ChartUtils = (() => {
                 weightedPulse += (dayReadings[i].pulse || 0) * weight;
             }
 
-            const avgSys = Math.round(weightedSys / totalWeight);
-            const avgDia = Math.round(weightedDia / totalWeight);
-            const avgPulse = Math.round(weightedPulse / totalWeight);
+            // Fall back to simple average if all readings share the same timestamp
+            const n = dayReadings.length;
+            const avgSys = totalWeight > 0
+                ? Math.round(weightedSys / totalWeight)
+                : Math.round(dayReadings.reduce((s, r) => s + r.sys, 0) / n);
+            const avgDia = totalWeight > 0
+                ? Math.round(weightedDia / totalWeight)
+                : Math.round(dayReadings.reduce((s, r) => s + r.dia, 0) / n);
+            const avgPulse = totalWeight > 0
+                ? Math.round(weightedPulse / totalWeight)
+                : Math.round(dayReadings.reduce((s, r) => s + (r.pulse || 0), 0) / n);
 
             // Place at midpoint of the day's readings
             const midTime = (dayReadings[0].date.getTime() + dayReadings[dayReadings.length - 1].date.getTime()) / 2;
