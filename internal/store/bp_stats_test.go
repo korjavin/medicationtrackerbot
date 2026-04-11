@@ -324,6 +324,268 @@ func TestGetBPDailyWeightedStats_SameTimestampUsesLast(t *testing.T) {
 	}
 }
 
+func TestBPStats_FrequentHighBPDayVsSparseNormal(t *testing.T) {
+	db, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	userID := int64(1)
+
+	fixedNow := time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC)
+	origNow := nowFunc
+	nowFunc = func() time.Time { return fixedNow }
+	t.Cleanup(func() { nowFunc = origNow })
+
+	add := func(ts time.Time, sys, dia int) {
+		t.Helper()
+		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+			UserID:     userID,
+			MeasuredAt: ts,
+			Systolic:   sys,
+			Diastolic:  dia,
+		})
+		if err != nil {
+			t.Fatalf("failed to insert reading: %v", err)
+		}
+	}
+
+	// Days 1-3: 1 normal reading each at 09:00 (120/80)
+	for _, dayOffset := range []int{-4, -3, -2} {
+		d := fixedNow.AddDate(0, 0, dayOffset)
+		add(time.Date(d.Year(), d.Month(), d.Day(), 9, 0, 0, 0, time.UTC), 120, 80)
+	}
+
+	// Day 4 (yesterday): 5 high readings over 2 hours starting at 10:00
+	day4 := fixedNow.AddDate(0, 0, -1)
+	for i := 0; i < 5; i++ {
+		add(time.Date(day4.Year(), day4.Month(), day4.Day(), 10, i*30, 0, 0, time.UTC), 150-i*2, 95-i)
+	}
+
+	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	if err != nil {
+		t.Fatalf("failed to get stats: %v", err)
+	}
+	if stats.Stats14 == nil {
+		t.Fatalf("expected stats_14 to be present")
+	}
+
+	// Each day gets equal weight. 3 days at ~120/80, 1 day at ~145/92 area.
+	// Naive mean of 8 readings would be ~133.8. Daily-weighted should be ~127 area.
+	if stats.Stats14.Days != 4 {
+		t.Fatalf("expected 4 days, got %d", stats.Stats14.Days)
+	}
+	// The 5 high-BP readings should NOT dominate: period avg should be closer to 120 than 150.
+	if stats.Stats14.Systolic > 135 {
+		t.Fatalf("frequency bias detected: systolic %d > 135 (5 high readings should not dominate 3 normal days)", stats.Stats14.Systolic)
+	}
+	if stats.Stats14.Systolic < 120 {
+		t.Fatalf("unexpected systolic too low: %d < 120", stats.Stats14.Systolic)
+	}
+}
+
+func TestBPStats_SingleReadingPerDay(t *testing.T) {
+	db, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	userID := int64(1)
+
+	fixedNow := time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC)
+	origNow := nowFunc
+	nowFunc = func() time.Time { return fixedNow }
+	t.Cleanup(func() { nowFunc = origNow })
+
+	add := func(ts time.Time, sys, dia int) {
+		t.Helper()
+		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+			UserID:     userID,
+			MeasuredAt: ts,
+			Systolic:   sys,
+			Diastolic:  dia,
+		})
+		if err != nil {
+			t.Fatalf("failed to insert reading: %v", err)
+		}
+	}
+
+	// 5 days, each with exactly 1 reading at different times
+	readings := []struct {
+		dayOffset int
+		hour      int
+		sys, dia  int
+	}{
+		{-5, 8, 110, 70},
+		{-4, 12, 120, 80},
+		{-3, 17, 130, 85},
+		{-2, 9, 125, 78},
+		{-1, 21, 115, 72},
+	}
+
+	for _, r := range readings {
+		d := fixedNow.AddDate(0, 0, r.dayOffset)
+		add(time.Date(d.Year(), d.Month(), d.Day(), r.hour, 0, 0, 0, time.UTC), r.sys, r.dia)
+	}
+
+	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	if err != nil {
+		t.Fatalf("failed to get stats: %v", err)
+	}
+	if stats.Stats14 == nil {
+		t.Fatalf("expected stats_14 to be present")
+	}
+
+	// With 1 reading per day, each day's average equals its reading value.
+	// Period average = simple mean of all 5 readings.
+	expectedSys := int(math.Round((110 + 120 + 130 + 125 + 115) / 5.0))
+	expectedDia := int(math.Round((70 + 80 + 85 + 78 + 72) / 5.0))
+
+	if stats.Stats14.Systolic != expectedSys {
+		t.Fatalf("systolic: got %d want %d", stats.Stats14.Systolic, expectedSys)
+	}
+	if stats.Stats14.Diastolic != expectedDia {
+		t.Fatalf("diastolic: got %d want %d", stats.Stats14.Diastolic, expectedDia)
+	}
+	if stats.Stats14.Days != 5 {
+		t.Fatalf("days: got %d want 5", stats.Stats14.Days)
+	}
+}
+
+func TestBPStats_LongGapBetweenDays(t *testing.T) {
+	db, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	userID := int64(1)
+
+	fixedNow := time.Date(2025, 2, 15, 12, 0, 0, 0, time.UTC)
+	origNow := nowFunc
+	nowFunc = func() time.Time { return fixedNow }
+	t.Cleanup(func() { nowFunc = origNow })
+
+	add := func(ts time.Time, sys, dia int) {
+		t.Helper()
+		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+			UserID:     userID,
+			MeasuredAt: ts,
+			Systolic:   sys,
+			Diastolic:  dia,
+		})
+		if err != nil {
+			t.Fatalf("failed to insert reading: %v", err)
+		}
+	}
+
+	// Reading on day 1 (50 days ago - only in 60-day window) and day today
+	day1 := fixedNow.AddDate(0, 0, -50)
+	add(time.Date(day1.Year(), day1.Month(), day1.Day(), 9, 0, 0, 0, time.UTC), 140, 90)
+	add(time.Date(fixedNow.Year(), fixedNow.Month(), fixedNow.Day(), 8, 0, 0, 0, time.UTC), 110, 70)
+
+	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	if err != nil {
+		t.Fatalf("failed to get stats: %v", err)
+	}
+
+	// 14-day window: only today's reading
+	if stats.Stats14 == nil {
+		t.Fatalf("expected stats_14 to be present")
+	}
+	if stats.Stats14.Days != 1 {
+		t.Fatalf("stats_14 days: got %d want 1", stats.Stats14.Days)
+	}
+	if stats.Stats14.Systolic != 110 {
+		t.Fatalf("stats_14 systolic: got %d want 110", stats.Stats14.Systolic)
+	}
+
+	// 60-day window: both days contribute equally
+	if stats.Stats60 == nil {
+		t.Fatalf("expected stats_60 to be present")
+	}
+	if stats.Stats60.Days != 2 {
+		t.Fatalf("stats_60 days: got %d want 2", stats.Stats60.Days)
+	}
+	expectedSys60 := int(math.Round((140 + 110) / 2.0))
+	expectedDia60 := int(math.Round((90 + 70) / 2.0))
+	if stats.Stats60.Systolic != expectedSys60 || stats.Stats60.Diastolic != expectedDia60 {
+		t.Fatalf("stats_60 averages: got %d/%d want %d/%d", stats.Stats60.Systolic, stats.Stats60.Diastolic, expectedSys60, expectedDia60)
+	}
+}
+
+func TestBPStats_ManyReadingsInShortBurst(t *testing.T) {
+	db, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	userID := int64(1)
+
+	fixedNow := time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC)
+	origNow := nowFunc
+	nowFunc = func() time.Time { return fixedNow }
+	t.Cleanup(func() { nowFunc = origNow })
+
+	add := func(ts time.Time, sys, dia int) {
+		t.Helper()
+		_, err := db.CreateBloodPressureReading(ctx, &BloodPressure{
+			UserID:     userID,
+			MeasuredAt: ts,
+			Systolic:   sys,
+			Diastolic:  dia,
+		})
+		if err != nil {
+			t.Fatalf("failed to insert reading: %v", err)
+		}
+	}
+
+	// Day 1 (yesterday): 10 readings in 30 minutes starting at 09:00 (high BP)
+	day1 := fixedNow.AddDate(0, 0, -1)
+	for i := 0; i < 10; i++ {
+		add(time.Date(day1.Year(), day1.Month(), day1.Day(), 9, i*3, 0, 0, time.UTC), 155, 98)
+	}
+
+	// Day 2 (today): 1 reading at 09:00 (normal)
+	add(time.Date(fixedNow.Year(), fixedNow.Month(), fixedNow.Day(), 9, 0, 0, 0, time.UTC), 118, 75)
+
+	stats, err := db.GetBPDailyWeightedStats(ctx, userID)
+	if err != nil {
+		t.Fatalf("failed to get stats: %v", err)
+	}
+	if stats.Stats14 == nil {
+		t.Fatalf("expected stats_14 to be present")
+	}
+
+	if stats.Stats14.Days != 2 {
+		t.Fatalf("days: got %d want 2", stats.Stats14.Days)
+	}
+	// With daily weighting: (155 + 118) / 2 ≈ 137
+	// Without daily weighting (naive): (10*155 + 118) / 11 ≈ 151.6
+	// The burst day must NOT dominate.
+	expectedSys := int(math.Round((155 + 118) / 2.0))
+	if absDiff(stats.Stats14.Systolic, expectedSys) > 2 {
+		t.Fatalf("burst day dominates: systolic %d, expected ~%d (tolerance ±2)", stats.Stats14.Systolic, expectedSys)
+	}
+	if stats.Stats14.Readings != 11 {
+		t.Fatalf("readings: got %d want 11", stats.Stats14.Readings)
+	}
+}
+
+func absDiff(a, b int) int {
+	if a > b {
+		return a - b
+	}
+	return b - a
+}
+
 func TestGetBPDailyWeightedStats_PartialPeriodOnlyIn60Days(t *testing.T) {
 	db, err := New(":memory:")
 	if err != nil {
