@@ -336,7 +336,7 @@ describe('app.js charts, scanner and visualization helpers', () => {
       const stepsSpy = vi.spyOn(window, 'renderStepsChart').mockImplementation(() => {});
 
       await window.loadHealthOverview();
-      expect(document.getElementById('health-overview-content').innerHTML).toContain('Failed to load health metrics');
+      expect(document.getElementById('health-overview-content').innerHTML).toContain('No cached data');
 
       await window.loadHealthOverview();
       await vi.runAllTimersAsync();

@@ -96,14 +96,14 @@ Currently `SyncManager.syncAll()` runs once on `online` event, no retry on failu
 ### Task 5: Offline read fallbacks for all data types
 Several endpoints return empty/error offline. Ensure every `loadSWR` consumer handles the offline case gracefully.
 
-- [ ] Audit all `loadSWR` calls across feature modules (`bp.js`, `weight.js`, `food.js`, `health.js`, `workout.js`, `app.js` medications):
+- [x] Audit all `loadSWR` calls across feature modules (`bp.js`, `weight.js`, `food.js`, `health.js`, `workout.js`, `app.js` medications):
   - Every `onError` must check for cached data and render it (not show empty state)
   - If no cache exists, show "No cached data — will load when online" instead of error
-- [ ] Ensure BP/weight goal, stats, and other secondary fetchers in composite SWR calls degrade gracefully:
+- [x] Ensure BP/weight goal, stats, and other secondary fetchers in composite SWR calls degrade gracefully:
   - If main data cached but stats/goals fail → render main data, show placeholder for stats
-- [ ] In `data-store.js` `loadSWR`: if `fetcher` throws and no `onError` provided, default to rendering cached data silently (don't swallow — log warning)
-- [ ] Write tests for offline fallback in each feature module's loadSWR error path
-- [ ] Run tests — must pass before next task
+- [x] In `data-store.js` `loadSWR`: if `fetcher` throws and no `onError` provided, default to rendering cached data silently (don't swallow — log warning)
+- [x] Write tests for offline fallback in each feature module's loadSWR error path
+- [x] Run tests — must pass before next task
 
 ### Task 6: Offline status UI improvements
 Make the offline state clear but non-intrusive. Users should know they're offline but not be blocked.

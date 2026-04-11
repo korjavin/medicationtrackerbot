@@ -301,8 +301,8 @@ async function loadWorkoutGroups() {
             console.error('Error loading workout groups:', error);
             if (!cached) {
                 const message = document.createElement('p');
-                message.className = 'text-danger';
-                message.textContent = 'Error loading workout groups';
+                message.className = 'text-hint';
+                message.textContent = 'No cached data \u2014 will load when online';
                 container.replaceChildren(message);
             }
         }
@@ -1020,8 +1020,8 @@ async function loadExerciseLibrary() {
             console.error('Error loading exercise library:', error);
             if (!cached) {
                 const message = document.createElement('p');
-                message.className = 'text-danger';
-                message.textContent = 'Error loading exercise library';
+                message.className = 'text-hint';
+                message.textContent = 'No cached data \u2014 will load when online';
                 container.replaceChildren(message);
             }
         }
@@ -1885,8 +1885,8 @@ async function loadWorkoutStatsTab() {
             console.error('Error loading stats:', error);
             if (!cached) {
                 const message = document.createElement('p');
-                message.className = 'text-danger';
-                message.textContent = 'Error loading statistics';
+                message.className = 'text-hint';
+                message.textContent = 'No cached data \u2014 will load when online';
                 container.replaceChildren(message);
             }
         }

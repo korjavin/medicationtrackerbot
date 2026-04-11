@@ -80,11 +80,14 @@ async function loadBPReadings() {
         key: 'bp',
         tags: ['bp'],
         fetcher: async () => {
-            const [readingsRes, goalRes, statsRes] = await Promise.all([
+            const [readingsResult, goalResult, statsResult] = await Promise.allSettled([
                 apiCall('/api/bp?days=60'),
                 apiCall('/api/bp/goal'),
                 apiCall('/api/bp/stats')
             ]);
+            const readingsRes = readingsResult.status === 'fulfilled' ? readingsResult.value : null;
+            const goalRes = goalResult.status === 'fulfilled' ? goalResult.value : null;
+            const statsRes = statsResult.status === 'fulfilled' ? statsResult.value : null;
             if (readingsRes === null) return null;
             return { readingsRes, goalRes, statsRes };
         },
@@ -97,7 +100,7 @@ async function loadBPReadings() {
         onError: async (e, cached) => {
             console.error('Failed to load BP data:', e);
             if (!cached) {
-                list.replaceChildren(createEmptyState('Failed to load readings'));
+                list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
             }
         }
     });
@@ -130,7 +133,7 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
     }
 
     if (allReadings.length === 0 && readingsRes === null) {
-        list.replaceChildren(createEmptyState('Failed to load readings'));
+        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
 
         return;
     }
