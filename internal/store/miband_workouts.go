@@ -146,25 +146,78 @@ func (s *Store) ImportMiBandWorkouts(ctx context.Context, workouts []MiBandWorko
 
 		// Insert GPS track points if any
 		if pts, ok := gpsTracks[w.SourceStartMs]; ok && len(pts) > 0 {
-			stmt, err := tx.PrepareContext(ctx, `
-				INSERT INTO miband_gps_tracks (workout_id, point_index, ts_ms, latitude, longitude, altitude, is_pause)
-				VALUES (?, ?, ?, ?, ?, ?, ?)`)
+			batchSize := 50
+
+			// Build the base query string for exactly batchSize once
+			var fullBatchBuilder strings.Builder
+			fullBatchBuilder.Grow(115 + batchSize*25)
+			fullBatchBuilder.WriteString("INSERT INTO miband_gps_tracks (workout_id, point_index, ts_ms, latitude, longitude, altitude, is_pause) VALUES ")
+			for i := 0; i < batchSize; i++ {
+				if i > 0 {
+					fullBatchBuilder.WriteString(", ")
+				}
+				fullBatchBuilder.WriteString("(?, ?, ?, ?, ?, ?, ?)")
+			}
+			fullBatchQuery := fullBatchBuilder.String()
+			fullStmt, err := tx.PrepareContext(ctx, fullBatchQuery)
 			if err != nil {
 				_ = tx.Rollback()
 				return imported, skipped, err
 			}
-			for idx, pt := range pts {
-				isPause := 0
-				if pt.IsPause {
-					isPause = 1
+
+			args := make([]interface{}, batchSize*7)
+			for start := 0; start < len(pts); start += batchSize {
+				end := start + batchSize
+				isFullBatch := true
+
+				if end > len(pts) {
+					end = len(pts)
+					isFullBatch = false
 				}
-				if _, err := stmt.ExecContext(ctx, workoutID, idx, pt.TsMs, pt.Latitude, pt.Longitude, pt.Altitude, isPause); err != nil {
-					_ = stmt.Close()
-					_ = tx.Rollback()
-					return imported, skipped, err
+
+				batchPts := pts[start:end]
+
+				for i, pt := range batchPts {
+					isPause := 0
+					if pt.IsPause {
+						isPause = 1
+					}
+					idx := i * 7
+					args[idx] = workoutID
+					args[idx+1] = start + i
+					args[idx+2] = pt.TsMs
+					args[idx+3] = pt.Latitude
+					args[idx+4] = pt.Longitude
+					args[idx+5] = pt.Altitude
+					args[idx+6] = isPause
+				}
+
+				if isFullBatch {
+					if _, err := fullStmt.ExecContext(ctx, args...); err != nil {
+						_ = fullStmt.Close()
+						_ = tx.Rollback()
+						return imported, skipped, err
+					}
+				} else {
+					// Remainder batch
+					remainder := end - start
+					var remBuilder strings.Builder
+					remBuilder.Grow(115 + remainder*25)
+					remBuilder.WriteString("INSERT INTO miband_gps_tracks (workout_id, point_index, ts_ms, latitude, longitude, altitude, is_pause) VALUES ")
+					for i := 0; i < remainder; i++ {
+						if i > 0 {
+							remBuilder.WriteString(", ")
+						}
+						remBuilder.WriteString("(?, ?, ?, ?, ?, ?, ?)")
+					}
+					if _, err := tx.ExecContext(ctx, remBuilder.String(), args[:remainder*7]...); err != nil {
+						_ = fullStmt.Close()
+						_ = tx.Rollback()
+						return imported, skipped, err
+					}
 				}
 			}
-			_ = stmt.Close()
+			_ = fullStmt.Close()
 		}
 
 		if err := tx.Commit(); err != nil {
