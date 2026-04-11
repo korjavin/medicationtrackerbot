@@ -40,16 +40,16 @@ This is frontend-only — no API changes. The raw reading list below the chart i
 ## Implementation Steps
 
 ### Task 1: Add daily aggregation utility to ChartUtils
-- [ ] Add `ChartUtils.aggregateToDaily(readings, recentDays)` to `web/static/js/core/chart-utils.js`
+- [x] Add `ChartUtils.aggregateToDaily(readings, recentDays)` to `web/static/js/core/chart-utils.js`
   - Input: array of `{date, sys, dia, pulse, category}` objects + `recentDays` threshold (default 7)
   - Output: array of same shape, where readings older than `recentDays` are collapsed to one point per calendar day (time-weighted average of sys/dia within each day, placed at the day's midpoint time, category = classification of the daily average values)
   - Readings within `recentDays` are passed through unchanged
-- [ ] Time-weighting within a day: weight each reading by duration until the next reading (same logic as backend `GetBPDailyWeightedStats`). Single reading per day = that reading's value
-- [ ] Write tests: empty array returns empty array
-- [ ] Write tests: all readings within recent window → no aggregation, same count
-- [ ] Write tests: 3 readings on one old day → 1 aggregated point with correct time-weighted values
-- [ ] Write tests: mix of recent individual + old aggregated points, verify correct split at boundary
-- [ ] Run JS tests — must pass before next task
+- [x] Time-weighting within a day: weight each reading by duration until the next reading (same logic as backend `GetBPDailyWeightedStats`). Single reading per day = that reading's value
+- [x] Write tests: empty array returns empty array
+- [x] Write tests: all readings within recent window → no aggregation, same count
+- [x] Write tests: 3 readings on one old day → 1 aggregated point with correct time-weighted values
+- [x] Write tests: mix of recent individual + old aggregated points, verify correct split at boundary
+- [x] Run JS tests — must pass before next task
 
 ### Task 2: Add LTTB downsampling utility to ChartUtils
 - [ ] Add `ChartUtils.lttbDownsample(points, targetCount)` to `web/static/js/core/chart-utils.js`

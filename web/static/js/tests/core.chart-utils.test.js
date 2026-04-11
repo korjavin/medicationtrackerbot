@@ -256,6 +256,149 @@ describe('ChartUtils', () => {
         });
     });
 
+    // --- aggregateToDaily ---
+
+    describe('aggregateToDaily', () => {
+        function makeReading(dateStr, sys, dia, pulse = 70) {
+            return {
+                date: new Date(dateStr),
+                sys,
+                dia,
+                pulse,
+                category: 'normal',
+            };
+        }
+
+        it('returns empty array for empty input', () => {
+            expect(env.window.ChartUtils.aggregateToDaily([])).toEqual([]);
+        });
+
+        it('returns empty array for null/undefined', () => {
+            expect(env.window.ChartUtils.aggregateToDaily(null)).toEqual([]);
+            expect(env.window.ChartUtils.aggregateToDaily(undefined)).toEqual([]);
+        });
+
+        it('passes through all readings within recent window unchanged', () => {
+            const now = new Date();
+            const r1 = makeReading(new Date(now - 1000 * 60 * 60).toISOString(), 120, 80);
+            const r2 = makeReading(new Date(now - 1000 * 60 * 60 * 2).toISOString(), 130, 85);
+            const result = env.window.ChartUtils.aggregateToDaily([r1, r2], 7);
+            expect(result.length).toBe(2);
+            // Should not be marked as aggregated
+            expect(result[0].aggregated).toBeUndefined();
+            expect(result[1].aggregated).toBeUndefined();
+        });
+
+        it('collapses 3 readings on one old day into 1 aggregated point', () => {
+            // 30 days ago - well outside the 7-day recent window
+            const baseDate = new Date();
+            baseDate.setDate(baseDate.getDate() - 30);
+            baseDate.setHours(8, 0, 0, 0);
+
+            const r1 = makeReading(new Date(baseDate).toISOString(), 120, 80, 70);
+            const d2 = new Date(baseDate);
+            d2.setHours(12, 0, 0, 0);
+            const r2 = makeReading(d2.toISOString(), 140, 90, 80);
+            const d3 = new Date(baseDate);
+            d3.setHours(20, 0, 0, 0);
+            const r3 = makeReading(d3.toISOString(), 130, 85, 75);
+
+            const result = env.window.ChartUtils.aggregateToDaily([r1, r2, r3], 7);
+            expect(result.length).toBe(1);
+            expect(result[0].aggregated).toBe(true);
+
+            // Time-weighted average:
+            // r1 (08:00) weight = 4h (until 12:00) = 14400000ms
+            // r2 (12:00) weight = 8h (until 20:00) = 28800000ms
+            // r3 (20:00) weight = 4h (until end of day 00:00) = 14400000ms
+            // Total weight = 57600000ms
+            // weightedSys = 120*14400000 + 140*28800000 + 130*14400000 = 1728000000 + 4032000000 + 1872000000 = 7632000000
+            // avgSys = 7632000000 / 57600000 = 132.5 → 133
+            expect(result[0].sys).toBe(133);
+
+            // weightedDia = 80*14400000 + 90*28800000 + 85*14400000 = 1152000000 + 2592000000 + 1224000000 = 4968000000
+            // avgDia = 4968000000 / 57600000 = 86.25 → 86
+            expect(result[0].dia).toBe(86);
+        });
+
+        it('handles single reading per old day (no aggregation needed)', () => {
+            const baseDate = new Date();
+            baseDate.setDate(baseDate.getDate() - 30);
+            baseDate.setHours(10, 0, 0, 0);
+
+            const r1 = makeReading(new Date(baseDate).toISOString(), 125, 82, 72);
+            const result = env.window.ChartUtils.aggregateToDaily([r1], 7);
+            expect(result.length).toBe(1);
+            expect(result[0].sys).toBe(125);
+            expect(result[0].dia).toBe(82);
+            expect(result[0].aggregated).toBe(true);
+        });
+
+        it('correctly splits at boundary between recent and old', () => {
+            const now = new Date();
+
+            // Recent: 2 days ago
+            const recent = makeReading(new Date(now - 2 * 86400000).toISOString(), 120, 80);
+
+            // Old: 20 days ago, two readings on same day
+            const oldBase = new Date(now - 20 * 86400000);
+            oldBase.setHours(9, 0, 0, 0);
+            const old1 = makeReading(new Date(oldBase).toISOString(), 140, 90);
+            const oldBase2 = new Date(oldBase);
+            oldBase2.setHours(18, 0, 0, 0);
+            const old2 = makeReading(oldBase2.toISOString(), 130, 85);
+
+            const result = env.window.ChartUtils.aggregateToDaily([recent, old1, old2], 7);
+            // 1 aggregated old point + 1 recent individual = 2
+            expect(result.length).toBe(2);
+
+            // First should be the old aggregated one (sorted by date)
+            expect(result[0].aggregated).toBe(true);
+            // Second should be the recent one, not aggregated
+            expect(result[1].aggregated).toBeUndefined();
+            expect(result[1].sys).toBe(120);
+        });
+
+        it('assigns correct BP category to aggregated point', () => {
+            const baseDate = new Date();
+            baseDate.setDate(baseDate.getDate() - 30);
+            baseDate.setHours(8, 0, 0, 0);
+
+            // Both readings are high
+            const r1 = makeReading(new Date(baseDate).toISOString(), 150, 95);
+            const d2 = new Date(baseDate);
+            d2.setHours(20, 0, 0, 0);
+            const r2 = makeReading(d2.toISOString(), 160, 100);
+
+            const result = env.window.ChartUtils.aggregateToDaily([r1, r2], 7);
+            expect(result.length).toBe(1);
+            // Time-weighted: 150*12h + 160*4h / 16h = 152.5 → 153 sys
+            // 95*12h + 100*4h / 16h = 96.25 → 96 dia
+            // 153/96 → high1 (sys >= 140 but < 160)
+            expect(result[0].category).toBe('high1');
+        });
+
+        it('sorts output chronologically', () => {
+            const now = new Date();
+            const recent = makeReading(new Date(now - 86400000).toISOString(), 120, 80);
+
+            const old1Date = new Date(now - 30 * 86400000);
+            old1Date.setHours(10, 0, 0, 0);
+            const old1 = makeReading(old1Date.toISOString(), 130, 85);
+
+            const old2Date = new Date(now - 15 * 86400000);
+            old2Date.setHours(10, 0, 0, 0);
+            const old2 = makeReading(old2Date.toISOString(), 135, 87);
+
+            // Pass in unsorted order
+            const result = env.window.ChartUtils.aggregateToDaily([recent, old2, old1], 7);
+            expect(result.length).toBe(3);
+            // Should be sorted: old1 (30d ago), old2 (15d ago), recent (1d ago)
+            expect(result[0].date.getTime()).toBeLessThan(result[1].date.getTime());
+            expect(result[1].date.getTime()).toBeLessThan(result[2].date.getTime());
+        });
+    });
+
     // --- createLastValueDot ---
 
     describe('createLastValueDot', () => {

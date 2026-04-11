@@ -184,11 +184,113 @@ window.ChartUtils = (() => {
         return g;
     }
 
+    /**
+     * Classify BP reading by ISH 2020 guidelines.
+     * Duplicated here to keep chart-utils self-contained (bp.js has its own copy).
+     */
+    function _classifyBP(sys, dia) {
+        if (sys >= 180 || dia >= 120) return 'crisis';
+        if (sys >= 160 || dia >= 100) return 'high2';
+        if (sys >= 140 || dia >= 90) return 'high1';
+        if (sys >= 130 || dia >= 85) return 'elevated';
+        if (sys >= 120 && dia < 80) return 'elevated';
+        return 'normal';
+    }
+
+    /**
+     * Aggregate BP readings for chart noise reduction.
+     *
+     * Readings older than `recentDays` are collapsed to one point per calendar day
+     * using time-weighted averaging (weight = duration until next reading that day).
+     * Readings within `recentDays` pass through unchanged.
+     *
+     * @param {Array<{date: Date, sys: number, dia: number, pulse: number, category: string}>} readings
+     * @param {number} recentDays - Days to keep individual readings (default 7)
+     * @returns {Array<{date: Date, sys: number, dia: number, pulse: number, category: string, aggregated?: boolean}>}
+     */
+    function aggregateToDaily(readings, recentDays = 7) {
+        if (!readings || readings.length === 0) return [];
+
+        const now = new Date();
+        const cutoff = new Date(now);
+        cutoff.setDate(cutoff.getDate() - recentDays);
+        cutoff.setHours(0, 0, 0, 0);
+
+        const recent = [];
+        // Group old readings by calendar day (YYYY-MM-DD)
+        const oldByDay = new Map();
+
+        for (const r of readings) {
+            if (r.date >= cutoff) {
+                recent.push(r);
+            } else {
+                const dayKey = r.date.getFullYear() + '-' +
+                    String(r.date.getMonth() + 1).padStart(2, '0') + '-' +
+                    String(r.date.getDate()).padStart(2, '0');
+                if (!oldByDay.has(dayKey)) oldByDay.set(dayKey, []);
+                oldByDay.get(dayKey).push(r);
+            }
+        }
+
+        const aggregated = [];
+        for (const [, dayReadings] of oldByDay) {
+            if (dayReadings.length === 1) {
+                aggregated.push({ ...dayReadings[0], aggregated: true });
+                continue;
+            }
+
+            // Sort chronologically within the day
+            dayReadings.sort((a, b) => a.date - b.date);
+
+            // End of day for weight calculation
+            const dayStart = new Date(dayReadings[0].date);
+            dayStart.setHours(0, 0, 0, 0);
+            const dayEnd = new Date(dayStart);
+            dayEnd.setDate(dayEnd.getDate() + 1);
+
+            let totalWeight = 0;
+            let weightedSys = 0;
+            let weightedDia = 0;
+            let weightedPulse = 0;
+
+            for (let i = 0; i < dayReadings.length; i++) {
+                const nextTime = i < dayReadings.length - 1
+                    ? dayReadings[i + 1].date.getTime()
+                    : dayEnd.getTime();
+                const weight = nextTime - dayReadings[i].date.getTime();
+                totalWeight += weight;
+                weightedSys += dayReadings[i].sys * weight;
+                weightedDia += dayReadings[i].dia * weight;
+                weightedPulse += (dayReadings[i].pulse || 0) * weight;
+            }
+
+            const avgSys = Math.round(weightedSys / totalWeight);
+            const avgDia = Math.round(weightedDia / totalWeight);
+            const avgPulse = Math.round(weightedPulse / totalWeight);
+
+            // Place at midpoint of the day's readings
+            const midTime = (dayReadings[0].date.getTime() + dayReadings[dayReadings.length - 1].date.getTime()) / 2;
+
+            aggregated.push({
+                date: new Date(midTime),
+                sys: avgSys,
+                dia: avgDia,
+                pulse: avgPulse,
+                category: _classifyBP(avgSys, avgDia),
+                aggregated: true,
+            });
+        }
+
+        // Merge and sort by date
+        return [...aggregated, ...recent].sort((a, b) => a.date - b.date);
+    }
+
     return {
         catmullRomSpline,
         calculateYAxisTicks,
         createGradient,
         animateLine,
         createLastValueDot,
+        aggregateToDaily,
     };
 })();
