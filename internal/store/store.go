@@ -1436,7 +1436,7 @@ func (s *Store) ImportSleepLogs(ctx context.Context, userID int64, logs []SleepL
 			turn_over_count=excluded.turn_over_count,
 			heart_rate_avg=excluded.heart_rate_avg,
 			spo2_avg=excluded.spo2_avg
-		  WHERE excluded.total_minutes > sleep_logs.total_minutes`
+		  WHERE excluded.total_minutes > COALESCE(sleep_logs.total_minutes, 0)`
 
 		res, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {

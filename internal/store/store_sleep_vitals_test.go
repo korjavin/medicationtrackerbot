@@ -123,7 +123,7 @@ func TestImportSleepLogsDuplicates(t *testing.T) {
 		t.Errorf("Expected 1 imported, got %d", imported)
 	}
 
-	// Import same again (INSERT OR IGNORE)
+	// Import same again (conditional UPSERT — no update since total_minutes not greater)
 	imported, skipped, err := db.ImportSleepLogs(ctx, userID, logs)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
@@ -139,6 +139,64 @@ func TestImportSleepLogsDuplicates(t *testing.T) {
 	result, _ := db.GetSleepLogs(ctx, userID, time.Time{})
 	if len(result) != 1 {
 		t.Errorf("Expected 1 log after duplicate import, got %d", len(result))
+	}
+}
+
+func TestImportSleepLogsUpsertNullToNonNull(t *testing.T) {
+	// When a sleep log is first imported without total_minutes (NULL),
+	// a re-import with a non-NULL total_minutes must update the row.
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	// First import: no total_minutes (NULL)
+	logs := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 7, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+		},
+	}
+	imported, _, err := db.ImportSleepLogs(ctx, userID, logs)
+	if err != nil {
+		t.Fatalf("First import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("Expected 1 imported, got %d", imported)
+	}
+
+	// Second import: with total_minutes
+	totalMinutes := 480
+	lightMinutes := 200
+	deepMinutes := 120
+	logs[0].TotalMinutes = &totalMinutes
+	logs[0].LightMinutes = &lightMinutes
+	logs[0].DeepMinutes = &deepMinutes
+	imported, skipped, err := db.ImportSleepLogs(ctx, userID, logs)
+	if err != nil {
+		t.Fatalf("Second import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("Expected 1 imported (NULL -> non-NULL upgrade), got %d", imported)
+	}
+	if skipped != 0 {
+		t.Errorf("Expected 0 skipped, got %d", skipped)
+	}
+
+	// Verify values updated
+	result, err := db.GetSleepLogs(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetSleepLogs: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 sleep log, got %d", len(result))
+	}
+	if result[0].TotalMinutes == nil || *result[0].TotalMinutes != 480 {
+		t.Errorf("Expected total_minutes=480, got %v", result[0].TotalMinutes)
+	}
+	if result[0].LightMinutes == nil || *result[0].LightMinutes != 200 {
+		t.Errorf("Expected light_minutes=200, got %v", result[0].LightMinutes)
 	}
 }
 
