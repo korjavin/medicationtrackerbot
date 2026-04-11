@@ -208,8 +208,9 @@ describe('sync.js offlineAwareApiCall behavior', () => {
 
       const result = await window.offlineAwareApiCall('/api/weight?days=35', 'GET');
 
-      // Only synced rows returned — renderers prepend pending/rejected separately
+      // All local records returned — pending writes + any with server IDs
       expect(result).toEqual([
+        { id: 'local_3', localId: 3, serverId: null, weight: 77.7, syncStatus: 'pending', isLocal: true },
         { id: 44, localId: 4, serverId: 44, weight: 76.9, syncStatus: 'synced', isLocal: false }
       ]);
     } finally {

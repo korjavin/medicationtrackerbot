@@ -746,30 +746,26 @@ async function handleOfflineWeightWrite(body) {
     };
 }
 
-// Handle offline BP read
-// Only return synced rows — renderers prepend pending/rejected separately
+// Handle offline BP read — return pending/rejected local writes.
+// Server-synced data is served by the SW dynamic cache; IndexedDB only holds
+// records created offline that haven't been synced yet.
 async function handleOfflineBPRead(endpoint) {
     const readings = await window.MedTrackerDB.BPStore.getAll();
-    return readings
-        .filter(r => r.syncStatus === 'synced')
-        .map(r => ({
-            id: r.serverId || `local_${r.localId}`,
-            ...r,
-            isLocal: false
-        }));
+    return readings.map(r => ({
+        id: r.serverId || `local_${r.localId}`,
+        ...r,
+        isLocal: !r.serverId
+    }));
 }
 
-// Handle offline weight read
-// Only return synced rows — renderers prepend pending/rejected separately
+// Handle offline weight read — return pending/rejected local writes.
 async function handleOfflineWeightRead(endpoint) {
     const logs = await window.MedTrackerDB.WeightStore.getAll();
-    return logs
-        .filter(l => l.syncStatus === 'synced')
-        .map(l => ({
-            id: l.serverId || `local_${l.localId}`,
-            ...l,
-            isLocal: false
-        }));
+    return logs.map(l => ({
+        id: l.serverId || `local_${l.localId}`,
+        ...l,
+        isLocal: !l.serverId
+    }));
 }
 
 // Handle offline history read

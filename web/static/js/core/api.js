@@ -21,14 +21,15 @@ async function apiCallDirect(endpoint, method = "GET", body = null) {
         try {
             const json = JSON.parse(txt);
             if (json.error === 'offline') {
-                // This is the service worker's offline response
-                // Throw a network error instead of the JSON string
                 throw new Error('Network request failed');
             }
         } catch (e) {
-            // If it's not JSON or not the offline error, fall through
             if (e.message === 'Network request failed') throw e;
         }
+        // Real 503 — body already consumed above, reuse txt
+        const err = new Error(txt || 'Service Unavailable');
+        err.status = 503;
+        throw err;
     }
 
     if (!res.ok) {
