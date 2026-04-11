@@ -188,6 +188,7 @@ Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.Exerci
 - **Classification**: ISH 2020 guidelines (configurable for age <65)
 - **Target**: <130/80 mmHg
 - **Tracking**: 2-3x daily recommended
+- **Statistics**: Daily-weighted averaging — each day with readings gets equal weight regardless of measurement count (prevents frequency bias). Day boundaries use the user's stored timezone (falls back to UTC).
 - **Export**: CSV format
 
 ### Weight Tracking

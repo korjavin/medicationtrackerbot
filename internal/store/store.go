@@ -1090,13 +1090,41 @@ type BPStats struct {
 	Stats60 *BPPeriodStats `json:"stats_60,omitempty"`
 }
 
-// GetBPDailyWeightedStats calculates daily time-weighted blood pressure averages.
-// It weights each reading by the time until the next reading, computes a per-day
-// time-weighted average, then averages daily averages across the period.
+// GetBPDailyWeightedStats computes blood pressure averages using a two-stage algorithm
+// that prevents measurement-frequency bias.
+//
+// Problem: A user who measures 5 times on a stressful day (high BP) and once on 3 calm
+// days would get an inflated average if we simply averaged all 8 readings. The stressful
+// day would contribute 5/8 of the result instead of 1/4.
+//
+// Stage 1 — Per-day time-weighted average:
+//
+//	Within each calendar day, each reading is weighted by the duration until the next
+//	reading (or end-of-day / current time, whichever comes first). This gives a fair
+//	intra-day average that accounts for how long each BP level was sustained.
+//
+// Stage 2 — Equal-weight daily average across the period:
+//
+//	Each day that has data contributes exactly one vote to the period average, regardless
+//	of how many readings that day had. Days without readings are excluded entirely (they
+//	don't count as zero — they're simply absent).
+//
+// Day boundaries use the user's stored timezone (from timezone_history table) so that
+// readings near midnight local time are assigned to the correct calendar day. Falls back
+// to UTC when no timezone is stored.
 func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPStats, error) {
-	now := nowFunc().UTC()
+	// Load user's timezone for day-boundary calculation. Falls back to UTC
+	// if no timezone is stored or the stored value is invalid.
+	loc := time.UTC
+	if tzStr, err := s.GetCurrentTimezone(); err == nil && tzStr != "" {
+		if parsed, err := time.LoadLocation(tzStr); err == nil {
+			loc = parsed
+		}
+	}
+
+	now := nowFunc().In(loc)
 	maxDays := 60
-	windowStart := truncateToDayUTC(now.AddDate(0, 0, -maxDays))
+	windowStart := truncateToDay(now.AddDate(0, 0, -maxDays), loc)
 
 	var readings []BloodPressure
 	{
@@ -1132,25 +1160,30 @@ func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPS
 
 	dayAggs := map[time.Time]*dayAgg{}
 
-	// For each day, weight readings only within that day.
+	// Stage 1: Aggregate readings into per-day time-weighted sums.
+	// Each reading's weight = seconds until the next event (next reading, end-of-day, or now).
 	for i := 0; i < len(readings); i++ {
+		// Skip duplicate timestamps — keep only the last reading at any given instant.
 		if i+1 < len(readings) && readings[i+1].MeasuredAt.Equal(readings[i].MeasuredAt) {
 			continue
 		}
-		start := readings[i].MeasuredAt.UTC()
+		start := readings[i].MeasuredAt.In(loc)
 		if start.After(now) {
 			continue
 		}
-		dayStart := truncateToDayUTC(start)
-		dayEnd := dayStart.Add(24 * time.Hour)
+		dayStart := truncateToDay(start, loc)
+		dayEnd := dayStart.AddDate(0, 0, 1)
 
+		// Cap the reading's influence at the day boundary so it doesn't bleed into the next day.
 		end := dayEnd
 		if i+1 < len(readings) {
-			next := readings[i+1].MeasuredAt.UTC()
-			if truncateToDayUTC(next).Equal(dayStart) {
+			next := readings[i+1].MeasuredAt.In(loc)
+			// If the next reading is on the same calendar day, use it as the end point.
+			if truncateToDay(next, loc).Equal(dayStart) {
 				end = next
 			}
 		}
+		// Cap at current time so future end-of-day doesn't inflate today's duration.
 		if end.After(now) {
 			end = now
 		}
@@ -1172,18 +1205,21 @@ func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPS
 		agg.durSec += dur
 	}
 
+	// Stage 2: Compute period averages (14d, 30d, 60d) where each day with data
+	// contributes equally, regardless of how many readings that day had.
 	buildStats := func(periodDays int) *BPPeriodStats {
-		periodStart := truncateToDayUTC(now.AddDate(0, 0, -periodDays))
+		periodStart := truncateToDay(now.AddDate(0, 0, -periodDays), loc)
 		var sumSys, sumDia float64
 		var days int
 
 		for day, agg := range dayAggs {
-			if day.Before(periodStart) || day.After(truncateToDayUTC(now)) {
+			if day.Before(periodStart) || day.After(truncateToDay(now, loc)) {
 				continue
 			}
 			if agg.durSec <= 0 {
 				continue
 			}
+			// Convert time-weighted sums to a single daily average.
 			avgSys := agg.sumSys / agg.durSec
 			avgDia := agg.sumDia / agg.durSec
 			sumSys += avgSys
@@ -1197,7 +1233,7 @@ func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPS
 
 		readingsCount := 0
 		for _, bp := range readings {
-			measured := bp.MeasuredAt.UTC()
+			measured := bp.MeasuredAt.In(loc)
 			if measured.Before(periodStart) || measured.After(now) {
 				continue
 			}
@@ -1219,10 +1255,12 @@ func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPS
 
 	return result, nil
 }
-
-func truncateToDayUTC(t time.Time) time.Time {
-	utc := t.UTC()
-	return time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
+// truncateToDay returns midnight (start of day) in the given timezone.
+// This ensures day boundaries respect the user's local calendar, e.g. a reading
+// at 00:30 Europe/Berlin is on the correct local day, not the previous UTC day.
+func truncateToDay(t time.Time, loc *time.Location) time.Time {
+	local := t.In(loc)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
 }
 
 // -- Weight Tracking --
