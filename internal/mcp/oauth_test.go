@@ -1,8 +1,13 @@
 package mcp
 
 import (
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"testing"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestNewOAuthHandler(t *testing.T) {
@@ -157,4 +162,63 @@ func TestIsAudienceAllowed(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateToken_IssuerEnforcement(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	publicKey := &privateKey.PublicKey
+
+	cfg := &Config{
+		PocketIDURL:  "https://expected-issuer.com",
+		MCPServerURL: "https://mcp.example.com",
+		ClientID:     "test-client",
+	}
+	h := NewOAuthHandler(cfg)
+	// Inject the public key into the cache
+	h.jwksCache.keys["test-kid"] = publicKey
+	h.jwksCache.lastUpdate = time.Now()
+
+	t.Run("Wrong Issuer", func(t *testing.T) {
+		token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+			"iss": "https://wrong-issuer.com",
+			"sub": "user123",
+			"aud": "https://mcp.example.com",
+			"exp": time.Now().Add(time.Hour).Unix(),
+		})
+		token.Header["kid"] = "test-kid"
+		tokenString, err := token.SignedString(privateKey)
+		if err != nil {
+			t.Fatalf("failed to sign token: %v", err)
+		}
+
+		_, err = h.validateToken(context.Background(), tokenString)
+		if err == nil {
+			t.Errorf("Expected error for wrong issuer, but got nil")
+		}
+	})
+
+	t.Run("Correct Issuer", func(t *testing.T) {
+		token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+			"iss": "https://expected-issuer.com",
+			"sub": "user123",
+			"aud": "https://mcp.example.com",
+			"exp": time.Now().Add(time.Hour).Unix(),
+		})
+		token.Header["kid"] = "test-kid"
+		tokenString, err := token.SignedString(privateKey)
+		if err != nil {
+			t.Fatalf("failed to sign token: %v", err)
+		}
+
+		subject, err := h.validateToken(context.Background(), tokenString)
+		if err != nil {
+			t.Errorf("Expected no error for correct issuer, but got: %v", err)
+		}
+		if subject != "user123" {
+			t.Errorf("Expected subject 'user123', got %q", subject)
+		}
+	})
 }

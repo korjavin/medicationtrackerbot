@@ -152,13 +152,15 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 	}
 
 	// Parse and validate the token with the public key
+	// Ensure issuer matches exactly as configured in PocketIDURL
+	issuer := strings.TrimSuffix(h.config.PocketIDURL, "/")
 	validToken, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
 		// Verify signing method is RSA
 		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return publicKey, nil
-	}, jwt.WithExpirationRequired(), jwt.WithIssuer(h.config.PocketIDURL))
+	}, jwt.WithExpirationRequired(), jwt.WithIssuer(issuer))
 
 	if err != nil {
 		// Debug logging for claims comparison
