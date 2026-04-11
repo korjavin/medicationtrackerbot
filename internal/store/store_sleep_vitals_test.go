@@ -181,6 +181,164 @@ func TestGetSleepLogsSinceFilter(t *testing.T) {
 	}
 }
 
+func TestImportSleepLogsUpsertUpdatesWhenMoreComplete(t *testing.T) {
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	totalPartial := 120
+	lightPartial := 60
+	deepPartial := 30
+	remPartial := 20
+	awakePartial := 10
+
+	// Import partial sleep data (mid-day snapshot)
+	partial := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 3, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+			LightMinutes:   &lightPartial,
+			DeepMinutes:    &deepPartial,
+			REMMinutes:     &remPartial,
+			AwakeMinutes:   &awakePartial,
+			TotalMinutes:   &totalPartial,
+		},
+	}
+	_, _, err := db.ImportSleepLogs(ctx, userID, partial)
+	if err != nil {
+		t.Fatalf("First import: %v", err)
+	}
+
+	totalComplete := 480
+	lightComplete := 200
+	deepComplete := 120
+	remComplete := 100
+	awakeComplete := 60
+	hrComplete := 58
+	spo2Complete := 96
+
+	// Import complete sleep data (end-of-day snapshot)
+	complete := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 7, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+			LightMinutes:   &lightComplete,
+			DeepMinutes:    &deepComplete,
+			REMMinutes:     &remComplete,
+			AwakeMinutes:   &awakeComplete,
+			TotalMinutes:   &totalComplete,
+			HeartRateAvg:   &hrComplete,
+			SpO2Avg:        &spo2Complete,
+		},
+	}
+	imported, skipped, err := db.ImportSleepLogs(ctx, userID, complete)
+	if err != nil {
+		t.Fatalf("Second import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("Expected 1 imported (upsert update), got %d", imported)
+	}
+	if skipped != 0 {
+		t.Errorf("Expected 0 skipped, got %d", skipped)
+	}
+
+	// Verify values updated
+	result, err := db.GetSleepLogs(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetSleepLogs: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 sleep log, got %d", len(result))
+	}
+	sl := result[0]
+	if sl.TotalMinutes == nil || *sl.TotalMinutes != 480 {
+		t.Errorf("Expected total_minutes=480, got %v", sl.TotalMinutes)
+	}
+	if sl.LightMinutes == nil || *sl.LightMinutes != 200 {
+		t.Errorf("Expected light_minutes=200, got %v", sl.LightMinutes)
+	}
+	if sl.DeepMinutes == nil || *sl.DeepMinutes != 120 {
+		t.Errorf("Expected deep_minutes=120, got %v", sl.DeepMinutes)
+	}
+	if sl.HeartRateAvg == nil || *sl.HeartRateAvg != 58 {
+		t.Errorf("Expected heart_rate_avg=58, got %v", sl.HeartRateAvg)
+	}
+}
+
+func TestImportSleepLogsUpsertNoDowngrade(t *testing.T) {
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	totalComplete := 480
+	lightComplete := 200
+	deepComplete := 120
+
+	// Import complete data first
+	complete := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 7, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+			LightMinutes:   &lightComplete,
+			DeepMinutes:    &deepComplete,
+			TotalMinutes:   &totalComplete,
+		},
+	}
+	_, _, err := db.ImportSleepLogs(ctx, userID, complete)
+	if err != nil {
+		t.Fatalf("First import: %v", err)
+	}
+
+	totalPartial := 120
+	lightPartial := 60
+	deepPartial := 30
+
+	// Import partial data (should NOT downgrade)
+	partial := []SleepLog{
+		{
+			StartTime:      time.Date(2025, 1, 10, 23, 0, 0, 0, time.UTC),
+			EndTime:        time.Date(2025, 1, 11, 3, 0, 0, 0, time.UTC),
+			TimezoneOffset: 3600,
+			Day:            "2025-01-10",
+			LightMinutes:   &lightPartial,
+			DeepMinutes:    &deepPartial,
+			TotalMinutes:   &totalPartial,
+		},
+	}
+	imported, skipped, err := db.ImportSleepLogs(ctx, userID, partial)
+	if err != nil {
+		t.Fatalf("Second import: %v", err)
+	}
+	if imported != 0 {
+		t.Errorf("Expected 0 imported (no downgrade), got %d", imported)
+	}
+	if skipped != 1 {
+		t.Errorf("Expected 1 skipped, got %d", skipped)
+	}
+
+	// Verify original values preserved
+	result, err := db.GetSleepLogs(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetSleepLogs: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 sleep log, got %d", len(result))
+	}
+	sl := result[0]
+	if sl.TotalMinutes == nil || *sl.TotalMinutes != 480 {
+		t.Errorf("Expected total_minutes=480 (preserved), got %v", sl.TotalMinutes)
+	}
+	if sl.LightMinutes == nil || *sl.LightMinutes != 200 {
+		t.Errorf("Expected light_minutes=200 (preserved), got %v", sl.LightMinutes)
+	}
+}
+
 func TestImportVitalsHeart(t *testing.T) {
 	db := setupSleepVitalsTestStore(t)
 	ctx := context.Background()

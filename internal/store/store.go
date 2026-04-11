@@ -1409,7 +1409,7 @@ func (s *Store) ImportSleepLogs(ctx context.Context, userID int64, logs []SleepL
 
 		batch := logs[i:end]
 
-		query := `INSERT OR IGNORE INTO sleep_logs (user_id, start_time, end_time,
+		query := `INSERT INTO sleep_logs (user_id, start_time, end_time,
 			 timezone_offset, day, light_minutes, deep_minutes, rem_minutes,
 			 awake_minutes, total_minutes, turn_over_count, heart_rate_avg,
 			 spo2_avg, user_modified, notes) VALUES `
@@ -1426,6 +1426,17 @@ func (s *Store) ImportSleepLogs(ctx context.Context, userID int64, logs []SleepL
 		}
 
 		query += strings.Join(placeholders, ", ")
+		query += ` ON CONFLICT(user_id, start_time) DO UPDATE SET
+			end_time=excluded.end_time,
+			light_minutes=excluded.light_minutes,
+			deep_minutes=excluded.deep_minutes,
+			rem_minutes=excluded.rem_minutes,
+			awake_minutes=excluded.awake_minutes,
+			total_minutes=excluded.total_minutes,
+			turn_over_count=excluded.turn_over_count,
+			heart_rate_avg=excluded.heart_rate_avg,
+			spo2_avg=excluded.spo2_avg
+		  WHERE excluded.total_minutes > sleep_logs.total_minutes`
 
 		res, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {

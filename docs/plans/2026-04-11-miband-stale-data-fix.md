@@ -57,7 +57,7 @@ Vitals tables (`vitals_heart`, `vitals_spo2`, `vitals_stress`) use millisecond-p
 - [x] Run `go test ./internal/store/...` — must pass before next task
 
 ### Task 2: Fix ImportSleepLogs to conditionally UPSERT
-- [ ] In `ImportSleepLogs()` (`store.go:1412-1428`), change SQL from:
+- [x] In `ImportSleepLogs()` (`store.go:1412-1428`), change SQL from:
   ```sql
   INSERT OR IGNORE INTO sleep_logs (...) VALUES (...)
   ```
@@ -77,11 +77,11 @@ Vitals tables (`vitals_heart`, `vitals_spo2`, `vitals_stress`) use millisecond-p
   WHERE excluded.total_minutes > sleep_logs.total_minutes
   ```
   The `WHERE` clause ensures only more-complete data overwrites existing rows
-- [ ] Do NOT update `user_modified` or `notes` — those are user-editable fields
-- [ ] Write test: insert sleep log with total_minutes=120, import again with total_minutes=480, verify updated to 480
-- [ ] Write test: insert sleep log with total_minutes=480, import again with total_minutes=120, verify NOT downgraded (stays 480)
-- [ ] Write test: import identical sleep data twice, verify single row, no duplicate
-- [ ] Run `go test ./internal/store/...` — must pass before next task
+- [x] Do NOT update `user_modified` or `notes` — those are user-editable fields
+- [x] Write test: insert sleep log with total_minutes=120, import again with total_minutes=480, verify updated to 480
+- [x] Write test: insert sleep log with total_minutes=480, import again with total_minutes=120, verify NOT downgraded (stays 480)
+- [x] Write test: import identical sleep data twice, verify single row, no duplicate
+- [x] Run `go test ./internal/store/...` — must pass before next task
 
 ### Task 3: Fix InsertMiBandWorkout and ImportMiBandWorkouts to UPSERT
 - [ ] In `InsertMiBandWorkout()` (`miband_workouts.go:62-68`), change SQL from:
