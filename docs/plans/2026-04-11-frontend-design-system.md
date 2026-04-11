@@ -65,13 +65,13 @@ Establish a proper design token system and modernize the visual appearance of th
 - [x] Run tests — must pass before next task
 
 ### Task 4: Replace spacing/radius/shadow hardcoded values in CSS
-- [ ] Replace padding/margin/gap values in `style.css` with spacing tokens (map each value to nearest token)
-- [ ] Replace border-radius values with radius tokens
-- [ ] Replace box-shadow values with shadow tokens
-- [ ] Replace font-size values with typography tokens (map each to nearest)
-- [ ] Replace z-index values with z-index tokens
-- [ ] Add test: scan `style.css` for hardcoded `px` values in padding/margin/gap/border-radius/box-shadow/z-index properties (allowlist exceptions like `1px` borders, `0`, `100%`)
-- [ ] Run tests — must pass before next task
+- [x] Replace padding/margin/gap values in `style.css` with spacing tokens (map each value to nearest token)
+- [x] Replace border-radius values with radius tokens
+- [x] Replace box-shadow values with shadow tokens
+- [x] Replace font-size values with typography tokens (map each to nearest)
+- [x] Replace z-index values with z-index tokens
+- [x] Add test: scan `style.css` for hardcoded `px` values in padding/margin/gap/border-radius/box-shadow/z-index properties (allowlist exceptions like `1px` borders, `0`, `100%`)
+- [x] Run tests — must pass before next task
 
 ### Task 5: Migrate inline styles from app.js to CSS classes
 - [ ] Audit all `style.cssText`, `style.property`, and inline `style=` in `app.js`
