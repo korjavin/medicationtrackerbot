@@ -532,6 +532,108 @@ describe('Architecture – design tokens', () => {
         }
     });
 
+    it('no inline style assignments in app.js (except style.display for show/hide)', () => {
+        const appPath = path.join(REPO_ROOT, 'web/static/js/app.js');
+        const appJs = fs.readFileSync(appPath, 'utf8');
+        const lines = appJs.split('\n');
+
+        // Patterns that indicate inline style assignments
+        const styleCssTextRe = /\.style\.cssText\s*=/;
+        const stylePropRe = /\.style\.\w+\s*=/;
+        // Allowlisted patterns
+        const displayRe = /\.style\.display\s*=/;
+        const setPropertyRe = /\.style\.setProperty\(/;
+        // Dynamic chart badge color (data-driven, cannot be CSS class)
+        const backgroundDynamicRe = /\.style\.background\s*=\s*color/;
+
+        const violations = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const lineNum = i + 1;
+
+            // Skip comments
+            if (/^\s*\/\//.test(line) || /^\s*\/?\*/.test(line)) continue;
+
+            // Check for style.cssText
+            if (styleCssTextRe.test(line)) {
+                violations.push({ line: lineNum, text: line.trim() });
+                continue;
+            }
+
+            // Check for style.property = assignments
+            if (stylePropRe.test(line)) {
+                // Allow style.display (show/hide)
+                if (displayRe.test(line)) continue;
+                // Allow style.setProperty (CSS custom properties)
+                if (setPropertyRe.test(line)) continue;
+                // Allow dynamic background color for chart legend badges
+                if (backgroundDynamicRe.test(line)) continue;
+
+                violations.push({ line: lineNum, text: line.trim() });
+            }
+        }
+
+        if (violations.length > 0) {
+            const report = violations
+                .map(v => `  L${v.line}: ${v.text}`)
+                .join('\n');
+            throw new Error(
+                `Found ${violations.length} inline style assignments in app.js:\n\n${report}\n\n` +
+                `Replace with CSS classes. Allowed exceptions: style.display (show/hide), ` +
+                `style.setProperty (CSS custom props), style.background = color (dynamic chart data).`
+            );
+        }
+    });
+
+    it('utility and component CSS classes are defined in styles.css', () => {
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+
+        const requiredClasses = [
+            // Utility classes
+            '.flex-row', '.flex-col', '.flex-center', '.flex-between',
+            '.text-center', '.text-hint', '.text-danger', '.text-success', '.text-muted',
+            '.cursor-pointer',
+            '.gap-sm', '.gap-md',
+            '.mb-xs', '.mb-sm', '.mb-md', '.mb-lg',
+            '.mt-sm', '.mt-md', '.mt-xs',
+            '.m-0', '.fw-medium', '.w-full',
+            // Login components
+            '.login-container', '.login-title', '.login-message',
+            '.login-tg-container', '.login-tg-hint', '.login-tg-link',
+            '.login-divider', '.login-divider-line', '.login-setup-link',
+            '.btn-oidc',
+            // Status
+            '.status-success', '.status-error', '.status-muted',
+            // Medication
+            '.med-supplement-badge', '.med-normalized-name',
+            '.med-action-icons', '.med-empty-text',
+            // Next intake
+            '.next-intake-card', '.next-intake-title',
+            '.next-intake-countdown', '.next-intake-details', '.next-intake-action',
+            // Charts
+            '.chart-section', '.chart-container', '.chart-container-tall',
+            '.chart-stat', '.chart-stat-spaced', '.chart-legend',
+            '.chart-legend-item', '.chart-legend-badge', '.chart-legend-badge-line',
+            '.chart-disclaimer',
+            // SVG
+            '.svg-chart',
+        ];
+
+        const missing = requiredClasses.filter(cls => {
+            const escaped = cls.replace('.', '\\.');
+            const re = new RegExp(`(?:^|[,\\s])${escaped}(?:[\\s,.:{[>~+]|$)`, 'm');
+            return !re.test(css);
+        });
+
+        if (missing.length > 0) {
+            throw new Error(
+                `Missing utility/component CSS classes in styles.css:\n\n` +
+                missing.map(c => `  • ${c}`).join('\n')
+            );
+        }
+    });
+
     it('Telegram theme mirrors are preserved in :root', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
         const rootBlock = extractRootBlock(css);

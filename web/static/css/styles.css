@@ -2200,3 +2200,332 @@ input:checked+.toggle-slider:before {
     font-size: var(--font-size-sm);
     padding: var(--space-sm) var(--space-lg);
 }
+
+/* ========== Utility Classes ========== */
+
+.flex-row {
+    display: flex;
+    flex-direction: row;
+}
+
+.flex-col {
+    display: flex;
+    flex-direction: column;
+}
+
+.flex-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.flex-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.text-center {
+    text-align: center;
+}
+
+.text-hint {
+    color: var(--hint-color);
+}
+
+.text-danger {
+    color: var(--color-danger);
+}
+
+.text-success {
+    color: var(--color-success);
+}
+
+.text-muted {
+    color: var(--hint-color);
+}
+
+.cursor-pointer {
+    cursor: pointer;
+}
+
+.gap-sm {
+    gap: var(--space-sm);
+}
+
+.gap-md {
+    gap: var(--space-md);
+}
+
+.gap-xl {
+    gap: var(--space-xl);
+}
+
+.mb-xs {
+    margin-bottom: var(--space-xs);
+}
+
+.mb-sm {
+    margin-bottom: var(--space-sm);
+}
+
+.mb-md {
+    margin-bottom: var(--space-md);
+}
+
+.mb-lg {
+    margin-bottom: var(--space-lg);
+}
+
+.mt-sm {
+    margin-top: var(--space-sm);
+}
+
+.mt-md {
+    margin-top: var(--space-md);
+}
+
+.mt-xs {
+    margin-top: var(--space-xs);
+}
+
+.m-0 {
+    margin: 0;
+}
+
+.fw-medium {
+    font-weight: var(--font-weight-medium);
+}
+
+.w-full {
+    width: 100%;
+}
+
+/* ========== Login Page ========== */
+
+.login-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    gap: var(--space-xl);
+    padding: var(--space-xl);
+}
+
+.login-title {
+    color: var(--text-color);
+    margin-bottom: var(--space-md);
+}
+
+.login-message {
+    color: var(--text-color);
+    text-align: center;
+    max-width: 400px;
+    line-height: 1.6;
+}
+
+.login-tg-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.login-tg-hint {
+    margin: 0;
+    color: var(--text-color);
+    text-align: center;
+    max-width: 320px;
+    line-height: 1.5;
+}
+
+.login-tg-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-md) var(--space-xl);
+    font-size: var(--font-size-lg);
+    background: var(--link-color);
+    color: #fff;
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+}
+
+.login-divider {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    color: var(--hint-color);
+    margin: var(--space-md) 0;
+}
+
+.login-divider-line {
+    flex: 1;
+    height: 1px;
+    background: var(--color-border-divider);
+}
+
+.login-setup-link {
+    margin-top: var(--space-xs);
+    font-size: var(--font-size-sm);
+    color: var(--link-color);
+}
+
+/* OIDC button with dynamic color support via CSS custom properties */
+.btn-oidc {
+    --_oidc-bg: var(--button-color);
+    --_oidc-text: var(--button-text-color);
+    background: var(--_oidc-bg);
+    color: var(--_oidc-text);
+}
+
+/* ========== Webpush Status ========== */
+
+.status-success {
+    color: var(--color-success);
+}
+
+.status-error {
+    color: var(--color-danger);
+}
+
+.status-muted {
+    color: var(--hint-color);
+}
+
+/* ========== Medication Components ========== */
+
+.med-supplement-badge {
+    margin-left: var(--space-sm);
+    color: var(--hint-color);
+}
+
+.med-normalized-name {
+    font-size: 0.85em;
+    color: var(--hint-color);
+    margin-top: -5px;
+    margin-bottom: var(--space-xs);
+}
+
+.med-action-icons {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.med-empty-text {
+    text-align: center;
+    color: var(--hint-color);
+}
+
+/* ========== Next Intake Card ========== */
+
+.next-intake-card {
+    background: linear-gradient(135deg, var(--color-chart-primary) 0%, var(--color-chart-secondary) 100%);
+    color: #fff;
+    padding: var(--space-md) var(--space-lg);
+    border-radius: var(--radius-md);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.next-intake-title {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-bold);
+    margin-bottom: 2px;
+}
+
+.next-intake-countdown {
+    font-size: var(--font-size-xl);
+    font-weight: 700;
+    letter-spacing: 1px;
+    line-height: 1.1;
+    margin-bottom: var(--space-xs);
+}
+
+.next-intake-details {
+    font-size: var(--font-size-xs);
+    opacity: 0.9;
+}
+
+.next-intake-action {
+    background: rgba(255, 255, 255, 0.25);
+    color: #fff;
+    white-space: nowrap;
+}
+
+/* ========== Health Overview Charts ========== */
+
+.chart-section {
+    margin-top: var(--space-xl);
+    padding: var(--space-md) 0;
+}
+
+.chart-section h3 {
+    margin-bottom: var(--space-xs);
+}
+
+.chart-container {
+    height: 200px;
+    width: 100%;
+}
+
+.chart-container-tall {
+    height: 250px;
+    width: 100%;
+}
+
+.chart-stat {
+    font-size: var(--font-size-xs);
+    color: var(--hint-color);
+    text-align: center;
+    margin-top: var(--space-xs);
+}
+
+.chart-stat-spaced {
+    font-size: var(--font-size-xs);
+    color: var(--hint-color);
+    text-align: center;
+    margin-top: var(--space-sm);
+}
+
+.chart-legend {
+    font-size: var(--font-size-xs);
+    display: flex;
+    justify-content: center;
+    gap: var(--space-md);
+    margin-top: var(--space-xs);
+    color: var(--hint-color);
+}
+
+.chart-legend-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.chart-disclaimer {
+    font-size: var(--font-size-xs);
+    color: var(--hint-color);
+    text-align: center;
+    margin-top: var(--space-2xl);
+}
+
+.chart-legend-badge {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-sm);
+}
+
+.chart-legend-badge-line {
+    display: inline-block;
+    width: 10px;
+    height: 2px;
+}
+
+/* SVG charts */
+.svg-chart {
+    overflow: visible;
+}

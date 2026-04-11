@@ -379,7 +379,7 @@ async function checkAuth() {
 
     // Not authorized and no valid cache. Show login options
     const loginContainer = document.createElement('div');
-    loginContainer.style.cssText = "display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:60vh; gap: 20px; padding: 20px;";
+    loginContainer.className = 'login-container';
 
     // Check if we're offline
     const isOffline = !navigator.onLine;
@@ -388,7 +388,7 @@ async function checkAuth() {
         // Show offline message instead of login widgets
         const title = document.createElement('h2');
         title.innerText = "Offline";
-        title.style.cssText = "color: var(--text-color, #333); margin-bottom: 10px;";
+        title.className = 'login-title';
         loginContainer.appendChild(title);
 
         const message = document.createElement('p');
@@ -396,14 +396,14 @@ async function checkAuth() {
         message.appendChild(document.createElement('br'));
         message.appendChild(document.createElement('br'));
         message.appendChild(document.createTextNode("If you have logged in before, your session will be available once you're back online."));
-        message.style.cssText = "color: var(--text-color, #666); text-align: center; max-width: 400px; line-height: 1.6;";
+        message.className = 'login-message';
         loginContainer.appendChild(message);
 
         // Retry button
         const retryBtn = document.createElement('button');
         retryBtn.innerText = "Retry";
         retryBtn.onclick = () => location.reload();
-        retryBtn.style.cssText = "padding: 12px 24px; font-size: 16px; background: var(--primary-color, #007bff); color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 10px;";
+        retryBtn.className = 'btn btn-primary btn-lg mt-sm';
         loginContainer.appendChild(retryBtn);
 
         // Listen for online event to auto-retry
@@ -415,17 +415,17 @@ async function checkAuth() {
         // Normal login page with standalone login options
         const title = document.createElement('h2');
         title.innerText = "Login to Med Tracker";
-        title.style.cssText = "color: var(--text-color, #333); margin-bottom: 10px;";
+        title.className = 'login-title';
         loginContainer.appendChild(title);
 
         // Telegram login widget requires unsafe-eval, so direct users to open the bot in Telegram.
         const tgWidgetContainer = document.createElement('div');
         tgWidgetContainer.id = 'telegram-login-container';
-        tgWidgetContainer.style.cssText = "display:flex; flex-direction:column; align-items:center; gap:10px;";
+        tgWidgetContainer.className = 'login-tg-container';
 
         const telegramHint = document.createElement('p');
         telegramHint.textContent = "Use the Telegram app to open the bot and launch the web app.";
-        telegramHint.style.cssText = "margin:0; color: var(--text-color, #666); text-align:center; max-width: 320px; line-height: 1.5;";
+        telegramHint.className = 'login-tg-hint';
         tgWidgetContainer.appendChild(telegramHint);
 
         const rawBotUsername = typeof window['BOT_USERNAME'] === 'string' ? window['BOT_USERNAME'].trim() : '';
@@ -436,7 +436,7 @@ async function checkAuth() {
             tgLink.target = '_blank';
             tgLink.rel = 'noopener noreferrer';
             tgLink.textContent = "Open in Telegram";
-            tgLink.style.cssText = "display:inline-flex; align-items:center; justify-content:center; padding: 12px 24px; font-size: 16px; background: #2481cc; color: #fff; border-radius: 5px; text-decoration:none;";
+            tgLink.className = 'login-tg-link';
             tgWidgetContainer.appendChild(tgLink);
         }
 
@@ -446,13 +446,13 @@ async function checkAuth() {
         if (oidcConfig.enabled) {
             // Divider
             const divider = document.createElement('div');
-            divider.style.cssText = "display:flex; align-items:center; gap:10px; color: #999; margin: 10px 0;";
+            divider.className = 'login-divider';
             const line1 = document.createElement('span');
-            line1.style.cssText = "flex:1; height:1px; background:#ddd;";
+            line1.className = 'login-divider-line';
             const textSpan = document.createElement('span');
             textSpan.textContent = "or";
             const line2 = document.createElement('span');
-            line2.style.cssText = "flex:1; height:1px; background:#ddd;";
+            line2.className = 'login-divider-line';
             divider.appendChild(line1);
             divider.appendChild(textSpan);
             divider.appendChild(line2);
@@ -462,16 +462,20 @@ async function checkAuth() {
             const oidcBtn = document.createElement('button');
             oidcBtn.innerText = oidcConfig.label || "Login";
             oidcBtn.onclick = () => window.location.href = (oidcConfig.loginUrl || "/auth/oidc/login");
-            const oidcBg = oidcConfig.buttonColor || "var(--button-color, #2481cc)";
-            const oidcText = oidcConfig.buttonText || "var(--button-text-color, #fff)";
-            oidcBtn.style.cssText = `padding: 12px 24px; font-size: 16px; background: ${oidcBg}; color: ${oidcText}; border: none; border-radius: 5px; cursor: pointer;`;
+            oidcBtn.className = 'btn btn-lg btn-oidc';
+            if (oidcConfig.buttonColor) {
+                oidcBtn.style.setProperty('--_oidc-bg', oidcConfig.buttonColor);
+            }
+            if (oidcConfig.buttonText) {
+                oidcBtn.style.setProperty('--_oidc-text', oidcConfig.buttonText);
+            }
             loginContainer.appendChild(oidcBtn);
 
             // Setup helper link
             const setupLink = document.createElement('a');
             setupLink.href = '/oidc-setup';
             setupLink.innerText = 'Need setup info?';
-            setupLink.style.cssText = 'margin-top: 4px; font-size: 13px; color: var(--link-color, #2481cc);';
+            setupLink.className = 'login-setup-link';
             loginContainer.appendChild(setupLink);
         }
     }
@@ -516,7 +520,7 @@ function initOIDCSetupBanner() {
 
     const wrapper = document.createElement('div');
     wrapper.className = 'setting-item';
-    wrapper.style.marginBottom = '16px';
+    wrapper.classList.add('mb-lg');
 
     const textWrap = document.createElement('div');
     const title = document.createElement('h3');
@@ -529,7 +533,7 @@ function initOIDCSetupBanner() {
 
     const actionBtn = document.createElement('button');
     actionBtn.className = 'btn btn-secondary';
-    actionBtn.style.margin = '0';
+    actionBtn.classList.add('m-0');
     actionBtn.innerText = 'Open';
     actionBtn.onclick = () => window.location.href = '/oidc-setup';
 
@@ -559,20 +563,20 @@ document.getElementById('webpush-toggle').addEventListener('change', async funct
         const success = await window.MedTrackerPush.subscribe();
         if (success) {
             status.innerText = "Notifications enabled";
-            status.style.color = "green";
+            status.className = 'status-success';
         } else {
             status.innerText = "Failed to enable notifications. Please check permissions.";
-            status.style.color = "red";
+            status.className = 'status-error';
             this.checked = false;
         }
     } else {
         const success = await window.MedTrackerPush.unsubscribe();
         if (success) {
             status.innerText = "Notifications disabled";
-            status.style.color = "gray";
+            status.className = 'status-muted';
         } else {
             status.innerText = "Failed to disable notifications";
-            status.style.color = "red";
+            status.className = 'status-error';
             this.checked = true; // revert
         }
     }
@@ -1555,7 +1559,7 @@ function renderMeds() {
 
         const info = document.createElement('div');
         info.className = 'med-info';
-        info.style.cursor = 'pointer';
+        info.classList.add('cursor-pointer');
         info.addEventListener('click', () => {
             showEditModal(med.id);
         });
@@ -1567,7 +1571,7 @@ function renderMeds() {
         title.appendChild(dosage);
         if (med.supplement) {
             const supplementBadge = document.createElement('small');
-            supplementBadge.style.cssText = 'margin-left:6px;color:var(--hint-color);';
+            supplementBadge.className = 'med-supplement-badge';
             supplementBadge.textContent = '[Supplement]';
             title.appendChild(supplementBadge);
         }
@@ -1575,7 +1579,7 @@ function renderMeds() {
 
         if (med.normalized_name) {
             const normalized = document.createElement('p');
-            normalized.style.cssText = 'font-size:0.85em;color:var(--hint-color);margin-top:-5px;margin-bottom:4px;';
+            normalized.className = 'med-normalized-name';
             normalized.textContent = `Rx: ${med.normalized_name}`;
             info.appendChild(normalized);
         }
@@ -1619,8 +1623,7 @@ function renderMeds() {
         });
 
         const actionIcons = document.createElement('div');
-        actionIcons.style.display = 'flex';
-        actionIcons.style.gap = '8px';
+        actionIcons.className = 'med-action-icons';
         actionIcons.appendChild(editBtn);
         actionIcons.appendChild(deleteBtn);
 
@@ -1643,7 +1646,7 @@ function renderHistory(logs) {
 
     if (!logs || logs.length === 0) {
         const empty = document.createElement('p');
-        empty.style.cssText = 'text-align:center;color:var(--hint-color)';
+        empty.className = 'med-empty-text';
         empty.textContent = 'No history yet.';
         list.appendChild(empty);
         return;
@@ -1693,7 +1696,7 @@ function renderHistory(logs) {
 
         // Make PENDING and TAKEN items clickable
         if (g.status === 'PENDING' || g.status === 'TAKEN') {
-            div.style.cursor = 'pointer';
+            div.classList.add('cursor-pointer');
             div.onclick = () => {
                 // Collect med ids and names
                 const ids = g.items.map(i => i.medication_id);
@@ -2064,15 +2067,15 @@ async function renderNextIntakeTrigger() {
         });
 
         const card = document.createElement('div');
-        card.style.cssText = 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;';
+        card.className = 'next-intake-card';
 
         const body = document.createElement('div');
         const title = document.createElement('div');
-        title.style.cssText = 'font-size: 14px; font-weight: 600; margin-bottom: 2px;';
+        title.className = 'next-intake-title';
         title.textContent = 'Next scheduled intake';
 
         const countdown = document.createElement('div');
-        countdown.style.cssText = 'font-size: 28px; font-weight: 700; letter-spacing: 1px; line-height: 1.1; margin-bottom: 4px;';
+        countdown.className = 'next-intake-countdown';
         function updateCountdown() {
             countdown.textContent = _formatCountdown(nextTime - Date.now());
         }
@@ -2080,7 +2083,7 @@ async function renderNextIntakeTrigger() {
         _nextIntakeTimerInterval = setInterval(updateCountdown, 30000);
 
         const details = document.createElement('div');
-        details.style.cssText = 'font-size: 12px; opacity: 0.9;';
+        details.className = 'next-intake-details';
         details.textContent = `${medNamesStr} at ${timeStr}`;
         body.appendChild(title);
         body.appendChild(countdown);
@@ -2089,7 +2092,7 @@ async function renderNextIntakeTrigger() {
         const action = document.createElement('button');
         action.type = 'button';
         action.className = 'btn btn-pill';
-        action.style.cssText = 'background: rgba(255,255,255,0.25); color: white; white-space: nowrap;';
+        action.classList.add('next-intake-action');
         action.textContent = 'Take Now';
         action.addEventListener('click', () => {
             triggerNextIntake();
@@ -2218,11 +2221,11 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
 
         const div = document.createElement('div');
         div.className = 'form-row';
-        div.style.marginBottom = '10px';
+        div.classList.add('mb-sm');
 
         const label = document.createElement('label');
         label.className = 'checkbox-label';
-        label.style.fontWeight = '500';
+        label.classList.add('fw-medium');
 
         const input = document.createElement('input');
         input.type = 'checkbox';
@@ -2558,18 +2561,17 @@ function renderHealthOverviewContent(content, data) {
     const renderVitalGroup = (id, title, history, color, min, max, stat7d, stat30d, unit) => {
         if (history && history.length > 0) {
             const wrapper = document.createElement('div');
-            wrapper.style.cssText = 'margin-top: 25px; padding: 10px 0;';
+            wrapper.className = 'chart-section';
 
             const h3 = document.createElement('h3');
-            h3.style.marginBottom = '5px';
             h3.textContent = title;
 
             const chartContainer = document.createElement('div');
             chartContainer.id = id + 'ChartContainer';
-            chartContainer.style.cssText = 'height: 200px; width: 100%;';
+            chartContainer.className = 'chart-container';
 
             const statDiv = document.createElement('div');
-            statDiv.style.cssText = 'font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 5px;';
+            statDiv.className = 'chart-stat';
             statDiv.textContent = `${stat7d} ${unit} (7d avg) | ${stat30d} ${unit} (30d avg)`;
 
             wrapper.appendChild(h3);
@@ -2583,28 +2585,24 @@ function renderHealthOverviewContent(content, data) {
 
     if (data.sleep_stats_7d && data.sleep_stats_7d.length > 0) {
         const wrapper = document.createElement('div');
-        wrapper.style.cssText = 'margin-top: 25px; padding: 10px 0;';
+        wrapper.className = 'chart-section';
 
         const h3 = document.createElement('h3');
-        h3.style.marginBottom = '5px';
         h3.textContent = 'Sleep';
 
         const chartContainer = document.createElement('div');
         chartContainer.id = 'sleepChartContainer';
-        chartContainer.style.cssText = 'height: 250px; width: 100%;';
+        chartContainer.className = 'chart-container-tall';
 
         const legend = document.createElement('div');
-        legend.style.cssText = 'font-size: 11px; display: flex; justify-content: center; gap: 10px; margin-top: 5px; color: var(--hint-color);';
+        legend.className = 'chart-legend';
 
         const createLegendItem = (color, text, isLine = false) => {
             const item = document.createElement('div');
-            item.style.cssText = 'display:flex; align-items:center; gap:4px;';
+            item.className = 'chart-legend-item';
             const badge = document.createElement('span');
-            if (isLine) {
-                badge.style.cssText = `display:inline-block; width:10px; height:2px; background:${color};`;
-            } else {
-                badge.style.cssText = `display:inline-block; width:10px; height:10px; background:${color}; border-radius:2px;`;
-            }
+            badge.className = isLine ? 'chart-legend-badge-line' : 'chart-legend-badge';
+            badge.style.background = color;
             item.appendChild(badge);
             item.appendChild(document.createTextNode(text));
             return item;
@@ -2617,7 +2615,7 @@ function renderHealthOverviewContent(content, data) {
         legend.appendChild(createLegendItem('#ff3b30', 'HR', true));
 
         const statDiv = document.createElement('div');
-        statDiv.style.cssText = 'font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 10px;';
+        statDiv.className = 'chart-stat-spaced';
         statDiv.textContent = `${data.average_sleep_hours_7d.toFixed(1)} hrs (7d avg) | ${data.average_sleep_hours_30d.toFixed(1)} hrs (30d avg)`;
 
         wrapper.appendChild(h3);
@@ -2631,18 +2629,17 @@ function renderHealthOverviewContent(content, data) {
 
     if (data.step_stats_7d && data.step_stats_7d.length > 0) {
         const wrapper = document.createElement('div');
-        wrapper.style.cssText = 'margin-top: 25px; padding: 10px 0;';
+        wrapper.className = 'chart-section';
 
         const h3 = document.createElement('h3');
-        h3.style.marginBottom = '5px';
         h3.textContent = 'Steps';
 
         const chartContainer = document.createElement('div');
         chartContainer.id = 'stepsChartContainer';
-        chartContainer.style.cssText = 'height: 250px; width: 100%;';
+        chartContainer.className = 'chart-container-tall';
 
         const statDiv = document.createElement('div');
-        statDiv.style.cssText = 'font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 10px;';
+        statDiv.className = 'chart-stat-spaced';
         statDiv.textContent = `${data.average_steps_7d.toLocaleString()} steps (7d avg) | ${data.average_steps_30d.toLocaleString()} steps (30d avg)`;
 
         wrapper.appendChild(h3);
@@ -2658,14 +2655,14 @@ function renderHealthOverviewContent(content, data) {
     renderVitalGroup('stress', 'Stress Level', data.stress_history_7d, '#ff9500', 0, 100, data.average_stress_7d, data.average_stress_30d, '/ 100');
 
     const disclaimer = document.createElement('p');
-    disclaimer.style.cssText = 'font-size: 12px; color: var(--hint-color); text-align: center; margin-top: 30px;';
+    disclaimer.className = 'chart-disclaimer';
     disclaimer.textContent = 'This data is gathered from your synced .nxk backups.';
     content.appendChild(disclaimer);
 }
 
 function renderHealthOverviewError(content) {
     const errP = document.createElement('p');
-    errP.style.color = 'red';
+    errP.className = 'text-danger';
     errP.textContent = 'Failed to load health metrics';
     content.replaceChildren(errP);
     content.classList.remove('hidden');
@@ -2729,7 +2726,7 @@ function renderVitalsLineChart(containerId, data, color, yMin, yMax) {
     svg.setAttribute("width", "100%");
     svg.setAttribute("height", "100%");
     svg.setAttribute("viewBox", `0 0 ${totalWidth} ${container.clientHeight}`);
-    svg.style.overflow = "visible";
+    svg.classList.add('svg-chart');
 
     const minTime = data[0].timestamp;
     const maxTime = data[data.length - 1].timestamp;
@@ -2880,7 +2877,7 @@ function renderSleepChart(stats) {
     svg.setAttribute("width", "100%");
     svg.setAttribute("height", "100%");
     svg.setAttribute("viewBox", `0 0 ${totalWidth} ${container.clientHeight}`);
-    svg.style.overflow = "visible";
+    svg.classList.add('svg-chart');
 
     const barWidth = Math.min((chartWidth / stats.length) * 0.8, 40);
     const spacing = (chartWidth - (barWidth * stats.length)) / (stats.length || 1);
@@ -3057,7 +3054,7 @@ function renderStepsChart(stats) {
     svg.setAttribute("width", "100%");
     svg.setAttribute("height", "100%");
     svg.setAttribute("viewBox", `0 0 ${totalWidth} ${container.clientHeight}`);
-    svg.style.overflow = "visible";
+    svg.classList.add('svg-chart');
 
     const barWidth = Math.min((chartWidth / stats.length) * 0.8, 40);
     const spacing = (chartWidth - (barWidth * stats.length)) / (stats.length || 1);
