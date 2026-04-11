@@ -201,12 +201,18 @@ function renderBPChart(readings, goalData) {
     const targetPoints = Math.max(30, Math.floor((container.clientWidth || 320) / 6));
     let data = aggregated;
     if (data.length > targetPoints) {
-        // Apply LTTB separately to systolic and diastolic, then reconcile
+        // Apply LTTB separately to systolic and diastolic, then take union of kept timestamps
+        const timestamps = data.map(d => d.date.getTime());
         const sysDownsampled = window.ChartUtils.lttbDownsample(
-            data.map(d => [d.date.getTime(), d.sys]), targetPoints
+            timestamps.map((t, i) => [t, data[i].sys]), targetPoints
         );
-        // Build a set of kept timestamps for reconciliation
-        const keptTimes = new Set(sysDownsampled.map(p => p[0]));
+        const diaDownsampled = window.ChartUtils.lttbDownsample(
+            timestamps.map((t, i) => [t, data[i].dia]), targetPoints
+        );
+        const keptTimes = new Set([
+            ...sysDownsampled.map(p => p[0]),
+            ...diaDownsampled.map(p => p[0]),
+        ]);
         data = data.filter(d => keptTimes.has(d.date.getTime()));
     }
 

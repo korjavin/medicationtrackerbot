@@ -374,8 +374,8 @@ describe('ChartUtils', () => {
             expect(result.length).toBe(1);
             // Time-weighted: 150*12h + 160*4h / 16h = 152.5 → 153 sys
             // 95*12h + 100*4h / 16h = 96.25 → 96 dia
-            // 153/96 → high1 (sys >= 140 but < 160)
-            expect(result[0].category).toBe('high1');
+            // 153/96 → Grade 1 HTN (sys >= 140 but < 160)
+            expect(result[0].category).toEqual({ label: 'Grade 1 HTN', class: 'grade1' });
         });
 
         it('sorts output chronologically', () => {
@@ -580,36 +580,35 @@ describe('ChartUtils', () => {
                 .toBe(aggregated[aggregated.length - 1].date.getTime());
         });
 
-        it('averages computed from raw data differ from downsampled data averages', () => {
+        it('downsampled averages can differ from raw averages', () => {
             const now = new Date();
             const readings = [];
 
-            // Create readings with variation so averages differ when downsampled
-            for (let i = 0; i < 50; i++) {
+            // Create many old readings with a strong bias: mostly high values,
+            // with a few low outliers that LTTB will keep (they're visually significant)
+            for (let i = 0; i < 60; i++) {
                 const d = new Date(now);
-                d.setDate(d.getDate() - 30 + i);
+                d.setDate(d.getDate() - 50 + i);
                 d.setHours(10, 0, 0, 0);
-                // Alternating high/low values
-                const sys = i % 2 === 0 ? 140 : 110;
+                // Mostly 130, but spike to 180 every 10th reading
+                const sys = (i % 10 === 0) ? 180 : 130;
                 readings.push(makeReading(d.toISOString(), sys, 80, 70));
             }
 
-            // Raw average
+            // Raw average includes all readings equally
             const rawAvgSys = readings.reduce((s, r) => s + r.sys, 0) / readings.length;
-            expect(rawAvgSys).toBe(125); // (140+110)/2
 
-            // Downsampled to 10 points
+            // Downsampled to 8 points — LTTB preferentially keeps spikes
             const aggregated = env.window.ChartUtils.aggregateToDaily(readings, 7);
             const sysDown = env.window.ChartUtils.lttbDownsample(
-                aggregated.map(d => [d.date.getTime(), d.sys]), 10
+                aggregated.map(d => [d.date.getTime(), d.sys]), 8
             );
             const downAvgSys = sysDown.reduce((s, p) => s + p[1], 0) / sysDown.length;
 
-            // The point: raw average should be used for average lines, not downsampled
-            // They may or may not be equal depending on which points LTTB keeps,
-            // but the code should use raw data for accuracy
-            expect(typeof rawAvgSys).toBe('number');
-            expect(typeof downAvgSys).toBe('number');
+            // LTTB keeps visually significant (spike) points, biasing the downsampled average upward
+            expect(downAvgSys).not.toBe(rawAvgSys);
+            // This demonstrates why average lines must use ALL raw readings, not downsampled data
+            expect(downAvgSys).toBeGreaterThan(rawAvgSys);
         });
     });
 
