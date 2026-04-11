@@ -160,6 +160,12 @@ func TestHandleCreateMedication_Duplicate(t *testing.T) {
 			if w.Code != tt.wantStatus {
 				t.Errorf("Expected status %d, got %d. Body: %s", tt.wantStatus, w.Code, w.Body.String())
 			}
+			if tt.wantStatus == http.StatusConflict {
+				body := strings.TrimSpace(w.Body.String())
+				if body != "Medication with this name and dosage already exists" {
+					t.Errorf("Expected duplicate error message, got: %s", body)
+				}
+			}
 		})
 	}
 

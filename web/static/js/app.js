@@ -1937,7 +1937,7 @@ async function saveMedication() {
                 res = await apiCallDirect('/api/medications', 'POST', payload);
             }
         } catch (e) {
-            if (e.message && e.message.includes('already exists')) {
+            if (e.status === 409) {
                 safeAlert("A medication with this name and dosage already exists. Please use a different name or dosage.");
             } else {
                 safeAlert("Error: " + e.message);

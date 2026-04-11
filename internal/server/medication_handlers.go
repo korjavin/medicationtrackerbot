@@ -132,7 +132,8 @@ func (s *Server) handleCreateMedication(w http.ResponseWriter, r *http.Request) 
 	// Check for duplicate medication (same name + dosage, including archived)
 	allMeds, err := s.meds.ListMedications(true)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		slog.Error("list medications for duplicate check", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	for _, m := range allMeds {

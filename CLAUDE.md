@@ -174,6 +174,7 @@ Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.Exerci
 - **Smart Sorting**: Scheduled Soon (>14h) → Recently Taken → As-Needed → Archived
 - **Archiving & Deleting**: Active medications can be archived. Archived medications can be permanently deleted only if they have no intake history.
 - **Schedule Types**: Daily, Weekly, As-Needed with optional Start/End dates
+- **Duplicate Prevention**: HTTP 409 on creation when name (case-insensitive) + dosage matches an existing medication (including archived)
 - **Drug Interactions**: Automatic checking via RxNorm API when adding/unarchiving
 - **Notifications**: Telegram alerts with scheduled time and dosage, hourly retry if not confirmed
 - **Timezone Shift Policy** (`tz_shift_policy`): per-medication field controlling how doses are rescheduled when the user's timezone changes. Values: `flexible` (default — shift immediately in one step), `medium` (shift gradually, max 3h per dose), `strict` (very gradual, max 2h per step). When a timezone change is detected and an active plan is approved, the medication scheduler uses the plan's transition steps instead of normal schedule times until all steps are consumed.
