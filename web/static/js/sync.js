@@ -154,6 +154,7 @@ const SyncManager = {
         }
 
         // Update UI
+        this.updateOfflineBanner(!this.isOnline);
         this.updateStatus();
         SyncDebug.info('SyncManager initialized', { online: this.isOnline });
     },
@@ -195,6 +196,7 @@ const SyncManager = {
         this.isOnline = true;
         this.cancelRetry();
         this.resetBackoff();
+        this.updateOfflineBanner(false);
         this.updateStatus();
         this.syncAll();
 
@@ -212,7 +214,58 @@ const SyncManager = {
     handleOffline() {
         SyncDebug.warn('Network: gone offline');
         this.isOnline = false;
+        this.updateOfflineBanner(true);
         this.updateStatus();
+    },
+
+    // Show/hide offline banner and disable unsupported write buttons
+    updateOfflineBanner(offline) {
+        const banner = document.getElementById('offline-banner');
+        if (banner) {
+            if (offline) {
+                banner.classList.remove('hidden');
+            } else {
+                banner.classList.add('hidden');
+            }
+        }
+
+        // Buttons that require online (no offline write support)
+        const offlineUnsupported = [
+            'add-food-btn',
+            'notes-save-btn',
+            'start-adhoc-workout-btn',
+            'add-workout-group-btn',
+            'add-exercise-library-btn',
+            'workout-group-save-btn',
+            'variant-save-btn',
+            'exercise-save-btn',
+            'exercise-library-save-btn',
+            'food-modal-save-btn',
+            'food-product-save-btn'
+        ];
+
+        for (const id of offlineUnsupported) {
+            const btn = document.getElementById(id);
+            if (!btn) continue;
+
+            if (offline) {
+                btn.classList.add('offline-disabled');
+                btn.setAttribute('data-offline-disabled', 'true');
+                // Add tooltip right after the button if not already present
+                if (!btn.nextElementSibling || !btn.nextElementSibling.classList.contains('offline-disabled-tooltip')) {
+                    const tip = document.createElement('span');
+                    tip.className = 'offline-disabled-tooltip';
+                    tip.textContent = 'Available when online';
+                    btn.insertAdjacentElement('afterend', tip);
+                }
+            } else {
+                btn.classList.remove('offline-disabled');
+                btn.removeAttribute('data-offline-disabled');
+                if (btn.nextElementSibling && btn.nextElementSibling.classList.contains('offline-disabled-tooltip')) {
+                    btn.nextElementSibling.remove();
+                }
+            }
+        }
     },
 
     // Register callback for status updates
@@ -577,7 +630,7 @@ async function handleOfflineBPWrite(body) {
     SyncManager.registerBackgroundSync('sync-bp-readings');
 
     // Show toast
-    SyncManager.showToast('Saved offline - will sync when online', 'info');
+    SyncManager.showToast('BP reading saved locally — will sync when online', 'info');
 
     // Update status
     SyncManager.updateStatus();
@@ -602,7 +655,7 @@ async function handleOfflineWeightWrite(body) {
     SyncManager.registerBackgroundSync('sync-weight-logs');
 
     // Show toast
-    SyncManager.showToast('Saved offline - will sync when online', 'info');
+    SyncManager.showToast('Weight saved locally — will sync when online', 'info');
 
     // Update status
     SyncManager.updateStatus();
@@ -697,7 +750,7 @@ async function handleOfflineIntakeWrite(body) {
     SyncManager.registerBackgroundSync('sync-intake-logs');
 
     // Show toast
-    SyncManager.showToast('Intake saved offline - will sync when online', 'info');
+    SyncManager.showToast('Medication confirmed locally — will sync when online', 'info');
 
     // Update status
     SyncManager.updateStatus();

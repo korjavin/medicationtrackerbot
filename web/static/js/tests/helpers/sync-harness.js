@@ -27,7 +27,7 @@ function createStore(overrides = {}) {
 }
 
 export function loadSyncEnv({ bpPending = 0, weightPending = 0, intakePending = 0 } = {}) {
-  const dom = new JSDOM('<!doctype html><html><body><div id="sync-status-bar"></div></body></html>', {
+  const dom = new JSDOM('<!doctype html><html><body><div id="offline-banner" class="offline-banner hidden"></div><div id="sync-status-bar"></div></body></html>', {
     url: 'https://example.test/',
     runScripts: 'outside-only',
     pretendToBeVisual: true
