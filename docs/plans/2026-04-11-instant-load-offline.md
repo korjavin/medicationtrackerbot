@@ -127,8 +127,8 @@ Make the offline state clear but non-intrusive. Users should know they're offlin
 - [x] Run linter — all issues must be fixed
 
 ### Task 8: [Final] Update documentation
-- [ ] Update CLAUDE.md Local First section if architecture changed significantly
-- [ ] Update service worker section of CLAUDE.md with new precache strategy
+- [x] Update CLAUDE.md Local First section if architecture changed significantly
+- [x] Update service worker section of CLAUDE.md with new precache strategy
 
 ## Technical Details
 
