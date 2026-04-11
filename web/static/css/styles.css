@@ -1613,6 +1613,21 @@ svg.chart-svg {
     letter-spacing: 0.5px;
 }
 
+.sync-rejected-badge {
+    display: inline-block;
+    padding: 2px var(--space-sm);
+    background: var(--color-danger);
+    color: #fff;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-bold);
+    border-radius: var(--radius-sm);
+    margin-left: var(--space-sm);
+    vertical-align: middle;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: help;
+}
+
 /* Toast Notifications */
 .sync-toast {
     position: fixed;

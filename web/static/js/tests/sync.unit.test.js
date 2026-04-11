@@ -54,9 +54,20 @@ describe('sync.js SyncManager unit tests', () => {
       window.SyncManager.updateStatusBar({ isOnline: true, isSyncing: false, pendingCount: 2 });
       expect(bar.className).toContain('pending');
 
-      window.SyncManager.updateStatusBar({ isOnline: true, isSyncing: false, pendingCount: 0 });
+      window.SyncManager.updateStatusBar({ isOnline: true, isSyncing: false, pendingCount: 0, rejectedCount: 0 });
       expect(bar.className).toContain('synced');
       expect(bar.style.display).toBe('flex');
+
+      // Rejected-only state
+      window.SyncManager.updateStatusBar({ isOnline: true, isSyncing: false, pendingCount: 0, rejectedCount: 1 });
+      expect(bar.className).toContain('error');
+      expect(bar.innerHTML).toContain('failed to sync');
+
+      // Mixed pending + rejected state shows both counts
+      window.SyncManager.updateStatusBar({ isOnline: true, isSyncing: false, pendingCount: 2, rejectedCount: 1 });
+      expect(bar.className).toContain('error');
+      expect(bar.innerHTML).toContain('1 failed');
+      expect(bar.innerHTML).toContain('2 pending');
     } finally {
       cleanup();
     }
@@ -117,6 +128,40 @@ describe('sync.js SyncManager unit tests', () => {
 
       expect(window.SyncManager.isOnline).toBe(false);
       expect(updateStatusSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('isPermanentSyncError treats 429 as transient (retriable)', () => {
+    const { window, cleanup } = loadSyncEnv();
+
+    try {
+      // Access the function via window eval scope
+      const isPermanent = (status) => {
+        const err = new Error('test');
+        err.status = status;
+        // The function is in the closure scope, but we can test via sync behavior
+        // Instead, directly test the logic
+        return window.eval(`isPermanentSyncError(Object.assign(new Error("test"), { status: ${status} }))`);
+      };
+
+      // 429 Too Many Requests should be transient
+      expect(isPermanent(429)).toBe(false);
+      // 401/403 should be transient
+      expect(isPermanent(401)).toBe(false);
+      expect(isPermanent(403)).toBe(false);
+      // Other 4xx should be permanent
+      expect(isPermanent(400)).toBe(true);
+      expect(isPermanent(404)).toBe(true);
+      expect(isPermanent(422)).toBe(true);
+      // 5xx should be transient (no status match in 400-499 range)
+      expect(isPermanent(500)).toBe(false);
+      expect(isPermanent(502)).toBe(false);
+      // No error should not be permanent
+      expect(window.eval('isPermanentSyncError(null)')).toBe(false);
+      // No status should not be permanent
+      expect(window.eval('isPermanentSyncError(new Error("network"))')).toBe(false);
     } finally {
       cleanup();
     }

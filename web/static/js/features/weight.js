@@ -643,7 +643,18 @@ async function _renderWeightData(logsRes, goalRes) {
                 notes: l.notes,
                 isLocal: true
             }));
-            allLogs = [...pendingFormatted, ...allLogs];
+            const rejectedLogs = await window.MedTrackerDB.WeightStore.getRejected();
+            const rejectedFormatted = rejectedLogs.map(l => ({
+                id: `local_${l.localId}`,
+                localId: l.localId,
+                measured_at: l.measured_at,
+                weight: l.weight,
+                notes: l.notes,
+                isLocal: true,
+                isRejected: true,
+                errorMessage: l.errorMessage
+            }));
+            allLogs = [...pendingFormatted, ...rejectedFormatted, ...allLogs];
         } catch (e) {
             console.error('Failed to get pending weight logs:', e);
         }
@@ -689,7 +700,9 @@ function renderWeightLogs(logs) {
         const value = document.createElement('div');
         value.className = 'weight-value';
         value.appendChild(document.createTextNode(`${w.weight.toFixed(1)} kg `));
-        if (w.isLocal) {
+        if (w.isRejected) {
+            value.appendChild(createSyncRejectedBadge(w.errorMessage));
+        } else if (w.isLocal) {
             value.appendChild(createSyncBadge());
         }
 

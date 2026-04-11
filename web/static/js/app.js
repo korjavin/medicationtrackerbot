@@ -300,20 +300,32 @@ function verifyAuthInBackground() {
                     if (!data.authenticated) {
                         console.log('[Auth] Background check: session expired');
                         clearAuthState();
-                        location.reload();
+                        clearSwBootstrapCache().then(() => location.reload());
                     }
                 });
             } else if (res.status < 500) {
                 // 4xx (not server error) means auth is invalid
                 console.log('[Auth] Background check: auth invalid', res.status);
                 clearAuthState();
-                location.reload();
+                clearSwBootstrapCache().then(() => location.reload());
             }
             // 5xx — server is down, keep using cached auth silently
         })
         .catch(() => {
             // Network error — server unreachable, keep using cached auth
         });
+}
+
+// Clear the SW dynamic cache bootstrap entry so stale user data
+// is not served after logout or session expiry.
+function clearSwBootstrapCache() {
+    return caches.keys().then(names => {
+        const dynamicName = names.find(n => n.startsWith('medtracker-dynamic-'));
+        if (!dynamicName) return;
+        return caches.open(dynamicName).then(cache =>
+            cache.delete(new Request('/api/bootstrap'))
+        );
+    }).catch(() => { /* best-effort */ });
 }
 
 // Check Auth Environment
@@ -334,46 +346,76 @@ async function checkAuth() {
     // Not in Telegram. Check cached auth state first (for offline support)
     const cachedAuth = getCachedAuthState();
 
-    // Fast path: if we have cached auth and SW is active, render immediately
-    // from SW-cached bootstrap (stale-while-revalidate from Task 2), then
-    // verify auth in the background. This avoids blocking on /auth/status.
+    // Fast path: if we have cached auth and SW is active, fetch bootstrap
+    // and auth status in parallel. The SW may serve a cached bootstrap
+    // (stale-while-revalidate), so we must verify the session is still valid
+    // before rendering to prevent briefly showing another user's cached data.
     if (cachedAuth && cachedAuth.authenticated && navigator.serviceWorker && navigator.serviceWorker.controller) {
-        console.log('[Auth] Cached auth + active SW — rendering immediately');
+        console.log('[Auth] Cached auth + active SW — verifying session');
         let rendered = false;
+        let hardAuthReject = false;
+        let authCheckFailed = false;
         try {
-            const res = await fetch('/api/bootstrap', { method: 'GET' });
-            if (res.status === 200) {
-                const data = await res.json();
+            // Parallel fetch: bootstrap (may come from SW cache) + auth check
+            const [bootstrapRes, authRes] = await Promise.all([
+                fetch('/api/bootstrap', { method: 'GET' }),
+                fetch('/auth/status', { method: 'GET', credentials: 'same-origin' })
+                    .catch(() => null) // Network error — treat as offline
+            ]);
+
+            // Check auth status first — if session is invalid, don't render cached data
+            if (authRes && authRes.status === 200) {
+                const authData = await authRes.json();
+                if (!authData.authenticated) {
+                    hardAuthReject = true;
+                }
+            } else if (authRes && authRes.status < 500) {
+                // 4xx — definitive auth rejection
+                hardAuthReject = true;
+            }
+            // authRes null (network error) or 5xx — server unreachable, allow cached render
+
+            if (!hardAuthReject && bootstrapRes.status === 200) {
+                const data = await bootstrapRes.json();
                 await applyBootstrapPayload(data);
                 sessionStorage.removeItem('medtracker_auth_reload_in_progress');
                 saveAuthState('cookie');
                 rendered = true;
+            } else if (bootstrapRes.status === 401 || bootstrapRes.status === 403) {
+                hardAuthReject = true;
             }
         } catch (_) {
-            // Network error — fall through to cache-only path below
+            // Network error on bootstrap — fall through to cache-only path below
         }
 
-        if (!rendered) {
-            // SW cache miss or error — load from IndexedDB cache directly
-            if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
-                const cached = await window.MedTrackerDB.MedicationStore.getCache();
-                if (cached) {
-                    medications = cached;
-                    initialAuthLoad = true;
+        if (hardAuthReject) {
+            console.log('[Auth] Session invalid — clearing cache');
+            clearAuthState();
+            clearSwBootstrapCache();
+            // Fall through to blocking auth flow below
+        } else {
+            if (!rendered) {
+                // SW cache miss or network error — load from IndexedDB cache directly
+                if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
+                    const cached = await window.MedTrackerDB.MedicationStore.getCache();
+                    if (cached) {
+                        medications = cached;
+                        initialAuthLoad = true;
+                    }
                 }
-            }
-            if (window.DataStore) {
-                const cachedBundle = await window.DataStore.getCached('settings_bundle');
-                if (cachedBundle && Array.isArray(cachedBundle.tabOrder)) {
-                    applyTabOrder(cachedBundle.tabOrder);
+                if (window.DataStore) {
+                    const cachedBundle = await window.DataStore.getCached('settings_bundle');
+                    if (cachedBundle && Array.isArray(cachedBundle.tabOrder)) {
+                        applyTabOrder(cachedBundle.tabOrder);
+                    }
                 }
+                sessionStorage.removeItem('medtracker_auth_reload_in_progress');
             }
-            sessionStorage.removeItem('medtracker_auth_reload_in_progress');
-        }
 
-        // Verify auth in background — if session expired, clear and reload
-        verifyAuthInBackground();
-        return true;
+            // Continue verifying in background for long-running sessions
+            verifyAuthInBackground();
+            return true;
+        }
     }
 
     // No cached auth or no SW — blocking auth flow (first visit or cache cleared)
@@ -2013,7 +2055,9 @@ async function saveMedication() {
             res = await apiCall('/api/medications', 'POST', payload);
         }
 
-        if (res && res.warning) {
+        if (res === null) return; // offline or error — apiCall already showed alert
+
+        if (res.warning) {
             safeAlert("⚠️ " + res.warning);
         }
 
@@ -2067,6 +2111,7 @@ async function _archiveMedApi(id) {
     };
 
     const res = await apiCall(`/api/medications/${id}`, 'POST', payload);
+    if (res === null) return; // Offline or error — apiCall already alerted if needed
     if (res && res.warning) {
         safeAlert("⚠️ " + res.warning);
     }

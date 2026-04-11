@@ -28,7 +28,7 @@ describe('checkAuth non-blocking with cached bootstrap', () => {
     allowConsoleNoise();
   });
 
-  it('fast path: cached auth + active SW → renders from SW-cached bootstrap immediately', async () => {
+  it('fast path: cached auth + active SW → verifies session then renders', async () => {
     const { window, cleanup } = loadFrontendEnv();
     try {
       setAuthCache(window);
@@ -41,16 +41,20 @@ describe('checkAuth non-blocking with cached bootstrap', () => {
         settings: {}
       };
 
-      // fetch for /api/bootstrap returns cached data, then /auth/status background check
-      window.fetch = vi.fn()
-        .mockResolvedValueOnce(createMockResponse({ status: 200, json: bootstrapData }))
-        .mockResolvedValueOnce(createMockResponse({ status: 200, json: { authenticated: true } }));
+      // Fast path fetches bootstrap + auth/status in parallel, then verifyAuthInBackground
+      window.fetch = vi.fn((url) => {
+        if (url === '/api/bootstrap') return Promise.resolve(createMockResponse({ status: 200, json: bootstrapData }));
+        if (url === '/auth/status') return Promise.resolve(createMockResponse({ status: 200, json: { authenticated: true } }));
+        return Promise.resolve(createMockResponse({ status: 200, json: {} }));
+      });
 
       const authorized = await window.checkAuth();
 
       expect(authorized).toBe(true);
-      // First call should be /api/bootstrap (not /auth/status — that's the non-blocking part)
-      expect(window.fetch.mock.calls[0][0]).toBe('/api/bootstrap');
+      // Both bootstrap and auth/status should be called in parallel
+      const urls = window.fetch.mock.calls.map(c => c[0]);
+      expect(urls).toContain('/api/bootstrap');
+      expect(urls).toContain('/auth/status');
       // Auth state should be saved
       const cachedAuth = JSON.parse(window.localStorage.getItem(AUTH_CACHE_KEY));
       expect(cachedAuth.authenticated).toBe(true);
@@ -76,10 +80,13 @@ describe('checkAuth non-blocking with cached bootstrap', () => {
       });
       window.applyTabOrder = vi.fn();
 
-      // /api/bootstrap fails (network error), then background auth check
-      window.fetch = vi.fn()
-        .mockRejectedValueOnce(new Error('network down'))
-        .mockResolvedValueOnce(createMockResponse({ status: 200, json: { authenticated: true } }));
+      // Promise.all: bootstrap rejects (network error), auth/status also fails
+      // Then verifyAuthInBackground makes another call
+      window.fetch = vi.fn((url) => {
+        if (url === '/api/bootstrap') return Promise.reject(new Error('network down'));
+        if (url === '/auth/status') return Promise.reject(new Error('network down'));
+        return Promise.resolve(createMockResponse({ status: 200, json: {} }));
+      });
 
       const authorized = await window.checkAuth();
 
@@ -138,6 +145,42 @@ describe('checkAuth non-blocking with cached bootstrap', () => {
 
       expect(authorized).toBe(true);
       expect(window.fetch.mock.calls[0][0]).toBe('/auth/status');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('fast path: expired session prevents rendering cached bootstrap data', async () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      setAuthCache(window);
+      mockServiceWorker(window);
+
+      // Mock caches API for clearSwBootstrapCache (runs inside JSDOM window)
+      window.caches = {
+        keys: () => Promise.resolve([]),
+        open: () => Promise.resolve({ delete: () => Promise.resolve() })
+      };
+
+      const bootstrapData = {
+        cursor: 10,
+        features: { bp: true },
+        medications: [{ id: 1, name: 'Aspirin' }],
+        settings: {}
+      };
+
+      // Bootstrap returns cached 200 from SW, but auth/status says not authenticated
+      window.fetch = vi.fn((url) => {
+        if (url === '/api/bootstrap') return Promise.resolve(createMockResponse({ status: 200, json: bootstrapData }));
+        if (url === '/auth/status') return Promise.resolve(createMockResponse({ status: 200, json: { authenticated: false } }));
+        return Promise.resolve(createMockResponse({ status: 200, json: {} }));
+      });
+
+      const authorized = await window.checkAuth();
+
+      // Should fall through to blocking flow (which also fails), not render cached data
+      // Auth cache should be cleared
+      expect(window.localStorage.getItem(AUTH_CACHE_KEY)).toBeNull();
     } finally {
       cleanup();
     }

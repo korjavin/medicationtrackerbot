@@ -1315,11 +1315,13 @@ async function saveFoodLog() {
 
     const btn = document.getElementById('food-modal-save-btn');
     await withSubmit(btn, async () => {
+        let res;
         if (id) {
-            await apiCall(`/api/food/log/${id}`, 'PUT', payload);
+            res = await apiCall(`/api/food/log/${id}`, 'PUT', payload);
         } else {
-            await apiCall('/api/food/log', 'POST', payload);
+            res = await apiCall('/api/food/log', 'POST', payload);
         }
+        if (!res) return;
         closeFoodModal();
         loadFoodLogs();
     });

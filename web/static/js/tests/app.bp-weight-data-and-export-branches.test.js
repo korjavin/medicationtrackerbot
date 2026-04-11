@@ -177,7 +177,8 @@ describe('app.js BP/weight data and export branch coverage', () => {
         WeightStore: {
           getPending: vi.fn().mockResolvedValue([
             { localId: 55, measured_at: isoWithOffsetHours(-2), weight: 81.2, notes: 'pending note' }
-          ])
+          ]),
+          getRejected: vi.fn().mockResolvedValue([])
         }
       };
       await window._renderWeightData(
