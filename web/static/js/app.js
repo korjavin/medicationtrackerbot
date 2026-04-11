@@ -1006,7 +1006,7 @@ function updateFeatureTabVisibility() {
     Object.entries(tabToFeature).forEach(([tab, feature]) => {
         const tabBtn = document.querySelector(`.tab[data-tab="${tab}"]`);
         if (tabBtn) {
-            tabBtn.style.display = featureSettings[feature] ? 'inline-block' : 'none';
+            tabBtn.style.display = featureSettings[feature] ? '' : 'none';
         }
     });
 

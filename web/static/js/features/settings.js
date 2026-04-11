@@ -22,7 +22,7 @@
         if (!tabName) return;
         const tabButton = document.querySelector(`.tab[data-tab="${tabName}"]`);
         if (tabButton) {
-            tabButton.style.display = enabled ? 'inline-block' : 'none';
+            tabButton.style.display = enabled ? '' : 'none';
         }
     }
 
