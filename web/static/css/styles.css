@@ -25,7 +25,7 @@
  *   Shape: .btn-pill, .btn-icon
  *
  * UTILITIES:
- *   Layout:  .flex-row, .flex-col, .flex-between, .flex-center, .flex-wrap
+ *   Layout:  .flex-row, .flex-col, .flex-between, .flex-center, .flex-wrap, .items-start
  *   Spacing: .mt-{size}, .mb-{size}, .p-{size}, .gap-{size}
  *   Text:    .text-center, .text-hint, .text-sm, .text-bold, .text-danger
  *   Display: .hidden, .block, .inline-flex
@@ -317,6 +317,7 @@ h3 {
     border-radius: var(--radius-md);
     margin-bottom: var(--space-sm);
     border: 1px solid rgba(0, 0, 0, 0.06);
+    cursor: pointer;
 }
 
 /* List Items */
@@ -1795,7 +1796,7 @@ svg.chart-svg {
 
 .food-target-topline .food-target-values.excess-text {
     color: var(--danger-color, #ef4444);
-    font-weight: bold;
+    font-weight: var(--font-weight-bold);
 }
 
 .food-target-bar.excess {
@@ -1814,7 +1815,7 @@ svg.chart-svg {
 }
 
 .period-link.active {
-    font-weight: bold;
+    font-weight: var(--font-weight-bold);
     color: var(--text-color);
     text-decoration: underline;
 }
@@ -2480,6 +2481,10 @@ input:checked+.toggle-slider:before {
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+
+.items-start {
+    align-items: flex-start;
 }
 
 .text-center {
@@ -3335,10 +3340,7 @@ input:checked+.toggle-slider:before {
     gap: var(--space-md);
 }
 
-/* Exercise library item */
-.exercise-library-item {
-    cursor: pointer;
-}
+/* Exercise library item (cursor) */
 
 .exercise-library-defaults {
     font-size: 0.9em;
