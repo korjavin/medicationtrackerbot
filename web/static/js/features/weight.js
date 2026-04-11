@@ -603,10 +603,12 @@ async function loadWeightLogs() {
         key: 'weight',
         tags: ['weight'],
         fetcher: async () => {
-            const [logsRes, goalRes] = await Promise.all([
+            const [logsResult, goalResult] = await Promise.allSettled([
                 apiCall('/api/weight?days=35'),
                 apiCall('/api/weight/goal')
             ]);
+            const logsRes = logsResult.status === 'fulfilled' ? logsResult.value : null;
+            const goalRes = goalResult.status === 'fulfilled' ? goalResult.value : null;
             if (logsRes === null) return null;
             return { logsRes, goalRes };
         },
@@ -619,7 +621,7 @@ async function loadWeightLogs() {
         onError: async (e, cached) => {
             console.error('Failed to load weight data:', e);
             if (!cached) {
-                list.replaceChildren(createEmptyState('Failed to load weight logs'));
+                list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
             }
         }
     });
@@ -648,7 +650,7 @@ async function _renderWeightData(logsRes, goalRes) {
     }
 
     if (allLogs.length === 0 && logsRes === null) {
-        list.replaceChildren(createEmptyState('Failed to load weight logs'));
+        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
 
         return;
     }

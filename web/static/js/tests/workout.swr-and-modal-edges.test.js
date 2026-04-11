@@ -110,7 +110,7 @@ describe('workout.js SWR and modal edge branches', () => {
         await options.onError(new Error('groups failed'), null);
       });
       await window.loadWorkoutGroups();
-      expect(document.getElementById('workout-groups-list').innerHTML).toContain('Error loading workout groups');
+      expect(document.getElementById('workout-groups-list').innerHTML).toContain('No cached data');
 
       window.confirm = vi.fn().mockReturnValue(true);
       window.apiCall = vi.fn().mockResolvedValue(true);
@@ -248,7 +248,7 @@ describe('workout.js SWR and modal edge branches', () => {
         await options.onError(new Error('stats failed'), null);
       });
       await window.loadWorkoutStatsTab();
-      expect(document.getElementById('workout-stats-display').innerHTML).toContain('Error loading statistics');
+      expect(document.getElementById('workout-stats-display').innerHTML).toContain('No cached data');
 
       window.DataStore.loadSWR = vi.fn(async (options) => {
         await options.onFresh({

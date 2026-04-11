@@ -1031,8 +1031,9 @@ async function loadSettings() {
             fetcher: fetchBundle,
             onCached: applyBundle,
             onFresh: applyBundle,
-            onError: async (error) => {
+            onError: async (error, cached) => {
                 console.error('Failed to load settings:', error);
+                if (cached) applyBundle(cached);
             }
         });
     } catch (error) {
@@ -2701,9 +2702,13 @@ async function loadNotes() {
                 _notesPendingFresh = { data: fresh, generation: _notesGeneration };
             }
         },
-        onError: async (e) => {
+        onError: async (e, cached) => {
             console.error('Failed to load notes:', e);
             if (loading) loading.style.display = 'none';
+            if (!cached) {
+                const list = document.getElementById('notes-list');
+                if (list) list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+            }
         }
     });
 
