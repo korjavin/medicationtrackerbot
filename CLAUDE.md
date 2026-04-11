@@ -200,7 +200,9 @@ Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.Exerci
 ### MCP Server
 - **Purpose**: Provides read-only access to health data for AI assistants (Claude)
 - **Authentication**: OAuth via Pocket-ID
-- **Tools**: Query medication intake, BP readings, sleep logs, weight, workout history
+- **Tools**: 13 granular tools (get_blood_pressure, get_weight, get_medication_intake, etc.) + 2 composite analysis tools
+- **Composite Tools**: `analyze_cardiovascular` (BP + meds + sleep + HR + SpO2 + notes) and `analyze_fitness` (workouts + steps + nutrition totals + weight + notes) — return cross-domain data in a single call
+- **Context Notes**: All read tools automatically include diary notes from the queried date range. Pass `exclude_notes=true` to suppress.
 - **Configuration**: Separate from main bot, runs on different port
 
 #### MCP Server Deployment
@@ -614,10 +616,12 @@ The app is single-user, self-hosted, and runs primarily inside Telegram's WebVie
 7. Add scheduler logic if reminders needed in `internal/scheduler/`
 
 ### Adding MCP Tools
-1. Add tool definition in `internal/mcp/tools.go`
+1. Add tool definition in `internal/mcp/tools.go` (granular tools) or a dedicated file (composite tools, e.g. `cardiovascular.go`, `fitness.go`)
 2. Implement handler function
-3. Register tool in server initialization
-4. Update `.env.mcp.example` if config needed
+3. Register tool in server initialization (`internal/mcp/mcp.go`)
+4. For read tools: include context notes via `notes_helper.go` (`fetchContextNotes` / `shouldIncludeNotes`); support `exclude_notes` parameter
+5. Update `.env.mcp.example` if config needed
+6. **Naming**: `get_*` for granular read tools, `log_*` for write tools, `analyze_*` for composite read tools
 
 ### Modifying Workout Rotation Logic
 - Core logic in `internal/store/workout.go` (AdvanceRotation method)
