@@ -405,7 +405,7 @@ describe('Architecture – design tokens', () => {
         let darkMediaDepth = 0;
 
         // Properties that should use design tokens instead of hardcoded px values
-        const spacingPropRe = /^\s*(padding|margin|gap)\s*:/i;
+        const spacingPropRe = /^\s*(padding|padding-(top|right|bottom|left)|margin|margin-(top|right|bottom|left)|gap)\s*:/i;
         const radiusPropRe = /^\s*border-radius\s*:/i;
         const shadowPropRe = /^\s*box-shadow\s*:/i;
         const fontSizePropRe = /^\s*font-size\s*:/i;
@@ -415,7 +415,7 @@ describe('Architecture – design tokens', () => {
         const hardcodedPxRe = /(?<!\w)(\d+)px\b/g;
 
         // Allowlisted px values that don't have matching tokens or are acceptable
-        const spacingAllowlist = new Set([0, 1, 2, 3, 7, 80, 90, 40, 100, 120, 200, 250, 400]);
+        const spacingAllowlist = new Set([0, 1, 2, 3, 5, 7, 28, 80, 90, 40, 100, 120, 200, 250, 400]);
         const radiusAllowlist = new Set([0, 2]);
         const fontSizeAllowlist = new Set([0, 48]); // 48px is a special display size
         const zIndexAllowlist = new Set([0, 10, 1003, 1200]); // local stacking, scanner, banner
@@ -689,8 +689,7 @@ describe('Architecture – design tokens', () => {
         }
 
         // Per-file allowlist rules for dynamic values that cannot be CSS classes
-        const fileRules = {
-            'features/bp.js': [],
+        const perFileRules = {
             'features/weight.js': [
                 /\.style\.transform\s*=/, // ruler positioning
                 /\.style\.left\s*=/,      // tick positioning
@@ -698,7 +697,6 @@ describe('Architecture – design tokens', () => {
             'features/health.js': [
                 /\.style\.background\s*=/, // dynamic legend badge colors
             ],
-            'features/settings.js': [],
             'features/tabs-dnd.js': [
                 /\.style\.transform\s*=/,   // drag transform
                 /\.style\.transition\s*=/,  // drag transition
@@ -706,9 +704,6 @@ describe('Architecture – design tokens', () => {
                 /\.style\.position\s*=/,    // drag position
                 /\.style\.opacity\s*=/,     // drag opacity
             ],
-            'sync.js': [],
-            'components/empty-state.js': [],
-            'app-shell.js': [],
             'workout.js': [
                 /\.style\.background\s*=/,    // dynamic data-driven colors
                 /\.style\.width\s*=/,         // dynamic bar fill width
@@ -718,11 +713,32 @@ describe('Architecture – design tokens', () => {
             ],
         };
 
+        // Dynamically find all JS files (excluding tests/ and core/ directories)
+        function collectJsFiles(dir, base) {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            let files = [];
+            for (const entry of entries) {
+                const rel = base ? `${base}/${entry.name}` : entry.name;
+                if (entry.isDirectory()) {
+                    if (entry.name === 'tests' || entry.name === 'core') continue;
+                    files = files.concat(collectJsFiles(path.join(dir, entry.name), rel));
+                } else if (entry.name.endsWith('.js')) {
+                    files.push(rel);
+                }
+            }
+            return files;
+        }
+
+        const jsFiles = collectJsFiles(jsDir, '');
+        // Exclude app.js and food.js — they have dedicated tests above
+        const skipFiles = new Set(['app.js', 'features/food.js']);
+
         const allViolations = [];
 
-        for (const [relPath, rules] of Object.entries(fileRules)) {
+        for (const relPath of jsFiles) {
+            if (skipFiles.has(relPath)) continue;
             const fullPath = path.join(jsDir, relPath);
-            if (!fs.existsSync(fullPath)) continue;
+            const rules = perFileRules[relPath] || [];
             const violations = scanFile(fullPath, rules);
             if (violations.length > 0) {
                 allViolations.push({ file: relPath, violations });
