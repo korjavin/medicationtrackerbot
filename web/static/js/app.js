@@ -198,6 +198,8 @@ function applyTabOrder(orderArray) {
 }
 
 // Apply bootstrap payload and warm caches so first tab render can use local data.
+// Idempotent: safe to call multiple times (e.g. once from SW cache, once from
+// fresh network response via BOOTSTRAP_UPDATED). Every field is a full replacement.
 async function applyBootstrapPayload(res) {
     if (!res) return false;
 
@@ -287,6 +289,33 @@ async function loadInitData() {
     }
 }
 
+// Background auth verification for non-blocking cached-auth path.
+// Fires /auth/status without blocking the UI. If the session has expired,
+// clears auth state and reloads so the user sees the login screen.
+function verifyAuthInBackground() {
+    fetch('/auth/status', { method: 'GET', credentials: 'same-origin' })
+        .then(res => {
+            if (res.status === 200) {
+                return res.json().then(data => {
+                    if (!data.authenticated) {
+                        console.log('[Auth] Background check: session expired');
+                        clearAuthState();
+                        location.reload();
+                    }
+                });
+            } else if (res.status < 500) {
+                // 4xx (not server error) means auth is invalid
+                console.log('[Auth] Background check: auth invalid', res.status);
+                clearAuthState();
+                location.reload();
+            }
+            // 5xx — server is down, keep using cached auth silently
+        })
+        .catch(() => {
+            // Network error — server unreachable, keep using cached auth
+        });
+}
+
 // Check Auth Environment
 async function checkAuth() {
     if (userInitData) {
@@ -305,7 +334,49 @@ async function checkAuth() {
     // Not in Telegram. Check cached auth state first (for offline support)
     const cachedAuth = getCachedAuthState();
 
-    // Check auth status first so logged-out users don't hit protected endpoints.
+    // Fast path: if we have cached auth and SW is active, render immediately
+    // from SW-cached bootstrap (stale-while-revalidate from Task 2), then
+    // verify auth in the background. This avoids blocking on /auth/status.
+    if (cachedAuth && cachedAuth.authenticated && navigator.serviceWorker && navigator.serviceWorker.controller) {
+        console.log('[Auth] Cached auth + active SW — rendering immediately');
+        let rendered = false;
+        try {
+            const res = await fetch('/api/bootstrap', { method: 'GET' });
+            if (res.status === 200) {
+                const data = await res.json();
+                await applyBootstrapPayload(data);
+                sessionStorage.removeItem('medtracker_auth_reload_in_progress');
+                saveAuthState('cookie');
+                rendered = true;
+            }
+        } catch (_) {
+            // Network error — fall through to cache-only path below
+        }
+
+        if (!rendered) {
+            // SW cache miss or error — load from IndexedDB cache directly
+            if (window.MedTrackerDB && window.MedTrackerDB.MedicationStore) {
+                const cached = await window.MedTrackerDB.MedicationStore.getCache();
+                if (cached) {
+                    medications = cached;
+                    initialAuthLoad = true;
+                }
+            }
+            if (window.DataStore) {
+                const cachedBundle = await window.DataStore.getCached('settings_bundle');
+                if (cachedBundle && Array.isArray(cachedBundle.tabOrder)) {
+                    applyTabOrder(cachedBundle.tabOrder);
+                }
+            }
+            sessionStorage.removeItem('medtracker_auth_reload_in_progress');
+        }
+
+        // Verify auth in background — if session expired, clear and reload
+        verifyAuthInBackground();
+        return true;
+    }
+
+    // No cached auth or no SW — blocking auth flow (first visit or cache cleared)
     let serverUnavailable = false;
     let hasSessionCookie = false;
     try {

@@ -69,14 +69,14 @@ Instead of network-first (current), serve cached bootstrap instantly and refresh
 ### Task 3: Make `checkAuth()` non-blocking with cached bootstrap
 Currently `checkAuth()` awaits network for `/api/bootstrap`. Make it use SW-cached response (which Task 2 makes instant).
 
-- [ ] In Telegram path (`app.js:291-303`): `apiCall('/api/bootstrap')` already goes through SW — after Task 2 this returns cached data instantly. No code change needed here, but verify the flow works.
-- [ ] In non-Telegram path (`app.js:305-378`): Make `/auth/status` check non-blocking:
+- [x] In Telegram path (`app.js:291-303`): `apiCall('/api/bootstrap')` already goes through SW — after Task 2 this returns cached data instantly. No code change needed here, but verify the flow works.
+- [x] In non-Telegram path (`app.js:305-378`): Make `/auth/status` check non-blocking:
   - If cached auth exists and SW is active → trust cache, render app immediately
   - Fire `/auth/status` in background → if 401/403 → clear auth and show login
   - If server unavailable → keep using cache (already works)
-- [ ] Ensure `applyBootstrapPayload()` is idempotent — can be called twice (once from cache, once from fresh) without breaking UI
-- [ ] Write tests for checkAuth with cached bootstrap (Telegram path, non-Telegram path, stale cache + fresh update)
-- [ ] Run tests — must pass before next task
+- [x] Ensure `applyBootstrapPayload()` is idempotent — can be called twice (once from cache, once from fresh) without breaking UI
+- [x] Write tests for checkAuth with cached bootstrap (Telegram path, non-Telegram path, stale cache + fresh update)
+- [x] Run tests — must pass before next task
 
 ### Task 4: Exponential backoff retry for offline sync
 Currently `SyncManager.syncAll()` runs once on `online` event, no retry on failure.
