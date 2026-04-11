@@ -579,6 +579,7 @@ If you want to use this pattern for a new component:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/changes` | Change events since cursor (for cache invalidation) |
+| GET | `/auth/status` | Check if session is authenticated (returns `{"authenticated": bool}`) |
 | GET | `/api/settings` | User settings (returns `{"timezone": "..."}`) |
 | POST | `/api/settings` | Update settings (accepts optional `timezone` IANA name; returns 400 for invalid values) |
 | POST | `/api/push/subscribe` | Register push subscription |

@@ -25,7 +25,7 @@ describe('SyncManager exponential backoff retry', () => {
       vi.spyOn(window.SyncManager, 'syncBPReadings').mockResolvedValue(undefined);
       vi.spyOn(window.SyncManager, 'syncWeightLogs').mockResolvedValue(undefined);
       vi.spyOn(window.SyncManager, 'syncIntakeLogs').mockResolvedValue(undefined);
-      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(1);
 
       window.SyncManager.isOnline = true;
       window.SyncManager.isSyncing = false;
@@ -46,7 +46,7 @@ describe('SyncManager exponential backoff retry', () => {
       vi.spyOn(window.SyncManager, 'syncBPReadings').mockResolvedValue(undefined);
       vi.spyOn(window.SyncManager, 'syncWeightLogs').mockResolvedValue(undefined);
       vi.spyOn(window.SyncManager, 'syncIntakeLogs').mockResolvedValue(undefined);
-      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(1);
 
       window.SyncManager.isOnline = true;
 
@@ -96,7 +96,7 @@ describe('SyncManager exponential backoff retry', () => {
       vi.spyOn(window.SyncManager, 'syncBPReadings').mockResolvedValue(undefined);
       vi.spyOn(window.SyncManager, 'syncWeightLogs').mockResolvedValue(undefined);
       vi.spyOn(window.SyncManager, 'syncIntakeLogs').mockResolvedValue(undefined);
-      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(0);
 
       window.SyncManager.isOnline = true;
       window.SyncManager.retryDelayMs = 80000; // Simulate previous backoffs
@@ -118,7 +118,7 @@ describe('SyncManager exponential backoff retry', () => {
       vi.spyOn(window.SyncManager, 'syncBPReadings').mockResolvedValue(undefined);
       vi.spyOn(window.SyncManager, 'syncWeightLogs').mockResolvedValue(undefined);
       vi.spyOn(window.SyncManager, 'syncIntakeLogs').mockResolvedValue(undefined);
-      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(1);
 
       window.SyncManager.isOnline = true;
       await window.SyncManager.syncAll();
@@ -146,7 +146,7 @@ describe('SyncManager exponential backoff retry', () => {
       vi.spyOn(window.SyncManager, 'syncBPReadings').mockResolvedValue(undefined);
       vi.spyOn(window.SyncManager, 'syncWeightLogs').mockResolvedValue(undefined);
       vi.spyOn(window.SyncManager, 'syncIntakeLogs').mockResolvedValue(undefined);
-      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(1);
 
       window.SyncManager.isOnline = true;
       window.SyncManager.retryDelayMs = 80000;
@@ -185,7 +185,7 @@ describe('SyncManager exponential backoff retry', () => {
       vi.spyOn(window.SyncManager, 'syncBPReadings').mockResolvedValue(undefined);
       vi.spyOn(window.SyncManager, 'syncWeightLogs').mockResolvedValue(undefined);
       vi.spyOn(window.SyncManager, 'syncIntakeLogs').mockResolvedValue(undefined);
-      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+      vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(1);
 
       window.SyncManager.isOnline = true;
       await window.SyncManager.syncAll();
