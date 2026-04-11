@@ -27,6 +27,7 @@ const WEIGHT_JS = path.join(REPO_ROOT, 'web/static/js/features/weight.js');
 const AUTH_FLOW_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-flow.js');
 const MODAL_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/modal-history.js');
 const DEEPLINK_ROUTER_JS = path.join(REPO_ROOT, 'web/static/js/features/deeplink-router.js');
+const HEALTH_JS = path.join(REPO_ROOT, 'web/static/js/features/health.js');
 const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
 
 function evalWithSourceURL(window, source, scriptPath) {
@@ -147,6 +148,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalWithSourceURL(window, fs.readFileSync(FOOD_JS, 'utf8'), FOOD_JS);
   evalWithSourceURL(window, fs.readFileSync(BP_JS, 'utf8'), BP_JS);
   evalWithSourceURL(window, fs.readFileSync(WEIGHT_JS, 'utf8'), WEIGHT_JS);
+  evalWithSourceURL(window, fs.readFileSync(HEALTH_JS, 'utf8'), HEALTH_JS);
 
   // auth-flow.js: provides saveAuthState / getCachedAuthState / clearAuthState.
   const authFlowSource = fs.readFileSync(AUTH_FLOW_JS, 'utf8');
