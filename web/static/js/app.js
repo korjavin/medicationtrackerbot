@@ -874,11 +874,32 @@ function switchTab(tab) {
         }
     } else if (tab === 'bp') { loadBPReadings(); }
     else if (tab === 'weight') { loadWeightLogs(); }
-    else if (tab === 'health') { loadHealthOverview(); loadNotes(); }
+    else if (tab === 'health') {
+        const activeHealthTab = document.querySelector('.health-tab.active');
+        const currentSubTab = activeHealthTab ? activeHealthTab.dataset.tab : 'overview';
+        switchHealthTab(currentSubTab);
+    }
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
     else if (tab === 'settings') { loadSettings(); }
 }
+
+function switchHealthTab(tab) {
+    const activated = activateTabGroup(tab, {
+        buttonSelector: '.health-tab',
+        contentSelector: '.health-tab-content',
+        contentIdFromTab: (t) => `health-${t}-tab`
+    });
+    if (!activated) return;
+    if (tab === 'overview') { loadHealthOverview(); }
+    else if (tab === 'notes') { loadNotes(); }
+}
+
+bindTabGroup({
+    container: document.querySelector('.health-tabs'),
+    buttonSelector: '.health-tab',
+    onTabSelect: switchHealthTab
+});
 
 bindTabGroup({
     container: document.getElementById('tabs'),
@@ -1248,7 +1269,11 @@ function reloadCurrentTab() {
     else if (tab === 'weight') { loadWeightLogs(); }
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
-    else if (tab === 'health') { loadHealthOverview(); loadNotes(); }
+    else if (tab === 'health') {
+        const activeHealthTab = document.querySelector('.health-tab.active');
+        const currentSubTab = activeHealthTab ? activeHealthTab.dataset.tab : 'overview';
+        switchHealthTab(currentSubTab);
+    }
     else if (tab === 'settings') { loadSettings(); }
 }
 
