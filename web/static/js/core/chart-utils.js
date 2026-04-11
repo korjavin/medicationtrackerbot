@@ -189,12 +189,10 @@ window.ChartUtils = (() => {
      * Duplicated here to keep chart-utils self-contained (bp.js has its own copy).
      */
     function _classifyBP(sys, dia) {
-        if (sys >= 180 || dia >= 120) return 'crisis';
-        if (sys >= 160 || dia >= 100) return 'high2';
-        if (sys >= 140 || dia >= 90) return 'high1';
-        if (sys >= 130 || dia >= 85) return 'elevated';
-        if (sys >= 120 && dia < 80) return 'elevated';
-        return 'normal';
+        if (sys >= 160 || dia >= 100) return { label: 'Grade 2 HTN', class: 'grade2' };
+        if (sys >= 140 || dia >= 90) return { label: 'Grade 1 HTN', class: 'grade1' };
+        if (sys >= 130 || dia >= 85) return { label: 'High-normal', class: 'highnormal' };
+        return { label: 'Normal', class: 'normal' };
     }
 
     /**
