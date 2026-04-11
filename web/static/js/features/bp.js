@@ -270,59 +270,62 @@ function renderBPChart(readings, goalData) {
     avgDiaLine.setAttribute("class", "bp-chart-avg-line");
     svg.appendChild(avgDiaLine);
 
-    // Gradient fill area under systolic line
+    // Build coordinate arrays for spline paths
+    const sysPoints = data.map(d => [xScaleByDate(d.date), yScale(d.sys)]);
+    const diaPoints = data.map(d => [xScaleByDate(d.date), yScale(d.dia)]);
+
+    // Determine dominant color from latest reading for spline lines
+    const lastReading = data[data.length - 1];
+    const sysColor = getClassColor(lastReading.category);
+    const diaColor = getClassColor(lastReading.category);
+
+    // Generate spline path strings
+    const sysSplineD = window.ChartUtils.catmullRomSpline(sysPoints);
+    const diaSplineD = window.ChartUtils.catmullRomSpline(diaPoints);
+
+    // Gradient fill area under systolic spline
     if (data.length >= 2) {
-        const lastReading = data[data.length - 1];
-        const sysGradColor = getClassColor(lastReading.category);
-        window.ChartUtils.createGradient(svgNs, svg, 'grad-bp-sys', sysGradColor, 0.15);
-        let sysAreaD = `M ${xScaleByDate(data[0].date)},${yScale(data[0].sys)}`;
-        for (let i = 1; i < data.length; i++) {
-            sysAreaD += ` L ${xScaleByDate(data[i].date)},${yScale(data[i].sys)}`;
-        }
-        sysAreaD += ` L ${xScaleByDate(data[data.length - 1].date)},${chartHeight}`;
-        sysAreaD += ` L ${xScaleByDate(data[0].date)},${chartHeight} Z`;
+        window.ChartUtils.createGradient(svgNs, svg, 'grad-bp-sys', sysColor, 0.15);
+        const sysAreaD = sysSplineD
+            + ` L ${xScaleByDate(data[data.length - 1].date)},${chartHeight}`
+            + ` L ${xScaleByDate(data[0].date)},${chartHeight} Z`;
         const sysArea = document.createElementNS(svgNs, "path");
         sysArea.setAttribute("d", sysAreaD);
         sysArea.setAttribute("fill", "url(#grad-bp-sys)");
         svg.appendChild(sysArea);
     }
 
-    // Draw color-coded line segments for systolic
-    for (let i = 0; i < data.length - 1; i++) {
-        const x1 = xScaleByDate(data[i].date);
-        const y1 = yScale(data[i].sys);
-        const x2 = xScaleByDate(data[i + 1].date);
-        const y2 = yScale(data[i + 1].sys);
-        const color = getClassColor(data[i].category);
+    // Smooth spline path for systolic
+    const sysPath = document.createElementNS(svgNs, "path");
+    sysPath.setAttribute("d", sysSplineD);
+    sysPath.setAttribute("stroke", sysColor);
+    sysPath.setAttribute("stroke-width", "2.5");
+    sysPath.setAttribute("fill", "none");
+    sysPath.classList.add("chart-line");
+    svg.appendChild(sysPath);
 
-        const line = document.createElementNS(svgNs, "line");
-        line.setAttribute("x1", x1);
-        line.setAttribute("y1", y1);
-        line.setAttribute("x2", x2);
-        line.setAttribute("y2", y2);
-        line.setAttribute("stroke", color);
-        line.setAttribute("stroke-width", "2.5");
-        line.setAttribute("fill", "none");
-        svg.appendChild(line);
-    }
+    // Smooth spline path for diastolic
+    const diaPath = document.createElementNS(svgNs, "path");
+    diaPath.setAttribute("d", diaSplineD);
+    diaPath.setAttribute("stroke", diaColor);
+    diaPath.setAttribute("stroke-width", "2.5");
+    diaPath.setAttribute("fill", "none");
+    diaPath.classList.add("chart-line");
+    svg.appendChild(diaPath);
 
-    // Draw color-coded line segments for diastolic
-    for (let i = 0; i < data.length - 1; i++) {
-        const x1 = xScaleByDate(data[i].date);
-        const y1 = yScale(data[i].dia);
-        const x2 = xScaleByDate(data[i + 1].date);
-        const y2 = yScale(data[i + 1].dia);
-        const color = getClassColor(data[i].category);
-
-        const line = document.createElementNS(svgNs, "line");
-        line.setAttribute("x1", x1);
-        line.setAttribute("y1", y1);
-        line.setAttribute("x2", x2);
-        line.setAttribute("y2", y2);
-        line.setAttribute("stroke", color);
-        line.setAttribute("stroke-width", "2.5");
-        line.setAttribute("fill", "none");
-        svg.appendChild(line);
+    // Smooth spline path for pulse (if data has pulse readings)
+    const pulseData = data.filter(d => d.pulse);
+    if (pulseData.length >= 2) {
+        const pulsePoints = pulseData.map(d => [xScaleByDate(d.date), yScale(d.pulse)]);
+        const pulseSplineD = window.ChartUtils.catmullRomSpline(pulsePoints);
+        const pulsePath = document.createElementNS(svgNs, "path");
+        pulsePath.setAttribute("d", pulseSplineD);
+        pulsePath.setAttribute("stroke", "var(--color-info)");
+        pulsePath.setAttribute("stroke-width", "1.5");
+        pulsePath.setAttribute("stroke-dasharray", "4 3");
+        pulsePath.setAttribute("fill", "none");
+        pulsePath.classList.add("chart-line");
+        svg.appendChild(pulsePath);
     }
 
     // Draw color-coded points for systolic
