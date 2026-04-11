@@ -210,20 +210,28 @@
         </div>
 
         <div id="health-view" class="view">
-            <h3>Health Overview</h3>
-            <div id="health-overview-loading">Loading metrics...</div>
-            <div id="health-overview-content" class="hidden">
-                <!-- Injected dynamically via app.js -->
+            <div class="health-tabs">
+                <button class="health-tab active" data-tab="overview">Overview</button>
+                <button class="health-tab" data-tab="notes">Notes</button>
             </div>
 
-            <div class="notes-section">
-                <h4>My Notes</h4>
-                <div class="notes-add">
-                    <textarea id="notes-textarea" placeholder="Write a note..." rows="3"></textarea>
-                    <button id="notes-save-btn" class="btn btn-primary">Save Note</button>
+            <div id="health-overview-tab" class="health-tab-content active">
+                <div id="health-overview-loading">Loading metrics...</div>
+                <div id="health-overview-content" class="hidden">
+                    <!-- Injected dynamically via app.js -->
                 </div>
-                <div id="notes-loading" style="display:none;">Loading notes...</div>
-                <ul id="notes-list" class="notes-list"></ul>
+            </div>
+
+            <div id="health-notes-tab" class="health-tab-content">
+                <div class="notes-section">
+                    <h4>My Notes</h4>
+                    <div class="notes-add">
+                        <textarea id="notes-textarea" placeholder="Write a note..." rows="3"></textarea>
+                        <button id="notes-save-btn" class="btn btn-primary">Save Note</button>
+                    </div>
+                    <div id="notes-loading" style="display:none;">Loading notes...</div>
+                    <ul id="notes-list" class="notes-list"></ul>
+                </div>
             </div>
         </div>
 

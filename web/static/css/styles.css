@@ -273,10 +273,11 @@ h3 {
     border-bottom: 2px solid var(--link-color);
 }
 
-/* Sub-tabs (medications, workouts, food) */
+/* Sub-tabs (medications, workouts, food, health) */
 .med-tabs,
 .workout-tabs,
-.food-tabs {
+.food-tabs,
+.health-tabs {
     display: flex;
     gap: var(--space-md);
     margin-bottom: var(--space-xl);
@@ -285,7 +286,8 @@ h3 {
 
 .med-tab,
 .workout-tab,
-.food-tab {
+.food-tab,
+.health-tab {
     padding: var(--space-md) var(--space-xl);
     min-height: 44px;
     border: none;
@@ -299,7 +301,8 @@ h3 {
 
 .med-tab.active,
 .workout-tab.active,
-.food-tab.active {
+.food-tab.active,
+.health-tab.active {
     color: var(--link-color);
     border-bottom: 3px solid var(--link-color);
 }
@@ -307,13 +310,15 @@ h3 {
 /* Sub-tab content visibility */
 .med-tab-content,
 .workout-tab-content,
-.food-tab-content {
+.food-tab-content,
+.health-tab-content {
     display: none;
 }
 
 .med-tab-content.active,
 .workout-tab-content.active,
-.food-tab-content.active {
+.food-tab-content.active,
+.health-tab-content.active {
     display: block;
 }
 
