@@ -715,7 +715,6 @@ describe('Architecture – design tokens', () => {
                 /\.style\.opacity\s*=/,       // save button loading state
                 /\.style\.color\s*=/,         // dynamic totals card value color
                 /\.style\.border\s*=/,        // dynamic totals card border
-                /\.style\.alignItems\s*=/,    // one-off layout override
             ],
         };
 

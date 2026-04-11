@@ -1322,8 +1322,7 @@ function _buildSessionCard(s) {
     card.addEventListener('click', () => showWorkoutSessionModal(s.session.id));
 
     const row = document.createElement('div');
-    row.className = 'flex-between';
-    row.style.alignItems = 'start';
+    row.className = 'flex-between items-start';
 
     const left = document.createElement('div');
     const title = document.createElement('strong');
