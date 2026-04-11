@@ -263,12 +263,13 @@ func TestAnalyzeCardiovascular_EmptyDateRange(t *testing.T) {
 		t.Error("expected sleep section to be present")
 	}
 
-	if resp.HeartRate == nil {
-		t.Error("expected heart_rate section to be present")
+	// HeartRate and SpO2 return nil when no data (consistent with other sections)
+	if resp.HeartRate != nil {
+		t.Error("expected heart_rate section to be nil when no data")
 	}
 
-	if resp.SpO2 == nil {
-		t.Error("expected spo2 section to be present")
+	if resp.SpO2 != nil {
+		t.Error("expected spo2 section to be nil when no data")
 	}
 }
 

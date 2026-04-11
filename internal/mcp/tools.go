@@ -483,7 +483,6 @@ type WorkoutHistoryResponse struct {
 }
 
 // handleGetWorkoutHistory handles the get_workout_history tool
-// handleGetWorkoutHistory handles the get_workout_history tool
 func (s *Server) handleGetWorkoutHistory(ctx context.Context, req *mcp.CallToolRequest, input WorkoutHistoryInput) (*mcp.CallToolResult, WorkoutHistoryResponse, error) {
 	if err := s.ensureFeatureEnabled(ctx, "workout"); err != nil {
 		return nil, WorkoutHistoryResponse{}, err
