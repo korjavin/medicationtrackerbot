@@ -282,8 +282,7 @@ function renderBPChart(readings, goalData) {
 
     // Determine dominant color from latest reading for spline lines
     const lastReading = data[data.length - 1];
-    const sysColor = getClassColor(lastReading.category);
-    const diaColor = getClassColor(lastReading.category);
+    const lineColor = getClassColor(lastReading.category);
 
     // Generate spline path strings
     const sysSplineD = window.ChartUtils.catmullRomSpline(sysPoints);
@@ -291,7 +290,7 @@ function renderBPChart(readings, goalData) {
 
     // Gradient fill area under systolic spline
     if (data.length >= 2) {
-        window.ChartUtils.createGradient(svgNs, svg, 'grad-bp-sys', sysColor, 0.15);
+        window.ChartUtils.createGradient(svgNs, svg, 'grad-bp-sys', lineColor, 0.15);
         const sysAreaD = sysSplineD
             + ` L ${xScaleByDate(data[data.length - 1].date)},${chartHeight}`
             + ` L ${xScaleByDate(data[0].date)},${chartHeight} Z`;
@@ -304,7 +303,7 @@ function renderBPChart(readings, goalData) {
     // Smooth spline path for systolic
     const sysPath = document.createElementNS(svgNs, "path");
     sysPath.setAttribute("d", sysSplineD);
-    sysPath.setAttribute("stroke", sysColor);
+    sysPath.setAttribute("stroke", lineColor);
     sysPath.setAttribute("stroke-width", "2.5");
     sysPath.setAttribute("fill", "none");
     sysPath.classList.add("chart-line");
@@ -314,7 +313,7 @@ function renderBPChart(readings, goalData) {
     // Smooth spline path for diastolic
     const diaPath = document.createElementNS(svgNs, "path");
     diaPath.setAttribute("d", diaSplineD);
-    diaPath.setAttribute("stroke", diaColor);
+    diaPath.setAttribute("stroke", lineColor);
     diaPath.setAttribute("stroke-width", "2.5");
     diaPath.setAttribute("fill", "none");
     diaPath.classList.add("chart-line");
@@ -334,7 +333,6 @@ function renderBPChart(readings, goalData) {
         pulsePath.setAttribute("fill", "none");
         pulsePath.classList.add("chart-line");
         svg.appendChild(pulsePath);
-        window.ChartUtils.animateLine(pulsePath);
     }
 
     // Draw color-coded points for systolic (all except last)
@@ -379,8 +377,8 @@ function renderBPChart(readings, goalData) {
         const lastSysY = yScale(last.sys);
         const lastDiaY = yScale(last.dia);
 
-        svg.appendChild(window.ChartUtils.createLastValueDot(svgNs, svg, lastSysX, lastSysY, lastColor));
-        svg.appendChild(window.ChartUtils.createLastValueDot(svgNs, svg, lastSysX, lastDiaY, lastColor));
+        svg.appendChild(window.ChartUtils.createLastValueDot(svgNs, lastSysX, lastSysY, lastColor));
+        svg.appendChild(window.ChartUtils.createLastValueDot(svgNs, lastSysX, lastDiaY, lastColor));
 
         // Value labels for latest reading
         const sysLabel = document.createElementNS(svgNs, "text");

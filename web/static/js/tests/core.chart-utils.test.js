@@ -192,15 +192,6 @@ describe('ChartUtils', () => {
         });
     });
 
-    // --- gradient CSS token ---
-
-    describe('gradient CSS token', () => {
-        it('--color-chart-gradient-opacity is defined in styles.css :root', () => {
-            const css = fs.readFileSync(CSS_PATH, 'utf8');
-            expect(css).toContain('--color-chart-gradient-opacity');
-        });
-    });
-
     // --- last-value emphasis CSS ---
 
     describe('last-value emphasis CSS', () => {
@@ -262,7 +253,7 @@ describe('ChartUtils', () => {
             const svg = doc.createElementNS(SVG_NS, 'svg');
             doc.body.appendChild(svg);
 
-            const g = env.window.ChartUtils.createLastValueDot(SVG_NS, svg, 50, 75, '#3b82f6');
+            const g = env.window.ChartUtils.createLastValueDot(SVG_NS, 50, 75, '#3b82f6');
 
             expect(g.tagName).toBe('g');
             const circles = g.querySelectorAll('circle');

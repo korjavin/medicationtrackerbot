@@ -60,6 +60,12 @@ window.ChartUtils = (() => {
         const range = yMax - yMin;
         const targetTicks = 6;
 
+        // Handle zero or near-zero range (all values identical or very close)
+        if (range < 1) {
+            const mid = Math.round((yMin + yMax) / 2);
+            return [mid - 5, mid, mid + 5];
+        }
+
         // Try 5-unit intervals first
         const interval5 = 5;
         const ticks5 = Math.ceil(range / interval5);
@@ -74,7 +80,7 @@ window.ChartUtils = (() => {
         }
 
         // Otherwise, use proportional division
-        const niceInterval = Math.ceil(range / targetTicks / 5) * 5;
+        const niceInterval = Math.ceil(range / targetTicks / 5) * 5 || 5;
         const start = Math.floor(yMin / niceInterval) * niceInterval;
         const ticks = [];
         for (let val = start; val <= yMax; val += niceInterval) {
@@ -138,13 +144,12 @@ window.ChartUtils = (() => {
     /**
      * Create a last-value emphasis dot with pulse ring.
      * @param {string} svgNs - SVG namespace URI
-     * @param {SVGElement} svg - Parent SVG element
      * @param {number} cx - Center X coordinate
      * @param {number} cy - Center Y coordinate
      * @param {string} color - Dot fill color
      * @returns {SVGGElement} Group containing the dot and pulse ring
      */
-    function createLastValueDot(svgNs, svg, cx, cy, color) {
+    function createLastValueDot(svgNs, cx, cy, color) {
         const g = document.createElementNS(svgNs, 'g');
 
         // Pulse ring (behind the dot)
