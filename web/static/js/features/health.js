@@ -201,7 +201,7 @@
             const lastPt = data[data.length - 1];
             const lastX = getX(lastPt.timestamp);
             const lastY = getY(lastPt.avg);
-            svg.appendChild(window.ChartUtils.createLastValueDot(svgNs, svg, lastX, lastY, color));
+            svg.appendChild(window.ChartUtils.createLastValueDot(svgNs, lastX, lastY, color));
         }
 
         const labelCount = 4;

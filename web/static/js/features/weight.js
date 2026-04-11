@@ -506,7 +506,7 @@ function renderWeightChart(logs, goalData) {
 
     // Last-value emphasis with pulse ring
     const lastDataPoint = points[points.length - 1];
-    const lastDotGroup = window.ChartUtils.createLastValueDot(svgNs, svg, lastDataPoint[0], lastDataPoint[1], '#3b82f6');
+    const lastDotGroup = window.ChartUtils.createLastValueDot(svgNs, lastDataPoint[0], lastDataPoint[1], '#3b82f6');
     svg.appendChild(lastDotGroup);
 
     // Current weight label (on most recent point)
