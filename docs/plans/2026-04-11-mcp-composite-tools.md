@@ -47,12 +47,12 @@ All 13 existing tools remain for backward compatibility and granular queries.
 ## Implementation Steps
 
 ### Task 1: Add notes injection helper
-- [ ] Create a helper function `fetchContextNotes(ctx, store, userID, startDate, endDate) []DiaryNote` in `internal/mcp/tools.go` (or a new `notes_helper.go`) that fetches diary notes for a date range
-- [ ] Create a helper function `shouldIncludeNotes(params) bool` that checks if `exclude_notes` param is true
-- [ ] Define a `ContextNotes` struct (or reuse existing) for the notes array in responses
-- [ ] Write test: `fetchContextNotes` returns notes within date range
-- [ ] Write test: `shouldIncludeNotes` returns false when `exclude_notes=true`, true otherwise
-- [ ] Run `go test ./internal/mcp/...` — must pass before next task
+- [x] Create a helper function `fetchContextNotes(ctx, store, userID, startDate, endDate) []DiaryNote` in `internal/mcp/tools.go` (or a new `notes_helper.go`) that fetches diary notes for a date range
+- [x] Create a helper function `shouldIncludeNotes(params) bool` that checks if `exclude_notes` param is true
+- [x] Define a `ContextNotes` struct (or reuse existing) for the notes array in responses
+- [x] Write test: `fetchContextNotes` returns notes within date range
+- [x] Write test: `shouldIncludeNotes` returns false when `exclude_notes=true`, true otherwise
+- [x] Run `go test ./internal/mcp/...` — must pass before next task
 
 ### Task 2: Inject context_notes into existing tool responses
 - [ ] Add `exclude_notes` optional boolean parameter to all existing read tools (get_blood_pressure, get_weight, get_medication_intake, get_workout_history, get_sleep_logs, get_food_intake, get_step_history, get_vitals_heart, get_vitals_spo2, get_vitals_stress, get_health_overview)
