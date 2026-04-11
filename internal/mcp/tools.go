@@ -843,10 +843,13 @@ func (s *Server) handleGetFoodIntake(ctx context.Context, req *mcp.CallToolReque
 	var results []FoodIntakeResult
 
 	// Fetch all food logs in a single query instead of day-by-day
-	// Use calendar-day arithmetic to avoid DST off-by-one errors
+	// Count calendar days using date arithmetic (not duration) to avoid DST off-by-one errors
 	startDay := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, startDate.Location())
 	endDay := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 0, 0, 0, 0, endDate.Location())
-	totalDays := int(endDay.Sub(startDay).Hours()/24) + 1
+	totalDays := 0
+	for d := startDay; !d.After(endDay); d = d.AddDate(0, 0, 1) {
+		totalDays++
+	}
 	logs, err := s.data.GetFoodLogs(ctx, userID, endDate, totalDays)
 	if err != nil {
 		return nil, FoodIntakeResponse{}, fmt.Errorf("failed to fetch food logs: %w", err)
