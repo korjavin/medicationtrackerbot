@@ -244,6 +244,52 @@ func TestHandleUpdateMedication(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateMedication_Duplicate(t *testing.T) {
+	srv, db := createTestServer(t)
+	defer db.Close()
+
+	// Create two medications
+	idA, _ := db.CreateMedication("Aspirin", "100mg", "daily", nil, nil, "", "", "")
+	idB, _ := db.CreateMedication("Ibuprofen", "200mg", "daily", nil, nil, "", "", "")
+
+	// Test: renaming B to match A's name+dosage should return 409
+	reqBody := map[string]interface{}{
+		"name":     "aspirin",
+		"dosage":   "100mg",
+		"schedule": "daily",
+		"archived": false,
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/medications/%d", idB), bytes.NewReader(body))
+	req.SetPathValue("id", fmt.Sprintf("%d", idB))
+	w := httptest.NewRecorder()
+	srv.handleUpdateMedication(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("Expected 409 when renaming to match existing, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Test: updating A while keeping its own name+dosage should succeed (self-exclusion)
+	reqBody = map[string]interface{}{
+		"name":     "Aspirin",
+		"dosage":   "100mg",
+		"schedule": "weekly",
+		"archived": false,
+	}
+	body, _ = json.Marshal(reqBody)
+	req = httptest.NewRequest("POST", fmt.Sprintf("/api/medications/%d", idA), bytes.NewReader(body))
+	req.SetPathValue("id", fmt.Sprintf("%d", idA))
+	w = httptest.NewRecorder()
+	srv.handleUpdateMedication(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200 when updating self with same name+dosage, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	_ = idA // suppress unused warning
+	_ = idB
+}
+
 func TestHandleDeleteMedication(t *testing.T) {
 	srv, db := createTestServer(t)
 	defer db.Close()
