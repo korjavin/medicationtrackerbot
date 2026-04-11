@@ -84,7 +84,7 @@ This is frontend-only — no API changes. The raw reading list below the chart i
 - [x] Run architecture tests (design tokens, globals) (all passed)
 
 ### Task 5: [Final] Update documentation
-- [ ] Add `aggregateToDaily` and `lttbDownsample` to ChartUtils API documentation in CLAUDE.md if appropriate
+- [x] Add `aggregateToDaily` and `lttbDownsample` to ChartUtils API documentation in CLAUDE.md if appropriate
 
 ## Technical Details
 

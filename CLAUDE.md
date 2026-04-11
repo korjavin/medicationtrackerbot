@@ -430,7 +430,7 @@ The frontend uses a multi-file vanilla JS architecture. Each script is loaded in
 6. `core/app-kernel.js` — no deps; provides `window.AppKernel` module registry
 7. `core/store.js` — no deps; provides `window.AppStore` pub/sub state
 8. `core/modal-controller.js` — no deps; provides `withSubmit` double-submit guard
-9. `core/chart-utils.js` — no deps; provides `window.ChartUtils` (splines, gradients, animations)
+9. `core/chart-utils.js` — no deps; provides `window.ChartUtils` (splines, gradients, animations, `aggregateToDaily` for daily averaging of old BP readings, `lttbDownsample` for LTTB point reduction)
 10. `db.js` — must load before sync.js; sets up Dexie/IndexedDB stores (`window.MedTrackerDB`)
 11. `sync.js` — depends on `db.js`; provides `offlineAwareApiCall` and `SyncManager`
 12. `data-store.js` — depends on `window.MedTrackerDB` (db.js) for cache storage; uses `window.apiCallDirect` (core/api.js) lazily at change-poll time
