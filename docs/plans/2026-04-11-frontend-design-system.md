@@ -106,15 +106,15 @@ Establish a proper design token system and modernize the visual appearance of th
 - [x] Run tests — must pass before next task
 
 ### Task 9: Visual polish — cards, spacing, and hierarchy
-- [ ] Increase base card padding from 16px to `var(--space-lg)` and card gap from 12px to `var(--space-md)`
-- [ ] Add subtle border (`1px solid rgba(0,0,0,0.06)`) to cards for definition without heavy shadows
-- [ ] Improve heading hierarchy: increase h1/section title size contrast, add `letter-spacing: -0.01em` for tighter headings
-- [ ] Add `transition: background-color 0.15s ease` to interactive elements (buttons, cards, list items)
-- [ ] Add `transition: opacity 0.2s ease, transform 0.2s ease` to modal open (via CSS class toggle)
-- [ ] Add `transition: color 0.15s ease` to tab switches
-- [ ] Increase touch target sizes to minimum 44x44px where needed
-- [ ] Review overall spacing rhythm — ensure consistent use of spacing tokens throughout
-- [ ] Run tests — must pass before next task
+- [x] Increase base card padding from 16px to `var(--space-lg)` and card gap from 12px to `var(--space-md)`
+- [x] Add subtle border (`1px solid rgba(0,0,0,0.06)`) to cards for definition without heavy shadows
+- [x] Improve heading hierarchy: increase h1/section title size contrast, add `letter-spacing: -0.01em` for tighter headings
+- [x] Add `transition: background-color 0.15s ease` to interactive elements (buttons, cards, list items)
+- [x] Add `transition: opacity 0.2s ease, transform 0.2s ease` to modal open (via CSS class toggle)
+- [x] Add `transition: color 0.15s ease` to tab switches
+- [x] Increase touch target sizes to minimum 44x44px where needed
+- [x] Review overall spacing rhythm — ensure consistent use of spacing tokens throughout
+- [x] Run tests — must pass before next task
 
 ### Task 10: Verify acceptance criteria
 - [ ] Verify all 48 hardcoded colors replaced with tokens
