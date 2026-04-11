@@ -421,6 +421,7 @@ func (s *Server) registerTools() {
 
 	// Register Composite Analysis Tools
 	registerCardiovascularTool(s.mcpServer, s)
+	registerFitnessTool(s.mcpServer, s)
 }
 
 // parseDateRange parses and validates the date range, enforcing the max query days limit
