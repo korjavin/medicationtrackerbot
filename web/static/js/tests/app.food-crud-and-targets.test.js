@@ -61,11 +61,11 @@ describe('app.js food CRUD, targets and period helpers', () => {
       await window.saveFoodLog();
       expect(apiCallSpy).toHaveBeenCalledWith('/api/food/log/77', 'PUT', expect.any(Object));
 
-      // apiCall returns null on error (handles error internally); modal still closes
+      // apiCall returns null on error — modal stays open so user can retry
       window.apiCall = vi.fn().mockResolvedValue(null);
       window.closeFoodModal = vi.fn();
       await window.saveFoodLog();
-      expect(window.closeFoodModal).toHaveBeenCalled();
+      expect(window.closeFoodModal).not.toHaveBeenCalled();
     } finally {
       cleanup();
     }

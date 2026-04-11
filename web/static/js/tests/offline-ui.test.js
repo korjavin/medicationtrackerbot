@@ -93,6 +93,14 @@ describe('Offline UI indicators', () => {
       try {
         // Add test buttons to the DOM
         const container = document.createElement('div');
+        const addMedBtn = document.createElement('button');
+        addMedBtn.id = 'add-btn';
+        container.appendChild(addMedBtn);
+
+        const medSaveBtn = document.createElement('button');
+        medSaveBtn.id = 'med-modal-save-btn';
+        container.appendChild(medSaveBtn);
+
         const foodBtn = document.createElement('button');
         foodBtn.id = 'add-food-btn';
         container.appendChild(foodBtn);
@@ -110,6 +118,8 @@ describe('Offline UI indicators', () => {
         // Go offline
         window.SyncManager.updateOfflineBanner(true);
 
+        expect(addMedBtn.classList.contains('offline-disabled')).toBe(true);
+        expect(medSaveBtn.classList.contains('offline-disabled')).toBe(true);
         expect(foodBtn.classList.contains('offline-disabled')).toBe(true);
         expect(foodBtn.getAttribute('data-offline-disabled')).toBe('true');
         expect(notesBtn.classList.contains('offline-disabled')).toBe(true);
@@ -117,7 +127,7 @@ describe('Offline UI indicators', () => {
 
         // Tooltips should appear
         const tips = container.querySelectorAll('.offline-disabled-tooltip');
-        expect(tips.length).toBe(3);
+        expect(tips.length).toBe(5);
         expect(tips[0].textContent).toBe('Available when online');
       } finally {
         cleanup();
@@ -163,6 +173,58 @@ describe('Offline UI indicators', () => {
 
         const tips = container.querySelectorAll('.offline-disabled-tooltip');
         expect(tips.length).toBe(1);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('disables workout session modal buttons when offline', () => {
+      const { window, document, cleanup } = loadSyncEnv();
+      try {
+        const container = document.createElement('div');
+        const ids = [
+          'workout-session-save-btn',
+          'workout-session-delete-btn',
+          'workout-session-add-exercise-btn',
+          'session-add-exercise-save-btn'
+        ];
+        for (const id of ids) {
+          const btn = document.createElement('button');
+          btn.id = id;
+          container.appendChild(btn);
+        }
+        document.body.appendChild(container);
+
+        window.SyncManager.updateOfflineBanner(true);
+
+        for (const id of ids) {
+          const btn = document.getElementById(id);
+          expect(btn.classList.contains('offline-disabled')).toBe(true);
+          expect(btn.disabled).toBe(true);
+        }
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('disables dynamically-created workout-action-btn elements when offline', () => {
+      const { window, document, cleanup } = loadSyncEnv();
+      try {
+        const container = document.createElement('div');
+        const btn = document.createElement('button');
+        btn.className = 'btn workout-action-btn';
+        container.appendChild(btn);
+        document.body.appendChild(container);
+
+        window.SyncManager.updateOfflineBanner(true);
+
+        expect(btn.classList.contains('offline-disabled')).toBe(true);
+        expect(btn.disabled).toBe(true);
+
+        window.SyncManager.updateOfflineBanner(false);
+
+        expect(btn.classList.contains('offline-disabled')).toBe(false);
+        expect(btn.disabled).toBe(false);
       } finally {
         cleanup();
       }

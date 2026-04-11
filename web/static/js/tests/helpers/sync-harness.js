@@ -15,6 +15,7 @@ function evalWithSourceURL(window, source, scriptPath) {
 function createStore(overrides = {}) {
   return {
     async getPendingCount() { return 0; },
+    async getRejectedCount() { return 0; },
     async getPending() { return []; },
     async getAll() { return []; },
     async getCache() { return null; },
@@ -26,7 +27,7 @@ function createStore(overrides = {}) {
   };
 }
 
-export function loadSyncEnv({ bpPending = 0, weightPending = 0, intakePending = 0 } = {}) {
+export function loadSyncEnv({ bpPending = 0, weightPending = 0, intakePending = 0, bpRejected = 0, weightRejected = 0, intakeRejected = 0 } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><div id="offline-banner" class="offline-banner hidden"></div><div id="sync-status-bar"></div></body></html>', {
     url: 'https://example.test/',
     runScripts: 'outside-only',
@@ -37,13 +38,16 @@ export function loadSyncEnv({ bpPending = 0, weightPending = 0, intakePending = 
 
   window.MedTrackerDB = {
     BPStore: createStore({
-      async getPendingCount() { return bpPending; }
+      async getPendingCount() { return bpPending; },
+      async getRejectedCount() { return bpRejected; }
     }),
     WeightStore: createStore({
-      async getPendingCount() { return weightPending; }
+      async getPendingCount() { return weightPending; },
+      async getRejectedCount() { return weightRejected; }
     }),
     IntakeQueueStore: createStore({
-      async getPendingCount() { return intakePending; }
+      async getPendingCount() { return intakePending; },
+      async getRejectedCount() { return intakeRejected; }
     })
   };
 

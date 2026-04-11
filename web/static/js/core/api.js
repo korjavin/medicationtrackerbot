@@ -9,7 +9,11 @@ async function apiCallDirect(endpoint, method = "GET", body = null) {
     if (body) headers["Content-Type"] = "application/json";
 
     const res = await fetch(endpoint, { method, headers, body: body ? JSON.stringify(body) : null });
-    if (res.status === 401 || res.status === 403) { throw new Error("Unauthorized"); }
+    if (res.status === 401 || res.status === 403) {
+        const err = new Error("Unauthorized");
+        err.status = res.status;
+        throw err;
+    }
 
     // Check if this is a service worker offline response
     if (res.status === 503) {
@@ -27,7 +31,12 @@ async function apiCallDirect(endpoint, method = "GET", body = null) {
         }
     }
 
-    if (!res.ok) { const txt = await res.text(); throw new Error(txt); }
+    if (!res.ok) {
+        const txt = await res.text();
+        const err = new Error(txt);
+        err.status = res.status;
+        throw err;
+    }
     let result;
     if (res.status === 204 || method === "DELETE") {
         result = true;

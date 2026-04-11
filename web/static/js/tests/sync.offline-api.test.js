@@ -45,13 +45,14 @@ describe('sync.js offlineAwareApiCall behavior', () => {
     }
   });
 
-  it('returns null for unsupported offline write endpoints', async () => {
+  it('throws for unsupported offline write endpoints', async () => {
     const { window, cleanup } = loadSyncEnv();
 
     try {
       window.SyncManager.isOnline = false;
-      const result = await window.offlineAwareApiCall('/api/unknown', 'POST', { a: 1 });
-      expect(result).toBeNull();
+      await expect(
+        window.offlineAwareApiCall('/api/unknown', 'POST', { a: 1 })
+      ).rejects.toThrow('This action requires an internet connection');
     } finally {
       cleanup();
     }
@@ -207,8 +208,8 @@ describe('sync.js offlineAwareApiCall behavior', () => {
 
       const result = await window.offlineAwareApiCall('/api/weight?days=35', 'GET');
 
+      // Only synced rows returned — renderers prepend pending/rejected separately
       expect(result).toEqual([
-        { id: 'local_3', localId: 3, serverId: null, weight: 77.7, syncStatus: 'pending', isLocal: true },
         { id: 44, localId: 4, serverId: 44, weight: 76.9, syncStatus: 'synced', isLocal: false }
       ]);
     } finally {

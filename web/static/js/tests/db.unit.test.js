@@ -27,8 +27,15 @@ describe('db.js store behavior', () => {
       await BPStore.markSynced(first.localId, 5001);
       await BPStore.markError(second.localId, 'timeout');
 
+      // Error items are included in pending so they get retried
       const pending = await BPStore.getPending();
-      expect(pending).toHaveLength(0);
+      expect(pending).toHaveLength(1);
+      expect(pending[0].syncStatus).toBe('error');
+
+      // Rejected items are NOT included in pending (permanent failures)
+      await BPStore.markRejected(second.localId, 'Unauthorized');
+      const pendingAfterReject = await BPStore.getPending();
+      expect(pendingAfterReject).toHaveLength(0);
 
       const ranged = await BPStore.getByDateRange(new Date('2026-01-01T00:00:00Z'), new Date('2026-01-01T23:59:59Z'));
       expect(ranged).toHaveLength(1);
@@ -101,6 +108,15 @@ describe('db.js store behavior', () => {
       expect(await WeightStore.getLastWeight()).toBe(79.8);
 
       await WeightStore.markSynced(first.localId, 9001);
+      await WeightStore.markError(second.localId, 'network');
+
+      // Rejected items are NOT included in pending
+      const pendingWithError = await WeightStore.getPending();
+      expect(pendingWithError).toHaveLength(1);
+      await WeightStore.markRejected(second.localId, 'Unauthorized');
+      const pendingAfterReject = await WeightStore.getPending();
+      expect(pendingAfterReject).toHaveLength(0);
+      // Reset to error for remaining test flow
       await WeightStore.markError(second.localId, 'network');
 
       await WeightStore.syncFromServer([
@@ -186,6 +202,15 @@ describe('db.js store behavior', () => {
       await IntakeQueueStore.markError(queued.localId, 'offline');
       const errored = await window.MedTrackerDB.db.intake_queue.get(queued.localId);
       expect(errored.syncStatus).toBe('error');
+
+      // Rejected items are excluded from pending
+      await IntakeQueueStore.markRejected(queued.localId, 'Unauthorized');
+      const rejected = await window.MedTrackerDB.db.intake_queue.get(queued.localId);
+      expect(rejected.syncStatus).toBe('rejected');
+      expect(await IntakeQueueStore.getPending()).toHaveLength(0);
+
+      // Reset to pending for the markSynced test below
+      await window.MedTrackerDB.db.intake_queue.update(queued.localId, { syncStatus: 'pending' });
 
       await IntakeQueueStore.markSynced(queued.localId);
       expect(await window.MedTrackerDB.db.intake_queue.get(queued.localId)).toBeUndefined();

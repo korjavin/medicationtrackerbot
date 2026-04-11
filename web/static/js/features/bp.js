@@ -126,7 +126,22 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
                 notes: r.notes,
                 isLocal: true
             }));
-            allReadings = [...pendingFormatted, ...allReadings];
+            const rejectedReadings = await window.MedTrackerDB.BPStore.getRejected();
+            const rejectedFormatted = rejectedReadings.map(r => ({
+                id: `local_${r.localId}`,
+                localId: r.localId,
+                measured_at: r.measured_at,
+                systolic: r.systolic,
+                diastolic: r.diastolic,
+                pulse: r.pulse,
+                site: r.site,
+                position: r.position,
+                notes: r.notes,
+                isLocal: true,
+                isRejected: true,
+                errorMessage: r.errorMessage
+            }));
+            allReadings = [...pendingFormatted, ...rejectedFormatted, ...allReadings];
         } catch (e) {
             console.error('Failed to get pending BP readings:', e);
         }
@@ -525,7 +540,9 @@ function renderBPReadings(readings) {
             values.appendChild(sys);
             values.appendChild(dia);
 
-            if (r.isLocal) {
+            if (r.isRejected) {
+                values.appendChild(createSyncRejectedBadge(r.errorMessage));
+            } else if (r.isLocal) {
                 values.appendChild(createSyncBadge());
             }
 

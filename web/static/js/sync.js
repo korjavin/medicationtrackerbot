@@ -1,6 +1,27 @@
 // Sync Layer for Med Tracker
 // Handles online/offline detection and background synchronization
 
+// Detect permanent (non-retriable) sync errors.
+// apiCallDirect attaches the HTTP status code as err.status.
+// 4xx errors (client errors) are generally permanent — retrying won't help.
+// However, 401/403 are auth expiry errors — they resolve after re-login,
+// and 429 is rate limiting — both resolve on their own,
+// so they are treated as transient to avoid stranding offline writes.
+// Network errors and 5xx are transient — retry with backoff.
+function isPermanentSyncError(err) {
+    if (!err) return false;
+    // apiCallDirect sets err.status for HTTP errors
+    if (typeof err.status === 'number') {
+        // 401/403 = auth expired, will succeed after re-login → transient
+        if (err.status === 401 || err.status === 403) return false;
+        // 429 = rate limited by reverse proxy, transient
+        if (err.status === 429) return false;
+        return err.status >= 400 && err.status < 500;
+    }
+    // No status code → network error or internal throw → transient
+    return false;
+}
+
 // Debug logger - visible in Telegram WebApp where console isn't accessible
 const SyncDebug = {
     enabled: true,
@@ -231,6 +252,8 @@ const SyncManager = {
 
         // Buttons that require online (no offline write support)
         const offlineUnsupported = [
+            'add-btn',
+            'med-modal-save-btn',
             'add-food-btn',
             'notes-save-btn',
             'start-adhoc-workout-btn',
@@ -241,7 +264,11 @@ const SyncManager = {
             'exercise-save-btn',
             'exercise-library-save-btn',
             'food-modal-save-btn',
-            'food-product-save-btn'
+            'food-product-save-btn',
+            'workout-session-save-btn',
+            'workout-session-delete-btn',
+            'workout-session-add-exercise-btn',
+            'session-add-exercise-save-btn'
         ];
 
         for (const id of offlineUnsupported) {
@@ -251,6 +278,7 @@ const SyncManager = {
             if (offline) {
                 btn.classList.add('offline-disabled');
                 btn.setAttribute('data-offline-disabled', 'true');
+                btn.disabled = true;
                 // Add tooltip right after the button if not already present
                 if (!btn.nextElementSibling || !btn.nextElementSibling.classList.contains('offline-disabled-tooltip')) {
                     const tip = document.createElement('span');
@@ -261,8 +289,29 @@ const SyncManager = {
             } else {
                 btn.classList.remove('offline-disabled');
                 btn.removeAttribute('data-offline-disabled');
+                // Don't re-enable buttons that are mid-submit (withSubmit guard)
+                if (!btn.hasAttribute('data-submit-in-flight')) {
+                    btn.disabled = false;
+                }
                 if (btn.nextElementSibling && btn.nextElementSibling.classList.contains('offline-disabled-tooltip')) {
                     btn.nextElementSibling.remove();
+                }
+            }
+        }
+
+        // Also disable/enable dynamically-created workout action buttons
+        const dynamicBtns = document.querySelectorAll('.workout-action-btn');
+        for (const btn of dynamicBtns) {
+            if (offline) {
+                btn.classList.add('offline-disabled');
+                btn.setAttribute('data-offline-disabled', 'true');
+                btn.disabled = true;
+            } else {
+                btn.classList.remove('offline-disabled');
+                btn.removeAttribute('data-offline-disabled');
+                // Don't re-enable buttons that are mid-submit (withSubmit guard)
+                if (!btn.hasAttribute('data-submit-in-flight')) {
+                    btn.disabled = false;
                 }
             }
         }
@@ -281,10 +330,17 @@ const SyncManager = {
             ? await window.MedTrackerDB.IntakeQueueStore.getPendingCount() : 0;
         const totalPending = bpPending + weightPending + intakePending;
 
+        const bpRejected = await window.MedTrackerDB.BPStore.getRejectedCount();
+        const weightRejected = await window.MedTrackerDB.WeightStore.getRejectedCount();
+        const intakeRejected = window.MedTrackerDB.IntakeQueueStore
+            ? await window.MedTrackerDB.IntakeQueueStore.getRejectedCount() : 0;
+        const totalRejected = bpRejected + weightRejected + intakeRejected;
+
         const status = {
             isOnline: this.isOnline,
             isSyncing: this.isSyncing,
             pendingCount: totalPending,
+            rejectedCount: totalRejected,
             bpPending,
             weightPending
         };
@@ -313,6 +369,15 @@ const SyncManager = {
             statusBar.className = 'sync-status-bar syncing cursor-pointer';
             statusBar.innerHTML = '<span class="sync-icon spinning">&#x21BB;</span> Syncing... <span class="sync-hint">(tap for logs)</span>';
             statusBar.style.display = 'flex';
+        } else if (status.pendingCount > 0 && status.rejectedCount > 0) {
+            statusBar.className = 'sync-status-bar error cursor-pointer';
+            let retryInfo = '';
+            if (this.retryScheduledAt) {
+                const secsLeft = Math.max(0, Math.ceil((this.retryScheduledAt - Date.now()) / 1000));
+                retryInfo = ` · retry in ${secsLeft}s`;
+            }
+            statusBar.innerHTML = `<span class="sync-icon">&#x26A0;</span> ${status.rejectedCount} failed, ${status.pendingCount} pending${retryInfo} <span class="sync-hint">(tap for details)</span>`;
+            statusBar.style.display = 'flex';
         } else if (status.pendingCount > 0) {
             statusBar.className = 'sync-status-bar pending cursor-pointer';
             let retryInfo = '';
@@ -321,6 +386,10 @@ const SyncManager = {
                 retryInfo = ` · retry in ${secsLeft}s`;
             }
             statusBar.innerHTML = `<span class="sync-icon">&#x23F3;</span> ${status.pendingCount} item${status.pendingCount > 1 ? 's' : ''} pending sync${retryInfo} <span class="sync-hint">(tap for logs)</span>`;
+            statusBar.style.display = 'flex';
+        } else if (status.rejectedCount > 0) {
+            statusBar.className = 'sync-status-bar error cursor-pointer';
+            statusBar.innerHTML = `<span class="sync-icon">&#x26A0;</span> ${status.rejectedCount} item${status.rejectedCount > 1 ? 's' : ''} failed to sync <span class="sync-hint">(tap for details)</span>`;
             statusBar.style.display = 'flex';
         } else {
             // Show a minimal "synced" indicator that can still be tapped for debug
@@ -406,7 +475,12 @@ const SyncManager = {
                 }
             } catch (err) {
                 SyncDebug.error(`BP sync failed for ${reading.localId}`, { error: err.message });
-                await window.MedTrackerDB.BPStore.markError(reading.localId, err.message);
+                if (isPermanentSyncError(err)) {
+                    SyncDebug.warn(`BP ${reading.localId} rejected permanently`, { error: err.message });
+                    await window.MedTrackerDB.BPStore.markRejected(reading.localId, err.message);
+                } else {
+                    await window.MedTrackerDB.BPStore.markError(reading.localId, err.message);
+                }
             }
         }
 
@@ -449,7 +523,12 @@ const SyncManager = {
                 }
             } catch (err) {
                 SyncDebug.error(`Weight sync failed for ${log.localId}`, { error: err.message });
-                await window.MedTrackerDB.WeightStore.markError(log.localId, err.message);
+                if (isPermanentSyncError(err)) {
+                    SyncDebug.warn(`Weight ${log.localId} rejected permanently`, { error: err.message });
+                    await window.MedTrackerDB.WeightStore.markRejected(log.localId, err.message);
+                } else {
+                    await window.MedTrackerDB.WeightStore.markError(log.localId, err.message);
+                }
             }
         }
 
@@ -489,7 +568,12 @@ const SyncManager = {
                 }
             } catch (err) {
                 SyncDebug.error(`Intake sync failed for ${entry.localId}`, { error: err.message });
-                await window.MedTrackerDB.IntakeQueueStore.markError(entry.localId, err.message);
+                if (isPermanentSyncError(err)) {
+                    SyncDebug.warn(`Intake ${entry.localId} rejected permanently`, { error: err.message });
+                    await window.MedTrackerDB.IntakeQueueStore.markRejected(entry.localId, err.message);
+                } else {
+                    await window.MedTrackerDB.IntakeQueueStore.markError(entry.localId, err.message);
+                }
             }
         }
 
@@ -553,10 +637,9 @@ async function offlineAwareApiCall(endpoint, method = "GET", body = null) {
         if (endpoint === '/api/medications/confirm-schedule' && method === 'POST') {
             return await handleOfflineIntakeWrite(body);
         }
-        // Other endpoints don't support offline writes - silently fail
-        // The calling code will handle the null return appropriately
+        // Other endpoints don't support offline writes — throw so apiCall shows an alert
         SyncDebug.warn('Endpoint does not support offline writes', { endpoint });
-        return null;
+        throw new Error('This action requires an internet connection');
     }
 
     // Try the network request
@@ -664,23 +747,29 @@ async function handleOfflineWeightWrite(body) {
 }
 
 // Handle offline BP read
+// Only return synced rows — renderers prepend pending/rejected separately
 async function handleOfflineBPRead(endpoint) {
     const readings = await window.MedTrackerDB.BPStore.getAll();
-    return readings.map(r => ({
-        id: r.serverId || `local_${r.localId}`,
-        ...r,
-        isLocal: r.syncStatus !== 'synced'
-    }));
+    return readings
+        .filter(r => r.syncStatus === 'synced')
+        .map(r => ({
+            id: r.serverId || `local_${r.localId}`,
+            ...r,
+            isLocal: false
+        }));
 }
 
 // Handle offline weight read
+// Only return synced rows — renderers prepend pending/rejected separately
 async function handleOfflineWeightRead(endpoint) {
     const logs = await window.MedTrackerDB.WeightStore.getAll();
-    return logs.map(l => ({
-        id: l.serverId || `local_${l.localId}`,
-        ...l,
-        isLocal: l.syncStatus !== 'synced'
-    }));
+    return logs
+        .filter(l => l.syncStatus === 'synced')
+        .map(l => ({
+            id: l.serverId || `local_${l.localId}`,
+            ...l,
+            isLocal: false
+        }));
 }
 
 // Handle offline history read
@@ -760,6 +849,10 @@ async function handleOfflineIntakeWrite(body) {
 // Check if error is a network error or server unavailable
 function isNetworkError(err) {
     if (!err) return false;
+    // All fetch API network failures are TypeErrors; when the browser
+    // reports offline, treat any TypeError as a network error regardless
+    // of the message text (different browsers/WebViews use different wording).
+    if (err instanceof TypeError && !navigator.onLine) return true;
     const msg = err.message || '';
     return (
         (err instanceof TypeError && msg.includes('fetch')) ||

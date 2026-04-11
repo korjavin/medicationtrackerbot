@@ -206,7 +206,8 @@ describe('app.js charts, scanner and visualization helpers', () => {
         BPStore: {
           getPending: vi.fn().mockResolvedValue([
             { localId: 99, measured_at: isoDaysAgo(0), systolic: 111, diastolic: 70, pulse: 55 }
-          ])
+          ]),
+          getRejected: vi.fn().mockResolvedValue([])
         }
       };
       await window._renderBPData(readings, {}, { stats_14: { days: 7, systolic: 120, diastolic: 80 } });
