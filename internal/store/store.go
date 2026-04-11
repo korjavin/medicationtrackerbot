@@ -1388,30 +1388,46 @@ func CalculateWeightTrend(currentWeight float64, previousTrend *float64) float64
 }
 
 func (s *Store) ImportSleepLogs(ctx context.Context, userID int64, logs []SleepLog) (int, int, error) {
+	if len(logs) == 0 {
+		return 0, 0, nil
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	stmt, err := tx.PrepareContext(ctx,
-		`INSERT OR IGNORE INTO sleep_logs (user_id, start_time, end_time,
-		 timezone_offset, day, light_minutes, deep_minutes, rem_minutes,
-		 awake_minutes, total_minutes, turn_over_count, heart_rate_avg,
-		 spo2_avg, user_modified, notes)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer stmt.Close()
-
+	const batchSize = 500
 	imported := 0
-	for _, sl := range logs {
-		sl.UserID = userID
-		res, err := stmt.ExecContext(ctx, sl.UserID, sl.StartTime, sl.EndTime,
-			sl.TimezoneOffset, sl.Day, sl.LightMinutes, sl.DeepMinutes,
-			sl.REMMinutes, sl.AwakeMinutes, sl.TotalMinutes, sl.TurnOverCount,
-			sl.HeartRateAvg, sl.SpO2Avg, sl.UserModified, sl.Notes)
+
+	for i := 0; i < len(logs); i += batchSize {
+		end := i + batchSize
+		if end > len(logs) {
+			end = len(logs)
+		}
+		batch := logs[i:end]
+
+		query := `INSERT OR IGNORE INTO sleep_logs (user_id, start_time, end_time,
+			 timezone_offset, day, light_minutes, deep_minutes, rem_minutes,
+			 awake_minutes, total_minutes, turn_over_count, heart_rate_avg,
+			 spo2_avg, user_modified, notes) VALUES `
+
+		vals := []interface{}{}
+		for j, sl := range batch {
+			if j > 0 {
+				query += ", "
+			}
+			query += "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+
+			vals = append(vals,
+				userID, sl.StartTime, sl.EndTime, sl.TimezoneOffset, sl.Day,
+				sl.LightMinutes, sl.DeepMinutes, sl.REMMinutes, sl.AwakeMinutes,
+				sl.TotalMinutes, sl.TurnOverCount, sl.HeartRateAvg, sl.SpO2Avg,
+				sl.UserModified, sl.Notes)
+		}
+
+		res, err := tx.ExecContext(ctx, query, vals...)
 		if err != nil {
 			return 0, 0, err
 		}
