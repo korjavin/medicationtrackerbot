@@ -11,23 +11,21 @@ async function apiCallDirect(endpoint, method = "GET", body = null) {
     const res = await fetch(endpoint, { method, headers, body: body ? JSON.stringify(body) : null });
     if (res.status === 401 || res.status === 403) { throw new Error("Unauthorized"); }
 
-    // Check if this is a service worker offline response
-    if (res.status === 503) {
+    if (!res.ok) {
         const txt = await res.text();
-        try {
-            const json = JSON.parse(txt);
-            if (json.error === 'offline') {
-                // This is the service worker's offline response
-                // Throw a network error instead of the JSON string
-                throw new Error('Network request failed');
+        // Check if this is a service worker offline response (503 with {error:'offline'})
+        if (res.status === 503) {
+            try {
+                const json = JSON.parse(txt);
+                if (json.error === 'offline') {
+                    throw new Error('Network request failed');
+                }
+            } catch (e) {
+                if (e.message === 'Network request failed') throw e;
             }
-        } catch (e) {
-            // If it's not JSON or not the offline error, fall through
-            if (e.message === 'Network request failed') throw e;
         }
+        const err = new Error(txt); err.status = res.status; throw err;
     }
-
-    if (!res.ok) { const txt = await res.text(); throw new Error(txt); }
     let result;
     if (res.status === 204 || method === "DELETE") {
         result = true;
