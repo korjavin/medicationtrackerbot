@@ -16,6 +16,8 @@ function isPermanentSyncError(err) {
         if (err.status === 401 || err.status === 403) return false;
         // 429 = rate limited by reverse proxy, transient
         if (err.status === 429) return false;
+        // 408 = request timeout, transient
+        if (err.status === 408) return false;
         return err.status >= 400 && err.status < 500;
     }
     // No status code → network error or internal throw → transient
