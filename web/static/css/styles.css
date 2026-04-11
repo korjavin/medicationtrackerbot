@@ -958,6 +958,24 @@ svg.chart-svg {
     stroke-dasharray: none;
 }
 
+.chart-point-latest {
+    stroke: var(--bg-color);
+    stroke-width: 2;
+}
+
+.chart-point-pulse {
+    animation: chart-pulse 2s ease-in-out infinite;
+}
+
+@keyframes chart-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chart-point-pulse { animation: none; opacity: 0.3; }
+}
+
 .chart-goal-line {
     stroke: var(--color-success);
     stroke-width: 2;

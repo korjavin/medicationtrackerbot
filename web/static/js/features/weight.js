@@ -490,8 +490,9 @@ function renderWeightChart(logs, goalData) {
     pathLine.setAttribute("fill", "none");
     svg.appendChild(pathLine);
 
-    // Data points
+    // Data points (all except last)
     points.forEach((p, i) => {
+        if (i === points.length - 1) return; // last point handled below
         const circle = document.createElementNS(svgNs, "circle");
         circle.setAttribute("cx", p[0]);
         circle.setAttribute("cy", p[1]);
@@ -502,8 +503,12 @@ function renderWeightChart(logs, goalData) {
         svg.appendChild(circle);
     });
 
-    // Current weight label (on most recent point)
+    // Last-value emphasis with pulse ring
     const lastDataPoint = points[points.length - 1];
+    const lastDotGroup = window.ChartUtils.createLastValueDot(svgNs, svg, lastDataPoint[0], lastDataPoint[1], '#3b82f6');
+    svg.appendChild(lastDotGroup);
+
+    // Current weight label (on most recent point)
     const currentLabel = document.createElementNS(svgNs, "text");
     currentLabel.setAttribute("x", lastDataPoint[0]);
     currentLabel.setAttribute("y", lastDataPoint[1] - 12);
