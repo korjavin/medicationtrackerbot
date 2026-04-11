@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"time"
 
@@ -87,16 +86,22 @@ func (s *Server) handleAnalyzeCardiovascular(ctx context.Context, req *sdkmcp.Ca
 	}
 
 	// Blood Pressure
-	if bpEnabled, err := s.data.GetBloodPressureEnabled(ctx); err == nil && bpEnabled {
+	if bpEnabled, err := s.data.GetBloodPressureEnabled(ctx); err != nil {
+		slog.Warn("[MCP] CardiovascularAnalysis: failed to check BP feature", "error", err)
+		unavailable = append(unavailable, "blood_pressure (error checking feature)")
+	} else if bpEnabled {
 		response.BloodPressure = s.fetchBPSection(ctx, userID, startDate, endDate)
-	} else if err == nil && !bpEnabled {
+	} else {
 		unavailable = append(unavailable, "blood_pressure (feature disabled)")
 	}
 
 	// Medications
-	if medEnabled, err := s.data.GetMedicationEnabled(ctx); err == nil && medEnabled {
+	if medEnabled, err := s.data.GetMedicationEnabled(ctx); err != nil {
+		slog.Warn("[MCP] CardiovascularAnalysis: failed to check medication feature", "error", err)
+		unavailable = append(unavailable, "medications (error checking feature)")
+	} else if medEnabled {
 		response.Medications = s.fetchMedicationsSection(startDate, endDate)
-	} else if err == nil && !medEnabled {
+	} else {
 		unavailable = append(unavailable, "medications (feature disabled)")
 	}
 
@@ -321,7 +326,7 @@ func (s *Server) fetchHeartRateSection(ctx context.Context, userID int64, startD
 		return nil
 	}
 	if len(logs) == 0 {
-		return &HeartRateSection{}
+		return nil
 	}
 
 	sum, minV, maxV := 0, logs[0].Value, logs[0].Value
@@ -350,7 +355,7 @@ func (s *Server) fetchSpO2Section(ctx context.Context, userID int64, startDate, 
 		return nil
 	}
 	if len(logs) == 0 {
-		return &SpO2Section{}
+		return nil
 	}
 
 	sum, minV := 0, logs[0].Value
@@ -396,35 +401,3 @@ func registerCardiovascularTool(mcpServer *sdkmcp.Server, s *Server) {
 	)
 }
 
-// parseDaysArg extracts the `days` integer from raw arguments for composite tools
-func parseDaysArg(req *sdkmcp.CallToolRequest) int {
-	if req == nil || req.Params == nil || len(req.Params.Arguments) == 0 {
-		return 0
-	}
-
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(req.Params.Arguments, &raw); err != nil {
-		return 0
-	}
-
-	daysRaw, ok := raw["days"]
-	if !ok {
-		return 0
-	}
-
-	// Try as integer first
-	var days int
-	if err := json.Unmarshal(daysRaw, &days); err == nil {
-		return days
-	}
-
-	// Try as string (LLMs sometimes send numbers as strings)
-	var daysStr string
-	if err := json.Unmarshal(daysRaw, &daysStr); err == nil {
-		if d, err := strconv.Atoi(daysStr); err == nil {
-			return d
-		}
-	}
-
-	return 0
-}

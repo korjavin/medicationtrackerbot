@@ -79,9 +79,12 @@ func (s *Server) handleAnalyzeFitness(ctx context.Context, req *sdkmcp.CallToolR
 	}
 
 	// Workouts
-	if wkEnabled, err := s.data.GetWorkoutEnabled(ctx); err == nil && wkEnabled {
+	if wkEnabled, err := s.data.GetWorkoutEnabled(ctx); err != nil {
+		slog.Warn("[MCP] FitnessAnalysis: failed to check workout feature", "error", err)
+		unavailable = append(unavailable, "workouts (error checking feature)")
+	} else if wkEnabled {
 		response.Workouts = s.fetchWorkoutsSection(ctx, userID, startDate, endDate)
-	} else if err == nil && !wkEnabled {
+	} else {
 		unavailable = append(unavailable, "workouts (feature disabled)")
 	}
 
@@ -89,16 +92,22 @@ func (s *Server) handleAnalyzeFitness(ctx context.Context, req *sdkmcp.CallToolR
 	response.Steps = s.fetchStepsSection(ctx, userID, startDate, endDate)
 
 	// Nutrition
-	if foodEnabled, err := s.data.GetFoodIntakeEnabled(ctx); err == nil && foodEnabled {
+	if foodEnabled, err := s.data.GetFoodIntakeEnabled(ctx); err != nil {
+		slog.Warn("[MCP] FitnessAnalysis: failed to check food intake feature", "error", err)
+		unavailable = append(unavailable, "nutrition (error checking feature)")
+	} else if foodEnabled {
 		response.Nutrition = s.fetchNutritionSection(ctx, userID, startDate, endDate)
-	} else if err == nil && !foodEnabled {
+	} else {
 		unavailable = append(unavailable, "nutrition (feature disabled)")
 	}
 
 	// Weight
-	if weightEnabled, err := s.data.GetWeightEnabled(ctx); err == nil && weightEnabled {
+	if weightEnabled, err := s.data.GetWeightEnabled(ctx); err != nil {
+		slog.Warn("[MCP] FitnessAnalysis: failed to check weight feature", "error", err)
+		unavailable = append(unavailable, "weight (error checking feature)")
+	} else if weightEnabled {
 		response.Weight = s.fetchWeightSection(ctx, userID, startDate, endDate)
-	} else if err == nil && !weightEnabled {
+	} else {
 		unavailable = append(unavailable, "weight (feature disabled)")
 	}
 
@@ -293,7 +302,7 @@ func (s *Server) fetchNutritionSection(ctx context.Context, userID int64, startD
 		logs, err := s.data.GetFoodLogs(ctx, userID, current, 1)
 		if err != nil {
 			slog.Warn("[MCP] FitnessAnalysis: failed to fetch food logs", "error", err, "date", current.Format("2006-01-02"))
-			current = current.Add(24 * time.Hour)
+			current = current.AddDate(0, 0, 1)
 			continue
 		}
 
@@ -313,7 +322,7 @@ func (s *Server) fetchNutritionSection(ctx context.Context, userID int64, startD
 			daysWithData++
 		}
 
-		current = current.Add(24 * time.Hour)
+		current = current.AddDate(0, 0, 1)
 	}
 
 	avgCalories := 0
