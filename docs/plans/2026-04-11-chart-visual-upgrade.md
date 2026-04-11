@@ -124,8 +124,8 @@ Polish all SVG charts (BP, Weight, Health vitals/sleep/steps) with gradient fill
 - [x] Test with both light and dark themes (visual-only, CSS uses design tokens for theme adaptation)
 
 ### Task 8: [Final] Update documentation
-- [ ] Update CLAUDE.md if any new patterns worth documenting (chart-utils module)
-- [ ] Add `window.ChartUtils` to the Global Namespace Policy table in CLAUDE.md
+- [x] Update CLAUDE.md if any new patterns worth documenting (chart-utils module)
+- [x] Add `window.ChartUtils` to the Global Namespace Policy table in CLAUDE.md
 
 ## Technical Details
 
