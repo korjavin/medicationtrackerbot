@@ -434,16 +434,106 @@ func TestImportDayStatsDuplicates(t *testing.T) {
 		t.Errorf("Expected 1 imported, got %d", imported)
 	}
 
-	// Import again
+	// Import again — UPSERT counts re-imports as imported (rowsAffected=1)
 	imported, skipped, err := db.ImportDayStats(ctx, userID, stats)
 	if err != nil {
 		t.Fatalf("Second import: %v", err)
 	}
-	if imported != 0 {
-		t.Errorf("Expected 0 imported on duplicate, got %d", imported)
+	if imported != 1 {
+		t.Errorf("Expected 1 imported (upsert), got %d", imported)
 	}
-	if skipped != 1 {
-		t.Errorf("Expected 1 skipped, got %d", skipped)
+	if skipped != 0 {
+		t.Errorf("Expected 0 skipped, got %d", skipped)
+	}
+
+	// Still only 1 row
+	result, err := db.GetDayStats(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetDayStats: %v", err)
+	}
+	if len(result) != 1 {
+		t.Errorf("Expected 1 stat after duplicate import, got %d", len(result))
+	}
+}
+
+func TestImportDayStatsUpsertUpdatesValues(t *testing.T) {
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	// Import partial data (mid-day snapshot)
+	partial := []DayStat{
+		{Day: "2025-01-10", Steps: 2000, Calories: 800, Distance: 1500},
+	}
+	_, _, err := db.ImportDayStats(ctx, userID, partial)
+	if err != nil {
+		t.Fatalf("First import: %v", err)
+	}
+
+	// Import complete data (end-of-day snapshot)
+	complete := []DayStat{
+		{Day: "2025-01-10", Steps: 8000, Calories: 2200, Distance: 5500},
+	}
+	imported, skipped, err := db.ImportDayStats(ctx, userID, complete)
+	if err != nil {
+		t.Fatalf("Second import: %v", err)
+	}
+	if imported != 1 {
+		t.Errorf("Expected 1 imported (upsert), got %d", imported)
+	}
+	if skipped != 0 {
+		t.Errorf("Expected 0 skipped, got %d", skipped)
+	}
+
+	// Verify values updated
+	result, err := db.GetDayStats(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetDayStats: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result))
+	}
+	if result[0].Steps != 8000 {
+		t.Errorf("Expected steps=8000, got %d", result[0].Steps)
+	}
+	if result[0].Calories != 2200 {
+		t.Errorf("Expected calories=2200, got %d", result[0].Calories)
+	}
+	if result[0].Distance != 5500 {
+		t.Errorf("Expected distance=5500, got %d", result[0].Distance)
+	}
+}
+
+func TestImportDayStatsUpsertDifferentDays(t *testing.T) {
+	db := setupSleepVitalsTestStore(t)
+	ctx := context.Background()
+	userID := int64(123456)
+
+	// Import day 1
+	day1 := []DayStat{
+		{Day: "2025-01-10", Steps: 5000, Calories: 1800, Distance: 3000},
+	}
+	_, _, err := db.ImportDayStats(ctx, userID, day1)
+	if err != nil {
+		t.Fatalf("First import: %v", err)
+	}
+
+	// Import day 2 (different day)
+	day2 := []DayStat{
+		{Day: "2025-01-11", Steps: 10000, Calories: 2500, Distance: 7000},
+	}
+	_, _, err = db.ImportDayStats(ctx, userID, day2)
+	if err != nil {
+		t.Fatalf("Second import: %v", err)
+	}
+
+	// Both days exist
+	result, err := db.GetDayStats(ctx, userID, time.Time{})
+	if err != nil {
+		t.Fatalf("GetDayStats: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("Expected 2 rows, got %d", len(result))
 	}
 }
 

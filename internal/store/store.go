@@ -1453,8 +1453,10 @@ func (s *Store) ImportDayStats(ctx context.Context, userID int64, stats []DaySta
 	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.PrepareContext(ctx,
-		`INSERT OR IGNORE INTO day_stats (user_id, day, steps, calories, distance)
-		 VALUES (?, ?, ?, ?, ?)`)
+		`INSERT INTO day_stats (user_id, day, steps, calories, distance)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(user_id, day) DO UPDATE SET
+		   steps=excluded.steps, calories=excluded.calories, distance=excluded.distance`)
 	if err != nil {
 		return 0, 0, err
 	}
