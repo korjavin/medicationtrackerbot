@@ -319,8 +319,8 @@ drainAfterDone:
 	for {
 		select {
 		case msg := <-env.messageChan:
-			// A new exercise prompt would contain "sets" and a Done button
-			if strings.Contains(msg, "Exercise 3") {
+			// A new exercise prompt would contain exercise callback buttons (exercise_done_)
+			if strings.Contains(msg, "exercise_done_") {
 				newExercisePromptSent = true
 			}
 		case <-time.After(10 * time.Millisecond):
