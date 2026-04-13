@@ -30,9 +30,9 @@ The current `startExerciseLoop` iterates all exercises and sends a prompt for ea
 2. Store the remaining unsent exercises in a new in-memory map on the Bot struct (similar to `workoutMessages`): `pendingExercises map[int64][]pendingExercise` keyed by sessionID, where `pendingExercise` holds the exercise metadata needed to call `SendExercisePrompt`
 3. Update the "X exercises to complete" start message to say e.g. "6 exercises to complete (showing first 3)"
 
-- [ ] Add `pendingExercise` struct and `pendingExercises` map (with mutex) to Bot struct in `bot.go`
-- [ ] Refactor `startExerciseLoop` to send min(3, len(exercises)) prompts and store the rest
-- [ ] Update the start message text to reflect batching when there are more than 3 exercises
+- [x] Add `pendingExercise` struct and `pendingExercises` map (with mutex) to Bot struct in `bot.go`
+- [x] Refactor `startExerciseLoop` to send min(3, len(exercises)) prompts and store the rest
+- [x] Update the start message text to reflect batching when there are more than 3 exercises
 
 ### Task 2: Send next exercises after done/skip callbacks
 
