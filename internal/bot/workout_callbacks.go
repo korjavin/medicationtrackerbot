@@ -153,7 +153,10 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 	}
 }
 
-// startExerciseLoop sends exercise prompts one by one
+// maxOpenExercisePrompts is the maximum number of exercise prompts shown at once.
+const maxOpenExercisePrompts = 3
+
+// startExerciseLoop sends the first batch of exercise prompts and queues the rest.
 func (b *Bot) startExerciseLoop(sessionID, variantID int64, chatID int64) {
 	exercises, err := b.workouts.ListExercisesByVariant(variantID)
 	if err != nil || len(exercises) == 0 {
@@ -163,19 +166,56 @@ func (b *Bot) startExerciseLoop(sessionID, variantID int64, chatID int64) {
 		return
 	}
 
-	startMsg, err := b.api.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("🏋️ **Workout Started**\n\n%d exercises to complete:", len(exercises))))
+	total := len(exercises)
+	sendCount := total
+	if sendCount > maxOpenExercisePrompts {
+		sendCount = maxOpenExercisePrompts
+	}
+
+	// Build start message
+	startText := fmt.Sprintf("🏋️ **Workout Started**\n\n%d exercises to complete:", total)
+	if total > maxOpenExercisePrompts {
+		startText = fmt.Sprintf("🏋️ **Workout Started**\n\n%d exercises to complete (showing first %d):", total, sendCount)
+	}
+
+	startMsg, err := b.api.Send(tgbotapi.NewMessage(chatID, startText))
 	if err != nil {
 		slog.Error("send failed", "error", err)
 	} else {
 		b.trackWorkoutMessage(sessionID, startMsg.MessageID)
 	}
 
-	for i, ex := range exercises {
+	// Send first batch
+	for i := 0; i < sendCount; i++ {
+		ex := exercises[i]
 		_, err := b.SendExercisePrompt(sessionID, ex.ID, fmt.Sprintf("%d. %s", i+1, ex.ExerciseName),
 			ex.TargetSets, ex.TargetRepsMin, ex.TargetRepsMax, ex.TargetWeightKg)
 		if err != nil {
 			slog.Error("Failed to send exercise prompt", "error", err)
 		}
+	}
+
+	// Queue remaining exercises
+	if sendCount < total {
+		pending := make([]pendingExercise, 0, total-sendCount)
+		for i := sendCount; i < total; i++ {
+			ex := exercises[i]
+			pending = append(pending, pendingExercise{
+				Index:          i + 1,
+				ExerciseID:     ex.ID,
+				ExerciseName:   ex.ExerciseName,
+				TargetSets:     ex.TargetSets,
+				TargetRepsMin:  ex.TargetRepsMin,
+				TargetRepsMax:  ex.TargetRepsMax,
+				TargetWeightKg: ex.TargetWeightKg,
+			})
+		}
+		b.pendingExercisesMu.Lock()
+		if b.pendingExercises == nil {
+			b.pendingExercises = make(map[int64][]pendingExercise)
+		}
+		b.pendingExercises[sessionID] = pending
+		b.pendingExercisesMu.Unlock()
 	}
 }
 
