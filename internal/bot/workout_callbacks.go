@@ -120,6 +120,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
 			slog.Error("send failed", "error", err)
 		}
+		b.clearPendingExercises(sessionID)
 		if err := b.CleanupWorkoutSessionMessages(sessionID); err != nil {
 			slog.Error("Failed to cleanup workout messages", "error", err)
 		}
@@ -147,6 +148,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "👍 Workout saved.")); err != nil {
 			slog.Error("send failed", "error", err)
 		}
+		b.clearPendingExercises(sessionID)
 		if err := b.CleanupWorkoutSessionMessages(sessionID); err != nil {
 			slog.Error("Failed to cleanup workout messages", "error", err)
 		}
@@ -274,6 +276,7 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			slog.Error("send failed: edit message text", "error", err)
 		}
 
+		b.sendNextPendingExercises(sessionID)
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
 
 	case "skip":
@@ -293,6 +296,7 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			slog.Error("send failed: edit message text", "error", err)
 		}
 
+		b.sendNextPendingExercises(sessionID)
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
 
 	case "edit":
@@ -317,8 +321,41 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			slog.Error("send failed: edit message text", "error", err)
 		}
 
+		b.sendNextPendingExercises(sessionID)
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
 	}
+}
+
+// sendNextPendingExercises pops one exercise from the pending queue for the given
+// session and sends its prompt. Called after each done/skip/edit callback to
+// maintain up to maxOpenExercisePrompts open prompts.
+func (b *Bot) sendNextPendingExercises(sessionID int64) {
+	b.pendingExercisesMu.Lock()
+	queue := b.pendingExercises[sessionID]
+	if len(queue) == 0 {
+		b.pendingExercisesMu.Unlock()
+		return
+	}
+	next := queue[0]
+	b.pendingExercises[sessionID] = queue[1:]
+	if len(b.pendingExercises[sessionID]) == 0 {
+		delete(b.pendingExercises, sessionID)
+	}
+	b.pendingExercisesMu.Unlock()
+
+	_, err := b.SendExercisePrompt(sessionID, next.ExerciseID,
+		fmt.Sprintf("%d. %s", next.Index, next.ExerciseName),
+		next.TargetSets, next.TargetRepsMin, next.TargetRepsMax, next.TargetWeightKg)
+	if err != nil {
+		slog.Error("Failed to send pending exercise prompt", "error", err, "sessionID", sessionID, "exerciseID", next.ExerciseID)
+	}
+}
+
+// clearPendingExercises removes any remaining pending exercises for the session.
+func (b *Bot) clearPendingExercises(sessionID int64) {
+	b.pendingExercisesMu.Lock()
+	delete(b.pendingExercises, sessionID)
+	b.pendingExercisesMu.Unlock()
 }
 
 // checkWorkoutCompletion checks if all exercises are done and prompts the user to finish.

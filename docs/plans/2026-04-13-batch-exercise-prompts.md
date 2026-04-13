@@ -43,9 +43,9 @@ After each exercise done/skip/edit callback (in `handleExerciseCallback`), check
 
 The count of "open" prompts = (already sent count) - (done + skipped count from exercise logs). Simpler approach: after handling a callback, pop from the pending queue and send one prompt (since one was just resolved, sending one maintains the count).
 
-- [ ] Add a `sendNextPendingExercises` method that pops one exercise from `pendingExercises[sessionID]` and sends its prompt
-- [ ] Call `sendNextPendingExercises` in handleExerciseCallback after each done/skip/edit action, before `checkWorkoutCompletion`
-- [ ] Clean up `pendingExercises[sessionID]` entry when queue is empty or session finishes (in skip/finish handlers in handleWorkoutCallback)
+- [x] Add a `sendNextPendingExercises` method that pops one exercise from `pendingExercises[sessionID]` and sends its prompt
+- [x] Call `sendNextPendingExercises` in handleExerciseCallback after each done/skip/edit action, before `checkWorkoutCompletion`
+- [x] Clean up `pendingExercises[sessionID]` entry when queue is empty or session finishes (in skip/finish handlers in handleWorkoutCallback)
 
 ### Task 3: Add tests
 
