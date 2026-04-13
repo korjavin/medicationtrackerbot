@@ -62,9 +62,9 @@ Test the batching logic:
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] Run full test suite (`go test ./...`)
-- [ ] Verify: workout with <= 3 exercises behaves exactly as before (all sent at once)
-- [ ] Verify: workout with > 3 exercises sends only first 3, then one more per done/skip
+- [x] Run full test suite (`go test ./...`)
+- [x] Verify: workout with <= 3 exercises behaves exactly as before (all sent at once)
+- [x] Verify: workout with > 3 exercises sends only first 3, then one more per done/skip
 
 ### Task 5: Update documentation
 
