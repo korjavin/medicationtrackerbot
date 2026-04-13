@@ -54,11 +54,11 @@ The count of "open" prompts = (already sent count) - (done + skipped count from 
 
 Test the batching logic:
 
-- [ ] Test that startExerciseLoop with 5 exercises only sends 3 prompts and stores 2 pending
-- [ ] Test that startExerciseLoop with 2 exercises sends all 2 and stores 0 pending
-- [ ] Test that after a done/skip callback, one pending exercise is sent
-- [ ] Test that when pending queue is empty, no extra messages are sent
-- [ ] Run `go test ./...` - must pass
+- [x] Test that startExerciseLoop with 5 exercises only sends 3 prompts and stores 2 pending
+- [x] Test that startExerciseLoop with 2 exercises sends all 2 and stores 0 pending
+- [x] Test that after a done/skip callback, one pending exercise is sent
+- [x] Test that when pending queue is empty, no extra messages are sent
+- [x] Run `go test ./...` - must pass
 
 ### Task 4: Verify acceptance criteria
 
