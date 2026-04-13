@@ -166,6 +166,7 @@ func (s *Server) handleSkipWorkoutSessionCompat(w http.ResponseWriter, r *http.R
 	}
 
 	if s.workout != nil {
+		s.workout.ClearPendingExercises(req.SessionID)
 		if err := s.workout.CleanupWorkoutSessionMessages(req.SessionID); err != nil {
 			slog.Error("Failed to cleanup workout messages for session", "sessionID", req.SessionID, "error", err)
 		}
@@ -1489,6 +1490,7 @@ func (s *Server) handleSkipWorkoutSession(w http.ResponseWriter, r *http.Request
 	}
 
 	if s.workout != nil {
+		s.workout.ClearPendingExercises(id)
 		if err := s.workout.CleanupWorkoutSessionMessages(id); err != nil {
 			slog.Error("Failed to cleanup workout messages for session", "sessionID", id, "error", err)
 		}
@@ -1613,9 +1615,10 @@ func (s *Server) handleUpdateSessionStatus(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// If skipped or completed, try to delete the notification message
+	// If skipped or completed, clean up bot state and try to delete the notification message
 	if req.Status == "skipped" || req.Status == "completed" {
 		if s.workout != nil {
+			s.workout.ClearPendingExercises(id)
 			if err := s.workout.CleanupWorkoutSessionMessages(id); err != nil {
 				slog.Error("Failed to cleanup workout messages for session", "sessionID", id, "error", err)
 			}

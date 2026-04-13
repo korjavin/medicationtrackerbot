@@ -13,6 +13,7 @@ type mockExerciseStore struct {
 	libraryItems map[int64]*store.ExerciseLibraryItem
 	logs         map[int64]*store.WorkoutExerciseLog // keyed by logID
 	sessionLogs  map[int64][]int64                   // sessionID → []logID
+	sessions     map[int64]*store.WorkoutSession
 	nextLogID    int64
 
 	// call tracking
@@ -42,8 +43,22 @@ func newMockExerciseStore() *mockExerciseStore {
 		libraryItems: make(map[int64]*store.ExerciseLibraryItem),
 		logs:         make(map[int64]*store.WorkoutExerciseLog),
 		sessionLogs:  make(map[int64][]int64),
+		sessions:     make(map[int64]*store.WorkoutSession),
 		nextLogID:    1,
 	}
+}
+
+func (m *mockExerciseStore) addSession(id int64, status string) {
+	m.sessions[id] = &store.WorkoutSession{ID: id, Status: status}
+}
+
+func (m *mockExerciseStore) GetWorkoutSession(id int64) (*store.WorkoutSession, error) {
+	s, ok := m.sessions[id]
+	if !ok {
+		// Default: return an in_progress session so existing tests don't break.
+		return &store.WorkoutSession{ID: id, Status: "in_progress"}, nil
+	}
+	return s, nil
 }
 
 func (m *mockExerciseStore) addExercise(id int64, name string, sets, repsMin int, weightKg *float64) {
@@ -149,6 +164,7 @@ func (m *mockExerciseStore) GetExerciseLogs(sessionID int64) ([]store.WorkoutExe
 // errExerciseStore wraps a mock store to inject errors.
 type errExerciseStore struct {
 	*mockExerciseStore
+	errGetSession           bool
 	errGetExercise          bool
 	errGetLibraryItem       bool
 	errGetLog               bool
@@ -157,6 +173,13 @@ type errExerciseStore struct {
 	errLogExercise          bool
 	errUpdateExerciseLog    bool
 	errUpdateExerciseStatus bool
+}
+
+func (e *errExerciseStore) GetWorkoutSession(id int64) (*store.WorkoutSession, error) {
+	if e.errGetSession {
+		return nil, errors.New("store error")
+	}
+	return e.mockExerciseStore.GetWorkoutSession(id)
 }
 
 func (e *errExerciseStore) GetWorkoutExercise(id int64) (*store.WorkoutExercise, error) {
@@ -223,8 +246,12 @@ func TestLogExercise_NewLog(t *testing.T) {
 	ms.addExercise(10, "Squat", 4, 8, &weight)
 	svc := NewExerciseService(ms)
 
-	if err := svc.LogExercise(1, 10, "completed"); err != nil {
+	changed, err := svc.LogExercise(1, 10, "completed")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("expected changed=true for new log")
 	}
 
 	if len(ms.logExerciseCalls) != 1 {
@@ -240,8 +267,12 @@ func TestLogExercise_NewLogSkipped(t *testing.T) {
 	ms.addExercise(10, "Squat", 4, 8, nil)
 	svc := NewExerciseService(ms)
 
-	if err := svc.LogExercise(1, 10, "skipped"); err != nil {
+	changed, err := svc.LogExercise(1, 10, "skipped")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("expected changed=true for new log")
 	}
 
 	if len(ms.logExerciseCalls) != 1 {
@@ -259,8 +290,12 @@ func TestLogExercise_SkippedToCompleted(t *testing.T) {
 	logID := ms.addLog(1, 10, "skipped")
 	svc := NewExerciseService(ms)
 
-	if err := svc.LogExercise(1, 10, "completed"); err != nil {
+	changed, err := svc.LogExercise(1, 10, "completed")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("expected changed=true for skipped→completed upgrade")
 	}
 
 	if len(ms.logExerciseCalls) != 0 {
@@ -281,12 +316,20 @@ func TestLogExercise_ExistingCompletedNoOp(t *testing.T) {
 	svc := NewExerciseService(ms)
 
 	// Try to log as completed again
-	if err := svc.LogExercise(1, 10, "completed"); err != nil {
+	changed, err := svc.LogExercise(1, 10, "completed")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if changed {
+		t.Error("expected changed=false for duplicate completed→completed")
+	}
 	// Also try to skip a completed exercise
-	if err := svc.LogExercise(1, 10, "skipped"); err != nil {
+	changed, err = svc.LogExercise(1, 10, "skipped")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if changed {
+		t.Error("expected changed=false for completed→skipped no-op")
 	}
 
 	if len(ms.logExerciseCalls) != 0 {
@@ -306,8 +349,12 @@ func TestLogExercise_ExistingSkippedNoOp(t *testing.T) {
 	ms.addLog(1, 10, "skipped")
 	svc := NewExerciseService(ms)
 
-	if err := svc.LogExercise(1, 10, "skipped"); err != nil {
+	changed, err := svc.LogExercise(1, 10, "skipped")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if changed {
+		t.Error("expected changed=false for duplicate skipped→skipped")
 	}
 
 	if len(ms.logExerciseCalls) != 0 {
@@ -322,7 +369,7 @@ func TestLogExercise_ExerciseNotFound(t *testing.T) {
 	ms := newMockExerciseStore()
 	svc := NewExerciseService(ms)
 
-	err := svc.LogExercise(1, 999, "completed")
+	_, err := svc.LogExercise(1, 999, "completed")
 	if err == nil {
 		t.Fatal("expected error for missing exercise")
 	}
@@ -334,7 +381,7 @@ func TestLogExercise_StoreError(t *testing.T) {
 	ms.addExercise(10, "Curl", 3, 12, nil)
 	svc := NewExerciseService(es)
 
-	err := svc.LogExercise(1, 10, "completed")
+	_, err := svc.LogExercise(1, 10, "completed")
 	if err == nil {
 		t.Fatal("expected error from store")
 	}
@@ -346,7 +393,7 @@ func TestLogExercise_GetLogError(t *testing.T) {
 	es := &errExerciseStore{mockExerciseStore: ms, errGetLog: true}
 	svc := NewExerciseService(es)
 
-	err := svc.LogExercise(1, 10, "completed")
+	_, err := svc.LogExercise(1, 10, "completed")
 	if err == nil {
 		t.Fatal("expected error when GetExerciseLogBySessionAndExercise fails")
 	}
@@ -358,7 +405,7 @@ func TestLogExercise_LogExerciseStoreError(t *testing.T) {
 	es := &errExerciseStore{mockExerciseStore: ms, errLogExercise: true}
 	svc := NewExerciseService(es)
 
-	err := svc.LogExercise(1, 10, "completed")
+	_, err := svc.LogExercise(1, 10, "completed")
 	if err == nil {
 		t.Fatal("expected error when LogExercise store call fails")
 	}
@@ -372,7 +419,7 @@ func TestLogExercise_UpdateExerciseLogError(t *testing.T) {
 	es := &errExerciseStore{mockExerciseStore: ms, errUpdateExerciseLog: true}
 	svc := NewExerciseService(es)
 
-	err := svc.LogExercise(1, 10, "completed")
+	_, err := svc.LogExercise(1, 10, "completed")
 	if err == nil {
 		t.Fatal("expected error when UpdateExerciseLog store call fails")
 	}
@@ -385,9 +432,72 @@ func TestLogExercise_UpdateExerciseLogStatusError(t *testing.T) {
 	es := &errExerciseStore{mockExerciseStore: ms, errUpdateExerciseStatus: true}
 	svc := NewExerciseService(es)
 
-	err := svc.LogExercise(1, 10, "completed")
+	_, err := svc.LogExercise(1, 10, "completed")
 	if err == nil {
 		t.Fatal("expected error when UpdateExerciseLogStatus store call fails")
+	}
+}
+
+// --- Session status guard tests ---
+
+func TestLogExercise_SessionCompleted_NoOp(t *testing.T) {
+	ms := newMockExerciseStore()
+	ms.addExercise(10, "Squat", 4, 8, nil)
+	ms.addSession(1, "completed")
+	svc := NewExerciseService(ms)
+
+	changed, err := svc.LogExercise(1, 10, "completed")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if changed {
+		t.Error("expected changed=false when session is completed")
+	}
+	if len(ms.logExerciseCalls) != 0 {
+		t.Error("should not create a log for a completed session")
+	}
+}
+
+func TestLogExercise_SessionSkipped_NoOp(t *testing.T) {
+	ms := newMockExerciseStore()
+	ms.addExercise(10, "Squat", 4, 8, nil)
+	ms.addSession(1, "skipped")
+	svc := NewExerciseService(ms)
+
+	changed, err := svc.LogExercise(1, 10, "completed")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if changed {
+		t.Error("expected changed=false when session is skipped")
+	}
+}
+
+func TestLogExercise_SessionNotFound_NoOp(t *testing.T) {
+	ms := newMockExerciseStore()
+	ms.addExercise(10, "Squat", 4, 8, nil)
+	// Explicitly set nil session to simulate not found
+	ms.sessions[1] = nil
+	svc := NewExerciseService(ms)
+
+	changed, err := svc.LogExercise(1, 10, "completed")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if changed {
+		t.Error("expected changed=false when session not found")
+	}
+}
+
+func TestLogExercise_GetSessionError(t *testing.T) {
+	ms := newMockExerciseStore()
+	ms.addExercise(10, "Curl", 3, 12, nil)
+	es := &errExerciseStore{mockExerciseStore: ms, errGetSession: true}
+	svc := NewExerciseService(es)
+
+	_, err := svc.LogExercise(1, 10, "completed")
+	if err == nil {
+		t.Fatal("expected error when GetWorkoutSession fails")
 	}
 }
 
@@ -487,8 +597,12 @@ func TestLogExercise_LibraryItem_NewLog(t *testing.T) {
 	ms.addLibraryItem(20, 1, "Cable Row", 3, 12, &weight)
 	svc := NewExerciseService(ms)
 
-	if err := svc.LogExercise(1, 20, "completed"); err != nil {
+	changed, err := svc.LogExercise(1, 20, "completed")
+	if err != nil {
 		t.Fatalf("unexpected error logging library exercise: %v", err)
+	}
+	if !changed {
+		t.Error("expected changed=true for new library exercise log")
 	}
 
 	if len(ms.logExerciseCalls) != 1 {
@@ -508,8 +622,12 @@ func TestLogExercise_LibraryItem_Skipped(t *testing.T) {
 	ms.addLibraryItem(21, 1, "Face Pull", 3, 15, nil)
 	svc := NewExerciseService(ms)
 
-	if err := svc.LogExercise(2, 21, "skipped"); err != nil {
+	changed, err := svc.LogExercise(2, 21, "skipped")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("expected changed=true for new library exercise log")
 	}
 
 	if len(ms.logExerciseCalls) != 1 || ms.logExerciseCalls[0].status != "skipped" {
@@ -524,8 +642,12 @@ func TestLogExercise_LibraryItem_SkippedToCompleted(t *testing.T) {
 	logID := ms.addLog(1, 22, "skipped")
 	svc := NewExerciseService(ms)
 
-	if err := svc.LogExercise(1, 22, "completed"); err != nil {
+	changed, err := svc.LogExercise(1, 22, "completed")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("expected changed=true for skipped→completed upgrade")
 	}
 
 	if len(ms.logExerciseCalls) != 0 {
@@ -545,7 +667,7 @@ func TestLogExercise_LibraryItem_GetLibraryItemError(t *testing.T) {
 	es := &errExerciseStore{mockExerciseStore: ms, errGetLibraryItem: true}
 	svc := NewExerciseService(es)
 
-	err := svc.LogExercise(1, 99, "completed")
+	_, err := svc.LogExercise(1, 99, "completed")
 	if err == nil {
 		t.Fatal("expected error when GetExerciseLibraryItem fails")
 	}
@@ -556,7 +678,7 @@ func TestLogExercise_NeitherExerciseNorLibrary(t *testing.T) {
 	// exercise 999 is in neither table
 	svc := NewExerciseService(ms)
 
-	err := svc.LogExercise(1, 999, "completed")
+	_, err := svc.LogExercise(1, 999, "completed")
 	if err == nil {
 		t.Fatal("expected error when exercise is not found anywhere")
 	}
