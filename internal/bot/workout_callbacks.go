@@ -276,7 +276,7 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			slog.Error("send failed: edit message text", "error", err)
 		}
 
-		b.sendNextPendingExercises(sessionID)
+		b.sendNextPendingExercise(sessionID)
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
 
 	case "skip":
@@ -296,7 +296,7 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			slog.Error("send failed: edit message text", "error", err)
 		}
 
-		b.sendNextPendingExercises(sessionID)
+		b.sendNextPendingExercise(sessionID)
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
 
 	case "edit":
@@ -321,15 +321,15 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			slog.Error("send failed: edit message text", "error", err)
 		}
 
-		b.sendNextPendingExercises(sessionID)
+		b.sendNextPendingExercise(sessionID)
 		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
 	}
 }
 
-// sendNextPendingExercises pops one exercise from the pending queue for the given
-// session and sends its prompt. Called after each done/skip/edit callback to
-// maintain up to maxOpenExercisePrompts open prompts.
-func (b *Bot) sendNextPendingExercises(sessionID int64) {
+// sendNextPendingExercise pops one exercise from the pending queue for the given
+// session and sends its prompt. Called after each done/skip/edit callback so the
+// user always has one new prompt to act on.
+func (b *Bot) sendNextPendingExercise(sessionID int64) {
 	b.pendingExercisesMu.Lock()
 	queue := b.pendingExercises[sessionID]
 	if len(queue) == 0 {
