@@ -68,5 +68,5 @@ Test the batching logic:
 
 ### Task 5: Update documentation
 
-- [ ] Update CLAUDE.md if internal patterns changed (add note about exercise batching)
-- [ ] Move this plan to `docs/plans/completed/`
+- [x] Update CLAUDE.md if internal patterns changed (add note about exercise batching)
+- [x] Move this plan to `docs/plans/completed/`
