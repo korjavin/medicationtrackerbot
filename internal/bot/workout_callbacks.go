@@ -378,7 +378,13 @@ func (b *Bot) sendNextPendingExercise(sessionID int64) {
 		fmt.Sprintf("%d. %s", next.Index, next.ExerciseName),
 		next.TargetSets, next.TargetRepsMin, next.TargetRepsMax, next.TargetWeightKg)
 	if err != nil {
-		slog.Error("Failed to send pending exercise prompt", "error", err, "sessionID", sessionID, "exerciseID", next.ExerciseID)
+		slog.Error("Failed to send pending exercise prompt, re-queuing", "error", err, "sessionID", sessionID, "exerciseID", next.ExerciseID)
+		b.pendingExercisesMu.Lock()
+		if b.pendingExercises == nil {
+			b.pendingExercises = make(map[int64][]pendingExercise)
+		}
+		b.pendingExercises[sessionID] = append([]pendingExercise{next}, b.pendingExercises[sessionID]...)
+		b.pendingExercisesMu.Unlock()
 	}
 }
 
