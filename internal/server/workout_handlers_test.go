@@ -144,7 +144,8 @@ func TestHandleUpdateSessionStatus(t *testing.T) {
 }
 
 type workoutInteractorSpy struct {
-	cleaned []int64
+	cleaned        []int64
+	pendingCleared []int64
 }
 
 func (w *workoutInteractorSpy) UpdateWorkoutMessage(_ int, _ string) error {
@@ -158,6 +159,10 @@ func (w *workoutInteractorSpy) StartWorkoutFlowFromWeb(_ int64) error {
 func (w *workoutInteractorSpy) CleanupWorkoutSessionMessages(sessionID int64) error {
 	w.cleaned = append(w.cleaned, sessionID)
 	return nil
+}
+
+func (w *workoutInteractorSpy) ClearPendingExercises(sessionID int64) {
+	w.pendingCleared = append(w.pendingCleared, sessionID)
 }
 
 func TestHandleUpdateSessionStatus_CleansUpWorkoutChatOnTerminalState(t *testing.T) {
@@ -201,6 +206,10 @@ func TestHandleUpdateSessionStatus_CleansUpWorkoutChatOnTerminalState(t *testing
 
 	if len(spy.cleaned) != 1 || spy.cleaned[0] != session.ID {
 		t.Fatalf("expected workout chat cleanup for session %d, got %v", session.ID, spy.cleaned)
+	}
+
+	if len(spy.pendingCleared) != 1 || spy.pendingCleared[0] != session.ID {
+		t.Fatalf("expected pending exercises cleared for session %d, got %v", session.ID, spy.pendingCleared)
 	}
 }
 
@@ -251,13 +260,15 @@ func TestHandleSkipWorkoutSessionCompat(t *testing.T) {
 	}
 	defer db.Close()
 
+	spy := &workoutInteractorSpy{}
+	userID := int64(123456)
 	srv := &Server{
 		workouts:      db,
 		workoutSvc:    workoutsvc.New(db),
-		allowedUserID: 123456,
+		workout:       spy,
+		allowedUserID: userID,
 	}
 
-	userID := int64(123456)
 	group, _ := db.CreateWorkoutGroup("Test", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
 	variant, _ := db.CreateWorkoutVariant(group.ID, "A", nil, "")
 	session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
@@ -280,6 +291,52 @@ func TestHandleSkipWorkoutSessionCompat(t *testing.T) {
 	updated, _ := db.GetWorkoutSession(session.ID)
 	if updated.Status != "skipped" {
 		t.Errorf("Expected session status to be 'skipped', got %s", updated.Status)
+	}
+
+	if len(spy.cleaned) != 1 || spy.cleaned[0] != session.ID {
+		t.Fatalf("expected workout chat cleanup for session %d, got %v", session.ID, spy.cleaned)
+	}
+	if len(spy.pendingCleared) != 1 || spy.pendingCleared[0] != session.ID {
+		t.Fatalf("expected pending exercises cleared for session %d, got %v", session.ID, spy.pendingCleared)
+	}
+}
+
+func TestHandleSkipWorkoutSession_ClearsPendingExercises(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	defer db.Close()
+
+	spy := &workoutInteractorSpy{}
+	userID := int64(123456)
+	srv := &Server{
+		workouts:      db,
+		workoutSvc:    workoutsvc.New(db),
+		workout:       spy,
+		allowedUserID: userID,
+	}
+
+	group, _ := db.CreateWorkoutGroup("Test", "Test", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	variant, _ := db.CreateWorkoutVariant(group.ID, "A", nil, "")
+	session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/workout/sessions/%d/skip", session.ID), nil)
+	req.SetPathValue("id", fmt.Sprintf("%d", session.ID))
+	req = withUser(req, userID)
+	w := httptest.NewRecorder()
+
+	srv.handleSkipWorkoutSession(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	if len(spy.cleaned) != 1 || spy.cleaned[0] != session.ID {
+		t.Fatalf("expected workout chat cleanup for session %d, got %v", session.ID, spy.cleaned)
+	}
+	if len(spy.pendingCleared) != 1 || spy.pendingCleared[0] != session.ID {
+		t.Fatalf("expected pending exercises cleared for session %d, got %v", session.ID, spy.pendingCleared)
 	}
 }
 

@@ -120,7 +120,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
 			slog.Error("send failed", "error", err)
 		}
-		b.clearPendingExercises(sessionID)
+		b.ClearPendingExercises(sessionID)
 		if err := b.CleanupWorkoutSessionMessages(sessionID); err != nil {
 			slog.Error("Failed to cleanup workout messages", "error", err)
 		}
@@ -148,7 +148,7 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "👍 Workout saved.")); err != nil {
 			slog.Error("send failed", "error", err)
 		}
-		b.clearPendingExercises(sessionID)
+		b.ClearPendingExercises(sessionID)
 		if err := b.CleanupWorkoutSessionMessages(sessionID); err != nil {
 			slog.Error("Failed to cleanup workout messages", "error", err)
 		}
@@ -247,7 +247,7 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 		return
 	}
 
-	// Verify the user owns this session
+	// Verify the user owns this session and it is still in progress
 	session, err := b.workouts.GetWorkoutSession(sessionID)
 	if err != nil || session == nil || session.UserID != cb.From.ID {
 		slog.Error("Session not found or unauthorized", "sessionID", sessionID, "userID", cb.From.ID)
@@ -256,10 +256,15 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 		}
 		return
 	}
+	if session.Status != "in_progress" {
+		slog.Info("Ignoring exercise callback for non-in_progress session", "sessionID", sessionID, "status", session.Status)
+		return
+	}
 
 	switch action {
 	case "done":
-		if err := b.exerciseSvc.LogExercise(sessionID, exerciseID, "completed"); err != nil {
+		changed, err := b.exerciseSvc.LogExercise(sessionID, exerciseID, "completed")
+		if err != nil {
 			slog.Error("Failed to log exercise", "error", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise.")); err != nil {
 				slog.Error("send failed", "error", err)
@@ -276,11 +281,14 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			slog.Error("send failed: edit message text", "error", err)
 		}
 
-		b.sendNextPendingExercise(sessionID)
-		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
+		if changed {
+			b.sendNextPendingExercise(sessionID)
+			b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
+		}
 
 	case "skip":
-		if err := b.exerciseSvc.LogExercise(sessionID, exerciseID, "skipped"); err != nil {
+		changed, err := b.exerciseSvc.LogExercise(sessionID, exerciseID, "skipped")
+		if err != nil {
 			slog.Error("Failed to log skipped exercise", "error", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise.")); err != nil {
 				slog.Error("send failed", "error", err)
@@ -296,11 +304,14 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			slog.Error("send failed: edit message text", "error", err)
 		}
 
-		b.sendNextPendingExercise(sessionID)
-		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
+		if changed {
+			b.sendNextPendingExercise(sessionID)
+			b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
+		}
 
 	case "edit":
-		if err := b.exerciseSvc.LogExercise(sessionID, exerciseID, "completed"); err != nil {
+		changed, err := b.exerciseSvc.LogExercise(sessionID, exerciseID, "completed")
+		if err != nil {
 			slog.Error("Failed to log exercise (edit)", "error", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise.")); err != nil {
 				slog.Error("send failed", "error", err)
@@ -321,8 +332,10 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 			slog.Error("send failed: edit message text", "error", err)
 		}
 
-		b.sendNextPendingExercise(sessionID)
-		b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
+		if changed {
+			b.sendNextPendingExercise(sessionID)
+			b.checkWorkoutCompletion(sessionID, cb.Message.Chat.ID)
+		}
 	}
 }
 
@@ -343,7 +356,25 @@ func (b *Bot) sendNextPendingExercise(sessionID int64) {
 	}
 	b.pendingExercisesMu.Unlock()
 
-	_, err := b.SendExercisePrompt(sessionID, next.ExerciseID,
+	// Re-check session status to avoid sending prompts for sessions that were
+	// completed/skipped via the web while a Telegram callback was in flight.
+	session, err := b.workouts.GetWorkoutSession(sessionID)
+	if err != nil {
+		// Transient failure — re-insert the exercise so it's not permanently lost.
+		slog.Error("Failed to re-check session for pending exercise, re-queuing", "error", err, "sessionID", sessionID)
+		b.pendingExercisesMu.Lock()
+		if b.pendingExercises == nil {
+			b.pendingExercises = make(map[int64][]pendingExercise)
+		}
+		b.pendingExercises[sessionID] = append([]pendingExercise{next}, b.pendingExercises[sessionID]...)
+		b.pendingExercisesMu.Unlock()
+		return
+	}
+	if session == nil || session.Status != "in_progress" {
+		return
+	}
+
+	_, err = b.SendExercisePrompt(sessionID, next.ExerciseID,
 		fmt.Sprintf("%d. %s", next.Index, next.ExerciseName),
 		next.TargetSets, next.TargetRepsMin, next.TargetRepsMax, next.TargetWeightKg)
 	if err != nil {
@@ -351,8 +382,10 @@ func (b *Bot) sendNextPendingExercise(sessionID int64) {
 	}
 }
 
-// clearPendingExercises removes any remaining pending exercises for the session.
-func (b *Bot) clearPendingExercises(sessionID int64) {
+// ClearPendingExercises removes any remaining pending exercises for the session.
+// Exported so that the web handler can clear the queue when a session is
+// completed or skipped via the API.
+func (b *Bot) ClearPendingExercises(sessionID int64) {
 	b.pendingExercisesMu.Lock()
 	delete(b.pendingExercises, sessionID)
 	b.pendingExercisesMu.Unlock()
@@ -362,6 +395,11 @@ func (b *Bot) clearPendingExercises(sessionID int64) {
 func (b *Bot) checkWorkoutCompletion(sessionID int64, chatID int64) {
 	session, err := b.workouts.GetWorkoutSession(sessionID)
 	if err != nil || session == nil {
+		return
+	}
+	// Don't send a finish card if the session was already completed/skipped
+	// (e.g. via the web API while the Telegram callback was in flight).
+	if session.Status != "in_progress" {
 		return
 	}
 
