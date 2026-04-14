@@ -15,6 +15,9 @@ import (
 // ErrNotPending is returned when an intake is not in PENDING state.
 var ErrNotPending = errors.New("intake is not pending")
 
+// ErrNotTaken is returned when an intake is not in TAKEN state.
+var ErrNotTaken = errors.New("intake is not taken")
+
 // MedicationStore is the narrow store interface required by MedicationService.
 type MedicationStore interface {
 	GetIntake(id int64) (*store.IntakeLog, error)
@@ -29,6 +32,7 @@ type MedicationStore interface {
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
 	CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error)
 	DecrementInventory(medID int64, qty int) error
+	UpdateIntake(id int64, takenAt time.Time, status string) error
 }
 
 // MedicationService is the public interface for medication business logic.
@@ -63,6 +67,10 @@ type MedicationService interface {
 	// SilenceIntake snoozes a pending intake for 24 hours and returns reminder message IDs
 	// so the caller can delete the current reminder message.
 	SilenceIntake(intakeID int64) (reminderMsgIDs []int, err error)
+
+	// CancelIntake reverts a TAKEN intake back to PENDING and increments inventory.
+	// Returns the medication name and dosage for display, and any error.
+	CancelIntake(intakeID int64) (medName string, medDosage string, err error)
 }
 
 type medicationService struct {
@@ -222,6 +230,41 @@ func (s *medicationService) ConfirmMedicationByMedID(medID int64, takenAt time.T
 	})
 
 	return s.ConfirmIntakeWithCleanup(matching[0].ID, takenAt)
+}
+
+func (s *medicationService) CancelIntake(intakeID int64) (string, string, error) {
+	intake, err := s.store.GetIntake(intakeID)
+	if err != nil {
+		return "", "", fmt.Errorf("get intake %d: %w", intakeID, err)
+	}
+	if intake == nil || intake.Status != "TAKEN" {
+		return "", "", ErrNotTaken
+	}
+
+	// Fetch medication name/dosage for display (best-effort).
+	medName, medDosage := "", ""
+	if med, err := s.store.GetMedication(intake.MedicationID); err != nil {
+		slog.Error("GetMedication for intake failed", "intakeID", intakeID, "error", err)
+	} else if med != nil {
+		medName = med.Name
+		medDosage = med.Dosage
+	}
+
+	// Revert to PENDING with zero taken_at.
+	if err := s.store.UpdateIntake(intakeID, time.Time{}, "PENDING"); err != nil {
+		return "", "", fmt.Errorf("update intake %d: %w", intakeID, err)
+	}
+
+	// Increment inventory (reverse the decrement). Best-effort.
+	// NOTE: if the original decrement on confirm failed (also best-effort),
+	// this increment adds stock that was never removed. Accepted limitation
+	// of the best-effort inventory system; proper tracking would require
+	// a schema change to record whether the decrement actually succeeded.
+	if err := s.store.DecrementInventory(intake.MedicationID, -1); err != nil {
+		slog.Error("DecrementInventory (undo) failed", "intakeID", intakeID, "error", err)
+	}
+
+	return medName, medDosage, nil
 }
 
 func (s *medicationService) SilenceIntake(intakeID int64) ([]int, error) {

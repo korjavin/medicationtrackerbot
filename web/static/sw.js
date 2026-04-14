@@ -509,7 +509,7 @@ self.addEventListener('notificationclick', (event) => {
         }
     } else if (data.type === 'medication_early_confirmed') {
         // User took medication early and got a confirmation notification
-        if (action === 'cancel_intake') {
+        if (action.startsWith('cancel_intake')) {
             // Cancel/undo the early intake
             event.waitUntil(handleCancelIntake(data));
         } else {
