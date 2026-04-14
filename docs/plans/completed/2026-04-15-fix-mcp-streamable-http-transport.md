@@ -41,5 +41,5 @@ The MCP server uses the legacy SSE transport (2024-11-05 spec) via `mcp.NewSSEHa
 
 ### Task 3: Update documentation
 
-- [ ] Update CLAUDE.md: in the MCP Server section, note the transport is Streamable HTTP (2025-03-26 spec), not SSE
-- [ ] Move this plan to `docs/plans/completed/`
+- [x] Update CLAUDE.md: in the MCP Server section, note the transport is Streamable HTTP (2025-03-26 spec), not SSE
+- [x] Move this plan to `docs/plans/completed/`
