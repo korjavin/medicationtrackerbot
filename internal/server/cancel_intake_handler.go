@@ -2,9 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
-	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 )
 
 // handleCancelIntake allows reverting a TAKEN intake back to PENDING
@@ -24,7 +26,7 @@ func (s *Server) handleCancelIntake(w http.ResponseWriter, r *http.Request) {
 	cancelledCount := 0
 
 	for _, intakeID := range req.IntakeIDs {
-		// Verify ownership
+		// Verify ownership before delegating to domain service
 		intake, err := s.meds.GetIntake(intakeID)
 		if err != nil {
 			slog.Error("Error getting intake", "intakeID", intakeID, "error", err)
@@ -35,22 +37,14 @@ func (s *Server) handleCancelIntake(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Only allow cancelling if currently TAKEN
-		if intake.Status != "TAKEN" {
-			slog.Warn("Intake is not TAKEN, skipping", "intakeID", intakeID, "status", intake.Status)
+		// Delegate to domain service for business logic
+		if _, _, err := s.medSvc.CancelIntake(intakeID); err != nil {
+			if errors.Is(err, domain.ErrNotTaken) {
+				slog.Warn("Intake is not TAKEN, skipping", "intakeID", intakeID)
+			} else {
+				slog.Error("Error cancelling intake", "intakeID", intakeID, "error", err)
+			}
 			continue
-		}
-
-		// Revert to PENDING status
-		emptyTime := time.Time{} // Zero time for taken_at
-		if err := s.meds.UpdateIntake(intakeID, emptyTime, "PENDING"); err != nil {
-			slog.Error("Error reverting intake to PENDING", "intakeID", intakeID, "error", err)
-			continue
-		}
-
-		// Increment inventory back (undoing the decrement)
-		if err := s.meds.DecrementInventory(intake.MedicationID, -1); err != nil {
-			slog.Error("Error incrementing inventory on cancel", "error", err)
 		}
 
 		cancelledCount++
