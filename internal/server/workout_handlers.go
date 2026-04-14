@@ -1123,14 +1123,23 @@ func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Best-effort propagation of weight/reps/sets to workout schedule
+	// Best-effort propagation of weight/reps/sets to workout schedule.
+	// Only propagate non-zero values to avoid overwriting schedule with defaults.
+	propagateSets := req.SetsCompleted
+	propagateReps := req.RepsCompleted
+	if propagateSets != nil && *propagateSets == 0 {
+		propagateSets = nil
+	}
+	if propagateReps != nil && *propagateReps == 0 {
+		propagateReps = nil
+	}
 	if logEntry, err := s.workouts.GetExerciseLogByID(req.ID); err != nil {
 		slog.Error("propagate: fetch exercise log", "error", err, "log_id", req.ID)
 	} else if logEntry == nil {
 		slog.Error("propagate: exercise log not found after update", "log_id", req.ID)
 	} else if err := s.workouts.PropagateExerciseToSchedule(
 		logEntry.SessionID, logEntry.ExerciseID,
-		req.SetsCompleted, req.RepsCompleted, req.WeightKg,
+		propagateSets, propagateReps, req.WeightKg,
 	); err != nil {
 		slog.Error("propagate: update schedule", "error", err, "session_id", logEntry.SessionID, "exercise_id", logEntry.ExerciseID)
 	}
