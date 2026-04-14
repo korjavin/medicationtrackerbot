@@ -36,6 +36,8 @@ type WorkoutInteractor interface {
 	StartWorkoutFlowFromWeb(sessionID int64) error
 	// CleanupWorkoutSessionMessages removes tracked chat messages related to this workout session.
 	CleanupWorkoutSessionMessages(sessionID int64) error
+	// ClearPendingExercises removes any queued exercise prompts for the session.
+	ClearPendingExercises(sessionID int64)
 }
 
 type Server struct {

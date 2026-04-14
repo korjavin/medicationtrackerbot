@@ -18,6 +18,17 @@ import (
 	workoutsvc "github.com/korjavin/medicationtrackerbot/internal/workout"
 )
 
+// pendingExercise holds the metadata needed to send a deferred exercise prompt.
+type pendingExercise struct {
+	Index        int      // 1-based display index
+	ExerciseID   int64
+	ExerciseName string
+	TargetSets   int
+	TargetRepsMin int
+	TargetRepsMax *int
+	TargetWeightKg *float64
+}
+
 type Bot struct {
 	api           *tgbotapi.BotAPI
 	meds          MedicationStore
@@ -41,6 +52,9 @@ type Bot struct {
 
 	workoutMessagesMu sync.Mutex
 	workoutMessages   map[int64]map[int]struct{}
+
+	pendingExercisesMu sync.Mutex
+	pendingExercises   map[int64][]pendingExercise
 
 	awaitingLocationMu     sync.Mutex
 	awaitingLocationChatID int64 // non-zero means /tz was invoked in this chat and location is expected
@@ -75,26 +89,27 @@ func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAI
 	}
 
 	return &Bot{
-		api:           api,
-		meds:          s,
-		medSvc:        domain.NewMedicationService(s),
-		bp:            s,
-		weight:        s,
-		workouts:      s,
-		workoutSvc:    workoutsvc.New(s),
-		exerciseSvc:   domain.NewExerciseService(s),
-		reminderSvc:   domain.NewReminderService(s),
-		food:          s,
-		foodAI:        foodAI,
-		activityAI:    activityAI,
-		activityLog:   s,
-		imports:       s,
-		notes:         s,
-		timezone:      s,
-		tzPlanStore:   s,
-		allowedUserID: allowedUserID,
-		appDomain:     appDomain,
-		httpClient:    &http.Client{Timeout: 30 * time.Second},
+		api:              api,
+		meds:             s,
+		medSvc:           domain.NewMedicationService(s),
+		bp:               s,
+		weight:           s,
+		workouts:         s,
+		workoutSvc:       workoutsvc.New(s),
+		exerciseSvc:      domain.NewExerciseService(s),
+		reminderSvc:      domain.NewReminderService(s),
+		food:             s,
+		foodAI:           foodAI,
+		activityAI:       activityAI,
+		activityLog:      s,
+		imports:          s,
+		notes:            s,
+		timezone:         s,
+		tzPlanStore:      s,
+		allowedUserID:    allowedUserID,
+		appDomain:        appDomain,
+		httpClient:       &http.Client{Timeout: 30 * time.Second},
+		pendingExercises: make(map[int64][]pendingExercise),
 	}, nil
 }
 

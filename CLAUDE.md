@@ -202,6 +202,7 @@ Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.Exerci
 - **Scheduling**: Configurable days of week, notification advance time (default 15 min)
 - **Snooze**: 1-hour or 2-hour options
 - **Logging**: Exercise-by-exercise with sets, reps, weight
+- **Prompt Batching**: At most 3 exercise prompts shown at once; remaining queued in-memory (`pendingExercises` map on Bot struct) and sent one-at-a-time as user completes/skips
 - **Stats**: Streak tracking, completion rates, session history
 
 ### MCP Server
