@@ -961,6 +961,62 @@ func (s *Store) DeleteExerciseLog(id int64) error {
 	return err
 }
 
+// GetExerciseLogByID fetches a single exercise log by its primary key.
+func (s *Store) GetExerciseLogByID(id int64) (*WorkoutExerciseLog, error) {
+	var log WorkoutExerciseLog
+	var setsCompleted, repsCompleted sql.NullInt64
+	var weightKg sql.NullFloat64
+	var notes sql.NullString
+
+	err := s.db.QueryRow(`
+		SELECT id, session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, logged_at
+		FROM workout_exercise_logs
+		WHERE id = ?`, id).Scan(
+		&log.ID, &log.SessionID, &log.ExerciseID, &log.ExerciseName,
+		&setsCompleted, &repsCompleted, &weightKg, &log.Status, &notes, &log.LoggedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if setsCompleted.Valid {
+		s := int(setsCompleted.Int64)
+		log.SetsCompleted = &s
+	}
+	if repsCompleted.Valid {
+		r := int(repsCompleted.Int64)
+		log.RepsCompleted = &r
+	}
+	if weightKg.Valid {
+		log.WeightKg = &weightKg.Float64
+	}
+	if notes.Valid {
+		log.Notes = notes.String
+	}
+
+	return &log, nil
+}
+
+// PropagateExerciseToSchedule updates the workout_exercises schedule definition
+// with values from a session's exercise log, but only if the session is still
+// pending/notified/in_progress and the exercise belongs to the session's variant.
+func (s *Store) PropagateExerciseToSchedule(sessionID, exerciseID int64, sets *int, reps *int, weight *float64) error {
+	_, err := s.db.Exec(`
+		UPDATE workout_exercises
+		SET target_sets = COALESCE(?, target_sets),
+		    target_reps_min = COALESCE(?, target_reps_min),
+		    target_weight_kg = COALESCE(?, target_weight_kg)
+		WHERE id = ?
+		AND variant_id = (
+		    SELECT variant_id FROM workout_sessions
+		    WHERE id = ? AND status IN ('pending', 'notified', 'in_progress')
+		)`, sets, reps, weight, exerciseID, sessionID)
+	return err
+}
+
 // GetExerciseLogBySessionAndExercise returns an existing log for a given session+exercise pair, if any
 func (s *Store) GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) (*WorkoutExerciseLog, error) {
 	var log WorkoutExerciseLog
