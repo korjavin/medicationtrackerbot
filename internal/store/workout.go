@@ -74,6 +74,7 @@ type WorkoutExerciseLog struct {
 	Status        string    `json:"status"` // completed, skipped
 	Notes         string    `json:"notes,omitempty"`
 	LoggedAt      time.Time `json:"logged_at"`
+	Source        string    `json:"source"` // "schedule" or "library"
 }
 
 // WorkoutRotationState tracks the current rotation position
@@ -885,10 +886,16 @@ func (s *Store) SetSessionNotificationMessageID(id int64, messageID int) error {
 // -- Exercise Log Methods --
 
 func (s *Store) LogExercise(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes string) (int64, error) {
+	return s.LogExerciseWithSource(sessionID, exerciseID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes, "schedule")
+}
+
+// LogExerciseWithSource inserts an exercise log with an explicit source value.
+// Source should be "schedule" for workout_exercises or "library" for exercise_library.
+func (s *Store) LogExerciseWithSource(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, error) {
 	res, err := s.db.Exec(`
-		INSERT INTO workout_exercise_logs (session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		sessionID, exerciseID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes)
+		INSERT INTO workout_exercise_logs (session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, source)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		sessionID, exerciseID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes, source)
 	if err != nil {
 		return 0, err
 	}
@@ -897,9 +904,9 @@ func (s *Store) LogExercise(sessionID, exerciseID int64, exerciseName string, se
 
 func (s *Store) GetExerciseLogs(sessionID int64) ([]WorkoutExerciseLog, error) {
 	rows, err := s.db.Query(`
-		SELECT id, session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, logged_at
-		FROM workout_exercise_logs 
-		WHERE session_id = ? 
+		SELECT id, session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, logged_at, source
+		FROM workout_exercise_logs
+		WHERE session_id = ?
 		ORDER BY id ASC`, sessionID)
 	if err != nil {
 		return nil, err
@@ -913,7 +920,7 @@ func (s *Store) GetExerciseLogs(sessionID int64) ([]WorkoutExerciseLog, error) {
 		var weightKg sql.NullFloat64
 		var notes sql.NullString
 
-		if err := rows.Scan(&log.ID, &log.SessionID, &log.ExerciseID, &log.ExerciseName, &setsCompleted, &repsCompleted, &weightKg, &log.Status, &notes, &log.LoggedAt); err != nil {
+		if err := rows.Scan(&log.ID, &log.SessionID, &log.ExerciseID, &log.ExerciseName, &setsCompleted, &repsCompleted, &weightKg, &log.Status, &notes, &log.LoggedAt, &log.Source); err != nil {
 			return nil, err
 		}
 
@@ -961,6 +968,119 @@ func (s *Store) DeleteExerciseLog(id int64) error {
 	return err
 }
 
+// SetExerciseLogSource updates the source field of an exercise log entry.
+// Valid values: "schedule" (from workout_exercises) or "library" (from exercise_library).
+func (s *Store) SetExerciseLogSource(id int64, source string) error {
+	_, err := s.db.Exec("UPDATE workout_exercise_logs SET source = ? WHERE id = ?", source, id)
+	return err
+}
+
+// GetExerciseLogByID fetches a single exercise log by its primary key.
+func (s *Store) GetExerciseLogByID(id int64) (*WorkoutExerciseLog, error) {
+	var log WorkoutExerciseLog
+	var setsCompleted, repsCompleted sql.NullInt64
+	var weightKg sql.NullFloat64
+	var notes sql.NullString
+
+	err := s.db.QueryRow(`
+		SELECT id, session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, logged_at, source
+		FROM workout_exercise_logs
+		WHERE id = ?`, id).Scan(
+		&log.ID, &log.SessionID, &log.ExerciseID, &log.ExerciseName,
+		&setsCompleted, &repsCompleted, &weightKg, &log.Status, &notes, &log.LoggedAt, &log.Source,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if setsCompleted.Valid {
+		s := int(setsCompleted.Int64)
+		log.SetsCompleted = &s
+	}
+	if repsCompleted.Valid {
+		r := int(repsCompleted.Int64)
+		log.RepsCompleted = &r
+	}
+	if weightKg.Valid {
+		log.WeightKg = &weightKg.Float64
+	}
+	if notes.Valid {
+		log.Notes = notes.String
+	}
+
+	return &log, nil
+}
+
+// GetExerciseLogBySessionExerciseSource returns an existing log for a given
+// session+exercise+source triple. This is needed when the unique index includes
+// source (schedule vs library) to avoid matching the wrong table's log entry.
+func (s *Store) GetExerciseLogBySessionExerciseSource(sessionID, exerciseID int64, source string) (*WorkoutExerciseLog, error) {
+	var log WorkoutExerciseLog
+	var setsCompleted, repsCompleted sql.NullInt64
+	var weightKg sql.NullFloat64
+	var notes sql.NullString
+
+	err := s.db.QueryRow(`
+		SELECT id, session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, logged_at, source
+		FROM workout_exercise_logs
+		WHERE session_id = ? AND exercise_id = ? AND source = ?
+		LIMIT 1`, sessionID, exerciseID, source).Scan(
+		&log.ID, &log.SessionID, &log.ExerciseID, &log.ExerciseName,
+		&setsCompleted, &repsCompleted, &weightKg, &log.Status, &notes, &log.LoggedAt, &log.Source,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if setsCompleted.Valid {
+		s := int(setsCompleted.Int64)
+		log.SetsCompleted = &s
+	}
+	if repsCompleted.Valid {
+		r := int(repsCompleted.Int64)
+		log.RepsCompleted = &r
+	}
+	if weightKg.Valid {
+		log.WeightKg = &weightKg.Float64
+	}
+	if notes.Valid {
+		log.Notes = notes.String
+	}
+
+	return &log, nil
+}
+
+// PropagateExerciseToSchedule updates the workout_exercises schedule definition
+// with values from a session's exercise log, but only if the session is still
+// pending/notified/in_progress and the exercise belongs to the session's variant.
+// Uses exerciseID (workout_exercises.id) as the identity key. The exerciseName
+// check prevents cross-table ID collisions between exercise_library and
+// workout_exercises from corrupting the wrong scheduled exercise.
+func (s *Store) PropagateExerciseToSchedule(sessionID int64, exerciseID int64, exerciseName string, sets *int, reps *int, weight *float64) error {
+	_, err := s.db.Exec(`
+		UPDATE workout_exercises
+		SET target_sets = COALESCE(?, target_sets),
+		    target_reps_min = COALESCE(?, target_reps_min),
+		    target_reps_max = CASE
+		        WHEN ? IS NOT NULL AND target_reps_max IS NOT NULL AND ? > target_reps_max THEN NULL
+		        ELSE target_reps_max
+		    END,
+		    target_weight_kg = COALESCE(?, target_weight_kg)
+		WHERE id = ?
+		AND exercise_name = ?
+		AND variant_id = (
+		    SELECT variant_id FROM workout_sessions
+		    WHERE id = ? AND status IN ('pending', 'notified', 'in_progress')
+		)`, sets, reps, reps, reps, weight, exerciseID, exerciseName, sessionID)
+	return err
+}
+
 // GetExerciseLogBySessionAndExercise returns an existing log for a given session+exercise pair, if any
 func (s *Store) GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) (*WorkoutExerciseLog, error) {
 	var log WorkoutExerciseLog
@@ -969,12 +1089,12 @@ func (s *Store) GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) 
 	var notes sql.NullString
 
 	err := s.db.QueryRow(`
-		SELECT id, session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, logged_at
-		FROM workout_exercise_logs 
+		SELECT id, session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, logged_at, source
+		FROM workout_exercise_logs
 		WHERE session_id = ? AND exercise_id = ?
 		LIMIT 1`, sessionID, exerciseID).Scan(
 		&log.ID, &log.SessionID, &log.ExerciseID, &log.ExerciseName,
-		&setsCompleted, &repsCompleted, &weightKg, &log.Status, &notes, &log.LoggedAt,
+		&setsCompleted, &repsCompleted, &weightKg, &log.Status, &notes, &log.LoggedAt, &log.Source,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil

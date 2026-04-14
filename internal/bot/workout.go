@@ -54,6 +54,16 @@ func (b *Bot) SendWorkoutNotification(text string, sessionID int64) (int, error)
 
 // SendExercisePrompt sends a prompt for a specific exercise during workout
 func (b *Bot) SendExercisePrompt(sessionID int64, exerciseID int64, exerciseName string, sets, repsMin int, repsMax *int, weightKg *float64) (int, error) {
+	return b.sendExercisePromptWithSource(sessionID, exerciseID, exerciseName, sets, repsMin, repsMax, weightKg, false)
+}
+
+// SendExercisePromptFromLibrary sends an exercise prompt for a library-sourced exercise.
+// The callback data encodes the library origin so LogExercise skips workout_exercises lookup.
+func (b *Bot) SendExercisePromptFromLibrary(sessionID int64, exerciseID int64, exerciseName string, sets, repsMin int, repsMax *int, weightKg *float64) (int, error) {
+	return b.sendExercisePromptWithSource(sessionID, exerciseID, exerciseName, sets, repsMin, repsMax, weightKg, true)
+}
+
+func (b *Bot) sendExercisePromptWithSource(sessionID int64, exerciseID int64, exerciseName string, sets, repsMin int, repsMax *int, weightKg *float64, fromLibrary bool) (int, error) {
 	repsStr := fmt.Sprintf("%d", repsMin)
 	if repsMax != nil && *repsMax != repsMin {
 		repsStr = fmt.Sprintf("%d-%d", repsMin, *repsMax)
@@ -64,13 +74,20 @@ func (b *Bot) SendExercisePrompt(sessionID int64, exerciseID int64, exerciseName
 		text += fmt.Sprintf(" @ %.0fkg", *weightKg)
 	}
 
+	// Encode exercise source in callback data: "L" prefix for library IDs to prevent
+	// cross-table ID collisions between exercise_library and workout_exercises.
+	idStr := fmt.Sprintf("%d", exerciseID)
+	if fromLibrary {
+		idStr = fmt.Sprintf("L%d", exerciseID)
+	}
+
 	// Create inline keyboard for exercise actions
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("✅ Done", fmt.Sprintf("exercise_done_%d_%d", sessionID, exerciseID)),
+			tgbotapi.NewInlineKeyboardButtonData("✅ Done", fmt.Sprintf("exercise_done_%d_%s", sessionID, idStr)),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("⏭ Skip Exercise", fmt.Sprintf("exercise_skip_%d_%d", sessionID, exerciseID)),
+			tgbotapi.NewInlineKeyboardButtonData("⏭ Skip Exercise", fmt.Sprintf("exercise_skip_%d_%s", sessionID, idStr)),
 		),
 	)
 

@@ -238,7 +238,15 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 		}
 		return
 	}
-	exerciseID, err := strconv.ParseInt(parts[3], 10, 64)
+	// Exercise ID may have an "L" prefix indicating a library-sourced exercise.
+	// This prevents cross-table ID collisions between exercise_library and workout_exercises.
+	exerciseIDStr := parts[3]
+	fromLibrary := false
+	if strings.HasPrefix(exerciseIDStr, "L") {
+		fromLibrary = true
+		exerciseIDStr = exerciseIDStr[1:]
+	}
+	exerciseID, err := strconv.ParseInt(exerciseIDStr, 10, 64)
 	if err != nil {
 		slog.Error("Failed to parse exercise ID from callback data", "error", err)
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Invalid callback data.")); err != nil {
@@ -263,7 +271,7 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 
 	switch action {
 	case "done":
-		changed, err := b.exerciseSvc.LogExercise(sessionID, exerciseID, "completed")
+		changed, err := b.exerciseSvc.LogExercise(sessionID, exerciseID, "completed", fromLibrary)
 		if err != nil {
 			slog.Error("Failed to log exercise", "error", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise.")); err != nil {
@@ -287,7 +295,7 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 		}
 
 	case "skip":
-		changed, err := b.exerciseSvc.LogExercise(sessionID, exerciseID, "skipped")
+		changed, err := b.exerciseSvc.LogExercise(sessionID, exerciseID, "skipped", fromLibrary)
 		if err != nil {
 			slog.Error("Failed to log skipped exercise", "error", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise.")); err != nil {
@@ -310,7 +318,7 @@ func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
 		}
 
 	case "edit":
-		changed, err := b.exerciseSvc.LogExercise(sessionID, exerciseID, "completed")
+		changed, err := b.exerciseSvc.LogExercise(sessionID, exerciseID, "completed", fromLibrary)
 		if err != nil {
 			slog.Error("Failed to log exercise (edit)", "error", err)
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error logging exercise.")); err != nil {

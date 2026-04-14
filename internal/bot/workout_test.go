@@ -205,7 +205,7 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 	}
 
 	zero := 0
-	variant2, err := s.CreateWorkoutVariant(group.ID, "Variant 2", &zero, "")
+	_, err = s.CreateWorkoutVariant(group.ID, "Variant 2", &zero, "")
 	if err != nil {
 		t.Fatalf("CreateVariant2: %v", err)
 	}
@@ -222,10 +222,14 @@ func TestCheckWorkoutCompletion_PostCompletionAddition(t *testing.T) {
 		t.Fatalf("AddExercise1: %v", err)
 	}
 
-	// Create exercise for Variant 2 (so we have a "new" exercise to add later)
-	ex2, err := s.AddExerciseToVariant(variant2.ID, "Pullups", 3, 5, nil, nil, 0)
+	// Create a few library items so that the target library exercise gets an ID
+	// that doesn't collide with any workout_exercises ID. In production, the library
+	// is seeded from existing exercises during migration 028, so IDs diverge early.
+	_, _ = s.CreateExerciseLibraryItem(userID, "Dummy1", 1, 1, nil, nil, "")
+	_, _ = s.CreateExerciseLibraryItem(userID, "Dummy2", 1, 1, nil, nil, "")
+	libEx, err := s.CreateExerciseLibraryItem(userID, "Pullups", 3, 5, nil, nil, "")
 	if err != nil {
-		t.Fatalf("AddExercise2: %v", err)
+		t.Fatalf("CreateExerciseLibraryItem: %v", err)
 	}
 
 	// Create session for Variant 1
@@ -275,8 +279,9 @@ loop:
 		t.Fatalf("Timeout waiting for initial completion message")
 	}
 
-	// 6. User adds a NEW exercise (ex2 from Variant 2) *after* completion
-	// Simulate "Done" callback for the NEW exercise
+	// 6. User adds a NEW exercise from the library *after* completion
+	// Simulate "Done" callback for the NEW exercise (uses library ID, as the real
+	// handleSelectExerciseCallback does)
 	cb2 := &tgbotapi.CallbackQuery{
 		From: &tgbotapi.User{ID: 123456},
 		Message: &tgbotapi.Message{
@@ -284,7 +289,7 @@ loop:
 			MessageID: 222,
 			Text:      "Pullups",
 		},
-		Data: fmt.Sprintf("exercise_done_%d_%d", session.ID, ex2.ID),
+		Data: fmt.Sprintf("exercise_done_%d_L%d", session.ID, libEx.ID),
 	}
 
 	// Consume any previous message tokens
@@ -305,11 +310,11 @@ loop2:
 	// P2: Verify completion message sent again via channel
 	select {
 	case msg := <-messageChan:
-		// After adding ex2 (from variant2) to a variant1 session and completing it,
+		// After adding a library exercise to a variant1 session and completing it,
 		// both exercises should be counted toward completion.
 		// TotalCount=2, CompletedCount=2 → "2/2".
 		if !strings.Contains(msg, "2/2") {
-			t.Errorf("Expected 2/2 completed exercises after adding exercise from variant2, got: %s", msg)
+			t.Errorf("Expected 2/2 completed exercises after adding library exercise, got: %s", msg)
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatalf("timeout: Expected completion message to be sent again after adding extra exercise")
