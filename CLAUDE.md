@@ -156,7 +156,7 @@ SQLite with 47 goose migrations tracking schema evolution:
 
 The bot (`internal/bot/`) is a thin communication channel — it parses Telegram-specific data and sends/deletes messages. All business decisions live in `internal/domain/`:
 
-- `domain/medication.go` — `MedicationService`: confirm/skip/log medication intakes, batch confirm a time slot
+- `domain/medication.go` — `MedicationService`: confirm/skip/cancel/log medication intakes, batch confirm a time slot
 - `domain/exercise.go` — `ExerciseService`: idempotent exercise log upsert, session completion check
 - `domain/reminder.go` — `ReminderService`: snooze/block BP and weight reminders
 - `domain/food.go` — food intake argument parsing and macro calculation
@@ -342,7 +342,7 @@ MCP_AUDIT_SECRET=secure-shared-secret
 
 ### Telegram Bot Callbacks
 - Callback data format is crucial for routing
-- Medication callbacks: `confirm_<id>`, `skip_<id>`, `snooze_<id>_<duration>`
+- Medication callbacks: `confirm_<id>`, `skip_<id>`, `snooze_<id>_<duration>`, `cancel_intake:<id1>,<id2>,...`
 - Workout callbacks: `workout_start_<session_id>`, `workout_exercise_done_<session_id>_<exercise_id>`
 - See `internal/bot/handlers.go` and `internal/bot/workout_callbacks.go`
 

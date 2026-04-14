@@ -623,6 +623,31 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			intakeIDStrs[i] = strconv.FormatInt(id, 10)
 		}
 		cancelActionID := "cancel_intake:" + strings.Join(intakeIDStrs, ",")
+		// Telegram Bot API limits callback_data to 64 bytes.
+		// Truncate the ID list to fit if needed (partial cancel is better than no notification).
+		const maxCallbackData = 64
+		if len(cancelActionID) > maxCallbackData {
+			prefix := "cancel_intake:"
+			remaining := maxCallbackData - len(prefix)
+			var truncated []string
+			used := 0
+			for _, s := range intakeIDStrs {
+				needed := len(s)
+				if len(truncated) > 0 {
+					needed++ // comma separator
+				}
+				if used+needed > remaining {
+					break
+				}
+				used += needed
+				truncated = append(truncated, s)
+			}
+			if len(truncated) > 0 {
+				cancelActionID = prefix + strings.Join(truncated, ",")
+			}
+			slog.Warn("cancel_intake callback_data truncated to fit Telegram limit",
+				"total_intakes", len(intakeIDStrs), "included", len(truncated))
+		}
 
 		n := notifier.Notification{
 			Text: fmt.Sprintf("**Medication taken early**\n%s (scheduled for %s)", strings.Join(earlyMedNames, ", "), nextTime.Format("15:04")),

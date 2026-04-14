@@ -30,6 +30,11 @@ type mockMedicationStore struct {
 	updateIntakeFn                func(id int64, takenAt time.Time, status string) error
 	lastConfirmedID               int64
 	decrementedMedIDs             []int64
+	decrementedQtys               []int
+	lastUpdateIntakeID            int64
+	lastUpdateIntakeStatus        string
+	lastUpdateIntakeTakenAt       time.Time
+	updateIntakeCalled            bool
 }
 
 func (m *mockMedicationStore) GetIntake(id int64) (*store.IntakeLog, error) {
@@ -111,6 +116,10 @@ func (m *mockMedicationStore) CreateManualIntake(medID, userID int64, takenAt ti
 }
 
 func (m *mockMedicationStore) UpdateIntake(id int64, takenAt time.Time, status string) error {
+	m.updateIntakeCalled = true
+	m.lastUpdateIntakeID = id
+	m.lastUpdateIntakeStatus = status
+	m.lastUpdateIntakeTakenAt = takenAt
 	if m.updateIntakeFn != nil {
 		return m.updateIntakeFn(id, takenAt, status)
 	}
@@ -119,6 +128,7 @@ func (m *mockMedicationStore) UpdateIntake(id int64, takenAt time.Time, status s
 
 func (m *mockMedicationStore) DecrementInventory(medID int64, qty int) error {
 	m.decrementedMedIDs = append(m.decrementedMedIDs, medID)
+	m.decrementedQtys = append(m.decrementedQtys, qty)
 	if m.decrementInventoryFn != nil {
 		return m.decrementInventoryFn(medID, qty)
 	}
@@ -158,9 +168,19 @@ func TestCancelIntake(t *testing.T) {
 			wantMedDosage: "100mg",
 		},
 		{
-			name: "not-taken intake returns ErrNotTaken",
+			name: "not-taken (PENDING) intake returns ErrNotTaken",
 			store: &mockMedicationStore{
 				getIntakeFn: func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+			},
+			intakeID: 42,
+			wantErr:  ErrNotTaken,
+		},
+		{
+			name: "SKIPPED intake returns ErrNotTaken",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) {
+					return &store.IntakeLog{ID: id, MedicationID: 10, UserID: 1, Status: "SKIPPED"}, nil
+				},
 			},
 			intakeID: 42,
 			wantErr:  ErrNotTaken,
@@ -204,6 +224,17 @@ func TestCancelIntake(t *testing.T) {
 			wantMedName:   "Aspirin",
 			wantMedDosage: "100mg",
 		},
+		{
+			name: "GetMedication error is non-fatal, returns empty name/dosage",
+			store: &mockMedicationStore{
+				getIntakeFn:     func(id int64) (*store.IntakeLog, error) { return takenIntake(id, 10), nil },
+				getMedicationFn: func(id int64) (*store.Medication, error) { return nil, errors.New("db error") },
+				updateIntakeFn:  func(id int64, takenAt time.Time, status string) error { return nil },
+			},
+			intakeID:      42,
+			wantMedName:   "",
+			wantMedDosage: "",
+		},
 	}
 
 	for _, tt := range tests {
@@ -231,6 +262,24 @@ func TestCancelIntake(t *testing.T) {
 			}
 			if medDosage != tt.wantMedDosage {
 				t.Errorf("medDosage: got %q, want %q", medDosage, tt.wantMedDosage)
+			}
+			// Verify UpdateIntake was called with correct arguments on happy paths
+			if tt.store.updateIntakeCalled {
+				if tt.store.lastUpdateIntakeID != tt.intakeID {
+					t.Errorf("UpdateIntake id: got %d, want %d", tt.store.lastUpdateIntakeID, tt.intakeID)
+				}
+				if tt.store.lastUpdateIntakeStatus != "PENDING" {
+					t.Errorf("UpdateIntake status: got %q, want %q", tt.store.lastUpdateIntakeStatus, "PENDING")
+				}
+				if !tt.store.lastUpdateIntakeTakenAt.IsZero() {
+					t.Errorf("UpdateIntake takenAt: got %v, want zero time", tt.store.lastUpdateIntakeTakenAt)
+				}
+			}
+			// Verify DecrementInventory was called with -1 (inventory increment)
+			if len(tt.store.decrementedMedIDs) > 0 {
+				if len(tt.store.decrementedQtys) == 0 || tt.store.decrementedQtys[0] != -1 {
+					t.Errorf("DecrementInventory qty: got %v, want [-1]", tt.store.decrementedQtys)
+				}
 			}
 		})
 	}
