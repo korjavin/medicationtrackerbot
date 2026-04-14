@@ -35,9 +35,9 @@ The MCP server uses the legacy SSE transport (2024-11-05 spec) via `mcp.NewSSEHa
 
 ### Task 2: Verify acceptance criteria
 
-- [ ] Run full test suite (`go test ./...`)
-- [ ] Run linter if available
-- [ ] Build binary successfully (`go build ./cmd/mcptool`)
+- [x] Run full test suite (`go test ./...`)
+- [x] Run linter if available
+- [x] Build binary successfully (`go build ./cmd/mcptool`)
 
 ### Task 3: Update documentation
 
