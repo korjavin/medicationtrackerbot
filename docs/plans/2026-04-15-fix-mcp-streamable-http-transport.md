@@ -28,10 +28,10 @@ The MCP server uses the legacy SSE transport (2024-11-05 spec) via `mcp.NewSSEHa
 **Files:**
 - Modify: `internal/mcp/mcp.go`
 
-- [ ] In the `Run` method (around line 513), replace `mcp.NewSSEHandler(...)` with `mcp.NewStreamableHTTPHandler(...)`, passing the same `getServer` closure and appropriate `StreamableHTTPOptions` (session timeout of 30 minutes, `slog.Default()` logger)
-- [ ] Remove the comment about SSEHandler
-- [ ] Update the `mux.Handle("/mcp", ...)` line -- the path `/mcp` stays the same but add a trailing-slash variant `/mcp/` to ensure both are routed
-- [ ] Verify the existing MCP tests still pass (`go test ./internal/mcp/...`)
+- [x] In the `Run` method (around line 513), replace `mcp.NewSSEHandler(...)` with `mcp.NewStreamableHTTPHandler(...)`, passing the same `getServer` closure and appropriate `StreamableHTTPOptions` (session timeout of 30 minutes, `slog.Default()` logger)
+- [x] Remove the comment about SSEHandler
+- [x] Update the `mux.Handle("/mcp", ...)` line -- the path `/mcp` stays the same but add a trailing-slash variant `/mcp/` to ensure both are routed
+- [x] Verify the existing MCP tests still pass (`go test ./internal/mcp/...`)
 
 ### Task 2: Verify acceptance criteria
 
