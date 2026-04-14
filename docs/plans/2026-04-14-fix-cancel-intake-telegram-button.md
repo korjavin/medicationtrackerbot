@@ -36,13 +36,13 @@ The "Cancel (Undo)" button on the Telegram early-intake confirmation message is 
 - Modify: `internal/domain/medication.go`
 - Modify: `internal/domain/medication_test.go`
 
-- [ ] Add `UpdateIntake(id int64, takenAt time.Time, status string) error` to `MedicationStore` interface
-- [ ] Add `ErrNotTaken` sentinel error (analogous to `ErrNotPending`)
-- [ ] Add `CancelIntake(intakeID int64) (medName string, medDosage string, err error)` to `MedicationService` interface
-- [ ] Implement `CancelIntake` on `medicationService`: check status is TAKEN, revert to PENDING (zero time), increment inventory (DecrementInventory with -1), return med name/dosage
-- [ ] Add `updateIntakeFn` to `mockMedicationStore` in test file
-- [ ] Write table-driven tests for CancelIntake: happy path, not-taken returns ErrNotTaken, nil intake returns ErrNotTaken, GetIntake error propagates, UpdateIntake error propagates, DecrementInventory error is non-fatal
-- [ ] Run `go test ./internal/domain/` — must pass
+- [x] Add `UpdateIntake(id int64, takenAt time.Time, status string) error` to `MedicationStore` interface
+- [x] Add `ErrNotTaken` sentinel error (analogous to `ErrNotPending`)
+- [x] Add `CancelIntake(intakeID int64) (medName string, medDosage string, err error)` to `MedicationService` interface
+- [x] Implement `CancelIntake` on `medicationService`: check status is TAKEN, revert to PENDING (zero time), increment inventory (DecrementInventory with -1), return med name/dosage
+- [x] Add `updateIntakeFn` to `mockMedicationStore` in test file
+- [x] Write table-driven tests for CancelIntake: happy path, not-taken returns ErrNotTaken, nil intake returns ErrNotTaken, GetIntake error propagates, UpdateIntake error propagates, DecrementInventory error is non-fatal
+- [x] Run `go test ./internal/domain/` — must pass
 
 ### Task 2: Embed intake IDs in notification action and add bot callback handler
 
