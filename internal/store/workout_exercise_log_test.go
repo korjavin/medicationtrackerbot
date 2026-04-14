@@ -237,7 +237,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 		newSets := 4
 		newReps := 12
 		newWeight := 80.0
-		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, &newSets, &newReps, &newWeight)
+		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "Bench Press", &newSets, &newReps, &newWeight)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -272,7 +272,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 		_ = db.UpdateSessionStatus(session.ID, "in_progress")
 
 		newWeight := 100.0
-		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, nil, nil, &newWeight)
+		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "Squat", nil, nil, &newWeight)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -309,7 +309,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 		_ = db.UpdateSessionStatus(session.ID, "completed")
 
 		newWeight := 120.0
-		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, nil, nil, &newWeight)
+		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "Deadlift", nil, nil, &newWeight)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -339,7 +339,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 		session, _ := db.CreateWorkoutSession(group.ID, variantB.ID, userID, time.Now(), "10:00")
 
 		newSets := 5
-		err = db.PropagateExerciseToSchedule(session.ID, exA.ID, &newSets, nil, nil)
+		err = db.PropagateExerciseToSchedule(session.ID, exA.ID, "Bench Press", &newSets, nil, nil)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -367,7 +367,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 		session, _ := db.CreateWorkoutSession(-1, -1, userID, time.Now(), "10:00")
 
 		newWeight := 50.0
-		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, nil, nil, &newWeight)
+		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "OHP", nil, nil, &newWeight)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -408,7 +408,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 		_ = db.UpdateSessionStatus(session.ID, "notified")
 
 		newWeight := 70.0
-		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, nil, nil, &newWeight)
+		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "Rows", nil, nil, &newWeight)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -450,7 +450,7 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 		_ = db.UpdateSessionStatus(session.ID, "skipped")
 
 		newWeight := 60.0
-		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, nil, nil, &newWeight)
+		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "Pullups", nil, nil, &newWeight)
 		if err != nil {
 			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
 		}
@@ -461,6 +461,97 @@ func TestPropagateExerciseToSchedule(t *testing.T) {
 		}
 		if updated.TargetWeightKg == nil || math.Abs(*updated.TargetWeightKg-50.0) > 0.01 {
 			t.Errorf("Expected target_weight_kg 50.0 (unchanged), got %v", updated.TargetWeightKg)
+		}
+	})
+
+	t.Run("no propagation when exercise ID not in variant", func(t *testing.T) {
+		db, err := New(":memory:")
+		if err != nil {
+			t.Fatalf("Failed to create test store: %v", err)
+		}
+		defer db.Close()
+
+		userID := int64(123456)
+		group, _ := db.CreateWorkoutGroup("Group", "", false, userID, "[]", "10:00", 15)
+		variant, _ := db.CreateWorkoutVariant(group.ID, "Day A", nil, "")
+		origWeight := 60.0
+		_, _ = db.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, nil, &origWeight, 0)
+		session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "10:00")
+
+		// Propagate for an exercise ID that doesn't exist in the variant
+		newWeight := 100.0
+		err = db.PropagateExerciseToSchedule(session.ID, 99999, "Unknown", nil, nil, &newWeight)
+		if err != nil {
+			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
+		}
+
+		// Bench Press should remain unchanged
+		exercises, _ := db.ListExercisesByVariant(variant.ID)
+		if len(exercises) != 1 {
+			t.Fatalf("Expected 1 exercise, got %d", len(exercises))
+		}
+		if exercises[0].TargetWeightKg == nil || math.Abs(*exercises[0].TargetWeightKg-60.0) > 0.01 {
+			t.Errorf("Expected target_weight_kg 60.0 (unchanged), got %v", exercises[0].TargetWeightKg)
+		}
+	})
+
+	t.Run("clears reps_max when new reps exceed range", func(t *testing.T) {
+		db, err := New(":memory:")
+		if err != nil {
+			t.Fatalf("Failed to create test store: %v", err)
+		}
+		defer db.Close()
+
+		userID := int64(123456)
+		group, _ := db.CreateWorkoutGroup("Group", "", false, userID, "[]", "10:00", 15)
+		variant, _ := db.CreateWorkoutVariant(group.ID, "Day A", nil, "")
+		repsMax := 10
+		ex, _ := db.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, &repsMax, nil, 0)
+		session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "10:00")
+
+		// User logs 12 reps, which exceeds the 8-10 range
+		newReps := 12
+		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "Bench Press", nil, &newReps, nil)
+		if err != nil {
+			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
+		}
+
+		updated, _ := db.GetWorkoutExercise(ex.ID)
+		if updated.TargetRepsMin != 12 {
+			t.Errorf("Expected target_reps_min 12, got %d", updated.TargetRepsMin)
+		}
+		if updated.TargetRepsMax != nil {
+			t.Errorf("Expected target_reps_max nil (cleared), got %d", *updated.TargetRepsMax)
+		}
+	})
+
+	t.Run("preserves reps_max when new reps within range", func(t *testing.T) {
+		db, err := New(":memory:")
+		if err != nil {
+			t.Fatalf("Failed to create test store: %v", err)
+		}
+		defer db.Close()
+
+		userID := int64(123456)
+		group, _ := db.CreateWorkoutGroup("Group", "", false, userID, "[]", "10:00", 15)
+		variant, _ := db.CreateWorkoutVariant(group.ID, "Day A", nil, "")
+		repsMax := 10
+		ex, _ := db.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, &repsMax, nil, 0)
+		session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "10:00")
+
+		// User logs 9 reps, which is within 8-10 range
+		newReps := 9
+		err = db.PropagateExerciseToSchedule(session.ID, ex.ID, "Bench Press", nil, &newReps, nil)
+		if err != nil {
+			t.Fatalf("PropagateExerciseToSchedule failed: %v", err)
+		}
+
+		updated, _ := db.GetWorkoutExercise(ex.ID)
+		if updated.TargetRepsMin != 9 {
+			t.Errorf("Expected target_reps_min 9, got %d", updated.TargetRepsMin)
+		}
+		if updated.TargetRepsMax == nil || *updated.TargetRepsMax != 10 {
+			t.Errorf("Expected target_reps_max 10 (preserved), got %v", updated.TargetRepsMax)
 		}
 	})
 }

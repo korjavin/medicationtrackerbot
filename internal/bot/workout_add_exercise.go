@@ -280,8 +280,9 @@ func (b *Bot) handleSelectExerciseCallback(cb *tgbotapi.CallbackQuery, sessionID
 		slog.Error("send failed", "error", err)
 	}
 
-	// Send exercise prompt for the selected exercise (use exerciseID as the exercise identifier)
-	_, err = b.SendExercisePrompt(sessionID, exerciseID, exercise.ExerciseName,
+	// Send exercise prompt for the selected library exercise (encodes library origin
+	// in callback data to prevent cross-table ID collisions with workout_exercises)
+	_, err = b.SendExercisePromptFromLibrary(sessionID, exerciseID, exercise.ExerciseName,
 		exercise.TargetSets, exercise.TargetRepsMin, exercise.TargetRepsMax, exercise.TargetWeightKg)
 	if err != nil {
 		slog.Error("Failed to send exercise prompt", "error", err)
