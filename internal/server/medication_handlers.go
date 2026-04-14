@@ -618,10 +618,16 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			earlyMedIDs[i] = m.ID
 		}
 
+		intakeIDStrs := make([]string, len(confirmedIntakeIDs))
+		for i, id := range confirmedIntakeIDs {
+			intakeIDStrs[i] = strconv.FormatInt(id, 10)
+		}
+		cancelActionID := "cancel_intake:" + strings.Join(intakeIDStrs, ",")
+
 		n := notifier.Notification{
 			Text: fmt.Sprintf("**Medication taken early**\n%s (scheduled for %s)", strings.Join(earlyMedNames, ", "), nextTime.Format("15:04")),
 			Actions: []notifier.Action{
-				{ID: "cancel_intake", Label: "Cancel (Undo)"},
+				{ID: cancelActionID, Label: "Cancel (Undo)"},
 			},
 			Tag: fmt.Sprintf("medication-early-%s", nextTime.Format(time.RFC3339)),
 			Metadata: map[string]interface{}{

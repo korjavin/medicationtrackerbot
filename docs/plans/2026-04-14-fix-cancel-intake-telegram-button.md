@@ -51,15 +51,15 @@ The "Cancel (Undo)" button on the Telegram early-intake confirmation message is 
 - Modify: `internal/bot/bot.go`
 - Modify: `web/static/sw.js`
 
-- [ ] In `medication_handlers.go:624`, change action ID from `"cancel_intake"` to `fmt.Sprintf("cancel_intake:%s", intakeIDList)` where intakeIDList is comma-joined intake IDs
-- [ ] In `sw.js:512`, change `action === 'cancel_intake'` to `action.startsWith('cancel_intake')` (SW still uses `data.intake_ids` for the API call, so no other change needed)
-- [ ] In `bot.go` `handleCallback()`, add a new `else if strings.HasPrefix(data, "cancel_intake:")` branch before the existing `confirm:` case:
+- [x] In `medication_handlers.go:624`, change action ID from `"cancel_intake"` to `fmt.Sprintf("cancel_intake:%s", intakeIDList)` where intakeIDList is comma-joined intake IDs
+- [x] In `sw.js:512`, change `action === 'cancel_intake'` to `action.startsWith('cancel_intake')` (SW still uses `data.intake_ids` for the API call, so no other change needed)
+- [x] In `bot.go` `handleCallback()`, add a new `else if strings.HasPrefix(data, "cancel_intake:")` branch before the existing `confirm:` case:
   - Parse comma-separated intake IDs from the suffix
   - Loop over IDs, call `b.medSvc.CancelIntake(id)` for each
   - Delete the notification message (the one with the cancel button)
   - Send confirmation message: "Intake cancelled, reverted to pending"
   - Handle ErrNotTaken gracefully (intake already processed)
-- [ ] Run `go test ./...` — must pass
+- [x] Run `go test ./...` — must pass
 
 ### Task 3: Verify acceptance criteria
 
