@@ -63,8 +63,8 @@ The "Cancel (Undo)" button on the Telegram early-intake confirmation message is 
 
 ### Task 3: Verify acceptance criteria
 
-- [ ] Run full test suite: `go test ./...`
-- [ ] Verify no regressions in existing cancel_intake_handler_test.go (HTTP path)
+- [x] Run full test suite: `go test ./...`
+- [x] Verify no regressions in existing cancel_intake_handler_test.go (HTTP path)
 
 ### Task 4: Update documentation
 
