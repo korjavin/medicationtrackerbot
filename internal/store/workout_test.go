@@ -56,6 +56,9 @@ func setupTestDB(t *testing.T) *Store {
 	// Apply exercise library migration
 	applyMigration(t, db, filepath.Join("migrations", "028_add_exercise_library.sql"))
 
+	// Apply exercise log source tracking migration
+	applyMigration(t, db, filepath.Join("migrations", "052_add_exercise_log_source.sql"))
+
 	return &Store{db: db}
 }
 

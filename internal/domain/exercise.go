@@ -15,7 +15,9 @@ type ExerciseStore interface {
 	GetWorkoutExercise(id int64) (*store.WorkoutExercise, error)
 	GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error)
 	GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) (*store.WorkoutExerciseLog, error)
+	GetExerciseLogBySessionExerciseSource(sessionID, exerciseID int64, source string) (*store.WorkoutExerciseLog, error)
 	LogExercise(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes string) (int64, error)
+	LogExerciseWithSource(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, error)
 	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error
 	UpdateExerciseLogStatus(id int64, status string) error
 	ListExercisesByVariant(variantID int64) ([]store.WorkoutExercise, error)
@@ -30,12 +32,14 @@ type ExerciseService interface {
 	// Returns true if the exercise state was actually changed (new log created
 	// or status upgraded). Returns false on no-op (duplicate callback, already
 	// completed, same status).
+	// When fromLibrary is true, exerciseID refers to exercise_library.id and the
+	// workout_exercises lookup is skipped, preventing cross-table ID collisions.
 	// Status upgrade rules:
 	//   - no existing log → create with target defaults
 	//   - existing skipped → completed: upgrade values and status
 	//   - existing completed → any: no-op (don't overwrite manual web edits)
 	//   - existing skipped → skipped: no-op
-	LogExercise(sessionID, exerciseID int64, status string) (changed bool, err error)
+	LogExercise(sessionID, exerciseID int64, status string, fromLibrary bool) (changed bool, err error)
 
 	// CheckSessionCompletion determines whether all planned exercises for a
 	// variant have been handled (completed or skipped).
@@ -76,7 +80,7 @@ func (s *exerciseService) applyUpgradeRules(existing *store.WorkoutExerciseLog, 
 	return false, nil
 }
 
-func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string) (bool, error) {
+func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string, fromLibrary bool) (bool, error) {
 	// Guard: only allow logging to in-progress sessions. This closes the TOCTOU
 	// gap between the bot's pre-check and the actual data write — if the web API
 	// completed/skipped the session in the meantime, we bail out.
@@ -88,13 +92,22 @@ func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string
 		return false, nil
 	}
 
-	exercise, err := s.store.GetWorkoutExercise(exerciseID)
-	if err != nil {
-		return false, fmt.Errorf("get exercise %d: %w", exerciseID, err)
+	var exercise *store.WorkoutExercise
+	if !fromLibrary {
+		exercise, err = s.store.GetWorkoutExercise(exerciseID)
+		if err != nil {
+			return false, fmt.Errorf("get exercise %d: %w", exerciseID, err)
+		}
+		// Guard against ID collisions: if the exercise exists but belongs to a
+		// different variant, it's a false match — fall through to library lookup.
+		if exercise != nil && exercise.VariantID != session.VariantID {
+			exercise = nil
+			fromLibrary = true
+		}
 	}
-	if exercise == nil {
-		// Not found in workout_exercises — check if this is a library-based ad-hoc exercise
-		// added during a session (handleSelectExerciseCallback passes library IDs as exerciseID).
+	if fromLibrary || exercise == nil {
+		// Look up in exercise_library: either the caller explicitly indicated a
+		// library exercise, or the ID wasn't found in workout_exercises.
 		libItem, libErr := s.store.GetExerciseLibraryItem(exerciseID)
 		if libErr != nil {
 			return false, fmt.Errorf("get exercise library item %d: %w", exerciseID, libErr)
@@ -110,9 +123,16 @@ func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string
 			TargetRepsMax:  libItem.DefaultRepsMax,
 			TargetWeightKg: libItem.DefaultWeightKg,
 		}
+		fromLibrary = true
 	}
 
-	existing, err := s.store.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
+	// Use source-aware lookup to avoid matching a log from the other table
+	// when exercise_library.id collides with workout_exercises.id.
+	source := "schedule"
+	if fromLibrary {
+		source = "library"
+	}
+	existing, err := s.store.GetExerciseLogBySessionExerciseSource(sessionID, exerciseID, source)
 	if err != nil {
 		return false, fmt.Errorf("get existing log for session %d exercise %d: %w", sessionID, exerciseID, err)
 	}
@@ -135,12 +155,12 @@ func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string
 		reps = &exercise.TargetRepsMin
 		weight = exercise.TargetWeightKg
 	}
-	if _, err := s.store.LogExercise(sessionID, exerciseID, exercise.ExerciseName, sets, reps, weight, status, ""); err != nil {
+	if _, err := s.store.LogExerciseWithSource(sessionID, exerciseID, exercise.ExerciseName, sets, reps, weight, status, "", source); err != nil {
 		// Handle race condition: another concurrent insert may have beaten us.
 		// If it's a unique constraint error, re-check if row now exists.
 		var sqlErr *sqlite.Error
 		if errors.As(err, &sqlErr) && (sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT || sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE) {
-			existing, err := s.store.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
+			existing, err := s.store.GetExerciseLogBySessionExerciseSource(sessionID, exerciseID, source)
 			if err != nil {
 				return false, fmt.Errorf("get existing log after race for session %d exercise %d: %w", sessionID, exerciseID, err)
 			}
@@ -176,7 +196,7 @@ func (s *exerciseService) CheckSessionCompletion(sessionID, variantID int64) (bo
 
 	logStatuses := make([]ExerciseLogStatus, len(logs))
 	for i, l := range logs {
-		logStatuses[i] = ExerciseLogStatus{ExerciseID: l.ExerciseID, Status: l.Status}
+		logStatuses[i] = ExerciseLogStatus{ExerciseID: l.ExerciseID, Status: l.Status, Source: l.Source}
 	}
 
 	result := CheckCompletion(plannedIDs, logStatuses)

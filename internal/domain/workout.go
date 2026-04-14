@@ -23,6 +23,7 @@ func CalculateStreak(sessions []SessionStatus) int {
 type ExerciseLogStatus struct {
 	ExerciseID int64
 	Status     string // "completed", "skipped"
+	Source     string // "schedule" or "library"
 }
 
 // CompletionResult holds the result of checking workout completion.
@@ -34,23 +35,40 @@ type CompletionResult struct {
 
 // CheckCompletion determines if all planned exercises are handled (completed or skipped).
 // plannedExerciseIDs is the list of exercise IDs planned for the workout.
-// logs contains the exercise log entries with their status.
+// logs contains the exercise log entries with their status and source.
+// Only schedule-sourced logs can satisfy planned exercises — library-sourced logs
+// with a colliding numeric ID must not falsely mark a planned exercise as handled.
 func CheckCompletion(plannedExerciseIDs []int64, logs []ExerciseLogStatus) CompletionResult {
+	// Only schedule-sourced logs can mark planned exercises as handled.
 	handledExerciseIDs := make(map[int64]bool)
-	uniqueCompletedIDs := make(map[int64]bool)
-	allRelatedExerciseIDs := make(map[int64]bool)
+
+	// Use (ExerciseID, Source) as composite key to avoid merging logs from
+	// different tables that happen to share a numeric ID.
+	type logKey struct {
+		ExerciseID int64
+		Source     string
+	}
+	uniqueCompleted := make(map[logKey]bool)
+	allRelated := make(map[logKey]bool)
 
 	for _, id := range plannedExerciseIDs {
-		allRelatedExerciseIDs[id] = true
+		allRelated[logKey{id, "schedule"}] = true
 	}
 
 	for _, log := range logs {
-		allRelatedExerciseIDs[log.ExerciseID] = true
+		src := log.Source
+		if src == "" {
+			src = "schedule" // backward compat for logs without source
+		}
+		key := logKey{log.ExerciseID, src}
+		allRelated[key] = true
 		if log.Status == "completed" || log.Status == "skipped" {
-			handledExerciseIDs[log.ExerciseID] = true
+			if src == "schedule" || src == "" {
+				handledExerciseIDs[log.ExerciseID] = true
+			}
 		}
 		if log.Status == "completed" {
-			uniqueCompletedIDs[log.ExerciseID] = true
+			uniqueCompleted[key] = true
 		}
 	}
 
@@ -63,8 +81,8 @@ func CheckCompletion(plannedExerciseIDs []int64, logs []ExerciseLogStatus) Compl
 	}
 
 	return CompletionResult{
-		CompletedCount: len(uniqueCompletedIDs),
-		TotalCount:     len(allRelatedExerciseIDs),
+		CompletedCount: len(uniqueCompleted),
+		TotalCount:     len(allRelated),
 		AllDone:        allPlannedCompleted,
 	}
 }

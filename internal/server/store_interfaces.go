@@ -112,6 +112,7 @@ type WorkoutStore interface {
 	SnoozeSession(id int64, snoozeDuration time.Duration) error
 	ClearSnooze(id int64) error
 	LogExercise(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes string) (int64, error)
+	LogExerciseWithSource(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, error)
 	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error
 	DeleteExerciseLog(id int64) error
 	GetExerciseStats(userID int64) ([]store.ExerciseStat, error)
@@ -121,7 +122,8 @@ type WorkoutStore interface {
 	UpdateExerciseLibraryItem(id int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) error
 	DeleteExerciseLibraryItem(id int64) error
 	GetExerciseLogByID(id int64) (*store.WorkoutExerciseLog, error)
-	PropagateExerciseToSchedule(sessionID, exerciseID int64, sets *int, reps *int, weight *float64) error
+	SetExerciseLogSource(id int64, source string) error
+	PropagateExerciseToSchedule(sessionID int64, exerciseID int64, exerciseName string, sets *int, reps *int, weight *float64) error
 }
 
 // FoodStore is the subset of store operations needed for food handlers.

@@ -2289,7 +2289,8 @@ async function saveNewSessionExercise() {
             target_reps_min: reps,
             target_weight_kg: weight,
             status: 'completed',
-            notes: notes
+            notes: notes,
+            source: 'library'
         });
         if (result === null) return;
 

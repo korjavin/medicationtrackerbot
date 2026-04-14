@@ -82,4 +82,54 @@ func TestCheckCompletion(t *testing.T) {
 			t.Error("expected AllDone = true for empty inputs")
 		}
 	})
+
+	t.Run("library log does not satisfy planned exercise with same ID", func(t *testing.T) {
+		planned := []int64{10, 20}
+		logs := []ExerciseLogStatus{
+			{ExerciseID: 10, Status: "completed", Source: "library"}, // same ID but from library
+			{ExerciseID: 20, Status: "completed", Source: "schedule"},
+		}
+		result := CheckCompletion(planned, logs)
+		if result.AllDone {
+			t.Error("expected AllDone = false: library log should not satisfy planned exercise 10")
+		}
+		// 1 completed from schedule (20) + 1 completed from library (10) = 2
+		if result.CompletedCount != 2 {
+			t.Errorf("expected 2 completed, got %d", result.CompletedCount)
+		}
+		// 2 planned (schedule) + 1 library = 3 unique (exercise_id, source) entries
+		if result.TotalCount != 3 {
+			t.Errorf("expected 3 total, got %d", result.TotalCount)
+		}
+	})
+
+	t.Run("schedule log satisfies planned exercise", func(t *testing.T) {
+		planned := []int64{10}
+		logs := []ExerciseLogStatus{
+			{ExerciseID: 10, Status: "completed", Source: "schedule"},
+		}
+		result := CheckCompletion(planned, logs)
+		if !result.AllDone {
+			t.Error("expected AllDone = true: schedule log should satisfy planned exercise")
+		}
+	})
+
+	t.Run("both schedule and library logs with same ID", func(t *testing.T) {
+		planned := []int64{10}
+		logs := []ExerciseLogStatus{
+			{ExerciseID: 10, Status: "completed", Source: "schedule"},
+			{ExerciseID: 10, Status: "completed", Source: "library"},
+		}
+		result := CheckCompletion(planned, logs)
+		if !result.AllDone {
+			t.Error("expected AllDone = true")
+		}
+		// Both are completed but separate (different sources)
+		if result.CompletedCount != 2 {
+			t.Errorf("expected 2 completed, got %d", result.CompletedCount)
+		}
+		if result.TotalCount != 2 {
+			t.Errorf("expected 2 total, got %d", result.TotalCount)
+		}
+	})
 }
