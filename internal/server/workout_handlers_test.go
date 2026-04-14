@@ -431,6 +431,242 @@ func TestHandleGetNextWorkout_LazyCreation(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateExerciseLog_PropagatesWeightToSchedule(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	defer db.Close()
+
+	userID := int64(123456)
+	srv := &Server{
+		workouts:      db,
+		workoutSvc:    workoutsvc.New(db),
+		allowedUserID: userID,
+	}
+
+	// Create group → variant → exercise → session → log
+	group, _ := db.CreateWorkoutGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	rotOrder := 0
+	variant, _ := db.CreateWorkoutVariant(group.ID, "Day A", &rotOrder, "")
+	weightKg := 60.0
+	exercise, _ := db.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, nil, &weightKg, 0)
+
+	// Create a pending session
+	session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+
+	// Log exercise
+	logID, _ := db.LogExercise(session.ID, exercise.ID, "Bench Press", intPtr(3), intPtr(8), &weightKg, "completed", "")
+
+	// Now update the log with new weight
+	newWeight := 65.0
+	newSets := 4
+	newReps := 10
+	body, _ := json.Marshal(map[string]interface{}{
+		"id":             logID,
+		"sets_completed": newSets,
+		"reps_completed": newReps,
+		"weight_kg":      newWeight,
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/workout/exercises/log/update", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+
+	srv.handleUpdateExerciseLog(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify workout_exercises schedule was updated
+	exercises, _ := db.ListExercisesByVariant(variant.ID)
+	if len(exercises) != 1 {
+		t.Fatalf("Expected 1 exercise, got %d", len(exercises))
+	}
+	ex := exercises[0]
+	if ex.TargetSets != newSets {
+		t.Errorf("Expected target_sets=%d, got %d", newSets, ex.TargetSets)
+	}
+	if ex.TargetRepsMin != newReps {
+		t.Errorf("Expected target_reps_min=%d, got %d", newReps, ex.TargetRepsMin)
+	}
+	if ex.TargetWeightKg == nil || *ex.TargetWeightKg != newWeight {
+		t.Errorf("Expected target_weight_kg=%f, got %v", newWeight, ex.TargetWeightKg)
+	}
+}
+
+func TestHandleUpdateExerciseLog_NoPropagate_CompletedSession(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	defer db.Close()
+
+	userID := int64(123456)
+	srv := &Server{
+		workouts:      db,
+		workoutSvc:    workoutsvc.New(db),
+		allowedUserID: userID,
+	}
+
+	group, _ := db.CreateWorkoutGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	rotOrder := 0
+	variant, _ := db.CreateWorkoutVariant(group.ID, "Day A", &rotOrder, "")
+	weightKg := 60.0
+	exercise, _ := db.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, nil, &weightKg, 0)
+
+	session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	_ = db.UpdateSessionStatus(session.ID, "completed")
+
+	logID, _ := db.LogExercise(session.ID, exercise.ID, "Bench Press", intPtr(3), intPtr(8), &weightKg, "completed", "")
+
+	newWeight := 80.0
+	body, _ := json.Marshal(map[string]interface{}{
+		"id":        logID,
+		"weight_kg": newWeight,
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/workout/exercises/log/update", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleUpdateExerciseLog(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", w.Code)
+	}
+
+	// Verify schedule was NOT updated (session is completed)
+	exercises, _ := db.ListExercisesByVariant(variant.ID)
+	ex := exercises[0]
+	if ex.TargetWeightKg == nil || *ex.TargetWeightKg != 60.0 {
+		t.Errorf("Expected target_weight_kg to remain 60, got %v", ex.TargetWeightKg)
+	}
+}
+
+func TestHandleAddExerciseToSession_PropagatesWeightToSchedule(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	defer db.Close()
+
+	userID := int64(123456)
+	srv := &Server{
+		workouts:      db,
+		workoutSvc:    workoutsvc.New(db),
+		allowedUserID: userID,
+	}
+
+	group, _ := db.CreateWorkoutGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	rotOrder := 0
+	variant, _ := db.CreateWorkoutVariant(group.ID, "Day A", &rotOrder, "")
+	origWeight := 50.0
+	exercise, _ := db.AddExerciseToVariant(variant.ID, "OHP", 3, 5, nil, &origWeight, 0)
+
+	// In-progress session
+	session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	_ = db.StartSession(session.ID)
+
+	newWeight := 55.0
+	body, _ := json.Marshal(map[string]interface{}{
+		"session_id":      session.ID,
+		"exercise_id":     exercise.ID,
+		"exercise_name":   "OHP",
+		"target_sets":     4,
+		"target_reps_min": 6,
+		"target_weight_kg": newWeight,
+		"status":          "completed",
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/exercises/log/add", bytes.NewReader(body))
+	req = withUser(req, userID)
+	w := httptest.NewRecorder()
+
+	srv.handleAddExerciseToSession(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected 201, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify schedule was updated
+	exercises, _ := db.ListExercisesByVariant(variant.ID)
+	if len(exercises) != 1 {
+		t.Fatalf("Expected 1 exercise, got %d", len(exercises))
+	}
+	ex := exercises[0]
+	if ex.TargetSets != 4 {
+		t.Errorf("Expected target_sets=4, got %d", ex.TargetSets)
+	}
+	if ex.TargetRepsMin != 6 {
+		t.Errorf("Expected target_reps_min=6, got %d", ex.TargetRepsMin)
+	}
+	if ex.TargetWeightKg == nil || *ex.TargetWeightKg != newWeight {
+		t.Errorf("Expected target_weight_kg=%f, got %v", newWeight, ex.TargetWeightKg)
+	}
+}
+
+func TestHandleAddExerciseToSession_NoPropagate_UserAddedExercise(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	defer db.Close()
+
+	userID := int64(123456)
+	srv := &Server{
+		workouts:      db,
+		workoutSvc:    workoutsvc.New(db),
+		allowedUserID: userID,
+	}
+
+	group, _ := db.CreateWorkoutGroup("Push", "Push day", false, userID, "[1,2,3,4,5]", "09:00", 15)
+	rotOrder := 0
+	variant, _ := db.CreateWorkoutVariant(group.ID, "Day A", &rotOrder, "")
+	origWeight := 50.0
+	exercise, _ := db.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, nil, &origWeight, 0)
+
+	// In-progress session
+	session, _ := db.CreateWorkoutSession(group.ID, variant.ID, userID, time.Now(), "09:00")
+	_ = db.StartSession(session.ID)
+
+	// Add a user exercise (exercise_id=99999 doesn't belong to variant)
+	body, _ := json.Marshal(map[string]interface{}{
+		"session_id":      session.ID,
+		"exercise_id":     99999,
+		"exercise_name":   "Curls",
+		"target_sets":     3,
+		"target_reps_min": 12,
+		"status":          "completed",
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/exercises/log/add", bytes.NewReader(body))
+	req = withUser(req, userID)
+	w := httptest.NewRecorder()
+
+	srv.handleAddExerciseToSession(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected 201, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify original exercise schedule was NOT modified
+	exercises, _ := db.ListExercisesByVariant(variant.ID)
+	if len(exercises) != 1 {
+		t.Fatalf("Expected 1 exercise, got %d", len(exercises))
+	}
+	ex := exercises[0]
+	if ex.ID != exercise.ID {
+		t.Errorf("Expected exercise ID %d, got %d", exercise.ID, ex.ID)
+	}
+	if ex.TargetSets != 3 || ex.TargetRepsMin != 8 {
+		t.Errorf("Expected original sets=3, reps=8; got sets=%d, reps=%d", ex.TargetSets, ex.TargetRepsMin)
+	}
+	if ex.TargetWeightKg == nil || *ex.TargetWeightKg != origWeight {
+		t.Errorf("Expected target_weight_kg=%f, got %v", origWeight, ex.TargetWeightKg)
+	}
+}
+
+func intPtr(v int) *int { return &v }
+
 func TestGetWorkoutStats(t *testing.T) {
 	db, err := store.New(":memory:")
 	if err != nil {

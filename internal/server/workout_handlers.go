@@ -1123,6 +1123,16 @@ func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Best-effort propagation of weight/reps/sets to workout schedule
+	if logEntry, err := s.workouts.GetExerciseLogByID(req.ID); err != nil {
+		slog.Error("propagate: fetch exercise log", "error", err, "log_id", req.ID)
+	} else if err := s.workouts.PropagateExerciseToSchedule(
+		logEntry.SessionID, logEntry.ExerciseID,
+		req.SetsCompleted, req.RepsCompleted, req.WeightKg,
+	); err != nil {
+		slog.Error("propagate: update schedule", "error", err, "session_id", logEntry.SessionID, "exercise_id", logEntry.ExerciseID)
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1277,6 +1287,14 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Best-effort propagation of weight/reps/sets to workout schedule
+	if err := s.workouts.PropagateExerciseToSchedule(
+		req.SessionID, req.ExerciseID,
+		&sets, &reps, weight,
+	); err != nil {
+		slog.Error("propagate: update schedule", "error", err, "session_id", req.SessionID, "exercise_id", req.ExerciseID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
