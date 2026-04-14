@@ -1126,6 +1126,8 @@ func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request)
 	// Best-effort propagation of weight/reps/sets to workout schedule
 	if logEntry, err := s.workouts.GetExerciseLogByID(req.ID); err != nil {
 		slog.Error("propagate: fetch exercise log", "error", err, "log_id", req.ID)
+	} else if logEntry == nil {
+		slog.Error("propagate: exercise log not found after update", "log_id", req.ID)
 	} else if err := s.workouts.PropagateExerciseToSchedule(
 		logEntry.SessionID, logEntry.ExerciseID,
 		req.SetsCompleted, req.RepsCompleted, req.WeightKg,
@@ -1235,50 +1237,16 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Used passed ExerciseID. If it refers to an exercise in another variant, that's fine.
-	// It just serves as a reference to "what exercise was this".
-	// The log entry copies the name anyway.
-
-	// Helper to handle pointer conversions for logs if needed, but LogExercise takes pointers for completion stats
-	// We need to map request fields to LogExercise params.
-	// LogExercise(sessionID, exerciseID, exerciseName, sets, reps, weight, status, notes)
-	// sets, reps, weight in LogExercise are *int/*float64 which represent *completed* values.
-	// The request has "Target" values? No, for a completed session addition, we probably mean "I did this".
-	// The UI should ask for "Sets Completed", "Reps Completed", "Weight Used".
-	// So the request fields should probably be `SetsCompleted`, etc. not Target.
-	// Let's check the plan: "Add API endpoint to add exercise to session".
-	// The UI modal usually asks for targets when *editing* an exercise definition, but here we are *logging* performed work.
-	// Actually, `LogExercise` is for *logging* a performed exercise.
-	// But `WorkoutSession` logs usually start as copies of `WorkoutExercise` with null completion data.
-	// If we add an exercise to a session, we are effectively adding a row to `workout_exercise_logs`.
-	// Does it need to be "completed" immediately?
-	// If the user is adding it to a completed workout, they likely enter what they did.
-	// So we should accept `SetsCompleted`, `RepsCompleted`, etc.
-	// Let's rename request fields to match `LogExercise`.
-
-	// Re-defining request struct to match LogExercise needs
-	// We'll treat target values as what was done, or maybe we want to store targets too?
-	// `workout_exercise_logs` table struct:
-	// type WorkoutExerciseLog struct { ... SetsCompleted *int ... }
-	// It does NOT store targets. It links to `exercise_id` which has targets.
-	// If we pick a unique exercise, that `exercise_id` has targets.
-	// So we just need to log what was done.
-
 	sets := req.TargetSets
 	reps := req.TargetRepsMin
 	weight := req.TargetWeightKg
-	// Wait, if I use the existing struct names `TargetSets` etc from the plan, I should map them.
-	// But it's better to be explicit.
-	// Let's assume the UI sends `sets_completed`, `reps_completed`, `weight_kg`.
-	// But the `handleAddExerciseToSession` stub in previous step used `Target...`.
-	// I will update the struct in the replacement to be correct.
 
 	id, err := s.workouts.LogExercise(
 		req.SessionID,
 		req.ExerciseID,
 		req.ExerciseName,
-		&sets, // sets completed
-		&reps, // reps completed. We'll use Min as the value if that's what we have.
+		&sets,
+		&reps,
 		weight,
 		req.Status,
 		req.Notes,
@@ -1289,10 +1257,18 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Best-effort propagation of weight/reps/sets to workout schedule
+	// Best-effort propagation of weight/reps/sets to workout schedule.
+	// Only propagate non-zero values to avoid overwriting schedule with defaults.
+	var pSets, pReps *int
+	if sets > 0 {
+		pSets = &sets
+	}
+	if reps > 0 {
+		pReps = &reps
+	}
 	if err := s.workouts.PropagateExerciseToSchedule(
 		req.SessionID, req.ExerciseID,
-		&sets, &reps, weight,
+		pSets, pReps, weight,
 	); err != nil {
 		slog.Error("propagate: update schedule", "error", err, "session_id", req.SessionID, "exercise_id", req.ExerciseID)
 	}
