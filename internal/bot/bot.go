@@ -532,7 +532,11 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		idParts := strings.Split(idListStr, ",")
 		var cancelledNames []string
 		for _, idStr := range idParts {
-			id, _ := strconv.ParseInt(strings.TrimSpace(idStr), 10, 64)
+			id, err := strconv.ParseInt(strings.TrimSpace(idStr), 10, 64)
+			if err != nil {
+				slog.Warn("Invalid intake ID in cancel_intake callback", "idStr", idStr, "error", err)
+				continue
+			}
 			if id == 0 {
 				continue
 			}
