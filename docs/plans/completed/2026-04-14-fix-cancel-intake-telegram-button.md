@@ -68,4 +68,4 @@ The "Cancel (Undo)" button on the Telegram early-intake confirmation message is 
 
 ### Task 4: Update documentation
 
-- [ ] Move this plan to `docs/plans/completed/`
+- [x] Move this plan to `docs/plans/completed/`
