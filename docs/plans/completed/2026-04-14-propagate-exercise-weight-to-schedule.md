@@ -69,5 +69,5 @@ When a user edits weight, reps, or sets for an exercise in a workout session (vi
 
 ### Task 4: Update documentation
 
-- [ ] Update CLAUDE.md workout tracking section to mention propagation behavior
-- [ ] Move this plan to `docs/plans/completed/`
+- [x] Update CLAUDE.md workout tracking section to mention propagation behavior
+- [x] Move this plan to `docs/plans/completed/`
