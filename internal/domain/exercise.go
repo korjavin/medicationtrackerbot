@@ -11,6 +11,7 @@ import (
 
 // ExerciseStore is the narrow store interface required by ExerciseService.
 type ExerciseStore interface {
+	GetWorkoutSession(id int64) (*store.WorkoutSession, error)
 	GetWorkoutExercise(id int64) (*store.WorkoutExercise, error)
 	GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error)
 	GetExerciseLogBySessionAndExercise(sessionID, exerciseID int64) (*store.WorkoutExerciseLog, error)
@@ -26,12 +27,15 @@ type ExerciseStore interface {
 // The bot layer handles Telegram message sending; this service only mutates data.
 type ExerciseService interface {
 	// LogExercise idempotently logs an exercise for a session.
+	// Returns true if the exercise state was actually changed (new log created
+	// or status upgraded). Returns false on no-op (duplicate callback, already
+	// completed, same status).
 	// Status upgrade rules:
 	//   - no existing log → create with target defaults
 	//   - existing skipped → completed: upgrade values and status
 	//   - existing completed → any: no-op (don't overwrite manual web edits)
 	//   - existing skipped → skipped: no-op
-	LogExercise(sessionID, exerciseID int64, status string) error
+	LogExercise(sessionID, exerciseID int64, status string) (changed bool, err error)
 
 	// CheckSessionCompletion determines whether all planned exercises for a
 	// variant have been handled (completed or skipped).
@@ -72,20 +76,31 @@ func (s *exerciseService) applyUpgradeRules(existing *store.WorkoutExerciseLog, 
 	return false, nil
 }
 
-func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string) error {
+func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string) (bool, error) {
+	// Guard: only allow logging to in-progress sessions. This closes the TOCTOU
+	// gap between the bot's pre-check and the actual data write — if the web API
+	// completed/skipped the session in the meantime, we bail out.
+	session, err := s.store.GetWorkoutSession(sessionID)
+	if err != nil {
+		return false, fmt.Errorf("get workout session %d: %w", sessionID, err)
+	}
+	if session == nil || session.Status != "in_progress" {
+		return false, nil
+	}
+
 	exercise, err := s.store.GetWorkoutExercise(exerciseID)
 	if err != nil {
-		return fmt.Errorf("get exercise %d: %w", exerciseID, err)
+		return false, fmt.Errorf("get exercise %d: %w", exerciseID, err)
 	}
 	if exercise == nil {
 		// Not found in workout_exercises — check if this is a library-based ad-hoc exercise
 		// added during a session (handleSelectExerciseCallback passes library IDs as exerciseID).
 		libItem, libErr := s.store.GetExerciseLibraryItem(exerciseID)
 		if libErr != nil {
-			return fmt.Errorf("get exercise library item %d: %w", exerciseID, libErr)
+			return false, fmt.Errorf("get exercise library item %d: %w", exerciseID, libErr)
 		}
 		if libItem == nil {
-			return fmt.Errorf("exercise %d not found", exerciseID)
+			return false, fmt.Errorf("exercise %d not found", exerciseID)
 		}
 		exercise = &store.WorkoutExercise{
 			ID:             libItem.ID,
@@ -99,19 +114,16 @@ func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string
 
 	existing, err := s.store.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
 	if err != nil {
-		return fmt.Errorf("get existing log for session %d exercise %d: %w", sessionID, exerciseID, err)
+		return false, fmt.Errorf("get existing log for session %d exercise %d: %w", sessionID, exerciseID, err)
 	}
 
 	if existing != nil {
 		// Already logged — apply upgrade rules.
 		applied, err := s.applyUpgradeRules(existing, exercise, status)
 		if err != nil {
-			return err
+			return false, err
 		}
-		if !applied {
-			return nil
-		}
-		return nil
+		return applied, nil
 	}
 
 	// No existing log — create new.
@@ -130,23 +142,20 @@ func (s *exerciseService) LogExercise(sessionID, exerciseID int64, status string
 		if errors.As(err, &sqlErr) && (sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT || sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE) {
 			existing, err := s.store.GetExerciseLogBySessionAndExercise(sessionID, exerciseID)
 			if err != nil {
-				return fmt.Errorf("get existing log after race for session %d exercise %d: %w", sessionID, exerciseID, err)
+				return false, fmt.Errorf("get existing log after race for session %d exercise %d: %w", sessionID, exerciseID, err)
 			}
 			if existing != nil {
 				// Row now exists - apply upgrade rules.
 				applied, err := s.applyUpgradeRules(existing, exercise, status)
 				if err != nil {
-					return err
+					return false, err
 				}
-				if !applied {
-					return nil
-				}
-				return nil
+				return applied, nil
 			}
 		}
-		return fmt.Errorf("log exercise %d for session %d: %w", exerciseID, sessionID, err)
+		return false, fmt.Errorf("log exercise %d for session %d: %w", exerciseID, sessionID, err)
 	}
-	return nil
+	return true, nil
 }
 
 func (s *exerciseService) CheckSessionCompletion(sessionID, variantID int64) (bool, int, int, error) {
