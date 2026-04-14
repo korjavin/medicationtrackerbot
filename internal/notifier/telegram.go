@@ -25,11 +25,17 @@ func (t *Telegram) Send(_ context.Context, _ int64, n Notification) (int, error)
 		return 0, nil
 	}
 
+	text := n.Text
+	// Append Telegram-specific truncation warning if present (callback_data limit).
+	if w, ok := n.Metadata["truncation_warning"].(string); ok {
+		text += w
+	}
+
 	actions := make([]struct{ ID, Label string }, len(n.Actions))
 	for i, a := range n.Actions {
 		actions[i] = struct{ ID, Label string }{ID: a.ID, Label: a.Label}
 	}
-	return t.bot.SendMarkdownNotification(n.Text, actions)
+	return t.bot.SendMarkdownNotification(text, actions)
 }
 
 func (t *Telegram) Delete(_ context.Context, _ int64, msgID int) error {

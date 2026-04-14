@@ -626,6 +626,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 		// Telegram Bot API limits callback_data to 64 bytes.
 		// Truncate the ID list to fit if needed (partial cancel is better than no notification).
 		const maxCallbackData = 64
+		includedCount := len(intakeIDStrs)
 		if len(cancelActionID) > maxCallbackData {
 			prefix := "cancel_intake:"
 			remaining := maxCallbackData - len(prefix)
@@ -645,24 +646,32 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			if len(truncated) > 0 {
 				cancelActionID = prefix + strings.Join(truncated, ",")
 			}
+			includedCount = len(truncated)
 			slog.Warn("cancel_intake callback_data truncated to fit Telegram limit",
 				"total_intakes", len(intakeIDStrs), "included", len(truncated))
 		}
 
+		notifText := fmt.Sprintf("**Medication taken early**\n%s (scheduled for %s)", strings.Join(earlyMedNames, ", "), nextTime.Format("15:04"))
+		metadata := map[string]interface{}{
+			"type":             "medication_early_confirmed",
+			"scheduled_at":     nextTime.Format(time.RFC3339),
+			"taken_at":         now.Format(time.RFC3339),
+			"medication_ids":   earlyMedIDs,
+			"medication_names": earlyMedNames,
+			"intake_ids":       confirmedIntakeIDs,
+		}
+		// Truncation warning is Telegram-specific (callback_data limit).
+		// WebPush uses data.intake_ids from metadata which has the full list.
+		if includedCount < len(intakeIDStrs) {
+			metadata["truncation_warning"] = fmt.Sprintf("\n⚠️ Cancel button covers %d of %d medications", includedCount, len(intakeIDStrs))
+		}
 		n := notifier.Notification{
-			Text: fmt.Sprintf("**Medication taken early**\n%s (scheduled for %s)", strings.Join(earlyMedNames, ", "), nextTime.Format("15:04")),
+			Text: notifText,
 			Actions: []notifier.Action{
 				{ID: cancelActionID, Label: "Cancel (Undo)"},
 			},
-			Tag: fmt.Sprintf("medication-early-%s", nextTime.Format(time.RFC3339)),
-			Metadata: map[string]interface{}{
-				"type":             "medication_early_confirmed",
-				"scheduled_at":     nextTime.Format(time.RFC3339),
-				"taken_at":         now.Format(time.RFC3339),
-				"medication_ids":   earlyMedIDs,
-				"medication_names": earlyMedNames,
-				"intake_ids":       confirmedIntakeIDs,
-			},
+			Tag:      fmt.Sprintf("medication-early-%s", nextTime.Format(time.RFC3339)),
+			Metadata: metadata,
 		}
 
 		s.notifyWithAutoDelete(r.Context(), n, 15*time.Minute)

@@ -531,6 +531,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		idListStr := strings.TrimPrefix(data, "cancel_intake:")
 		idParts := strings.Split(idListStr, ",")
 		var cancelledNames []string
+		var hadErrors bool
 		for _, idStr := range idParts {
 			id, err := strconv.ParseInt(strings.TrimSpace(idStr), 10, 64)
 			if err != nil {
@@ -546,24 +547,42 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 					continue // already processed, skip silently
 				}
 				slog.Error("Error cancelling intake", "intakeID", id, "error", err)
+				hadErrors = true
 				continue
 			}
 			cancelledNames = append(cancelledNames, medLabel(medName, medDosage))
 		}
 
-		// Delete the notification message with the cancel button
-		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
-			slog.Error("delete message failed", "error", err)
-		}
-
-		if len(cancelledNames) > 0 {
+		if hadErrors && len(cancelledNames) == 0 {
+			// All cancellations failed due to transient errors.
+			// Preserve the notification message so the user can retry.
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ Error cancelling intakes. Please try again.")); err != nil {
+				slog.Error("send failed", "error", err)
+			}
+		} else if hadErrors {
+			// Mixed results: some cancelled, some failed.
+			// Preserve the notification message so the user can retry the failed ones
+			// (already-cancelled IDs will be skipped via ErrNotTaken).
 			msg := "↩️ Intake cancelled, reverted to pending: " + strings.Join(cancelledNames, ", ")
+			msg += "\n⚠️ Some intakes could not be cancelled. Tap Cancel again to retry."
 			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, msg)); err != nil {
 				slog.Error("send failed", "error", err)
 			}
 		} else {
-			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No intakes to cancel (already processed).")); err != nil {
-				slog.Error("send failed", "error", err)
+			// All succeeded or all already processed — delete the notification message.
+			if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+				slog.Error("delete message failed", "error", err)
+			}
+
+			if len(cancelledNames) > 0 {
+				msg := "↩️ Intake cancelled, reverted to pending: " + strings.Join(cancelledNames, ", ")
+				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, msg)); err != nil {
+					slog.Error("send failed", "error", err)
+				}
+			} else {
+				if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No intakes to cancel (already processed).")); err != nil {
+					slog.Error("send failed", "error", err)
+				}
 			}
 		}
 	} else if strings.HasPrefix(data, "confirm:") {

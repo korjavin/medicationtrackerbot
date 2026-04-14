@@ -256,6 +256,10 @@ func (s *medicationService) CancelIntake(intakeID int64) (string, string, error)
 	}
 
 	// Increment inventory (reverse the decrement). Best-effort.
+	// NOTE: if the original decrement on confirm failed (also best-effort),
+	// this increment adds stock that was never removed. Accepted limitation
+	// of the best-effort inventory system; proper tracking would require
+	// a schema change to record whether the decrement actually succeeded.
 	if err := s.store.DecrementInventory(intake.MedicationID, -1); err != nil {
 		slog.Error("DecrementInventory (undo) failed", "intakeID", intakeID, "error", err)
 	}
