@@ -120,6 +120,8 @@ type WorkoutStore interface {
 	CreateExerciseLibraryItem(userID int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) (*store.ExerciseLibraryItem, error)
 	UpdateExerciseLibraryItem(id int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) error
 	DeleteExerciseLibraryItem(id int64) error
+	GetExerciseLogByID(id int64) (*store.WorkoutExerciseLog, error)
+	PropagateExerciseToSchedule(sessionID, exerciseID int64, sets *int, reps *int, weight *float64) error
 }
 
 // FoodStore is the subset of store operations needed for food handlers.

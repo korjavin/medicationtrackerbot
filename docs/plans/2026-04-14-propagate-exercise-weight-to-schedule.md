@@ -52,12 +52,12 @@ When a user edits weight, reps, or sets for an exercise in a workout session (vi
 - Modify: `internal/server/store_interfaces.go`
 - Modify: `internal/server/workout_handlers.go`
 
-- [ ] Add `GetExerciseLogByID(id int64) (*store.WorkoutExerciseLog, error)` to WorkoutStore interface
-- [ ] Add `PropagateExerciseToSchedule(sessionID, exerciseID int64, sets *int, reps *int, weight *float64) error` to WorkoutStore interface
-- [ ] In `handleUpdateExerciseLog`: after the existing `UpdateExerciseLog` call succeeds, fetch the log via `GetExerciseLogByID(req.ID)` to get session_id and exercise_id, then call `PropagateExerciseToSchedule`. Log errors with slog but do not fail the request (propagation is best-effort).
-- [ ] In `handleAddExerciseToSession`: after the existing `LogExercise` call succeeds, call `PropagateExerciseToSchedule(req.SessionID, req.ExerciseID, &sets, &reps, weight)`. Same best-effort error handling.
-- [ ] Write handler tests: mock store that verifies PropagateExerciseToSchedule is called with correct args after log update/create
-- [ ] Run `go test ./internal/server/...` -- must pass
+- [x] Add `GetExerciseLogByID(id int64) (*store.WorkoutExerciseLog, error)` to WorkoutStore interface
+- [x] Add `PropagateExerciseToSchedule(sessionID, exerciseID int64, sets *int, reps *int, weight *float64) error` to WorkoutStore interface
+- [x] In `handleUpdateExerciseLog`: after the existing `UpdateExerciseLog` call succeeds, fetch the log via `GetExerciseLogByID(req.ID)` to get session_id and exercise_id, then call `PropagateExerciseToSchedule`. Log errors with slog but do not fail the request (propagation is best-effort).
+- [x] In `handleAddExerciseToSession`: after the existing `LogExercise` call succeeds, call `PropagateExerciseToSchedule(req.SessionID, req.ExerciseID, &sets, &reps, weight)`. Same best-effort error handling.
+- [x] Write handler tests: mock store that verifies PropagateExerciseToSchedule is called with correct args after log update/create
+- [x] Run `go test ./internal/server/...` -- must pass
 
 ### Task 3: Verify acceptance criteria
 
