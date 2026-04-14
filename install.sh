@@ -1175,7 +1175,7 @@ if $ENABLE_MCP; then
     say "- Update ${INSTALL_DIR}/${ENV_FILE} with POCKET_ID_CLIENT_ID, POCKET_ID_CLIENT_SECRET, MCP_ALLOWED_SUBJECT."
     say "- Set COMPOSE_PROFILES=mcp in ${INSTALL_DIR}/${ENV_FILE}, then run: $COMPOSE_CMD up -d"
   else
-    say "- Configure Claude MCP with: https://${MCP_DOMAIN}/mcp/sse (HTTP/SSE)."
+    say "- Configure Claude MCP with: https://${MCP_DOMAIN}/mcp (Streamable HTTP)."
     say "- Ensure Pocket-ID client redirect URIs include https://claude.ai/api/mcp/auth_callback and https://claude.com/api/mcp/auth_callback."
   fi
 fi
