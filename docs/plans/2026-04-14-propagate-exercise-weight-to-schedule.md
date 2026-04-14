@@ -61,11 +61,11 @@ When a user edits weight, reps, or sets for an exercise in a workout session (vi
 
 ### Task 3: Verify acceptance criteria
 
-- [ ] Run full test suite: `go test ./...`
-- [ ] Verify: editing exercise weight in pending session updates workout_exercises
-- [ ] Verify: editing exercise weight in completed session does NOT update workout_exercises
-- [ ] Verify: editing user-added exercise does NOT update workout_exercises
-- [ ] Verify: ad-hoc workout exercises do NOT propagate
+- [x] Run full test suite: `go test ./...`
+- [x] Verify: editing exercise weight in pending session updates workout_exercises
+- [x] Verify: editing exercise weight in completed session does NOT update workout_exercises
+- [x] Verify: editing user-added exercise does NOT update workout_exercises
+- [x] Verify: ad-hoc workout exercises do NOT propagate
 
 ### Task 4: Update documentation
 
