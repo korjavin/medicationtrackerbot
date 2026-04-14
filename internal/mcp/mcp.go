@@ -525,7 +525,7 @@ func (s *Server) Run(ctx context.Context) error {
 	})
 
 	mux.Handle("/mcp", maxBytesMiddleware)
-	mux.Handle("/mcp/", maxBytesMiddleware)
+	mux.Handle("/mcp/{$}", maxBytesMiddleware)
 
 	// Health check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
