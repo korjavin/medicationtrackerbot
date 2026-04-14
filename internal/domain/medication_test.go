@@ -27,6 +27,7 @@ type mockMedicationStore struct {
 	createIntakeFn                func(medID, userID int64, scheduledAt time.Time) (int64, error)
 	createManualIntakeFn          func(medID, userID int64, takenAt time.Time) (int64, error)
 	decrementInventoryFn          func(medID int64, qty int) error
+	updateIntakeFn                func(id int64, takenAt time.Time, status string) error
 	lastConfirmedID               int64
 	decrementedMedIDs             []int64
 }
@@ -109,6 +110,13 @@ func (m *mockMedicationStore) CreateManualIntake(medID, userID int64, takenAt ti
 	return 1, nil
 }
 
+func (m *mockMedicationStore) UpdateIntake(id int64, takenAt time.Time, status string) error {
+	if m.updateIntakeFn != nil {
+		return m.updateIntakeFn(id, takenAt, status)
+	}
+	return nil
+}
+
 func (m *mockMedicationStore) DecrementInventory(medID int64, qty int) error {
 	m.decrementedMedIDs = append(m.decrementedMedIDs, medID)
 	if m.decrementInventoryFn != nil {
@@ -120,6 +128,112 @@ func (m *mockMedicationStore) DecrementInventory(medID int64, qty int) error {
 // pendingIntake returns a helper PENDING IntakeLog.
 func pendingIntake(id, medID int64) *store.IntakeLog {
 	return &store.IntakeLog{ID: id, MedicationID: medID, UserID: 1, Status: "PENDING"}
+}
+
+// takenIntake returns a helper TAKEN IntakeLog.
+func takenIntake(id, medID int64) *store.IntakeLog {
+	now := time.Now()
+	return &store.IntakeLog{ID: id, MedicationID: medID, UserID: 1, Status: "TAKEN", TakenAt: &now}
+}
+
+func TestCancelIntake(t *testing.T) {
+	tests := []struct {
+		name            string
+		store           *mockMedicationStore
+		intakeID        int64
+		wantMedName     string
+		wantMedDosage   string
+		wantErr         error
+		wantErrContains string
+	}{
+		{
+			name: "happy path cancels taken intake",
+			store: &mockMedicationStore{
+				getIntakeFn:     func(id int64) (*store.IntakeLog, error) { return takenIntake(id, 10), nil },
+				getMedicationFn: func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Name: "Aspirin", Dosage: "100mg"}, nil },
+				updateIntakeFn:  func(id int64, takenAt time.Time, status string) error { return nil },
+			},
+			intakeID:      42,
+			wantMedName:   "Aspirin",
+			wantMedDosage: "100mg",
+		},
+		{
+			name: "not-taken intake returns ErrNotTaken",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) { return pendingIntake(id, 10), nil },
+			},
+			intakeID: 42,
+			wantErr:  ErrNotTaken,
+		},
+		{
+			name: "nil intake returns ErrNotTaken",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) { return nil, nil },
+			},
+			intakeID: 42,
+			wantErr:  ErrNotTaken,
+		},
+		{
+			name: "GetIntake error propagates",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) {
+					return nil, errors.New("db error")
+				},
+			},
+			intakeID:        42,
+			wantErrContains: "get intake",
+		},
+		{
+			name: "UpdateIntake error propagates",
+			store: &mockMedicationStore{
+				getIntakeFn:    func(id int64) (*store.IntakeLog, error) { return takenIntake(id, 10), nil },
+				updateIntakeFn: func(id int64, takenAt time.Time, status string) error { return errors.New("db write error") },
+			},
+			intakeID:        42,
+			wantErrContains: "update intake",
+		},
+		{
+			name: "DecrementInventory error is non-fatal",
+			store: &mockMedicationStore{
+				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return takenIntake(id, 10), nil },
+				getMedicationFn:      func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Name: "Aspirin", Dosage: "100mg"}, nil },
+				updateIntakeFn:       func(id int64, takenAt time.Time, status string) error { return nil },
+				decrementInventoryFn: func(medID int64, qty int) error { return errors.New("inventory error") },
+			},
+			intakeID:      42,
+			wantMedName:   "Aspirin",
+			wantMedDosage: "100mg",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewMedicationService(tt.store)
+			medName, medDosage, err := svc.CancelIntake(tt.intakeID)
+
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("want error %v, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if tt.wantErrContains != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Errorf("want error containing %q, got %v", tt.wantErrContains, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if medName != tt.wantMedName {
+				t.Errorf("medName: got %q, want %q", medName, tt.wantMedName)
+			}
+			if medDosage != tt.wantMedDosage {
+				t.Errorf("medDosage: got %q, want %q", medDosage, tt.wantMedDosage)
+			}
+		})
+	}
 }
 
 func TestConfirmIntakeWithCleanup(t *testing.T) {
