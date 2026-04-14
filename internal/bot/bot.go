@@ -527,6 +527,41 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "🔕 Reminders silenced for 24 hours.")); err != nil {
 			slog.Error("send failed", "error", err)
 		}
+	} else if strings.HasPrefix(data, "cancel_intake:") {
+		idListStr := strings.TrimPrefix(data, "cancel_intake:")
+		idParts := strings.Split(idListStr, ",")
+		var cancelledNames []string
+		for _, idStr := range idParts {
+			id, _ := strconv.ParseInt(strings.TrimSpace(idStr), 10, 64)
+			if id == 0 {
+				continue
+			}
+			medName, medDosage, err := b.medSvc.CancelIntake(id)
+			if err != nil {
+				if errors.Is(err, domain.ErrNotTaken) {
+					continue // already processed, skip silently
+				}
+				slog.Error("Error cancelling intake", "intakeID", id, "error", err)
+				continue
+			}
+			cancelledNames = append(cancelledNames, medLabel(medName, medDosage))
+		}
+
+		// Delete the notification message with the cancel button
+		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(cb.Message.Chat.ID, cb.Message.MessageID)); err != nil {
+			slog.Error("delete message failed", "error", err)
+		}
+
+		if len(cancelledNames) > 0 {
+			msg := "↩️ Intake cancelled, reverted to pending: " + strings.Join(cancelledNames, ", ")
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, msg)); err != nil {
+				slog.Error("send failed", "error", err)
+			}
+		} else {
+			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "⚠️ No intakes to cancel (already processed).")); err != nil {
+				slog.Error("send failed", "error", err)
+			}
+		}
 	} else if strings.HasPrefix(data, "confirm:") {
 		medIDStr := data[8:]
 		medID, err := strconv.ParseInt(medIDStr, 10, 64)
