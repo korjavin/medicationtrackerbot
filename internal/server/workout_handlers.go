@@ -1102,6 +1102,21 @@ func (s *Server) handleInitializeRotation(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
+// validateExerciseValues checks that sets, reps, and weight are within
+// reasonable bounds. Nil values are allowed (means "don't change").
+func validateExerciseValues(sets, reps *int, weight *float64) error {
+	if sets != nil && *sets < 0 {
+		return fmt.Errorf("sets must be non-negative")
+	}
+	if reps != nil && *reps < 0 {
+		return fmt.Errorf("reps must be non-negative")
+	}
+	if weight != nil && *weight < 0 {
+		return fmt.Errorf("weight must be non-negative")
+	}
+	return nil
+}
+
 func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID            int64    `json:"id"`
@@ -1117,10 +1132,41 @@ func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if err := validateExerciseValues(req.SetsCompleted, req.RepsCompleted, req.WeightKg); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	err := s.workouts.UpdateExerciseLog(req.ID, req.SetsCompleted, req.RepsCompleted, req.WeightKg, req.Notes)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Best-effort propagation of weight/reps/sets to workout schedule.
+	// Only propagate non-zero values to avoid overwriting schedule with defaults.
+	propagateSets := req.SetsCompleted
+	propagateReps := req.RepsCompleted
+	if propagateSets != nil && *propagateSets == 0 {
+		propagateSets = nil
+	}
+	if propagateReps != nil && *propagateReps == 0 {
+		propagateReps = nil
+	}
+	if logEntry, err := s.workouts.GetExerciseLogByID(req.ID); err != nil {
+		slog.Error("propagate: fetch exercise log", "error", err, "log_id", req.ID)
+	} else if logEntry == nil {
+		slog.Error("propagate: exercise log not found after update", "log_id", req.ID)
+	} else if logEntry.Source == "library" {
+		// Skip propagation for library-sourced logs: their exercise_id is from
+		// exercise_library, not workout_exercises. Without this check, ID collisions
+		// between the two tables could corrupt scheduled exercise definitions.
+		slog.Info("propagate: skipping library-sourced exercise log", "log_id", req.ID, "exercise_name", logEntry.ExerciseName)
+	} else if err := s.workouts.PropagateExerciseToSchedule(
+		logEntry.SessionID, logEntry.ExerciseID, logEntry.ExerciseName,
+		propagateSets, propagateReps, req.WeightKg,
+	); err != nil {
+		slog.Error("propagate: update schedule", "error", err, "session_id", logEntry.SessionID, "exercise_id", logEntry.ExerciseID)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -1197,6 +1243,7 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 		TargetWeightKg *float64 `json:"target_weight_kg"`
 		Status         string   `json:"status"` // completed, skipped
 		Notes          string   `json:"notes"`
+		Source         string   `json:"source"` // "schedule" or "library"; defaults to "schedule"
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -1207,6 +1254,11 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 
 	if req.SessionID == 0 || req.ExerciseID == 0 {
 		http.Error(w, "SessionID and ExerciseID are required", http.StatusBadRequest)
+		return
+	}
+
+	if err := validateExerciseValues(&req.TargetSets, &req.TargetRepsMin, req.TargetWeightKg); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -1225,58 +1277,55 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Used passed ExerciseID. If it refers to an exercise in another variant, that's fine.
-	// It just serves as a reference to "what exercise was this".
-	// The log entry copies the name anyway.
-
-	// Helper to handle pointer conversions for logs if needed, but LogExercise takes pointers for completion stats
-	// We need to map request fields to LogExercise params.
-	// LogExercise(sessionID, exerciseID, exerciseName, sets, reps, weight, status, notes)
-	// sets, reps, weight in LogExercise are *int/*float64 which represent *completed* values.
-	// The request has "Target" values? No, for a completed session addition, we probably mean "I did this".
-	// The UI should ask for "Sets Completed", "Reps Completed", "Weight Used".
-	// So the request fields should probably be `SetsCompleted`, etc. not Target.
-	// Let's check the plan: "Add API endpoint to add exercise to session".
-	// The UI modal usually asks for targets when *editing* an exercise definition, but here we are *logging* performed work.
-	// Actually, `LogExercise` is for *logging* a performed exercise.
-	// But `WorkoutSession` logs usually start as copies of `WorkoutExercise` with null completion data.
-	// If we add an exercise to a session, we are effectively adding a row to `workout_exercise_logs`.
-	// Does it need to be "completed" immediately?
-	// If the user is adding it to a completed workout, they likely enter what they did.
-	// So we should accept `SetsCompleted`, `RepsCompleted`, etc.
-	// Let's rename request fields to match `LogExercise`.
-
-	// Re-defining request struct to match LogExercise needs
-	// We'll treat target values as what was done, or maybe we want to store targets too?
-	// `workout_exercise_logs` table struct:
-	// type WorkoutExerciseLog struct { ... SetsCompleted *int ... }
-	// It does NOT store targets. It links to `exercise_id` which has targets.
-	// If we pick a unique exercise, that `exercise_id` has targets.
-	// So we just need to log what was done.
-
 	sets := req.TargetSets
 	reps := req.TargetRepsMin
 	weight := req.TargetWeightKg
-	// Wait, if I use the existing struct names `TargetSets` etc from the plan, I should map them.
-	// But it's better to be explicit.
-	// Let's assume the UI sends `sets_completed`, `reps_completed`, `weight_kg`.
-	// But the `handleAddExerciseToSession` stub in previous step used `Target...`.
-	// I will update the struct in the replacement to be correct.
 
-	id, err := s.workouts.LogExercise(
+	// Use the correct source from the start so the insert is atomic —
+	// no two-step insert-then-retag that can collide with an existing
+	// scheduled log sharing the same (session_id, exercise_id).
+	source := req.Source
+	if source == "" {
+		source = "schedule"
+	}
+	if source != "schedule" && source != "library" {
+		http.Error(w, "source must be 'schedule' or 'library'", http.StatusBadRequest)
+		return
+	}
+
+	id, err := s.workouts.LogExerciseWithSource(
 		req.SessionID,
 		req.ExerciseID,
 		req.ExerciseName,
-		&sets, // sets completed
-		&reps, // reps completed. We'll use Min as the value if that's what we have.
+		&sets,
+		&reps,
 		weight,
 		req.Status,
 		req.Notes,
+		source,
 	)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	if source != "library" {
+		// Best-effort propagation for scheduled exercises.
+		propagateSets := &sets
+		propagateReps := &reps
+		if sets == 0 {
+			propagateSets = nil
+		}
+		if reps == 0 {
+			propagateReps = nil
+		}
+		if err := s.workouts.PropagateExerciseToSchedule(
+			req.SessionID, req.ExerciseID, req.ExerciseName,
+			propagateSets, propagateReps, weight,
+		); err != nil {
+			slog.Error("propagate: update schedule", "error", err, "session_id", req.SessionID, "exercise_id", req.ExerciseID)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
