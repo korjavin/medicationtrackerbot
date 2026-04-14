@@ -29,8 +29,8 @@ When a user edits weight, reps, or sets for an exercise in a workout session (vi
 **Files:**
 - Modify: `internal/store/workout.go`
 
-- [ ] Add `GetExerciseLogByID(id int64) (*WorkoutExerciseLog, error)` method that fetches a single exercise log by its primary key
-- [ ] Add `PropagateExerciseToSchedule(sessionID, exerciseID int64, sets *int, reps *int, weight *float64) error` method that executes a conditional UPDATE:
+- [x] Add `GetExerciseLogByID(id int64) (*WorkoutExerciseLog, error)` method that fetches a single exercise log by its primary key
+- [x] Add `PropagateExerciseToSchedule(sessionID, exerciseID int64, sets *int, reps *int, weight *float64) error` method that executes a conditional UPDATE:
   ```sql
   UPDATE workout_exercises
   SET target_sets = COALESCE(?, target_sets),
@@ -43,8 +43,8 @@ When a user edits weight, reps, or sets for an exercise in a workout session (vi
   )
   ```
   This single query handles all conditions: session status check, variant ownership check, and the update -- atomically. Returns nil even if 0 rows updated (no error for non-matching conditions).
-- [ ] Write store tests: (a) propagation succeeds for scheduled exercise in pending session, (b) propagation succeeds for in_progress session, (c) no propagation for completed session, (d) no propagation when exercise_id doesn't belong to session's variant, (e) no propagation for ad-hoc sessions (variant_id=-1)
-- [ ] Run `go test ./internal/store/...` -- must pass
+- [x] Write store tests: (a) propagation succeeds for scheduled exercise in pending session, (b) propagation succeeds for in_progress session, (c) no propagation for completed session, (d) no propagation when exercise_id doesn't belong to session's variant, (e) no propagation for ad-hoc sessions (variant_id=-1)
+- [x] Run `go test ./internal/store/...` -- must pass
 
 ### Task 2: Update WorkoutStore interface and wire into handlers
 
