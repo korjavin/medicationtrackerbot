@@ -388,7 +388,7 @@ func (s *Server) Routes() http.Handler {
 	// Backward compatibility for older Google-only URLs
 	mux.HandleFunc("/auth/google/login", s.handleOIDCLogin)
 	mux.HandleFunc("/auth/google/callback", s.handleOIDCCallback)
-	mux.HandleFunc("/auth/telegram/callback", s.handleTelegramCallback)
+	mux.Handle("/auth/telegram/callback", authLimit(http.HandlerFunc(s.handleTelegramCallback)))
 
 	// API
 	apiMux := http.NewServeMux()
@@ -853,7 +853,11 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 	valid, user, err := ValidateTelegramLoginWidget(s.botToken, data)
 	if !valid || err != nil {
 		slog.Error("TG-LOGIN Validation failed", "userID", data.ID, "remoteAddr", r.RemoteAddr, "error", err)
-		http.Error(w, "Invalid Telegram login data: "+err.Error(), http.StatusUnauthorized)
+		msg := "unknown validation error"
+		if err != nil {
+			msg = err.Error()
+		}
+		http.Error(w, "Invalid Telegram login data: "+msg, http.StatusUnauthorized)
 		return
 	}
 

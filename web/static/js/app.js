@@ -555,6 +555,11 @@ async function checkAuth() {
             tgLink.textContent = "Open in Telegram";
             tgLink.className = 'login-tg-link';
             tgWidgetContainer.appendChild(tgLink);
+        } else {
+            const hint = document.createElement('p');
+            hint.textContent = 'Use the Telegram app to open the bot and launch the web app.';
+            hint.className = 'login-tg-hint';
+            tgWidgetContainer.appendChild(hint);
         }
 
         loginContainer.appendChild(tgWidgetContainer);
