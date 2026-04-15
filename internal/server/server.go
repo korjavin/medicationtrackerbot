@@ -893,7 +893,7 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Create session (same as OIDC auth)
-	sessionValue := createSessionToken(user.Username, s.sessionSecret)
+	sessionValue := createSessionToken(firstNonEmpty(user.Username, fmt.Sprintf("tg_%d", user.ID)), s.sessionSecret)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_session",
 		Value:    sessionValue,
