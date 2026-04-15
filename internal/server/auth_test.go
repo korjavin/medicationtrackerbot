@@ -1,10 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -319,11 +322,23 @@ func TestHandleTelegramCallback_GET_ValidParams(t *testing.T) {
 		t.Errorf("expected redirect to /, got %q", loc)
 	}
 
-	// Verify auth cookie is set
+	// Verify auth cookie is set with correct security attributes
 	var foundCookie bool
 	for _, c := range resp.Cookies() {
 		if c.Name == "auth_session" && c.Value != "" {
 			foundCookie = true
+			if !c.HttpOnly {
+				t.Error("expected HttpOnly cookie")
+			}
+			if !c.Secure {
+				t.Error("expected Secure cookie")
+			}
+			if c.SameSite != http.SameSiteLaxMode {
+				t.Error("expected SameSite=Lax cookie")
+			}
+			if c.Path != "/" {
+				t.Errorf("expected Path=/, got %q", c.Path)
+			}
 		}
 	}
 	if !foundCookie {
@@ -390,5 +405,136 @@ func TestHandleTelegramCallback_GET_WrongUser(t *testing.T) {
 
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleTelegramCallback_POST_ValidJSON(t *testing.T) {
+	token := "test-bot-token"    // #nosec G101
+	secret := "test-session-sec" // #nosec G101
+	var allowedID int64 = 123456
+
+	srv := &Server{
+		botToken:      token,
+		sessionSecret: secret,
+		allowedUserID: allowedID,
+	}
+
+	data := buildLoginData(token, TelegramLoginData{
+		ID:        allowedID,
+		FirstName: "Test",
+		Username:  "testuser",
+		AuthDate:  time.Now().Unix(),
+	})
+
+	body, _ := json.Marshal(data)
+	req := httptest.NewRequest(http.MethodPost, "/auth/telegram/callback", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.handleTelegramCallback(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Errorf("expected application/json, got %q", ct)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var result map[string]string
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+	if result["status"] != "ok" {
+		t.Errorf("expected status=ok, got %q", result["status"])
+	}
+
+	// Verify cookie is set on POST too
+	var foundCookie bool
+	for _, c := range resp.Cookies() {
+		if c.Name == "auth_session" && c.Value != "" {
+			foundCookie = true
+		}
+	}
+	if !foundCookie {
+		t.Error("expected auth_session cookie to be set")
+	}
+}
+
+func TestHandleTelegramCallback_POST_InvalidJSON(t *testing.T) {
+	srv := &Server{
+		botToken:      "test-bot-token",    // #nosec G101
+		sessionSecret: "test-session-sec",  // #nosec G101
+		allowedUserID: 123456,
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/telegram/callback", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.handleTelegramCallback(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleTelegramCallback_POST_WrongUser(t *testing.T) {
+	token := "test-bot-token"    // #nosec G101
+	secret := "test-session-sec" // #nosec G101
+	var allowedID int64 = 123456
+
+	srv := &Server{
+		botToken:      token,
+		sessionSecret: secret,
+		allowedUserID: allowedID,
+	}
+
+	data := buildLoginData(token, TelegramLoginData{
+		ID:        999999,
+		FirstName: "Evil",
+		AuthDate:  time.Now().Unix(),
+	})
+
+	body, _ := json.Marshal(data)
+	req := httptest.NewRequest(http.MethodPost, "/auth/telegram/callback", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.handleTelegramCallback(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleTelegramCallback_UnsupportedMethod(t *testing.T) {
+	srv := &Server{
+		botToken:      "test-bot-token",   // #nosec G101
+		sessionSecret: "test-session-sec", // #nosec G101
+		allowedUserID: 123456,
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/auth/telegram/callback", nil)
+	w := httptest.NewRecorder()
+
+	srv.handleTelegramCallback(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", resp.StatusCode)
 	}
 }
