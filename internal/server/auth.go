@@ -96,8 +96,12 @@ func ValidateWebAppData(token, initData string) (bool, *TelegramUser, error) {
 		return false, nil, fmt.Errorf("invalid auth_date")
 	}
 
-	if time.Now().Unix()-authDate > 86400 { // 24 hours
+	webAppDiff := time.Now().Unix() - authDate
+	if webAppDiff > 86400 { // 24 hours
 		return false, nil, fmt.Errorf("auth_date expired")
+	}
+	if webAppDiff < -60 { // allow 60s clock skew
+		return false, nil, fmt.Errorf("auth_date is in the future")
 	}
 
 	// Parse user data
@@ -162,9 +166,13 @@ func ValidateTelegramLoginWidget(token string, data TelegramLoginData) (bool, *T
 		return false, nil, fmt.Errorf("hash mismatch")
 	}
 
-	// Check auth_date is not expired (24 hours)
-	if time.Now().Unix()-data.AuthDate > 86400 {
+	// Check auth_date is within valid range (not expired and not in the future)
+	diff := time.Now().Unix() - data.AuthDate
+	if diff > 86400 {
 		return false, nil, fmt.Errorf("auth_date expired")
+	}
+	if diff < -60 { // allow 60s clock skew
+		return false, nil, fmt.Errorf("auth_date is in the future")
 	}
 
 	user := &TelegramUser{
