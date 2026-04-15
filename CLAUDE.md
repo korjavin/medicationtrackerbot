@@ -148,6 +148,12 @@ SQLite with 47 goose migrations tracking schema evolution:
 - Checks `update.Message.From.ID` against `ALLOWED_USER_ID`
 - Rejects unauthorized updates
 
+**Telegram Login Widget**:
+- Redirect mode (`data-auth-url`): widget redirects to `/auth/telegram/callback` with signed query params
+- Server validates HMAC-SHA256 hash (SHA256(bot_token) as key), checks user against `ALLOWED_USER_ID`, sets session cookie, redirects to `/`
+- CSP includes `frame-src https://oauth.telegram.org` for the widget iframe; no `unsafe-eval` required
+- Frontend dynamically injects the widget script when `BOT_USERNAME` is available
+
 **Optional Google OIDC**:
 - For browser access outside Telegram
 - Configured via `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ADMIN_EMAIL`
@@ -457,7 +463,6 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.apiCallDirect` | `core/api.js` | data-store.js (change polling) |
 | `window.userInitData` | `app.js` | feature files (bp.js, weight.js) |
 | `window.onDataStoreUnauthorized` | `app.js` | data-store.js callback |
-| `window.onTelegramAuth` | `app.js` | Telegram OIDC script |
 | `window.requestTabRefresh` | `app.js` | data-store.js change detection |
 | `window.reloadCurrentTab` | `app.js` | data-store.js + sync.js |
 | `window.handleDeepLinks` | `features/deeplink-router.js` | features/bootstrap.js |
@@ -593,6 +598,7 @@ If you want to use this pattern for a new component:
 | GET | `/auth/oidc/callback` | OIDC callback |
 | GET | `/auth/google/login` | Google login redirect |
 | GET | `/auth/google/callback` | Google callback |
+| GET/POST | `/auth/telegram/callback` | Telegram Login Widget auth (GET: redirect flow, 302; POST: JSON callback) |
 
 ## Technical Decisions
 
