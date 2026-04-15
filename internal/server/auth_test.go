@@ -17,6 +17,23 @@ import (
 	"time"
 )
 
+// mockNonceStore implements NonceStore for tests using an in-memory map.
+type mockNonceStore struct {
+	used map[string]bool
+}
+
+func newMockNonceStore() *mockNonceStore {
+	return &mockNonceStore{used: make(map[string]bool)}
+}
+
+func (m *mockNonceStore) TryUseLoginHash(hash string, _ time.Time) (bool, error) {
+	if m.used[hash] {
+		return false, nil
+	}
+	m.used[hash] = true
+	return true, nil
+}
+
 // Helper to build valid WebApp initData with correct HMAC signature.
 func buildWebAppInitData(token string, authDate int64, userJSON string) string {
 	params := url.Values{}
@@ -293,9 +310,10 @@ func TestHandleTelegramCallback_GET_ValidParams(t *testing.T) {
 	var allowedID int64 = 123456
 
 	srv := &Server{
-		botToken:      token,
-		sessionSecret: secret,
-		allowedUserID: allowedID,
+		botToken:       token,
+		sessionSecret:  secret,
+		allowedUserID:  allowedID,
+		nonces: newMockNonceStore(),
 	}
 
 	data := buildLoginData(token, TelegramLoginData{
@@ -320,6 +338,11 @@ func TestHandleTelegramCallback_GET_ValidParams(t *testing.T) {
 	loc := resp.Header.Get("Location")
 	if loc != "/" {
 		t.Errorf("expected redirect to /, got %q", loc)
+	}
+
+	// Verify cache-busting header is set
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("expected Cache-Control: no-store, got %q", cc)
 	}
 
 	// Verify auth cookie is set with correct security attributes
@@ -375,6 +398,9 @@ func TestHandleTelegramCallback_GET_InvalidHash(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("expected Cache-Control: no-store on error path, got %q", cc)
+	}
 }
 
 func TestHandleTelegramCallback_GET_WrongUser(t *testing.T) {
@@ -406,6 +432,9 @@ func TestHandleTelegramCallback_GET_WrongUser(t *testing.T) {
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("expected Cache-Control: no-store on error path, got %q", cc)
+	}
 }
 
 func TestHandleTelegramCallback_POST_ValidJSON(t *testing.T) {
@@ -414,9 +443,10 @@ func TestHandleTelegramCallback_POST_ValidJSON(t *testing.T) {
 	var allowedID int64 = 123456
 
 	srv := &Server{
-		botToken:      token,
-		sessionSecret: secret,
-		allowedUserID: allowedID,
+		botToken:       token,
+		sessionSecret:  secret,
+		allowedUserID:  allowedID,
+		nonces: newMockNonceStore(),
 	}
 
 	data := buildLoginData(token, TelegramLoginData{
@@ -536,5 +566,47 @@ func TestHandleTelegramCallback_UnsupportedMethod(t *testing.T) {
 
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleTelegramCallback_GET_ReplayRejected(t *testing.T) {
+	token := "test-bot-token"    // #nosec G101
+	secret := "test-session-sec" // #nosec G101
+	var allowedID int64 = 123456
+
+	srv := &Server{
+		botToken:       token,
+		sessionSecret:  secret,
+		allowedUserID:  allowedID,
+		nonces: newMockNonceStore(),
+	}
+
+	data := buildLoginData(token, TelegramLoginData{
+		ID:        allowedID,
+		FirstName: "Test",
+		Username:  "testuser",
+		AuthDate:  time.Now().Unix(),
+	})
+
+	// First request should succeed
+	req1 := httptest.NewRequest(http.MethodGet, buildTelegramCallbackURL(data), nil)
+	w1 := httptest.NewRecorder()
+	srv.handleTelegramCallback(w1, req1)
+
+	resp1 := w1.Result()
+	defer resp1.Body.Close()
+	if resp1.StatusCode != http.StatusFound {
+		t.Fatalf("first request: expected 302, got %d", resp1.StatusCode)
+	}
+
+	// Second (replay) request with the same hash should be rejected
+	req2 := httptest.NewRequest(http.MethodGet, buildTelegramCallbackURL(data), nil)
+	w2 := httptest.NewRecorder()
+	srv.handleTelegramCallback(w2, req2)
+
+	resp2 := w2.Result()
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("replay request: expected 401, got %d", resp2.StatusCode)
 	}
 }

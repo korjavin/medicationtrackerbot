@@ -76,6 +76,7 @@ type Server struct {
 	tzUpdateMu          sync.Mutex
 	tzPlanner           tzreschedule.PlannerService
 	tzPlanStore         TZPlanStore
+	nonces              NonceStore
 }
 
 type rateLimiter struct {
@@ -228,6 +229,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		foodSearchCache: fastcache.New(foodSearchCacheSizeMB * 1024 * 1024),
 		changeStreamSem: make(chan struct{}, changeStreamMaxConn),
 		externalAPIKey:  os.Getenv("EXTERNAL_WORKOUT_API_KEY"),
+		nonces:          s,
 	}
 
 	if srv.externalAPIKey == "" {
@@ -812,6 +814,11 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 	var data TelegramLoginData
 	isRedirect := r.Method == http.MethodGet
 
+	if isRedirect {
+		// Prevent caching of auth callback URLs containing signed Telegram data
+		w.Header().Set("Cache-Control", "no-store")
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		// Redirect flow: parse auth params from URL query string
@@ -859,6 +866,22 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 		}
 		http.Error(w, "Invalid Telegram login data: "+msg, http.StatusUnauthorized)
 		return
+	}
+
+	// Prevent replay: reject if this hash was already used (persisted in SQLite)
+	if s.nonces != nil {
+		expiresAt := time.Unix(data.AuthDate, 0).Add(24 * time.Hour)
+		fresh, err := s.nonces.TryUseLoginHash(data.Hash, expiresAt)
+		if err != nil {
+			slog.Error("TG-LOGIN Nonce check failed", "error", err, "userID", data.ID, "remoteAddr", r.RemoteAddr)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		if !fresh {
+			slog.Warn("TG-LOGIN Replay detected", "userID", data.ID, "remoteAddr", r.RemoteAddr)
+			http.Error(w, "Login token already used", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	// Check if user is allowed
