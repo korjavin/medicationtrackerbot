@@ -457,7 +457,6 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.apiCallDirect` | `core/api.js` | data-store.js (change polling) |
 | `window.userInitData` | `app.js` | feature files (bp.js, weight.js) |
 | `window.onDataStoreUnauthorized` | `app.js` | data-store.js callback |
-| `window.onTelegramAuth` | `app.js` | Telegram OIDC script |
 | `window.requestTabRefresh` | `app.js` | data-store.js change detection |
 | `window.reloadCurrentTab` | `app.js` | data-store.js + sync.js |
 | `window.handleDeepLinks` | `features/deeplink-router.js` | features/bootstrap.js |

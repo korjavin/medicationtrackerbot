@@ -38,14 +38,14 @@ The Telegram Login Widget was removed because the callback mode (`data-onauth`) 
 **Files:**
 - Modify: `web/static/js/app.js`
 
-- [ ] In the login screen section (around line 533), replace the "open in Telegram" hint with the Telegram Login Widget script injection
-- [ ] Use redirect mode: `data-auth-url` pointing to `/auth/telegram/callback` instead of `data-onauth`
-- [ ] Set attributes: `data-telegram-login` = `window.BOT_USERNAME`, `data-size` = `large`, `data-auth-url` = current origin + `/auth/telegram/callback`, `data-request-access` = `write`
-- [ ] Keep the "Open in Telegram" link as a fallback below the widget (for users who prefer the native app)
-- [ ] Remove the comment about unsafe-eval since redirect mode does not require it
-- [ ] The existing `window.onTelegramAuth` callback function (lines 598-618) can be removed since we no longer use callback mode
-- [ ] Run architecture tests to ensure no design token violations: `node web/static/js/tests/architecture.design-tokens.test.js`
-- [ ] Run project test suite - must pass before task 3
+- [x] In the login screen section (around line 533), replace the "open in Telegram" hint with the Telegram Login Widget script injection
+- [x] Use redirect mode: `data-auth-url` pointing to `/auth/telegram/callback` instead of `data-onauth`
+- [x] Set attributes: `data-telegram-login` = `window.BOT_USERNAME`, `data-size` = `large`, `data-auth-url` = current origin + `/auth/telegram/callback`, `data-request-access` = `write`
+- [x] Keep the "Open in Telegram" link as a fallback below the widget (for users who prefer the native app)
+- [x] Remove the comment about unsafe-eval since redirect mode does not require it
+- [x] The existing `window.onTelegramAuth` callback function (lines 598-618) can be removed since we no longer use callback mode
+- [x] Run architecture tests to ensure no design token violations: `node web/static/js/tests/architecture.design-tokens.test.js`
+- [x] Run project test suite - must pass before task 3
 
 ### Task 3: Verify acceptance criteria
 
