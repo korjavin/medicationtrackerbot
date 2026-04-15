@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"sort"
 	"strings"
@@ -259,5 +260,135 @@ func TestValidateTelegramLoginWidget_ExpiredAuthDate(t *testing.T) {
 	_, _, err := ValidateTelegramLoginWidget(token, data)
 	if err == nil {
 		t.Fatal("expected error for expired auth_date")
+	}
+}
+
+// buildTelegramCallbackURL builds a GET URL with Telegram Login Widget query parameters.
+func buildTelegramCallbackURL(data TelegramLoginData) string {
+	q := url.Values{}
+	q.Set("id", fmt.Sprintf("%d", data.ID))
+	q.Set("auth_date", fmt.Sprintf("%d", data.AuthDate))
+	q.Set("hash", data.Hash)
+	if data.FirstName != "" {
+		q.Set("first_name", data.FirstName)
+	}
+	if data.LastName != "" {
+		q.Set("last_name", data.LastName)
+	}
+	if data.Username != "" {
+		q.Set("username", data.Username)
+	}
+	if data.PhotoURL != "" {
+		q.Set("photo_url", data.PhotoURL)
+	}
+	return "/auth/telegram/callback?" + q.Encode()
+}
+
+func TestHandleTelegramCallback_GET_ValidParams(t *testing.T) {
+	token := "test-bot-token"    // #nosec G101
+	secret := "test-session-sec" // #nosec G101
+	var allowedID int64 = 123456
+
+	srv := &Server{
+		botToken:      token,
+		sessionSecret: secret,
+		allowedUserID: allowedID,
+	}
+
+	data := buildLoginData(token, TelegramLoginData{
+		ID:        allowedID,
+		FirstName: "Test",
+		Username:  "testuser",
+		AuthDate:  time.Now().Unix(),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, buildTelegramCallbackURL(data), nil)
+	w := httptest.NewRecorder()
+
+	srv.handleTelegramCallback(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("expected 302, got %d", resp.StatusCode)
+	}
+
+	loc := resp.Header.Get("Location")
+	if loc != "/" {
+		t.Errorf("expected redirect to /, got %q", loc)
+	}
+
+	// Verify auth cookie is set
+	var foundCookie bool
+	for _, c := range resp.Cookies() {
+		if c.Name == "auth_session" && c.Value != "" {
+			foundCookie = true
+		}
+	}
+	if !foundCookie {
+		t.Error("expected auth_session cookie to be set")
+	}
+}
+
+func TestHandleTelegramCallback_GET_InvalidHash(t *testing.T) {
+	token := "test-bot-token"    // #nosec G101
+	secret := "test-session-sec" // #nosec G101
+	var allowedID int64 = 123456
+
+	srv := &Server{
+		botToken:      token,
+		sessionSecret: secret,
+		allowedUserID: allowedID,
+	}
+
+	data := TelegramLoginData{
+		ID:        allowedID,
+		FirstName: "Test",
+		AuthDate:  time.Now().Unix(),
+		Hash:      "0000000000000000000000000000000000000000000000000000000000000000",
+	}
+
+	req := httptest.NewRequest(http.MethodGet, buildTelegramCallbackURL(data), nil)
+	w := httptest.NewRecorder()
+
+	srv.handleTelegramCallback(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleTelegramCallback_GET_WrongUser(t *testing.T) {
+	token := "test-bot-token"    // #nosec G101
+	secret := "test-session-sec" // #nosec G101
+	var allowedID int64 = 123456
+
+	srv := &Server{
+		botToken:      token,
+		sessionSecret: secret,
+		allowedUserID: allowedID,
+	}
+
+	// Valid signature but for a different user ID
+	data := buildLoginData(token, TelegramLoginData{
+		ID:        999999,
+		FirstName: "Evil",
+		AuthDate:  time.Now().Unix(),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, buildTelegramCallbackURL(data), nil)
+	w := httptest.NewRecorder()
+
+	srv.handleTelegramCallback(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}
 }
