@@ -859,12 +859,20 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 
 	valid, user, err := ValidateTelegramLoginWidget(s.botToken, data)
 	if !valid || err != nil {
-		slog.Error("TG-LOGIN Validation failed", "userID", data.ID, "remoteAddr", r.RemoteAddr, "error", err)
+		slog.Warn("TG-LOGIN Validation failed", "userID", data.ID, "remoteAddr", r.RemoteAddr, "error", err)
 		msg := "unknown validation error"
 		if err != nil {
 			msg = err.Error()
 		}
 		http.Error(w, "Invalid Telegram login data: "+msg, http.StatusUnauthorized)
+		return
+	}
+
+	// Check if user is allowed before consuming the nonce,
+	// so an unauthorized user cannot burn a legitimate user's login token.
+	if user.ID != s.allowedUserID {
+		slog.Warn("TG-LOGIN Unauthorized user", "userID", user.ID, "username", user.Username, "remoteAddr", r.RemoteAddr, "allowedUserID", s.allowedUserID)
+		http.Error(w, "Forbidden: User not allowed", http.StatusForbidden)
 		return
 	}
 
@@ -882,13 +890,6 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, "Login token already used", http.StatusUnauthorized)
 			return
 		}
-	}
-
-	// Check if user is allowed
-	if user.ID != s.allowedUserID {
-		slog.Warn("TG-LOGIN Unauthorized user", "userID", user.ID, "username", user.Username, "remoteAddr", r.RemoteAddr, "allowedUserID", s.allowedUserID)
-		http.Error(w, "Forbidden: User not allowed", http.StatusForbidden)
-		return
 	}
 
 	// Create session (same as OIDC auth)
