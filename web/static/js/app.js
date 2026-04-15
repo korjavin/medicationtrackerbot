@@ -530,19 +530,24 @@ async function checkAuth() {
         title.className = 'login-title';
         loginContainer.appendChild(title);
 
-        // Telegram login widget requires unsafe-eval, so direct users to open the bot in Telegram.
         const tgWidgetContainer = document.createElement('div');
         tgWidgetContainer.id = 'telegram-login-container';
         tgWidgetContainer.className = 'login-tg-container';
 
-        const telegramHint = document.createElement('p');
-        telegramHint.textContent = "Use the Telegram app to open the bot and launch the web app.";
-        telegramHint.className = 'login-tg-hint';
-        tgWidgetContainer.appendChild(telegramHint);
-
         const rawBotUsername = typeof window['BOT_USERNAME'] === 'string' ? window['BOT_USERNAME'].trim() : '';
         const botUsername = rawBotUsername.replace(/^@+/, '');
         if (botUsername) {
+            // Telegram Login Widget in redirect mode (no unsafe-eval needed)
+            const tgScript = document.createElement('script');
+            tgScript.async = true;
+            tgScript.src = 'https://telegram.org/js/telegram-widget.js?22';
+            tgScript.setAttribute('data-telegram-login', botUsername);
+            tgScript.setAttribute('data-size', 'large');
+            tgScript.setAttribute('data-auth-url', window.location.origin + '/auth/telegram/callback');
+            tgScript.setAttribute('data-request-access', 'write');
+            tgWidgetContainer.appendChild(tgScript);
+
+            // Fallback link for users who prefer the native app
             const tgLink = document.createElement('a');
             tgLink.href = `https://t.me/${encodeURIComponent(botUsername)}`;
             tgLink.target = '_blank';
@@ -594,28 +599,6 @@ async function checkAuth() {
 
     document.body.replaceChildren();
     document.body.appendChild(loginContainer);
-
-    // Define global callback for Telegram Login Widget
-    window.onTelegramAuth = async function (user) {
-        console.log("Telegram auth callback received:", user);
-        try {
-            const res = await fetch('/auth/telegram/callback', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(user)
-            });
-            if (res.ok) {
-                window.location.reload();
-            } else {
-                const err = await res.text();
-                console.error("Telegram login failed:", err);
-                safeAlert("Login failed: " + err);
-            }
-        } catch (e) {
-            console.error("Telegram login error:", e);
-            safeAlert("Login error: " + e.message);
-        }
-    };
 
     return false;
 }
