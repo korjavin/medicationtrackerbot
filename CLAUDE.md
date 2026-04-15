@@ -208,6 +208,7 @@ Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.Exerci
 
 ### MCP Server
 - **Purpose**: Provides read-only access to health data for AI assistants (Claude)
+- **Transport**: Streamable HTTP (2025-03-26 spec) via `mcp.NewStreamableHTTPHandler`
 - **Authentication**: OAuth via Pocket-ID
 - **Tools**: 13 granular tools (get_blood_pressure, get_weight, get_medication_intake, etc.) + 2 composite analysis tools
 - **Composite Tools**: `analyze_cardiovascular` (BP + meds + sleep + HR + SpO2 + notes) and `analyze_fitness` (workouts + steps + nutrition totals + weight + notes) — return cross-domain data in a single call
@@ -273,11 +274,8 @@ Add a new service to your `docker-compose.yml` file to run the MCP server.
 1.  Open **Claude Desktop** or **Claude.ai** (when MCP is enabled).
 2.  Go to **Settings** -> **MCP**.
 3.  Add a new MCP Server:
-    *   **Type**: SSE / HTTP
-    *   **URL**: `https://mcp.yourdomain.com/mcp/sse` (or just `/mcp` depending on SDK - our implementation supports HTTP transport)
-    *   **Wait**: Currently Claude.ai MCP supports local stdio primarily. For remote HTTP MCP, you might need a local relay or wait for full remote support.
-
-    *Additional Note*: If you are using Claude Desktop, you might need to run a local `mcp-proxy` or configure it to connect to your remote URL.
+    *   **Type**: Streamable HTTP
+    *   **URL**: `https://mcp.yourdomain.com/mcp`
 
     **If using Claude Desktop with Stdio (Alternative Local Run):**
     You can also run the binary locally pointing to a local DB copy:

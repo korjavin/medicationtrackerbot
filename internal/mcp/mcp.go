@@ -509,12 +509,14 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource", s.oauth.HandleProtectedResourceMetadata)
 
 	// MCP endpoint (with OAuth middleware)
-	// Use SDK's SSEHandler to handle both SSE (GET) and Messages (POST)
-	sseHandler := mcp.NewSSEHandler(func(r *http.Request) *mcp.Server {
+	streamableHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		return s.mcpServer
-	}, nil)
+	}, &mcp.StreamableHTTPOptions{
+		SessionTimeout: 30 * time.Minute,
+		Logger:         slog.Default(),
+	})
 
-	mcpHandler := s.oauth.Middleware(sseHandler)
+	mcpHandler := s.oauth.Middleware(streamableHandler)
 
 	// Limit request body size to 1MB to prevent memory exhaustion
 	maxBytesMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -523,6 +525,7 @@ func (s *Server) Run(ctx context.Context) error {
 	})
 
 	mux.Handle("/mcp", maxBytesMiddleware)
+	mux.Handle("/mcp/{$}", maxBytesMiddleware)
 
 	// Health check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {

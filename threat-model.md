@@ -170,7 +170,7 @@ The system benefits from single-tenant isolation (no cross-tenant attack surface
 **MCP Client (Claude/OpenAI) → MCP Server**
 
 - **Data types**: Bearer tokens (JWT), MCP protocol messages (JSON-RPC)
-- **Channel**: HTTPS (SSE for events, POST for messages)
+- **Channel**: HTTPS (Streamable HTTP — POST with session headers)
 - **Security guarantees**: TLS, JWT signature validation
 - **Validation**:
   - JWT signature verification using RSA public keys from JWKS
@@ -266,7 +266,7 @@ The system benefits from single-tenant isolation (no cross-tenant attack surface
 | **OIDC login endpoint** (`/auth/oidc/login`) | Web browser → OIDC provider (Pocket-ID) → callback | Browser → OIDC flow → Session cookie | Redirects to Pocket-ID, validates callback, issues session cookie. Rate limited (10 req/min). | `internal/server/server.go:343-344` |
 | **OIDC callback endpoint** (`/auth/oidc/callback`) | OIDC provider (Pocket-ID) | OIDC provider → Application | Validates OAuth state, exchanges code for token, extracts user email, creates session. Rate limited. | `internal/server/server.go:344` |
 | **Telegram Login Widget callback** (`/auth/telegram/callback`) | Web browser via Telegram Login Widget JS | Browser → Telegram signature validation | Validates Telegram Login Widget signature, creates session cookie. Rate limited. | `internal/server/server.go:348`, `internal/server/auth.go:124-178` |
-| **MCP endpoint** (`/mcp`) | Claude Desktop / OpenAI clients via SSE/HTTP | Unauthenticated network → OAuth-validated MCP server | Protected by OAuth JWT validation (Pocket-ID JWKS). Read-only tools only. | `internal/mcp/mcp.go:397-403` |
+| **MCP endpoint** (`/mcp`) | Claude Desktop / OpenAI clients via Streamable HTTP | Unauthenticated network → OAuth-validated MCP server | Protected by OAuth JWT validation (Pocket-ID JWKS). Read-only tools only. | `internal/mcp/mcp.go:512-528` |
 | **MCP OAuth metadata** (`/.well-known/oauth-protected-resource`) | MCP client discovery | Public endpoint | Returns OAuth Protected Resource Metadata (RFC 9728). No authentication required. | `internal/mcp/oauth.go:62-74` |
 | **External workout webhook** (`/api/workout/external`) | Mi Notify / external webhook service | External API key → Application | Protected by `EXTERNAL_WORKOUT_API_KEY` Bearer token. Currently disabled in deployment. | `internal/server/external_workout_handlers.go:29-53` |
 | **Static files** (`/static/*`, `/`) | Web browser | Public endpoint | Serves PWA frontend (HTML, JS, CSS). No authentication required for static files. | `internal/server/server.go:318-322` |
