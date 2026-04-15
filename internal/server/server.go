@@ -76,6 +76,7 @@ type Server struct {
 	tzUpdateMu          sync.Mutex
 	tzPlanner           tzreschedule.PlannerService
 	tzPlanStore         TZPlanStore
+	nonces              NonceStore
 }
 
 type rateLimiter struct {
@@ -228,6 +229,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		foodSearchCache: fastcache.New(foodSearchCacheSizeMB * 1024 * 1024),
 		changeStreamSem: make(chan struct{}, changeStreamMaxConn),
 		externalAPIKey:  os.Getenv("EXTERNAL_WORKOUT_API_KEY"),
+		nonces:          s,
 	}
 
 	if srv.externalAPIKey == "" {
@@ -341,7 +343,7 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Strict-Transport-Security", "max-age=15552000; includeSubDomains")
 		// Note: 'unsafe-inline' is currently required in style-src because the application dynamically
 		// injects styles for various components (like charts, modals, and dynamic themes).
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self' https://telegram.org; font-src 'self' https://fonts.gstatic.com; base-uri 'self'; frame-ancestors 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self' https://telegram.org; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -388,7 +390,7 @@ func (s *Server) Routes() http.Handler {
 	// Backward compatibility for older Google-only URLs
 	mux.HandleFunc("/auth/google/login", s.handleOIDCLogin)
 	mux.HandleFunc("/auth/google/callback", s.handleOIDCCallback)
-	mux.HandleFunc("/auth/telegram/callback", s.handleTelegramCallback)
+	mux.Handle("/auth/telegram/callback", authLimit(http.HandlerFunc(s.handleTelegramCallback)))
 
 	// API
 	apiMux := http.NewServeMux()
@@ -804,41 +806,92 @@ func (s *Server) serveOIDCSetup(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleTelegramCallback handles Telegram Login Widget authentication
+// handleTelegramCallback handles Telegram Login Widget authentication.
+// Supports two flows:
+//   - POST with JSON body (legacy callback mode)
+//   - GET with query parameters (redirect mode — widget redirects here with auth params)
 func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+	var data TelegramLoginData
+	isRedirect := r.Method == http.MethodGet
+
+	if isRedirect {
+		// Prevent caching of auth callback URLs containing signed Telegram data
+		w.Header().Set("Cache-Control", "no-store")
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// Redirect flow: parse auth params from URL query string
+		q := r.URL.Query()
+		id, err := strconv.ParseInt(q.Get("id"), 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid or missing id", http.StatusBadRequest)
+			return
+		}
+		authDate, err := strconv.ParseInt(q.Get("auth_date"), 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid or missing auth_date", http.StatusBadRequest)
+			return
+		}
+		data = TelegramLoginData{
+			ID:        id,
+			FirstName: q.Get("first_name"),
+			LastName:  q.Get("last_name"),
+			Username:  q.Get("username"),
+			PhotoURL:  q.Get("photo_url"),
+			AuthDate:  authDate,
+			Hash:      q.Get("hash"),
+		}
+	case http.MethodPost:
+		// Legacy callback flow: parse JSON body
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+			slog.Error("Invalid JSON from TG-LOGIN", "remoteAddr", r.RemoteAddr, "error", err)
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Limit request body size to 1MB to prevent memory exhaustion
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-
-	var data TelegramLoginData
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		slog.Error("Invalid JSON from TG-LOGIN", "remoteAddr", r.RemoteAddr, "error", err)
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	slog.Info("TG-LOGIN Attempt", "remoteAddr", r.RemoteAddr, "userID", data.ID, "username", data.Username, "firstName", data.FirstName, "authDate", data.AuthDate)
+	slog.Info("TG-LOGIN Attempt", "remoteAddr", r.RemoteAddr, "method", r.Method, "userID", data.ID, "username", data.Username, "firstName", data.FirstName, "authDate", data.AuthDate)
 
 	valid, user, err := ValidateTelegramLoginWidget(s.botToken, data)
 	if !valid || err != nil {
-		slog.Error("TG-LOGIN Validation failed", "userID", data.ID, "remoteAddr", r.RemoteAddr, "error", err)
-		http.Error(w, "Invalid Telegram login data: "+err.Error(), http.StatusUnauthorized)
+		slog.Warn("TG-LOGIN Validation failed", "userID", data.ID, "remoteAddr", r.RemoteAddr, "error", err)
+		http.Error(w, "Invalid Telegram login data", http.StatusUnauthorized)
 		return
 	}
 
-	// Check if user is allowed
+	// Check if user is allowed before consuming the nonce,
+	// so an unauthorized user cannot burn a legitimate user's login token.
 	if user.ID != s.allowedUserID {
 		slog.Warn("TG-LOGIN Unauthorized user", "userID", user.ID, "username", user.Username, "remoteAddr", r.RemoteAddr, "allowedUserID", s.allowedUserID)
 		http.Error(w, "Forbidden: User not allowed", http.StatusForbidden)
 		return
 	}
 
+	// Prevent replay: reject if this hash was already used (persisted in SQLite)
+	if s.nonces == nil {
+		slog.Warn("TG-LOGIN nonce store not configured, replay protection disabled")
+	} else {
+		expiresAt := time.Unix(data.AuthDate, 0).Add(24 * time.Hour)
+		fresh, err := s.nonces.TryUseLoginHash(data.Hash, expiresAt)
+		if err != nil {
+			slog.Error("TG-LOGIN Nonce check failed", "error", err, "userID", data.ID, "remoteAddr", r.RemoteAddr)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		if !fresh {
+			slog.Warn("TG-LOGIN Replay detected", "userID", data.ID, "remoteAddr", r.RemoteAddr)
+			http.Error(w, "Login token already used", http.StatusUnauthorized)
+			return
+		}
+	}
+
 	// Create session (same as OIDC auth)
-	sessionValue := createSessionToken(user.Username, s.sessionSecret)
+	sessionValue := createSessionToken(firstNonEmpty(user.Username, fmt.Sprintf("tg_%d", user.ID)), s.sessionSecret)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_session",
 		Value:    sessionValue,
@@ -850,6 +903,11 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 	})
 
 	slog.Info("TG-LOGIN Success", "userID", user.ID, "username", user.Username, "remoteAddr", r.RemoteAddr)
+
+	if isRedirect {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
