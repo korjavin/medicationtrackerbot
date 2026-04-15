@@ -2722,3 +2722,27 @@ func (s *Store) MarkStepConsumed(stepID int64, consumedAt time.Time) error {
 	)
 	return err
 }
+
+// -- Login Nonce Store --
+
+// TryUseLoginHash atomically checks whether a login hash has been used and marks it used if not.
+// Returns true if the hash is fresh (first use), false if it was already consumed (replay).
+// Uses INSERT OR IGNORE for atomicity — no SELECT+INSERT race under concurrent access.
+// Also prunes expired entries lazily.
+func (s *Store) TryUseLoginHash(hash string, expiresAt time.Time) (bool, error) {
+	// Prune expired entries lazily (best-effort)
+	_, _ = s.db.Exec(`DELETE FROM used_login_hashes WHERE expires_at < ?`, nowFunc().Unix())
+
+	// Atomically try to insert; conflict on PRIMARY KEY means replay
+	result, err := s.db.Exec(`INSERT OR IGNORE INTO used_login_hashes (hash, expires_at) VALUES (?, ?)`, hash, expiresAt.Unix())
+	if err != nil {
+		return false, err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+
+	return rows > 0, nil
+}
