@@ -860,11 +860,7 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 	valid, user, err := ValidateTelegramLoginWidget(s.botToken, data)
 	if !valid || err != nil {
 		slog.Warn("TG-LOGIN Validation failed", "userID", data.ID, "remoteAddr", r.RemoteAddr, "error", err)
-		msg := "unknown validation error"
-		if err != nil {
-			msg = err.Error()
-		}
-		http.Error(w, "Invalid Telegram login data: "+msg, http.StatusUnauthorized)
+		http.Error(w, "Invalid Telegram login data", http.StatusUnauthorized)
 		return
 	}
 
@@ -877,7 +873,9 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Prevent replay: reject if this hash was already used (persisted in SQLite)
-	if s.nonces != nil {
+	if s.nonces == nil {
+		slog.Warn("TG-LOGIN nonce store not configured, replay protection disabled")
+	} else {
 		expiresAt := time.Unix(data.AuthDate, 0).Add(24 * time.Hour)
 		fresh, err := s.nonces.TryUseLoginHash(data.Hash, expiresAt)
 		if err != nil {
