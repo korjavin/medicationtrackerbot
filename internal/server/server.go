@@ -341,7 +341,7 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Strict-Transport-Security", "max-age=15552000; includeSubDomains")
 		// Note: 'unsafe-inline' is currently required in style-src because the application dynamically
 		// injects styles for various components (like charts, modals, and dynamic themes).
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self' https://telegram.org; font-src 'self' https://fonts.gstatic.com; base-uri 'self'; frame-ancestors 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self' https://telegram.org; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -804,24 +804,51 @@ func (s *Server) serveOIDCSetup(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleTelegramCallback handles Telegram Login Widget authentication
+// handleTelegramCallback handles Telegram Login Widget authentication.
+// Supports two flows:
+//   - POST with JSON body (legacy callback mode)
+//   - GET with query parameters (redirect mode — widget redirects here with auth params)
 func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+	var data TelegramLoginData
+	isRedirect := r.Method == http.MethodGet
+
+	switch r.Method {
+	case http.MethodGet:
+		// Redirect flow: parse auth params from URL query string
+		q := r.URL.Query()
+		id, err := strconv.ParseInt(q.Get("id"), 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid or missing id", http.StatusBadRequest)
+			return
+		}
+		authDate, err := strconv.ParseInt(q.Get("auth_date"), 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid or missing auth_date", http.StatusBadRequest)
+			return
+		}
+		data = TelegramLoginData{
+			ID:        id,
+			FirstName: q.Get("first_name"),
+			LastName:  q.Get("last_name"),
+			Username:  q.Get("username"),
+			PhotoURL:  q.Get("photo_url"),
+			AuthDate:  authDate,
+			Hash:      q.Get("hash"),
+		}
+	case http.MethodPost:
+		// Legacy callback flow: parse JSON body
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+			slog.Error("Invalid JSON from TG-LOGIN", "remoteAddr", r.RemoteAddr, "error", err)
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Limit request body size to 1MB to prevent memory exhaustion
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-
-	var data TelegramLoginData
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		slog.Error("Invalid JSON from TG-LOGIN", "remoteAddr", r.RemoteAddr, "error", err)
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	slog.Info("TG-LOGIN Attempt", "remoteAddr", r.RemoteAddr, "userID", data.ID, "username", data.Username, "firstName", data.FirstName, "authDate", data.AuthDate)
+	slog.Info("TG-LOGIN Attempt", "remoteAddr", r.RemoteAddr, "method", r.Method, "userID", data.ID, "username", data.Username, "firstName", data.FirstName, "authDate", data.AuthDate)
 
 	valid, user, err := ValidateTelegramLoginWidget(s.botToken, data)
 	if !valid || err != nil {
@@ -850,6 +877,11 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 	})
 
 	slog.Info("TG-LOGIN Success", "userID", user.ID, "username", user.Username, "remoteAddr", r.RemoteAddr)
+
+	if isRedirect {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {

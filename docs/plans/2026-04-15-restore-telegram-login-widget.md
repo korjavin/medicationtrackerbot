@@ -25,13 +25,13 @@ The Telegram Login Widget was removed because the callback mode (`data-onauth`) 
 **Files:**
 - Modify: `internal/server/server.go`
 
-- [ ] Update `handleTelegramCallback` to accept both GET (redirect flow) and POST (existing callback flow)
-- [ ] For GET: parse `id`, `first_name`, `last_name`, `username`, `photo_url`, `auth_date`, `hash` from URL query parameters into `TelegramLoginData`
-- [ ] After successful validation and cookie set, respond with HTTP redirect (302) to `/` instead of JSON
-- [ ] Keep the existing POST path unchanged for backwards compatibility
-- [ ] Update CSP header: add `frame-src 'self' https://oauth.telegram.org` to allow the widget iframe
-- [ ] Write tests: GET with valid query params returns 302 + cookie, GET with invalid hash returns 401, GET with wrong user returns 403
-- [ ] Run project test suite - must pass before task 2
+- [x] Update `handleTelegramCallback` to accept both GET (redirect flow) and POST (existing callback flow)
+- [x] For GET: parse `id`, `first_name`, `last_name`, `username`, `photo_url`, `auth_date`, `hash` from URL query parameters into `TelegramLoginData`
+- [x] After successful validation and cookie set, respond with HTTP redirect (302) to `/` instead of JSON
+- [x] Keep the existing POST path unchanged for backwards compatibility
+- [x] Update CSP header: add `frame-src 'self' https://oauth.telegram.org` to allow the widget iframe
+- [x] Write tests: GET with valid query params returns 302 + cookie, GET with invalid hash returns 401, GET with wrong user returns 403
+- [x] Run project test suite - must pass before task 2
 
 ### Task 2: Re-add Telegram Login Widget with redirect mode in frontend
 
