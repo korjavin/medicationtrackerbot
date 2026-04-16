@@ -541,11 +541,12 @@ func (s *Server) Routes() http.Handler {
 	return securityHeadersMiddleware(mux)
 }
 
-// -- Blood Pressure Handlers --
-
-// -- Blood Pressure Handlers --
-
 func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
+	var userID int64
+	if u, ok := r.Context().Value(UserCtxKey).(*TelegramUser); ok && u != nil {
+		userID = u.ID
+	}
+
 	// Parse query params
 	days := 3 // Default
 	if dStr := r.URL.Query().Get("days"); dStr != "" {
@@ -566,6 +567,12 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	slog.Debug("list history", "user_id", userID, "days", days, "med_id", medID, "count", len(logs))
+	if len(logs) == 0 && medID > 0 {
+		slog.Warn("list history returned no results for specific medication", "user_id", userID, "days", days, "med_id", medID)
+	}
+
 	if err := json.NewEncoder(w).Encode(logs); err != nil {
 		slog.Error("encode response", "error", err)
 	}

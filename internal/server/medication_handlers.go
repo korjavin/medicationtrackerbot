@@ -825,23 +825,30 @@ func (s *Server) handleLogPastIntake(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create manual intake
-	id, err := s.meds.CreateManualIntake(req.MedicationID, userId, takenAt)
+	id, err := s.medSvc.LogMedicationAt(userId, req.MedicationID, takenAt)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Decrement inventory
-	if err := s.meds.DecrementInventory(req.MedicationID, 1); err != nil {
-		slog.Error("Error decrementing inventory", "error", err)
+	// Read back the persisted row so a silent insert failure (id=0 or missing
+	// row) is surfaced as 500 instead of a misleading 200.
+	intake, err := s.meds.GetIntake(id)
+	if err != nil {
+		slog.Error("log past intake: readback failed", "user_id", userId, "med_id", req.MedicationID, "id", id, "error", err)
+		http.Error(w, "intake persisted but could not be read back", http.StatusInternalServerError)
+		return
+	}
+	if intake == nil {
+		slog.Error("log past intake: readback returned nil", "user_id", userId, "med_id", req.MedicationID, "id", id)
+		http.Error(w, "intake persisted but could not be read back", http.StatusInternalServerError)
+		return
 	}
 
+	slog.Info("log past intake", "user_id", userId, "med_id", req.MedicationID, "taken_at", takenAt, "id", id)
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"id":     id,
-		"status": "created",
-	}); err != nil {
+	if err := json.NewEncoder(w).Encode(intake); err != nil {
 		slog.Error("encode response", "error", err)
 	}
 }

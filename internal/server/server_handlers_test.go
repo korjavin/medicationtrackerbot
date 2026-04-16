@@ -507,6 +507,105 @@ func TestHandleLogPastIntake(t *testing.T) {
 	}
 }
 
+// TestLogPastIntake_AppearsInListHistory reproduces the reported bug: a user
+// logs a past intake via the schedule page's "Log" button (POST
+// /api/medications/log-past) and expects to see it immediately when they
+// open the intake history page (GET /api/history?days=3&med_id=0). This
+// exercises both HTTP handlers in one flow so handler/serialization bugs are
+// caught.
+func TestLogPastIntake_AppearsInListHistory(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	userID := int64(123456)
+	medID, err := db.CreateMedication("TestMed", "10mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		takenAt time.Time
+	}{
+		{name: "now", takenAt: time.Now()},
+		{name: "a few hours ago", takenAt: time.Now().Add(-5 * time.Hour)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// 1) POST /api/medications/log-past — mirror the frontend payload.
+			reqBody := map[string]interface{}{
+				"medication_id": medID,
+				"taken_at":      tc.takenAt.Format(time.RFC3339),
+			}
+			body, _ := json.Marshal(reqBody)
+
+			postReq := httptest.NewRequest("POST", "/api/medications/log-past", bytes.NewReader(body))
+			postReq = withUser(postReq, userID)
+			postW := httptest.NewRecorder()
+
+			srv.handleLogPastIntake(postW, postReq)
+
+			if postW.Code != http.StatusOK {
+				t.Fatalf("log-past: expected 200, got %d. Body: %s", postW.Code, postW.Body.String())
+			}
+
+			var postResp store.IntakeLog
+			if err := json.NewDecoder(postW.Body).Decode(&postResp); err != nil {
+				t.Fatalf("decode log-past response: %v", err)
+			}
+			if postResp.ID == 0 {
+				t.Fatalf("log-past: expected non-zero id, got 0")
+			}
+			if postResp.MedicationID != medID {
+				t.Errorf("log-past: medication_id = %d, want %d", postResp.MedicationID, medID)
+			}
+			if postResp.Status != "TAKEN" {
+				t.Errorf("log-past: status = %q, want TAKEN", postResp.Status)
+			}
+			if postResp.TakenAt == nil {
+				t.Errorf("log-past: taken_at is nil, want non-nil")
+			}
+			if postResp.ScheduledAt.IsZero() {
+				t.Errorf("log-past: scheduled_at is zero, want non-zero")
+			}
+
+			// 2) GET /api/history?days=3&med_id=0 — matches frontend defaults.
+			getReq := httptest.NewRequest("GET", "/api/history?days=3&med_id=0", nil)
+			getReq = withUser(getReq, userID)
+			getW := httptest.NewRecorder()
+
+			srv.handleListHistory(getW, getReq)
+
+			if getW.Code != http.StatusOK {
+				t.Fatalf("history: expected 200, got %d. Body: %s", getW.Code, getW.Body.String())
+			}
+
+			var logs []store.IntakeLog
+			if err := json.NewDecoder(getW.Body).Decode(&logs); err != nil {
+				t.Fatalf("decode history response: %v", err)
+			}
+
+			found := false
+			for _, l := range logs {
+				if l.ID == postResp.ID {
+					if l.Status != "TAKEN" {
+						t.Errorf("history entry status = %q, want TAKEN", l.Status)
+					}
+					if l.MedicationID != medID {
+						t.Errorf("history entry medication_id = %d, want %d", l.MedicationID, medID)
+					}
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("logged intake id=%d not found in history response (%d entries): %+v", postResp.ID, len(logs), logs)
+			}
+		})
+	}
+}
+
 // --- Weight reminder handlers ---
 
 func TestHandleGetWeightReminderStatus(t *testing.T) {
