@@ -55,9 +55,9 @@ The user reports that pressing the green "Log" button on the Medications tab sho
 - Modify: `internal/server/server.go` (`handleListHistory` — log `user_id, days, med_id, count` at `Debug`; log at `Warn` if `len(logs) == 0 && medID > 0` since that is a likely symptom of the reported bug)
 - Modify: `internal/server/misc_handlers_test.go` (existing `TestHandleListHistory` — ensure the handler still works; no need to assert log output)
 
-- [ ] Read `user_id` from context (same pattern as other handlers); include in log line
-- [ ] Emit `slog.Debug("list history", ...)` after `GetIntakeHistory` with the parsed filters and result count
-- [ ] Run `go test ./internal/server/...` — must pass before Task 3
+- [x] Read `user_id` from context (same pattern as other handlers); include in log line
+- [x] Emit `slog.Debug("list history", ...)` after `GetIntakeHistory` with the parsed filters and result count
+- [x] Run `go test ./internal/server/...` — must pass before Task 3
 
 ### Task 3: Frontend — invalidate `history`/`medications` tags before reload and verify the new intake is visible
 
