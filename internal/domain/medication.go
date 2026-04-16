@@ -54,6 +54,10 @@ type MedicationService interface {
 	// Used for ad-hoc "log now" without a pre-existing pending record.
 	LogMedicationNow(userID, medID int64) error
 
+	// LogMedicationAt creates a new intake with status='TAKEN' at the given time.
+	// Used for logging past intakes from the web UI. Returns the new intake ID.
+	LogMedicationAt(userID, medID int64, takenAt time.Time) (int64, error)
+
 	// ConfirmScheduleWithCleanup batch-confirms all pending intakes for a scheduled
 	// time slot and collects all reminder message IDs across those intakes.
 	// Returns the reminder message IDs so the caller can delete them.
@@ -156,17 +160,22 @@ func (s *medicationService) SkipIntake(intakeID int64) ([]int, string, string, e
 }
 
 func (s *medicationService) LogMedicationNow(userID, medID int64) error {
-	now := time.Now()
+	_, err := s.LogMedicationAt(userID, medID, time.Now())
+	return err
+}
+
+func (s *medicationService) LogMedicationAt(userID, medID int64, takenAt time.Time) (int64, error) {
 	// CreateManualIntake inserts directly with status='TAKEN', avoiding a separate ConfirmIntake
 	// call that could leave a dangling PENDING record on partial failure.
-	if _, err := s.store.CreateManualIntake(medID, userID, now); err != nil {
-		return fmt.Errorf("create manual intake for med %d: %w", medID, err)
+	id, err := s.store.CreateManualIntake(medID, userID, takenAt)
+	if err != nil {
+		return 0, fmt.Errorf("create manual intake for med %d: %w", medID, err)
 	}
 	// Inventory decrement is best-effort.
 	if err := s.store.DecrementInventory(medID, 1); err != nil {
 		slog.Error("DecrementInventory failed", "medID", medID, "error", err)
 	}
-	return nil
+	return id, nil
 }
 
 func (s *medicationService) ConfirmScheduleWithCleanup(userID int64, scheduledAt time.Time) ([]int, error) {
