@@ -34,15 +34,17 @@ Reproduce and fix a bug where an intake logged via the "Log" button on the medic
 **Files:**
 - Modify: `internal/server/server_handlers_test.go` (or add a new test file if length is an issue)
 
-- [ ] Add `TestLogPastIntake_AppearsInListHistory` that:
+- [x] Add `TestLogPastIntake_AppearsInListHistory` that:
   - Creates a test server and medication via `createGenericTestServer(t)` / `db.CreateMedication`
   - Sends a realistic POST `/api/medications/log-past` with JSON body `{medication_id, taken_at: time.Now().Format(time.RFC3339)}` through `srv.handleLogPastIntake`
   - Asserts 200 OK
   - Sends a follow-up GET `/api/history?days=3&med_id=0` (matching frontend defaults) through `srv.handleListHistory`
   - Decodes the response as `[]store.IntakeLog` and asserts the logged intake is present with `status == "TAKEN"` and correct `medication_id`
-- [ ] Also add a variant with `taken_at` a few hours in the past (common "log past" scenario) to cover boundary behavior
-- [ ] Run `go test ./internal/server/ -run TestLogPastIntake_AppearsInListHistory -v` — confirm the test fails (or reveals a surprising pass)
-- [ ] If the test passes: proceed to Task 2 (investigate the frontend); if it fails: proceed to Task 3 (backend fix)
+- [x] Also add a variant with `taken_at` a few hours in the past (common "log past" scenario) to cover boundary behavior
+- [x] Run `go test ./internal/server/ -run TestLogPastIntake_AppearsInListHistory -v` — confirm the test fails (or reveals a surprising pass)
+- [x] If the test passes: proceed to Task 2 (investigate the frontend); if it fails: proceed to Task 3 (backend fix)
+
+**Result:** Surprising pass. Both variants (now, -5h) pass — the backend log-past → list-history flow works. The bug must be frontend-side. Next iteration will execute Task 2.
 
 ### Task 2: If Task 1 passes — reproduce on the frontend
 
