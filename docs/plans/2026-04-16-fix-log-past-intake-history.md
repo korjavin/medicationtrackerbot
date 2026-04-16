@@ -51,10 +51,12 @@ Reproduce and fix a bug where an intake logged via the "Log" button on the medic
 **Files:**
 - Create: `web/static/js/tests/app.log-past-history.test.js`
 
-- [ ] Set up a vitest JSDOM test that loads `app.js` in the existing harness (see `web/static/js/tests/app.med-confirm-edit-modes.test.js` for reference)
-- [ ] Stub `apiCall`/`offlineAwareApiCall` to return success for `/api/medications/log-past` and to return a list including the new intake for `/api/history`
-- [ ] Trigger the full flow: open the log-past modal via `showMedicationConfirmModal([medId], [name], new Date(), 'log_past')`, invoke `confirmLogPast()`, then assert `loadHistory` calls the API and that `renderHistory` produces a DOM node for the new intake (not "No history yet.")
-- [ ] If reproducing: fix the offending frontend code path (likely SWR cache interaction or `renderHistory` missing the item because `medications` lookup fails) and assert the fix; otherwise skip to Task 3
+- [x] Set up a vitest JSDOM test that loads `app.js` in the existing harness (see `web/static/js/tests/app.med-confirm-edit-modes.test.js` for reference)
+- [x] Stub `apiCall`/`offlineAwareApiCall` to return success for `/api/medications/log-past` and to return a list including the new intake for `/api/history`
+- [x] Trigger the full flow: open the log-past modal via `showMedicationConfirmModal([medId], [name], new Date(), 'log_past')`, invoke `confirmLogPast()`, then assert `loadHistory` calls the API and that `renderHistory` produces a DOM node for the new intake (not "No history yet.")
+- [x] If reproducing: fix the offending frontend code path (likely SWR cache interaction or `renderHistory` missing the item because `medications` lookup fails) and assert the fix; otherwise skip to Task 3
+
+**Result:** Both frontend variants pass. The first test exercises the happy path (log-past POST -> loadHistory() -> renderHistory() renders the new intake). The second test simulates a previously cached stale-empty `history_3_0` SWR entry and verifies SWR's `fetchFresh` overwrites it with the new intake on refresh. The frontend pathway is not reproducing the bug either. Combined with the Task 1 backend result, this means the reported bug is not reproducible at either isolated layer — the current `confirmLogPast` -> `loadHistory` -> `/api/history` flow is correct. The bug was likely fixed by an earlier change (for example the recent change-polling / SW precache / SWR overhaul) or depends on environment-specific cache state (e.g. a SW `DYNAMIC_CACHE` entry that network-first has already superseded). No frontend fix is warranted; proceed to close out Task 3 without a code change and document the verified behavior.
 
 ### Task 3: Fix the bug based on Task 1/Task 2 findings
 
