@@ -1879,6 +1879,9 @@ function renderHistory(logs) {
             const medName = med ? med.name : 'Unknown Med';
             const subitem = document.createElement('div');
             subitem.className = 'history-subitem';
+            if (l.id !== undefined && l.id !== null) {
+                subitem.dataset.intakeId = String(l.id);
+            }
             subitem.textContent = medName;
             items.appendChild(subitem);
         });
@@ -2153,7 +2156,7 @@ async function loadHistory() {
 
     const cacheKey = `history_${days}_${medId}`;
 
-    await window.DataStore.loadSWR({
+    const result = await window.DataStore.loadSWR({
         key: cacheKey,
         tags: ['history'],
         fetcher: async () => await apiCall(`/api/history?days=${days}&med_id=${medId}`),
@@ -2172,6 +2175,7 @@ async function loadHistory() {
         }
     });
     renderNextIntakeTrigger();
+    return result;
 }
 
 let _nextIntakeTimerInterval = null;
@@ -2551,8 +2555,27 @@ async function confirmLogPast() {
 
         if (res) {
             safeAlert("Intake logged!");
+            if (window.DataStore) {
+                await window.DataStore.invalidateByTag('history');
+                await window.DataStore.invalidateByTag('medications');
+            }
             loadMeds();
-            loadHistory();
+            const historyResult = await loadHistory();
+            const newId = res && typeof res.id !== 'undefined' ? res.id : null;
+            if (newId !== null) {
+                const freshLogs = historyResult && Array.isArray(historyResult.fresh)
+                    ? historyResult.fresh
+                    : null;
+                const found = freshLogs && freshLogs.some((l) => l && l.id === newId);
+                if (!found) {
+                    if (window.SyncDebug && typeof window.SyncDebug.warn === 'function') {
+                        window.SyncDebug.warn('log-past: new intake not visible in history after reload', { id: newId });
+                    }
+                    if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
+                        window.SyncManager.showToast('Saved, but history did not refresh — pull to refresh', 'error');
+                    }
+                }
+            }
         }
 
         closeMedicationConfirmModal();
