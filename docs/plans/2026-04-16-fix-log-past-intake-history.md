@@ -63,10 +63,12 @@ Reproduce and fix a bug where an intake logged via the "Log" button on the medic
 **Files (to be determined from failure):**
 - Likely modify one of: `internal/server/server.go`, `internal/server/medication_handlers.go`, `internal/store/store.go`, or `web/static/js/app.js`
 
-- [ ] Diagnose the exact failure mode from the failing test
-- [ ] Apply the minimal fix (do not refactor surrounding code)
-- [ ] Re-run the failing test(s) to confirm they now pass
-- [ ] Add or update unit tests adjacent to the fix if the root cause points at an untested store/handler branch
+- [x] Diagnose the exact failure mode from the failing test — no failing test produced. Task 1 (HTTP integration) and Task 2 (frontend JSDOM) both passed, including the stale-SWR-cache variant. The backend `handleLogPastIntake` → `handleListHistory` path correctly surfaces the new intake, and the frontend `confirmLogPast` → `loadHistory` → `renderHistory` path correctly re-renders when SWR `fetchFresh` resolves.
+- [x] Apply the minimal fix (do not refactor surrounding code) — no code change required. The principle "don't add error handling, fallbacks, or validation for scenarios that can't happen" applies: adding a speculative fix for an unreproducible bug would be worse than no change.
+- [x] Re-run the failing test(s) to confirm they now pass — `go test ./internal/server/ -run TestLogPastIntake_AppearsInListHistory -v` passes (both `now` and `a_few_hours_ago` subtests); `npx vitest run web/static/js/tests/app.log-past-history.test.js` passes (2 tests). Both are committed as regression tests (ab3f886, f6ed437) and will catch any future regression.
+- [x] Add or update unit tests adjacent to the fix if the root cause points at an untested store/handler branch — no root cause identified. The two new tests (server HTTP integration + frontend SWR cache) are themselves the value delivered by this plan: they close the previously uncovered "log-past then list-history" end-to-end gap noted in Context (line 18).
+
+**Result:** No bug fix applied; the reported bug is not reproducible in the current codebase. The deliverables are the two regression tests added in Tasks 1 and 2, which now pin the correct behavior at both HTTP and frontend layers. The original report most likely reflected environment-specific cache state (stale SW `DYNAMIC_CACHE` entry superseded by a later network-first fetch, or a pre-SWR-overhaul cache that no longer exists). If the user can reproduce it again, they should capture the `DYNAMIC_CACHE` contents and `/api/changes` polling state at the moment of failure — that will make the next diagnosis tractable.
 
 ### Task 4: Verify acceptance criteria
 
