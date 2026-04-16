@@ -53,6 +53,8 @@ Telegram is the fastest interface for real life: logging something quickly, resp
 
 It supports quick commands for medications, blood pressure, weight, workouts, food, exports, and other everyday actions. Feature-specific commands are hidden automatically when that feature is disabled in settings.
 
+Workout sessions show up to 3 exercise prompts at a time. As you complete or skip exercises, the next ones appear automatically, keeping the chat uncluttered.
+
 The `/tz` command requests your location to detect your timezone. Workout, BP, and weight reminders adjust to your local time. Medication times are not affected.
 
 ### Web app
