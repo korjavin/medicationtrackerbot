@@ -65,12 +65,12 @@ The user reports that pressing the green "Log" button on the Medications tab sho
 - Modify: `web/static/js/app.js` (`confirmLogPast` — after `res` is truthy and before calling `loadHistory`, call `await window.DataStore.invalidateByTag('history')` and `await window.DataStore.invalidateByTag('medications')`; after `loadHistory()` resolves, check that the returned response contains an object with `id === res.id`; if not, call `window.SyncDebug?.warn('log-past: new intake not visible in history after reload', { id: res.id })` and show a non-blocking toast via `SyncManager.showToast('Saved, but history did not refresh — pull to refresh', 'error')`)
 - Modify: `web/static/js/tests/app.log-past-history.test.js` (extend existing two tests and add a third)
 
-- [ ] Update `confirmLogPast` as described; keep `safeAlert("Intake logged!")` and `closeMedicationConfirmModal()` behavior unchanged so the happy path UX is identical
-- [ ] Refactor `loadHistory` slightly if needed so `confirmLogPast` can await the fresh fetch result (the cleanest approach is to have `loadHistory` return `{ fresh }` from `loadSWR`, which it already can because `loadSWR` returns that object)
-- [ ] Extend happy-path test: assert `DataStore.invalidateByTag('history')` and `DataStore.invalidateByTag('medications')` are called between the POST and the history GET
-- [ ] Extend stale-cache test: make the mocked `/api/history` response NOT include the new intake, then assert `SyncDebug.warn` is called and `SyncManager.showToast` is invoked with an "error" type
-- [ ] Add third test: POST response returns the full intake; `renderHistory` after refresh contains a DOM node with the same ID
-- [ ] Run `npx vitest run web/static/js/tests/app.log-past-history.test.js` — all three tests pass before Task 4
+- [x] Update `confirmLogPast` as described; keep `safeAlert("Intake logged!")` and `closeMedicationConfirmModal()` behavior unchanged so the happy path UX is identical
+- [x] Refactor `loadHistory` slightly if needed so `confirmLogPast` can await the fresh fetch result (the cleanest approach is to have `loadHistory` return `{ fresh }` from `loadSWR`, which it already can because `loadSWR` returns that object)
+- [x] Extend happy-path test: assert `DataStore.invalidateByTag('history')` and `DataStore.invalidateByTag('medications')` are called between the POST and the history GET
+- [x] Extend stale-cache test: make the mocked `/api/history` response NOT include the new intake, then assert `SyncDebug.warn` is called and `SyncManager.showToast` is invoked with an "error" type
+- [x] Add third test: POST response returns the full intake; `renderHistory` after refresh contains a DOM node with the same ID
+- [x] Run `npx vitest run web/static/js/tests/app.log-past-history.test.js` — all three tests pass before Task 4
 
 ### Task 4: Verify acceptance criteria
 
