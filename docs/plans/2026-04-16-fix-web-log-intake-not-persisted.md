@@ -74,10 +74,10 @@ The user reports that pressing the green "Log" button on the Medications tab sho
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] Run `go test ./...` — all packages pass
-- [ ] Run `npx vitest run` — all frontend tests pass (including the extended `app.log-past-history.test.js` and any other test that touched the `MedicationService` or the POST response shape)
-- [ ] Run `go vet ./...` — clean
-- [ ] Manually re-read `handleLogPastIntake` and `confirmLogPast` to confirm no leftover TODOs / dead code from the refactor
+- [x] Run `go test ./...` — all packages pass
+- [x] Run `npx vitest run` — all frontend tests pass (including the extended `app.log-past-history.test.js` and any other test that touched the `MedicationService` or the POST response shape)
+- [x] Run `go vet ./...` — clean
+- [x] Manually re-read `handleLogPastIntake` and `confirmLogPast` to confirm no leftover TODOs / dead code from the refactor
 
 ### Task 5: Update documentation
 
