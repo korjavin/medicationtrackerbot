@@ -550,14 +550,24 @@ func TestLogPastIntake_AppearsInListHistory(t *testing.T) {
 				t.Fatalf("log-past: expected 200, got %d. Body: %s", postW.Code, postW.Body.String())
 			}
 
-			var postResp struct {
-				ID int64 `json:"id"`
-			}
+			var postResp store.IntakeLog
 			if err := json.NewDecoder(postW.Body).Decode(&postResp); err != nil {
 				t.Fatalf("decode log-past response: %v", err)
 			}
 			if postResp.ID == 0 {
 				t.Fatalf("log-past: expected non-zero id, got 0")
+			}
+			if postResp.MedicationID != medID {
+				t.Errorf("log-past: medication_id = %d, want %d", postResp.MedicationID, medID)
+			}
+			if postResp.Status != "TAKEN" {
+				t.Errorf("log-past: status = %q, want TAKEN", postResp.Status)
+			}
+			if postResp.TakenAt == nil {
+				t.Errorf("log-past: taken_at is nil, want non-nil")
+			}
+			if postResp.ScheduledAt.IsZero() {
+				t.Errorf("log-past: scheduled_at is zero, want non-zero")
 			}
 
 			// 2) GET /api/history?days=3&med_id=0 — matches frontend defaults.
