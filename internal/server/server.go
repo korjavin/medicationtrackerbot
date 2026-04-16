@@ -541,10 +541,6 @@ func (s *Server) Routes() http.Handler {
 	return securityHeadersMiddleware(mux)
 }
 
-// -- Blood Pressure Handlers --
-
-// -- Blood Pressure Handlers --
-
 func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 	var userID int64
 	if u, ok := r.Context().Value(UserCtxKey).(*TelegramUser); ok && u != nil {

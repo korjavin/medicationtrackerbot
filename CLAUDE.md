@@ -543,7 +543,8 @@ If you want to use this pattern for a new component:
 | POST | `/api/medications` | Create medication |
 | PATCH | `/api/medications/:id` | Update medication |
 | POST | `/api/medications/confirm-schedule` | Confirm dose intake |
-| GET | `/api/medications/intake-history` | Dose history |
+| POST | `/api/medications/log-past` | Log a past intake (returns full `IntakeLog`; routed through `MedicationService.LogMedicationAt`) |
+| GET | `/api/history` | Intake history (filter by `days`, `med_id`) |
 | GET | `/api/medications/next-intake` | Next scheduled dose |
 | GET | `/api/bp` | BP readings |
 | POST | `/api/bp` | Log BP reading |
