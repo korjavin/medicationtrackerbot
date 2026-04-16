@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
-// Reproduction for the bug reported in docs/plans/2026-04-16-fix-log-past-intake-history.md:
+// Reproduction for the bug reported in
+// docs/plans/completed/2026-04-16-fix-log-past-intake-history.md:
 //   "Intake logged via the Log button on the medication schedule page does not
 //    appear on the intake history page, even after refresh."
 //
@@ -10,19 +11,6 @@ import { loadFrontendEnv } from './helpers/frontend-harness.js';
 // path: open the log-past modal -> confirmLogPast() -> loadHistory() ->
 // renderHistory() and asserts the new intake shows up in the DOM.
 describe('app.js log-past -> history reflects new intake', () => {
-  let consoleErrorSpy;
-  let consoleLogSpy;
-
-  beforeEach(() => {
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
-    consoleLogSpy.mockRestore();
-  });
-
   async function seedMedications(window, meds) {
     // Match the seed pattern used by app.medication-history.test.js — prime
     // the medications array via the same loadMeds() path the real app uses.
@@ -98,8 +86,7 @@ describe('app.js log-past -> history reflects new intake', () => {
       // Run the real confirmLogPast() — no stubs on loadHistory/loadMeds.
       await window.confirmLogPast();
 
-      // Give any background microtasks kicked off by loadHistory a chance to run.
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      // Give background microtasks kicked off by loadHistory a chance to run.
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       // The POST must have been sent.
@@ -113,7 +100,10 @@ describe('app.js log-past -> history reflects new intake', () => {
         typeof endpoint === 'string' && endpoint.startsWith('/api/history')
       );
       expect(historyCalls.length).toBeGreaterThan(0);
-      expect(historyCalls[0][0]).toMatch(/^\/api\/history\?days=3&med_id=0$/);
+      const historyUrl = new URL(historyCalls[0][0], 'http://test.local');
+      expect(historyUrl.pathname).toBe('/api/history');
+      expect(historyUrl.searchParams.get('days')).toBe('3');
+      expect(historyUrl.searchParams.get('med_id')).toBe('0');
 
       // The history DOM must now contain the newly logged intake, NOT the empty state.
       const list = document.getElementById('history-list');
@@ -202,7 +192,6 @@ describe('app.js log-past -> history reflects new intake', () => {
       });
 
       await window.confirmLogPast();
-      await new Promise((resolve) => setTimeout(resolve, 0));
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       const list = document.getElementById('history-list');
