@@ -81,5 +81,5 @@ The user reports that pressing the green "Log" button on the Medications tab sho
 
 ### Task 5: Update documentation
 
-- [ ] Update CLAUDE.md `## Domain Service Pattern` section — add a note that `LogMedicationAt` exists and that `handleLogPastIntake` goes through the domain service (so future contributors don't regress to a direct store call)
-- [ ] Move this plan to `docs/plans/completed/` when everything above is green
+- [x] Update CLAUDE.md `## Domain Service Pattern` section — add a note that `LogMedicationAt` exists and that `handleLogPastIntake` goes through the domain service (so future contributors don't regress to a direct store call)
+- [x] Move this plan to `docs/plans/completed/` when everything above is green
