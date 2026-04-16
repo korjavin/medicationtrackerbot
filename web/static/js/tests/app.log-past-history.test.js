@@ -152,6 +152,16 @@ describe('app.js log-past -> history reflects new intake', () => {
 
       cachedHistory.set(staleKey, []); // stale empty list cached
 
+      // Spy on renderHistory to verify SWR's cached→fresh sequence: we expect
+      // renderHistory to be called first with the stale [] (empty state), then
+      // again with the fresh [newIntake] from the POST-triggered refetch.
+      const originalRenderHistory = window.renderHistory;
+      const renderCalls = [];
+      window.renderHistory = vi.fn((logs) => {
+        renderCalls.push(Array.isArray(logs) ? logs.slice() : logs);
+        return originalRenderHistory(logs);
+      });
+
       const takenDate = new Date();
       const pad = (n) => String(n).padStart(2, '0');
       const localValue =
@@ -198,6 +208,18 @@ describe('app.js log-past -> history reflects new intake', () => {
       expect(list.textContent).not.toContain('No history yet.');
       expect(list.textContent).toContain('Magnesium');
       expect(list.querySelectorAll('.history-group').length).toBeGreaterThan(0);
+
+      // Verify the SWR cached→fresh sequence actually ran: stale [] rendered
+      // first, then the fresh [newIntake] replaced it. Without this the test
+      // would pass even if the stale-cache lookup never happened, making the
+      // `cachedHistory.set(staleKey, [])` setup above a no-op.
+      const historyRenderCalls = renderCalls.filter((logs) => Array.isArray(logs));
+      expect(historyRenderCalls.length).toBeGreaterThanOrEqual(2);
+      expect(historyRenderCalls[0]).toEqual([]);
+      const freshCall = historyRenderCalls.find(
+        (logs) => logs.some((l) => l && l.id === newIntake.id)
+      );
+      expect(freshCall).toBeTruthy();
     } finally {
       cleanup();
     }
