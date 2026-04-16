@@ -2562,11 +2562,12 @@ async function confirmLogPast() {
             loadMeds();
             const historyResult = await loadHistory();
             const newId = res && typeof res.id !== 'undefined' ? res.id : null;
-            if (newId !== null) {
-                const freshLogs = historyResult && Array.isArray(historyResult.fresh)
-                    ? historyResult.fresh
-                    : null;
-                const found = freshLogs && freshLogs.some((l) => l && l.id === newId);
+            // Only run the visibility check when the history fetch actually
+            // returned an array. If it failed (historyResult.error set or
+            // fresh is null), the user is offline/degraded — the POST already
+            // succeeded, so don't shout "history did not refresh" at them.
+            if (newId !== null && historyResult && Array.isArray(historyResult.fresh)) {
+                const found = historyResult.fresh.some((l) => l && l.id === newId);
                 if (!found) {
                     if (window.SyncDebug && typeof window.SyncDebug.warn === 'function') {
                         window.SyncDebug.warn('log-past: new intake not visible in history after reload', { id: newId });
