@@ -162,7 +162,7 @@ SQLite with 47 goose migrations tracking schema evolution:
 
 The bot (`internal/bot/`) is a thin communication channel — it parses Telegram-specific data and sends/deletes messages. All business decisions live in `internal/domain/`:
 
-- `domain/medication.go` — `MedicationService`: confirm/skip/cancel/log medication intakes, batch confirm a time slot
+- `domain/medication.go` — `MedicationService`: confirm/skip/cancel/log medication intakes, batch confirm a time slot. `LogMedicationNow(userID, medID)` delegates to `LogMedicationAt(userID, medID, takenAt)`; both Telegram `/log` and the web `POST /api/medications/log-past` handler (`handleLogPastIntake`) go through the service so manual-intake creation has a single code path.
 - `domain/exercise.go` — `ExerciseService`: idempotent exercise log upsert, session completion check
 - `domain/reminder.go` — `ReminderService`: snooze/block BP and weight reminders
 - `domain/food.go` — food intake argument parsing and macro calculation
@@ -177,7 +177,7 @@ func NewFooService(s FooStore) FooService { return &fooService{store: s} }
 
 Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.ExerciseService`, `reminderSvc domain.ReminderService`, `workoutSvc workoutsvc.WorkoutService`.
 
-**Rule**: bot callbacks may only call domain service methods and Telegram API methods. No direct store calls for business decisions.
+**Rule**: bot callbacks and web HTTP handlers may only call domain service methods (and Telegram / HTTP transport calls). No direct store calls for business decisions — keep both transports on the same code path so behavior cannot diverge.
 
 ## Feature Implementation Patterns
 
