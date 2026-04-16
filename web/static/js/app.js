@@ -2559,7 +2559,7 @@ async function confirmLogPast() {
                 await window.DataStore.invalidateByTag('history');
                 await window.DataStore.invalidateByTag('medications');
             }
-            loadMeds();
+            await loadMeds();
             const historyResult = await loadHistory();
             const newId = res && typeof res.id !== 'undefined' ? res.id : null;
             // Only run the visibility check when the history fetch actually
@@ -2567,7 +2567,7 @@ async function confirmLogPast() {
             // fresh is null), the user is offline/degraded — the POST already
             // succeeded, so don't shout "history did not refresh" at them.
             if (newId !== null && historyResult && Array.isArray(historyResult.fresh)) {
-                const found = historyResult.fresh.some((l) => l && l.id === newId);
+                const found = historyResult.fresh.some((l) => l && typeof l.id === 'number' && l.id === newId);
                 if (!found) {
                     if (window.SyncDebug && typeof window.SyncDebug.warn === 'function') {
                         window.SyncDebug.warn('log-past: new intake not visible in history after reload', { id: newId });
