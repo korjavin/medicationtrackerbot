@@ -551,8 +551,7 @@ func TestLogPastIntake_AppearsInListHistory(t *testing.T) {
 			}
 
 			var postResp struct {
-				ID     int64  `json:"id"`
-				Status string `json:"status"`
+				ID int64 `json:"id"`
 			}
 			if err := json.NewDecoder(postW.Body).Decode(&postResp); err != nil {
 				t.Fatalf("decode log-past response: %v", err)
