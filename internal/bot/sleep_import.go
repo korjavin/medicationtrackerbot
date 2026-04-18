@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -36,7 +37,11 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 		return
 	}
 
-	tempFile, err := os.CreateTemp("", "sleep-import-*.nxk")
+	ext := ""
+	if msg.Document.FileName != "" {
+		ext = filepath.Ext(msg.Document.FileName)
+	}
+	tempFile, err := os.CreateTemp("", "sleep-import-*"+ext)
 	if err != nil {
 		slog.Error("Error creating temp file", "error", err)
 		b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "❌ Error processing file.")
@@ -95,7 +100,7 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 
 	// Import
 	b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, "📦 Extracting and importing...")
-	imported, skipped, err := b.importSleepFromNXK(tempFile.Name())
+	imported, skipped, err := b.importSleepFile(tempFile.Name())
 	if err != nil {
 		slog.Error("Sleep import failed", "error", err)
 		b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, fmt.Sprintf("❌ Import failed: %v", err))
@@ -109,12 +114,12 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 	b.updateStatusMessage(msg.Chat.ID, statusMsg.MessageID, successMsg)
 }
 
-func (b *Bot) importSleepFromNXK(nxkPath string) (int, int, error) {
-	slog.Info("Starting sleep import from NXK file", "path", nxkPath)
+func (b *Bot) importSleepFile(filePath string) (int, int, error) {
+	slog.Info("Starting sleep import from file", "path", filePath)
 
-	dbPath, cleanup, err := domain.ExtractBackupDB(nxkPath)
+	dbPath, cleanup, err := domain.PrepareBackupDB(filePath)
 	if err != nil {
-		slog.Error("Failed to extract backup.db", "error", err)
+		slog.Error("Failed to prepare backup DB", "error", err)
 		return 0, 0, err
 	}
 	defer cleanup()
