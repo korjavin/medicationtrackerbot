@@ -15,6 +15,7 @@ A self-hosted Telegram Mini App for comprehensive health tracking (medications, 
 3. **No hardcoded colors or inline `.style.` assignments in frontend code.** Use design tokens and CSS classes. Architecture tests enforce this. See [docs/frontend.md](docs/frontend.md#design-token-system).
 4. **New `window.*` globals require an allowlist entry** in `tests/architecture.globals.test.js` with justification.
 5. **Use `log/slog` with contextual args** (`slog.Error("msg", "error", err)`), not `log.Printf`.
+6. **New tab buttons must ship both icon variants** — a `.tab-icon-stroke` SVG (outline for inactive state) and a `.tab-icon-fill` SVG (filled for active state), wrapped in `<span class="tab-icon">`. See [docs/frontend.md](docs/frontend.md#tabs-and-navigation).
 
 ## Development Commands
 
