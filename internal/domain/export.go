@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"strconv"
 	"time"
 )
@@ -19,10 +20,17 @@ type MedicationIntake struct {
 // GenerateMedicationCSV produces a CSV export of medication intake data.
 func GenerateMedicationCSV(intakes []MedicationIntake) ([]byte, error) {
 	buf := &bytes.Buffer{}
-	writer := csv.NewWriter(buf)
+	if err := writeMedicationCSV(buf, intakes); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func writeMedicationCSV(w io.Writer, intakes []MedicationIntake) error {
+	writer := csv.NewWriter(w)
 
 	if err := writer.Write([]string{"date time", "medicine name", "dosage"}); err != nil {
-		return nil, err
+		return err
 	}
 
 	for _, intake := range intakes {
@@ -32,12 +40,12 @@ func GenerateMedicationCSV(intakes []MedicationIntake) ([]byte, error) {
 		}
 		row := []string{dateTime, intake.MedicationName, intake.MedicationDosage}
 		if err := writer.Write(row); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	writer.Flush()
-	return buf.Bytes(), writer.Error()
+	return writer.Error()
 }
 
 // BPExportReading holds the data needed for BP CSV export.
@@ -52,10 +60,17 @@ type BPExportReading struct {
 // GenerateBPCSV produces a CSV export of blood pressure readings.
 func GenerateBPCSV(readings []BPExportReading) ([]byte, error) {
 	buf := &bytes.Buffer{}
-	writer := csv.NewWriter(buf)
+	if err := writeBPCSV(buf, readings); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func writeBPCSV(w io.Writer, readings []BPExportReading) error {
+	writer := csv.NewWriter(w)
 
 	if err := writer.Write([]string{"date time", "systolic", "diastolic", "pulse", "category"}); err != nil {
-		return nil, err
+		return err
 	}
 
 	for _, bp := range readings {
@@ -70,12 +85,12 @@ func GenerateBPCSV(readings []BPExportReading) ([]byte, error) {
 		}
 		row := []string{dateTime, strconv.Itoa(bp.Systolic), strconv.Itoa(bp.Diastolic), pulse, category}
 		if err := writer.Write(row); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	writer.Flush()
-	return buf.Bytes(), writer.Error()
+	return writer.Error()
 }
 
 // WeightExportLog holds the data needed for weight CSV export.
@@ -93,12 +108,19 @@ type WeightExportLog struct {
 // GenerateWeightCSV produces a CSV export in Libra format.
 func GenerateWeightCSV(logs []WeightExportLog) ([]byte, error) {
 	buf := &bytes.Buffer{}
-	writer := csv.NewWriter(buf)
+	if err := writeWeightCSV(buf, logs); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
 
-	_ = writer.Write([]string{"#Version: 6"})
-	_ = writer.Write([]string{"#Units: kg"})
-	_ = writer.Write([]string{""})
-	_ = writer.Write([]string{"#date;weight;weight trend;body fat;body fat trend;muscle mass;muscle mass trend;log"})
+func writeWeightCSV(w io.Writer, logs []WeightExportLog) error {
+	writer := csv.NewWriter(w)
+
+	if err := writer.Write([]string{"#Version: 6"}); err != nil { return err }
+	if err := writer.Write([]string{"#Units: kg"}); err != nil { return err }
+	if err := writer.Write([]string{""}); err != nil { return err }
+	if err := writer.Write([]string{"#date;weight;weight trend;body fat;body fat trend;muscle mass;muscle mass trend;log"}); err != nil { return err }
 
 	for _, w := range logs {
 		dateTime := w.MeasuredAt.Format("2006-01-02T15:04:05.000Z")
@@ -133,10 +155,10 @@ func GenerateWeightCSV(logs []WeightExportLog) ([]byte, error) {
 			dateTime + ";" + weight + ";" + weightTrend + ";" + bodyFat + ";" + bodyFatTrend + ";" + muscleMass + ";" + muscleMassTrend + ";" + w.Notes,
 		}
 		if err := writer.Write(row); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	writer.Flush()
-	return buf.Bytes(), writer.Error()
+	return writer.Error()
 }
