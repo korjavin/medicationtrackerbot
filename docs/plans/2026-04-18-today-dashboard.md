@@ -81,11 +81,11 @@ Benefit: turns the Mini App from a logbook into something worth opening unprompt
 
 ### Task 5: Offline + empty-state polish
 
-- [ ] when bootstrap cache is missing entirely (first run, offline), show a friendly empty Today with "Connect to load your day" rather than a broken layout
-- [ ] when a feature is disabled in `features` map, omit its card entirely (don't show "calories: -" with no data)
-- [ ] when `nextMed` is overdue, render with `--color-warning` border + "(overdue)" label
-- [ ] write Vitest cases for first-run-offline, disabled-features, overdue-med states
-- [ ] run `pnpm test` — must pass before next task
+- [x] when bootstrap cache is missing entirely (first run, offline), show a friendly empty Today with "Connect to load your day" rather than a broken layout
+- [x] when a feature is disabled in `features` map, omit its card entirely (don't show "calories: -" with no data)
+- [x] when `nextMed` is overdue, render with `--color-warning` border + "(overdue)" label
+- [x] write Vitest cases for first-run-offline, disabled-features, overdue-med states
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Verify acceptance criteria
 

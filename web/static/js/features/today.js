@@ -200,6 +200,20 @@
         return cell(value, 'health', 'ok');
     }
 
+    function hasAnyBootstrapData(bootstrap) {
+        if (!bootstrap || typeof bootstrap !== 'object') return false;
+        if (bootstrap.next_intake) return true;
+        if (bootstrap.bp && (bootstrap.bp.readings || bootstrap.bp.goal || bootstrap.bp.stats)) return true;
+        if (bootstrap.weight && (bootstrap.weight.logs || bootstrap.weight.goal)) return true;
+        if (bootstrap.settings) return true;
+        return false;
+    }
+
+    function hasAnyCacheData(caches) {
+        if (!caches || typeof caches !== 'object') return false;
+        return !!(caches.food_today || caches.workout_next || caches.health_overview);
+    }
+
     function aggregateToday(bootstrap, swrCaches, now) {
         const caches = swrCaches || {};
         const nowDate = now instanceof Date ? now : new Date(now || Date.now());
@@ -213,7 +227,7 @@
         const workoutEnabled = pickFeature(features, 'workout');
         const healthEnabled = pickFeature(features, 'health');
 
-        return {
+        const result = {
             greeting: cell(greetingFor(nowDate), null, 'ok'),
             nextMed: nextMedCell(bootstrap, nowMs, medEnabled),
             bpLatest: bpLatestCell(bootstrap, nowMs, bpEnabled),
@@ -225,6 +239,10 @@
             nextWorkout: nextWorkoutCell(caches, workoutEnabled),
             sleepLastNight: sleepLastNightCell(caches, healthEnabled)
         };
+        if (!hasAnyBootstrapData(bootstrap) && !hasAnyCacheData(caches)) {
+            result.__firstRun = true;
+        }
+        return result;
     }
 
     // ---- Rendering ----------------------------------------------------------
@@ -548,6 +566,14 @@
             root.appendChild(banner);
         }
 
+        if (state && state.__firstRun) {
+            const empty = d.createElement('div');
+            empty.className = 'today-empty today-empty-firstrun';
+            empty.textContent = 'Connect to load your day';
+            root.appendChild(empty);
+            return root;
+        }
+
         const grid = d.createElement('div');
         grid.className = 'today-card-grid';
         root.appendChild(grid);
@@ -569,8 +595,8 @@
         if (visible === 0) {
             grid.remove();
             const empty = d.createElement('div');
-            empty.className = 'today-empty';
-            empty.textContent = 'Connect to load your day';
+            empty.className = 'today-empty today-empty-disabled';
+            empty.textContent = 'All features are off — enable one in Settings';
             root.appendChild(empty);
         }
         return root;
