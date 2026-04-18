@@ -35,6 +35,39 @@ describe('Tab active state — single-active invariant', () => {
   });
 });
 
+describe('Tab active state — aria-current on active tab', () => {
+  it('sets aria-current="page" on the active tab and removes it from siblings after a data-tab switch', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      window.loadBPReadings = vi.fn();
+      window.loadWeightLogs = vi.fn();
+      window.loadSettings = vi.fn();
+
+      document.querySelector('.tab[data-tab="weight"]').click();
+      let current = document.querySelectorAll('#tabs .tab[aria-current="page"]');
+      expect(current.length).toBe(1);
+      expect(current[0].dataset.tab).toBe('weight');
+      document.querySelectorAll('#tabs .tab').forEach((el) => {
+        if (el.dataset.tab !== 'weight') {
+          expect(el.hasAttribute('aria-current')).toBe(false);
+        }
+      });
+
+      document.querySelector('.tab[data-tab="settings"]').click();
+      current = document.querySelectorAll('#tabs .tab[aria-current="page"]');
+      expect(current.length).toBe(1);
+      expect(current[0].dataset.tab).toBe('settings');
+      document.querySelectorAll('#tabs .tab').forEach((el) => {
+        if (el.dataset.tab !== 'settings') {
+          expect(el.hasAttribute('aria-current')).toBe(false);
+        }
+      });
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('Tab active state — accent strip pseudo-element', () => {
   it('styles.css defines a .tab.active::before accent strip', () => {
     const css = fs.readFileSync(STYLES_CSS, 'utf8');

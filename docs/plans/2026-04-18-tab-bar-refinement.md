@@ -70,9 +70,9 @@ Benefit: faster tab switching, cleaner visual hierarchy, more polished feel — 
 
 ### Task 4: Accessibility — `aria-current` on active tab
 
-- [ ] in `app.js` tab switch handler, add `aria-current="page"` to the activated tab and remove from siblings
-- [ ] write a Vitest case asserting `aria-current="page"` is present on the active tab and absent from inactive tabs after `data-tab` switch
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `app.js` tab switch handler, add `aria-current="page"` to the activated tab and remove from siblings
+- [x] write a Vitest case asserting `aria-current="page"` is present on the active tab and absent from inactive tabs after `data-tab` switch
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Verify acceptance criteria
 
