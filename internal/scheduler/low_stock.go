@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
@@ -48,8 +49,8 @@ func (c *LowStockChecker) Check(_ context.Context) error {
 		return nil
 	}
 
-	var sb string
-	sb = "⚠️ **Low Stock Warning**\n\nThe following medications are running low (< 7 days):\n\n"
+	var sb strings.Builder
+	sb.WriteString("⚠️ **Low Stock Warning**\n\nThe following medications are running low (< 7 days):\n\n")
 
 	for _, m := range meds {
 		daysRemaining := c.store.GetDaysOfStockRemaining(&m)
@@ -57,13 +58,13 @@ func (c *LowStockChecker) Check(_ context.Context) error {
 		if daysRemaining != nil {
 			daysStr = fmt.Sprintf(" (~%.0f days left)", *daysRemaining)
 		}
-		sb += fmt.Sprintf("• **%s**: %d units%s\n", m.Name, *m.InventoryCount, daysStr)
+		sb.WriteString(fmt.Sprintf("• **%s**: %d units%s\n", m.Name, *m.InventoryCount, daysStr))
 	}
 
-	sb += "\nPlease restock soon!"
+	sb.WriteString("\nPlease restock soon!")
 
 	n := notifier.Notification{
-		Text: sb,
+		Text: sb.String(),
 		Tag:  "low-stock",
 		Metadata: map[string]interface{}{
 			"type": "low_stock",
