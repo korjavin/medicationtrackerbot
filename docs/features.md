@@ -1,5 +1,35 @@
 # Feature Implementation Patterns
 
+## Today Dashboard
+
+Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashboard`). Default first tab; users can drag-reorder or opt out (`localStorage['today_opt_out'] = '1'`).
+
+**Aggregation contract** — `aggregateToday(bootstrap, swrCaches, now)` is pure and synchronous; `Date.now()` is injected for testability. Returns a flat object where each field is `{ value, deeplink, status }`. Status values:
+
+- `ok` — data present and fresh
+- `missing` — feature enabled, no data yet
+- `stale` — cached data older than the 1h freshness window
+- `overdue` — scheduled event passed without action (5-min grace period for `nextMed`)
+- `disabled` — feature disabled; renderer omits the card entirely
+
+**Fields and deep-link targets**:
+
+| Field | Source | Deeplink |
+|-------|--------|----------|
+| `greeting` | local hour (good morning/afternoon/evening/night) | — |
+| `nextMed` | `bootstrap.next_intake` | `meds` |
+| `bpLatest`, `bpTrend7d` | `bootstrap.bp.readings` (7-day anchors) | `bp` |
+| `weightLatest`, `weightTrend7d` | `bootstrap.weight` + SWR cache | `weight` |
+| `caloriesToday`, `caloriesTarget` | SWR food cache + `settings_bundle` | `food` |
+| `nextWorkout` | `bootstrap.next_workout` | `workout` |
+| `sleepLastNight` | SWR health cache | `health` |
+
+**Data sources**: no new backend endpoints in Phase 1 — everything reads from `/api/bootstrap` and the existing SWR caches in `data-store.js`. A Phase 2 `GET /api/today` server-side aggregate is deferred.
+
+**Live updates**: `TodayDashboard.subscribe()` re-renders on `BOOTSTRAP_UPDATED` `postMessage` from the SW and on `online` / `offline` window events. `isOfflineStale({ online, cacheTimestamp, now })` toggles the dashboard's offline banner when cached data exceeds 1h while offline.
+
+**Trend arrows**: 7-day trend computed from two SWR-cached anchors (oldest within the 7-day window and most recent). Fewer than 2 usable samples → status becomes `missing`.
+
 ## Medication Tracking
 
 - **Smart Sorting**: Scheduled Soon (>14h) → Recently Taken → As-Needed → Archived

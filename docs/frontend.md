@@ -86,6 +86,7 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.MedTrackerPush` | `push.js` | app.js |
 | `window.initServiceWorker` | `app-shell.js` | index.html inline |
 | `window.showUpdateToast` | `app-shell.js` | service worker message |
+| `window.TodayDashboard` | `features/today.js` | app.js `loadToday()` |
 
 ## Design Token System
 
@@ -104,6 +105,7 @@ Key rules (enforced by architecture tests in `web/static/js/tests/architecture.d
 - **Tab Reordering** (`tabs-dnd.js`): drag-and-drop for custom tab layouts, persisted via `tab_order` in the bootstrap payload and cached in `settings_bundle`
 - **Tab Icons**: inline SVGs (stroke-based, `currentColor`) replace emoji; all tab buttons have `aria-label`
 - **Health Sub-Tabs**: "Overview" (vitals/sleep/steps charts) and "Notes" (diary notes) using `bindTabGroup()` / `activateTabGroup()` (same pattern as the Food tab). Notes load lazily on first sub-tab click; default is Overview.
+- **Today Tab** (`features/today.js`, exposes `window.TodayDashboard`): read-only landing dashboard. Default for new users; existing users have `'today'` prepended to their saved `tab_order` by `migrateTabOrderForToday()` in `app.js` unless they've opted out via `localStorage['today_opt_out'] === '1'`. Drag-reorder works like any other tab (data-attribute based). Participates in the standard tab switcher in `app.js` via `loadToday()`. See [features.md](features.md#today-dashboard) for the aggregation contract and deep-link targets.
 
 ## Data Flow
 
