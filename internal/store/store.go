@@ -2746,3 +2746,84 @@ func (s *Store) TryUseLoginHash(hash string, expiresAt time.Time) (bool, error) 
 
 	return rows > 0, nil
 }
+
+// BatchGetLastWeightLogs fetches the last weight log for multiple users
+func (s *Store) BatchGetLastWeightLogs(ctx context.Context, userIDs []int64) (map[int64]*WeightLog, error) {
+	result := make(map[int64]*WeightLog)
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+
+	// SQLite has a limit on parameters, so we chunk the userIDs
+	const chunkSize = 500
+	for i := 0; i < len(userIDs); i += chunkSize {
+		end := i + chunkSize
+		if end > len(userIDs) {
+			end = len(userIDs)
+		}
+		chunk := userIDs[i:end]
+
+		query := `
+			SELECT id, user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes
+			FROM (
+				SELECT *, ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY measured_at DESC) as rn
+				FROM weight_logs
+				WHERE user_id IN (`
+
+		args := make([]interface{}, len(chunk))
+		for j, id := range chunk {
+			if j > 0 {
+				query += ", "
+			}
+			query += "?"
+			args[j] = id
+		}
+		query += `)
+			) WHERE rn = 1`
+
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var w WeightLog
+			var weightTrend, bodyFat, bodyFatTrend, muscleMass, muscleMassTrend sql.NullFloat64
+			var notes sql.NullString
+
+			if err := rows.Scan(&w.ID, &w.UserID, &w.MeasuredAt, &w.Weight, &weightTrend, &bodyFat, &bodyFatTrend, &muscleMass, &muscleMassTrend, &notes); err != nil {
+				rows.Close()
+				return nil, err
+			}
+
+			if weightTrend.Valid {
+				w.WeightTrend = &weightTrend.Float64
+			}
+			if bodyFat.Valid {
+				w.BodyFat = &bodyFat.Float64
+			}
+			if bodyFatTrend.Valid {
+				w.BodyFatTrend = &bodyFatTrend.Float64
+			}
+			if muscleMass.Valid {
+				w.MuscleMass = &muscleMass.Float64
+			}
+			if muscleMassTrend.Valid {
+				w.MuscleMassTrend = &muscleMassTrend.Float64
+			}
+			if notes.Valid {
+				w.Notes = notes.String
+			}
+
+			result[w.UserID] = &w
+		}
+
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	return result, nil
+}
