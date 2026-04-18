@@ -164,28 +164,33 @@ func TestNew_CustomEnvVars(t *testing.T) {
 type mockWorkoutInteractor struct{}
 
 func (m *mockWorkoutInteractor) UpdateWorkoutMessage(msgID int, text string) error {
-	return nil
+    return nil
 }
 func (m *mockWorkoutInteractor) StartWorkoutFlowFromWeb(sessionID int64) error {
-	return nil
+    return nil
 }
 func (m *mockWorkoutInteractor) CleanupWorkoutSessionMessages(sessionID int64) error {
-	return nil
+    return nil
 }
 func (m *mockWorkoutInteractor) ClearPendingExercises(sessionID int64) {}
 
 func TestSetWorkoutInteractor(t *testing.T) {
-	srv, db := createGenericTestServer(t)
-	defer db.Close()
+    db, err := store.New(":memory:")
+    if err != nil {
+        t.Fatalf("Failed to create store: %v", err)
+    }
+    defer db.Close()
 
-	if srv.workout != nil {
-		t.Errorf("Expected workout to be nil initially")
-	}
+    srv := New(db, "test-bot-token", "test-session-secret", 0, OIDCConfig{}, "", "")
 
-	mock := &mockWorkoutInteractor{}
-	srv.SetWorkoutInteractor(mock)
+    if srv.workout != nil {
+        t.Errorf("Expected workout to be nil initially")
+    }
 
-	if srv.workout != WorkoutInteractor(mock) {
-		t.Errorf("Expected workout to be set to the mock")
-	}
+    mock := &mockWorkoutInteractor{}
+    srv.SetWorkoutInteractor(mock)
+
+    if srv.workout != WorkoutInteractor(mock) {
+        t.Errorf("Expected workout to be set to the mock")
+    }
 }

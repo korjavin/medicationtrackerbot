@@ -76,7 +76,6 @@ func TestPrepareBackupDB(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		defer cleanup()
 
 		if path != tmpFile.Name() {
 			t.Errorf("expected path %s, got %s", tmpFile.Name(), path)
@@ -88,6 +87,12 @@ func TestPrepareBackupDB(t *testing.T) {
 		}
 		if string(content) != "fake sqlite content" {
 			t.Errorf("expected 'fake sqlite content', got %q", string(content))
+		}
+
+		// Verify cleanup does not delete original sqlite file
+		cleanup()
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("cleanup failed: original file was unexpectedly deleted at %s", path)
 		}
 	})
 
@@ -113,7 +118,6 @@ func TestPrepareBackupDB(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		defer cleanup()
 
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			t.Errorf("extracted file does not exist at %s", path)
@@ -125,6 +129,12 @@ func TestPrepareBackupDB(t *testing.T) {
 		}
 		if string(content) != "fake db content" {
 			t.Errorf("expected 'fake db content', got %q", string(content))
+		}
+
+		// Verify cleanup deletes the file
+		cleanup()
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("cleanup failed: extracted file still exists at %s", path)
 		}
 	})
 }
@@ -152,7 +162,6 @@ func TestExtractBackupDB(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		defer cleanup()
 
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			t.Errorf("extracted file does not exist at %s", path)
@@ -164,6 +173,12 @@ func TestExtractBackupDB(t *testing.T) {
 		}
 		if string(content) != "fake db content" {
 			t.Errorf("expected 'fake db content', got %q", string(content))
+		}
+
+		// Verify cleanup deletes the file
+		cleanup()
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("cleanup failed: extracted file still exists at %s", path)
 		}
 	})
 

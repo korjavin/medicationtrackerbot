@@ -11,13 +11,15 @@ import (
 )
 
 type mockHelperNotifier struct {
-	mu           sync.Mutex
-	sendCalls    int
-	deleteCalls  int
-	sendMsgID    int
-	sendErr      error
-	deleteErr    error
-	deletedMsgID int
+	mu            sync.Mutex
+	sendCalls     int
+	deleteCalls   int
+	sendMsgID     int
+	sendErr       error
+	deleteErr     error
+	deletedMsgID  int
+	deletedUserID int64
+	deletedCtx    context.Context
 
 	sendCh   chan struct{}
 	deleteCh chan struct{}
@@ -38,6 +40,8 @@ func (m *mockHelperNotifier) Delete(ctx context.Context, userID int64, msgID int
 	m.mu.Lock()
 	m.deleteCalls++
 	m.deletedMsgID = msgID
+	m.deletedUserID = userID
+	m.deletedCtx = ctx
 	m.mu.Unlock()
 
 	if m.deleteCh != nil {
@@ -152,10 +156,25 @@ func TestNotifyHelper_NotifySync_TransientError(t *testing.T) {
 	}
 }
 
+func TestNotifyHelper_NotifySync_TransientError_Then_ChannelError(t *testing.T) {
+	transientErr := errors.New("network error")
+	m1 := &mockHelperNotifier{sendErr: transientErr}
+	m2 := &mockHelperNotifier{sendErr: notifier.ErrNoDeliveryChannel}
+	h := &NotifyHelper{notifiers: []notifier.Notifier{m1, m2}}
+
+	err := h.NotifySync(context.Background(), notifier.Notification{}, nil)
+	if !errors.Is(err, transientErr) {
+		t.Errorf("NotifySync returned %v, want %v", err, transientErr)
+	}
+}
+
 func TestNotifyHelper_DeleteNotification(t *testing.T) {
 	m1 := &mockHelperNotifier{deleteCh: make(chan struct{}, 1)}
 	m2 := &mockHelperNotifier{deleteCh: make(chan struct{}, 1)}
-	h := &NotifyHelper{notifiers: []notifier.Notifier{m1, m2}}
+	h := &NotifyHelper{
+		notifiers:     []notifier.Notifier{m1, m2},
+		allowedUserID: 123,
+	}
 
 	// Test zero ID - shouldn't call delete
 	h.DeleteNotification(context.Background(), 0)
@@ -167,7 +186,9 @@ func TestNotifyHelper_DeleteNotification(t *testing.T) {
 	m1.mu.Unlock()
 
 	// Test valid ID
-	h.DeleteNotification(context.Background(), 42)
+	type ctxKey struct{}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "test")
+	h.DeleteNotification(ctx, 42)
 
 	// Wait for async deletes
 	for _, m := range []*mockHelperNotifier{m1, m2} {
@@ -185,6 +206,12 @@ func TestNotifyHelper_DeleteNotification(t *testing.T) {
 	if m1.deletedMsgID != 42 {
 		t.Errorf("m1 deletedMsgID = %d, want 42", m1.deletedMsgID)
 	}
+	if m1.deletedCtx != ctx {
+		t.Errorf("m1 deletedCtx = %v, want %v", m1.deletedCtx, ctx)
+	}
+	if m1.deletedUserID != 123 {
+		t.Errorf("m1 deletedUserID = %d, want 123", m1.deletedUserID)
+	}
 	m1.mu.Unlock()
 
 	m2.mu.Lock()
@@ -193,6 +220,12 @@ func TestNotifyHelper_DeleteNotification(t *testing.T) {
 	}
 	if m2.deletedMsgID != 42 {
 		t.Errorf("m2 deletedMsgID = %d, want 42", m2.deletedMsgID)
+	}
+	if m2.deletedCtx != ctx {
+		t.Errorf("m2 deletedCtx = %v, want %v", m2.deletedCtx, ctx)
+	}
+	if m2.deletedUserID != 123 {
+		t.Errorf("m2 deletedUserID = %d, want 123", m2.deletedUserID)
 	}
 	m2.mu.Unlock()
 }
