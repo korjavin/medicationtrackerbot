@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -87,5 +88,74 @@ func TestGenerateWeightCSV(t *testing.T) {
 	}
 	if !strings.Contains(csv, "75.0") {
 		t.Error("missing trend value")
+	}
+}
+
+
+
+type errorWriter struct {
+	err error
+}
+
+func (e *errorWriter) Write(p []byte) (n int, err error) {
+	return 0, e.err
+}
+
+func TestGenerateMedicationCSV_Error(t *testing.T) {
+	errWriter := &errorWriter{err: fmt.Errorf("mock error")}
+
+	intakes := []MedicationIntake{
+		{ScheduledAt: time.Now(), MedicationName: "Test"},
+	}
+
+	err := writeMedicationCSV(errWriter, intakes)
+	if err == nil {
+		t.Error("expected error writing CSV")
+	}
+}
+
+func TestGenerateBPCSV_Error(t *testing.T) {
+	errWriter := &errorWriter{err: fmt.Errorf("mock error")}
+
+	readings := []BPExportReading{
+		{MeasuredAt: time.Now(), Systolic: 120, Diastolic: 80},
+	}
+
+	err := writeBPCSV(errWriter, readings)
+	if err == nil {
+		t.Error("expected error writing CSV")
+	}
+}
+
+func TestGenerateWeightCSV_Error(t *testing.T) {
+	errWriter := &errorWriter{err: fmt.Errorf("mock error")}
+
+	logs := []WeightExportLog{
+		{MeasuredAt: time.Now(), Weight: 75.0},
+	}
+
+	err := writeWeightCSV(errWriter, logs)
+	if err == nil {
+		t.Error("expected error writing CSV")
+	}
+}
+
+func TestGenerateBPCSVEmpty(t *testing.T) {
+	data, err := GenerateBPCSV(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(string(data), "systolic") {
+		t.Error("expected header even for empty data")
+	}
+}
+
+func TestGenerateWeightCSVEmpty(t *testing.T) {
+	data, err := GenerateWeightCSV(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(string(data), "#Version: 6") {
+		t.Error("expected header even for empty data")
 	}
 }
