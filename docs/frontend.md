@@ -102,7 +102,10 @@ Key rules (enforced by architecture tests in `web/static/js/tests/architecture.d
 ## Tabs and Navigation
 
 - **Tab Reordering** (`tabs-dnd.js`): drag-and-drop for custom tab layouts, persisted via `tab_order` in the bootstrap payload and cached in `settings_bundle`
-- **Tab Icons**: inline SVGs (stroke-based, `currentColor`) replace emoji; all tab buttons have `aria-label`
+- **Tab Icons**: inline SVGs (`currentColor`, 20×20) replace emoji; all tab buttons have `aria-label`
+- **Stroke/fill icon convention**: each tab button wraps its icon in `<span class="tab-icon">` containing two sibling SVGs — `<svg class="tab-icon-stroke">` (outline, shown when inactive) and `<svg class="tab-icon-fill">` (filled variant, shown when active). CSS toggles visibility via `.tab.active`. Inactive `stroke-width` is tuned per-icon (1.75 for dense shapes, 2.25 for sparse outlines) so the 7 tabs aren't a uniform grey blur. Any new tab must ship both variants.
+- **Active tab treatment**: a 2px accent strip positioned at the top of the active tab via `.tab.active::before` (uses `currentColor`, inheriting from `--color-accent` with fallback to `--link-color`), plus `transform: scale(1.05)` for responsiveness. Replaces the prior `border-bottom` approach. `.tab` must be `position: relative` to anchor the pseudo-element.
+- **Accessibility**: the tab bar is a `<nav aria-label="Primary">` landmark; `app.js` tab switch handler sets `aria-current="page"` on the active tab and removes it from siblings. No `role="tablist"`/`role="tab"` — the full tab widget pattern (`aria-selected`, `role="tabpanel"`, `aria-controls`, roving tabindex, arrow keys) isn't implemented, so we use the navigation-landmark pattern instead.
 - **Health Sub-Tabs**: "Overview" (vitals/sleep/steps charts) and "Notes" (diary notes) using `bindTabGroup()` / `activateTabGroup()` (same pattern as the Food tab). Notes load lazily on first sub-tab click; default is Overview.
 
 ## Data Flow
