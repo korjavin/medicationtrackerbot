@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -204,8 +205,63 @@ func TestHandleFoodCommand_NoArgs(t *testing.T) {
 }
 
 func TestHandleFoodCommand_AIError(t *testing.T) {
-	// Let's create a dummy server for the Telegram Bot API
-	t.Skip("Skipping due to direct Telegram API calls in handleFoodCommand that require an HTTP server to mock.")
+	store := &mockFoodStore{enabled: true}
+	ai := &mockFoodAI{err: errors.New("simulated AI failure")}
+	b := newFoodHandlerBot(t, store, ai)
+
+	msg := newFoodMsg(123456)
+	msgConfig := &tgbotapi.MessageConfig{}
+
+	b.handleFoodCommand(msg, msgConfig)
+
+	if !strings.HasPrefix(msgConfig.Text, "❌ Failed to analyze meal:") {
+		t.Errorf("expected AI error prefix, got: %s", msgConfig.Text)
+	}
+	if !strings.Contains(msgConfig.Text, "simulated AI failure") {
+		t.Errorf("expected underlying error in reply, got: %s", msgConfig.Text)
+	}
+	if len(store.logs) != 0 {
+		t.Errorf("expected no persisted logs on AI error, got %d", len(store.logs))
+	}
+}
+
+func TestHandleFoodCommand_AllPersistenceFails(t *testing.T) {
+	store := &errFoodStore{
+		mockFoodStore: mockFoodStore{enabled: true},
+		failNames:     map[string]bool{"Rice": true, "Chicken Breast": true},
+	}
+	ai := &mockFoodAI{logs: []domain.FoodLog{
+		{Name: "Rice", Weight: 150, Carbs: 40, Protein: 4, Fat: 1, Calories: 185},
+		{Name: "Chicken Breast", Weight: 200, Carbs: 0, Protein: 62, Fat: 7, Calories: 311},
+	}}
+	b := newFoodHandlerBot(t, store, ai)
+
+	msg := newFoodMsg(123456)
+	msgConfig := &tgbotapi.MessageConfig{}
+
+	b.handleFoodCommand(msg, msgConfig)
+
+	if !strings.Contains(msgConfig.Text, "Error saving food log to database") {
+		t.Errorf("expected all-failed error text, got: %s", msgConfig.Text)
+	}
+	if len(store.logs) != 0 {
+		t.Errorf("expected no persisted logs when every save fails, got %d", len(store.logs))
+	}
+}
+
+func TestHandleFoodCommand_SettingsError(t *testing.T) {
+	store := &mockFoodStore{err: errors.New("db unreachable")}
+	ai := &mockFoodAI{}
+	b := newFoodHandlerBot(t, store, ai)
+
+	msg := newFoodMsg(123456)
+	msgConfig := &tgbotapi.MessageConfig{}
+
+	b.handleFoodCommand(msg, msgConfig)
+
+	if !strings.Contains(msgConfig.Text, "Error checking settings") {
+		t.Errorf("expected settings error message, got: %s", msgConfig.Text)
+	}
 }
 
 // errFoodStore allows simulating a persistence failure for specific item names.
@@ -309,8 +365,8 @@ func TestHandleFoodCommand_MultiItem(t *testing.T) {
 	}
 
 	// totals: carbs 47, protein 69, fat 8, cals 536, weight 450
-	if !strings.Contains(msgConfig.Text, "47g C / 69g P / 8g F") {
-		t.Errorf("expected aggregate macros line, got: %s", msgConfig.Text)
+	if !strings.Contains(msgConfig.Text, "📊 Total: 47g C / 69g P / 8g F") {
+		t.Errorf("expected aggregate Total line, got: %s", msgConfig.Text)
 	}
 	if !strings.Contains(msgConfig.Text, "536 kcal") {
 		t.Errorf("expected aggregate calories, got: %s", msgConfig.Text)
