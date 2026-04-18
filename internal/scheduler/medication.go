@@ -139,15 +139,29 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		return err
 	}
 
-	// --- Pass 1: Collect all schedules we need to check ---
+	// action represents a potential intake check to perform
+	type action struct {
+		med    store.Medication
+		target time.Time
+		stepID int64
+		isPlan bool
+	}
+	var actions []action
 	var schedulesToCheck []store.MedicationSchedule
 
+	// --- Pass 1: Collect all schedules we need to check ---
 	for _, med := range meds {
 		if planSteps, inPlan := pendingStepsByMed[med.ID]; inPlan {
 			for _, step := range planSteps {
 				if now.Before(step.ScheduledAt) {
 					continue // step not yet due
 				}
+				actions = append(actions, action{
+					med:    med,
+					target: step.ScheduledAt,
+					stepID: step.ID,
+					isPlan: true,
+				})
 				schedulesToCheck = append(schedulesToCheck, store.MedicationSchedule{
 					MedID:       med.ID,
 					ScheduledAt: step.ScheduledAt.UTC(),
@@ -192,6 +206,12 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 				continue
 			}
 
+			actions = append(actions, action{
+				med:    med,
+				target: target,
+				stepID: 0,
+				isPlan: false,
+			})
 			schedulesToCheck = append(schedulesToCheck, store.MedicationSchedule{
 				MedID:       med.ID,
 				ScheduledAt: target.UTC(),
@@ -202,99 +222,56 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 	// Batch query all required schedules
 	batchMap, err := c.store.BatchGetIntakesBySchedule(schedulesToCheck)
 	if err != nil {
-		slog.Error("medication scheduler: error checking intake existence in batch", "error", err)
-		// Fallback to empty map if batch fetch fails so we don't crash, but it might create duplicates.
-		// Returning error is safer to prevent duplicate intake generation.
+		slog.Error("medication scheduler: error checking intake existence in batch, falling back to empty map", "error", err)
+		batchMap = make(map[store.MedicationSchedule]*store.IntakeLog)
+		// We fallback to empty map, which means we might create duplicate intakes.
+		// However, it's better to process the tick than completely halt all notifications.
+		// Note: we could also return the error if we want strict safety over availability.
+		// Returning error for now to be strictly safe.
 		return err
 	}
 
 	groups := make(map[int64]*notificationGroup)
+	planMedTriggered := make(map[int64]bool) // tracks if a plan step was already triggered for a med
 
-	// --- Pass 2: Re-evaluate and trigger ---
-	for _, med := range meds {
-		if planSteps, inPlan := pendingStepsByMed[med.ID]; inPlan {
-			triggered := false
-			for _, step := range planSteps {
-				if now.Before(step.ScheduledAt) {
-					continue // step not yet due
+	// --- Pass 2: Evaluate using batched results and trigger ---
+	for _, act := range actions {
+		if act.isPlan {
+			if planMedTriggered[act.med.ID] {
+				continue // Only trigger one new step per medication per tick
+			}
+
+			existing := batchMap[store.MedicationSchedule{MedID: act.med.ID, ScheduledAt: act.target.UTC()}]
+			if existing != nil {
+				// Intake already created (idempotency): ensure step is marked consumed.
+				if err := c.store.MarkStepConsumed(act.stepID, now); err != nil {
+					slog.Warn("medication scheduler: failed to mark already-scheduled step consumed",
+						"stepID", act.stepID, "error", err)
 				}
+				continue
+			}
 
-				existing := batchMap[store.MedicationSchedule{MedID: med.ID, ScheduledAt: step.ScheduledAt.UTC()}]
-				if existing != nil {
-					// Intake already created (idempotency): ensure step is marked consumed.
-					if err := c.store.MarkStepConsumed(step.ID, now); err != nil {
-						slog.Warn("medication scheduler: failed to mark already-scheduled step consumed",
-							"stepID", step.ID, "error", err)
-					}
-					continue
+			ts := act.target.Unix()
+			if _, ok := groups[ts]; !ok {
+				groups[ts] = &notificationGroup{
+					Target:  act.target,
+					StepIDs: make(map[int64]int64),
 				}
-
-				// Only trigger one new step per medication per tick to preserve
-				// gradual shifting even after a period of scheduler unavailability.
-				if triggered {
-					break
-				}
-
-				ts := step.ScheduledAt.Unix()
-				if _, ok := groups[ts]; !ok {
-					groups[ts] = &notificationGroup{
-						Target:  step.ScheduledAt,
-						StepIDs: make(map[int64]int64),
-					}
-				}
-				groups[ts].Meds = append(groups[ts].Meds, med)
-				groups[ts].StepIDs[med.ID] = step.ID
-				triggered = true
 			}
-			continue
-		}
-
-		// --- Normal scheduling path ---
-		cfg, err := med.ValidSchedule()
-		if err != nil || cfg.Type == "as_needed" {
-			continue
-		}
-
-		nowInUserLoc := now.In(userLoc)
-		if cfg.Type == "weekly" {
-			if !slices.Contains(cfg.Days, int(nowInUserLoc.Weekday())) {
-				continue
-			}
-		}
-
-		for _, timeStr := range cfg.Times {
-			if len(timeStr) != 5 {
-				continue
-			}
-			hour, _ := strconv.Atoi(timeStr[:2])
-			minute, _ := strconv.Atoi(timeStr[3:])
-
-			target := time.Date(nowInUserLoc.Year(), nowInUserLoc.Month(), nowInUserLoc.Day(),
-				hour, minute, 0, 0, userLoc)
-
-			if med.StartDate != nil && target.Before(*med.StartDate) {
-				continue
-			}
-			if med.EndDate != nil && target.After(*med.EndDate) {
-				continue
-			}
-			if target.Before(med.CreatedAt) {
-				continue
-			}
-			if now.Before(target) {
-				continue
-			}
-
-			existing := batchMap[store.MedicationSchedule{MedID: med.ID, ScheduledAt: target.UTC()}]
+			groups[ts].Meds = append(groups[ts].Meds, act.med)
+			groups[ts].StepIDs[act.med.ID] = act.stepID
+			planMedTriggered[act.med.ID] = true
+		} else {
+			existing := batchMap[store.MedicationSchedule{MedID: act.med.ID, ScheduledAt: act.target.UTC()}]
 			if existing == nil {
-				ts := target.Unix()
+				ts := act.target.Unix()
 				if _, ok := groups[ts]; !ok {
 					groups[ts] = &notificationGroup{
-						Target:  target,
+						Target:  act.target,
 						StepIDs: make(map[int64]int64),
 					}
 				}
-				groups[ts].Meds = append(groups[ts].Meds, med)
+				groups[ts].Meds = append(groups[ts].Meds, act.med)
 			}
 		}
 	}
