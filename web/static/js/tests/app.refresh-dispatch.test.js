@@ -74,11 +74,14 @@ describe('app.js refresh dispatch behavior', () => {
   });
 
   it('requestTabRefresh defers while modal is open until pending refresh is applied', async () => {
-    const { window, cleanup } = loadFrontendEnv();
+    const { window, document, cleanup } = loadFrontendEnv();
 
     try {
       const loadBPSpy = vi.fn();
       window.loadBPReadings = loadBPSpy;
+
+      document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+      document.querySelector('.tab[data-tab="bp"]').classList.add('active');
 
       window.showBPRecordModal();
       window.requestTabRefresh({ source: 'changes' });

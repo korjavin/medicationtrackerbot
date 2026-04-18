@@ -227,7 +227,357 @@
         };
     }
 
+    // ---- Rendering ----------------------------------------------------------
+    //
+    // renderToday(state, root, handlers) fills `root` with the dashboard DOM.
+    // `state` is the object returned by aggregateToday. Cards with status
+    // 'disabled' are omitted. Card activation calls handlers.onDeeplink(target).
+    //
+    // Rules:
+    //  - No inline style.* assignments; use CSS classes only.
+    //  - Uses existing primitives when applicable (createEmptyState).
+    //  - Stroke SVG icons, currentColor, tokens for color.
+    // ------------------------------------------------------------------------
+
+    const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+    function doc() {
+        return (typeof document !== 'undefined') ? document : null;
+    }
+
+    function fmtTimeHM(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return '';
+        const h = String(d.getHours()).padStart(2, '0');
+        const m = String(d.getMinutes()).padStart(2, '0');
+        return `${h}:${m}`;
+    }
+
+    function relativeDayLabel(iso, nowMs) {
+        if (!iso) return '';
+        const t = Date.parse(iso);
+        if (!Number.isFinite(t)) return '';
+        const ageMs = nowMs - t;
+        if (ageMs < 0) return 'upcoming';
+        if (ageMs < DAY_IN_MS) return 'today';
+        const days = Math.floor(ageMs / DAY_IN_MS);
+        if (days === 1) return 'yesterday';
+        return `${days}d ago`;
+    }
+
+    function svgEl(pathMarkup) {
+        const ns = 'http://www.w3.org/2000/svg';
+        const d = doc();
+        const svg = d.createElementNS(ns, 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.setAttribute('aria-hidden', 'true');
+        svg.innerHTML = pathMarkup;
+        return svg;
+    }
+
+    function trendArrow(direction) {
+        // Stroke-based triangular arrow.  `direction`: 'up' | 'down' | 'flat'
+        const span = doc().createElement('span');
+        span.className = `today-trend-arrow today-trend-${direction}`;
+        if (direction === 'up') {
+            span.appendChild(svgEl('<path d="M5 15l7-7 7 7"/>'));
+        } else if (direction === 'down') {
+            span.appendChild(svgEl('<path d="M5 9l7 7 7-7"/>'));
+        } else {
+            span.appendChild(svgEl('<path d="M5 12h14"/>'));
+        }
+        return span;
+    }
+
+    function cardShell({ title, status, deeplink }, onDeeplink) {
+        const d = doc();
+        const card = d.createElement('button');
+        card.type = 'button';
+        card.className = `today-card today-card-${status}`;
+        card.setAttribute('data-deeplink', deeplink || '');
+        if (status === 'overdue') card.classList.add('today-card-warning');
+        if (status === 'stale') card.classList.add('today-card-stale');
+
+        const header = d.createElement('div');
+        header.className = 'today-card-header';
+        const titleEl = d.createElement('span');
+        titleEl.className = 'today-card-title';
+        titleEl.textContent = title;
+        header.appendChild(titleEl);
+        if (status === 'overdue') {
+            const badge = d.createElement('span');
+            badge.className = 'today-card-badge today-card-badge-warning';
+            badge.textContent = 'overdue';
+            header.appendChild(badge);
+        } else if (status === 'stale') {
+            const badge = d.createElement('span');
+            badge.className = 'today-card-badge today-card-badge-stale';
+            badge.textContent = 'stale';
+            header.appendChild(badge);
+        }
+        card.appendChild(header);
+
+        if (deeplink && typeof onDeeplink === 'function') {
+            card.addEventListener('click', () => onDeeplink(deeplink));
+        } else {
+            card.disabled = true;
+        }
+        return card;
+    }
+
+    function cardBody(card, textNodes) {
+        const d = doc();
+        const body = d.createElement('div');
+        body.className = 'today-card-body';
+        for (const node of textNodes) {
+            if (node == null) continue;
+            if (typeof node === 'string') {
+                const span = d.createElement('span');
+                span.textContent = node;
+                body.appendChild(span);
+            } else {
+                body.appendChild(node);
+            }
+        }
+        card.appendChild(body);
+        return body;
+    }
+
+    function cardMissing(card, message) {
+        const d = doc();
+        const empty = (typeof window !== 'undefined' && typeof window.createEmptyState === 'function')
+            ? window.createEmptyState(message, { tag: 'div', className: 'today-card-empty' })
+            : null;
+        if (empty) {
+            card.appendChild(empty);
+            return empty;
+        }
+        const fallback = d.createElement('div');
+        fallback.className = 'empty-state-msg today-card-empty';
+        fallback.textContent = message;
+        card.appendChild(fallback);
+        return fallback;
+    }
+
+    function renderNextMedCard(cell, onDeeplink, nowMs) {
+        if (cell.status === 'disabled') return null;
+        const card = cardShell(
+            { title: 'Next medication', status: cell.status, deeplink: cell.deeplink },
+            onDeeplink
+        );
+        if (cell.status === 'missing') {
+            cardMissing(card, 'No scheduled doses');
+            return card;
+        }
+        const names = (cell.value && Array.isArray(cell.value.names)) ? cell.value.names : [];
+        const at = fmtTimeHM(cell.value && cell.value.scheduledAt);
+        const primary = doc().createElement('span');
+        primary.className = 'today-card-value';
+        primary.textContent = at || '—';
+        const secondary = doc().createElement('span');
+        secondary.className = 'today-card-detail';
+        secondary.textContent = names.length > 0 ? names.join(', ') : 'scheduled';
+        cardBody(card, [primary, secondary]);
+        return card;
+    }
+
+    function renderBpCard(latest, trend, onDeeplink, nowMs) {
+        if (latest.status === 'disabled') return null;
+        const card = cardShell(
+            { title: 'Blood pressure', status: latest.status, deeplink: latest.deeplink },
+            onDeeplink
+        );
+        if (latest.status === 'missing') {
+            cardMissing(card, 'Log a reading to see it here');
+            return card;
+        }
+        const v = latest.value || {};
+        const primary = doc().createElement('span');
+        primary.className = 'today-card-value';
+        primary.textContent = `${v.systolic}/${v.diastolic}`;
+        const secondary = doc().createElement('span');
+        secondary.className = 'today-card-detail';
+        secondary.textContent = relativeDayLabel(v.measured_at, nowMs);
+        cardBody(card, [primary, secondary]);
+        if (trend && trend.status === 'ok') {
+            const row = doc().createElement('div');
+            row.className = 'today-card-trend';
+            row.appendChild(trendArrow(trend.value.systolicDirection));
+            const label = doc().createElement('span');
+            label.className = 'today-card-trend-label';
+            const delta = trend.value.systolicDelta;
+            const sign = delta > 0 ? '+' : '';
+            label.textContent = `7d ${sign}${delta}`;
+            row.appendChild(label);
+            card.appendChild(row);
+        }
+        return card;
+    }
+
+    function renderWeightCard(latest, trend, onDeeplink, nowMs) {
+        if (latest.status === 'disabled') return null;
+        const card = cardShell(
+            { title: 'Weight', status: latest.status, deeplink: latest.deeplink },
+            onDeeplink
+        );
+        if (latest.status === 'missing') {
+            cardMissing(card, 'Log your weight to start tracking');
+            return card;
+        }
+        const v = latest.value || {};
+        const primary = doc().createElement('span');
+        primary.className = 'today-card-value';
+        primary.textContent = `${v.weight} kg`;
+        const secondary = doc().createElement('span');
+        secondary.className = 'today-card-detail';
+        secondary.textContent = relativeDayLabel(v.measured_at, nowMs);
+        cardBody(card, [primary, secondary]);
+        if (trend && trend.status === 'ok') {
+            const row = doc().createElement('div');
+            row.className = 'today-card-trend';
+            row.appendChild(trendArrow(trend.value.direction));
+            const label = doc().createElement('span');
+            label.className = 'today-card-trend-label';
+            const delta = trend.value.delta;
+            const sign = delta > 0 ? '+' : '';
+            label.textContent = `7d ${sign}${delta} kg`;
+            row.appendChild(label);
+            card.appendChild(row);
+        }
+        return card;
+    }
+
+    function renderCaloriesCard(today, target, onDeeplink) {
+        if (today.status === 'disabled') return null;
+        const card = cardShell(
+            { title: 'Calories today', status: today.status, deeplink: today.deeplink },
+            onDeeplink
+        );
+        const primary = doc().createElement('span');
+        primary.className = 'today-card-value';
+        const current = Number.isFinite(today.value) ? today.value : 0;
+        primary.textContent = String(current);
+        cardBody(card, [primary]);
+        if (target && target.status === 'ok') {
+            const sub = doc().createElement('span');
+            sub.className = 'today-card-detail';
+            sub.textContent = `of ${target.value} kcal`;
+            card.querySelector('.today-card-body').appendChild(sub);
+        } else if (today.status === 'missing') {
+            const sub = doc().createElement('span');
+            sub.className = 'today-card-detail';
+            sub.textContent = 'no entries yet';
+            card.querySelector('.today-card-body').appendChild(sub);
+        }
+        return card;
+    }
+
+    function renderWorkoutCard(cell, onDeeplink) {
+        if (cell.status === 'disabled') return null;
+        const card = cardShell(
+            { title: 'Next workout', status: cell.status, deeplink: cell.deeplink },
+            onDeeplink
+        );
+        if (cell.status === 'missing') {
+            cardMissing(card, 'No scheduled workout');
+            return card;
+        }
+        const v = cell.value || {};
+        const primary = doc().createElement('span');
+        primary.className = 'today-card-value';
+        primary.textContent = v.group_name || 'Workout';
+        const secondary = doc().createElement('span');
+        secondary.className = 'today-card-detail';
+        const when = v.is_today ? 'today' : (v.scheduled_date || '');
+        const time = v.scheduled_time ? ` · ${v.scheduled_time}` : '';
+        secondary.textContent = `${when}${time}`.trim();
+        cardBody(card, [primary, secondary]);
+        return card;
+    }
+
+    function renderSleepCard(cell, onDeeplink) {
+        if (cell.status === 'disabled') return null;
+        const card = cardShell(
+            { title: 'Sleep last night', status: cell.status, deeplink: cell.deeplink },
+            onDeeplink
+        );
+        if (cell.status === 'missing') {
+            cardMissing(card, 'No sleep data');
+            return card;
+        }
+        const v = cell.value || {};
+        const primary = doc().createElement('span');
+        primary.className = 'today-card-value';
+        primary.textContent = `${v.hours} h`;
+        const secondary = doc().createElement('span');
+        secondary.className = 'today-card-detail';
+        secondary.textContent = v.day || '';
+        cardBody(card, [primary, secondary]);
+        return card;
+    }
+
+    function renderToday(state, root, handlers) {
+        const d = doc();
+        if (!d || !root) return;
+        const opts = handlers || {};
+        const onDeeplink = opts.onDeeplink || ((target) => {
+            if (target && typeof window !== 'undefined' && typeof window.switchTab === 'function') {
+                window.switchTab(target);
+            }
+        });
+        const nowMs = (opts.now instanceof Date) ? opts.now.getTime() : (opts.now || Date.now());
+
+        root.innerHTML = '';
+        root.classList.add('today-root');
+
+        const greeting = d.createElement('h2');
+        greeting.className = 'today-greeting';
+        greeting.textContent = (state && state.greeting && state.greeting.value) || '';
+        root.appendChild(greeting);
+
+        if (state && state.__offline) {
+            const banner = d.createElement('div');
+            banner.className = 'today-offline-banner';
+            banner.textContent = 'Offline — showing cached data';
+            root.appendChild(banner);
+        }
+
+        const grid = d.createElement('div');
+        grid.className = 'today-card-grid';
+        root.appendChild(grid);
+
+        const cards = [
+            renderNextMedCard(state.nextMed, onDeeplink, nowMs),
+            renderBpCard(state.bpLatest, state.bpTrend7d, onDeeplink, nowMs),
+            renderWeightCard(state.weightLatest, state.weightTrend7d, onDeeplink, nowMs),
+            renderCaloriesCard(state.caloriesToday, state.caloriesTarget, onDeeplink),
+            renderWorkoutCard(state.nextWorkout, onDeeplink),
+            renderSleepCard(state.sleepLastNight, onDeeplink)
+        ];
+        let visible = 0;
+        for (const c of cards) {
+            if (!c) continue;
+            grid.appendChild(c);
+            visible += 1;
+        }
+        if (visible === 0) {
+            grid.remove();
+            const empty = d.createElement('div');
+            empty.className = 'today-empty';
+            empty.textContent = 'Connect to load your day';
+            root.appendChild(empty);
+        }
+        return root;
+    }
+
     window.TodayDashboard = {
-        aggregateToday
+        aggregateToday,
+        renderToday
     };
 })();
