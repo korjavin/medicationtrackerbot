@@ -167,6 +167,28 @@ func TestParseMealDescription_MissingName(t *testing.T) {
 	}
 }
 
+func TestParseMealDescription_NegativeMacros(t *testing.T) {
+	cases := []struct {
+		name string
+		item ai.MealItem
+	}{
+		{"negative carbs", ai.MealItem{Name: "Thing", WeightGrams: 100, Carbs100g: -1, Protein100g: 0, Fat100g: 0}},
+		{"negative protein", ai.MealItem{Name: "Thing", WeightGrams: 100, Carbs100g: 0, Protein100g: -1, Fat100g: 0}},
+		{"negative fat", ai.MealItem{Name: "Thing", WeightGrams: 100, Carbs100g: 0, Protein100g: 0, Fat100g: -1}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			service := NewFoodAIService(&mockAIClient{
+				result: &ai.ParsedMeal{Items: []ai.MealItem{tc.item}},
+			})
+			_, err := service.ParseMealDescription(context.Background(), "bad macros")
+			if err == nil {
+				t.Fatalf("expected error for item with negative macros")
+			}
+		})
+	}
+}
+
 func TestParseMealDescription_NonPositiveWeight(t *testing.T) {
 	cases := []struct {
 		name   string
