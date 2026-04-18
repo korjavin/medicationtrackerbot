@@ -22,6 +22,21 @@ describe('Tab icon stroke/fill variants', () => {
     }
   });
 
+  it('#tabs contains only .tab buttons — no orphan icons between them', () => {
+    const { document, cleanup } = loadFrontendEnv();
+    try {
+      const tabsRoot = document.getElementById('tabs');
+      const tabButtons = tabsRoot.querySelectorAll(':scope > .tab');
+      expect(tabsRoot.children.length).toBe(tabButtons.length);
+      const totalStrokes = tabsRoot.querySelectorAll('.tab-icon-stroke').length;
+      const totalFills = tabsRoot.querySelectorAll('.tab-icon-fill').length;
+      expect(totalStrokes).toBe(tabButtons.length);
+      expect(totalFills).toBe(tabButtons.length);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('every .tab button carries role="tab" and an aria-label', () => {
     const { document, cleanup } = loadFrontendEnv();
     try {
