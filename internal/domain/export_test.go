@@ -42,6 +42,16 @@ func TestGenerateMedicationCSVEmpty(t *testing.T) {
 	}
 }
 
+func TestGenerateBPCSVEmpty(t *testing.T) {
+	data, err := GenerateBPCSV(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(string(data), "systolic") {
+		t.Error("expected header even for empty data")
+	}
+}
+
 func TestGenerateBPCSV(t *testing.T) {
 	pulse := 72
 	readings := []BPExportReading{
