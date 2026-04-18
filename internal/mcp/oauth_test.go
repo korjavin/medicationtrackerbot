@@ -46,8 +46,8 @@ func TestNewOAuthHandler(t *testing.T) {
 		t.Fatal("expected httpClient to be initialized")
 	}
 
-	if handler.httpClient.Timeout != 30*time.Second {
-		t.Errorf("expected httpClient.Timeout to be 30 seconds, got %v", handler.httpClient.Timeout)
+	if handler.httpClient.Timeout != 10*time.Second {
+		t.Errorf("expected httpClient.Timeout to be 10 seconds, got %v", handler.httpClient.Timeout)
 	}
 }
 

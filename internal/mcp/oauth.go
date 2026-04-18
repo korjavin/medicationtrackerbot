@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -47,7 +48,19 @@ func NewOAuthHandler(cfg *Config) *OAuthHandler {
 			ttl:  1 * time.Hour,
 		},
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   5 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          100,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   5 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			},
 		},
 	}
 }
@@ -274,8 +287,11 @@ type JWK struct {
 func (h *OAuthHandler) refreshJWKS(ctx context.Context) error {
 	jwksURL := h.config.PocketIDURL + "/.well-known/jwks.json"
 
+	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	// Try to fetch from URL
-	req, err := http.NewRequestWithContext(ctx, "GET", jwksURL, nil)
+	req, err := http.NewRequestWithContext(fetchCtx, "GET", jwksURL, nil)
 	var jwksData []byte
 
 	if err == nil {
@@ -283,7 +299,7 @@ func (h *OAuthHandler) refreshJWKS(ctx context.Context) error {
 		if err == nil {
 			defer resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				jwksData, _ = io.ReadAll(resp.Body)
+				jwksData, _ = io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
 			} else {
 				slog.Warn("[MCP/OAuth] JWKS fetch returned unexpected status", "status", resp.StatusCode)
 			}
