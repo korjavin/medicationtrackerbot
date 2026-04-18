@@ -21,9 +21,13 @@ func TestValidateImportFile(t *testing.T) {
 	}{
 		{"valid nxk", "test.nxk", 1024, false},
 		{"valid NXK case-insensitive", "TEST.NXK", 1024, false},
+		{"valid sqlite", "test.sqlite", 1024, false},
+		{"valid SQLITE case-insensitive", "TEST.SQLITE", 1024, false},
 		{"invalid extension", "test.zip", 1024, true},
-		{"file too large", "test.nxk", 51 * 1024 * 1024, true},
-		{"boundary size", "test.nxk", 50 * 1024 * 1024, false},
+		{"file too large", "test.nxk", 101 * 1024 * 1024, true},
+		{"boundary size", "test.nxk", 100 * 1024 * 1024, false},
+		{"empty file name", "", 1024, true},
+		{"file too large sqlite", "test.sqlite", 100*1024*1024 + 1, true},
 	}
 
 	for _, tt := range tests {

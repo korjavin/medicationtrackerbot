@@ -66,12 +66,15 @@ type DayStat struct {
 
 // ValidateImportFile validates a file name and size for sleep import.
 func ValidateImportFile(fileName string, fileSize int64) error {
-	if !strings.HasSuffix(strings.ToLower(fileName), ".nxk") {
-		return fmt.Errorf("only .nxk files are supported for sleep import")
+	if !strings.HasSuffix(strings.ToLower(fileName), ".nxk") && !strings.HasSuffix(strings.ToLower(fileName), ".sqlite") {
+		return fmt.Errorf("unsupported file format. Please upload a .nxk or .sqlite file")
 	}
-	if fileSize > 50*1024*1024 {
-		return fmt.Errorf("file too large, maximum size is 50MB")
+
+	const maxFileSize = 100 * 1024 * 1024 // 100MB
+	if fileSize > maxFileSize {
+		return fmt.Errorf("file too large. Maximum size is 100MB")
 	}
+
 	return nil
 }
 
