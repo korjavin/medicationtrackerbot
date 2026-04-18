@@ -239,8 +239,6 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		advanceMinutes := group.NotificationAdvanceMinutes
 		notifyTime := scheduledTime.Add(-time.Duration(advanceMinutes) * time.Minute)
 
-		notifiedThisLoop := false
-
 		if existing.Status == "pending" {
 			if activeSession != nil {
 				continue
@@ -250,21 +248,20 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 				if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
 					slog.Error("Failed to send workout notification", "error", err)
 				} else {
-					notifiedThisLoop = true
 					if err := c.store.UpdateSessionStatus(existing.ID, "notified"); err != nil {
 						slog.Error("Failed to update session status", "error", err)
 					}
+					continue
 				}
 			}
 		}
 
 		// 10. Check snoozed sessions for this group (Do this BEFORE 3h logic so wake-ups are prioritized)
-		if existing.SnoozedUntil != nil && now.After(*existing.SnoozedUntil) && !notifiedThisLoop {
+		if existing.SnoozedUntil != nil && now.After(*existing.SnoozedUntil) {
 			if activeSession == nil {
 				if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
 					slog.Error("Failed to re-send snoozed notification", "error", err)
 				} else {
-					notifiedThisLoop = true
 					if err := c.store.ClearSnooze(existing.ID); err != nil {
 						slog.Error("Failed to clear snooze state", "error", err)
 					}
@@ -277,25 +274,24 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 						}
 						existing.Notes = newNotes // ensure subsequent checks see updated notes
 					}
+					continue
 				}
 			}
 		}
 
 		// Handle re-notification for ignored sessions (3h logic)
-		// Only check if we didn't just notify them
-		if existing.Status == "notified" && !notifiedThisLoop {
+		if existing.Status == "notified" {
 			if now.After(scheduledTime.Add(3 * time.Hour)) {
 				if !strings.Contains(existing.Notes, "resent_3h") {
 					// If they are snoozed, we don't want to re-notify them as "ignored" while snoozing!
 					if existing.SnoozedUntil == nil || now.After(*existing.SnoozedUntil) {
 						if err := c.sendWorkoutNotification(existing, &group, variantID); err != nil {
 							slog.Error("Failed to re-send 3h notification", "error", err)
-						} else {
-							notifiedThisLoop = true
 						}
 						if err := c.store.UpdateWorkoutSessionNotes(existing.ID, existing.Notes+" resent_3h"); err != nil {
 							slog.Error("Failed to update session notes", "error", err)
 						}
+						continue
 					}
 				} else if now.After(scheduledTime.Add(6 * time.Hour)) {
 					// Service handles skip + rotation advancement for rotating groups
@@ -305,6 +301,7 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 					if existing.NotificationMessageID != nil {
 						c.DeleteNotification(ctx, *existing.NotificationMessageID)
 					}
+					continue
 				}
 			}
 		}
