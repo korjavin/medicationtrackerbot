@@ -32,7 +32,7 @@ func TestNewFoodWriter(t *testing.T) {
 		t.Fatal("expected client to not be nil")
 	}
 
-	expectedTimeout := 5 * time.Second
+	expectedTimeout := 15 * time.Second
 	if fw.client.Timeout != expectedTimeout {
 		t.Errorf("expected client timeout %v, got %v", expectedTimeout, fw.client.Timeout)
 	}
