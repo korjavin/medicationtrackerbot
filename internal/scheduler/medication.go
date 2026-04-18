@@ -24,6 +24,7 @@ type MedicationStore interface {
 	GetMedication(id int64) (*store.Medication, error)
 	GetMedicationsLowOnStock(days int) ([]store.Medication, error)
 	GetDaysOfStockRemaining(med *store.Medication) *float64
+	BatchGetDaysOfStockRemaining(meds []store.Medication) map[int64]*float64
 	SnoozeIntake(id int64, snoozeUntil time.Time) error
 	// TZ-aware scheduling
 	GetCurrentTimezone() (string, error)

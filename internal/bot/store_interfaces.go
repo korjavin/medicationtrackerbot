@@ -18,6 +18,7 @@ type MedicationStore interface {
 	GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error)
 	GetMedicationsLowOnStock(daysThreshold int) ([]store.Medication, error)
 	GetDaysOfStockRemaining(m *store.Medication) *float64
+	BatchGetDaysOfStockRemaining(meds []store.Medication) map[int64]*float64
 	GetLastDownload() (time.Time, error)
 	GetIntakesSince(since time.Time) ([]store.IntakeWithMedication, error)
 	UpdateLastDownload(t time.Time) error
