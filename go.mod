@@ -1,6 +1,6 @@
 module github.com/korjavin/medicationtrackerbot
 
-go 1.26.1
+go 1.25.0
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
@@ -9,6 +9,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/pressly/goose/v3 v3.26.0
+	github.com/ringsaturn/tzf v1.0.4
 	golang.org/x/oauth2 v0.34.0
 	modernc.org/sqlite v1.42.2
 )
@@ -26,7 +27,6 @@ require (
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/paulmach/orb v0.12.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/ringsaturn/tzf v1.0.4 // indirect
 	github.com/ringsaturn/tzf-rel-lite v0.0.2026-a // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect

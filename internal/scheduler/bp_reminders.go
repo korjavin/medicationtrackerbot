@@ -15,7 +15,9 @@ type BPReminderStore interface {
 	GetBloodPressureEnabled(ctx context.Context) (bool, error)
 	GetUsersForBPReminders() ([]int64, error)
 	GetBPReminderState(userID int64) (*store.BPReminderState, error)
+	BatchGetBPReminderStates(userIDs []int64) (map[int64]*store.BPReminderState, error)
 	GetLastBPReading(ctx context.Context, userID int64) (*store.BloodPressure, error)
+	BatchGetLastBPReadings(ctx context.Context, userIDs []int64) (map[int64]*store.BloodPressure, error)
 	CalculatePreferredReminderHour(ctx context.Context, userID int64) (int, error)
 	UpdatePreferredReminderHour(userID int64, hour int) error
 	GetDominantBPCategory(ctx context.Context, userID int64) (string, error)
@@ -64,11 +66,30 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		now = now.In(userLoc)
 	}
 
+	states, err := c.store.BatchGetBPReminderStates(userIDs)
+	if err != nil {
+		slog.Error("Error getting BP reminder states", "error", err)
+		// Fallback map if batch fails
+		states = make(map[int64]*store.BPReminderState)
+	}
+
+	lastReadings, errReadings := c.store.BatchGetLastBPReadings(ctx, userIDs)
+	if errReadings != nil {
+		slog.Error("Error getting last BP readings", "error", errReadings)
+		// Fallback map if batch fails
+		lastReadings = make(map[int64]*store.BloodPressure)
+	}
+
 	for _, userID := range userIDs {
-		state, err := c.store.GetBPReminderState(userID)
-		if err != nil {
-			slog.Error("Error getting BP reminder state", "userID", userID, "error", err)
-			continue
+		state, ok := states[userID]
+		if !ok {
+			// If missing from batch, attempt to fetch individual state or create default
+			var err error
+			state, err = c.store.GetBPReminderState(userID)
+			if err != nil {
+				slog.Error("Error getting BP reminder state", "userID", userID, "error", err)
+				continue
+			}
 		}
 
 		if !state.Enabled {
@@ -83,10 +104,16 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 			continue
 		}
 
-		lastReading, err := c.store.GetLastBPReading(ctx, userID)
-		if err != nil {
-			slog.Error("Error getting last BP reading", "userID", userID, "error", err)
-			continue
+		var lastReading *store.BloodPressure
+		if errReadings != nil {
+			var err error
+			lastReading, err = c.store.GetLastBPReading(ctx, userID)
+			if err != nil {
+				slog.Error("Error getting last BP reading", "userID", userID, "error", err)
+				continue
+			}
+		} else {
+			lastReading = lastReadings[userID]
 		}
 
 		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
