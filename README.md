@@ -1,126 +1,102 @@
 # Medication Tracker Bot
 
-Self-hosted Telegram bot plus local-first web app for personal health tracking.
+**Your health, in one place — on your server, on your terms.**
 
-It stores everything in SQLite, can run with or without Telegram, and exposes an optional OAuth-protected MCP sidecar for AI read access to your data.
+A self-hosted companion that lives in your Telegram chat and in your browser. It tracks your medications, your blood pressure, your weight, your workouts, your meals, your sleep — and hands the whole picture to your AI assistant when you ask for it. No SaaS lock-in. No ads. No one looking over your shoulder.
 
-## Why it exists
+---
 
-Most health tracking breaks down in the same way:
+## The problem
 
-- Medications live in one app
-- Blood pressure and weight live in another
-- Food is annoying to log consistently
-- Workouts are either too manual or too generic
-- Reminders are noisy until you ignore them
-- Your own data is trapped in products that do not work together
+Modern health tracking is a mess.
 
-Medication Tracker Bot is meant to replace that sprawl with one private system you actually keep using.
+- Your meds are in one app. Your BP in another. Your weight somewhere else.
+- Food logging quits on you after a week.
+- Workout apps are either too rigid or too generic.
+- Reminders start helpful and become noise.
+- And your own data — the story of your own body — is locked inside products that do not talk to each other and that you do not actually own.
 
-It gives you a single place to track the boring but important parts of everyday health, without forcing you into someone else's cloud, subscription, or workflow.
+You are the only person with the full picture of your health. The tools should let you keep it that way.
 
-## Why this is different
+## The idea
 
-- It is self-hosted, so your health data stays on your infrastructure
-- It works both as a Telegram bot and as a local-first web app
-- It is built for daily use, not just occasional dashboards
-- It handles reminders, snoozes, skips, and follow-through instead of just storing numbers
-- It is open to imports, external device feeds, and AI workflows instead of locking data away
+One private system you actually use every day.
+
+- **Log in seconds** from the chat you already have open.
+- **Get a real dashboard** when you want context, trends, and charts.
+- **Keep your data at home**, in a single SQLite file you can back up, import, export, or hand to an AI model of your choice.
+- **Replace the sprawl** with one place that covers the boring-but-important parts of everyday health.
+
+If you lose your internet, the app still works. If you switch AI assistants, your data comes along. If you decide to move servers, you copy one file.
+
+## Why it is different
+
+- **Self-hosted.** Your data stays on your infrastructure. Always.
+- **Two interfaces, one source of truth.** A fast Telegram bot for *"did I take it?"* moments. A polished web app for trends, planning, and deeper review.
+- **Daily-use focus.** Snooze, skip, re-log, bulk-confirm — not just a static database.
+- **Offline-first web app.** Log a BP reading on the subway; it syncs when you are back.
+- **AI-ready, on your terms.** An optional MCP endpoint lets Claude (or any MCP-compatible assistant) read your health data with OAuth protection — only when *you* connect it.
+- **Open to the world around it.** Apple Health imports, Mi Band / Mi Fitness ingestion, CSV exports, Open Food Facts lookup.
 
 ## What you get
 
-- Medication tracking with scheduled, weekly, and as-needed doses
-- Medication intake history, snoozing, skipping, past logging, and CSV export
-- Inventory tracking with restocks and low-stock alerts
-- Blood pressure logging, goals, reminders, stats, import, and CSV export
-- Weight logging, goals, reminders, trend tracking, and CSV export
-- Workout planning with groups, variants, exercises, rotation, and workout reminders
-- Workout session logging from Telegram and the web UI, including ad-hoc sessions
-- Mi Band and external workout ingestion through `/api/workout/external`
-- Food logging, daily targets, saved meals, product database, and Open Food Facts search
-- AI-assisted `/food` and `/activity` commands through an OpenAI-compatible API
-- Diary notes via `/note` command or the web interface, with AI-readable access through MCP
-- Health overview for sleep, heart rate, SpO2, stress, and steps
-- Web push notifications and offline-first PWA behavior
-- Browser auth through Telegram WebApp validation or OIDC
-- Optional MCP server for querying health data and writing food logs via MCP
+**Medications** — scheduled, weekly, and as-needed doses · intake history · snooze, skip, log past · inventory with restocks and low-stock alerts · drug-interaction checks · CSV export.
 
-## Interfaces
+**Blood pressure** — quick logging · goals · reminders · statistics · imports · CSV export.
+
+**Weight** — logging · goals · EMA trend · weekly reminders · Libra-compatible CSV export.
+
+**Workouts** — groups, variants, exercises, rotation (A/B/C/D splits like PPL or PHUL) · configurable notifications and snoozes · exercise-by-exercise logging from Telegram or the web · ad-hoc sessions · Mi Band and external feed ingestion.
+
+**Food** — manual logging and saved meals · nutrition targets · Open Food Facts search · AI-assisted `/food` command that splits natural-language meals ("chicken breast with rice") into atomic items.
+
+**Activity & body** — `/activity` command · sleep, heart rate, SpO2, stress, and daily steps in a unified Health overview.
+
+**Diary** — free-text notes via `/note` or the web UI, automatically included as context for AI analysis.
+
+**Delivery & fit-and-finish** — web push notifications · offline-first PWA · reorderable tabs · automatic timezone detection with user confirmation · Telegram WebApp auth or OIDC for browser access.
+
+## Two ways to use it
 
 ### Telegram
 
-Telegram is the fastest interface for real life: logging something quickly, responding to a reminder, or checking what is due next.
-
-It supports quick commands for medications, blood pressure, weight, workouts, food, exports, and other everyday actions. Feature-specific commands are hidden automatically when that feature is disabled in settings.
-
-Workout sessions show up to 3 exercise prompts at a time. As you complete or skip exercises, the next ones appear automatically, keeping the chat uncluttered.
-
-The `/tz` command requests your location to detect your timezone. Workout, BP, and weight reminders adjust to your local time. Medication times are not affected.
+The fastest interface for real life. Answer a reminder, log a reading, ask what's due next — all in the chat you already have open. Feature-specific commands disappear automatically when you turn that feature off. Workout sessions batch prompts so your chat never gets spammed.
 
 ### Web app
 
-The web app is for when you want more context: trends, history, editing, planning workouts, food logs, and settings.
+For when you want the bigger picture. Trends, history, editing, meal planning, workout design, settings. The shell is cached, feeds refresh in the background, and the most time-sensitive writes (BP, weight, medication confirmations) work offline and sync later.
 
-- Cached shell with background refresh
-- Offline create/update flows for key tracking actions
-- Web push subscription management
-- Per-feature toggles for medications, blood pressure, weight, workouts, food, and health
-- Reorderable tabs
-- Real-time refresh through `/api/changes` and `/api/changes/stream`
-- Automatic timezone detection on login with user confirmation
+## Your AI, your data
 
-## MCP server
+Want your assistant to analyze your blood pressure against your sleep and medications? Want a fitness summary that blends workouts, steps, nutrition, weight, and your own notes?
 
-If you want your AI assistant to query your health data directly, run the MCP server as a separate process. It is optional and OAuth-protected.
+Run the optional MCP server. It is a separate process, OAuth-protected via Pocket-ID, and exposes tools for every category — plus two composite analysis tools that return cross-domain snapshots in a single call:
 
-This means you can analyze your data with commercial models, local models, or any MCP-compatible client you prefer. The point is freedom: your data stays yours, and your AI layer is not tied to a single vendor.
+- `analyze_cardiovascular` — BP + medications + sleep + HR + SpO2 + diary notes
+- `analyze_fitness` — workouts + steps + daily nutrition + weight + diary notes
 
-It currently exposes tools for:
+Your diary notes ride along as context on every read, so the AI understands *why* a week looked the way it did.
 
-- Blood pressure
-- Weight
-- Medication intake history
-- Workout history
-- Sleep logs
-- Food intake
-- Daily steps
-- Health overview
-- Heart rate, SpO2, and stress vitals
-- Diary notes
-- Food logging write-through when audit/write-back is configured
-- Composite cardiovascular analysis (BP + medications + sleep + HR + SpO2 + diary notes in one call)
-- Composite fitness analysis (workouts + steps + daily nutrition totals + weight + diary notes in one call)
+Point Claude (or any MCP-compatible client) at your endpoint and you are done. Change models, change vendors, take everything home — whenever you want.
 
-All read tools automatically include diary notes from the queried date range for context. Pass `exclude_notes=true` to suppress.
+## Get it running
 
-## Data import and export
+- **[Installation guide →](./docs/installer.md)** — one installer provisions the app, Traefik, Pocket-ID, and the optional MCP sidecar.
+- Works from a published container image or your own build.
 
-There are multiple ways to bring existing data in, including Apple Health exports, blood pressure imports, and Mi Band software integrations such as Mi Fitness or Mi Notify backups for sleep, vitals, day stats, and outdoor workouts.
+## Designed with security in mind
 
-### Exports
-
-- Telegram `/download` exports medication, blood pressure, and weight history
-- Web APIs expose blood pressure and weight CSV export endpoints
-
-## Deployment
-
-For production deployment, use the installer or the published container image.
-
-- Installation guide: [docs/installer.md](./docs/installer.md)
-
-The installer can provision:
-
-- The main app container
-- Traefik
-- Pocket ID
-- An optional MCP sidecar
-
-## Security model
-
-- Single-user allowlist enforced with `ALLOWED_USER_ID`
-- Telegram WebApp and Telegram Login Widget validation
-- Optional OIDC browser auth with email and/or subject restriction
+- Single-user allowlist via `ALLOWED_USER_ID`
+- Telegram WebApp and Login Widget HMAC validation
+- Optional OIDC browser auth with email/subject restrictions
 - OAuth-protected MCP endpoint
 - HMAC validation for MCP write-back and audit callbacks
-- Optional external workout ingestion protected by bearer token
+- Optional bearer-token-protected external workout ingestion
 - SQLite stays local to your deployment
+
+---
+
+## For contributors and operators
+
+- **Contributors**: start with [CLAUDE.md](./CLAUDE.md) — it indexes the architecture, feature, API, frontend, and deployment docs under [docs/](./docs/).
+- **License**: see [LICENSE](./LICENSE).

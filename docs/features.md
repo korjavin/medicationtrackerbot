@@ -1,0 +1,58 @@
+# Feature Implementation Patterns
+
+## Medication Tracking
+
+- **Smart Sorting**: Scheduled Soon (>14h) → Recently Taken → As-Needed → Archived
+- **Archiving & Deleting**: active medications can be archived; archived medications can be permanently deleted only if they have no intake history
+- **Schedule Types**: Daily, Weekly, As-Needed with optional Start/End dates
+- **Duplicate Prevention**: HTTP 409 on creation when name (case-insensitive) + dosage matches an existing medication (including archived)
+- **Drug Interactions**: automatic checking via RxNorm API when adding/unarchiving
+- **Notifications**: Telegram alerts with scheduled time and dosage; hourly retry if not confirmed
+- **Timezone Shift Policy** (`tz_shift_policy`): per-medication field controlling how doses are rescheduled when the user's timezone changes. Values: `flexible` (default — shift immediately in one step), `medium` (gradual, max 3h per dose), `strict` (very gradual, max 2h per step). When a timezone change is detected and an active plan is approved, the scheduler uses the plan's transition steps instead of normal schedule times until all steps are consumed.
+
+## Blood Pressure Tracking
+
+- **Classification**: ISH 2020 guidelines (configurable for age <65)
+- **Target**: <130/80 mmHg
+- **Tracking**: 2–3x daily recommended
+- **Statistics**: daily-weighted averaging — each day with readings gets equal weight regardless of measurement count (prevents frequency bias). Day boundaries use the user's stored timezone (falls back to UTC).
+- **Export**: CSV
+
+## Weight Tracking
+
+- **Trend**: exponential moving average for smooth visualization
+- **Export**: CSV in Libra format (compatible with Libra app)
+- **Reminders**: weekly if no weight logged
+
+## Food Tracking
+
+- **Manual logging**: web UI (Open Food Facts search) and multi-item "Meals" templates with aggregated macros
+- **`/food` Telegram command**: natural-language meal logging via AI. The AI splits complex meals into atomic items (one row per distinct food/ingredient) and normalizes dish names to common English terms regardless of input language (e.g., Russian "куриная грудка с рисом" → two items named "chicken breast" and "rice"). Each item becomes its own `food_log` row sharing the same `eaten_at` timestamp. The bot replies with a per-item breakdown plus an aggregate total. On partial failure, remaining items still persist and the reply reports "Logged N of M items".
+
+## Workout Tracking
+
+- **Hierarchy**: Groups → Variants → Exercises
+- **Rotation**: automatic A/B/C/D progression (e.g., PPL, PHUL splits)
+- **Scheduling**: configurable days of week, notification advance time (default 15 min)
+- **Snooze**: 1-hour or 2-hour options
+- **Logging**: exercise-by-exercise with sets, reps, weight
+- **Weight/Reps Propagation**: when a user logs or edits exercise weight/reps/sets in a pending/notified/in-progress session, the new values propagate back to the `workout_exercises` schedule definition (best-effort, errors logged but don't fail the request). Only applies to exercises belonging to the session's variant — user-added and ad-hoc session exercises are excluded.
+- **Prompt Batching**: at most 3 exercise prompts shown at once; remaining queued in-memory (`pendingExercises` map on Bot struct) and sent one-at-a-time as user completes/skips
+
+### Stats API (`/api/workout/stats`)
+
+Returns `active_weeks` (count of weeks with at least one completed session) and `total_sessions` (sum of completed and skipped). Does **not** return streak or total volume metrics.
+
+## MCP Server
+
+- **Purpose**: read-only access to health data for AI assistants (Claude)
+- **Transport**: Streamable HTTP (2025-03-26 spec) via `mcp.NewStreamableHTTPHandler`
+- **Authentication**: OAuth via Pocket-ID
+- **Tools**: 13 granular tools (`get_blood_pressure`, `get_weight`, `get_medication_intake`, …) + 2 composite analysis tools
+- **Composite Tools**:
+  - `analyze_cardiovascular` — BP + meds + sleep + HR + SpO2 + notes
+  - `analyze_fitness` — workouts + steps + nutrition totals + weight + notes
+- **Context Notes**: all read tools automatically include diary notes from the queried date range. Pass `exclude_notes=true` to suppress.
+- **Configuration**: separate from main bot, runs on different port
+
+See [mcp-deployment.md](mcp-deployment.md) for deployment details.
