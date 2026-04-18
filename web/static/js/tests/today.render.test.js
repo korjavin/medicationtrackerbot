@@ -236,4 +236,74 @@ describe('TodayDashboard.renderToday', () => {
         const secondCount = root.querySelectorAll('.today-card').length;
         expect(firstCount).toBe(secondCount);
     });
+
+    it('first-run offline: aggregate flags __firstRun and render shows connect empty state with no cards', () => {
+        const root = env.document.getElementById('today-content');
+        const state = env.aggregate(null, null, now);
+        expect(state.__firstRun).toBe(true);
+        env.render(state, root, { now });
+
+        expect(root.querySelectorAll('.today-card').length).toBe(0);
+        expect(root.querySelector('.today-card-grid')).toBeNull();
+        const empty = root.querySelector('.today-empty');
+        expect(empty).not.toBeNull();
+        expect(empty.classList.contains('today-empty-firstrun')).toBe(true);
+        expect(empty.textContent).toMatch(/Connect to load your day/i);
+    });
+
+    it('first-run offline: treats empty bootstrap with no caches as first-run', () => {
+        const root = env.document.getElementById('today-content');
+        const state = env.aggregate({ features: {} }, {}, now);
+        expect(state.__firstRun).toBe(true);
+        env.render(state, root, { now });
+
+        expect(root.querySelectorAll('.today-card').length).toBe(0);
+        expect(root.querySelector('.today-empty-firstrun')).not.toBeNull();
+    });
+
+    it('first-run offline: bootstrap with any data section (e.g. settings) is NOT treated as first-run', () => {
+        const state = env.aggregate({ features: {}, settings: { food_targets: null } }, {}, now);
+        expect(state.__firstRun).toBeUndefined();
+    });
+
+    it('disabled-features: omits only disabled cards, keeps enabled ones', () => {
+        const root = env.document.getElementById('today-content');
+        const state = allPresentState(now);
+        state.nextMed = { value: null, deeplink: 'meds', status: 'disabled' };
+        state.caloriesToday = { value: null, deeplink: 'food', status: 'disabled' };
+        state.caloriesTarget = { value: null, deeplink: 'food', status: 'disabled' };
+        env.render(state, root, { now });
+
+        const deeplinks = Array.from(root.querySelectorAll('.today-card'))
+            .map((c) => c.getAttribute('data-deeplink'));
+        expect(deeplinks).not.toContain('meds');
+        expect(deeplinks).not.toContain('food');
+        expect(deeplinks).toContain('bp');
+        expect(deeplinks).toContain('weight');
+        expect(deeplinks).toContain('workouts');
+        expect(deeplinks).toContain('health');
+    });
+
+    it('disabled-features: when every feature disabled, shows a friendly empty state and no cards', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(allDisabledState(), root, { now });
+
+        expect(root.querySelectorAll('.today-card').length).toBe(0);
+        const empty = root.querySelector('.today-empty');
+        expect(empty).not.toBeNull();
+        expect(empty.classList.contains('today-empty-disabled')).toBe(true);
+    });
+
+    it('overdue-med: applies --color-warning border via today-card-warning class and shows overdue label', () => {
+        const root = env.document.getElementById('today-content');
+        const state = allPresentState(now);
+        state.nextMed.status = 'overdue';
+        env.render(state, root, { now });
+
+        const medCard = root.querySelector('.today-card[data-deeplink="meds"]');
+        expect(medCard.classList.contains('today-card-warning')).toBe(true);
+        const badge = medCard.querySelector('.today-card-badge-warning');
+        expect(badge).not.toBeNull();
+        expect(badge.textContent.toLowerCase()).toMatch(/overdue/);
+    });
 });

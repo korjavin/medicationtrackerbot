@@ -264,4 +264,30 @@ describe('TodayDashboard.aggregateToday', () => {
     expect(result.caloriesToday.status).toBe('missing');
     expect(result.caloriesToday.value).toBe(0);
   });
+
+  it('flags __firstRun when bootstrap is null and no caches provided', () => {
+    const now = new Date('2026-04-19T09:00:00Z');
+    const result = env.aggregate(null, null, now);
+    expect(result.__firstRun).toBe(true);
+  });
+
+  it('flags __firstRun when bootstrap has only an empty features map and no caches', () => {
+    const now = new Date('2026-04-19T09:00:00Z');
+    const result = env.aggregate({ features: {} }, {}, now);
+    expect(result.__firstRun).toBe(true);
+  });
+
+  it('does not flag __firstRun when bootstrap has any data section', () => {
+    const now = new Date('2026-04-19T09:00:00Z');
+    const bootstrap = { features: {}, bp: { readings: [] } };
+    const result = env.aggregate(bootstrap, {}, now);
+    expect(result.__firstRun).toBeUndefined();
+  });
+
+  it('does not flag __firstRun when SWR caches hold food data even if bootstrap is empty', () => {
+    const now = new Date('2026-04-19T09:00:00Z');
+    const caches = { food_today: { groups: [{ calories: 400 }] } };
+    const result = env.aggregate({ features: {} }, caches, now);
+    expect(result.__firstRun).toBeUndefined();
+  });
 });
