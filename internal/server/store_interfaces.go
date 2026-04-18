@@ -32,7 +32,6 @@ type MedicationStore interface {
 	GetRestockHistory(medID int64) ([]store.Restock, error)
 	GetMedicationsLowOnStock(daysThreshold int) ([]store.Medication, error)
 	GetDaysOfStockRemaining(m *store.Medication) *float64
-	BatchGetDaysOfStockRemaining(meds []store.Medication) map[int64]*float64
 	ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error)
 	GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
 	GetTakenIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)

@@ -544,62 +544,6 @@ func (s *Store) GetDaysOfStockRemaining(m *Medication) *float64 {
 	return &days
 }
 
-// BatchGetDaysOfStockRemaining calculates how many days of stock remain for a batch of medications
-func (s *Store) BatchGetDaysOfStockRemaining(meds []Medication) map[int64]*float64 {
-	result := make(map[int64]*float64, len(meds))
-	if len(meds) == 0 {
-		return result
-	}
-
-	batchSize := 500
-	for i := 0; i < len(meds); i += batchSize {
-		end := i + batchSize
-		if end > len(meds) {
-			end = len(meds)
-		}
-		chunk := meds[i:end]
-
-		ids := make([]string, len(chunk))
-		args := make([]interface{}, len(chunk))
-		for j, m := range chunk {
-			ids[j] = "?"
-			args[j] = m.ID
-		}
-
-		query := fmt.Sprintf("SELECT id, schedule, inventory_count FROM medications WHERE id IN (%s)", strings.Join(ids, ","))
-		rows, err := s.db.Query(query, args...)
-		if err != nil {
-			continue
-		}
-
-		for rows.Next() {
-			var id int64
-			var sched string
-			var inv *int
-			if err := rows.Scan(&id, &sched, &inv); err == nil {
-				med := Medication{ID: id, Schedule: sched, InventoryCount: inv}
-
-				if med.InventoryCount == nil {
-					result[id] = nil
-					continue
-				}
-
-				dailyUsage := s.calculateDailyUsage(&med)
-				if dailyUsage == 0 {
-					result[id] = nil
-					continue
-				}
-
-				days := float64(*med.InventoryCount) / dailyUsage
-				result[id] = &days
-			}
-		}
-		rows.Close()
-	}
-
-	return result
-}
-
 // IsLowOnStock checks if a medication is low on stock considering its end date
 func (s *Store) IsLowOnStock(m *Medication, daysThreshold int) bool {
 	if m.InventoryCount == nil {
@@ -1311,7 +1255,6 @@ func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPS
 
 	return result, nil
 }
-
 // truncateToDay returns midnight (start of day) in the given timezone.
 // This ensures day boundaries respect the user's local calendar, e.g. a reading
 // at 00:30 Europe/Berlin is on the correct local day, not the previous UTC day.

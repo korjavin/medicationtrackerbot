@@ -52,10 +52,8 @@ func (c *LowStockChecker) Check(_ context.Context) error {
 	var sb strings.Builder
 	sb.WriteString("⚠️ **Low Stock Warning**\n\nThe following medications are running low (< 7 days):\n\n")
 
-	batchDays := c.store.BatchGetDaysOfStockRemaining(meds)
-
 	for _, m := range meds {
-		daysRemaining := batchDays[m.ID]
+		daysRemaining := c.store.GetDaysOfStockRemaining(&m)
 		daysStr := ""
 		if daysRemaining != nil {
 			daysStr = fmt.Sprintf(" (~%.0f days left)", *daysRemaining)

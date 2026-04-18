@@ -22,15 +22,6 @@ func (m *mockMedStoreForBench) GetDaysOfStockRemaining(med *store.Medication) *f
 	return &d
 }
 
-func (m *mockMedStoreForBench) BatchGetDaysOfStockRemaining(meds []store.Medication) map[int64]*float64 {
-	res := make(map[int64]*float64)
-	for i := range meds {
-		d := float64(5.0)
-		res[meds[i].ID] = &d
-	}
-	return res
-}
-
 func BenchmarkLowStockChecker(b *testing.B) {
 	// Create a large number of dummy medications
 	meds := make([]store.Medication, 1000)
