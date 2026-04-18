@@ -272,6 +272,9 @@ type JWK struct {
 
 // refreshJWKS fetches and caches the JWKS from Pocket-ID
 func (h *OAuthHandler) refreshJWKS(ctx context.Context) error {
+	if h.config.PocketIDURL != "" && !strings.HasPrefix(h.config.PocketIDURL, "http://") && !strings.HasPrefix(h.config.PocketIDURL, "https://") {
+		return fmt.Errorf("invalid PocketIDURL scheme: must be http or https")
+	}
 	jwksURL := h.config.PocketIDURL + "/.well-known/jwks.json"
 
 	// Try to fetch from URL
