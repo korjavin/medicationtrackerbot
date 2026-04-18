@@ -131,3 +131,31 @@ func TestLogFood_NetworkError(t *testing.T) {
 		t.Errorf("expected request failure error, got %v", err)
 	}
 }
+
+func TestNewFoodWriter(t *testing.T) {
+	endpoint := "https://api.example.com/food-log"
+	secret := "test-secret-123"
+
+	fw := NewFoodWriter(endpoint, secret)
+
+	if fw == nil {
+		t.Fatal("expected FoodWriter to not be nil")
+	}
+
+	if fw.endpoint != endpoint {
+		t.Errorf("expected endpoint %q, got %q", endpoint, fw.endpoint)
+	}
+
+	if fw.secret != secret {
+		t.Errorf("expected secret %q, got %q", secret, fw.secret)
+	}
+
+	if fw.client == nil {
+		t.Fatal("expected client to not be nil")
+	}
+
+	expectedTimeout := 5 * time.Second
+	if fw.client.Timeout != expectedTimeout {
+		t.Errorf("expected client timeout %v, got %v", expectedTimeout, fw.client.Timeout)
+	}
+}

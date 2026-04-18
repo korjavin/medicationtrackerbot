@@ -31,12 +31,12 @@ type FoodWriter struct {
 	client   *http.Client
 }
 
-// NewFoodWriter creates a FoodWriter with a 15-second timeout.
+// NewFoodWriter creates a FoodWriter with a 5-second timeout.
 func NewFoodWriter(endpoint, secret string) *FoodWriter {
 	return &FoodWriter{
 		endpoint: endpoint,
 		secret:   secret,
-		client:   &http.Client{Timeout: 15 * time.Second},
+		client:   &http.Client{Timeout: 5 * time.Second},
 	}
 }
 
