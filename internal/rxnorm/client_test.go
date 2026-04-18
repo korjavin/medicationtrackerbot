@@ -277,3 +277,23 @@ func TestCheckInteractions_NonOKStatus(t *testing.T) {
 		t.Fatal("expected error for non-200 status")
 	}
 }
+
+func TestSearchApproximate_NetworkError(t *testing.T) {
+	c := newWithBaseURLs("http://127.0.0.1:0", "http://127.0.0.1:0")
+	rxcui := c.searchApproximate("ibuprofen")
+	if rxcui != "" {
+		t.Errorf("expected empty rxcui on network error, got %q", rxcui)
+	}
+}
+
+func TestSearchApproximate_HTTPError(t *testing.T) {
+	ts := mockRxNormServer(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "server error", http.StatusInternalServerError)
+	})
+
+	c := newWithBaseURLs(ts.URL, ts.URL)
+	rxcui := c.searchApproximate("ibuprofen")
+	if rxcui != "" {
+		t.Errorf("expected empty rxcui on http error, got %q", rxcui)
+	}
+}
