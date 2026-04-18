@@ -18,6 +18,7 @@ type MedicationStore interface {
 	GetMedicationEnabled(ctx context.Context) (bool, error)
 	ListMedications(archived bool) ([]store.Medication, error)
 	GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error)
+	BatchGetIntakesBySchedule(schedules []store.MedicationSchedule) (map[store.MedicationSchedule]*store.IntakeLog, error)
 	CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error)
 	AddIntakeReminder(intakeID int64, msgID int) error
 	GetPendingIntakes() ([]store.IntakeLog, error)
@@ -138,71 +139,44 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		return err
 	}
 
-	groups := make(map[int64]*notificationGroup)
+	// action represents a potential intake check to perform
+	type action struct {
+		med    store.Medication
+		target time.Time
+		stepID int64
+		isPlan bool
+	}
+	var actions []action
+	var schedulesToCheck []store.MedicationSchedule
 
+	// --- Pass 1: Collect all schedules we need to check ---
 	for _, med := range meds {
-		// If the APPROVED plan has pending steps for this medication, use them
-		// instead of the normal schedule. This handles both due steps (now >=
-		// step.ScheduledAt) and future steps (not yet due — the med is still
-		// considered "in plan" so we skip normal scheduling for it).
 		if planSteps, inPlan := pendingStepsByMed[med.ID]; inPlan {
-			triggered := false
 			for _, step := range planSteps {
 				if now.Before(step.ScheduledAt) {
 					continue // step not yet due
 				}
-				existing, err := c.store.GetIntakeBySchedule(med.ID, step.ScheduledAt)
-				if err != nil {
-					slog.Error("medication scheduler: error checking step intake existence",
-						"medID", med.ID, "stepID", step.ID, "error", err)
-					continue
-				}
-				if existing != nil {
-					// Intake already created (idempotency): ensure step is marked consumed.
-					if err := c.store.MarkStepConsumed(step.ID, now); err != nil {
-						slog.Warn("medication scheduler: failed to mark already-scheduled step consumed",
-							"stepID", step.ID, "error", err)
-					}
-					continue
-				}
-				// Only trigger one new step per medication per tick to preserve
-				// gradual shifting even after a period of scheduler unavailability.
-				if triggered {
-					break
-				}
-				ts := step.ScheduledAt.Unix()
-				if _, ok := groups[ts]; !ok {
-					groups[ts] = &notificationGroup{
-						Target:  step.ScheduledAt,
-						StepIDs: make(map[int64]int64),
-					}
-				}
-				groups[ts].Meds = append(groups[ts].Meds, med)
-				groups[ts].StepIDs[med.ID] = step.ID
-				triggered = true
+				actions = append(actions, action{
+					med:    med,
+					target: step.ScheduledAt,
+					stepID: step.ID,
+					isPlan: true,
+				})
+				schedulesToCheck = append(schedulesToCheck, store.MedicationSchedule{
+					MedID:       med.ID,
+					ScheduledAt: step.ScheduledAt,
+				})
 			}
-			// Skip normal scheduling for this medication as long as the plan has
-			// any pending steps (even future ones not yet due). Once all steps are
-			// consumed, GetPendingStepsForPlan returns an empty list, so the med
-			// will no longer appear in pendingStepsByMed and falls through to normal
-			// scheduling on the next tick.
 			continue
 		}
 
-		// --- Normal scheduling path (user-timezone-aware) ---
+		// Normal scheduling path
 		cfg, err := med.ValidSchedule()
-		if err != nil {
-			slog.Warn("Invalid schedule for medication", "medID", med.ID, "error", err)
+		if err != nil || cfg.Type == "as_needed" {
 			continue
 		}
 
-		if cfg.Type == "as_needed" {
-			continue
-		}
-
-		// Use the user's timezone to determine "today" and the weekday.
 		nowInUserLoc := now.In(userLoc)
-
 		if cfg.Type == "weekly" {
 			if !slices.Contains(cfg.Days, int(nowInUserLoc.Weekday())) {
 				continue
@@ -216,8 +190,6 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			hour, _ := strconv.Atoi(timeStr[:2])
 			minute, _ := strconv.Atoi(timeStr[3:])
 
-			// Build target time in the user's timezone so that "09:00" means 09:00
-			// in the user's local time, not the system timezone.
 			target := time.Date(nowInUserLoc.Year(), nowInUserLoc.Month(), nowInUserLoc.Day(),
 				hour, minute, 0, 0, userLoc)
 
@@ -227,31 +199,75 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			if med.EndDate != nil && target.After(*med.EndDate) {
 				continue
 			}
-
 			if target.Before(med.CreatedAt) {
 				continue
 			}
-
 			if now.Before(target) {
 				continue
 			}
 
-			existing, err := c.store.GetIntakeBySchedule(med.ID, target)
-			if err != nil {
-				slog.Error("Error checking intake existence", "error", err)
+			actions = append(actions, action{
+				med:    med,
+				target: target,
+				stepID: 0,
+				isPlan: false,
+			})
+			schedulesToCheck = append(schedulesToCheck, store.MedicationSchedule{
+				MedID:       med.ID,
+				ScheduledAt: target,
+			})
+		}
+	}
+
+	// Batch query all required schedules
+	batchMap, err := c.store.BatchGetIntakesBySchedule(schedulesToCheck)
+	if err != nil {
+		slog.Error("medication scheduler: error checking intake existence in batch", "error", err)
+		// Returning error for now to be strictly safe.
+		return err
+	}
+
+	groups := make(map[int64]*notificationGroup)
+	planMedTriggered := make(map[int64]bool) // tracks if a plan step was already triggered for a med
+
+	// --- Pass 2: Evaluate using batched results and trigger ---
+	for _, act := range actions {
+		if act.isPlan {
+			if planMedTriggered[act.med.ID] {
+				continue // Only trigger one new step per medication per tick
+			}
+
+			existing := batchMap[store.MedicationSchedule{MedID: act.med.ID, ScheduledAt: act.target.UTC()}]
+			if existing != nil {
+				// Intake already created (idempotency): ensure step is marked consumed.
+				if err := c.store.MarkStepConsumed(act.stepID, now); err != nil {
+					slog.Warn("medication scheduler: failed to mark already-scheduled step consumed",
+						"stepID", act.stepID, "error", err)
+				}
 				continue
 			}
 
+			ts := act.target.Unix()
+			if _, ok := groups[ts]; !ok {
+				groups[ts] = &notificationGroup{
+					Target:  act.target,
+					StepIDs: make(map[int64]int64),
+				}
+			}
+			groups[ts].Meds = append(groups[ts].Meds, act.med)
+			groups[ts].StepIDs[act.med.ID] = act.stepID
+			planMedTriggered[act.med.ID] = true
+		} else {
+			existing := batchMap[store.MedicationSchedule{MedID: act.med.ID, ScheduledAt: act.target.UTC()}]
 			if existing == nil {
-				ts := target.Unix()
+				ts := act.target.Unix()
 				if _, ok := groups[ts]; !ok {
 					groups[ts] = &notificationGroup{
-						Target:  target,
+						Target:  act.target,
 						StepIDs: make(map[int64]int64),
 					}
 				}
-				groups[ts].Meds = append(groups[ts].Meds, med)
-				// StepIDs[med.ID] remains 0 (no plan step)
+				groups[ts].Meds = append(groups[ts].Meds, act.med)
 			}
 		}
 	}
