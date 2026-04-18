@@ -53,13 +53,13 @@ Rework the `/food` Telegram command so the AI returns an ordered list of atomic 
 - Modify: `internal/domain/food_ai.go`
 - Modify: `internal/domain/food_ai_test.go`
 
-- [ ] Change `FoodAIService.ParseMealDescription` signature from `(*FoodLog, error)` to `([]FoodLog, error)`
-- [ ] Update `AIClient` interface: `ParseMealFromDescription` now returns `*ai.ParsedMeal`
-- [ ] In `ParseMealDescription`, iterate `mealData.Items`, call `CalculateMacros` per item, build one `FoodLog` per item; propagate error if any item is missing required fields
-- [ ] Update `mockAIClient` in `food_ai_test.go` to return `*ai.ParsedMeal`
-- [ ] Update `TestParseMealDescription_Success` to assert a multi-item case (e.g., two items with different per-100g macros) and a single-item case
-- [ ] Add `TestParseMealDescription_EmptyItems` — parsed meal with zero items must return error
-- [ ] run `go test ./internal/domain/...` — must pass before Task 3
+- [x] Change `FoodAIService.ParseMealDescription` signature from `(*FoodLog, error)` to `([]FoodLog, error)`
+- [x] Update `AIClient` interface: `ParseMealFromDescription` now returns `*ai.ParsedMeal`
+- [x] In `ParseMealDescription`, iterate `mealData.Items`, call `CalculateMacros` per item, build one `FoodLog` per item; propagate error if any item is missing required fields
+- [x] Update `mockAIClient` in `food_ai_test.go` to return `*ai.ParsedMeal`
+- [x] Update `TestParseMealDescription_Success` to assert a multi-item case (e.g., two items with different per-100g macros) and a single-item case
+- [x] Add `TestParseMealDescription_EmptyItems` — parsed meal with zero items must return error
+- [x] run `go test ./internal/domain/...` — must pass before Task 3
 
 ### Task 3: Update bot /food handler to log N items and summarize
 

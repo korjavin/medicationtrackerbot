@@ -9,13 +9,13 @@ import (
 
 // FoodAIService defines the interface for parsing natural language meal descriptions.
 type FoodAIService interface {
-	ParseMealDescription(ctx context.Context, description string) (*FoodLog, error)
+	ParseMealDescription(ctx context.Context, description string) ([]FoodLog, error)
 }
 
 // AIClient is an interface describing the methods we need from the AI client,
 // making it easier to mock for tests.
 type AIClient interface {
-	ParseMealFromDescription(ctx context.Context, description string) (*ai.MealData, error)
+	ParseMealFromDescription(ctx context.Context, description string) (*ai.ParsedMeal, error)
 }
 
 type foodAIService struct {
@@ -29,28 +29,43 @@ func NewFoodAIService(client AIClient) FoodAIService {
 	}
 }
 
-func (s *foodAIService) ParseMealDescription(ctx context.Context, description string) (*FoodLog, error) {
+func (s *foodAIService) ParseMealDescription(ctx context.Context, description string) ([]FoodLog, error) {
 	if description == "" {
 		return nil, fmt.Errorf("description cannot be empty")
 	}
 
-	mealData, err := s.client.ParseMealFromDescription(ctx, description)
+	parsed, err := s.client.ParseMealFromDescription(ctx, description)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse meal description: %w", err)
 	}
 
-	if mealData == nil {
+	if parsed == nil {
 		return nil, fmt.Errorf("received nil meal data from AI service")
 	}
 
-	carbs, protein, fat, calories := CalculateMacros(mealData.Carbs100g, mealData.Protein100g, mealData.Fat100g, mealData.WeightGrams)
+	if len(parsed.Items) == 0 {
+		return nil, fmt.Errorf("AI returned no meal items")
+	}
 
-	return &FoodLog{
-		Name:     mealData.Name,
-		Weight:   int(mealData.WeightGrams),
-		Carbs:    carbs,
-		Protein:  protein,
-		Fat:      fat,
-		Calories: calories,
-	}, nil
+	logs := make([]FoodLog, 0, len(parsed.Items))
+	for i, item := range parsed.Items {
+		if item.Name == "" {
+			return nil, fmt.Errorf("item %d missing name", i)
+		}
+		if item.WeightGrams <= 0 {
+			return nil, fmt.Errorf("item %d (%q) has non-positive weight_grams", i, item.Name)
+		}
+
+		carbs, protein, fat, calories := CalculateMacros(item.Carbs100g, item.Protein100g, item.Fat100g, item.WeightGrams)
+		logs = append(logs, FoodLog{
+			Name:     item.Name,
+			Weight:   int(item.WeightGrams),
+			Carbs:    carbs,
+			Protein:  protein,
+			Fat:      fat,
+			Calories: calories,
+		})
+	}
+
+	return logs, nil
 }
