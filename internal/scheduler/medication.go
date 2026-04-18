@@ -164,7 +164,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 				})
 				schedulesToCheck = append(schedulesToCheck, store.MedicationSchedule{
 					MedID:       med.ID,
-					ScheduledAt: step.ScheduledAt.UTC(),
+					ScheduledAt: step.ScheduledAt,
 				})
 			}
 			continue
@@ -214,7 +214,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			})
 			schedulesToCheck = append(schedulesToCheck, store.MedicationSchedule{
 				MedID:       med.ID,
-				ScheduledAt: target.UTC(),
+				ScheduledAt: target,
 			})
 		}
 	}
@@ -223,6 +223,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 	batchMap, err := c.store.BatchGetIntakesBySchedule(schedulesToCheck)
 	if err != nil {
 		slog.Error("medication scheduler: error checking intake existence in batch, falling back to empty map", "error", err)
+		batchMap = make(map[store.MedicationSchedule]*store.IntakeLog)
 		// We fallback to empty map, which means we might create duplicate intakes.
 		// However, it's better to process the tick than completely halt all notifications.
 		// Note: we could also return the error if we want strict safety over availability.
