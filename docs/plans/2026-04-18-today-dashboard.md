@@ -44,11 +44,11 @@ Benefit: turns the Mini App from a logbook into something worth opening unprompt
 
 ### Task 1: Define the Today aggregation contract
 
-- [ ] create `web/static/js/features/today.js` with a pure function `aggregateToday(bootstrap, swrCaches, now)` returning `{ greeting, nextMed, bpLatest, bpTrend7d, weightLatest, weightTrend7d, caloriesToday, caloriesTarget, nextWorkout, sleepLastNight }`
-- [ ] each field is `{ value, deeplink, status: 'ok'|'missing'|'stale'|'overdue' }` so the renderer can show the right state without re-deriving
-- [ ] handle missing data gracefully (no entry today, feature disabled, offline-stale cache)
-- [ ] write Vitest cases for all-present, all-missing, partial, offline-stale, and feature-disabled scenarios using fixture payloads
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/features/today.js` with a pure function `aggregateToday(bootstrap, swrCaches, now)` returning `{ greeting, nextMed, bpLatest, bpTrend7d, weightLatest, weightTrend7d, caloriesToday, caloriesTarget, nextWorkout, sleepLastNight }`
+- [x] each field is `{ value, deeplink, status: 'ok'|'missing'|'stale'|'overdue' }` so the renderer can show the right state without re-deriving
+- [x] handle missing data gracefully (no entry today, feature disabled, offline-stale cache)
+- [x] write Vitest cases for all-present, all-missing, partial, offline-stale, and feature-disabled scenarios using fixture payloads
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 2: Render the Today view
 
