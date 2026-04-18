@@ -629,6 +629,15 @@ const ApiCache = {
         }
     },
 
+    async getWithMeta(key) {
+        try {
+            const entry = await db.api_cache.get(key);
+            return entry ? { data: entry.data, timestamp: entry.timestamp } : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
     async set(key, data) {
         try {
             await db.api_cache.put({ id: key, timestamp: Date.now(), data });

@@ -887,12 +887,56 @@ function switchTab(tab) {
     else if (tab === 'settings') { loadSettings(); }
 }
 
+let todayUnsubscribe = null;
+
 async function loadToday() {
     const root = document.getElementById('today-content');
     if (!root || !window.TodayDashboard) return;
     const bootstrap = { features: featureSettings || {} };
+    let oldestCacheTimestamp = null;
     try {
-        if (window.DataStore && typeof window.DataStore.getCached === 'function') {
+        const cacheStore = window.MedTrackerDB?.ApiCache;
+        const readMeta = cacheStore && typeof cacheStore.getWithMeta === 'function'
+            ? (key) => cacheStore.getWithMeta(key).catch(() => null)
+            : null;
+        if (readMeta) {
+            const metas = await Promise.all([
+                readMeta('settings_bundle'),
+                readMeta('next_intake'),
+                readMeta('bp'),
+                readMeta('weight')
+            ]);
+            const unpack = (m) => (m ? { data: m.data, ts: m.timestamp } : null);
+            const bundleM = unpack(metas[0]);
+            const nextIntakeM = unpack(metas[1]);
+            const bpM = unpack(metas[2]);
+            const weightM = unpack(metas[3]);
+            if (bundleM?.data) {
+                bootstrap.features = bundleM.data.featureSettings || bootstrap.features;
+                bootstrap.settings = { food_targets: bundleM.data.foodTargets };
+            }
+            if (nextIntakeM?.data) bootstrap.next_intake = nextIntakeM.data;
+            if (bpM?.data) {
+                bootstrap.bp = {
+                    readings: bpM.data.readingsRes || [],
+                    goal: bpM.data.goalRes || {},
+                    stats: bpM.data.statsRes || {}
+                };
+            }
+            if (weightM?.data) {
+                bootstrap.weight = {
+                    logs: weightM.data.logsRes || [],
+                    goal: weightM.data.goalRes || {}
+                };
+            }
+            for (const m of [bundleM, nextIntakeM, bpM, weightM]) {
+                if (m && Number.isFinite(m.ts)) {
+                    if (oldestCacheTimestamp === null || m.ts < oldestCacheTimestamp) {
+                        oldestCacheTimestamp = m.ts;
+                    }
+                }
+            }
+        } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
             const [bundle, nextIntake, bp, weight] = await Promise.all([
                 window.DataStore.getCached('settings_bundle').catch(() => null),
                 window.DataStore.getCached('next_intake').catch(() => null),
@@ -919,8 +963,25 @@ async function loadToday() {
             }
         }
     } catch (_) { /* best-effort — render whatever we have */ }
-    const state = window.TodayDashboard.aggregateToday(bootstrap, {}, Date.now());
-    window.TodayDashboard.renderToday(state, root, { now: Date.now() });
+
+    const online = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
+    const nowMs = Date.now();
+    const state = window.TodayDashboard.aggregateToday(bootstrap, {}, nowMs);
+    if (window.TodayDashboard.isOfflineStale({ online, cacheTimestamp: oldestCacheTimestamp, now: nowMs })) {
+        state.__offline = true;
+    }
+    window.TodayDashboard.renderToday(state, root, { now: nowMs });
+
+    if (!todayUnsubscribe && typeof window.TodayDashboard.subscribe === 'function') {
+        todayUnsubscribe = window.TodayDashboard.subscribe({
+            onRefresh: () => {
+                const active = document.querySelector('.tab.active');
+                if (active && active.dataset && active.dataset.tab === 'today') {
+                    loadToday();
+                }
+            }
+        });
+    }
 }
 
 function switchHealthTab(tab) {

@@ -576,8 +576,94 @@
         return root;
     }
 
+    // ---- Live updates -------------------------------------------------------
+    //
+    // subscribe({ onRefresh, target, win }) wires up event listeners so the
+    // Today dashboard re-renders when:
+    //   - The service worker posts BOOTSTRAP_UPDATED after a stale-while-
+    //     revalidate revalidation of /api/bootstrap.
+    //   - The DataStore change stream reports invalidated tags relevant to
+    //     Today (bp, weight, medications, food, workouts, health) via a
+    //     'datastore:changed' CustomEvent on window.
+    //   - The window fires 'online' or 'offline' — so the dashboard can toggle
+    //     its offline banner and retry fresh data.
+    //
+    // onRefresh receives { source, tags?, data? } describing the trigger.
+    // Returns an unsubscribe function that removes every registered listener.
+    //
+    // isOfflineStale({ online, cacheTimestamp, now, thresholdMs }) returns
+    // true when the app is offline AND the cached data is older than the
+    // freshness threshold (default 1h) — used to decide whether to show the
+    // offline banner inside the dashboard.
+    // ------------------------------------------------------------------------
+
+    const RELEVANT_TAGS = ['bp', 'weight', 'medications', 'food', 'workouts', 'health'];
+
+    function isOfflineStale(opts) {
+        const o = opts || {};
+        if (o.online) return false;
+        const threshold = Number.isFinite(o.thresholdMs) ? o.thresholdMs : FRESHNESS_MS;
+        if (!Number.isFinite(o.cacheTimestamp) || o.cacheTimestamp <= 0) return true;
+        const nowMs = Number.isFinite(o.now) ? o.now : Date.now();
+        return (nowMs - o.cacheTimestamp) > threshold;
+    }
+
+    function subscribe(opts) {
+        const options = opts || {};
+        const onRefresh = options.onRefresh;
+        const win = options.win || (typeof window !== 'undefined' ? window : null);
+        const messageTarget = options.target
+            || (typeof navigator !== 'undefined' && navigator.serviceWorker)
+            || null;
+
+        const offs = [];
+        const call = (payload) => {
+            if (typeof onRefresh === 'function') {
+                try { onRefresh(payload); } catch (_) { /* handler errors are isolated */ }
+            }
+        };
+
+        if (messageTarget && typeof messageTarget.addEventListener === 'function') {
+            const onMessage = (event) => {
+                const data = event && event.data;
+                if (data && data.type === 'BOOTSTRAP_UPDATED') {
+                    call({ source: 'bootstrap', data: data.data });
+                }
+            };
+            messageTarget.addEventListener('message', onMessage);
+            offs.push(() => messageTarget.removeEventListener('message', onMessage));
+        }
+
+        if (win && typeof win.addEventListener === 'function') {
+            const onOnline = () => call({ source: 'online', online: true });
+            const onOffline = () => call({ source: 'offline', online: false });
+            const onChange = (event) => {
+                const detail = event && event.detail;
+                const tags = detail && Array.isArray(detail.changedTags) ? detail.changedTags : [];
+                const relevant = tags.length === 0 || tags.some((t) => RELEVANT_TAGS.indexOf(t) !== -1);
+                if (relevant) call({ source: 'datastore', tags });
+            };
+            win.addEventListener('online', onOnline);
+            win.addEventListener('offline', onOffline);
+            win.addEventListener('datastore:changed', onChange);
+            offs.push(() => win.removeEventListener('online', onOnline));
+            offs.push(() => win.removeEventListener('offline', onOffline));
+            offs.push(() => win.removeEventListener('datastore:changed', onChange));
+        }
+
+        return () => {
+            while (offs.length) {
+                const fn = offs.pop();
+                try { fn(); } catch (_) { /* ignore */ }
+            }
+        };
+    }
+
     window.TodayDashboard = {
         aggregateToday,
-        renderToday
+        renderToday,
+        subscribe,
+        isOfflineStale,
+        FRESHNESS_MS
     };
 })();
