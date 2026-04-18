@@ -50,6 +50,9 @@ func TestParseMealFromDescription_InvalidJSON(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid JSON, got nil")
 	}
+	if !strings.Contains(err.Error(), "failed to decode API response") {
+		t.Fatalf("expected decode-failure error, got: %v", err)
+	}
 }
 
 func TestParseMealFromDescription_Success(t *testing.T) {

@@ -168,16 +168,27 @@ func TestParseMealDescription_MissingName(t *testing.T) {
 }
 
 func TestParseMealDescription_NonPositiveWeight(t *testing.T) {
-	service := NewFoodAIService(&mockAIClient{
-		result: &ai.ParsedMeal{
-			Items: []ai.MealItem{
-				{Name: "Air", WeightGrams: 0, Carbs100g: 0, Protein100g: 0, Fat100g: 0},
-			},
-		},
-	})
+	cases := []struct {
+		name   string
+		weight float64
+	}{
+		{"zero", 0},
+		{"negative", -10},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			service := NewFoodAIService(&mockAIClient{
+				result: &ai.ParsedMeal{
+					Items: []ai.MealItem{
+						{Name: "Air", WeightGrams: tc.weight, Carbs100g: 0, Protein100g: 0, Fat100g: 0},
+					},
+				},
+			})
 
-	_, err := service.ParseMealDescription(context.Background(), "a whiff of nothing")
-	if err == nil {
-		t.Fatal("expected error for item with non-positive weight")
+			_, err := service.ParseMealDescription(context.Background(), "a whiff of nothing")
+			if err == nil {
+				t.Fatalf("expected error for item with non-positive weight %v", tc.weight)
+			}
+		})
 	}
 }
