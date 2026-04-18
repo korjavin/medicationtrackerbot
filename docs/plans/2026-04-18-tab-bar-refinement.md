@@ -84,8 +84,8 @@ Benefit: faster tab switching, cleaner visual hierarchy, more polished feel — 
 
 ### Task 6: Documentation
 
-- [ ] update `docs/frontend.md` "Tabs and Navigation" with the stroke/fill icon convention and accent-strip pattern
-- [ ] note in CLAUDE.md design rules that any new tab requires both stroke and fill SVG variants
+- [x] update `docs/frontend.md` "Tabs and Navigation" with the stroke/fill icon convention and accent-strip pattern
+- [x] note in CLAUDE.md design rules that any new tab requires both stroke and fill SVG variants
 
 ## Technical Details
 
