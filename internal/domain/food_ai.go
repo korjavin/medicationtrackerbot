@@ -55,6 +55,9 @@ func (s *foodAIService) ParseMealDescription(ctx context.Context, description st
 		if item.WeightGrams <= 0 {
 			return nil, fmt.Errorf("item %d (%q) has non-positive weight_grams", i, item.Name)
 		}
+		if item.Carbs100g < 0 || item.Protein100g < 0 || item.Fat100g < 0 {
+			return nil, fmt.Errorf("item %d (%q) has negative macros", i, item.Name)
+		}
 
 		carbs, protein, fat, calories := CalculateMacros(item.Carbs100g, item.Protein100g, item.Fat100g, item.WeightGrams)
 		logs = append(logs, FoodLog{
