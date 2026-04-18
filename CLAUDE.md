@@ -202,6 +202,10 @@ Bot struct fields: `medSvc domain.MedicationService`, `exerciseSvc domain.Exerci
 - **Export**: CSV in Libra format (compatible with Libra app)
 - **Reminders**: Weekly if no weight logged
 
+### Food Tracking
+- **Manual logging**: Web UI (Open Food Facts search) and multi-item "Meals" templates with aggregated macros.
+- **`/food` Telegram command**: Natural-language meal logging via AI. The AI splits complex meals into atomic items (one row per distinct food/ingredient) and normalizes dish names to common English terms regardless of the input language (e.g., Russian "куриная грудка с рисом" → two items named "chicken breast" and "rice"). Each item becomes its own `food_log` row sharing the same `eaten_at` timestamp. The bot replies with a per-item breakdown plus an aggregate total (carbs/protein/fat/calories). On partial failure, remaining items still persist and the reply reports "Logged N of M items".
+
 ### Workout Tracking
 - **Hierarchy**: Groups → Variants → Exercises
 - **Rotation**: Automatic A/B/C/D progression (e.g., PPL, PHUL splits)

@@ -82,5 +82,5 @@ Rework the `/food` Telegram command so the AI returns an ordered list of atomic 
 
 ### Task 5: Update documentation
 
-- [ ] Update `CLAUDE.md` Feature Implementation Patterns section: note that `/food` now splits complex meals into atomic entries with normalized English names
-- [ ] Move this plan file to `docs/plans/completed/`
+- [x] Update `CLAUDE.md` Feature Implementation Patterns section: note that `/food` now splits complex meals into atomic entries with normalized English names
+- [x] Move this plan file to `docs/plans/completed/`
