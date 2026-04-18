@@ -45,10 +45,10 @@ Benefit: faster tab switching, cleaner visual hierarchy, more polished feel — 
 
 ### Task 1: Add filled icon variants
 
-- [ ] for each of the 7 tabs in `index.html:33-40`, wrap the existing stroke SVG in a `<span class="tab-icon">` containing both an `<svg class="tab-icon-stroke">` (existing) AND an `<svg class="tab-icon-fill">` (new — same path with `fill="currentColor"` and no stroke, slightly thicker visual weight)
-- [ ] keep the `aria-label` on the `<button class="tab">` (not on the inner span); add `role="tab"` to the button if not present
-- [ ] write a Vitest case asserting every `.tab` button contains exactly one `.tab-icon-stroke` AND one `.tab-icon-fill`
-- [ ] run `pnpm test` — must pass before next task
+- [x] for each of the 7 tabs in `index.html:33-40`, wrap the existing stroke SVG in a `<span class="tab-icon">` containing both an `<svg class="tab-icon-stroke">` (existing) AND an `<svg class="tab-icon-fill">` (new — same path with `fill="currentColor"` and no stroke, slightly thicker visual weight)
+- [x] keep the `aria-label` on the `<button class="tab">` (not on the inner span); add `role="tab"` to the button if not present
+- [x] write a Vitest case asserting every `.tab` button contains exactly one `.tab-icon-stroke` AND one `.tab-icon-fill`
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 2: CSS — show stroke for inactive, fill for active
 

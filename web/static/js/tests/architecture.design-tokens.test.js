@@ -924,7 +924,7 @@ describe('Architecture – design tokens', () => {
         const html = fs.readFileSync(htmlPath, 'utf8');
 
         // All 7 tab buttons should contain an <svg> element
-        const tabButtons = html.match(/<button\s+class="tab[^"]*"\s+data-tab="[^"]*"[^>]*>[\s\S]*?<\/button>/g);
+        const tabButtons = html.match(/<button\s+class="tab[^"]*"[^>]*\sdata-tab="[^"]*"[^>]*>[\s\S]*?<\/button>/g);
         expect(tabButtons).not.toBeNull();
         expect(tabButtons.length).toBe(7);
 
