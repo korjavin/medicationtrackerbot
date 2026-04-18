@@ -70,8 +70,10 @@ func TestHandleDeleteExerciseLog(t *testing.T) {
 	}
 }
 
-func TestExerciseLogIdempotency(t *testing.T) {
-	// This test verifies that only explicitly logged exercises are saved, and updates do not duplicate logs.
+func TestDirtyFlagPreventsPhantomLogs(t *testing.T) {
+	// This test verifies the store-level behavior that supports the _dirty flag fix:
+	// When the web UI pre-fills exercises but doesn't save them (because _dirty=false),
+	// only explicitly logged exercises should appear in GetExerciseLogs.
 	db, err := store.New(":memory:")
 	if err != nil {
 		t.Fatalf("Failed to create test store: %v", err)
@@ -92,6 +94,7 @@ func TestExerciseLogIdempotency(t *testing.T) {
 	_, _ = db.LogExercise(session.ID, ex1.ID, "Dead Bug", &sets1, &reps1, nil, "completed", "")
 
 	// Simulate: Web opens session, user edits exercise 2 only (not exercise 3)
+	// Web should only save exercise 2, NOT exercise 3 (because _dirty=false for ex3)
 	sets2, reps2 := 4, 6
 	weight2 := 30.0
 	_, _ = db.LogExercise(session.ID, ex2.ID, "Overhead Press", &sets2, &reps2, &weight2, "completed", "")
@@ -105,7 +108,7 @@ func TestExerciseLogIdempotency(t *testing.T) {
 	// Verify exercise 3 lookup returns nil
 	log3, _ := db.GetExerciseLogBySessionAndExercise(session.ID, ex3.ID)
 	if log3 != nil {
-		t.Fatal("Exercise 3 should NOT have a log — it was not saved")
+		t.Fatal("Exercise 3 should NOT have a log — it was pre-filled but not saved (dirty=false)")
 	}
 
 	// Now TG bot clicks Done on exercise 2 — should find existing and update, not duplicate
