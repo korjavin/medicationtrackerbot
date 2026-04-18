@@ -218,3 +218,51 @@ func (s *Store) GetUsersForWeightReminders() ([]int64, error) {
 	}
 	return userIDs, nil
 }
+
+// GetWeightReminderStates returns the weight reminder state for all users who have it enabled
+func (s *Store) GetWeightReminderStates(ctx context.Context) (map[int64]*WeightReminderState, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT user_id, enabled, snoozed_until, dont_remind_until,
+		       last_notification_sent_at, notification_message_id,
+		       preferred_reminder_hour, created_at, updated_at
+		FROM weight_reminder_state WHERE enabled = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	states := make(map[int64]*WeightReminderState)
+	for rows.Next() {
+		var state WeightReminderState
+		var snoozedUntil, dontRemindUntil, lastNotificationSentAt sql.NullTime
+		var notificationMessageID sql.NullInt64
+
+		if err := rows.Scan(
+			&state.UserID, &state.Enabled, &snoozedUntil, &dontRemindUntil,
+			&lastNotificationSentAt, &notificationMessageID,
+			&state.PreferredReminderHour, &state.CreatedAt, &state.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		if snoozedUntil.Valid {
+			state.SnoozedUntil = &snoozedUntil.Time
+		}
+		if dontRemindUntil.Valid {
+			state.DontRemindUntil = &dontRemindUntil.Time
+		}
+		if lastNotificationSentAt.Valid {
+			state.LastNotificationSentAt = &lastNotificationSentAt.Time
+		}
+		if notificationMessageID.Valid {
+			msgID := int(notificationMessageID.Int64)
+			state.NotificationMessageID = &msgID
+		}
+
+		states[state.UserID] = &state
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return states, nil
+}
