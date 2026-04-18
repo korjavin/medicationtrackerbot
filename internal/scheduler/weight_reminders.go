@@ -15,9 +15,7 @@ type WeightReminderStore interface {
 	GetWeightEnabled(ctx context.Context) (bool, error)
 	GetUsersForWeightReminders() ([]int64, error)
 	GetWeightReminderState(userID int64) (*store.WeightReminderState, error)
-	GetWeightReminderStates(ctx context.Context) (map[int64]*store.WeightReminderState, error)
 	GetLastWeightLog(ctx context.Context, userID int64) (*store.WeightLog, error)
-	BatchGetLastWeightLogs(ctx context.Context, userIDs []int64) (map[int64]*store.WeightLog, error)
 	CalculatePreferredWeightReminderHour(ctx context.Context, userID int64) (int, error)
 	UpdatePreferredWeightReminderHour(userID int64, hour int) error
 	UpdateWeightReminderNotificationSent(userID int64, messageID *int) error
@@ -40,7 +38,7 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 		return nil
 	}
 
-	states, err := c.store.GetWeightReminderStates(ctx)
+	userIDs, err := c.store.GetUsersForWeightReminders()
 	if err != nil {
 		return err
 	}
@@ -65,8 +63,13 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 		now = now.In(userLoc)
 	}
 
-	var activeUserIDs []int64
-	for userID, state := range states {
+	for _, userID := range userIDs {
+		state, err := c.store.GetWeightReminderState(userID)
+		if err != nil {
+			slog.Error("Error getting weight reminder state", "userID", userID, "error", err)
+			continue
+		}
+
 		if !state.Enabled {
 			continue
 		}
@@ -79,23 +82,11 @@ func (c *WeightReminderChecker) Check(ctx context.Context) error {
 			continue
 		}
 
-		activeUserIDs = append(activeUserIDs, userID)
-	}
-
-	if len(activeUserIDs) == 0 {
-		return nil
-	}
-
-	lastLogs, err := c.store.BatchGetLastWeightLogs(ctx, activeUserIDs)
-	if err != nil {
-		slog.Error("Error batch getting last weight logs", "error", err)
-		// We could continue with individual fallbacks, but failing here is safer for batch.
-		return err
-	}
-
-	for _, userID := range activeUserIDs {
-		state := states[userID]
-		lastLog := lastLogs[userID]
+		lastLog, err := c.store.GetLastWeightLog(ctx, userID)
+		if err != nil {
+			slog.Error("Error getting last weight log", "userID", userID, "error", err)
+			continue
+		}
 
 		if lastLog != nil && now.Sub(lastLog.MeasuredAt) < 7*24*time.Hour {
 			continue
