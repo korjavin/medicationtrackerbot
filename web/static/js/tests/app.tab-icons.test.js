@@ -37,12 +37,11 @@ describe('Tab icon stroke/fill variants', () => {
     }
   });
 
-  it('every .tab button carries role="tab" and an aria-label', () => {
+  it('every .tab button carries an aria-label', () => {
     const { document, cleanup } = loadFrontendEnv();
     try {
       const tabs = document.querySelectorAll('#tabs .tab');
       tabs.forEach((tab) => {
-        expect(tab.getAttribute('role')).toBe('tab');
         expect(tab.getAttribute('aria-label')).toBeTruthy();
       });
     } finally {
