@@ -95,7 +95,9 @@ describe('app.js checkAuth behavior', () => {
 
       expect(authorized).toBe(true);
       expect(getCachedSpy).toHaveBeenCalledWith('settings_bundle');
-      expect(applyTabOrderSpy).toHaveBeenCalledWith(['weight', 'bp', 'food']);
+      // 'today' is prepended by migrateTabOrderForToday for users whose saved
+      // tab_order predates the Today tab (no explicit opt-out flag set).
+      expect(applyTabOrderSpy).toHaveBeenCalledWith(['today', 'weight', 'bp', 'food']);
     } finally {
       cleanup();
     }
