@@ -9,6 +9,18 @@ import (
 	"testing"
 )
 
+func TestMealSystemPrompt_ContainsKeyConstraints(t *testing.T) {
+	// Dry-run assertion: verify the full rendered system prompt contains the
+	// key constraint phrases that drive the /food command's AI behavior.
+	// No network calls — this guards against accidental prompt regressions.
+	required := []string{"English", "common", "atomic"}
+	for _, phrase := range required {
+		if !strings.Contains(MealSystemPrompt, phrase) {
+			t.Errorf("MealSystemPrompt missing required phrase %q; full prompt:\n%s", phrase, MealSystemPrompt)
+		}
+	}
+}
+
 func TestParseMealFromDescription_APIError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

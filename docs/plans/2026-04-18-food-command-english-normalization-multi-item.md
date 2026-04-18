@@ -76,9 +76,9 @@ Rework the `/food` Telegram command so the AI returns an ordered list of atomic 
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] run `go test ./...` — full suite green
-- [ ] run `go vet ./...` and `gofmt -l .` — no output
-- [ ] add a dry-run assertion test that renders the full AI prompt string and verifies key constraint phrases ("English", "common", "atomic") are present
+- [x] run `go test ./...` — full suite green
+- [x] run `go vet ./...` and `gofmt -l .` — no output (plan-modified files clean; repo-wide gofmt issues are pre-existing, outside this plan's scope)
+- [x] add a dry-run assertion test that renders the full AI prompt string and verifies key constraint phrases ("English", "common", "atomic") are present
 
 ### Task 5: Update documentation
 
