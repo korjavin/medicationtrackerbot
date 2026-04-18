@@ -4,6 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -221,4 +224,53 @@ func TestValidateToken_IssuerEnforcement(t *testing.T) {
 			t.Errorf("Expected subject 'user123', got %q", subject)
 		}
 	})
+}
+
+func TestHandleProtectedResourceMetadata(t *testing.T) {
+	cfg := &Config{
+		MCPServerURL: "https://mcp.example.com",
+		PocketIDURL:  "https://auth.example.com",
+	}
+	h := NewOAuthHandler(cfg)
+
+	req, err := http.NewRequest("GET", "/.well-known/oauth-protected-resource", nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	h.HandleProtectedResourceMetadata(rr, req)
+
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	}
+
+	contentType := rr.Header().Get("Content-Type")
+	if contentType != "application/json" {
+		t.Errorf("handler returned wrong content type: got %v want %v", contentType, "application/json")
+	}
+
+	var metadata ProtectedResourceMetadata
+	if err := json.NewDecoder(rr.Body).Decode(&metadata); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if metadata.Resource != cfg.MCPServerURL {
+		t.Errorf("expected Resource %q, got %q", cfg.MCPServerURL, metadata.Resource)
+	}
+
+	if len(metadata.AuthorizationServers) != 1 || metadata.AuthorizationServers[0] != cfg.PocketIDURL {
+		t.Errorf("expected AuthorizationServers to contain %q, got %v", cfg.PocketIDURL, metadata.AuthorizationServers)
+	}
+
+	expectedScopes := []string{"openid", "profile"}
+	if len(metadata.ScopesSupported) != len(expectedScopes) {
+		t.Errorf("expected ScopesSupported length %d, got %d", len(expectedScopes), len(metadata.ScopesSupported))
+	} else {
+		for i, scope := range expectedScopes {
+			if metadata.ScopesSupported[i] != scope {
+				t.Errorf("expected ScopesSupported[%d] = %q, got %q", i, scope, metadata.ScopesSupported[i])
+			}
+		}
+	}
 }
