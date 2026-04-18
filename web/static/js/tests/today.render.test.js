@@ -261,8 +261,12 @@ describe('TodayDashboard.renderToday', () => {
         expect(root.querySelector('.today-empty-firstrun')).not.toBeNull();
     });
 
-    it('first-run offline: bootstrap with any data section (e.g. settings) is NOT treated as first-run', () => {
-        const state = env.aggregate({ features: {}, settings: { food_targets: null } }, {}, now);
+    it('first-run offline: bootstrap with real data (e.g. bp readings) is NOT treated as first-run', () => {
+        const bootstrap = {
+            features: {},
+            bp: { readings: [{ systolic: 118, diastolic: 76, measured_at: new Date(now - 60000).toISOString() }] }
+        };
+        const state = env.aggregate(bootstrap, {}, now);
         expect(state.__firstRun).toBeUndefined();
     });
 
@@ -305,5 +309,70 @@ describe('TodayDashboard.renderToday', () => {
         const badge = medCard.querySelector('.today-card-badge-warning');
         expect(badge).not.toBeNull();
         expect(badge.textContent.toLowerCase()).toMatch(/overdue/);
+    });
+
+    it('renders flat trend without a signed number when bp direction is flat', () => {
+        const root = env.document.getElementById('today-content');
+        const state = allPresentState(now);
+        state.bpTrend7d.value = { systolicDirection: 'flat', systolicDelta: 0, diastolicDirection: 'flat', diastolicDelta: 0 };
+        env.render(state, root, { now });
+
+        const bpCard = root.querySelector('.today-card[data-deeplink="bp"]');
+        const label = bpCard.querySelector('.today-card-trend-label');
+        expect(label.textContent).toBe('7d flat');
+        const arrow = bpCard.querySelector('.today-trend-arrow');
+        expect(arrow.classList.contains('today-trend-flat')).toBe(true);
+    });
+
+    it('renders flat weight trend label without a number when direction is flat', () => {
+        const root = env.document.getElementById('today-content');
+        const state = allPresentState(now);
+        state.weightTrend7d.value = { direction: 'flat', delta: 0 };
+        env.render(state, root, { now });
+
+        const weightCard = root.querySelector('.today-card[data-deeplink="weight"]');
+        const label = weightCard.querySelector('.today-card-trend-label');
+        expect(label.textContent).toBe('7d flat');
+    });
+
+    it('renders offline banner when state.__offline is set and not first-run', () => {
+        const root = env.document.getElementById('today-content');
+        const state = allPresentState(now);
+        state.__offline = true;
+        env.render(state, root, { now });
+
+        const banner = root.querySelector('.today-offline-banner');
+        expect(banner).not.toBeNull();
+        expect(banner.textContent).toMatch(/offline/i);
+    });
+
+    it('first-run while offline shows a single combined message, no separate banner', () => {
+        const root = env.document.getElementById('today-content');
+        const state = env.aggregate(null, null, now);
+        state.__offline = true;
+        env.render(state, root, { now });
+
+        expect(root.querySelector('.today-offline-banner')).toBeNull();
+        const empty = root.querySelector('.today-empty-firstrun');
+        expect(empty).not.toBeNull();
+        expect(empty.textContent.toLowerCase()).toMatch(/offline|reconnect/);
+    });
+
+    it('renders workout scheduled_date as a human-readable label when not today', () => {
+        const root = env.document.getElementById('today-content');
+        const state = allPresentState(now);
+        state.nextWorkout.value = {
+            scheduled_date: '2026-04-20T00:00:00Z',
+            scheduled_time: '18:30',
+            group_name: 'Push day',
+            status: 'pending',
+            is_today: false
+        };
+        env.render(state, root, { now });
+
+        const workoutCard = root.querySelector('.today-card[data-deeplink="workouts"]');
+        const detail = workoutCard.querySelector('.today-card-detail');
+        expect(detail.textContent).not.toContain('T00:00:00Z');
+        expect(detail.textContent).toMatch(/18:30/);
     });
 });

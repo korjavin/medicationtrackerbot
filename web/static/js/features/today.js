@@ -15,7 +15,10 @@
 // argument to keep tests deterministic.
 
 (function () {
-    const FRESHNESS_MS = 60 * 60 * 1000; // 1h — inputs older than this are 'stale'
+    const FRESHNESS_MS = 60 * 60 * 1000; // 1h — base freshness window (SWR offline banner)
+    const BP_STALE_MS = 24 * 60 * 60 * 1000; // a BP reading older than a day is stale
+    const WEIGHT_STALE_MS = 7 * 24 * 60 * 60 * 1000; // weight is stale after a week
+    const SLEEP_RECENT_MS = 2 * 24 * 60 * 60 * 1000; // sleep entry older than ~2d is stale
     const OVERDUE_GRACE_MS = 5 * 60 * 1000; // next med treated as overdue after 5 min
     const MIN_TREND_POINTS = 2;
 
@@ -101,7 +104,7 @@
             diastolic: latest.row.diastolic,
             measured_at: latest.row.measured_at
         };
-        const status = nowMs - latest.ms > FRESHNESS_MS * 24 ? 'stale' : 'ok';
+        const status = nowMs - latest.ms > BP_STALE_MS ? 'stale' : 'ok';
         return cell(value, 'bp', status);
     }
 
@@ -129,7 +132,8 @@
             weight: latest.row.weight,
             measured_at: latest.row.measured_at
         };
-        return cell(value, 'weight', 'ok');
+        const status = nowMs - latest.ms > WEIGHT_STALE_MS ? 'stale' : 'ok';
+        return cell(value, 'weight', status);
     }
 
     function weightTrendCell(bootstrap, nowMs, enabled) {
@@ -171,41 +175,55 @@
         const data = swrCaches && swrCaches.workout_next;
         const session = data && data.session;
         if (!session) return cell(null, 'workouts', 'missing');
+        // Real API shape places group_name at the top level of the /workout/sessions/next
+        // response; test fixtures historically placed it inside `session`, so we accept both.
+        const groupName = (data && data.group_name) || session.group_name || session.group || '';
         const value = {
             scheduled_date: session.scheduled_date,
             scheduled_time: session.scheduled_time,
-            group_name: session.group_name || session.group || '',
+            group_name: groupName,
             status: session.status,
             is_today: session.is_today === true
         };
         return cell(value, 'workouts', 'ok');
     }
 
-    function sleepLastNightCell(swrCaches, enabled) {
+    function sleepLastNightCell(swrCaches, nowMs, enabled) {
         if (!enabled) return cell(null, 'health', 'disabled');
         const overview = swrCaches && swrCaches.health_overview;
         const stats = overview && overview.sleep_stats_7d;
         if (!Array.isArray(stats) || stats.length === 0) {
             return cell(null, 'health', 'missing');
         }
-        const last = stats[stats.length - 1];
-        const totalMinutes = (last && (last.total_minutes ?? last.totalMinutes)) || 0;
+        // Prefer the most recent entry by date; server ordering is not guaranteed.
+        let last = null;
+        let lastMs = -Infinity;
+        for (const row of stats) {
+            const dayStr = row && (row.date || row.day);
+            const t = dayStr ? Date.parse(dayStr) : NaN;
+            if (!Number.isFinite(t)) continue;
+            if (t > lastMs) { lastMs = t; last = row; }
+        }
+        if (!last) last = stats[stats.length - 1];
+        // Real API returns total_mins (int); tests historically used total_minutes.
+        const totalMinutes = last && (last.total_mins ?? last.total_minutes ?? last.totalMinutes);
         if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) {
             return cell(null, 'health', 'missing');
         }
         const value = {
             hours: Math.round((totalMinutes / 60) * 10) / 10,
-            day: last.day || last.date || ''
+            day: last.date || last.day || ''
         };
-        return cell(value, 'health', 'ok');
+        const status = Number.isFinite(lastMs) && (nowMs - lastMs) > SLEEP_RECENT_MS ? 'stale' : 'ok';
+        return cell(value, 'health', status);
     }
 
     function hasAnyBootstrapData(bootstrap) {
         if (!bootstrap || typeof bootstrap !== 'object') return false;
         if (bootstrap.next_intake) return true;
-        if (bootstrap.bp && (bootstrap.bp.readings || bootstrap.bp.goal || bootstrap.bp.stats)) return true;
-        if (bootstrap.weight && (bootstrap.weight.logs || bootstrap.weight.goal)) return true;
-        if (bootstrap.settings) return true;
+        const hasRows = (arr) => Array.isArray(arr) && arr.length > 0;
+        if (bootstrap.bp && hasRows(bootstrap.bp.readings)) return true;
+        if (bootstrap.weight && hasRows(bootstrap.weight.logs)) return true;
         return false;
     }
 
@@ -237,7 +255,7 @@
             caloriesToday: caloriesTodayCell(bootstrap, caches, nowMs, foodEnabled),
             caloriesTarget: caloriesTargetCell(bootstrap, foodEnabled),
             nextWorkout: nextWorkoutCell(caches, workoutEnabled),
-            sleepLastNight: sleepLastNightCell(caches, healthEnabled)
+            sleepLastNight: sleepLastNightCell(caches, nowMs, healthEnabled)
         };
         if (!hasAnyBootstrapData(bootstrap) && !hasAnyCacheData(caches)) {
             result.__firstRun = true;
@@ -284,7 +302,7 @@
         return `${days}d ago`;
     }
 
-    function svgEl(pathMarkup) {
+    function svgEl(pathD) {
         const ns = 'http://www.w3.org/2000/svg';
         const d = doc();
         const svg = d.createElementNS(ns, 'svg');
@@ -295,7 +313,9 @@
         svg.setAttribute('stroke-linecap', 'round');
         svg.setAttribute('stroke-linejoin', 'round');
         svg.setAttribute('aria-hidden', 'true');
-        svg.innerHTML = pathMarkup;
+        const path = d.createElementNS(ns, 'path');
+        path.setAttribute('d', pathD);
+        svg.appendChild(path);
         return svg;
     }
 
@@ -304,19 +324,24 @@
         const span = doc().createElement('span');
         span.className = `today-trend-arrow today-trend-${direction}`;
         if (direction === 'up') {
-            span.appendChild(svgEl('<path d="M5 15l7-7 7 7"/>'));
+            span.appendChild(svgEl('M5 15l7-7 7 7'));
         } else if (direction === 'down') {
-            span.appendChild(svgEl('<path d="M5 9l7 7 7-7"/>'));
+            span.appendChild(svgEl('M5 9l7 7 7-7'));
         } else {
-            span.appendChild(svgEl('<path d="M5 12h14"/>'));
+            span.appendChild(svgEl('M5 12h14'));
         }
         return span;
     }
 
     function cardShell({ title, status, deeplink }, onDeeplink) {
         const d = doc();
-        const card = d.createElement('button');
-        card.type = 'button';
+        const actionable = !!(deeplink && typeof onDeeplink === 'function');
+        const card = d.createElement(actionable ? 'button' : 'div');
+        if (actionable) {
+            card.type = 'button';
+        } else {
+            card.setAttribute('role', 'group');
+        }
         card.className = `today-card today-card-${status}`;
         card.setAttribute('data-deeplink', deeplink || '');
         if (status === 'overdue') card.classList.add('today-card-warning');
@@ -341,10 +366,8 @@
         }
         card.appendChild(header);
 
-        if (deeplink && typeof onDeeplink === 'function') {
+        if (actionable) {
             card.addEventListener('click', () => onDeeplink(deeplink));
-        } else {
-            card.disabled = true;
         }
         return card;
     }
@@ -426,12 +449,13 @@
         if (trend && trend.status === 'ok') {
             const row = doc().createElement('div');
             row.className = 'today-card-trend';
-            row.appendChild(trendArrow(trend.value.systolicDirection));
+            const dir = trend.value.systolicDirection;
+            row.appendChild(trendArrow(dir));
             const label = doc().createElement('span');
             label.className = 'today-card-trend-label';
             const delta = trend.value.systolicDelta;
             const sign = delta > 0 ? '+' : '';
-            label.textContent = `7d ${sign}${delta}`;
+            label.textContent = dir === 'flat' ? '7d flat' : `7d ${sign}${delta}`;
             row.appendChild(label);
             card.appendChild(row);
         }
@@ -459,12 +483,13 @@
         if (trend && trend.status === 'ok') {
             const row = doc().createElement('div');
             row.className = 'today-card-trend';
-            row.appendChild(trendArrow(trend.value.direction));
+            const dir = trend.value.direction;
+            row.appendChild(trendArrow(dir));
             const label = doc().createElement('span');
             label.className = 'today-card-trend-label';
             const delta = trend.value.delta;
             const sign = delta > 0 ? '+' : '';
-            label.textContent = `7d ${sign}${delta} kg`;
+            label.textContent = dir === 'flat' ? '7d flat' : `7d ${sign}${delta} kg`;
             row.appendChild(label);
             card.appendChild(row);
         }
@@ -496,6 +521,18 @@
         return card;
     }
 
+    function fmtDayLabel(iso) {
+        if (!iso) return '';
+        const t = Date.parse(iso);
+        if (!Number.isFinite(t)) return String(iso);
+        const d = new Date(t);
+        try {
+            return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+        } catch (_) {
+            return d.toISOString().slice(0, 10);
+        }
+    }
+
     function renderWorkoutCard(cell, onDeeplink) {
         if (cell.status === 'disabled') return null;
         const card = cardShell(
@@ -512,7 +549,7 @@
         primary.textContent = v.group_name || 'Workout';
         const secondary = doc().createElement('span');
         secondary.className = 'today-card-detail';
-        const when = v.is_today ? 'today' : (v.scheduled_date || '');
+        const when = v.is_today ? 'today' : fmtDayLabel(v.scheduled_date);
         const time = v.scheduled_time ? ` · ${v.scheduled_time}` : '';
         secondary.textContent = `${when}${time}`.trim();
         cardBody(card, [primary, secondary]);
@@ -559,7 +596,7 @@
         greeting.textContent = (state && state.greeting && state.greeting.value) || '';
         root.appendChild(greeting);
 
-        if (state && state.__offline) {
+        if (state && state.__offline && !state.__firstRun) {
             const banner = d.createElement('div');
             banner.className = 'today-offline-banner';
             banner.textContent = 'Offline — showing cached data';
@@ -569,7 +606,9 @@
         if (state && state.__firstRun) {
             const empty = d.createElement('div');
             empty.className = 'today-empty today-empty-firstrun';
-            empty.textContent = 'Connect to load your day';
+            empty.textContent = state.__offline
+                ? 'Offline — reconnect to load your day'
+                : 'Connect to load your day';
             root.appendChild(empty);
             return root;
         }
