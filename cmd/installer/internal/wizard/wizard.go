@@ -350,7 +350,7 @@ func (w *Wizard) stepSummary() error {
 	}
 
 	// Generate files
-	if err := w.generateFiles(true); err != nil {
+	if err := w.generateFiles(); err != nil {
 		return fmt.Errorf("generate files: %w", err)
 	}
 
@@ -372,7 +372,7 @@ func (w *Wizard) stepDeploy() error {
 	// Regenerate docker-compose.yml to pick up any template updates
 	// This is important when resuming from a previous installation
 	fmt.Printf("\n%s  Regenerating configuration files...\n", ui.Spinner)
-	if err := w.generateFiles(true); err != nil {
+	if err := w.generateFiles(); err != nil {
 		return fmt.Errorf("regenerate files: %w", err)
 	}
 	fmt.Printf("%s  Configuration files updated\n", ui.CheckMark)
@@ -404,23 +404,6 @@ func (w *Wizard) ensureSecrets() error {
 		s.SessionSecret = key
 	}
 
-	if w.state.Config.Features.PocketID {
-		if s.PocketIDAPIKey == "" {
-			key, err := crypto.RandomKey(32)
-			if err != nil {
-				return err
-			}
-			s.PocketIDAPIKey = key
-		}
-		if s.PocketIDEncryptKey == "" {
-			key, err := crypto.RandomKey(32)
-			if err != nil {
-				return err
-			}
-			s.PocketIDEncryptKey = key
-		}
-	}
-
 	if w.state.Config.Features.WebPush {
 		if s.VAPIDPublicKey == "" || s.VAPIDPrivateKey == "" {
 			vapid, err := crypto.GenerateVAPIDKeys()
@@ -436,7 +419,7 @@ func (w *Wizard) ensureSecrets() error {
 }
 
 // generateFiles creates .env, .env.mcp, docker-compose.yml, and update.sh in the install directory.
-func (w *Wizard) generateFiles(includeAPIKey bool) error {
+func (w *Wizard) generateFiles() error {
 	dir := w.state.Config.InstallDir
 
 	if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -458,7 +441,7 @@ func (w *Wizard) generateFiles(includeAPIKey bool) error {
 	}
 
 	// docker-compose.yml
-	tmplData := compose.NewTemplateData(&w.state.Config, &w.state.Secrets, includeAPIKey)
+	tmplData := compose.NewTemplateData(&w.state.Config, &w.state.Secrets)
 	composeContent, err := compose.Render(tmplData)
 	if err != nil {
 		return err
@@ -511,11 +494,6 @@ echo "Update complete!"
 		return fmt.Errorf("write update.sh: %w", err)
 	}
 	return nil
-}
-
-// regenerateWithoutAPIKey re-generates compose file without the Pocket-ID API key.
-func (w *Wizard) regenerateWithoutAPIKey() error {
-	return w.generateFiles(false)
 }
 
 // printSummary displays all configuration in a readable format.

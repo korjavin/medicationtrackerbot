@@ -319,7 +319,7 @@ func (m *deployModel) executeTask(name string) error {
 
 	case "Wait for Pocket-ID to be ready":
 		// Use local address - port 1411 is bound to 127.0.0.1 in compose
-		client := pocketid.NewClient("http://127.0.0.1:1411", m.state.Secrets.PocketIDAPIKey)
+		client := pocketid.NewClient("http://127.0.0.1:1411", "")
 
 		m.log("Waiting for Pocket-ID container on http://127.0.0.1:1411...\n")
 		return client.WaitForReady(ctx, 120*time.Second)
@@ -481,7 +481,7 @@ func (m *deployModel) updateConfigWithOIDC() error {
 	}
 
 	// Regenerate docker-compose.yml WITHOUT API key (security)
-	tmplData := compose.NewTemplateData(&m.state.Config, &m.state.Secrets, false)
+	tmplData := compose.NewTemplateData(&m.state.Config, &m.state.Secrets)
 	composeContent, err := compose.Render(tmplData)
 	if err != nil {
 		return err

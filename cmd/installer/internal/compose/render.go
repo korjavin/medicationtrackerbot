@@ -12,18 +12,16 @@ import (
 
 // TemplateData holds the data passed to the docker-compose template.
 type TemplateData struct {
-	Traefik            bool
-	PocketID           bool
-	MCP                bool
-	NetworkName        string
-	SocketPath         string
-	PocketIDAPIKey     string
-	PocketIDEncryptKey string
-	Config             config.Config
+	Traefik     bool
+	PocketID    bool
+	MCP         bool
+	NetworkName string
+	SocketPath  string
+	Config      config.Config
 }
 
 // NewTemplateData creates template data from a config and secrets.
-func NewTemplateData(cfg *config.Config, secrets *config.Secrets, includeAPIKey bool) TemplateData {
+func NewTemplateData(cfg *config.Config, secrets *config.Secrets) TemplateData {
 	networkName := "traefik_proxy"
 	if !cfg.Features.Traefik && cfg.Traefik.ExternalNetwork != "" {
 		networkName = cfg.Traefik.ExternalNetwork
@@ -35,17 +33,12 @@ func NewTemplateData(cfg *config.Config, secrets *config.Secrets, includeAPIKey 
 	}
 
 	data := TemplateData{
-		Traefik:            cfg.Features.Traefik,
-		PocketID:           cfg.Features.PocketID,
-		MCP:                cfg.Features.MCP,
-		NetworkName:        networkName,
-		SocketPath:         socketPath,
-		PocketIDEncryptKey: secrets.PocketIDEncryptKey,
-		Config:             *cfg,
-	}
-
-	if includeAPIKey && secrets.PocketIDAPIKey != "" {
-		data.PocketIDAPIKey = secrets.PocketIDAPIKey
+		Traefik:     cfg.Features.Traefik,
+		PocketID:    cfg.Features.PocketID,
+		MCP:         cfg.Features.MCP,
+		NetworkName: networkName,
+		SocketPath:  socketPath,
+		Config:      *cfg,
 	}
 
 	return data
