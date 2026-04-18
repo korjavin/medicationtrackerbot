@@ -67,12 +67,12 @@ Rework the `/food` Telegram command so the AI returns an ordered list of atomic 
 - Modify: `internal/bot/food_commands.go`
 - Modify: `internal/bot/food_commands_test.go`
 
-- [ ] Replace the single `CreateFoodLog` call with a loop: for each returned `FoodLog`, set `UserID` + `EatenAt` (all items share the same `msg.Date` timestamp), call `CreateFoodLog`
-- [ ] On a per-item persistence error, log via `slog.Error`, continue with remaining items, and surface a partial-success message (e.g., "Logged 2 of 3 items; 1 failed to save")
-- [ ] Compose the reply: header "Logged N items", then one bullet per item with `name` / `weight` / per-item macros, then an aggregate footer line with total carbs/protein/fat/calories
-- [ ] Keep the "Analyzing your meal..." placeholder + delete behavior unchanged
-- [ ] Update `food_commands_test.go` to cover: single-item reply, multi-item reply with aggregate totals, partial failure (one item errors out), AI returns zero items
-- [ ] run `go test ./internal/bot/...` — must pass before Task 4
+- [x] Replace the single `CreateFoodLog` call with a loop: for each returned `FoodLog`, set `UserID` + `EatenAt` (all items share the same `msg.Date` timestamp), call `CreateFoodLog`
+- [x] On a per-item persistence error, log via `slog.Error`, continue with remaining items, and surface a partial-success message (e.g., "Logged 2 of 3 items; 1 failed to save")
+- [x] Compose the reply: header "Logged N items", then one bullet per item with `name` / `weight` / per-item macros, then an aggregate footer line with total carbs/protein/fat/calories
+- [x] Keep the "Analyzing your meal..." placeholder + delete behavior unchanged
+- [x] Update `food_commands_test.go` to cover: single-item reply, multi-item reply with aggregate totals, partial failure (one item errors out), AI returns zero items
+- [x] run `go test ./internal/bot/...` — must pass before Task 4
 
 ### Task 4: Verify acceptance criteria
 

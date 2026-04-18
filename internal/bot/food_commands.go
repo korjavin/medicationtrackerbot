@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -119,31 +120,78 @@ Examples:
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	parsedLog, err := b.foodAI.ParseMealDescription(ctx, args)
+	parsedLogs, err := b.foodAI.ParseMealDescription(ctx, args)
 	if err != nil {
 		slog.Error("food command: meal analysis failed", "chat_id", msg.Chat.ID, "description", args, "error", err)
 		msgConfig.Text = "❌ Failed to analyze meal: " + err.Error()
 		return
 	}
 
-	log := &store.FoodLog{
-		UserID:   b.allowedUserID,
-		EatenAt:  time.Unix(int64(msg.Date), 0),
-		Weight:   parsedLog.Weight,
-		Carbs:    parsedLog.Carbs,
-		Protein:  parsedLog.Protein,
-		Fat:      parsedLog.Fat,
-		Calories: parsedLog.Calories,
-		Name:     parsedLog.Name,
+	if len(parsedLogs) == 0 {
+		msgConfig.Text = "❌ AI returned no meal items."
+		return
 	}
 
-	_, err = b.food.CreateFoodLog(context.Background(), log)
-	if err != nil {
-		slog.Error("food command: failed to save food log", "chat_id", msg.Chat.ID, "name", parsedLog.Name, "error", err)
+	eatenAt := time.Unix(int64(msg.Date), 0)
+	saveCtx := context.Background()
+
+	saved := make([]domain.FoodLog, 0, len(parsedLogs))
+	var failed int
+	for _, item := range parsedLogs {
+		entry := &store.FoodLog{
+			UserID:   b.allowedUserID,
+			EatenAt:  eatenAt,
+			Weight:   item.Weight,
+			Carbs:    item.Carbs,
+			Protein:  item.Protein,
+			Fat:      item.Fat,
+			Calories: item.Calories,
+			Name:     item.Name,
+		}
+		if _, err := b.food.CreateFoodLog(saveCtx, entry); err != nil {
+			slog.Error("food command: failed to save food log", "chat_id", msg.Chat.ID, "name", item.Name, "error", err)
+			failed++
+			continue
+		}
+		saved = append(saved, item)
+	}
+
+	if len(saved) == 0 {
 		msgConfig.Text = "❌ Error saving food log to database."
 		return
 	}
 
-	msgConfig.Text = fmt.Sprintf("✅ Logged %s\n\n📊 Macros: %dg C / %dg P / %dg F\n🔥 Calories: %d kcal\n⚖️ Weight: %dg",
-		parsedLog.Name, parsedLog.Carbs, parsedLog.Protein, parsedLog.Fat, parsedLog.Calories, parsedLog.Weight)
+	msgConfig.Text = renderFoodSummary(saved, failed)
+}
+
+// renderFoodSummary builds the reply shown after the /food command persists items.
+// saved is the list of successfully stored items; failed is the count of items that errored.
+func renderFoodSummary(saved []domain.FoodLog, failed int) string {
+	var sb strings.Builder
+
+	if failed > 0 {
+		fmt.Fprintf(&sb, "⚠️ Logged %d of %d items; %d failed to save\n\n", len(saved), len(saved)+failed, failed)
+	} else {
+		fmt.Fprintf(&sb, "✅ Logged %d item", len(saved))
+		if len(saved) != 1 {
+			sb.WriteString("s")
+		}
+		sb.WriteString("\n\n")
+	}
+
+	var totalCarbs, totalProtein, totalFat, totalCals, totalWeight int
+	for _, item := range saved {
+		fmt.Fprintf(&sb, "• %s (%dg) — %dg C / %dg P / %dg F · %d kcal\n",
+			item.Name, item.Weight, item.Carbs, item.Protein, item.Fat, item.Calories)
+		totalCarbs += item.Carbs
+		totalProtein += item.Protein
+		totalFat += item.Fat
+		totalCals += item.Calories
+		totalWeight += item.Weight
+	}
+
+	fmt.Fprintf(&sb, "\n📊 Total: %dg C / %dg P / %dg F\n🔥 Calories: %d kcal\n⚖️ Weight: %dg",
+		totalCarbs, totalProtein, totalFat, totalCals, totalWeight)
+
+	return sb.String()
 }
