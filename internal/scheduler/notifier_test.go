@@ -28,6 +28,7 @@ type mockSendCall struct {
 }
 
 type mockDeleteCall struct {
+	Ctx    context.Context
 	UserID int64
 	MsgID  int
 }
@@ -39,10 +40,10 @@ func (m *mockNotifier) Send(_ context.Context, userID int64, n notifier.Notifica
 	return m.sendMsgID, m.sendErr
 }
 
-func (m *mockNotifier) Delete(_ context.Context, userID int64, msgID int) error {
+func (m *mockNotifier) Delete(ctx context.Context, userID int64, msgID int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.deleteCalls = append(m.deleteCalls, mockDeleteCall{UserID: userID, MsgID: msgID})
+	m.deleteCalls = append(m.deleteCalls, mockDeleteCall{Ctx: ctx, UserID: userID, MsgID: msgID})
 	return m.deleteErr
 }
 
@@ -155,18 +156,21 @@ func TestDeleteNotification_CallsAllNotifiers(t *testing.T) {
 		allowedUserID: 42,
 	}
 
-	helper.DeleteNotification(context.Background(), 99)
+	type ctxKey struct{}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "test")
+
+	helper.DeleteNotification(ctx, 99)
 
 	m1.waitForDeleteCalls(1, time.Second)
 	m2.waitForDeleteCalls(1, time.Second)
 
 	calls1 := m1.getDeleteCalls()
 	calls2 := m2.getDeleteCalls()
-	if len(calls1) != 1 || calls1[0].MsgID != 99 {
-		t.Errorf("m1: expected delete(99), got %v", calls1)
+	if len(calls1) != 1 || calls1[0].MsgID != 99 || calls1[0].UserID != 42 || calls1[0].Ctx != ctx {
+		t.Errorf("m1: expected delete(99) with ctx and UserID=42, got %v", calls1)
 	}
-	if len(calls2) != 1 || calls2[0].MsgID != 99 {
-		t.Errorf("m2: expected delete(99), got %v", calls2)
+	if len(calls2) != 1 || calls2[0].MsgID != 99 || calls2[0].UserID != 42 || calls2[0].Ctx != ctx {
+		t.Errorf("m2: expected delete(99) with ctx and UserID=42, got %v", calls2)
 	}
 }
 

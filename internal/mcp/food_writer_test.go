@@ -14,6 +14,30 @@ import (
 	"time"
 )
 
+func TestNewFoodWriter(t *testing.T) {
+	endpoint := "http://example.com"
+	secret := "my-secret"
+
+	fw := NewFoodWriter(endpoint, secret)
+
+	if fw.endpoint != endpoint {
+		t.Errorf("expected endpoint %q, got %q", endpoint, fw.endpoint)
+	}
+
+	if fw.secret != secret {
+		t.Errorf("expected secret %q, got %q", secret, fw.secret)
+	}
+
+	if fw.client == nil {
+		t.Fatal("expected client to not be nil")
+	}
+
+	expectedTimeout := 15 * time.Second
+	if fw.client.Timeout != expectedTimeout {
+		t.Errorf("expected client timeout %v, got %v", expectedTimeout, fw.client.Timeout)
+	}
+}
+
 func TestLogFood_Success(t *testing.T) {
 	secret := "test-secret"
 	expectedID := int64(42)
