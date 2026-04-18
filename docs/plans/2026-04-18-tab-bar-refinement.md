@@ -52,15 +52,15 @@ Benefit: faster tab switching, cleaner visual hierarchy, more polished feel — 
 
 ### Task 2: CSS — show stroke for inactive, fill for active
 
-- [ ] in `styles.css` `.tab` rule, add `.tab-icon-stroke { display: inline-block; } .tab-icon-fill { display: none; }`
-- [ ] add `.tab.active .tab-icon-stroke { display: none; } .tab.active .tab-icon-fill { display: inline-block; }`
-- [ ] add `.tab.active { color: var(--color-accent, var(--link-color)); }` (uses Plan 3's accent token if available, else falls back)
-- [ ] add a 2px-tall accent strip via `.tab.active::before { content: ''; position: absolute; top: 0; left: 12.5%; right: 12.5%; height: 2px; background: currentColor; border-radius: 2px; }` (and ensure `.tab` is `position: relative`)
-- [ ] remove the old `border-bottom: 2px solid var(--link-color)` from `.tab.active` — replaced by the top accent strip
-- [ ] add `.tab.active { transform: scale(1.05); transition: transform 0.15s ease, color 0.15s ease; }` (transform-only, GPU-cheap)
-- [ ] write a Vitest case asserting only one tab has `.active` at a time after `data-tab` switch
-- [ ] write a Vitest case asserting the accent strip pseudo-element is defined for `.tab.active`
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `styles.css` `.tab` rule, add `.tab-icon-stroke { display: inline-block; } .tab-icon-fill { display: none; }`
+- [x] add `.tab.active .tab-icon-stroke { display: none; } .tab.active .tab-icon-fill { display: inline-block; }`
+- [x] add `.tab.active { color: var(--color-accent, var(--link-color)); }` (uses Plan 3's accent token if available, else falls back)
+- [x] add a 2px-tall accent strip via `.tab.active::before { content: ''; position: absolute; top: 0; left: 12.5%; right: 12.5%; height: 2px; background: currentColor; border-radius: 2px; }` (and ensure `.tab` is `position: relative`)
+- [x] remove the old `border-bottom: 2px solid var(--link-color)` from `.tab.active` — replaced by the top accent strip
+- [x] add `.tab.active { transform: scale(1.05); transition: transform 0.15s ease, color 0.15s ease; }` (transform-only, GPU-cheap)
+- [x] write a Vitest case asserting only one tab has `.active` at a time after `data-tab` switch
+- [x] write a Vitest case asserting the accent strip pseudo-element is defined for `.tab.active`
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Vary inactive icon weight for scannability
 
