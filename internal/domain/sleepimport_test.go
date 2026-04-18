@@ -62,6 +62,73 @@ func createTestDB(t *testing.T, schema string) string {
 	return f.Name()
 }
 
+func TestPrepareBackupDB(t *testing.T) {
+	t.Run("raw sqlite passthrough", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "test-*.sqlite")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(tmpFile.Name())
+		_, _ = tmpFile.Write([]byte("fake sqlite content"))
+		tmpFile.Close()
+
+		path, cleanup, err := PrepareBackupDB(tmpFile.Name())
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		defer cleanup()
+
+		if path != tmpFile.Name() {
+			t.Errorf("expected path %s, got %s", tmpFile.Name(), path)
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(content) != "fake sqlite content" {
+			t.Errorf("expected 'fake sqlite content', got %q", string(content))
+		}
+	})
+
+	t.Run("nxk extraction fallback", func(t *testing.T) {
+		buf := new(bytes.Buffer)
+		zw := zip.NewWriter(buf)
+		f, err := zw.Create("backup.db")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = f.Write([]byte("fake db content"))
+		zw.Close()
+
+		tmpZip, err := os.CreateTemp("", "test-*.nxk")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(tmpZip.Name())
+		_, _ = tmpZip.Write(buf.Bytes())
+		tmpZip.Close()
+
+		path, cleanup, err := PrepareBackupDB(tmpZip.Name())
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		defer cleanup()
+
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("extracted file does not exist at %s", path)
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(content) != "fake db content" {
+			t.Errorf("expected 'fake db content', got %q", string(content))
+		}
+	})
+}
+
 func TestExtractBackupDB(t *testing.T) {
 	t.Run("successful extraction", func(t *testing.T) {
 		buf := new(bytes.Buffer)

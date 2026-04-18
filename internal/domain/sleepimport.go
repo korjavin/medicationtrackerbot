@@ -78,6 +78,17 @@ func ValidateImportFile(fileName string, fileSize int64) error {
 	return nil
 }
 
+// PrepareBackupDB returns a path to a usable SQLite DB from either a .nxk (ZIP) or raw .sqlite file.
+func PrepareBackupDB(path string) (string, func(), error) {
+	lower := strings.ToLower(path)
+	if strings.HasSuffix(lower, ".sqlite") {
+		// raw sqlite: use in place, no cleanup
+		return path, func() {}, nil
+	}
+	// fall through to existing zip-extract behavior
+	return ExtractBackupDB(path)
+}
+
 // ExtractBackupDB extracts backup.db from a ZIP (.nxk) file to a temp file.
 // Returns the temp file path and a cleanup function that should be deferred.
 func ExtractBackupDB(nxkPath string) (string, func(), error) {
