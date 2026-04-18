@@ -16,12 +16,12 @@ import (
 
 // dnsModel is the Bubble Tea model for the DNS verification screen.
 type dnsModel struct {
-	domains    []string
-	resolved   map[string]bool
-	publicIP   string
-	done       bool
-	skipped    bool
-	err        error
+	domains  []string
+	resolved map[string]bool
+	publicIP string
+	done     bool
+	skipped  bool
+	err      error
 }
 
 type dnsCheckMsg struct {

@@ -52,8 +52,6 @@ type Config struct {
 // Secrets holds generated cryptographic keys.
 type Secrets struct {
 	SessionSecret           string `json:"sessionSecret"` // #nosec G117 -- intentional: secrets are persisted to installer state file
-	PocketIDAPIKey          string `json:"pocketIdApiKey,omitempty"`       // legacy, unused
-	PocketIDEncryptKey      string `json:"pocketIdEncryptKey,omitempty"`   // legacy, unused
 	PocketIDInstallerAPIKey string `json:"pocketIdInstallerApiKey,omitempty"`
 	VAPIDPublicKey          string `json:"vapidPublicKey,omitempty"`
 	VAPIDPrivateKey         string `json:"vapidPrivateKey,omitempty"`
@@ -61,12 +59,12 @@ type Secrets struct {
 
 // PocketIDState holds Pocket-ID API setup results.
 type PocketIDState struct {
-	UserID           string `json:"userId,omitempty"`
-	WebClientID      string `json:"webClientId,omitempty"`
-	WebClientSecret  string `json:"webClientSecret,omitempty"`
-	MCPClientID      string `json:"mcpClientId,omitempty"`
-	MCPClientSecret  string `json:"mcpClientSecret,omitempty"`
-	AllowedSubject   string `json:"allowedSubject,omitempty"`
+	UserID          string `json:"userId,omitempty"`
+	WebClientID     string `json:"webClientId,omitempty"`
+	WebClientSecret string `json:"webClientSecret,omitempty"`
+	MCPClientID     string `json:"mcpClientId,omitempty"`
+	MCPClientSecret string `json:"mcpClientSecret,omitempty"`
+	AllowedSubject  string `json:"allowedSubject,omitempty"`
 }
 
 // DeployState tracks which services have been started.
@@ -82,7 +80,7 @@ type DeployState struct {
 type InstallerState struct {
 	Version   int           `json:"version"`
 	LastStep  string        `json:"lastStep"`
-	StartedAt time.Time    `json:"startedAt"`
+	StartedAt time.Time     `json:"startedAt"`
 	Config    Config        `json:"config"`
 	Secrets   Secrets       `json:"secrets"`
 	PocketID  PocketIDState `json:"pocketId"`
