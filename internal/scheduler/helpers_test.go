@@ -156,6 +156,18 @@ func TestNotifyHelper_NotifySync_TransientError(t *testing.T) {
 	}
 }
 
+func TestNotifyHelper_NotifySync_TransientError_Then_ChannelError(t *testing.T) {
+	transientErr := errors.New("network error")
+	m1 := &mockHelperNotifier{sendErr: transientErr}
+	m2 := &mockHelperNotifier{sendErr: notifier.ErrNoDeliveryChannel}
+	h := &NotifyHelper{notifiers: []notifier.Notifier{m1, m2}}
+
+	err := h.NotifySync(context.Background(), notifier.Notification{}, nil)
+	if !errors.Is(err, transientErr) {
+		t.Errorf("NotifySync returned %v, want %v", err, transientErr)
+	}
+}
+
 func TestNotifyHelper_DeleteNotification(t *testing.T) {
 	m1 := &mockHelperNotifier{deleteCh: make(chan struct{}, 1)}
 	m2 := &mockHelperNotifier{deleteCh: make(chan struct{}, 1)}
