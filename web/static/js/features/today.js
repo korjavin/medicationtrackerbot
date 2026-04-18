@@ -1,0 +1,233 @@
+// Today dashboard — pure aggregation contract.
+//
+// aggregateToday(bootstrap, swrCaches, now) returns a flat object where each
+// field is `{ value, deeplink, status }`.  The renderer decides how to display
+// each field from `status` alone, so state derivation stays out of the view.
+//
+// Status values:
+//   'ok'       — data present and fresh
+//   'missing'  — feature enabled, but no data to show yet
+//   'stale'    — cached data older than the freshness window
+//   'overdue'  — a scheduled event has passed without being acted on
+//   'disabled' — the feature is disabled; caller should omit the card
+//
+// The function is pure and synchronous.  Date.now() is injected as the third
+// argument to keep tests deterministic.
+
+(function () {
+    const FRESHNESS_MS = 60 * 60 * 1000; // 1h — inputs older than this are 'stale'
+    const OVERDUE_GRACE_MS = 5 * 60 * 1000; // next med treated as overdue after 5 min
+    const MIN_TREND_POINTS = 2;
+
+    function cell(value, deeplink, status) {
+        return { value, deeplink, status };
+    }
+
+    function greetingFor(now) {
+        const hour = now.getHours();
+        if (hour < 5) return 'Good night';
+        if (hour < 12) return 'Good morning';
+        if (hour < 18) return 'Good afternoon';
+        return 'Good evening';
+    }
+
+    function pickFeature(features, key) {
+        if (!features || typeof features !== 'object') return true; // default-on
+        return features[key] !== false;
+    }
+
+    function latestOf(list, pickTime) {
+        if (!Array.isArray(list) || list.length === 0) return null;
+        let latest = null;
+        let latestMs = -Infinity;
+        for (const row of list) {
+            const t = Date.parse(pickTime(row));
+            if (!Number.isFinite(t)) continue;
+            if (t > latestMs) {
+                latestMs = t;
+                latest = row;
+            }
+        }
+        return latest ? { row: latest, ms: latestMs } : null;
+    }
+
+    function trendDirection(first, last) {
+        const delta = last - first;
+        const epsilon = Math.max(Math.abs(first), Math.abs(last)) * 0.005;
+        if (Math.abs(delta) <= epsilon) return 'flat';
+        return delta > 0 ? 'up' : 'down';
+    }
+
+    // Returns the two anchor points for a 7-day comparison: oldest within the
+    // 7-day window and the most recent.  Returns null when fewer than
+    // MIN_TREND_POINTS usable samples exist.
+    function sevenDayAnchors(list, pickTime, pickValue, nowMs) {
+        if (!Array.isArray(list)) return null;
+        const cutoff = nowMs - 7 * 24 * 60 * 60 * 1000;
+        const pts = [];
+        for (const row of list) {
+            const t = Date.parse(pickTime(row));
+            if (!Number.isFinite(t)) continue;
+            const v = pickValue(row);
+            if (!Number.isFinite(v)) continue;
+            pts.push({ t, v });
+        }
+        if (pts.length < MIN_TREND_POINTS) return null;
+        pts.sort((a, b) => a.t - b.t);
+        const recent = pts.filter((p) => p.t >= cutoff);
+        if (recent.length < MIN_TREND_POINTS) return null;
+        return { first: recent[0], last: recent[recent.length - 1] };
+    }
+
+    function nextMedCell(bootstrap, nowMs, enabled) {
+        if (!enabled) return cell(null, 'meds', 'disabled');
+        const nx = bootstrap && bootstrap.next_intake;
+        if (!nx || !nx.scheduled_at) return cell(null, 'meds', 'missing');
+        const at = Date.parse(nx.scheduled_at);
+        if (!Number.isFinite(at)) return cell(null, 'meds', 'missing');
+        const names = Array.isArray(nx.medication_names) ? nx.medication_names : [];
+        const value = { scheduledAt: nx.scheduled_at, names };
+        const status = at + OVERDUE_GRACE_MS < nowMs ? 'overdue' : 'ok';
+        return cell(value, 'meds', status);
+    }
+
+    function bpLatestCell(bootstrap, nowMs, enabled) {
+        if (!enabled) return cell(null, 'bp', 'disabled');
+        const readings = bootstrap && bootstrap.bp && bootstrap.bp.readings;
+        const latest = latestOf(readings, (r) => r.measured_at);
+        if (!latest) return cell(null, 'bp', 'missing');
+        const value = {
+            systolic: latest.row.systolic,
+            diastolic: latest.row.diastolic,
+            measured_at: latest.row.measured_at
+        };
+        const status = nowMs - latest.ms > FRESHNESS_MS * 24 ? 'stale' : 'ok';
+        return cell(value, 'bp', status);
+    }
+
+    function bpTrendCell(bootstrap, nowMs, enabled) {
+        if (!enabled) return cell(null, 'bp', 'disabled');
+        const readings = bootstrap && bootstrap.bp && bootstrap.bp.readings;
+        const sys = sevenDayAnchors(readings, (r) => r.measured_at, (r) => r.systolic, nowMs);
+        const dia = sevenDayAnchors(readings, (r) => r.measured_at, (r) => r.diastolic, nowMs);
+        if (!sys || !dia) return cell(null, 'bp', 'missing');
+        const value = {
+            systolicDirection: trendDirection(sys.first.v, sys.last.v),
+            systolicDelta: Math.round((sys.last.v - sys.first.v) * 10) / 10,
+            diastolicDirection: trendDirection(dia.first.v, dia.last.v),
+            diastolicDelta: Math.round((dia.last.v - dia.first.v) * 10) / 10
+        };
+        return cell(value, 'bp', 'ok');
+    }
+
+    function weightLatestCell(bootstrap, nowMs, enabled) {
+        if (!enabled) return cell(null, 'weight', 'disabled');
+        const logs = bootstrap && bootstrap.weight && bootstrap.weight.logs;
+        const latest = latestOf(logs, (r) => r.measured_at);
+        if (!latest) return cell(null, 'weight', 'missing');
+        const value = {
+            weight: latest.row.weight,
+            measured_at: latest.row.measured_at
+        };
+        return cell(value, 'weight', 'ok');
+    }
+
+    function weightTrendCell(bootstrap, nowMs, enabled) {
+        if (!enabled) return cell(null, 'weight', 'disabled');
+        const logs = bootstrap && bootstrap.weight && bootstrap.weight.logs;
+        const anchors = sevenDayAnchors(logs, (r) => r.measured_at, (r) => r.weight, nowMs);
+        if (!anchors) return cell(null, 'weight', 'missing');
+        const value = {
+            direction: trendDirection(anchors.first.v, anchors.last.v),
+            delta: Math.round((anchors.last.v - anchors.first.v) * 10) / 10
+        };
+        return cell(value, 'weight', 'ok');
+    }
+
+    function caloriesTodayCell(bootstrap, swrCaches, nowMs, enabled) {
+        if (!enabled) return cell(null, 'food', 'disabled');
+        const food = swrCaches && swrCaches.food_today;
+        if (!food || !Array.isArray(food.groups) || food.groups.length === 0) {
+            return cell(0, 'food', 'missing');
+        }
+        let cals = 0;
+        for (const g of food.groups) {
+            if (Number.isFinite(g.calories)) cals += g.calories;
+        }
+        return cell(Math.round(cals), 'food', 'ok');
+    }
+
+    function caloriesTargetCell(bootstrap, enabled) {
+        if (!enabled) return cell(null, 'food', 'disabled');
+        const t = bootstrap && bootstrap.settings && bootstrap.settings.food_targets;
+        if (!t || !Number.isFinite(t.calories) || t.calories <= 0) {
+            return cell(null, 'food', 'missing');
+        }
+        return cell(t.calories, 'food', 'ok');
+    }
+
+    function nextWorkoutCell(swrCaches, enabled) {
+        if (!enabled) return cell(null, 'workouts', 'disabled');
+        const data = swrCaches && swrCaches.workout_next;
+        const session = data && data.session;
+        if (!session) return cell(null, 'workouts', 'missing');
+        const value = {
+            scheduled_date: session.scheduled_date,
+            scheduled_time: session.scheduled_time,
+            group_name: session.group_name || session.group || '',
+            status: session.status,
+            is_today: session.is_today === true
+        };
+        return cell(value, 'workouts', 'ok');
+    }
+
+    function sleepLastNightCell(swrCaches, enabled) {
+        if (!enabled) return cell(null, 'health', 'disabled');
+        const overview = swrCaches && swrCaches.health_overview;
+        const stats = overview && overview.sleep_stats_7d;
+        if (!Array.isArray(stats) || stats.length === 0) {
+            return cell(null, 'health', 'missing');
+        }
+        const last = stats[stats.length - 1];
+        const totalMinutes = (last && (last.total_minutes ?? last.totalMinutes)) || 0;
+        if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) {
+            return cell(null, 'health', 'missing');
+        }
+        const value = {
+            hours: Math.round((totalMinutes / 60) * 10) / 10,
+            day: last.day || last.date || ''
+        };
+        return cell(value, 'health', 'ok');
+    }
+
+    function aggregateToday(bootstrap, swrCaches, now) {
+        const caches = swrCaches || {};
+        const nowDate = now instanceof Date ? now : new Date(now || Date.now());
+        const nowMs = nowDate.getTime();
+        const features = (bootstrap && bootstrap.features) || {};
+
+        const medEnabled = pickFeature(features, 'medication');
+        const bpEnabled = pickFeature(features, 'bp');
+        const weightEnabled = pickFeature(features, 'weight');
+        const foodEnabled = pickFeature(features, 'food');
+        const workoutEnabled = pickFeature(features, 'workout');
+        const healthEnabled = pickFeature(features, 'health');
+
+        return {
+            greeting: cell(greetingFor(nowDate), null, 'ok'),
+            nextMed: nextMedCell(bootstrap, nowMs, medEnabled),
+            bpLatest: bpLatestCell(bootstrap, nowMs, bpEnabled),
+            bpTrend7d: bpTrendCell(bootstrap, nowMs, bpEnabled),
+            weightLatest: weightLatestCell(bootstrap, nowMs, weightEnabled),
+            weightTrend7d: weightTrendCell(bootstrap, nowMs, weightEnabled),
+            caloriesToday: caloriesTodayCell(bootstrap, caches, nowMs, foodEnabled),
+            caloriesTarget: caloriesTargetCell(bootstrap, foodEnabled),
+            nextWorkout: nextWorkoutCell(caches, workoutEnabled),
+            sleepLastNight: sleepLastNightCell(caches, healthEnabled)
+        };
+    }
+
+    window.TodayDashboard = {
+        aggregateToday
+    };
+})();
