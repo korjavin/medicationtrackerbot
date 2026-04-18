@@ -21,6 +21,12 @@ type BPReminderStore interface {
 	GetDominantBPCategory(ctx context.Context, userID int64) (string, error)
 	UpdateBPReminderNotificationSent(userID int64, messageID *int) error
 	GetCurrentTimezone() (string, error)
+
+	// Batch methods
+	BatchGetBPReminderStates(userIDs []int64) (map[int64]*store.BPReminderState, error)
+	BatchGetLastBPReadings(ctx context.Context, userIDs []int64) (map[int64]*store.BloodPressure, error)
+	BatchGetDominantBPCategories(ctx context.Context, userIDs []int64) (map[int64]string, error)
+	BatchCalculatePreferredReminderHours(ctx context.Context, userIDs []int64) (map[int64]int, error)
 }
 
 // BPReminderChecker checks if any users need BP reminder notifications.
@@ -43,6 +49,9 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if len(userIDs) == 0 {
+		return nil
+	}
 
 	// Load user timezone. Only apply if explicitly set — leave time as-is otherwise.
 	var userLoc *time.Location
@@ -63,12 +72,34 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 	if userLoc != nil {
 		now = now.In(userLoc)
 	}
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
+	states, err := c.store.BatchGetBPReminderStates(userIDs)
+	if err != nil {
+		slog.Error("Error batch getting BP reminder states", "error", err)
+		return err
+	}
+
+	lastReadings, err := c.store.BatchGetLastBPReadings(ctx, userIDs)
+	if err != nil {
+		slog.Error("Error batch getting last BP readings", "error", err)
+		return err
+	}
+
+	var usersToCalculateHour []int64
+	var usersToNotify []int64
+
+	// Pass 1: Filter users and find those needing hour recalculation
 	for _, userID := range userIDs {
-		state, err := c.store.GetBPReminderState(userID)
-		if err != nil {
-			slog.Error("Error getting BP reminder state", "userID", userID, "error", err)
-			continue
+		state, ok := states[userID]
+		if !ok {
+			// Should be created by Batch method if missing, but fallback just in case
+			state, err = c.store.GetBPReminderState(userID)
+			if err != nil || state == nil {
+				slog.Error("Error getting fallback BP reminder state", "userID", userID, "error", err)
+				continue
+			}
+			states[userID] = state
 		}
 
 		if !state.Enabled {
@@ -83,13 +114,7 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 			continue
 		}
 
-		lastReading, err := c.store.GetLastBPReading(ctx, userID)
-		if err != nil {
-			slog.Error("Error getting last BP reading", "userID", userID, "error", err)
-			continue
-		}
-
-		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		lastReading := lastReadings[userID]
 		if lastReading != nil && lastReading.MeasuredAt.After(todayStart) {
 			continue
 		}
@@ -98,26 +123,53 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 			continue
 		}
 
-		preferredHour := state.PreferredReminderHour
-		if preferredHour == 0 {
-			preferredHour, err = c.store.CalculatePreferredReminderHour(ctx, userID)
-			if err != nil {
-				slog.Warn("Error calculating preferred hour", "userID", userID, "error", err)
-				preferredHour = 20
+		if state.PreferredReminderHour == 0 {
+			usersToCalculateHour = append(usersToCalculateHour, userID)
+		} else {
+			currentHour := now.Hour()
+			if currentHour >= state.PreferredReminderHour-1 && currentHour <= state.PreferredReminderHour+1 {
+				// Eligible for notification
+				usersToNotify = append(usersToNotify, userID)
 			}
+		}
+	}
 
-			if preferredHour != state.PreferredReminderHour {
-				if err := c.store.UpdatePreferredReminderHour(userID, preferredHour); err != nil {
-					slog.Error("Error updating preferred hour", "userID", userID, "error", err)
+	// Calculate preferred hours in batch
+	if len(usersToCalculateHour) > 0 {
+		calculatedHours, err := c.store.BatchCalculatePreferredReminderHours(ctx, usersToCalculateHour)
+		if err != nil {
+			slog.Warn("Error batch calculating preferred hours", "error", err)
+		} else {
+			for _, userID := range usersToCalculateHour {
+				hour, ok := calculatedHours[userID]
+				if !ok {
+					hour = 20
+				}
+
+				state := states[userID]
+				if hour != state.PreferredReminderHour {
+					if err := c.store.UpdatePreferredReminderHour(userID, hour); err != nil {
+						slog.Error("Error updating preferred hour", "userID", userID, "error", err)
+					}
+					state.PreferredReminderHour = hour
+				}
+
+				currentHour := now.Hour()
+				if currentHour >= state.PreferredReminderHour-1 && currentHour <= state.PreferredReminderHour+1 {
+					usersToNotify = append(usersToNotify, userID)
 				}
 			}
 		}
+	}
 
-		currentHour := now.Hour()
-		if currentHour < preferredHour-1 || currentHour > preferredHour+1 {
-			continue
-		}
+	if len(usersToNotify) == 0 {
+		return nil
+	}
 
+	// Double check notification day restrictions before batching dominants
+	var finalUsersToNotify []int64
+	for _, userID := range usersToNotify {
+		state := states[userID]
 		if state.LastNotificationSentAt != nil {
 			lastSentLocal := state.LastNotificationSentAt.In(now.Location())
 			lastSentDay := time.Date(lastSentLocal.Year(), lastSentLocal.Month(), lastSentLocal.Day(), 0, 0, 0, 0, now.Location())
@@ -125,17 +177,33 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 				continue
 			}
 		}
+		finalUsersToNotify = append(finalUsersToNotify, userID)
+	}
+
+	if len(finalUsersToNotify) == 0 {
+		return nil
+	}
+
+	// Batch calculate dominants for the users we are going to notify
+	dominants, err := c.store.BatchGetDominantBPCategories(ctx, finalUsersToNotify)
+	if err != nil {
+		slog.Warn("Error batch getting dominant BP categories", "error", err)
+	}
+
+	// Pass 2: Notify
+	for _, userID := range finalUsersToNotify {
+		lastReading := lastReadings[userID]
 
 		shouldSendEnhanced := false
-		dominantCategory, err := c.store.GetDominantBPCategory(ctx, userID)
-		if err != nil {
-			slog.Warn("Error getting dominant BP category", "userID", userID, "error", err)
-		} else if lastReading != nil {
-			lastSeverity := store.CategorySeverity(lastReading.Category)
-			dominantSeverity := store.CategorySeverity(dominantCategory)
+		if dominants != nil {
+			dominantCategory, ok := dominants[userID]
+			if ok && lastReading != nil {
+				lastSeverity := store.CategorySeverity(lastReading.Category)
+				dominantSeverity := store.CategorySeverity(dominantCategory)
 
-			if lastSeverity > dominantSeverity {
-				shouldSendEnhanced = true
+				if lastSeverity > dominantSeverity {
+					shouldSendEnhanced = true
+				}
 			}
 		}
 
