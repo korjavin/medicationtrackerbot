@@ -79,3 +79,39 @@ func TestBatchGetIntakesBySchedule(t *testing.T) {
 		t.Fatalf("Expected 0 results for fake med IDs, got %d", len(resLarge))
 	}
 }
+
+// TestBatchGetIntakesBySchedule_NonUTCLocation regresses the bug where the
+// scheduler stored intakes with a user-local-tz target time but BatchGet
+// queried with the UTC-converted time, missing the match because the
+// underlying driver serialises time.Time via t.String() which preserves
+// the original Location.
+func TestBatchGetIntakesBySchedule_NonUTCLocation(t *testing.T) {
+	db := setupTestStore(t)
+	defer db.Close()
+
+	userID := int64(1)
+	medID, err := db.CreateMedication("Med1", "10mg", `{"type":"daily","times":["10:13"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication failed: %v", err)
+	}
+
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+
+	scheduledLocal := time.Date(2026, 4, 18, 10, 13, 0, 0, berlin)
+	if _, err := db.CreateIntake(medID, userID, scheduledLocal); err != nil {
+		t.Fatalf("CreateIntake failed: %v", err)
+	}
+
+	res, err := db.BatchGetIntakesBySchedule([]MedicationSchedule{
+		{MedID: medID, ScheduledAt: scheduledLocal},
+	})
+	if err != nil {
+		t.Fatalf("BatchGetIntakesBySchedule failed: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1 row for local-tz match, got %d (scheduler would resend notifications)", len(res))
+	}
+}

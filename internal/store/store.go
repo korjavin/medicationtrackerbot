@@ -775,7 +775,12 @@ func (s *Store) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[M
 		for j, sched := range batch {
 			placeholders[j] = "(?, ?)"
 			args[j*2] = sched.MedID
-			args[j*2+1] = sched.ScheduledAt.UTC().Truncate(0)
+			// Preserve the caller's Location: modernc.org/sqlite serializes
+			// time.Time via t.String(), so a stored local-tz value like
+			// "2026-04-18 10:13:00 +0200 CEST" only matches a bind parameter
+			// formatted the same way. Converting to UTC here would miss rows
+			// written by CreateIntake with a non-UTC target time.
+			args[j*2+1] = sched.ScheduledAt.Truncate(0)
 		}
 
 		query := fmt.Sprintf(

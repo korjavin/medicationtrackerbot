@@ -164,7 +164,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 				})
 				schedulesToCheck = append(schedulesToCheck, store.MedicationSchedule{
 					MedID:       med.ID,
-					ScheduledAt: step.ScheduledAt.UTC(),
+					ScheduledAt: step.ScheduledAt,
 				})
 			}
 			continue
@@ -214,7 +214,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			})
 			schedulesToCheck = append(schedulesToCheck, store.MedicationSchedule{
 				MedID:       med.ID,
-				ScheduledAt: target.UTC(),
+				ScheduledAt: target,
 			})
 		}
 	}
