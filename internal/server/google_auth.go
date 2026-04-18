@@ -303,13 +303,17 @@ func firstNonEmpty(values ...string) string {
 }
 
 func createSessionToken(email, secret string) string {
-	// Simple HMAC-signed token: base64url_nopad(email) + "." + hex(hmac(email, secret))
-	// Using RawURLEncoding (no "=" padding) to avoid cookie value issues with proxies/browsers.
+	// Stateless session rotation: payload is base64url_nopad(email|nonce|timestamp) + "." + hex(hmac(payload, secret))
+	nonce := make([]byte, 12)
+	rand.Read(nonce)
+	timestamp := time.Now().Unix()
+	payload := fmt.Sprintf("%s|%s|%d", email, hex.EncodeToString(nonce), timestamp)
+
 	h := hmac.New(sha256.New, []byte(secret))
-	h.Write([]byte(email))
+	h.Write([]byte(payload))
 	sig := hex.EncodeToString(h.Sum(nil))
 
-	return base64.RawURLEncoding.EncodeToString([]byte(email)) + "." + sig
+	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + sig
 }
 
 func verifySessionToken(token, secret string) (string, bool) {
@@ -335,19 +339,20 @@ func verifySessionToken(token, secret string) (string, bool) {
 		return "", false
 	}
 
-	// New format: RawURLEncoding (no padding)
-	emailBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	// Base64 decode payload
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
 		// Try old padded format as fallback
-		emailBytes, err = base64.URLEncoding.DecodeString(parts[0])
+		payloadBytes, err = base64.URLEncoding.DecodeString(parts[0])
 		if err != nil {
 			return "", false
 		}
 	}
-	email := string(emailBytes)
+	payload := string(payloadBytes)
 
+	// Validate signature using full payload
 	h := hmac.New(sha256.New, []byte(secret))
-	h.Write([]byte(email))
+	h.Write([]byte(payload))
 	calculatedSig := h.Sum(nil)
 
 	expectedSig, err := hex.DecodeString(parts[1])
@@ -359,5 +364,21 @@ func verifySessionToken(token, secret string) (string, bool) {
 		return "", false
 	}
 
-	return email, true
+	// Try new payload format first: email|nonce|timestamp
+	payloadParts := strings.Split(payload, "|")
+	if len(payloadParts) == 3 {
+		// Validate timestamp
+		var timestamp int64
+		_, err := fmt.Sscanf(payloadParts[2], "%d", &timestamp)
+		if err == nil {
+			// Session is invalid if older than 30 days
+			if time.Now().Unix() - timestamp > 30*24*60*60 {
+				return "", false
+			}
+			return payloadParts[0], true
+		}
+	}
+
+	// Fallback to old format (payload is just email)
+	return payload, true
 }
