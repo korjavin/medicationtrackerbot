@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -119,31 +120,103 @@ Examples:
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	parsedLog, err := b.foodAI.ParseMealDescription(ctx, args)
+	parsedLogs, err := b.foodAI.ParseMealDescription(ctx, args)
 	if err != nil {
 		slog.Error("food command: meal analysis failed", "chat_id", msg.Chat.ID, "description", args, "error", err)
 		msgConfig.Text = "❌ Failed to analyze meal: " + err.Error()
 		return
 	}
 
-	log := &store.FoodLog{
-		UserID:   b.allowedUserID,
-		EatenAt:  time.Unix(int64(msg.Date), 0),
-		Weight:   parsedLog.Weight,
-		Carbs:    parsedLog.Carbs,
-		Protein:  parsedLog.Protein,
-		Fat:      parsedLog.Fat,
-		Calories: parsedLog.Calories,
-		Name:     parsedLog.Name,
+	if len(parsedLogs) == 0 {
+		msgConfig.Text = "❌ AI returned no meal items."
+		return
 	}
 
-	_, err = b.food.CreateFoodLog(context.Background(), log)
-	if err != nil {
-		slog.Error("food command: failed to save food log", "chat_id", msg.Chat.ID, "name", parsedLog.Name, "error", err)
+	eatenAt := time.Unix(int64(msg.Date), 0)
+	saveCtx, saveCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer saveCancel()
+
+	saved := make([]domain.FoodLog, 0, len(parsedLogs))
+	var failed int
+	for _, item := range parsedLogs {
+		entry := &store.FoodLog{
+			UserID:   b.allowedUserID,
+			EatenAt:  eatenAt,
+			Weight:   item.Weight,
+			Carbs:    item.Carbs,
+			Protein:  item.Protein,
+			Fat:      item.Fat,
+			Calories: item.Calories,
+			Name:     item.Name,
+		}
+		if _, err := b.food.CreateFoodLog(saveCtx, entry); err != nil {
+			slog.Error("food command: failed to save food log", "chat_id", msg.Chat.ID, "name", item.Name, "error", err)
+			failed++
+			continue
+		}
+		saved = append(saved, item)
+	}
+
+	if len(saved) == 0 {
 		msgConfig.Text = "❌ Error saving food log to database."
 		return
 	}
 
-	msgConfig.Text = fmt.Sprintf("✅ Logged %s\n\n📊 Macros: %dg C / %dg P / %dg F\n🔥 Calories: %d kcal\n⚖️ Weight: %dg",
-		parsedLog.Name, parsedLog.Carbs, parsedLog.Protein, parsedLog.Fat, parsedLog.Calories, parsedLog.Weight)
+	msgConfig.Text = renderFoodSummary(saved, failed)
+}
+
+// telegramMessageLimit is the safe threshold for a single Telegram message.
+// The hard cap is 4096 UTF-16 code units; we leave a buffer for emoji and the
+// truncation marker.
+const telegramMessageLimit = 3900
+
+// renderFoodSummary builds the reply shown after the /food command persists items.
+// saved is the list of successfully stored items; failed is the count of items that errored.
+// If the full reply would exceed Telegram's message-length limit, the per-item
+// list is truncated and an "… and N more items" marker is inserted so the
+// aggregate totals always remain visible.
+func renderFoodSummary(saved []domain.FoodLog, failed int) string {
+	var totalCarbs, totalProtein, totalFat, totalCals, totalWeight int
+	for _, item := range saved {
+		totalCarbs += item.Carbs
+		totalProtein += item.Protein
+		totalFat += item.Fat
+		totalCals += item.Calories
+		totalWeight += item.Weight
+	}
+
+	var header string
+	if failed > 0 {
+		header = fmt.Sprintf("⚠️ Logged %d of %d items; %d failed to save\n\n", len(saved), len(saved)+failed, failed)
+	} else {
+		plural := ""
+		if len(saved) != 1 {
+			plural = "s"
+		}
+		header = fmt.Sprintf("✅ Logged %d item%s\n\n", len(saved), plural)
+	}
+	footer := fmt.Sprintf("\n📊 Total: %dg C / %dg P / %dg F\n🔥 Calories: %d kcal\n⚖️ Weight: %dg",
+		totalCarbs, totalProtein, totalFat, totalCals, totalWeight)
+
+	var body strings.Builder
+	body.WriteString(header)
+	for i, item := range saved {
+		line := fmt.Sprintf("• %s (%dg) — %dg C / %dg P / %dg F · %d kcal\n",
+			item.Name, item.Weight, item.Carbs, item.Protein, item.Fat, item.Calories)
+		remaining := len(saved) - i
+		truncMarker := fmt.Sprintf("… and %d more items\n", remaining)
+		// Check whether appending this line still leaves room for either the
+		// footer or (if more items remain) a truncation marker + footer.
+		projected := body.Len() + len(line) + len(footer)
+		if remaining > 1 {
+			projected += len(truncMarker)
+		}
+		if projected > telegramMessageLimit {
+			body.WriteString(truncMarker)
+			break
+		}
+		body.WriteString(line)
+	}
+	body.WriteString(footer)
+	return body.String()
 }

@@ -38,13 +38,18 @@ func NewClient(apiKey, apiURL, model string) *Client {
 	}
 }
 
-// MealData holds the extracted nutritional information.
-type MealData struct {
+// MealItem holds the extracted nutritional information for a single food item.
+type MealItem struct {
 	Name        string  `json:"name"`
 	WeightGrams float64 `json:"weight_grams"`
 	Carbs100g   float64 `json:"carbs_100g"`
 	Protein100g float64 `json:"protein_100g"`
 	Fat100g     float64 `json:"fat_100g"`
+}
+
+// ParsedMeal wraps an ordered list of atomic food items parsed from a free-text meal description.
+type ParsedMeal struct {
+	Items []MealItem `json:"items"`
 }
 
 // chatCompletionRequest represents the payload for the Chat Completions API.
@@ -95,43 +100,54 @@ func (e *apiError) Error() string {
 var mealSchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
-		"name": map[string]any{
-			"type": "string",
-		},
-		"weight_grams": map[string]any{
-			"type": "number",
-		},
-		"carbs_100g": map[string]any{
-			"type": "number",
-		},
-		"protein_100g": map[string]any{
-			"type": "number",
-		},
-		"fat_100g": map[string]any{
-			"type": "number",
+		"items": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name":         map[string]any{"type": "string"},
+					"weight_grams": map[string]any{"type": "number"},
+					"carbs_100g":   map[string]any{"type": "number"},
+					"protein_100g": map[string]any{"type": "number"},
+					"fat_100g":     map[string]any{"type": "number"},
+				},
+				"required":             []string{"name", "weight_grams", "carbs_100g", "protein_100g", "fat_100g"},
+				"additionalProperties": false,
+			},
 		},
 	},
-	"required":             []string{"name", "weight_grams", "carbs_100g", "protein_100g", "fat_100g"},
+	"required":             []string{"items"},
 	"additionalProperties": false,
 }
 
-// ParseMealFromDescription sends a natural language meal description to the OpenAI API and extracts nutritional data.
-func (c *Client) ParseMealFromDescription(ctx context.Context, description string) (*MealData, error) {
-	systemPrompt := `You are a nutrition expert. Your task is to extract the food name, estimated total weight in grams, and the macronutrients (carbohydrates, protein, and fat) PER 100 GRAMS from a free-text meal description.
-If the description mentions multiple items, provide an aggregate name (e.g., "Chicken breast with rice and broccoli") and calculate the average/combined macros per 100g for the entire meal.
+// MealSystemPrompt is the system prompt used when parsing free-text meal descriptions.
+// It is exported so tests (and observability tooling) can assert on its contents.
+const MealSystemPrompt = `You are a nutrition expert. Parse a free-text meal description and split it into an ordered list of atomic food items.
+
+Rules:
+- Return every dish name in English, regardless of the input language. Translate non-English names.
+- Use common, generic names (e.g. "chicken breast", not "grilled marinated chicken breast with lemon"; "rice", not "steamed jasmine rice").
+- Split complex meals into atomic items: one item per distinct food or ingredient listed. Do not combine unrelated foods into a single row.
+- Do not over-split composed dishes that the user named as a single unit. A sandwich stays one item ("ham and cheese sandwich"); do not break it into bread + cheese + ham. Soup or stew stays one item.
+- For each item return: name, weight_grams (estimated total eaten), and macronutrients PER 100 GRAMS (carbs_100g, protein_100g, fat_100g).
+- Preserve the order the user mentioned the items in.
+- The "items" array must contain at least one entry.
 Respond ONLY with the requested JSON schema.`
 
+// ParseMealFromDescription sends a natural language meal description to the OpenAI API
+// and extracts an ordered list of atomic food items with English-normalized names.
+func (c *Client) ParseMealFromDescription(ctx context.Context, description string) (*ParsedMeal, error) {
 	reqBody := chatCompletionRequest{
 		Model: c.model,
 		Messages: []chatCompletionMessage{
-			{Role: "system", Content: systemPrompt},
+			{Role: "system", Content: MealSystemPrompt},
 			{Role: "user", Content: description},
 		},
 		Temperature: 0.1,
 		ResponseFormat: &responseFormat{
 			Type: "json_schema",
 			JSONSchema: &jsonSchemaWrap{
-				Name:   "meal_data",
+				Name:   "parsed_meal",
 				Strict: true,
 				Schema: mealSchema,
 			},
@@ -150,8 +166,8 @@ Respond ONLY with the requested JSON schema.`
 		fallbackReq.Messages = []chatCompletionMessage{
 			{
 				Role: "system",
-				Content: systemPrompt + `
-Return only valid JSON with keys: name, weight_grams, carbs_100g, protein_100g, fat_100g.
+				Content: MealSystemPrompt + `
+Return only valid JSON with the shape {"items": [{"name": string, "weight_grams": number, "carbs_100g": number, "protein_100g": number, "fat_100g": number}, ...]}.
 Do not wrap the JSON in markdown fences or add explanations.`,
 			},
 			{Role: "user", Content: description},
@@ -162,7 +178,7 @@ Do not wrap the JSON in markdown fences or add explanations.`,
 	return nil, err
 }
 
-func (c *Client) parseMealWithRequest(ctx context.Context, reqBody chatCompletionRequest) (*MealData, error) {
+func (c *Client) parseMealWithRequest(ctx context.Context, reqBody chatCompletionRequest) (*ParsedMeal, error) {
 	reqBytes, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -206,12 +222,16 @@ func (c *Client) parseMealWithRequest(ctx context.Context, reqBody chatCompletio
 		return nil, errors.New("API returned empty content")
 	}
 
-	var mealData MealData
-	if err := json.Unmarshal([]byte(extractJSONContent(content)), &mealData); err != nil {
+	var parsed ParsedMeal
+	if err := json.Unmarshal([]byte(extractJSONContent(content)), &parsed); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON from API content: %w", err)
 	}
 
-	return &mealData, nil
+	if len(parsed.Items) == 0 {
+		return nil, errors.New("AI returned no meal items")
+	}
+
+	return &parsed, nil
 }
 
 // ActivityExercise holds data for a single parsed exercise.
@@ -226,8 +246,8 @@ type ActivityExercise struct {
 
 // ActivityData holds the parsed workout activity.
 type ActivityData struct {
-	Name      string              `json:"name"`
-	Exercises []ActivityExercise  `json:"exercises"`
+	Name      string             `json:"name"`
+	Exercises []ActivityExercise `json:"exercises"`
 }
 
 var activitySchema = map[string]any{
