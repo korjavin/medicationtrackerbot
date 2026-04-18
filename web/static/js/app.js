@@ -197,6 +197,20 @@ function applyTabOrder(orderArray) {
     });
 }
 
+// Migrate a user's saved tab_order so the Today tab becomes the default
+// landing surface.  Returns the input array when:
+//   - today is already included, or
+//   - the user has explicitly opted out (localStorage 'today_opt_out' = '1').
+// Otherwise prepends 'today' so it sorts to the front after applyTabOrder.
+function migrateTabOrderForToday(order) {
+    if (!Array.isArray(order)) return order;
+    if (order.includes('today')) return order;
+    try {
+        if (localStorage.getItem('today_opt_out') === '1') return order;
+    } catch (_) { /* localStorage unavailable — fall through and prepend */ }
+    return ['today', ...order];
+}
+
 // Apply bootstrap payload and warm caches so first tab render can use local data.
 // Idempotent: safe to call multiple times (e.g. once from SW cache, once from
 // fresh network response via BOOTSTRAP_UPDATED). Every field is a full replacement.
@@ -225,7 +239,7 @@ async function applyBootstrapPayload(res) {
             }
         }
         if (Array.isArray(order)) {
-            applyTabOrder(order);
+            applyTabOrder(migrateTabOrderForToday(order));
         }
     }
 
@@ -405,7 +419,7 @@ async function checkAuth() {
                 if (window.DataStore) {
                     const cachedBundle = await window.DataStore.getCached('settings_bundle');
                     if (cachedBundle && Array.isArray(cachedBundle.tabOrder)) {
-                        applyTabOrder(cachedBundle.tabOrder);
+                        applyTabOrder(migrateTabOrderForToday(cachedBundle.tabOrder));
                     }
                 }
                 sessionStorage.removeItem('medtracker_auth_reload_in_progress');
@@ -482,7 +496,7 @@ async function checkAuth() {
         if (window.DataStore) {
             const cachedBundle = await window.DataStore.getCached('settings_bundle');
             if (cachedBundle && Array.isArray(cachedBundle.tabOrder)) {
-                applyTabOrder(cachedBundle.tabOrder);
+                applyTabOrder(migrateTabOrderForToday(cachedBundle.tabOrder));
             }
         }
 
@@ -869,7 +883,44 @@ function switchTab(tab) {
     }
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
+    else if (tab === 'today') { loadToday(); }
     else if (tab === 'settings') { loadSettings(); }
+}
+
+async function loadToday() {
+    const root = document.getElementById('today-content');
+    if (!root || !window.TodayDashboard) return;
+    const bootstrap = { features: featureSettings || {} };
+    try {
+        if (window.DataStore && typeof window.DataStore.getCached === 'function') {
+            const [bundle, nextIntake, bp, weight] = await Promise.all([
+                window.DataStore.getCached('settings_bundle').catch(() => null),
+                window.DataStore.getCached('next_intake').catch(() => null),
+                window.DataStore.getCached('bp').catch(() => null),
+                window.DataStore.getCached('weight').catch(() => null)
+            ]);
+            if (bundle) {
+                bootstrap.features = bundle.featureSettings || bootstrap.features;
+                bootstrap.settings = { food_targets: bundle.foodTargets };
+            }
+            if (nextIntake) bootstrap.next_intake = nextIntake;
+            if (bp) {
+                bootstrap.bp = {
+                    readings: bp.readingsRes || [],
+                    goal: bp.goalRes || {},
+                    stats: bp.statsRes || {}
+                };
+            }
+            if (weight) {
+                bootstrap.weight = {
+                    logs: weight.logsRes || [],
+                    goal: weight.goalRes || {}
+                };
+            }
+        }
+    } catch (_) { /* best-effort — render whatever we have */ }
+    const state = window.TodayDashboard.aggregateToday(bootstrap, {}, Date.now());
+    window.TodayDashboard.renderToday(state, root, { now: Date.now() });
 }
 
 function switchHealthTab(tab) {
@@ -1257,6 +1308,7 @@ function reloadCurrentTab() {
     else if (tab === 'weight') { loadWeightLogs(); }
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
+    else if (tab === 'today') { loadToday(); }
     else if (tab === 'health') {
         const activeHealthTab = document.querySelector('.health-tab.active');
         const currentSubTab = activeHealthTab ? activeHealthTab.dataset.tab : 'overview';

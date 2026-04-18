@@ -62,13 +62,13 @@ Benefit: turns the Mini App from a logbook into something worth opening unprompt
 
 ### Task 3: Wire Today into the tab system
 
-- [ ] register Today in `app.js` tab switcher and in the `bindTabGroup` consumers if needed
-- [ ] update `features/bootstrap.js:88-95` so that for users whose `tab_order` does not yet include `today`, Today is prepended; for users who have explicitly removed it, respect that
-- [ ] update `tabs-dnd.js` to allow drag-reordering Today like any other tab
-- [ ] add `window.TodayDashboard` to `tests/architecture.globals.test.js` allowlist with justification
-- [ ] write Vitest case asserting Today is the default `data-tab` for a fresh user (empty `tab_order`)
-- [ ] write Vitest case asserting Today is preserved-removed for an explicit user opt-out
-- [ ] run `pnpm test` — must pass before next task
+- [x] register Today in `app.js` tab switcher and in the `bindTabGroup` consumers if needed
+- [x] update `features/bootstrap.js:88-95` so that for users whose `tab_order` does not yet include `today`, Today is prepended; for users who have explicitly removed it, respect that
+- [x] update `tabs-dnd.js` to allow drag-reordering Today like any other tab
+- [x] add `window.TodayDashboard` to `tests/architecture.globals.test.js` allowlist with justification
+- [x] write Vitest case asserting Today is the default `data-tab` for a fresh user (empty `tab_order`)
+- [x] write Vitest case asserting Today is preserved-removed for an explicit user opt-out
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Live updates and SWR re-render
 
