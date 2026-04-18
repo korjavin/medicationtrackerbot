@@ -80,6 +80,13 @@ type IntakeLog struct {
 	SnoozedUntil *time.Time `json:"snoozed_until,omitempty"`
 }
 
+// MedicationSchedule represents a combination of medication ID and target time
+// for batch fetching intakes.
+type MedicationSchedule struct {
+	MedID       int64
+	ScheduledAt time.Time
+}
+
 type IntakeWithMedication struct {
 	IntakeLog
 	MedicationName   string `json:"medication_name"`
@@ -2435,13 +2442,6 @@ func (s *Store) RecordTimezone(tz string) error {
 // -- TZ Transition Plans --
 
 // TZTransitionPlan represents a pending or completed timezone transition plan.
-
-// MedicationSchedule represents a combination of medication ID and target time
-// for batch fetching intakes.
-type MedicationSchedule struct {
-	MedID       int64
-	ScheduledAt time.Time
-}
 type TZTransitionPlan struct {
 	ID         int64      `json:"id"`
 	OldTZ      string     `json:"old_tz"`
