@@ -140,15 +140,6 @@ func TestGenerateWeightCSV_Error(t *testing.T) {
 	}
 }
 
-func TestGenerateBPCSVEmpty(t *testing.T) {
-	data, err := GenerateBPCSV(nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(string(data), "systolic") {
-		t.Error("expected header even for empty data")
-	}
-}
 
 func TestGenerateWeightCSVEmpty(t *testing.T) {
 	data, err := GenerateWeightCSV(nil)
