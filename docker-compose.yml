@@ -53,6 +53,7 @@ services:
       - traefik_net
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=${NETWORK_NAME}"
       - "traefik.http.routers.medtracker-${INSTANCE}.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.medtracker-${INSTANCE}.entrypoints=websecure"
       - "traefik.http.routers.medtracker-${INSTANCE}.tls.certresolver=myresolver"
@@ -86,6 +87,7 @@ services:
       - traefik_net
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=${NETWORK_NAME}"
       - "traefik.http.routers.medtracker-mcp-${INSTANCE}.rule=Host(`${MCP_DOMAIN}`)"
       - "traefik.http.routers.medtracker-mcp-${INSTANCE}.entrypoints=websecure"
       - "traefik.http.routers.medtracker-mcp-${INSTANCE}.tls.certresolver=myresolver"
