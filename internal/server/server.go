@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net"
@@ -800,15 +801,15 @@ func (s *Server) serveOIDCSetup(w http.ResponseWriter, r *http.Request) {
 	webClientID := os.Getenv("OIDC_CLIENT_ID")
 	mcpClientID := os.Getenv("OIDC_MCP_CLIENT_ID")
 
-	html := string(content)
-	html = strings.ReplaceAll(html, "APP_DOMAIN_PLACEHOLDER", appDomain)
-	html = strings.ReplaceAll(html, "POCKET_ID_DOMAIN_PLACEHOLDER", pocketIDDomain)
-	html = strings.ReplaceAll(html, "MCP_SERVER_URL_PLACEHOLDER", mcpServerURL)
-	html = strings.ReplaceAll(html, "WEB_CLIENT_ID_PLACEHOLDER", webClientID)
-	html = strings.ReplaceAll(html, "MCP_CLIENT_ID_PLACEHOLDER", mcpClientID)
+	outHtml := string(content)
+	outHtml = strings.ReplaceAll(outHtml, "APP_DOMAIN_PLACEHOLDER", html.EscapeString(appDomain))
+	outHtml = strings.ReplaceAll(outHtml, "POCKET_ID_DOMAIN_PLACEHOLDER", html.EscapeString(pocketIDDomain))
+	outHtml = strings.ReplaceAll(outHtml, "MCP_SERVER_URL_PLACEHOLDER", html.EscapeString(mcpServerURL))
+	outHtml = strings.ReplaceAll(outHtml, "WEB_CLIENT_ID_PLACEHOLDER", html.EscapeString(webClientID))
+	outHtml = strings.ReplaceAll(outHtml, "MCP_CLIENT_ID_PLACEHOLDER", html.EscapeString(mcpClientID))
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if _, err := w.Write([]byte(html)); err != nil { // #nosec G203
+	if _, err := w.Write([]byte(outHtml)); err != nil { // #nosec G203
 		slog.Error("write response", "error", err)
 	}
 }

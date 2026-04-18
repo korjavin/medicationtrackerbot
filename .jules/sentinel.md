@@ -6,3 +6,7 @@
 **Vulnerability:** Resource exhaustion / Denial of Service via unbounded external HTTP fetches.
 **Learning:** Initializing an `http.Client` with only a generic `Timeout` (e.g., 30s) leaves it vulnerable to Slowloris, hanging TLS handshakes, or decompression bombs if the underlying `Transport` defaults and response body reads (`io.ReadAll`) are unrestricted.
 **Prevention:** Always explicitly configure a custom `http.Transport` (setting `DialContext`, `TLSHandshakeTimeout`), enforce a `context.WithTimeout` on the request, and wrap `resp.Body` in an `io.LimitReader` when reading external JSON payloads.
+## 2026-04-18 - XSS via Environment Variable Injection in Static HTML
+**Vulnerability:** Reflected Cross-Site Scripting (XSS) in `oidc-setup.html`.
+**Learning:** The server injects dynamically determined strings (like `appDomain`, derived from `r.Host`) into raw HTML files read from disk using `strings.ReplaceAll`. Because Go's `html/template` was not used, this bypassed automatic contextual escaping, allowing an attacker to inject arbitrary HTML by supplying a crafted `Host` header.
+**Prevention:** When injecting strings into raw HTML output without a templating engine, explicitly wrap any variable derived from the HTTP request or untrusted sources with `html.EscapeString()`.
