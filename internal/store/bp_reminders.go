@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -302,4 +304,171 @@ func CategorySeverity(category string) int {
 	default:
 		return 0
 	}
+}
+
+// BatchGetBPReminderStates retrieves BP reminder states for multiple users efficiently.
+// Users without an explicit state in the DB will get a default state with Enabled=true.
+func (s *Store) BatchGetBPReminderStates(ctx context.Context, userIDs []int64) (map[int64]*BPReminderState, error) {
+	result := make(map[int64]*BPReminderState, len(userIDs))
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+
+	// Pre-populate with default states
+	for _, id := range userIDs {
+		result[id] = &BPReminderState{
+			UserID:                id,
+			Enabled:               true,
+			PreferredReminderHour: 20,
+			CreatedAt:             time.Now(),
+			UpdatedAt:             time.Now(),
+		}
+	}
+
+	chunkSize := 500
+	for i := 0; i < len(userIDs); i += chunkSize {
+		end := i + chunkSize
+		if end > len(userIDs) {
+			end = len(userIDs)
+		}
+		chunk := userIDs[i:end]
+
+		placeholders := make([]string, len(chunk))
+		args := make([]interface{}, len(chunk))
+		for j, id := range chunk {
+			placeholders[j] = "?"
+			args[j] = id
+		}
+
+		query := "SELECT user_id, enabled, snoozed_until, dont_remind_until, last_notification_sent_at, notification_message_id, preferred_reminder_hour, created_at, updated_at FROM bp_reminder_state WHERE user_id IN (" + strings.Join(placeholders, ",") + ")"
+
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("BatchGetBPReminderStates query failed: %w", err)
+		}
+
+		for rows.Next() {
+			var state BPReminderState
+			var snoozedUntil, dontRemindUntil, lastNotificationSentAt sql.NullTime
+			var notificationMessageID sql.NullInt64
+
+			if err := rows.Scan(
+				&state.UserID, &state.Enabled, &snoozedUntil, &dontRemindUntil,
+				&lastNotificationSentAt, &notificationMessageID,
+				&state.PreferredReminderHour, &state.CreatedAt, &state.UpdatedAt,
+			); err != nil {
+				rows.Close()
+				return nil, err
+			}
+
+			if snoozedUntil.Valid {
+				t := snoozedUntil.Time
+				state.SnoozedUntil = &t
+			}
+			if dontRemindUntil.Valid {
+				t := dontRemindUntil.Time
+				state.DontRemindUntil = &t
+			}
+			if lastNotificationSentAt.Valid {
+				t := lastNotificationSentAt.Time
+				state.LastNotificationSentAt = &t
+			}
+			if notificationMessageID.Valid {
+				msgID := int(notificationMessageID.Int64)
+				state.NotificationMessageID = &msgID
+			}
+
+			result[state.UserID] = &state
+		}
+
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	return result, nil
+}
+
+
+// BatchGetLastBPReadings retrieves the most recent BP reading for multiple users efficiently.
+func (s *Store) BatchGetLastBPReadings(ctx context.Context, userIDs []int64) (map[int64]*BloodPressure, error) {
+	result := make(map[int64]*BloodPressure)
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+
+	chunkSize := 500
+	for i := 0; i < len(userIDs); i += chunkSize {
+		end := i + chunkSize
+		if end > len(userIDs) {
+			end = len(userIDs)
+		}
+		chunk := userIDs[i:end]
+
+		placeholders := make([]string, len(chunk))
+		args := make([]interface{}, len(chunk))
+		for j, id := range chunk {
+			placeholders[j] = "?"
+			args[j] = id
+		}
+
+		query := `
+			SELECT id, user_id, measured_at, systolic, diastolic, pulse, site, position, category, ignore_calc, notes, tag
+			FROM (
+				SELECT *, ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY measured_at DESC) as rn
+				FROM blood_pressure_readings
+				WHERE user_id IN (` + strings.Join(placeholders, ",") + `)
+			) WHERE rn = 1`
+
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("BatchGetLastBPReadings query failed: %w", err)
+		}
+
+		for rows.Next() {
+			var bp BloodPressure
+			var pulse sql.NullInt64
+			var site, position, category, notes, tag sql.NullString
+
+			if err := rows.Scan(
+				&bp.ID, &bp.UserID, &bp.MeasuredAt, &bp.Systolic, &bp.Diastolic,
+				&pulse, &site, &position, &category, &bp.IgnoreCalc, &notes, &tag,
+			); err != nil {
+				rows.Close()
+				return nil, err
+			}
+
+			if pulse.Valid {
+				p := int(pulse.Int64)
+				bp.Pulse = &p
+			}
+			if site.Valid {
+				bp.Site = site.String
+			}
+			if position.Valid {
+				bp.Position = position.String
+			}
+			if category.Valid {
+				bp.Category = category.String
+			}
+			if notes.Valid {
+				bp.Notes = notes.String
+			}
+			if tag.Valid {
+				bp.Tag = tag.String
+			}
+
+			result[bp.UserID] = &bp
+		}
+		rows.Close()
+	}
+
+	return result, nil
 }
