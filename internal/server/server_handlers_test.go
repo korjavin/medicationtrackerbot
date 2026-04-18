@@ -507,11 +507,11 @@ func TestHandleLogPastIntake(t *testing.T) {
 	}
 }
 
-// TestLogPastIntake_AppearsInListHistory reproduces the reported bug: a user
+// TestLogPastIntake_AppearsInListHistory is a regression test: a user
 // logs a past intake via the schedule page's "Log" button (POST
 // /api/medications/log-past) and expects to see it immediately when they
 // open the intake history page (GET /api/history?days=3&med_id=0). This
-// exercises both HTTP handlers in one flow so handler/serialization bugs are
+// exercises both HTTP handlers in one flow so handler/serialization regressions are
 // caught.
 func TestLogPastIntake_AppearsInListHistory(t *testing.T) {
 	srv, db := createGenericTestServer(t)
