@@ -16,6 +16,8 @@ func TestCalculateMacros(t *testing.T) {
 		{"calorie formula", 100, 0, 0, 100, 100, 0, 0, 400},  // 4 * 100
 		{"fat calories", 0, 0, 100, 100, 0, 0, 100, 900},     // 9 * 100
 		{"protein calories", 0, 100, 0, 100, 0, 100, 0, 400}, // 4 * 100
+		{"negative weight", 23, 12, 10, -100, -23, -12, -10, -230},
+		{"negative macros", -23, -12, -10, 100, -23, -12, -10, -230},
 	}
 
 	for _, tt := range tests {
