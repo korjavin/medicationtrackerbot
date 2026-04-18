@@ -418,6 +418,36 @@ func TestHandleFoodCommand_PartialFailure(t *testing.T) {
 	}
 }
 
+func TestRenderFoodSummary_TruncatesToTelegramLimit(t *testing.T) {
+	items := make([]domain.FoodLog, 200)
+	for i := range items {
+		items[i] = domain.FoodLog{
+			Name:     fmt.Sprintf("Item %d with a reasonably descriptive name", i),
+			Weight:   100,
+			Carbs:    10,
+			Protein:  5,
+			Fat:      3,
+			Calories: 87,
+		}
+	}
+
+	out := renderFoodSummary(items, 0)
+	if len(out) > 4096 {
+		t.Fatalf("summary exceeds Telegram limit: %d chars", len(out))
+	}
+	if !strings.Contains(out, "… and") {
+		t.Errorf("expected truncation marker for oversized list, got: %s", out[:min(200, len(out))])
+	}
+	if !strings.Contains(out, "📊 Total:") {
+		t.Errorf("expected aggregate totals to remain in truncated reply")
+	}
+	// Small input must not be truncated.
+	small := renderFoodSummary(items[:3], 0)
+	if strings.Contains(small, "… and") {
+		t.Errorf("small reply should not be truncated, got: %s", small)
+	}
+}
+
 func TestHandleFoodCommand_ZeroItems(t *testing.T) {
 	store := &mockFoodStore{enabled: true}
 	ai := &mockFoodAI{logs: []domain.FoodLog{}}

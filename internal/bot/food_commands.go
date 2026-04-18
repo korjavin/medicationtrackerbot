@@ -133,7 +133,8 @@ Examples:
 	}
 
 	eatenAt := time.Unix(int64(msg.Date), 0)
-	saveCtx := context.Background()
+	saveCtx, saveCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer saveCancel()
 
 	saved := make([]domain.FoodLog, 0, len(parsedLogs))
 	var failed int
@@ -164,25 +165,19 @@ Examples:
 	msgConfig.Text = renderFoodSummary(saved, failed)
 }
 
+// telegramMessageLimit is the safe threshold for a single Telegram message.
+// The hard cap is 4096 UTF-16 code units; we leave a buffer for emoji and the
+// truncation marker.
+const telegramMessageLimit = 3900
+
 // renderFoodSummary builds the reply shown after the /food command persists items.
 // saved is the list of successfully stored items; failed is the count of items that errored.
+// If the full reply would exceed Telegram's message-length limit, the per-item
+// list is truncated and an "… and N more items" marker is inserted so the
+// aggregate totals always remain visible.
 func renderFoodSummary(saved []domain.FoodLog, failed int) string {
-	var sb strings.Builder
-
-	if failed > 0 {
-		fmt.Fprintf(&sb, "⚠️ Logged %d of %d items; %d failed to save\n\n", len(saved), len(saved)+failed, failed)
-	} else {
-		fmt.Fprintf(&sb, "✅ Logged %d item", len(saved))
-		if len(saved) != 1 {
-			sb.WriteString("s")
-		}
-		sb.WriteString("\n\n")
-	}
-
 	var totalCarbs, totalProtein, totalFat, totalCals, totalWeight int
 	for _, item := range saved {
-		fmt.Fprintf(&sb, "• %s (%dg) — %dg C / %dg P / %dg F · %d kcal\n",
-			item.Name, item.Weight, item.Carbs, item.Protein, item.Fat, item.Calories)
 		totalCarbs += item.Carbs
 		totalProtein += item.Protein
 		totalFat += item.Fat
@@ -190,8 +185,38 @@ func renderFoodSummary(saved []domain.FoodLog, failed int) string {
 		totalWeight += item.Weight
 	}
 
-	fmt.Fprintf(&sb, "\n📊 Total: %dg C / %dg P / %dg F\n🔥 Calories: %d kcal\n⚖️ Weight: %dg",
+	var header string
+	if failed > 0 {
+		header = fmt.Sprintf("⚠️ Logged %d of %d items; %d failed to save\n\n", len(saved), len(saved)+failed, failed)
+	} else {
+		plural := ""
+		if len(saved) != 1 {
+			plural = "s"
+		}
+		header = fmt.Sprintf("✅ Logged %d item%s\n\n", len(saved), plural)
+	}
+	footer := fmt.Sprintf("\n📊 Total: %dg C / %dg P / %dg F\n🔥 Calories: %d kcal\n⚖️ Weight: %dg",
 		totalCarbs, totalProtein, totalFat, totalCals, totalWeight)
 
-	return sb.String()
+	var body strings.Builder
+	body.WriteString(header)
+	for i, item := range saved {
+		line := fmt.Sprintf("• %s (%dg) — %dg C / %dg P / %dg F · %d kcal\n",
+			item.Name, item.Weight, item.Carbs, item.Protein, item.Fat, item.Calories)
+		remaining := len(saved) - i
+		truncMarker := fmt.Sprintf("… and %d more items\n", remaining)
+		// Check whether appending this line still leaves room for either the
+		// footer or (if more items remain) a truncation marker + footer.
+		projected := body.Len() + len(line) + len(footer)
+		if remaining > 1 {
+			projected += len(truncMarker)
+		}
+		if projected > telegramMessageLimit {
+			body.WriteString(truncMarker)
+			break
+		}
+		body.WriteString(line)
+	}
+	body.WriteString(footer)
+	return body.String()
 }
