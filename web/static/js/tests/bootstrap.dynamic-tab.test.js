@@ -48,12 +48,13 @@ describe('bootstrap.js dynamic tab selection', () => {
             // Wait for checkAuth().then(...) to resolve
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            // BP is first in order but disabled (display: none). Weight is the first visible.
+            // BP is first in order but disabled (display: none). Weight is the first
+            // visible tab because tab_order reorders the DOM and 'today' (not in tab_order)
+            // is appended at the end by applyTabOrder.
             const bpTab = document.querySelector('.tab[data-tab="bp"]');
             const weightTab = document.querySelector('.tab[data-tab="weight"]');
-            
+
             if (bpTab) expect(bpTab.style.display).toBe('none');
-            // Check that switchTab was called with 'weight' instead of hardcoded 'bp'
             if (weightTab) {
                 expect(switchTabSpy).toHaveBeenCalledWith('weight');
                 expect(switchTabSpy).not.toHaveBeenCalledWith('bp');

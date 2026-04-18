@@ -52,13 +52,13 @@ Benefit: turns the Mini App from a logbook into something worth opening unprompt
 
 ### Task 2: Render the Today view
 
-- [ ] add `<div id="today-view" class="view active">` to `index.html` (move `active` off `meds-view`)
-- [ ] add `<button class="tab active" data-tab="today" aria-label="Today">` as the first tab (with a sun-shaped or calendar SVG icon, stroke-based to match siblings)
-- [ ] in `features/today.js`, implement `renderToday(state)` that builds the DOM using existing primitives (`stat-card.js`, `action-row.js`, `empty-state.js`)
-- [ ] each card is tappable → calls `handleDeepLinks` to switch tabs; no inline `style.` assignments — use CSS classes only
-- [ ] add CSS for `.today-greeting` (uses `var(--font-display)` if Plan 1 has shipped, otherwise body), `.today-card-grid` (CSS grid, 2-up on mobile, 3-up wider), `.today-trend-arrow` (stroke icon + token color)
-- [ ] write Vitest UI characterization snapshot covering all four state combinations from Task 1
-- [ ] run `pnpm test` — must pass before next task
+- [x] add `<div id="today-view" class="view active">` to `index.html` (move `active` off `meds-view`)
+- [x] add `<button class="tab active" data-tab="today" aria-label="Today">` as the first tab (with a sun-shaped or calendar SVG icon, stroke-based to match siblings)
+- [x] in `features/today.js`, implement `renderToday(state)` that builds the DOM using existing primitives (`stat-card.js`, `action-row.js`, `empty-state.js`)
+- [x] each card is tappable → calls `handleDeepLinks` to switch tabs; no inline `style.` assignments — use CSS classes only
+- [x] add CSS for `.today-greeting` (uses `var(--font-display)` if Plan 1 has shipped, otherwise body), `.today-card-grid` (CSS grid, 2-up on mobile, 3-up wider), `.today-trend-arrow` (stroke icon + token color)
+- [x] write Vitest UI characterization snapshot covering all four state combinations from Task 1
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Wire Today into the tab system
 

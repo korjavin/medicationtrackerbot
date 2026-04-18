@@ -923,10 +923,10 @@ describe('Architecture – design tokens', () => {
         const htmlPath = path.join(REPO_ROOT, 'web/static/index.html');
         const html = fs.readFileSync(htmlPath, 'utf8');
 
-        // All 7 tab buttons should contain an <svg> element
+        // All 8 tab buttons (Today + 7 feature tabs) should contain an <svg> element
         const tabButtons = html.match(/<button\s+class="tab[^"]*"\s+data-tab="[^"]*"[^>]*>[\s\S]*?<\/button>/g);
         expect(tabButtons).not.toBeNull();
-        expect(tabButtons.length).toBe(7);
+        expect(tabButtons.length).toBe(8);
 
         const tabsWithoutSvg = [];
         const tabsWithoutAriaLabel = [];

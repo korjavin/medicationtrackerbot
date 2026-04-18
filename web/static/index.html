@@ -31,7 +31,8 @@
 <body>
     <div id="app">
         <div id="tabs">
-            <button class="tab active" data-tab="bp" aria-label="Blood Pressure"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21c-4-4-8-7.5-8-11a5 5 0 0 1 9-3h0a5 5 0 0 1 9 3c0 3.5-4 7-8 11z"/><path d="M12 11v4"/><path d="M10 13h4"/></svg></button>
+            <button class="tab active" data-tab="today" aria-label="Today"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/></svg></button>
+            <button class="tab" data-tab="bp" aria-label="Blood Pressure"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21c-4-4-8-7.5-8-11a5 5 0 0 1 9-3h0a5 5 0 0 1 9 3c0 3.5-4 7-8 11z"/><path d="M12 11v4"/><path d="M10 13h4"/></svg></button>
             <button class="tab" data-tab="weight" aria-label="Weight"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M7 8V6a5 5 0 0 1 10 0v2"/><circle cx="12" cy="15" r="2"/></svg></button>
             <button class="tab" data-tab="workouts" aria-label="Workouts"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5v14"/><path d="M18 5v14"/><path d="M6 12h12"/><rect x="2" y="7" width="4" height="10" rx="1"/><rect x="18" y="7" width="4" height="10" rx="1"/></svg></button>
             <button class="tab" data-tab="food" aria-label="Food"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M4 6c0 5 3 8 8 8s8-3 8-8"/><path d="M12 14v7"/><path d="M8 21h8"/></svg></button>
@@ -42,7 +43,11 @@
 
         <div id="offline-banner" class="offline-banner hidden" aria-live="polite">Offline — showing cached data</div>
 
-        <div id="meds-view" class="view active">
+        <div id="today-view" class="view active">
+            <div id="today-content"></div>
+        </div>
+
+        <div id="meds-view" class="view">
             <!-- Med Tabs -->
             <div class="med-tabs">
                 <button class="med-tab active" data-tab="history">History</button>
@@ -1032,6 +1037,7 @@
     <script src="/static/js/features/auth-flow.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/modal-history.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/deeplink-router.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/today.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/workout.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/push.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/app-shell.js?v=TIMESTAMP_PLACEHOLDER"></script>
