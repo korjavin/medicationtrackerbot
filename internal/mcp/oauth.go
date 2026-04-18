@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math/big"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -272,8 +273,11 @@ type JWK struct {
 
 // refreshJWKS fetches and caches the JWKS from Pocket-ID
 func (h *OAuthHandler) refreshJWKS(ctx context.Context) error {
-	if h.config.PocketIDURL != "" && !strings.HasPrefix(h.config.PocketIDURL, "http://") && !strings.HasPrefix(h.config.PocketIDURL, "https://") {
-		return fmt.Errorf("invalid PocketIDURL scheme: must be http or https")
+	if h.config.PocketIDURL != "" {
+		u, err := url.Parse(h.config.PocketIDURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			return fmt.Errorf("invalid PocketIDURL scheme: must be http or https")
+		}
 	}
 	jwksURL := h.config.PocketIDURL + "/.well-known/jwks.json"
 
