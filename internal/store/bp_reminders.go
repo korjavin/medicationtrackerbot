@@ -303,3 +303,355 @@ func CategorySeverity(category string) int {
 		return 0
 	}
 }
+
+// BatchGetBPReminderStates retrieves BP reminder states for multiple users efficiently.
+// Returns a map keyed by user_id. For users not in the database, a default state is created and saved.
+func (s *Store) BatchGetBPReminderStates(userIDs []int64) (map[int64]*BPReminderState, error) {
+	result := make(map[int64]*BPReminderState, len(userIDs))
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+
+	batchSize := 500
+	for i := 0; i < len(userIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(userIDs) {
+			end = len(userIDs)
+		}
+		batch := userIDs[i:end]
+
+		placeholders := make([]byte, 0, len(batch)*2)
+		args := make([]interface{}, len(batch))
+		for j, id := range batch {
+			if j > 0 {
+				placeholders = append(placeholders, ',', '?')
+			} else {
+				placeholders = append(placeholders, '?')
+			}
+			args[j] = id
+		}
+
+		query := `
+			SELECT user_id, enabled, snoozed_until, dont_remind_until,
+				   last_notification_sent_at, notification_message_id,
+				   preferred_reminder_hour, created_at, updated_at
+			FROM bp_reminder_state WHERE user_id IN (` + string(placeholders) + `)`
+
+		rows, err := s.db.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var state BPReminderState
+			var snoozedUntil, dontRemindUntil, lastNotificationSentAt sql.NullTime
+			var notificationMessageID sql.NullInt64
+
+			if err := rows.Scan(
+				&state.UserID, &state.Enabled, &snoozedUntil, &dontRemindUntil,
+				&lastNotificationSentAt, &notificationMessageID,
+				&state.PreferredReminderHour, &state.CreatedAt, &state.UpdatedAt,
+			); err != nil {
+				rows.Close()
+				return nil, err
+			}
+
+			if snoozedUntil.Valid {
+				state.SnoozedUntil = &snoozedUntil.Time
+			}
+			if dontRemindUntil.Valid {
+				state.DontRemindUntil = &dontRemindUntil.Time
+			}
+			if lastNotificationSentAt.Valid {
+				state.LastNotificationSentAt = &lastNotificationSentAt.Time
+			}
+			if notificationMessageID.Valid {
+				msgID := int(notificationMessageID.Int64)
+				state.NotificationMessageID = &msgID
+			}
+
+			result[state.UserID] = &state
+		}
+		rows.Close()
+	}
+
+	// Handle missing states (create default)
+	for _, id := range userIDs {
+		if _, exists := result[id]; !exists {
+			state := &BPReminderState{
+				UserID:                id,
+				Enabled:               true,
+				PreferredReminderHour: 20, // Default 8 PM
+				CreatedAt:             time.Now(),
+				UpdatedAt:             time.Now(),
+			}
+			if err := s.initBPReminderState(id); err != nil {
+				return nil, err
+			}
+			result[id] = state
+		}
+	}
+
+	return result, nil
+}
+
+// BatchGetLastBPReadings retrieves the most recent BP reading for multiple users.
+func (s *Store) BatchGetLastBPReadings(ctx context.Context, userIDs []int64) (map[int64]*BloodPressure, error) {
+	result := make(map[int64]*BloodPressure, len(userIDs))
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+
+	batchSize := 500
+	for i := 0; i < len(userIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(userIDs) {
+			end = len(userIDs)
+		}
+		batch := userIDs[i:end]
+
+		placeholders := make([]byte, 0, len(batch)*2)
+		args := make([]interface{}, len(batch))
+		for j, id := range batch {
+			if j > 0 {
+				placeholders = append(placeholders, ',', '?')
+			} else {
+				placeholders = append(placeholders, '?')
+			}
+			args[j] = id
+		}
+
+		// Use window function to efficiently get the latest reading per user without N+1
+		query := `
+			WITH RankedReadings AS (
+				SELECT id, user_id, measured_at, systolic, diastolic, pulse,
+					   site, position, category, ignore_calc, notes, tag,
+					   ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY measured_at DESC) as rn
+				FROM blood_pressure_readings
+				WHERE user_id IN (` + string(placeholders) + `)
+			)
+			SELECT id, user_id, measured_at, systolic, diastolic, pulse,
+				   site, position, category, ignore_calc, notes, tag
+			FROM RankedReadings
+			WHERE rn = 1`
+
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var bp BloodPressure
+			var pulse sql.NullInt64
+			var site, position, category, notes, tag sql.NullString
+
+			if err := rows.Scan(
+				&bp.ID, &bp.UserID, &bp.MeasuredAt, &bp.Systolic, &bp.Diastolic,
+				&pulse, &site, &position, &category, &bp.IgnoreCalc, &notes, &tag,
+			); err != nil {
+				rows.Close()
+				return nil, err
+			}
+
+			if pulse.Valid {
+				p := int(pulse.Int64)
+				bp.Pulse = &p
+			}
+			if site.Valid {
+				bp.Site = site.String
+			}
+			if position.Valid {
+				bp.Position = position.String
+			}
+			if category.Valid {
+				bp.Category = category.String
+			}
+			if notes.Valid {
+				bp.Notes = notes.String
+			}
+			if tag.Valid {
+				bp.Tag = tag.String
+			}
+
+			result[bp.UserID] = &bp
+		}
+		rows.Close()
+	}
+
+	return result, nil
+}
+
+// BatchGetDominantBPCategories calculates the dominant BP category over the last 14 days for multiple users.
+func (s *Store) BatchGetDominantBPCategories(ctx context.Context, userIDs []int64) (map[int64]string, error) {
+	result := make(map[int64]string, len(userIDs))
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+
+	// Initialize with default
+	for _, id := range userIDs {
+		result[id] = "Normal"
+	}
+
+	since := time.Now().AddDate(0, 0, -14)
+
+	batchSize := 500
+	for i := 0; i < len(userIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(userIDs) {
+			end = len(userIDs)
+		}
+		batch := userIDs[i:end]
+
+		placeholders := make([]byte, 0, len(batch)*2)
+		args := make([]interface{}, 0, len(batch)+1)
+		for j, id := range batch {
+			if j > 0 {
+				placeholders = append(placeholders, ',', '?')
+			} else {
+				placeholders = append(placeholders, '?')
+			}
+			args = append(args, id)
+		}
+		args = append(args, since)
+
+		query := `
+			SELECT user_id, category
+			FROM blood_pressure_readings
+			WHERE user_id IN (` + string(placeholders) + `)
+			  AND measured_at >= ?
+			  AND ignore_calc = 0`
+
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		userCategories := make(map[int64]map[string]int)
+
+		for rows.Next() {
+			var userID int64
+			var category string
+			if err := rows.Scan(&userID, &category); err != nil {
+				rows.Close()
+				return nil, err
+			}
+
+			if _, ok := userCategories[userID]; !ok {
+				userCategories[userID] = make(map[string]int)
+			}
+			userCategories[userID][category]++
+		}
+		rows.Close()
+
+		categoryOrder := []string{"Hypertensive Crisis", "High BP Stage 2", "High BP Stage 1", "Elevated", "Normal"}
+
+		for userID, counts := range userCategories {
+			maxCount := 0
+			dominantCategory := "Normal"
+
+			for _, cat := range categoryOrder {
+				// We iterate starting with the most severe ("Hypertensive Crisis") down to "Normal"
+				// If a category count matches maxCount, we ONLY update it if it's the very first time
+				// we are setting the maxCount, OR if count > maxCount, meaning ties default to the
+				// earlier (more severe) category we already captured.
+				if count, ok := counts[cat]; ok && count > maxCount {
+					maxCount = count
+					dominantCategory = cat
+				} else if ok && count == maxCount && maxCount == 0 {
+					// edge case: if we process the first valid category and its count is 0
+					dominantCategory = cat
+				} else if ok && count == maxCount {
+					// tie! but since we go from most severe to least, we want to KEEP the more severe one
+					// (which we saw earlier). Thus, do nothing here.
+				}
+			}
+			result[userID] = dominantCategory
+		}
+	}
+
+	return result, nil
+}
+
+// BatchCalculatePreferredReminderHours calculates the preferred reminder hour for multiple users.
+func (s *Store) BatchCalculatePreferredReminderHours(ctx context.Context, userIDs []int64) (map[int64]int, error) {
+	result := make(map[int64]int, len(userIDs))
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+
+	// Initialize with default
+	for _, id := range userIDs {
+		result[id] = 20
+	}
+
+	since := time.Now().AddDate(0, 0, -14)
+
+	batchSize := 500
+	for i := 0; i < len(userIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(userIDs) {
+			end = len(userIDs)
+		}
+		batch := userIDs[i:end]
+
+		placeholders := make([]byte, 0, len(batch)*2)
+		args := make([]interface{}, 0, len(batch)+1)
+		for j, id := range batch {
+			if j > 0 {
+				placeholders = append(placeholders, ',', '?')
+			} else {
+				placeholders = append(placeholders, '?')
+			}
+			args = append(args, id)
+		}
+		args = append(args, since)
+
+		query := `
+			SELECT user_id, measured_at
+			FROM blood_pressure_readings
+			WHERE user_id IN (` + string(placeholders) + `)
+			  AND measured_at >= ?`
+
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		userHours := make(map[int64][]int)
+
+		for rows.Next() {
+			var userID int64
+			var measuredAt time.Time
+			if err := rows.Scan(&userID, &measuredAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+
+			userHours[userID] = append(userHours[userID], measuredAt.Hour())
+		}
+		rows.Close()
+
+		for userID, hours := range userHours {
+			if len(hours) < 3 {
+				continue
+			}
+
+			totalHour := 0
+			for _, h := range hours {
+				totalHour += h
+			}
+			avgHour := totalHour / len(hours)
+
+			if avgHour < 8 {
+				avgHour = 8
+			} else if avgHour > 23 {
+				avgHour = 23
+			}
+
+			result[userID] = avgHour
+		}
+	}
+
+	return result, nil
+}
