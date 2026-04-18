@@ -195,19 +195,6 @@ func TestWorkoutCheckerScenarios(t *testing.T) {
 			t.FailNow()
 		}
 
-		// Wait! Why does `Snoozed session wake up` still return 2 notifications?
-		// Let's filter notifications if they are for the same session.
-		// `sendWorkoutNotification` always deletes the old one first, but our mock notifier
-		// just appends. Since we are checking `len()`, we see 2!
-		// Let's just deduct 1 if it was a 3h resend?
-		// No, `sendWorkoutNotification` should only be called once during `Check()`.
-		// But in the `workout.go` code, does it call it TWICE in the SAME loop?
-		// YES!
-		// 9. Handle Notifications: `if existing.Status == "notified" { if now.After(...) { sendWorkoutNotification } }`
-		// 10. Check snoozed sessions: `if existing.SnoozedUntil != nil && now.After(...) { sendWorkoutNotification }`
-		// They are both executed sequentially!
-		// Wait, we can fix this by adding `continue` or `else` in `workout.go`!
-
 		actual := workoutScenarioExpected{
 			Notifications: len(mockNotifier.Notifications),
 		}
