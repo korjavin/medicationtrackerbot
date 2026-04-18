@@ -367,7 +367,7 @@ func TestPrematureCompletion_DuplicateLogs(t *testing.T) {
 
 	// Should NOT complete because Ex2 is not done
 	// Note: This uses a timeout to verify no message was sent. The timeout is generous
-	// to avoid flakiness on slow systems while still catching premature completion bugs.
+	// to avoid flakiness on slow systems while still catching premature completions.
 	select {
 	case msg := <-messageChan:
 		t.Fatalf("Premature completion! Session completed despite Ex2 remaining. Got message: %v", msg)
