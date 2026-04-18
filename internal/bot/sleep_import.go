@@ -38,7 +38,7 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 	}
 
 	ext := ""
-	if msg.Document != nil && msg.Document.FileName != "" {
+	if msg.Document.FileName != "" {
 		ext = filepath.Ext(msg.Document.FileName)
 	}
 	tempFile, err := os.CreateTemp("", "sleep-import-*"+ext)
