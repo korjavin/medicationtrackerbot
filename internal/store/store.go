@@ -744,6 +744,67 @@ func (s *Store) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*Intake
 	return &l, nil
 }
 
+func (s *Store) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[MedicationSchedule]*IntakeLog, error) {
+	result := make(map[MedicationSchedule]*IntakeLog, len(schedules))
+	if len(schedules) == 0 {
+		return result, nil
+	}
+
+	// SQLite maximum variables is typically 32766, but we'll use a conservative batch size
+	// Each tuple (medication_id, scheduled_at) uses 2 variables.
+	// 500 schedules * 2 = 1000 variables per batch.
+	const batchSize = 500
+
+	for i := 0; i < len(schedules); i += batchSize {
+		end := i + batchSize
+		if end > len(schedules) {
+			end = len(schedules)
+		}
+
+		batch := schedules[i:end]
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, len(batch)*2)
+
+		for j, sched := range batch {
+			placeholders[j] = "(?, ?)"
+			args[j*2] = sched.MedID
+			args[j*2+1] = sched.ScheduledAt.UTC().Truncate(0)
+		}
+
+		query := fmt.Sprintf(
+			"SELECT id, medication_id, user_id, scheduled_at, taken_at, status, snoozed_until FROM intake_log WHERE (medication_id, scheduled_at) IN (%s)",
+			strings.Join(placeholders, ", "),
+		)
+
+		rows, err := s.db.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var l IntakeLog
+			err := rows.Scan(
+				&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.TakenAt, &l.Status, &l.SnoozedUntil,
+			)
+			if err != nil {
+				rows.Close()
+				return nil, err
+			}
+			sched := MedicationSchedule{
+				MedID:       l.MedicationID,
+				ScheduledAt: l.ScheduledAt.UTC().Truncate(0),
+			}
+			result[sched] = &l
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	return result, nil
+}
+
 func (s *Store) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
 	scheduledAt = scheduledAt.Truncate(0)
 	takenAt = takenAt.Truncate(0)
@@ -1255,6 +1316,7 @@ func (s *Store) GetBPDailyWeightedStats(ctx context.Context, userID int64) (*BPS
 
 	return result, nil
 }
+
 // truncateToDay returns midnight (start of day) in the given timezone.
 // This ensures day boundaries respect the user's local calendar, e.g. a reading
 // at 00:30 Europe/Berlin is on the correct local day, not the previous UTC day.
@@ -2373,6 +2435,13 @@ func (s *Store) RecordTimezone(tz string) error {
 // -- TZ Transition Plans --
 
 // TZTransitionPlan represents a pending or completed timezone transition plan.
+
+// MedicationSchedule represents a combination of medication ID and target time
+// for batch fetching intakes.
+type MedicationSchedule struct {
+	MedID       int64
+	ScheduledAt time.Time
+}
 type TZTransitionPlan struct {
 	ID         int64      `json:"id"`
 	OldTZ      string     `json:"old_tz"`
