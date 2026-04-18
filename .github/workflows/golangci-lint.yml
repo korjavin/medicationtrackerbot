@@ -30,7 +30,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.10.1
+          version: v1.64.6
           args: --timeout=5m --output.text.path=stdout --output.sarif.path=golangci-lint-result.sarif
           skip-cache: true
 
