@@ -889,28 +889,35 @@ function switchTab(tab) {
 
 let todayUnsubscribe = null;
 
+function todayFoodKey(nowDate) {
+    const d = nowDate || new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `food_${y}-${m}-${day}_day`;
+}
+
 async function loadToday() {
     const root = document.getElementById('today-content');
     if (!root || !window.TodayDashboard) return;
     const bootstrap = { features: featureSettings || {} };
+    const swrCaches = {};
     let oldestCacheTimestamp = null;
+    const foodKey = todayFoodKey(new Date());
+    const trackTs = (ts) => {
+        if (Number.isFinite(ts) && (oldestCacheTimestamp === null || ts < oldestCacheTimestamp)) {
+            oldestCacheTimestamp = ts;
+        }
+    };
     try {
         const cacheStore = window.MedTrackerDB?.ApiCache;
         const readMeta = cacheStore && typeof cacheStore.getWithMeta === 'function'
             ? (key) => cacheStore.getWithMeta(key).catch(() => null)
             : null;
         if (readMeta) {
-            const metas = await Promise.all([
-                readMeta('settings_bundle'),
-                readMeta('next_intake'),
-                readMeta('bp'),
-                readMeta('weight')
-            ]);
-            const unpack = (m) => (m ? { data: m.data, ts: m.timestamp } : null);
-            const bundleM = unpack(metas[0]);
-            const nextIntakeM = unpack(metas[1]);
-            const bpM = unpack(metas[2]);
-            const weightM = unpack(metas[3]);
+            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', 'health_overview', foodKey];
+            const metas = await Promise.all(keys.map(readMeta));
+            const [bundleM, nextIntakeM, bpM, weightM, workoutM, healthM, foodM] = metas;
             if (bundleM?.data) {
                 bootstrap.features = bundleM.data.featureSettings || bootstrap.features;
                 bootstrap.settings = { food_targets: bundleM.data.foodTargets };
@@ -929,20 +936,20 @@ async function loadToday() {
                     goal: weightM.data.goalRes || {}
                 };
             }
-            for (const m of [bundleM, nextIntakeM, bpM, weightM]) {
-                if (m && Number.isFinite(m.ts)) {
-                    if (oldestCacheTimestamp === null || m.ts < oldestCacheTimestamp) {
-                        oldestCacheTimestamp = m.ts;
-                    }
-                }
+            if (workoutM?.data) swrCaches.workout_next = workoutM.data;
+            if (healthM?.data) swrCaches.health_overview = healthM.data;
+            if (foodM?.data) {
+                const groups = Array.isArray(foodM.data.groups) ? foodM.data.groups : [];
+                swrCaches.food_today = { groups };
+            }
+            for (const m of metas) {
+                if (m) trackTs(m.timestamp);
             }
         } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
-            const [bundle, nextIntake, bp, weight] = await Promise.all([
-                window.DataStore.getCached('settings_bundle').catch(() => null),
-                window.DataStore.getCached('next_intake').catch(() => null),
-                window.DataStore.getCached('bp').catch(() => null),
-                window.DataStore.getCached('weight').catch(() => null)
-            ]);
+            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', 'health_overview', foodKey];
+            const [bundle, nextIntake, bp, weight, workout, health, food] = await Promise.all(
+                keys.map((k) => window.DataStore.getCached(k).catch(() => null))
+            );
             if (bundle) {
                 bootstrap.features = bundle.featureSettings || bootstrap.features;
                 bootstrap.settings = { food_targets: bundle.foodTargets };
@@ -961,12 +968,18 @@ async function loadToday() {
                     goal: weight.goalRes || {}
                 };
             }
+            if (workout) swrCaches.workout_next = workout;
+            if (health) swrCaches.health_overview = health;
+            if (food) {
+                const groups = Array.isArray(food.groups) ? food.groups : [];
+                swrCaches.food_today = { groups };
+            }
         }
     } catch (_) { /* best-effort — render whatever we have */ }
 
     const online = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
     const nowMs = Date.now();
-    const state = window.TodayDashboard.aggregateToday(bootstrap, {}, nowMs);
+    const state = window.TodayDashboard.aggregateToday(bootstrap, swrCaches, nowMs);
     if (window.TodayDashboard.isOfflineStale({ online, cacheTimestamp: oldestCacheTimestamp, now: nowMs })) {
         state.__offline = true;
     }
@@ -974,7 +987,10 @@ async function loadToday() {
 
     if (!todayUnsubscribe && typeof window.TodayDashboard.subscribe === 'function') {
         todayUnsubscribe = window.TodayDashboard.subscribe({
-            onRefresh: () => {
+            onRefresh: (payload) => {
+                // The app-level BOOTSTRAP_UPDATED handler already calls reloadCurrentTab();
+                // skip that source here so we don't render twice.
+                if (payload && payload.source === 'bootstrap') return;
                 const active = document.querySelector('.tab.active');
                 if (active && active.dataset && active.dataset.tab === 'today') {
                     loadToday();

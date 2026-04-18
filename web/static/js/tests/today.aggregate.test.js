@@ -277,11 +277,21 @@ describe('TodayDashboard.aggregateToday', () => {
     expect(result.__firstRun).toBe(true);
   });
 
-  it('does not flag __firstRun when bootstrap has any data section', () => {
+  it('does not flag __firstRun when bootstrap has any real data section', () => {
     const now = new Date('2026-04-19T09:00:00Z');
-    const bootstrap = { features: {}, bp: { readings: [] } };
+    const bootstrap = {
+      features: {},
+      bp: { readings: [{ systolic: 120, diastolic: 80, measured_at: '2026-04-19T08:00:00Z' }] }
+    };
     const result = env.aggregate(bootstrap, {}, now);
     expect(result.__firstRun).toBeUndefined();
+  });
+
+  it('still flags __firstRun when bootstrap sections are present but empty (e.g. empty bp.readings)', () => {
+    const now = new Date('2026-04-19T09:00:00Z');
+    const bootstrap = { features: {}, bp: { readings: [] }, weight: { logs: [] } };
+    const result = env.aggregate(bootstrap, {}, now);
+    expect(result.__firstRun).toBe(true);
   });
 
   it('does not flag __firstRun when SWR caches hold food data even if bootstrap is empty', () => {
@@ -289,5 +299,82 @@ describe('TodayDashboard.aggregateToday', () => {
     const caches = { food_today: { groups: [{ calories: 400 }] } };
     const result = env.aggregate({ features: {} }, caches, now);
     expect(result.__firstRun).toBeUndefined();
+  });
+
+  it('flags weightLatest as stale when the most recent log is older than one week', () => {
+    const now = new Date('2026-04-19T09:00:00Z');
+    const bootstrap = fullBootstrap(now);
+    bootstrap.weight.logs = [
+      { measured_at: isoDaysAgo(now, 10), weight: 80.0 }
+    ];
+    const result = env.aggregate(bootstrap, fullSWRCaches(), now);
+    expect(result.weightLatest.status).toBe('stale');
+  });
+
+  it('keeps weightLatest ok when the most recent log is within the stale window', () => {
+    const now = new Date('2026-04-19T09:00:00Z');
+    const bootstrap = fullBootstrap(now);
+    bootstrap.weight.logs = [
+      { measured_at: isoDaysAgo(now, 3), weight: 80.0 }
+    ];
+    const result = env.aggregate(bootstrap, fullSWRCaches(), now);
+    expect(result.weightLatest.status).toBe('ok');
+  });
+
+  it('reads real API sleep field total_mins (not just total_minutes)', () => {
+    const now = new Date('2026-04-19T09:00:00Z');
+    const caches = {
+      health_overview: {
+        sleep_stats_7d: [
+          { date: '2026-04-18', total_mins: 450 }
+        ]
+      }
+    };
+    const result = env.aggregate({ features: { health: true } }, caches, now);
+    expect(result.sleepLastNight.status).toBe('ok');
+    expect(result.sleepLastNight.value.hours).toBe(7.5);
+    expect(result.sleepLastNight.value.day).toBe('2026-04-18');
+  });
+
+  it('flags sleepLastNight as stale when the most recent entry is older than ~2 days', () => {
+    const now = new Date('2026-04-19T09:00:00Z');
+    const staleDay = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const caches = {
+      health_overview: {
+        sleep_stats_7d: [{ date: staleDay, total_mins: 420 }]
+      }
+    };
+    const result = env.aggregate({ features: { health: true } }, caches, now);
+    expect(result.sleepLastNight.status).toBe('stale');
+  });
+
+  it('reads workout group_name from the top level of the workout_next cache (real API shape)', () => {
+    const now = new Date('2026-04-19T09:00:00Z');
+    const caches = {
+      workout_next: {
+        session: {
+          scheduled_date: '2026-04-20T00:00:00Z',
+          scheduled_time: '09:00',
+          status: 'pending',
+          is_today: false
+        },
+        group_name: 'Push day'
+      }
+    };
+    const result = env.aggregate({ features: { workout: true } }, caches, now);
+    expect(result.nextWorkout.status).toBe('ok');
+    expect(result.nextWorkout.value.group_name).toBe('Push day');
+  });
+
+  it('reports flat trend when the delta falls inside the epsilon band', () => {
+    const now = new Date('2026-04-19T09:00:00Z');
+    const bootstrap = fullBootstrap(now);
+    bootstrap.weight.logs = [
+      { measured_at: isoDaysAgo(now, 6), weight: 80.0 },
+      { measured_at: isoDaysAgo(now, 1), weight: 80.1 }
+    ];
+    const result = env.aggregate(bootstrap, fullSWRCaches(), now);
+    expect(result.weightTrend7d.status).toBe('ok');
+    expect(result.weightTrend7d.value.direction).toBe('flat');
   });
 });
