@@ -98,8 +98,8 @@ Benefit: turns the Mini App from a logbook into something worth opening unprompt
 
 ### Task 7: Documentation
 
-- [ ] update `docs/frontend.md` "Tabs and Navigation" with the Today tab pattern
-- [ ] update `docs/features.md` with a Today section explaining the aggregation source and deep-link targets
+- [x] update `docs/frontend.md` "Tabs and Navigation" with the Today tab pattern
+- [x] update `docs/features.md` with a Today section explaining the aggregation source and deep-link targets
 
 ## Technical Details
 
