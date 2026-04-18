@@ -2,6 +2,7 @@ package main
 
 import (
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -36,6 +37,24 @@ func main() {
 	sessionSecret := os.Getenv("SESSION_SECRET")
 	if sessionSecret == "" || len(sessionSecret) < 32 {
 		slog.Error("SESSION_SECRET is required and must be at least 32 characters long. Generate one with: openssl rand -base64 32")
+		os.Exit(1)
+	}
+
+	// Calculate Shannon entropy to ensure the secret is not predictable
+	var entropy float64
+	charCounts := make(map[rune]int)
+	for _, char := range sessionSecret {
+		charCounts[char]++
+	}
+	length := float64(len(sessionSecret))
+	for _, count := range charCounts {
+		p := float64(count) / length
+		entropy -= p * (math.Log2(p))
+	}
+	// A cryptographically secure 32-character base64 string should easily have an entropy > 4.0
+	// Even a weak standard password usually exceeds 3.0.
+	if entropy < 3.5 {
+		slog.Error("SESSION_SECRET has insufficient entropy (is too predictable). Generate a secure one with: openssl rand -base64 32")
 		os.Exit(1)
 	}
 
