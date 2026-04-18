@@ -38,14 +38,14 @@ Rework the `/food` Telegram command so the AI returns an ordered list of atomic 
 - Modify: `internal/ai/openai.go`
 - Modify: `internal/ai/openai_test.go`
 
-- [ ] Replace `MealData` with `MealItem` (per-item: `name`, `weight_grams`, `carbs_100g`, `protein_100g`, `fat_100g`) and a wrapping `ParsedMeal{ Items []MealItem }`
-- [ ] Update `mealSchema` to match: top-level object with `items` array of per-item objects; `required` + `additionalProperties:false` at both levels (matches the `activitySchema` pattern already in this file)
-- [ ] Rewrite the system prompt to require: (a) all dish names in English regardless of input language, (b) common/generic names (e.g., "chicken breast" not "grilled marinated chicken breast with lemon"), (c) split complex meals into atomic items — one item per distinct food/ingredient; avoid combining unrelated foods into one row; but don't over-split (e.g., a single sandwich stays one item, not bread+cheese+ham)
-- [ ] Rename method to `ParseMealFromDescription` returning `*ParsedMeal`; update the `response_format` fallback branch to keep the new JSON key instructions
-- [ ] Reject empty `items` slice (return an error, matching the activity parser's behavior)
-- [ ] Update `openai_test.go` httptest fixtures to return the new schema (success, error, response_format fallback)
-- [ ] Add fixture verifying a Russian-language input still requests and receives English names (mock server assertions only — verify the request payload contains the prompt instructions; response returns English)
-- [ ] run `go test ./internal/ai/...` — must pass before Task 2
+- [x] Replace `MealData` with `MealItem` (per-item: `name`, `weight_grams`, `carbs_100g`, `protein_100g`, `fat_100g`) and a wrapping `ParsedMeal{ Items []MealItem }`
+- [x] Update `mealSchema` to match: top-level object with `items` array of per-item objects; `required` + `additionalProperties:false` at both levels (matches the `activitySchema` pattern already in this file)
+- [x] Rewrite the system prompt to require: (a) all dish names in English regardless of input language, (b) common/generic names (e.g., "chicken breast" not "grilled marinated chicken breast with lemon"), (c) split complex meals into atomic items — one item per distinct food/ingredient; avoid combining unrelated foods into one row; but don't over-split (e.g., a single sandwich stays one item, not bread+cheese+ham)
+- [x] Rename method to `ParseMealFromDescription` returning `*ParsedMeal`; update the `response_format` fallback branch to keep the new JSON key instructions
+- [x] Reject empty `items` slice (return an error, matching the activity parser's behavior)
+- [x] Update `openai_test.go` httptest fixtures to return the new schema (success, error, response_format fallback)
+- [x] Add fixture verifying a Russian-language input still requests and receives English names (mock server assertions only — verify the request payload contains the prompt instructions; response returns English)
+- [x] run `go test ./internal/ai/...` — must pass before Task 2
 
 ### Task 2: Update domain service to return N FoodLogs
 
