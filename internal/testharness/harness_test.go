@@ -47,43 +47,57 @@ func TestRunScenarios(t *testing.T) {
 }
 
 func TestDiff(t *testing.T) {
-	t.Run("equal structures", func(t *testing.T) {
-		expected := map[string]int{"a": 1, "b": 2}
-		actual := map[string]int{"b": 2, "a": 1}
-		if diff := Diff(expected, actual); diff != "" {
-			t.Errorf("Expected empty diff, got:\n%s", diff)
-		}
-	})
+	type MyStruct struct {
+		A int `json:"a"`
+		B int `json:"b"`
+	}
 
-	t.Run("equivalent JSON from different Go types", func(t *testing.T) {
-		type MyStruct struct {
-			A int `json:"a"`
-			B int `json:"b"`
-		}
-		expected := MyStruct{A: 1, B: 2}
-		actual := map[string]int{"a": 1, "b": 2}
-		if diff := Diff(expected, actual); diff != "" {
-			t.Errorf("Expected empty diff, got:\n%s", diff)
-		}
-	})
+	tests := []struct {
+		name     string
+		expected interface{}
+		actual   interface{}
+		wantDiff string
+	}{
+		{
+			name:     "equal structures",
+			expected: map[string]int{"a": 1, "b": 2},
+			actual:   map[string]int{"b": 2, "a": 1},
+			wantDiff: "",
+		},
+		{
+			name:     "equivalent JSON from different Go types",
+			expected: MyStruct{A: 1, B: 2},
+			actual:   map[string]int{"a": 1, "b": 2},
+			wantDiff: "",
+		},
+		{
+			name:     "differing values",
+			expected: map[string]int{"a": 1, "b": 2},
+			actual:   map[string]int{"a": 1, "b": 3},
+			wantDiff: "Expected:\n{\n  \"a\": 1,\n  \"b\": 2\n}\n\nActual:\n{\n  \"a\": 1,\n  \"b\": 3\n}",
+		},
+		{
+			name:     "differing structures",
+			expected: map[string]int{"a": 1, "b": 2},
+			actual:   []int{1, 2},
+			wantDiff: "Expected:\n{\n  \"a\": 1,\n  \"b\": 2\n}\n\nActual:\n[\n  1,\n  2\n]",
+		},
+		{
+			name:     "nested differing values",
+			expected: map[string]interface{}{"obj": map[string]int{"inner": 1}},
+			actual:   map[string]interface{}{"obj": map[string]int{"inner": 2}},
+			wantDiff: "Expected:\n{\n  \"obj\": {\n    \"inner\": 1\n  }\n}\n\nActual:\n{\n  \"obj\": {\n    \"inner\": 2\n  }\n}",
+		},
+	}
 
-	t.Run("differing values", func(t *testing.T) {
-		expected := map[string]int{"a": 1, "b": 2}
-		actual := map[string]int{"a": 1, "b": 3}
-		diff := Diff(expected, actual)
-		if diff == "" {
-			t.Errorf("Expected non-empty diff, got empty string")
-		}
-	})
-
-	t.Run("differing structures", func(t *testing.T) {
-		expected := map[string]int{"a": 1, "b": 2}
-		actual := []int{1, 2}
-		diff := Diff(expected, actual)
-		if diff == "" {
-			t.Errorf("Expected non-empty diff, got empty string")
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotDiff := Diff(tt.expected, tt.actual)
+			if gotDiff != tt.wantDiff {
+				t.Errorf("Diff() = %q, want %q", gotDiff, tt.wantDiff)
+			}
+		})
+	}
 }
 
 func TestNormalizeJSON(t *testing.T) {
