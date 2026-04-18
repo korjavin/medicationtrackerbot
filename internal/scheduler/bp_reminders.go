@@ -15,7 +15,9 @@ type BPReminderStore interface {
 	GetBloodPressureEnabled(ctx context.Context) (bool, error)
 	GetUsersForBPReminders() ([]int64, error)
 	GetBPReminderState(userID int64) (*store.BPReminderState, error)
+	BatchGetBPReminderStates(ctx context.Context, userIDs []int64) (map[int64]*store.BPReminderState, error)
 	GetLastBPReading(ctx context.Context, userID int64) (*store.BloodPressure, error)
+	BatchGetLastBPReadings(ctx context.Context, userIDs []int64) (map[int64]*store.BloodPressure, error)
 	CalculatePreferredReminderHour(ctx context.Context, userID int64) (int, error)
 	UpdatePreferredReminderHour(userID int64, hour int) error
 	GetDominantBPCategory(ctx context.Context, userID int64) (string, error)
@@ -64,32 +66,39 @@ func (c *BPReminderChecker) Check(ctx context.Context) error {
 		now = now.In(userLoc)
 	}
 
+	states, err := c.store.BatchGetBPReminderStates(ctx, userIDs)
+	if err != nil {
+		slog.Error("Error getting batch BP reminder states", "error", err)
+		return err
+	}
+
+	var activeUserIDs []int64
 	for _, userID := range userIDs {
-		state, err := c.store.GetBPReminderState(userID)
-		if err != nil {
-			slog.Error("Error getting BP reminder state", "userID", userID, "error", err)
+		state, ok := states[userID]
+		if !ok || !state.Enabled {
 			continue
 		}
-
-		if !state.Enabled {
-			continue
-		}
-
 		if state.SnoozedUntil != nil && now.Before(*state.SnoozedUntil) {
 			continue
 		}
-
 		if state.DontRemindUntil != nil && now.Before(*state.DontRemindUntil) {
 			continue
 		}
+		activeUserIDs = append(activeUserIDs, userID)
+	}
 
-		lastReading, err := c.store.GetLastBPReading(ctx, userID)
-		if err != nil {
-			slog.Error("Error getting last BP reading", "userID", userID, "error", err)
-			continue
-		}
+	readings, err := c.store.BatchGetLastBPReadings(ctx, activeUserIDs)
+	if err != nil {
+		slog.Error("Error getting batch last BP readings", "error", err)
+		return err
+	}
 
-		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	for _, userID := range activeUserIDs {
+		state := states[userID]
+		lastReading := readings[userID]
+
 		if lastReading != nil && lastReading.MeasuredAt.After(todayStart) {
 			continue
 		}
