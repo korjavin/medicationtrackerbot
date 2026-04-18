@@ -3,6 +3,7 @@ function initTabsDragAndDrop(container, onOrderChange) {
 
     let dragTimeout = null;
     let draggedElement = null;
+    let originalStyleAttr = null;
     let isDragging = false;
     let startX = 0;
     let initialX = 0;
@@ -149,6 +150,11 @@ function initTabsDragAndDrop(container, onOrderChange) {
 
         isDragging = true;
         draggedElement = element;
+        // Snapshot the inline style attribute so we can restore it verbatim on
+        // drag end. Prevents stale inline styles (transform, position, z-index)
+        // from leaking into the CSS-driven .tab.active state and overlapping
+        // sibling tabs after reorder.
+        originalStyleAttr = element.getAttribute('style');
 
         // Visual cues
         draggedElement.style.transition = 'none';
@@ -168,20 +174,36 @@ function initTabsDragAndDrop(container, onOrderChange) {
     function endDrag() {
         if (!draggedElement) return;
 
-        // Reset styles
-        draggedElement.style.transition = 'transform 0.2s';
-        draggedElement.style.transform = '';
-        draggedElement.style.zIndex = '';
-        draggedElement.style.position = '';
-        draggedElement.style.opacity = '';
+        // Capture local references so the rAF/timeout cleanup operates on this
+        // drag's element even if a new drag starts before this one finishes.
+        const settlingElement = draggedElement;
+        const settlingOriginalStyle = originalStyleAttr;
 
+        // Animate back to resting position. Set transition first, then clear
+        // transform — the browser interpolates from the current scale(1.1)
+        // translate to the CSS-driven resting state (scale(1.05) for active,
+        // none for inactive).
+        settlingElement.style.transition = 'transform 0.2s';
+        settlingElement.style.transform = '';
+        settlingElement.style.zIndex = '';
+        settlingElement.style.position = '';
+        settlingElement.style.opacity = '';
+
+        // After the settle animation, restore the original style attribute
+        // verbatim. Removes any inline styles we added (including the residual
+        // transition) and falls back fully to CSS — eliminates the overlap
+        // bug where stale inline transforms leaked into .tab.active state.
         setTimeout(() => {
-            if (draggedElement) {
-                draggedElement.style.transition = '';
+            if (settlingOriginalStyle === null) {
+                settlingElement.removeAttribute('style');
+            } else {
+                settlingElement.setAttribute('style', settlingOriginalStyle);
             }
-            draggedElement = null;
-            isDragging = false;
         }, 200);
+
+        draggedElement = null;
+        originalStyleAttr = null;
+        isDragging = false;
 
         // Capture new order and notify
         const newOrder = Array.from(container.querySelectorAll('.tab'))
