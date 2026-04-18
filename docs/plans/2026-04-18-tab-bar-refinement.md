@@ -64,9 +64,9 @@ Benefit: faster tab switching, cleaner visual hierarchy, more polished feel — 
 
 ### Task 3: Vary inactive icon weight for scannability
 
-- [ ] adjust each stroke SVG's `stroke-width` so the 7 inactive icons aren't identical visual weight — recommended: `1.75` for filled-feeling icons (heart, pill), `2` for medium (BP, scale, dumbbell), `2.25` for outline-only (settings gear). Decide per-icon based on visual density
-- [ ] no functional test needed for this aesthetic tuning — covered by manual review in Task 5
-- [ ] run `pnpm test` — must pass before next task (regression check)
+- [x] adjust each stroke SVG's `stroke-width` so the 7 inactive icons aren't identical visual weight — recommended: `1.75` for filled-feeling icons (heart, pill), `2` for medium (BP, scale, dumbbell), `2.25` for outline-only (settings gear). Decide per-icon based on visual density
+- [x] no functional test needed for this aesthetic tuning — covered by manual review in Task 5
+- [x] run `pnpm test` — must pass before next task (regression check)
 
 ### Task 4: Accessibility — `aria-current` on active tab
 
