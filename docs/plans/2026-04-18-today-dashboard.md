@@ -72,12 +72,12 @@ Benefit: turns the Mini App from a logbook into something worth opening unprompt
 
 ### Task 4: Live updates and SWR re-render
 
-- [ ] subscribe Today to `BOOTSTRAP_UPDATED` `postMessage` from the SW (already emitted by SWR on `/api/bootstrap`)
-- [ ] subscribe Today to the SWR cache change events for bp/weight/food (re-render when any underlying source freshens)
-- [ ] subscribe Today to `online`/`offline` events; show offline banner state inside the dashboard if cached data is `>1h` old
-- [ ] write Vitest case asserting render is called when BOOTSTRAP_UPDATED fires
-- [ ] write Vitest case asserting offline-stale state is reached when cache age exceeds threshold
-- [ ] run `pnpm test` — must pass before next task
+- [x] subscribe Today to `BOOTSTRAP_UPDATED` `postMessage` from the SW (already emitted by SWR on `/api/bootstrap`)
+- [x] subscribe Today to the SWR cache change events for bp/weight/food (re-render when any underlying source freshens)
+- [x] subscribe Today to `online`/`offline` events; show offline banner state inside the dashboard if cached data is `>1h` old
+- [x] write Vitest case asserting render is called when BOOTSTRAP_UPDATED fires
+- [x] write Vitest case asserting offline-stale state is reached when cache age exceeds threshold
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Offline + empty-state polish
 

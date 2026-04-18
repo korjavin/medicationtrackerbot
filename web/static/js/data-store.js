@@ -181,6 +181,11 @@
         },
 
         requestTabRefresh(changedTags = []) {
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+                try {
+                    window.dispatchEvent(new CustomEvent('datastore:changed', { detail: { changedTags, source: 'changes' } }));
+                } catch (_) { /* dispatch is best-effort */ }
+            }
             if (typeof window.requestTabRefresh === 'function') {
                 window.requestTabRefresh({ changedTags, source: 'changes' });
                 return;
