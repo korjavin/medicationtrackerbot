@@ -990,6 +990,14 @@ async function fetchSettingsBundle() {
         apiCall('/api/weight/reminder/status', 'GET'),
         apiCall('/api/settings', 'GET')
     ]);
+    // apiCall returns null on any GET failure (network, 5xx, 4xx). If every
+    // endpoint failed, signal total failure so DataStore.fetchFresh does not
+    // overwrite a valid cached bundle with zeroed defaults.
+    if (featureSettingsRes === null && foodTargetsRes === null
+        && bpReminderStatus === null && weightReminderStatus === null
+        && settingsRes === null) {
+        return null;
+    }
     return {
         featureSettings: featureSettingsRes || {},
         timezone: settingsRes?.timezone || '',
