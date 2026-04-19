@@ -116,14 +116,14 @@ Benefit: more vertical screen real-estate, cards preview their own data ("BP 118
 
 ### Task 6: Update tab-strip-dependent tests
 
-- [ ] DELETE `app.tab-active-state.test.js` (no tab strip, no `.tab.active` to test) — single-active invariant is now about `.view.active`, which is already covered by `app.tab-single-source.test.js`
-- [ ] DELETE `app.tab-icons.test.js` (no tab buttons, no stroke/fill icons to test) — section headers don't have icons in the same sense
-- [ ] UPDATE `app.tab-single-source.test.js`: assertions become "switching to a tab activates exactly one `.view`", not "exactly one `.tab.active`"
-- [ ] UPDATE `app.tab-order.test.js`: `tab_order` semantics now control Today card order. The save/load API is unchanged; assertions about the DOM should target Today's `.today-card-grid` instead of `#tabs`
-- [ ] UPDATE `bootstrap.today-default.test.js` and `bootstrap.dynamic-tab.test.js`: Today is unconditionally the initial view; `tab_order` is no longer about which tab to show first, it's about card order on Today
-- [ ] UPDATE `app.ui-characterization.test.js` and `app.visual-and-scanner.test.js`: regenerate snapshots (manually verify the new DOM matches expectations before committing)
-- [ ] UPDATE `architecture.design-tokens.test.js`: replace the `tabButtons` regex check with an assertion that `<nav id="tabs">` is absent
-- [ ] run `pnpm test` — must pass before next task
+- [x] DELETE `app.tab-active-state.test.js` (no tab strip, no `.tab.active` to test) — single-active invariant is now about `.view.active`, which is already covered by `app.tab-single-source.test.js`
+- [x] DELETE `app.tab-icons.test.js` (no tab buttons, no stroke/fill icons to test) — section headers don't have icons in the same sense
+- [x] UPDATE `app.tab-single-source.test.js`: assertions become "switching to a tab activates exactly one `.view`", not "exactly one `.tab.active`"
+- [x] UPDATE `app.tab-order.test.js`: `tab_order` semantics now control Today card order. The save/load API is unchanged; assertions about the DOM should target Today's `.today-card-grid` instead of `#tabs`
+- [x] UPDATE `bootstrap.today-default.test.js` and `bootstrap.dynamic-tab.test.js`: Today is unconditionally the initial view; `tab_order` is no longer about which tab to show first, it's about card order on Today
+- [x] UPDATE `app.ui-characterization.test.js` and `app.visual-and-scanner.test.js`: regenerate snapshots (manually verify the new DOM matches expectations before committing)
+- [x] UPDATE `architecture.design-tokens.test.js`: replace the `tabButtons` regex check with an assertion that `<nav id="tabs">` is absent
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Verify acceptance criteria
 

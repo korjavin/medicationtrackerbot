@@ -1,3 +1,12 @@
+/**
+ * saveTabOrder persistence tests.
+ *
+ * After the Today-as-primary-nav rework the `tab_order` setting no longer
+ * controls the order of tab-strip buttons (the strip was removed); it now
+ * conveys the Today card order. The persistence API — POST
+ * /api/settings/tab-order plus the settings_bundle.tabOrder cache — is
+ * unchanged, so these tests still cover the save path end-to-end.
+ */
 import { describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
