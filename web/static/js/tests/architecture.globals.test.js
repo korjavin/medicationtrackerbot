@@ -55,6 +55,7 @@ const ALLOWED_GLOBALS = new Set([
     // Features
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js
     'window.TodayDashboard',            // features/today.js — aggregation contract consumed by the Today view renderer
+    'window.SectionHeader',             // components/section-header.js — factory for sticky section headers with back-to-Today affordance
 
     // features/settings.js — feature toggles, food targets, reminder settings
     'window.applyFeatureSettings',      // features/settings.js — applies feature toggles to DOM and state
