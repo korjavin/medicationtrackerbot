@@ -1127,9 +1127,14 @@ async function loadToday() {
     if (!todayUnsubscribe && typeof window.TodayDashboard.subscribe === 'function') {
         todayUnsubscribe = window.TodayDashboard.subscribe({
             onRefresh: (payload) => {
-                // The app-level BOOTSTRAP_UPDATED handler already calls reloadCurrentTab();
-                // skip that source here so we don't render twice.
-                if (payload && payload.source === 'bootstrap') return;
+                // 'bootstrap' and 'datastore' sources already trigger reloadCurrentTab
+                // via the app-level BOOTSTRAP_UPDATED handler and DataStore's
+                // window.requestTabRefresh call; re-invoking loadToday() here would
+                // render twice and bypass the modal/editing deferral done by the
+                // debounced app-level path. Keep 'online'/'offline' so the offline
+                // banner updates without waiting for a data change.
+                const source = payload && payload.source;
+                if (source === 'bootstrap' || source === 'datastore') return;
                 const active = document.querySelector('.tab.active');
                 if (active && active.dataset && active.dataset.tab === 'today') {
                     loadToday();
