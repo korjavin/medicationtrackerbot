@@ -372,7 +372,7 @@ func verifySessionToken(token, secret string) (string, bool) {
 		_, err := fmt.Sscanf(payloadParts[2], "%d", &timestamp)
 		if err == nil {
 			// Session is invalid if older than 30 days
-			if time.Now().Unix() - timestamp > 30*24*60*60 {
+			if time.Now().Unix()-timestamp > 30*24*60*60 {
 				return "", false
 			}
 			return payloadParts[0], true
