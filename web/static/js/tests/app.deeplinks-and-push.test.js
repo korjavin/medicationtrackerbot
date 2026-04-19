@@ -141,6 +141,50 @@ describe('handleDeepLinks – query-param deep links (?tab=…&action=add)', () 
     }
   });
 
+  it('?tab=bp&action=add with BP feature disabled redirects to Today and does NOT open the BP modal', async () => {
+    const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/?tab=bp&action=add' });
+
+    try {
+      window.featureSettings = { ...(window.featureSettings || {}), bp: false };
+      window.featureSettingsLoaded = true;
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      const showBPSpy = vi.spyOn(window, 'showBPRecordModal').mockImplementation(() => {});
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+
+      window.handleDeepLinks();
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(switchTabSpy).toHaveBeenCalledWith('today');
+      expect(switchTabSpy).not.toHaveBeenCalledWith('bp');
+      expect(showBPSpy).not.toHaveBeenCalled();
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('/weight_add with weight feature disabled redirects to Today and does NOT open the weight modal', async () => {
+    const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/weight_add' });
+
+    try {
+      window.featureSettings = { ...(window.featureSettings || {}), weight: false };
+      window.featureSettingsLoaded = true;
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      const showWeightSpy = vi.spyOn(window, 'showWeightModal').mockImplementation(() => {});
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+
+      window.handleDeepLinks();
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(switchTabSpy).toHaveBeenCalledWith('today');
+      expect(switchTabSpy).not.toHaveBeenCalledWith('weight');
+      expect(showWeightSpy).not.toHaveBeenCalled();
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('?tab=unknown&action=add does NOT call switchTab and still cleans the URL', async () => {
     // Unknown tabs have no registered modal, so deeplink-router must skip switchTab
     // entirely to prevent activateTabGroup from blanking the page by deactivating all
@@ -165,6 +209,29 @@ describe('handleDeepLinks – query-param deep links (?tab=…&action=add)', () 
       expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/');
       // The previously-active view must remain active (no blank-page regression)
       expect(document.querySelector('.view.active')?.id).toBe(activeBefore);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('handleDeepLinks – feature flag visibility in production', () => {
+  // features/settings.js is NOT loaded in production (see index.html); app.js
+  // owns featureSettings/featureSettingsLoaded and must mirror them onto
+  // window so deeplink-router's isDeepLinkFeatureEnabled() can read them.
+  // Regression: if app.js stops writing window.featureSettings,
+  // the disabled-feature guard silently becomes a no-op.
+  it('loading app.js initialises window.featureSettings and window.featureSettingsLoaded', () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      expect(window.featureSettings).toBeDefined();
+      // The default object declared in app.js includes bp/weight/medication etc.
+      expect(window.featureSettings.bp).toBeDefined();
+      expect(window.featureSettings.weight).toBeDefined();
+      // The flag starts false until bootstrap/loadSettings resolves, but the
+      // property itself must be present so deeplink-router doesn't see
+      // `undefined` and fall through to its default-on branch.
+      expect('featureSettingsLoaded' in window).toBe(true);
     } finally {
       cleanup();
     }

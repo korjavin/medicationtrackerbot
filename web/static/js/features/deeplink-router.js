@@ -7,6 +7,17 @@
 // Loaded after app.js so all modal/tab helpers are available.
 // handleDeepLinks is exposed on window for direct test invocation.
 
+// Mirrors switchTab's feature-flag guard so modal openers aren't reached
+// when the user has disabled the section. Default-on when flags haven't
+// loaded yet (matches switchTab behaviour).
+function isDeepLinkFeatureEnabled(tab) {
+    const tabToFeature = { bp: 'bp', weight: 'weight' };
+    const feature = tabToFeature[tab];
+    if (!feature) return true;
+    if (!window.featureSettingsLoaded) return true;
+    return window.featureSettings ? window.featureSettings[feature] !== false : true;
+}
+
 function handleDeepLinks() {
     // Path-based deep links: /bp_add, /weight_add
     const deepLinkRoutes = {
@@ -16,6 +27,11 @@ function handleDeepLinks() {
     const currentPath = window.location.pathname;
     const deepLink = deepLinkRoutes[currentPath];
     if (deepLink) {
+        if (deepLink.tab && !isDeepLinkFeatureEnabled(deepLink.tab)) {
+            switchTab('today');
+            window.history.replaceState({}, '', '/');
+            return;
+        }
         if (deepLink.tab) {
             switchTab(deepLink.tab);
         }
@@ -41,6 +57,11 @@ function handleDeepLinks() {
         };
         const openFn = tab ? tabAddModals[tab] : null;
         if (openFn) {
+            if (!isDeepLinkFeatureEnabled(tab)) {
+                switchTab('today');
+                window.history.replaceState({}, '', '/');
+                return;
+            }
             // Only switch to a known/supported tab; unknown tab values are ignored
             // to prevent clearing all active views without activating any.
             switchTab(tab);
@@ -59,12 +80,24 @@ function handleDeepLinks() {
 }
 window.handleDeepLinks = handleDeepLinks;
 
-// Check for Telegram start_param deep link (e.g. from bot button)
+// Check for Telegram start_param deep link (e.g. from bot button).
+// This runs before bootstrap.js populates featureSettings, so we must
+// wait for featureSettingsLoaded too — otherwise isDeepLinkFeatureEnabled
+// returns default-on and can open BP even when the user disabled it.
+// Falls back to default-on behavior after ~5s if bootstrap never completes,
+// matching the URL-path deep-link guard.
 if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.start_param === 'bp_add') {
-    // Wait for auth then open
+    const startedAt = Date.now();
     const checkInterval = setInterval(() => {
-        if (typeof showBPRecordModal === 'function') {
+        const modalReady = typeof showBPRecordModal === 'function';
+        const flagsReady = window.featureSettingsLoaded === true;
+        const timedOut = Date.now() - startedAt >= 5000;
+        if (modalReady && (flagsReady || timedOut)) {
             clearInterval(checkInterval);
+            if (!isDeepLinkFeatureEnabled('bp')) {
+                switchTab('today');
+                return;
+            }
             switchTab('bp');
             setTimeout(showBPRecordModal, 500);
         }
