@@ -92,15 +92,15 @@ Benefit: more vertical screen real-estate, cards preview their own data ("BP 118
 
 ### Task 4: Wire Telegram WebApp BackButton
 
-- [ ] create `web/static/js/features/back-button.js` exporting `setupAppBackButton()` that:
+- [x] create `web/static/js/features/back-button.js` exporting `setupAppBackButton()` that:
   - on each `switchTab` (subscribe via `window.AppStore` or extend `switchTab` to fire a `tab-changed` event), shows the Telegram BackButton when current view !== `today` and hides it when current view === `today`
   - registers `Telegram.WebApp.BackButton.onClick(() => switchTab('today'))` once on init
   - gates on `Telegram.WebApp.version >= 6.1` (same gating as `modal-history.js:21`)
   - coordinates with `modal-history.js`: when a modal is open, modal-history's BackButton handler wins (close the modal); when no modal is open, our handler wins (return to Today). Reuse modal-history's open-modal detection so the two integrations don't fight.
-- [ ] expose `window.AppBackButton = { setup: setupAppBackButton }`; add to globals allowlist
-- [ ] call `setupAppBackButton()` from `features/bootstrap.js` after the initial tab is activated
-- [ ] write Vitest cases mocking `Telegram.WebApp.BackButton`: shows on section nav, hides on Today, click invokes switchTab('today'), respects open modals (defers to modal-history)
-- [ ] run `pnpm test` — must pass before next task
+- [x] expose `window.AppBackButton = { setup: setupAppBackButton }`; add to globals allowlist
+- [x] call `setupAppBackButton()` from `features/bootstrap.js` after the initial tab is activated
+- [x] write Vitest cases mocking `Telegram.WebApp.BackButton`: shows on section nav, hides on Today, click invokes switchTab('today'), respects open modals (defers to modal-history)
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Remove the tab strip
 
