@@ -38,6 +38,7 @@ const STATIC_ASSETS = [
     '/static/js/features/settings.js',
     '/static/js/features/auth-flow.js',
     '/static/js/features/modal-history.js',
+    '/static/js/features/back-button.js',
     '/static/js/features/deeplink-router.js',
     '/static/js/features/tabs-dnd.js',
     '/static/js/features/today.js',

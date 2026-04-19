@@ -97,6 +97,11 @@ checkAuth().then(async authorized => {
             switchTab('today');
         }
 
+        // Wire the Telegram BackButton to return-to-Today once the initial tab is active.
+        if (window.AppBackButton && typeof window.AppBackButton.setup === 'function') {
+            window.AppBackButton.setup();
+        }
+
         // Handle deep links and push actions from URL
         handleDeepLinks();
     }

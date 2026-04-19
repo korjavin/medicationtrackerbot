@@ -916,6 +916,8 @@ function switchTab(tab) {
 
     hydrateSectionHeader(tab);
 
+    window.AppStore && window.AppStore.set('currentTab', tab);
+
     if (tab === 'meds') {
         if (!document.querySelector('.med-tab.active')) {
             switchMedTab('history');
