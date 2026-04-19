@@ -906,7 +906,7 @@ function switchTab(tab) {
     };
     const feature = tabToFeature[tab];
     if (feature && featureSettingsLoaded && !featureSettings[feature]) {
-        switchTab('settings');
+        switchTab('today');
         return;
     }
 
