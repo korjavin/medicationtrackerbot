@@ -703,13 +703,6 @@ describe('Architecture – design tokens', () => {
             'features/health.js': [
                 /\.style\.background\s*=/, // dynamic legend badge colors
             ],
-            'features/tabs-dnd.js': [
-                /\.style\.transform\s*=/,   // drag transform
-                /\.style\.transition\s*=/,  // drag transition
-                /\.style\.zIndex\s*=/,      // drag z-index
-                /\.style\.position\s*=/,    // drag position
-                /\.style\.opacity\s*=/,     // drag opacity
-            ],
             'workout.js': [
                 /\.style\.background\s*=/,    // dynamic data-driven colors (heatmap squares, legend swatches)
                 /\.style\.width\s*=/,         // dynamic bar fill width
@@ -919,41 +912,14 @@ describe('Architecture – design tokens', () => {
         }
     });
 
-    it('tab buttons use inline SVG icons instead of emoji', () => {
+    it('bottom tab strip is absent — Today is the primary nav', () => {
         const htmlPath = path.join(REPO_ROOT, 'web/static/index.html');
         const html = fs.readFileSync(htmlPath, 'utf8');
 
-        // All 8 tab buttons (Today + 7 feature tabs) should contain an <svg> element.
-        // Regex tolerates other attributes (e.g. aria-current) appearing between class and data-tab.
-        const tabButtons = html.match(/<button\s+class="tab[^"]*"[^>]*\sdata-tab="[^"]*"[^>]*>[\s\S]*?<\/button>/g);
-        expect(tabButtons).not.toBeNull();
-        expect(tabButtons.length).toBe(8);
-
-        const tabsWithoutSvg = [];
-        const tabsWithoutAriaLabel = [];
-
-        for (const btn of tabButtons) {
-            const tabMatch = btn.match(/data-tab="([^"]+)"/);
-            const tabName = tabMatch ? tabMatch[1] : 'unknown';
-
-            if (!/<svg[\s>]/.test(btn)) {
-                tabsWithoutSvg.push(tabName);
-            }
-            if (!/aria-label="[^"]+"/.test(btn)) {
-                tabsWithoutAriaLabel.push(tabName);
-            }
-        }
-
-        if (tabsWithoutSvg.length > 0) {
+        if (/<nav\s+id=["']tabs["']/i.test(html)) {
             throw new Error(
-                `Tab buttons missing SVG icons (still using emoji?):\n` +
-                tabsWithoutSvg.map(t => `  • ${t}`).join('\n')
-            );
-        }
-        if (tabsWithoutAriaLabel.length > 0) {
-            throw new Error(
-                `Tab buttons missing aria-label attributes:\n` +
-                tabsWithoutAriaLabel.map(t => `  • ${t}`).join('\n')
+                'index.html still contains <nav id="tabs"> — the tab strip was removed in favor ' +
+                'of Today-as-primary-nav. Section views are entered via Today cards or deep links.'
             );
         }
     });
@@ -968,41 +934,6 @@ describe('Architecture – design tokens', () => {
         if (viewportMatch[1].includes('user-scalable=no')) {
             throw new Error(
                 'viewport meta tag still contains user-scalable=no — remove it for accessibility'
-            );
-        }
-    });
-
-    it('tab SVG icons use currentColor for theme integration', () => {
-        const htmlPath = path.join(REPO_ROOT, 'web/static/index.html');
-        const html = fs.readFileSync(htmlPath, 'utf8');
-
-        const svgsInTabs = html.match(/<button\s+class="tab[^"]*"[^>]*>[\s\S]*?<svg[\s\S]*?<\/svg>/g);
-        expect(svgsInTabs).not.toBeNull();
-
-        const violations = [];
-        for (const svg of svgsInTabs) {
-            const tabMatch = svg.match(/data-tab="([^"]+)"/);
-            const tabName = tabMatch ? tabMatch[1] : 'unknown';
-
-            if (!/stroke="currentColor"/.test(svg)) {
-                violations.push(tabName);
-            }
-        }
-
-        if (violations.length > 0) {
-            throw new Error(
-                `Tab SVG icons not using stroke="currentColor" (won't inherit theme colors):\n` +
-                violations.map(t => `  • ${t}`).join('\n')
-            );
-        }
-    });
-
-    it('.tab svg CSS rules are defined in styles.css', () => {
-        const css = fs.readFileSync(CSS_PATH, 'utf8');
-
-        if (!/\.tab\s+svg\s*\{/.test(css)) {
-            throw new Error(
-                'Missing .tab svg CSS rule in styles.css — SVG icons need size and display styling'
             );
         }
     });

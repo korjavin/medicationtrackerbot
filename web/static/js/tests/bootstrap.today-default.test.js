@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 import fs from 'node:fs';
@@ -24,21 +24,13 @@ function stubBootstrapGlobals(window, switchTabSpy) {
     window.handleDeepLinks = vi.fn();
 }
 
-describe('bootstrap.js Today tab default + opt-out', () => {
-    beforeEach(() => {
-        // Nothing global — each test manages its own localStorage via window below.
-    });
-
-    it('makes Today the default tab for a fresh user (no saved tab_order)', async () => {
+describe('bootstrap.js Today is unconditionally the initial view', () => {
+    it('calls switchTab("today") for a fresh user (no saved tab_order)', async () => {
         allowConsoleNoise();
-        const { window, document, cleanup } = loadFrontendEnv();
+        const { window, cleanup } = loadFrontendEnv();
         try {
-            try { window.localStorage.removeItem('today_opt_out'); } catch (_) {}
-
-            // Fresh user — no tab_order persisted.
             stubFetch(window, {
                 features: { bp: true, weight: true, medication: true }
-                // settings omitted → no tab_order
             });
 
             const switchTabSpy = vi.fn();
@@ -49,23 +41,16 @@ describe('bootstrap.js Today tab default + opt-out', () => {
 
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            // Today is the first tab in the DOM (index.html), so firstVisible
-            // resolves to it and switchTab('today') is called.
-            const firstTab = document.querySelector('#tabs .tab');
-            expect(firstTab?.dataset.tab).toBe('today');
             expect(switchTabSpy).toHaveBeenCalledWith('today');
         } finally {
             cleanup();
         }
     });
 
-    it('respects an explicit opt-out: tab_order without today is preserved', async () => {
+    it('calls switchTab("today") even when a saved tab_order exists', async () => {
         allowConsoleNoise();
-        const { window, document, cleanup } = loadFrontendEnv();
+        const { window, cleanup } = loadFrontendEnv();
         try {
-            // User explicitly removed Today from their tab strip.
-            try { window.localStorage.setItem('today_opt_out', '1'); } catch (_) {}
-
             stubFetch(window, {
                 features: { bp: true, weight: true, medication: true },
                 settings: { tab_order: JSON.stringify(['bp', 'weight']) }
@@ -79,20 +64,8 @@ describe('bootstrap.js Today tab default + opt-out', () => {
 
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            // With opt-out set, Today must NOT be prepended. The user's saved
-            // first tab (bp) becomes the default.
-            expect(switchTabSpy).toHaveBeenCalledWith('bp');
-            expect(switchTabSpy).not.toHaveBeenCalledWith('today');
-
-            // DOM reflects the saved order — Today is not forced to the front.
-            const tabsContainer = document.getElementById('tabs');
-            const domOrder = Array.from(tabsContainer.querySelectorAll('.tab')).map(t => t.dataset.tab);
-            const bpIdx = domOrder.indexOf('bp');
-            const todayIdx = domOrder.indexOf('today');
-            expect(bpIdx).toBeGreaterThanOrEqual(0);
-            expect(todayIdx).toBeGreaterThan(bpIdx);
-
-            try { window.localStorage.removeItem('today_opt_out'); } catch (_) {}
+            expect(switchTabSpy).toHaveBeenCalledWith('today');
+            expect(switchTabSpy).not.toHaveBeenCalledWith('bp');
         } finally {
             cleanup();
         }

@@ -2,7 +2,7 @@
 
 ## Today Dashboard
 
-Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashboard`). Default first tab for new users and existing users on upgrade (tab_order migration prepends `today`). Opt-out is currently dev-only: `localStorage['today_opt_out'] = '1'`.
+Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashboard`). The unconditional home view on every cold start — `features/bootstrap.js` always calls `switchTab('today')` after auth; there is no persistent tab strip. Section views (BP, Weight, Meds, Workouts, Food, Health, Settings) are reached via card deep-links, the gear icon (Settings), or URL hash / `tgWebAppStartParam`.
 
 **Aggregation contract** — `aggregateToday(bootstrap, swrCaches, now)` is pure and synchronous; `Date.now()` is injected for testability. Returns a flat object where each field is `{ value, deeplink, status }`. Status values:
 

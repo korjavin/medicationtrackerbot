@@ -55,12 +55,13 @@ const ALLOWED_GLOBALS = new Set([
     // Features
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js
     'window.TodayDashboard',            // features/today.js — aggregation contract consumed by the Today view renderer
+    'window.SectionHeader',             // components/section-header.js — factory for sticky section headers with back-to-Today affordance
+    'window.AppBackButton',             // features/back-button.js — wires Telegram WebApp BackButton to section → Today navigation
 
     // features/settings.js — feature toggles, food targets, reminder settings
     'window.applyFeatureSettings',      // features/settings.js — applies feature toggles to DOM and state
     'window.featureSettings',           // features/settings.js — ephemeral cache of current feature flags
-    'window.saveTabOrder',              // features/settings.js - persists tab order to DB
-    'window.initTabsDragAndDrop',       // features/tabs-dnd.js - handles drag/drop UI
+    'window.saveTabOrder',              // features/settings.js - persists Today card order to DB
     'window.featureSettingsLoaded',     // features/settings.js — flag: settings have been fetched at least once
     'window.switchTab',                 // features/settings.js — re-exported tab switcher used by applyFeatureSettings
     'window.loadFeatureSettings',       // features/settings.js — SWR loader for /api/settings/features

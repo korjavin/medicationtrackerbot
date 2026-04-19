@@ -75,10 +75,10 @@ describe('checkAuth non-blocking with cached bootstrap', () => {
       window.MedTrackerDB = {
         MedicationStore: { getCache: getCacheSpy }
       };
-      window.DataStore.getCached = vi.fn().mockResolvedValue({
+      const getCachedSpy = vi.fn().mockResolvedValue({
         tabOrder: ['weight', 'bp']
       });
-      window.applyTabOrder = vi.fn();
+      window.DataStore.getCached = getCachedSpy;
 
       // Promise.all: bootstrap rejects (network error), auth/status also fails
       // Then verifyAuthInBackground makes another call
@@ -92,9 +92,7 @@ describe('checkAuth non-blocking with cached bootstrap', () => {
 
       expect(authorized).toBe(true);
       expect(getCacheSpy).toHaveBeenCalledTimes(1);
-      // 'today' is prepended by migrateTabOrderForToday for users whose saved
-      // tab_order predates the Today tab (no explicit opt-out flag set).
-      expect(window.applyTabOrder).toHaveBeenCalledWith(['today', 'weight', 'bp']);
+      expect(getCachedSpy).toHaveBeenCalledWith('settings_bundle');
     } finally {
       cleanup();
     }

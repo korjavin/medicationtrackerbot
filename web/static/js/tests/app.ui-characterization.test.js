@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
 describe('app.js UI characterization', () => {
-  it('switchTab activates target tab/view and triggers matching loader', () => {
+  it('switchTab activates target view and triggers matching loader', () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
       const loadSettingsSpy = vi.fn();
@@ -10,24 +10,6 @@ describe('app.js UI characterization', () => {
 
       window.switchTab('settings');
 
-      expect(document.querySelector('.tab[data-tab="settings"]').classList.contains('active')).toBe(true);
-      expect(document.getElementById('settings-view').classList.contains('active')).toBe(true);
-      expect(loadSettingsSpy).toHaveBeenCalledTimes(1);
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('main tab click binding switches view without inline onclick handlers', () => {
-    const { window, document, cleanup } = loadFrontendEnv();
-    try {
-      const loadSettingsSpy = vi.fn();
-      window.loadSettings = loadSettingsSpy;
-
-      const settingsTab = document.querySelector('.tab[data-tab="settings"]');
-      settingsTab.click();
-
-      expect(settingsTab.classList.contains('active')).toBe(true);
       expect(document.getElementById('settings-view').classList.contains('active')).toBe(true);
       expect(loadSettingsSpy).toHaveBeenCalledTimes(1);
     } finally {
@@ -105,25 +87,21 @@ describe('app.js UI characterization', () => {
     }
   });
 
-  it('toggleFeatureSetting updates tab visibility and invalidates settings tags', async () => {
-    const { window, document, cleanup } = loadFrontendEnv();
+  it('toggleFeatureSetting persists the setting and invalidates settings tags', async () => {
+    const { window, cleanup } = loadFrontendEnv();
     try {
       const invalidateSpy = vi.fn().mockResolvedValue(undefined);
       const apiCallSpy = vi.fn().mockResolvedValue({ ok: true });
-      const loadMedsSpy = vi.fn();
-      const loadHistorySpy = vi.fn();
 
       window.DataStore.invalidateTags = invalidateSpy;
       window.apiCall = apiCallSpy;
-      window.loadMeds = loadMedsSpy;
-      window.loadHistory = loadHistorySpy;
 
       await window.toggleFeatureSetting('bp', false);
-      expect(document.querySelector('.tab[data-tab="bp"]').style.display).toBe('none');
+      expect(window.AppStore.get('featureSettings').bp).toBe(false);
       expect(invalidateSpy).toHaveBeenCalledWith(['settings', 'feature_settings']);
 
       await window.toggleFeatureSetting('bp', true);
-      expect(document.querySelector('.tab[data-tab="bp"]').style.display).toBe('');
+      expect(window.AppStore.get('featureSettings').bp).toBe(true);
     } finally {
       cleanup();
     }

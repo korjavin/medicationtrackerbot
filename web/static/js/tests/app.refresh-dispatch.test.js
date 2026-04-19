@@ -24,8 +24,9 @@ describe('app.js refresh dispatch behavior', () => {
       window.loadHistory = loadHistorySpy;
       window.loadWeightLogs = loadWeightSpy;
 
-      document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
-      document.querySelector('.tab[data-tab="meds"]').classList.add('active');
+      window.AppStore.set('currentTab', 'meds');
+      document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
+      document.getElementById('meds-view').classList.add('active');
 
       document.querySelectorAll('.med-tab').forEach((t) => t.classList.remove('active'));
       document.querySelector('.med-tab[data-tab="schedule"]').classList.add('active');
@@ -39,8 +40,9 @@ describe('app.js refresh dispatch behavior', () => {
       window.reloadCurrentTab();
       expect(loadHistorySpy).toHaveBeenCalledTimes(1);
 
-      document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
-      document.querySelector('.tab[data-tab="weight"]').classList.add('active');
+      window.AppStore.set('currentTab', 'weight');
+      document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
+      document.getElementById('weight-view').classList.add('active');
       window.reloadCurrentTab();
       expect(loadWeightSpy).toHaveBeenCalledTimes(1);
     } finally {
@@ -80,8 +82,9 @@ describe('app.js refresh dispatch behavior', () => {
       const loadBPSpy = vi.fn();
       window.loadBPReadings = loadBPSpy;
 
-      document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
-      document.querySelector('.tab[data-tab="bp"]').classList.add('active');
+      window.AppStore.set('currentTab', 'bp');
+      document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
+      document.getElementById('bp-view').classList.add('active');
 
       window.showBPRecordModal();
       window.requestTabRefresh({ source: 'changes' });

@@ -241,66 +241,6 @@ h3 {
     letter-spacing: -0.01em;
 }
 
-/* Tabs */
-#tabs {
-    display: flex;
-    margin-bottom: var(--space-lg);
-    border-bottom: 1px solid var(--hint-color);
-}
-
-.tab {
-    flex: 1;
-    padding: var(--space-md);
-    background: none;
-    border: none;
-    color: var(--hint-color);
-    font-weight: var(--font-weight-medium);
-    cursor: pointer;
-    transition: transform 0.15s ease, color 0.15s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-}
-
-.tab svg {
-    width: 20px;
-    height: 20px;
-    display: block;
-}
-
-.tab .tab-icon-stroke {
-    display: inline-block;
-}
-
-.tab .tab-icon-fill {
-    display: none;
-}
-
-.tab.active .tab-icon-stroke {
-    display: none;
-}
-
-.tab.active .tab-icon-fill {
-    display: inline-block;
-}
-
-.tab.active {
-    color: var(--color-accent, var(--link-color));
-    transform: scale(1.05);
-}
-
-.tab.active::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 12.5%;
-    right: 12.5%;
-    height: 2px;
-    background: currentColor;
-    border-radius: 2px;
-}
-
 /* Sub-tabs (medications, workouts, food, health) */
 .med-tabs,
 .workout-tabs,
@@ -3708,4 +3648,98 @@ input:checked+.toggle-slider:before {
     font-size: var(--font-size-md);
     background: var(--secondary-bg-color);
     border-radius: var(--radius-lg);
+}
+
+/* =============================================
+   SECTION HEADER — Today-as-primary-nav pattern
+   Sticky header at top of every view with
+   [back-to-Today] [title] [right-slot]
+   ============================================= */
+.section-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    /* Three-column grid: left slot holds the "← Today" pill (grows to fit its
+       label), right slot grows for optional badge/gear. Title is centered
+       within its own column; on Today's no-back variant the left slot is
+       hidden via visibility so the greeting still sits in the center column. */
+    display: grid;
+    grid-template-columns: minmax(44px, auto) 1fr minmax(44px, auto);
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    padding-top: calc(var(--space-sm) + env(safe-area-inset-top, 0px));
+    background: var(--bg-color);
+    box-shadow: var(--shadow-sm);
+    min-height: 48px;
+    box-sizing: border-box;
+}
+
+.section-header .section-back {
+    background: transparent;
+    color: var(--text-color);
+    justify-self: start;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    width: auto;
+    padding: 0 var(--space-sm);
+}
+
+.section-header .section-back-label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-normal);
+}
+
+.section-header.no-back .section-back {
+    visibility: hidden;
+}
+
+.section-header .section-title {
+    margin: 0;
+    text-align: center;
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-medium);
+    color: var(--text-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.section-header .section-header-right {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    justify-self: end;
+    min-width: 44px;
+}
+
+.section-header .badge {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    padding: 2px var(--space-sm);
+    border-radius: var(--radius-pill);
+    background: var(--secondary-bg-color);
+    color: var(--hint-color);
+    text-transform: lowercase;
+    letter-spacing: 0.03em;
+}
+
+.section-header .badge-experimental {
+    background: var(--color-warning);
+    color: var(--bg-color);
+}
+
+.food-stats-period-row {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-normal);
+    margin-bottom: var(--space-sm);
+}
+
+.food-stats-period-row .period-divider {
+    color: var(--hint-color);
 }

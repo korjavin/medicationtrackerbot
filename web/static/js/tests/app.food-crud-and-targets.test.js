@@ -97,8 +97,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
 
       window.safeAlert = vi.fn();
       window.loadFoodLogs = vi.fn();
-      document.querySelectorAll('#tabs .tab').forEach((tab) => tab.classList.remove('active'));
-      document.querySelector('#tabs .tab[data-tab="food"]').classList.add('active');
+      window.AppStore.set('currentTab', 'food');
 
       document.getElementById('food-target-calories').value = '1900';
       document.getElementById('food-target-carbs').value = '200';
