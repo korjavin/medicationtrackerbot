@@ -209,42 +209,6 @@ function clearPersistedTabOrder() {
     } catch (_) { /* localStorage unavailable — best-effort */ }
 }
 
-function applyTabOrder(orderArray) {
-    const container = document.getElementById('tabs');
-    if (!container || !Array.isArray(orderArray)) return;
-
-    // Keep track of existing tabs to append any unlisted ones at the end
-    const existingTabs = Array.from(container.querySelectorAll('.tab'));
-    const unlistedTabs = new Set(existingTabs);
-
-    orderArray.forEach(tabId => {
-        const tabEl = existingTabs.find(t => t.dataset.tab === tabId);
-        if (tabEl) {
-            container.appendChild(tabEl);
-            unlistedTabs.delete(tabEl);
-        }
-    });
-
-    // Append any remaining tabs that weren't in the saved order
-    unlistedTabs.forEach(tabEl => {
-        container.appendChild(tabEl);
-    });
-}
-
-// Migrate a user's saved tab_order so the Today tab becomes the default
-// landing surface.  Returns the input array when:
-//   - today is already included, or
-//   - the user has explicitly opted out (localStorage 'today_opt_out' = '1').
-// Otherwise prepends 'today' so it sorts to the front after applyTabOrder.
-function migrateTabOrderForToday(order) {
-    if (!Array.isArray(order)) return order;
-    if (order.includes('today')) return order;
-    try {
-        if (localStorage.getItem('today_opt_out') === '1') return order;
-    } catch (_) { /* localStorage unavailable — fall through and prepend */ }
-    return ['today', ...order];
-}
-
 // Apply bootstrap payload and warm caches so first tab render can use local data.
 // Idempotent: safe to call multiple times (e.g. once from SW cache, once from
 // fresh network response via BOOTSTRAP_UPDATED). Every field is a full replacement.
@@ -276,7 +240,6 @@ async function applyBootstrapPayload(res) {
         }
         if (Array.isArray(order)) {
             persistTabOrder(order);
-            applyTabOrder(migrateTabOrderForToday(order));
         } else if ('tab_order' in res.settings) {
             // Server returned settings with tab_order explicitly null/missing —
             // clear any stale localStorage fallback so a previous user's saved
@@ -428,12 +391,6 @@ async function checkAuth() {
                     const cachedBundle = await window.DataStore.getCached('settings_bundle');
                     if (cachedBundle) {
                         hydrateFeatureSettingsFromBundle(cachedBundle);
-                        const persisted = Array.isArray(cachedBundle.tabOrder)
-                            ? cachedBundle.tabOrder
-                            : readPersistedTabOrder();
-                        if (Array.isArray(persisted)) {
-                            applyTabOrder(migrateTabOrderForToday(persisted));
-                        }
                     }
                 } catch (_) { /* best-effort cache read */ }
             }
@@ -504,9 +461,6 @@ async function checkAuth() {
                     const cachedBundle = await window.DataStore.getCached('settings_bundle');
                     if (cachedBundle) {
                         hydrateFeatureSettingsFromBundle(cachedBundle);
-                        if (Array.isArray(cachedBundle.tabOrder)) {
-                            applyTabOrder(migrateTabOrderForToday(cachedBundle.tabOrder));
-                        }
                     }
                 }
                 sessionStorage.removeItem('medtracker_auth_reload_in_progress');
@@ -584,9 +538,6 @@ async function checkAuth() {
             const cachedBundle = await window.DataStore.getCached('settings_bundle');
             if (cachedBundle) {
                 hydrateFeatureSettingsFromBundle(cachedBundle);
-                if (Array.isArray(cachedBundle.tabOrder)) {
-                    applyTabOrder(migrateTabOrderForToday(cachedBundle.tabOrder));
-                }
             }
         }
 

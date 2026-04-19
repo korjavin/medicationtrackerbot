@@ -2,9 +2,8 @@
  * bootstrap.js dynamic tab-order behavior.
  *
  * After the Today-as-primary-nav rework the tab strip is gone; `tab_order`
- * no longer selects the initial view. `migrateTabOrderForToday` still runs
- * to keep the saved order compatible (prepending 'today' for users whose
- * saved order predates the Today card). This file guards that:
+ * no longer selects the initial view — it only controls Today card order.
+ * This file guards that:
  *
  *   - A saved `tab_order` never overrides 'today' as the initial view.
  *   - A pre-Today `tab_order` does not redirect bootstrap to a section view
