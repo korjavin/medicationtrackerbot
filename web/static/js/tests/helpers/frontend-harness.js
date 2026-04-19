@@ -13,6 +13,7 @@ const MT_ELEMENTS_JS = path.join(REPO_ROOT, 'web/static/js/components/mt-element
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const STAT_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/stat-card.js');
 const ACTION_ROW_JS = path.join(REPO_ROOT, 'web/static/js/components/action-row.js');
+const SECTION_HEADER_JS = path.join(REPO_ROOT, 'web/static/js/components/section-header.js');
 const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
 const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
 const APP_KERNEL_JS = path.join(REPO_ROOT, 'web/static/js/core/app-kernel.js');
@@ -26,6 +27,7 @@ const BP_JS = path.join(REPO_ROOT, 'web/static/js/features/bp.js');
 const WEIGHT_JS = path.join(REPO_ROOT, 'web/static/js/features/weight.js');
 const AUTH_FLOW_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-flow.js');
 const MODAL_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/modal-history.js');
+const BACK_BUTTON_JS = path.join(REPO_ROOT, 'web/static/js/features/back-button.js');
 const DEEPLINK_ROUTER_JS = path.join(REPO_ROOT, 'web/static/js/features/deeplink-router.js');
 const HEALTH_JS = path.join(REPO_ROOT, 'web/static/js/features/health.js');
 const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
@@ -131,6 +133,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalWithSourceURL(window, fs.readFileSync(EMPTY_STATE_JS, 'utf8'), EMPTY_STATE_JS);
   evalWithSourceURL(window, fs.readFileSync(STAT_CARD_JS, 'utf8'), STAT_CARD_JS);
   evalWithSourceURL(window, fs.readFileSync(ACTION_ROW_JS, 'utf8'), ACTION_ROW_JS);
+  evalWithSourceURL(window, fs.readFileSync(SECTION_HEADER_JS, 'utf8'), SECTION_HEADER_JS);
   evalWithSourceURL(window, fs.readFileSync(MODAL_MANAGER_JS, 'utf8'), MODAL_MANAGER_JS);
   evalWithSourceURL(window, fs.readFileSync(CORE_API_JS, 'utf8'), CORE_API_JS);
   evalWithSourceURL(window, fs.readFileSync(APP_KERNEL_JS, 'utf8'), APP_KERNEL_JS);
@@ -160,8 +163,18 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   const modalHistorySource = fs.readFileSync(MODAL_HISTORY_JS, 'utf8');
   evalWithSourceURL(window, modalHistorySource, MODAL_HISTORY_JS);
 
+  // back-button.js must load before AppBackButton.setup() is called; it also
+  // owns the Telegram BackButton onClick handler that modal-history relies on.
+  const backButtonSource = fs.readFileSync(BACK_BUTTON_JS, 'utf8');
+  evalWithSourceURL(window, backButtonSource, BACK_BUTTON_JS);
+
   // Fire DOMContentLoaded – triggers setupObserver() inside modal-history.js.
   window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
+
+  // Wire AppBackButton the way bootstrap.js does in production.
+  if (window.AppBackButton && typeof window.AppBackButton.setup === 'function') {
+    window.AppBackButton.setup();
+  }
 
   // deeplink-router.js: provides handleDeepLinks() on window.
   // The Telegram start_param auto-run is harmless (initDataUnsafe={} in tests).

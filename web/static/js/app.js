@@ -180,40 +180,33 @@ function ensureSettingsTimeInfoTimer() {
 
 window.renderSettingsTimeInfo = renderSettingsTimeInfo;
 
-function applyTabOrder(orderArray) {
-    const container = document.getElementById('tabs');
-    if (!container || !Array.isArray(orderArray)) return;
+const TAB_ORDER_STORAGE_KEY = 'medtracker_tab_order';
 
-    // Keep track of existing tabs to append any unlisted ones at the end
-    const existingTabs = Array.from(container.querySelectorAll('.tab'));
-    const unlistedTabs = new Set(existingTabs);
-
-    orderArray.forEach(tabId => {
-        const tabEl = existingTabs.find(t => t.dataset.tab === tabId);
-        if (tabEl) {
-            container.appendChild(tabEl);
-            unlistedTabs.delete(tabEl);
-        }
-    });
-
-    // Append any remaining tabs that weren't in the saved order
-    unlistedTabs.forEach(tabEl => {
-        container.appendChild(tabEl);
-    });
+// Persist tab_order to localStorage so it survives settings_bundle cache
+// invalidations (timezone updates, feature toggles, 'settings' change-stream
+// events) that would otherwise drop the user's Today card order until a full
+// bootstrap restores it. /api/settings has no tab_order field, so the bundle
+// fetcher needs a durable fallback.
+function persistTabOrder(order) {
+    if (!Array.isArray(order)) return;
+    try {
+        localStorage.setItem(TAB_ORDER_STORAGE_KEY, JSON.stringify(order));
+    } catch (_) { /* localStorage unavailable — best-effort */ }
 }
 
-// Migrate a user's saved tab_order so the Today tab becomes the default
-// landing surface.  Returns the input array when:
-//   - today is already included, or
-//   - the user has explicitly opted out (localStorage 'today_opt_out' = '1').
-// Otherwise prepends 'today' so it sorts to the front after applyTabOrder.
-function migrateTabOrderForToday(order) {
-    if (!Array.isArray(order)) return order;
-    if (order.includes('today')) return order;
+function readPersistedTabOrder() {
     try {
-        if (localStorage.getItem('today_opt_out') === '1') return order;
-    } catch (_) { /* localStorage unavailable — fall through and prepend */ }
-    return ['today', ...order];
+        const raw = localStorage.getItem(TAB_ORDER_STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : null;
+    } catch (_) { return null; }
+}
+
+function clearPersistedTabOrder() {
+    try {
+        localStorage.removeItem(TAB_ORDER_STORAGE_KEY);
+    } catch (_) { /* localStorage unavailable — best-effort */ }
 }
 
 // Apply bootstrap payload and warm caches so first tab render can use local data.
@@ -229,11 +222,13 @@ async function applyBootstrapPayload(res) {
     if (res.features) {
         featureSettings = { ...featureSettings, ...res.features };
         featureSettingsLoaded = true;
+        window.featureSettings = featureSettings;
+        window.featureSettingsLoaded = true;
         window.AppStore && window.AppStore.set('featureSettings', featureSettings);
         updateFeatureTabVisibility();
     }
 
-    if (res.settings && res.settings.tab_order) {
+    if (res.settings) {
         let order = res.settings.tab_order;
         if (typeof order === 'string') {
             try {
@@ -244,7 +239,13 @@ async function applyBootstrapPayload(res) {
             }
         }
         if (Array.isArray(order)) {
-            applyTabOrder(migrateTabOrderForToday(order));
+            persistTabOrder(order);
+        } else if ('tab_order' in res.settings) {
+            // Server returned settings with tab_order explicitly null/missing —
+            // clear any stale localStorage fallback so a previous user's saved
+            // order on this browser can't leak into the current session and a
+            // server-side reset can actually restore the default layout.
+            clearPersistedTabOrder();
         }
     }
 
@@ -310,6 +311,8 @@ async function loadInitData() {
     if (res && res.features) {
         featureSettings = { ...featureSettings, ...res.features };
         featureSettingsLoaded = true;
+        window.featureSettings = featureSettings;
+        window.featureSettingsLoaded = true;
         window.AppStore && window.AppStore.set('featureSettings', featureSettings);
         updateFeatureTabVisibility();
     }
@@ -354,6 +357,20 @@ function clearSwBootstrapCache() {
     }).catch(() => { /* best-effort */ });
 }
 
+// Hydrate in-memory feature settings from a cached settings_bundle so deep-link
+// and start_param guards (isDeepLinkFeatureEnabled) see the user's real flags
+// on cache-only boot paths, not the default-on fallback.
+function hydrateFeatureSettingsFromBundle(bundle) {
+    if (!bundle || typeof bundle !== 'object') return;
+    const cachedFeatures = bundle.featureSettings;
+    if (!cachedFeatures || typeof cachedFeatures !== 'object') return;
+    featureSettings = { ...featureSettings, ...cachedFeatures };
+    featureSettingsLoaded = true;
+    window.featureSettings = featureSettings;
+    window.featureSettingsLoaded = true;
+    if (window.AppStore) window.AppStore.set('featureSettings', featureSettings);
+}
+
 // Check Auth Environment
 async function checkAuth() {
     if (userInitData) {
@@ -365,6 +382,18 @@ async function checkAuth() {
             await applyBootstrapPayload(bootstrap);
         } else {
             await loadInitData();
+            // Both bootstrap and /api/init failed — hydrate features from the
+            // cached settings_bundle so the start_param BP/weight deep-link
+            // guard sees real flags instead of defaulting to ON and bypassing
+            // the user's disabled-feature preference when the backend is down.
+            if (!featureSettingsLoaded && window.DataStore) {
+                try {
+                    const cachedBundle = await window.DataStore.getCached('settings_bundle');
+                    if (cachedBundle) {
+                        hydrateFeatureSettingsFromBundle(cachedBundle);
+                    }
+                } catch (_) { /* best-effort cache read */ }
+            }
         }
         return true;
     }
@@ -430,8 +459,8 @@ async function checkAuth() {
                 }
                 if (window.DataStore) {
                     const cachedBundle = await window.DataStore.getCached('settings_bundle');
-                    if (cachedBundle && Array.isArray(cachedBundle.tabOrder)) {
-                        applyTabOrder(migrateTabOrderForToday(cachedBundle.tabOrder));
+                    if (cachedBundle) {
+                        hydrateFeatureSettingsFromBundle(cachedBundle);
                     }
                 }
                 sessionStorage.removeItem('medtracker_auth_reload_in_progress');
@@ -507,8 +536,8 @@ async function checkAuth() {
 
         if (window.DataStore) {
             const cachedBundle = await window.DataStore.getCached('settings_bundle');
-            if (cachedBundle && Array.isArray(cachedBundle.tabOrder)) {
-                applyTabOrder(migrateTabOrderForToday(cachedBundle.tabOrder));
+            if (cachedBundle) {
+                hydrateFeatureSettingsFromBundle(cachedBundle);
             }
         }
 
@@ -816,6 +845,10 @@ let featureSettings = {
 };
 let featureSettingsLoaded = false;
 // Expose via AppStore so feature modules can read without tight coupling.
+// Also mirror onto window so early consumers (e.g. deeplink-router's
+// start_param branch) can observe the loaded state without depending on AppStore.
+window.featureSettings = featureSettings;
+window.featureSettingsLoaded = featureSettingsLoaded;
 window.AppStore && window.AppStore.set('featureSettings', featureSettings);
 var formatDate = (dateStr) => {
     if (!dateStr) return '';
@@ -833,19 +866,23 @@ var formatDate = (dateStr) => {
 // UI Functions
 function activateTabGroup(tab, options) {
     const { buttonSelector, contentSelector, contentIdFromTab, ariaCurrent } = options;
-    // Validate target exists BEFORE clearing active state to avoid blank-page on unknown tabs
+    // Validate target exists BEFORE clearing active state to avoid blank-page on unknown tabs.
+    // tabButton is optional: the top-level view group has no button strip after the
+    // Today-as-primary-nav rework, so the button-side toggle is a no-op when missing.
     const tabButton = document.querySelector(`${buttonSelector}[data-tab="${tab}"]`);
     const tabContent = document.getElementById(contentIdFromTab(tab));
-    if (!tabButton || !tabContent) return false;
+    if (!tabContent) return false;
 
     document.querySelectorAll(buttonSelector).forEach((el) => {
         el.classList.remove('active');
         if (ariaCurrent) el.removeAttribute('aria-current');
     });
     document.querySelectorAll(contentSelector).forEach((el) => el.classList.remove('active'));
-    tabButton.classList.add('active');
+    if (tabButton) {
+        tabButton.classList.add('active');
+        if (ariaCurrent) tabButton.setAttribute('aria-current', ariaCurrent);
+    }
     tabContent.classList.add('active');
-    if (ariaCurrent) tabButton.setAttribute('aria-current', ariaCurrent);
     return true;
 }
 
@@ -863,9 +900,39 @@ function bindTabGroup(options) {
     });
 }
 
+// Hydrate a section view's [data-section-header-mount] placeholder (if any) into
+// a SectionHeader component. Idempotent: skips if already hydrated. Today builds
+// its own header inside renderToday, so hydrateSectionHeader is a no-op there.
+function hydrateSectionHeader(tab) {
+    if (tab === 'today') return;
+    const view = document.getElementById(`${tab}-view`);
+    if (!view) return;
+    const mount = view.querySelector('.section-header-mount');
+    if (!mount || mount.dataset.hydrated === '1') return;
+    const factory = window.SectionHeader && window.SectionHeader.create;
+    if (typeof factory !== 'function') return;
+    const title = mount.dataset.title || '';
+    const badge = mount.dataset.badge || '';
+    let rightSlot = null;
+    if (badge) {
+        const b = document.createElement('span');
+        b.className = `badge badge-${badge}`;
+        b.textContent = badge;
+        rightSlot = b;
+    }
+    const header = factory({
+        title,
+        onBack: () => switchTab('today'),
+        rightSlot
+    });
+    mount.replaceWith(header);
+    header.dataset.hydrated = '1';
+}
+
 function switchTab(tab) {
     const tabToFeature = {
         food: 'food',
+        health: 'health',
         bp: 'bp',
         weight: 'weight',
         meds: 'medication',
@@ -873,7 +940,7 @@ function switchTab(tab) {
     };
     const feature = tabToFeature[tab];
     if (feature && featureSettingsLoaded && !featureSettings[feature]) {
-        switchTab('settings');
+        switchTab('today');
         return;
     }
 
@@ -884,6 +951,10 @@ function switchTab(tab) {
         ariaCurrent: 'page'
     });
     if (!activated) return;
+
+    hydrateSectionHeader(tab);
+
+    window.AppStore && window.AppStore.set('currentTab', tab);
 
     if (tab === 'meds') {
         if (!document.querySelector('.med-tab.active')) {
@@ -1033,8 +1104,20 @@ async function fetchSettingsBundle() {
         && settingsRes === null) {
         return null;
     }
+    // tab_order is delivered via /api/bootstrap (no standalone GET endpoint);
+    // preserve it from the existing cache so SWR re-writes don't drop the
+    // user's saved Today card order. Fall back to localStorage so invalidations
+    // of settings_bundle (timezone update, feature toggle, change-stream
+    // 'settings' events) don't wipe tabOrder before this fetch runs.
+    let tabOrder = null;
+    try {
+        const existing = await window.DataStore.getCached('settings_bundle');
+        if (existing && Array.isArray(existing.tabOrder)) tabOrder = existing.tabOrder;
+    } catch (_) { /* no cache available — leave tabOrder null */ }
+    if (!tabOrder) tabOrder = readPersistedTabOrder();
     return {
         featureSettings: featureSettingsRes || {},
+        tabOrder,
         timezone: settingsRes?.timezone || '',
         serverTime: settingsRes?.server_time || '',
         serverTimezone: settingsRes?.server_timezone || '',
@@ -1052,6 +1135,7 @@ async function fetchSettingsBundle() {
 async function _todayReadCaches(foodKey) {
     const bootstrap = { features: featureSettings || {} };
     const swrCaches = {};
+    let cardOrder = null;
     // Tracks the *most recent* write among all caches we read. The offline-stale
     // banner ("cached data is >1h old") should fire only when nothing we have
     // is fresh. Using the oldest timestamp would let a single rarely-updated
@@ -1075,6 +1159,7 @@ async function _todayReadCaches(foodKey) {
             if (bundleM?.data) {
                 bootstrap.features = bundleM.data.featureSettings || bootstrap.features;
                 bootstrap.settings = { food_targets: bundleM.data.foodTargets };
+                if (Array.isArray(bundleM.data.tabOrder)) cardOrder = bundleM.data.tabOrder;
             }
             if (nextIntakeM?.data) bootstrap.next_intake = nextIntakeM.data;
             if (bpM?.data) {
@@ -1107,6 +1192,7 @@ async function _todayReadCaches(foodKey) {
             if (bundle) {
                 bootstrap.features = bundle.featureSettings || bootstrap.features;
                 bootstrap.settings = { food_targets: bundle.foodTargets };
+                if (Array.isArray(bundle.tabOrder)) cardOrder = bundle.tabOrder;
             }
             if (nextIntake) bootstrap.next_intake = nextIntake;
             if (bp) {
@@ -1130,13 +1216,19 @@ async function _todayReadCaches(foodKey) {
             }
         }
     } catch (_) { /* best-effort — render whatever we have */ }
-    return { bootstrap, swrCaches, latestCacheTimestamp };
+    // Fall back to localStorage so Today renders in the user's saved order
+    // even if the settings_bundle cache was invalidated since last render.
+    if (!cardOrder) {
+        const persisted = readPersistedTabOrder();
+        if (persisted) cardOrder = persisted;
+    }
+    return { bootstrap, swrCaches, latestCacheTimestamp, cardOrder };
 }
 
 async function _todayRender(foodKey) {
     const root = document.getElementById('today-content');
     if (!root || !window.TodayDashboard) return { rendered: false };
-    const { bootstrap, swrCaches, latestCacheTimestamp } = await _todayReadCaches(foodKey);
+    const { bootstrap, swrCaches, latestCacheTimestamp, cardOrder } = await _todayReadCaches(foodKey);
     const online = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
     const nowMs = Date.now();
     const state = window.TodayDashboard.aggregateToday(bootstrap, swrCaches, nowMs);
@@ -1150,7 +1242,7 @@ async function _todayRender(foodKey) {
     if (window.TodayDashboard.isOfflineStale({ online, cacheTimestamp: latestCacheTimestamp, now: nowMs })) {
         state.__offline = true;
     }
-    window.TodayDashboard.renderToday(state, root, { now: nowMs });
+    window.TodayDashboard.renderToday(state, root, { now: nowMs, cardOrder });
     return { rendered: true, bootstrap, swrCaches, online };
 }
 
@@ -1170,8 +1262,7 @@ async function loadToday() {
                 // banner updates without waiting for a data change.
                 const source = payload && payload.source;
                 if (source === 'bootstrap' || source === 'datastore') return;
-                const active = document.querySelector('.tab.active');
-                if (active && active.dataset && active.dataset.tab === 'today') {
+                if (window.AppStore && window.AppStore.get('currentTab') === 'today') {
                     loadToday();
                 }
             }
@@ -1250,8 +1341,7 @@ async function loadToday() {
     } finally {
         todayRefreshInFlight = false;
     }
-    const active = document.querySelector('.tab.active');
-    if (active && active.dataset && active.dataset.tab === 'today') {
+    if (window.AppStore && window.AppStore.get('currentTab') === 'today') {
         await _todayRender(foodKey);
     }
 }
@@ -1271,12 +1361,6 @@ bindTabGroup({
     container: document.querySelector('.health-tabs'),
     buttonSelector: '.health-tab',
     onTabSelect: switchHealthTab
-});
-
-bindTabGroup({
-    container: document.getElementById('tabs'),
-    buttonSelector: '.tab',
-    onTabSelect: switchTab
 });
 
 let medicationControlsBound = false;
@@ -1414,6 +1498,8 @@ async function loadSettings() {
         const bundle = normalizeSettingsBundle(rawBundle);
         featureSettings = { ...featureSettings, ...bundle.featureSettings };
         featureSettingsLoaded = true;
+        window.featureSettings = featureSettings;
+        window.featureSettingsLoaded = true;
         window.AppStore && window.AppStore.set('featureSettings', featureSettings);
         updateFeatureToggles();
         updateFeatureTabVisibility();
@@ -1442,8 +1528,19 @@ async function loadSettings() {
             apiCall('/api/weight/reminder/status', 'GET'),
             apiCall('/api/settings', 'GET')
         ]);
+        // tab_order is delivered via /api/bootstrap (no standalone GET endpoint);
+        // preserve it from the existing cache so SWR re-writes don't drop the
+        // user's saved Today card order. Fall back to localStorage so invalidations
+        // of settings_bundle don't wipe tabOrder before this fetch runs.
+        let tabOrder = null;
+        try {
+            const existing = await window.DataStore.getCached('settings_bundle');
+            if (existing && Array.isArray(existing.tabOrder)) tabOrder = existing.tabOrder;
+        } catch (_) { /* no cache available — leave tabOrder null */ }
+        if (!tabOrder) tabOrder = readPersistedTabOrder();
         return {
             featureSettings: featureSettingsRes || {},
+            tabOrder,
             timezone: settingsRes?.timezone || '',
             serverTime: settingsRes?.server_time || '',
             serverTimezone: settingsRes?.server_timezone || '',
@@ -1514,22 +1611,10 @@ function updateFeatureTabVisibility() {
         workouts: 'workout'
     };
 
-    Object.entries(tabToFeature).forEach(([tab, feature]) => {
-        const tabBtn = document.querySelector(`.tab[data-tab="${tab}"]`);
-        if (tabBtn) {
-            tabBtn.style.display = featureSettings[feature] ? '' : 'none';
-        }
-    });
-
-    const activeTab = document.querySelector('.tab.active');
-    if (activeTab && activeTab.style.display === 'none') {
-        const fallback = ['meds', 'bp', 'weight', 'workouts', 'food', 'settings']
-            .find(tab => {
-                if (tab === 'settings') return true;
-                const feature = tabToFeature[tab];
-                return !!featureSettings[feature];
-            }) || 'settings';
-        switchTab(fallback);
+    const currentTab = window.AppStore && window.AppStore.get('currentTab');
+    const currentFeature = tabToFeature[currentTab];
+    if (currentFeature && !featureSettings[currentFeature]) {
+        switchTab('today');
     }
     updateFoodTargetsVisibility();
 }
@@ -1628,10 +1713,13 @@ document.addEventListener('visibilitychange', () => {
 
 // Reload current active tab data.
 function reloadCurrentTab() {
-    const activeTab = document.querySelector('.tab.active');
-    if (!activeTab) return;
+    let tab = window.AppStore && window.AppStore.get && window.AppStore.get('currentTab');
+    if (!tab) {
+        const activeView = document.querySelector('.view.active');
+        if (!activeView) return;
+        tab = activeView.id.replace(/-view$/, '');
+    }
 
-    const tab = activeTab.dataset.tab;
     if (tab === 'meds') {
         const activeMedTab = document.querySelector('.med-tab.active');
         const medTab = activeMedTab ? activeMedTab.dataset.tab : 'history';
@@ -3048,77 +3136,17 @@ window.saveTabOrder = async function(order) {
     if (!Array.isArray(order)) return;
 
     const res = await apiCall('/api/settings/tab-order', 'POST', { order });
-    if (res && window.DataStore) {
-        const cached = await window.DataStore.getCached('settings_bundle');
-        if (cached) {
-            cached.tabOrder = order;
-            await window.DataStore.setCached('settings_bundle', cached);
+    if (res) {
+        persistTabOrder(order);
+        if (window.DataStore) {
+            const cached = await window.DataStore.getCached('settings_bundle');
+            if (cached) {
+                cached.tabOrder = order;
+                await window.DataStore.setCached('settings_bundle', cached);
+            }
         }
     }
 };
-
-// Initialize drag and drop for tabs if loaded
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        if (typeof window.initTabsDragAndDrop === 'function') {
-            window.initTabsDragAndDrop(document.getElementById('tabs'), async (order) => {
-                if (typeof window.saveTabOrder === 'function') {
-                    await window.saveTabOrder(order);
-                }
-            });
-        }
-    }, { once: true });
-} else {
-    if (typeof window.initTabsDragAndDrop === 'function') {
-        window.initTabsDragAndDrop(document.getElementById('tabs'), async (order) => {
-            if (typeof window.saveTabOrder === 'function') {
-                await window.saveTabOrder(order);
-            }
-        });
-    }
-}
-
-// Swipe gesture navigation between tabs
-(function initSwipeNav() {
-    const MIN_SWIPE_X = 60;  // minimum horizontal distance to trigger tab switch
-    const MAX_SWIPE_Y = 80;  // maximum vertical drift allowed (to avoid hijacking scroll)
-    let touchStartX = 0;
-    let touchStartY = 0;
-
-    function getVisibleTabs() {
-        return Array.from(document.querySelectorAll('#tabs .tab'))
-            .filter(t => t.style.display !== 'none');
-    }
-
-    document.addEventListener('touchstart', (e) => {
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-    }, { passive: true });
-
-    document.addEventListener('touchend', (e) => {
-        const dx = e.changedTouches[0].clientX - touchStartX;
-        const dy = e.changedTouches[0].clientY - touchStartY;
-
-        if (Math.abs(dx) < MIN_SWIPE_X || Math.abs(dy) > MAX_SWIPE_Y) return;
-
-        // Ignore swipes that start inside a modal or scrollable list
-        const target = e.target;
-        if (target.closest('.modal, .modal-overlay, select, input, textarea')) return;
-
-        const tabs = getVisibleTabs();
-        const activeTab = document.querySelector('#tabs .tab.active');
-        if (!activeTab) return;
-
-        const currentIndex = tabs.indexOf(activeTab);
-        if (currentIndex === -1) return;
-
-        // Swipe left → next tab; swipe right → previous tab
-        const nextIndex = dx < 0 ? currentIndex + 1 : currentIndex - 1;
-        if (nextIndex < 0 || nextIndex >= tabs.length) return;
-
-        switchTab(tabs[nextIndex].dataset.tab);
-    }, { passive: true });
-})();
 
 // Modal back-gesture integration lives in features/modal-history.js.
 
