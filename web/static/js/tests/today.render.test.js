@@ -8,6 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
+const SECTION_HEADER_JS = path.join(REPO_ROOT, 'web/static/js/components/section-header.js');
 const TODAY_JS = path.join(REPO_ROOT, 'web/static/js/features/today.js');
 
 function loadRenderEnv() {
@@ -18,6 +19,7 @@ function loadRenderEnv() {
     });
     const { window } = dom;
     window.eval(fs.readFileSync(EMPTY_STATE_JS, 'utf8') + '\nwindow.createEmptyState = createEmptyState;');
+    window.eval(fs.readFileSync(SECTION_HEADER_JS, 'utf8'));
     window.eval(fs.readFileSync(TODAY_JS, 'utf8'));
     return {
         window,
@@ -114,9 +116,9 @@ describe('TodayDashboard.renderToday', () => {
         const root = env.document.getElementById('today-content');
         env.render(allPresentState(now), root, { now });
 
-        const greeting = root.querySelector('.today-greeting');
-        expect(greeting).not.toBeNull();
-        expect(greeting.textContent).toBe('Good morning');
+        const title = root.querySelector('.section-header .section-title');
+        expect(title).not.toBeNull();
+        expect(title.textContent).toBe('Good morning');
 
         const cards = root.querySelectorAll('.today-card');
         expect(cards.length).toBe(6);
@@ -378,5 +380,62 @@ describe('TodayDashboard.renderToday', () => {
         const detail = workoutCard.querySelector('.today-card-detail');
         expect(detail.textContent).not.toContain('T00:00:00Z');
         expect(detail.textContent).toMatch(/18:30/);
+    });
+
+    it('prepends a section header with the greeting as title and a gear button', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(allPresentState(now), root, { now });
+
+        const header = root.querySelector('.section-header');
+        expect(header).not.toBeNull();
+        expect(root.firstChild).toBe(header);
+        expect(header.classList.contains('no-back')).toBe(true);
+
+        const title = header.querySelector('.section-title');
+        expect(title).not.toBeNull();
+        expect(title.textContent).toBe('Good morning');
+
+        const gear = header.querySelector('.today-settings-gear');
+        expect(gear).not.toBeNull();
+        expect(gear.getAttribute('aria-label')).toBe('Settings');
+    });
+
+    it('uses "Today" as the header title when the greeting value is empty', () => {
+        const root = env.document.getElementById('today-content');
+        const state = allPresentState(now);
+        state.greeting = { value: '', deeplink: null, status: 'ok' };
+        env.render(state, root, { now });
+
+        const title = root.querySelector('.section-header .section-title');
+        expect(title.textContent).toBe('Today');
+    });
+
+    it('invokes onSettings when the gear is clicked', () => {
+        const root = env.document.getElementById('today-content');
+        const onSettings = vi.fn();
+        env.render(allPresentState(now), root, { now, onSettings });
+
+        root.querySelector('.today-settings-gear').click();
+        expect(onSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to window.switchTab("settings") when no onSettings handler is provided', () => {
+        const root = env.document.getElementById('today-content');
+        env.window.switchTab = vi.fn();
+        env.render(allPresentState(now), root, { now });
+
+        root.querySelector('.today-settings-gear').click();
+        expect(env.window.switchTab).toHaveBeenCalledWith('settings');
+    });
+
+    it('renders exactly one section header on Today (no back button)', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(allPresentState(now), root, { now });
+        env.render(allPresentState(now), root, { now });
+
+        expect(root.querySelectorAll('.section-header').length).toBe(1);
+        const header = root.querySelector('.section-header');
+        // .section-back is part of the shared component DOM; .no-back hides it via CSS.
+        expect(header.classList.contains('no-back')).toBe(true);
     });
 });

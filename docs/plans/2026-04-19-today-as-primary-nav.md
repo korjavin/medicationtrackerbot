@@ -73,11 +73,11 @@ Benefit: more vertical screen real-estate, cards preview their own data ("BP 118
 
 ### Task 2: Add the Today header (greeting + gear)
 
-- [ ] in `features/today.js` `renderToday(state, root, ctx)`, prepend a header element built via `window.SectionHeader.create({ title: state.greeting || 'Today', onBack: null, rightSlot: settingsButton })` — `onBack: null` hides the back button, since Today IS home
-- [ ] the `rightSlot` is a small gear icon button (`btn btn-icon` + inline SVG matching the existing settings tab icon's stroke variant) that calls `window.handleDeepLinks('settings')` (or the equivalent — use the existing deep-link router so URL hash and switchTab fire together)
-- [ ] add CSS for the no-back variant: `.section-header.no-back .section-back { display: none; }`
-- [ ] write Vitest case: rendering Today produces a header with the gear button, no back button; clicking the gear invokes the deep-link router with 'settings'
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `features/today.js` `renderToday(state, root, ctx)`, prepend a header element built via `window.SectionHeader.create({ title: state.greeting || 'Today', onBack: null, rightSlot: settingsButton })` — `onBack: null` hides the back button, since Today IS home
+- [x] the `rightSlot` is a small gear icon button (`btn btn-icon` + inline SVG matching the existing settings tab icon's stroke variant) that calls `window.handleDeepLinks('settings')` (or the equivalent — use the existing deep-link router so URL hash and switchTab fire together)
+- [x] add CSS for the no-back variant: `.section-header.no-back .section-back { display: none; }`
+- [x] write Vitest case: rendering Today produces a header with the gear button, no back button; clicking the gear invokes the deep-link router with 'settings'
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Replace section view headers (bp, weight, workouts, food, health, meds, settings)
 
