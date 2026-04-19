@@ -21,6 +21,7 @@ const STATIC_ASSETS = [
     '/static/js/components/empty-state.js',
     '/static/js/components/stat-card.js',
     '/static/js/components/action-row.js',
+    '/static/js/components/section-header.js',
     // Infrastructure
     '/static/js/db.js',
     '/static/js/sync.js',
@@ -37,8 +38,8 @@ const STATIC_ASSETS = [
     '/static/js/features/settings.js',
     '/static/js/features/auth-flow.js',
     '/static/js/features/modal-history.js',
+    '/static/js/features/back-button.js',
     '/static/js/features/deeplink-router.js',
-    '/static/js/features/tabs-dnd.js',
     '/static/js/features/today.js',
     '/static/js/features/bootstrap.js',
     // Config
