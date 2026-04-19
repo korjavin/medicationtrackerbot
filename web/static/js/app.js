@@ -35,8 +35,13 @@ window.onDataStoreUnauthorized = function () {
 };
 
 async function cacheApiSnapshot(key, value, tags = []) {
-    if (tags.length > 0 && window.DataStore) {
-        await window.DataStore.fetchFresh(key, () => Promise.resolve(value), tags);
+    if (!window.DataStore) return;
+    if (tags.length > 0 && typeof window.DataStore.setCachedWithTags === 'function') {
+        // setCachedWithTags writes the authoritative value directly and
+        // bumps the key's generation so any older fetchFresh still in flight
+        // (which could have been issued before the server-side change that
+        // produced `value`) cannot overwrite this snapshot when it resolves.
+        await window.DataStore.setCachedWithTags(key, value, tags);
     } else {
         await window.DataStore.setCached(key, value);
     }
@@ -197,6 +202,20 @@ function applyTabOrder(orderArray) {
     });
 }
 
+// Migrate a user's saved tab_order so the Today tab becomes the default
+// landing surface.  Returns the input array when:
+//   - today is already included, or
+//   - the user has explicitly opted out (localStorage 'today_opt_out' = '1').
+// Otherwise prepends 'today' so it sorts to the front after applyTabOrder.
+function migrateTabOrderForToday(order) {
+    if (!Array.isArray(order)) return order;
+    if (order.includes('today')) return order;
+    try {
+        if (localStorage.getItem('today_opt_out') === '1') return order;
+    } catch (_) { /* localStorage unavailable — fall through and prepend */ }
+    return ['today', ...order];
+}
+
 // Apply bootstrap payload and warm caches so first tab render can use local data.
 // Idempotent: safe to call multiple times (e.g. once from SW cache, once from
 // fresh network response via BOOTSTRAP_UPDATED). Every field is a full replacement.
@@ -225,7 +244,7 @@ async function applyBootstrapPayload(res) {
             }
         }
         if (Array.isArray(order)) {
-            applyTabOrder(order);
+            applyTabOrder(migrateTabOrderForToday(order));
         }
     }
 
@@ -235,18 +254,25 @@ async function applyBootstrapPayload(res) {
         if (window.MedTrackerDB?.MedicationStore) {
             await window.MedTrackerDB.MedicationStore.saveCache(medications);
         }
-        await cacheApiSnapshot('medications', medications);
+        await cacheApiSnapshot('medications', medications, ['medications']);
     }
 
     if (Array.isArray(res.history_default)) {
-        await cacheApiSnapshot('history_3_0', res.history_default);
+        await cacheApiSnapshot('history_3_0', res.history_default, ['history']);
         if (window.MedTrackerDB?.IntakeHistoryStore) {
             await window.MedTrackerDB.IntakeHistoryStore.saveCache('history_3_0', res.history_default);
         }
     }
 
     if (res.next_intake) {
-        await cacheApiSnapshot('next_intake', res.next_intake);
+        await cacheApiSnapshot('next_intake', res.next_intake, ['history', 'medications']);
+    } else if ('next_intake' in res && window.DataStore) {
+        // Key present with falsy value = backend confirmed no upcoming dose;
+        // clear any stale cache so Today doesn't keep showing the last reminder
+        // after the final pending dose is taken or the schedule is removed.
+        // Key absent = backend's compute step errored; preserve cache instead
+        // of wiping it on a transient subquery failure.
+        await window.DataStore.clearCached('next_intake');
     }
 
     if (res.bp) {
@@ -254,14 +280,14 @@ async function applyBootstrapPayload(res) {
             readingsRes: res.bp.readings || [],
             goalRes: res.bp.goal || {},
             statsRes: res.bp.stats || {}
-        });
+        }, ['bp']);
     }
 
     if (res.weight) {
         await cacheApiSnapshot('weight', {
             logsRes: res.weight.logs || [],
             goalRes: res.weight.goal || {}
-        });
+        }, ['weight']);
     }
 
     const settingsBundle = normalizeSettingsBundle({
@@ -405,7 +431,7 @@ async function checkAuth() {
                 if (window.DataStore) {
                     const cachedBundle = await window.DataStore.getCached('settings_bundle');
                     if (cachedBundle && Array.isArray(cachedBundle.tabOrder)) {
-                        applyTabOrder(cachedBundle.tabOrder);
+                        applyTabOrder(migrateTabOrderForToday(cachedBundle.tabOrder));
                     }
                 }
                 sessionStorage.removeItem('medtracker_auth_reload_in_progress');
@@ -482,7 +508,7 @@ async function checkAuth() {
         if (window.DataStore) {
             const cachedBundle = await window.DataStore.getCached('settings_bundle');
             if (cachedBundle && Array.isArray(cachedBundle.tabOrder)) {
-                applyTabOrder(cachedBundle.tabOrder);
+                applyTabOrder(migrateTabOrderForToday(cachedBundle.tabOrder));
             }
         }
 
@@ -874,7 +900,360 @@ function switchTab(tab) {
     }
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
+    else if (tab === 'today') { loadToday(); }
     else if (tab === 'settings') { loadSettings(); }
+}
+
+let todayUnsubscribe = null;
+let todayRefreshInFlight = false;
+
+function todayFoodKey(nowDate) {
+    const d = nowDate || new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `food_${y}-${m}-${day}_day`;
+}
+
+// /api/medications/next-intake returns 204 No Content when no dose is upcoming;
+// apiCall coerces that into boolean `true`. Map it to an explicit empty-state
+// object so fetchFresh caches the authoritative "no upcoming" result. Without
+// this, a previously-cached reminder whose scheduled time drifted into the
+// past (no change event fired — wall-clock time alone doesn't invalidate)
+// would keep rendering in Today and the History trigger indefinitely.
+// Both renderNextIntakeTrigger and today.js nextMedCell treat a falsy
+// scheduled_at as "missing", so the empty-state sentinel renders as no card.
+async function fetchNextIntakePayload() {
+    const res = await apiCall('/api/medications/next-intake');
+    if (res === true) return { scheduled_at: null, medication_names: [] };
+    return res && typeof res === 'object' ? res : null;
+}
+
+// Fetchers for every key Today reads from IndexedDB. Calling fetchFresh with
+// these tags both populates the cache and registers the key→tag mapping, so
+// future applyChangesPayload invalidations can evict the entry.
+function todayFetchSpecs(foodKey) {
+    return {
+        settings_bundle: {
+            feature: null,
+            tags: ['settings', 'food_targets', 'feature_settings'],
+            fetch: fetchSettingsBundle
+        },
+        next_intake: {
+            feature: 'medication',
+            tags: ['history', 'medications'],
+            fetch: fetchNextIntakePayload
+        },
+        bp: {
+            feature: 'bp',
+            tags: ['bp'],
+            fetch: async () => {
+                const [r, g, s] = await Promise.allSettled([
+                    apiCall('/api/bp?days=60'),
+                    apiCall('/api/bp/goal'),
+                    apiCall('/api/bp/stats')
+                ]);
+                const readingsRes = r.status === 'fulfilled' ? r.value : null;
+                const goalRes = g.status === 'fulfilled' ? g.value : null;
+                const statsRes = s.status === 'fulfilled' ? s.value : null;
+                if (readingsRes === null) return null;
+                return { readingsRes, goalRes, statsRes };
+            }
+        },
+        weight: {
+            feature: 'weight',
+            tags: ['weight'],
+            fetch: async () => {
+                const [l, g] = await Promise.allSettled([
+                    apiCall('/api/weight?days=35'),
+                    apiCall('/api/weight/goal')
+                ]);
+                const logsRes = l.status === 'fulfilled' ? l.value : null;
+                const goalRes = g.status === 'fulfilled' ? g.value : null;
+                if (logsRes === null) return null;
+                return { logsRes, goalRes };
+            }
+        },
+        workout_next: {
+            feature: 'workout',
+            tags: ['workout'],
+            // Use apiCallDirect (which throws on error) so a legitimate null
+            // server response ("no next workout") is distinguishable from a
+            // transient failure. Only the former is cached as `{session: null}`;
+            // errors return null so fetchFresh leaves the existing cache alone
+            // and Today retries on the next visit.
+            fetch: async () => {
+                if (!window.apiCallDirect) return null;
+                try {
+                    const res = await window.apiCallDirect('/api/workout/sessions/next');
+                    return res === null ? { session: null } : res;
+                } catch (_e) {
+                    return null;
+                }
+            }
+        },
+        health_overview: {
+            feature: 'health',
+            tags: ['health'],
+            fetch: () => apiCall('/api/health/overview', 'GET')
+        },
+        [foodKey]: {
+            feature: 'food',
+            tags: ['food'],
+            fetch: async () => {
+                const dateStr = foodKey.replace(/^food_/, '').replace(/_day$/, '');
+                const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                const tzOffset = new Date(`${dateStr}T00:00:00`).getTimezoneOffset();
+                const tzParams = tzName
+                    ? `&tz=${encodeURIComponent(tzName)}`
+                    : `&tz_offset=${tzOffset}`;
+                const groups = await apiCall(`/api/food/log?date=${dateStr}${tzParams}`, 'GET');
+                return { groups: groups || [] };
+            }
+        }
+    };
+}
+
+// Shared settings-bundle fetcher — used by loadSettings() and Today's refetch
+// loop so that invalidations of `settings_bundle` re-hydrate food_targets and
+// cross-device feature flags even when the user never opens the Settings tab.
+async function fetchSettingsBundle() {
+    const [featureSettingsRes, foodTargetsRes, bpReminderStatus, weightReminderStatus, settingsRes] = await Promise.all([
+        apiCall('/api/settings/features', 'GET'),
+        apiCall('/api/food/settings/targets', 'GET'),
+        apiCall('/api/bp/reminder/status', 'GET'),
+        apiCall('/api/weight/reminder/status', 'GET'),
+        apiCall('/api/settings', 'GET')
+    ]);
+    // apiCall returns null on any GET failure (network, 5xx, 4xx). If every
+    // endpoint failed, signal total failure so DataStore.fetchFresh does not
+    // overwrite a valid cached bundle with zeroed defaults.
+    if (featureSettingsRes === null && foodTargetsRes === null
+        && bpReminderStatus === null && weightReminderStatus === null
+        && settingsRes === null) {
+        return null;
+    }
+    return {
+        featureSettings: featureSettingsRes || {},
+        timezone: settingsRes?.timezone || '',
+        serverTime: settingsRes?.server_time || '',
+        serverTimezone: settingsRes?.server_timezone || '',
+        foodTargets: {
+            calories: foodTargetsRes?.calories || 0,
+            carbs: foodTargetsRes?.carbs || 0,
+            protein: foodTargetsRes?.protein || 0,
+            fat: foodTargetsRes?.fat || 0
+        },
+        bpReminderStatus: bpReminderStatus || { enabled: false },
+        weightReminderStatus: weightReminderStatus || { enabled: false }
+    };
+}
+
+async function _todayReadCaches(foodKey) {
+    const bootstrap = { features: featureSettings || {} };
+    const swrCaches = {};
+    // Tracks the *most recent* write among all caches we read. The offline-stale
+    // banner ("cached data is >1h old") should fire only when nothing we have
+    // is fresh. Using the oldest timestamp would let a single rarely-updated
+    // cache (e.g. health_overview) pin the window even after bootstrap just
+    // refreshed.
+    let latestCacheTimestamp = null;
+    const trackTs = (ts) => {
+        if (Number.isFinite(ts) && (latestCacheTimestamp === null || ts > latestCacheTimestamp)) {
+            latestCacheTimestamp = ts;
+        }
+    };
+    try {
+        const cacheStore = window.MedTrackerDB?.ApiCache;
+        const readMeta = cacheStore && typeof cacheStore.getWithMeta === 'function'
+            ? (key) => cacheStore.getWithMeta(key).catch(() => null)
+            : null;
+        if (readMeta) {
+            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', 'health_overview', foodKey];
+            const metas = await Promise.all(keys.map(readMeta));
+            const [bundleM, nextIntakeM, bpM, weightM, workoutM, healthM, foodM] = metas;
+            if (bundleM?.data) {
+                bootstrap.features = bundleM.data.featureSettings || bootstrap.features;
+                bootstrap.settings = { food_targets: bundleM.data.foodTargets };
+            }
+            if (nextIntakeM?.data) bootstrap.next_intake = nextIntakeM.data;
+            if (bpM?.data) {
+                bootstrap.bp = {
+                    readings: bpM.data.readingsRes || [],
+                    goal: bpM.data.goalRes || {},
+                    stats: bpM.data.statsRes || {}
+                };
+            }
+            if (weightM?.data) {
+                bootstrap.weight = {
+                    logs: weightM.data.logsRes || [],
+                    goal: weightM.data.goalRes || {}
+                };
+            }
+            if (workoutM?.data) swrCaches.workout_next = workoutM.data;
+            if (healthM?.data) swrCaches.health_overview = healthM.data;
+            if (foodM?.data) {
+                const groups = Array.isArray(foodM.data.groups) ? foodM.data.groups : [];
+                swrCaches.food_today = { groups };
+            }
+            for (const m of metas) {
+                if (m) trackTs(m.timestamp);
+            }
+        } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
+            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', 'health_overview', foodKey];
+            const [bundle, nextIntake, bp, weight, workout, health, food] = await Promise.all(
+                keys.map((k) => window.DataStore.getCached(k).catch(() => null))
+            );
+            if (bundle) {
+                bootstrap.features = bundle.featureSettings || bootstrap.features;
+                bootstrap.settings = { food_targets: bundle.foodTargets };
+            }
+            if (nextIntake) bootstrap.next_intake = nextIntake;
+            if (bp) {
+                bootstrap.bp = {
+                    readings: bp.readingsRes || [],
+                    goal: bp.goalRes || {},
+                    stats: bp.statsRes || {}
+                };
+            }
+            if (weight) {
+                bootstrap.weight = {
+                    logs: weight.logsRes || [],
+                    goal: weight.goalRes || {}
+                };
+            }
+            if (workout) swrCaches.workout_next = workout;
+            if (health) swrCaches.health_overview = health;
+            if (food) {
+                const groups = Array.isArray(food.groups) ? food.groups : [];
+                swrCaches.food_today = { groups };
+            }
+        }
+    } catch (_) { /* best-effort — render whatever we have */ }
+    return { bootstrap, swrCaches, latestCacheTimestamp };
+}
+
+async function _todayRender(foodKey) {
+    const root = document.getElementById('today-content');
+    if (!root || !window.TodayDashboard) return { rendered: false };
+    const { bootstrap, swrCaches, latestCacheTimestamp } = await _todayReadCaches(foodKey);
+    const online = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
+    const nowMs = Date.now();
+    const state = window.TodayDashboard.aggregateToday(bootstrap, swrCaches, nowMs);
+    if (latestCacheTimestamp === null) {
+        // No cached entry of any kind means bootstrap has never loaded on this
+        // device — show the first-run "connect to load your day" message rather
+        // than a grid of empty cards. Empty but cached bootstrap (new account
+        // with no data yet) still renders the grid.
+        state.__firstRun = true;
+    }
+    if (window.TodayDashboard.isOfflineStale({ online, cacheTimestamp: latestCacheTimestamp, now: nowMs })) {
+        state.__offline = true;
+    }
+    window.TodayDashboard.renderToday(state, root, { now: nowMs });
+    return { rendered: true, bootstrap, swrCaches, online };
+}
+
+async function loadToday() {
+    const foodKey = todayFoodKey(new Date());
+    const ctx = await _todayRender(foodKey);
+    if (!ctx.rendered) return;
+
+    if (!todayUnsubscribe && typeof window.TodayDashboard.subscribe === 'function') {
+        todayUnsubscribe = window.TodayDashboard.subscribe({
+            onRefresh: (payload) => {
+                // 'bootstrap' and 'datastore' sources already trigger reloadCurrentTab
+                // via the app-level BOOTSTRAP_UPDATED handler and DataStore's
+                // window.requestTabRefresh call; re-invoking loadToday() here would
+                // render twice and bypass the modal/editing deferral done by the
+                // debounced app-level path. Keep 'online'/'offline' so the offline
+                // banner updates without waiting for a data change.
+                const source = payload && payload.source;
+                if (source === 'bootstrap' || source === 'datastore') return;
+                const active = document.querySelector('.tab.active');
+                if (active && active.dataset && active.dataset.tab === 'today') {
+                    loadToday();
+                }
+            }
+        });
+    }
+
+    // Refetch any cache that's missing — e.g. just evicted by a change poll.
+    // Without this, a local mutation that clears next_intake would leave Today
+    // showing "missing" until the user navigates away and back. fetchFresh
+    // also registers tags so future invalidations work correctly.
+    if (!ctx.online || todayRefreshInFlight || !window.DataStore) return;
+    const specs = todayFetchSpecs(foodKey);
+    todayRefreshInFlight = true;
+    let bootstrap = ctx.bootstrap;
+    let swrCaches = ctx.swrCaches;
+    try {
+        // Phase 1: if the settings bundle was invalidated (e.g. a cross-device
+        // feature flip just came through the change stream), refresh it first
+        // so Phase 2 sees the freshly-enabled features. Without this, a
+        // false→true flip renders the newly-visible card as empty until a
+        // second loadToday() pass fetches its data.
+        if (!bootstrap.settings) {
+            await window.DataStore.fetchFresh(
+                'settings_bundle',
+                specs.settings_bundle.fetch,
+                specs.settings_bundle.tags
+            ).catch(() => {});
+            const refreshed = await _todayReadCaches(foodKey);
+            bootstrap = refreshed.bootstrap;
+            swrCaches = refreshed.swrCaches;
+        }
+
+        // Prefer the per-render features map (sourced from cached settings_bundle)
+        // over the in-memory featureSettings global. On cached-start / offline
+        // boot paths, featureSettingsLoaded is false but cached features still
+        // tell us which cards Today will omit — without this, we'd refetch
+        // disabled bp/food/workout/health caches even though their cards aren't
+        // rendered.
+        const renderFeatures = (bootstrap && bootstrap.features) || null;
+        const isFeatureDisabled = (feature) => {
+            if (!feature) return false;
+            if (renderFeatures && Object.prototype.hasOwnProperty.call(renderFeatures, feature)) {
+                return !renderFeatures[feature];
+            }
+            if (featureSettingsLoaded) {
+                return !featureSettings[feature];
+            }
+            return false;
+        };
+        // Treat the `{ scheduled_at: null }` empty-state sentinel as "missing"
+        // for presence. The endpoint's 12-hour window is wall-clock-based, so a
+        // dose that started >12h away can drift into the window with no change
+        // event firing — relying on cached sentinel presence alone would keep
+        // the card hidden indefinitely until some unrelated invalidation ran.
+        const presence = {
+            next_intake: !!(bootstrap.next_intake && bootstrap.next_intake.scheduled_at),
+            bp: !!bootstrap.bp,
+            weight: !!bootstrap.weight,
+            workout_next: !!swrCaches.workout_next,
+            health_overview: !!swrCaches.health_overview,
+            [foodKey]: !!swrCaches.food_today
+        };
+        const missing = Object.keys(presence).filter((k) => {
+            if (presence[k]) return false;
+            const spec = specs[k];
+            if (!spec) return false;
+            // Skip fetches for features the user has disabled — Today omits those
+            // cards entirely, so hitting the endpoint would be wasted work.
+            if (isFeatureDisabled(spec.feature)) return false;
+            return true;
+        });
+        if (missing.length === 0) return;
+        await Promise.allSettled(
+            missing.map((k) => window.DataStore.fetchFresh(k, specs[k].fetch, specs[k].tags))
+        );
+    } finally {
+        todayRefreshInFlight = false;
+    }
+    const active = document.querySelector('.tab.active');
+    if (active && active.dataset && active.dataset.tab === 'today') {
+        await _todayRender(foodKey);
+    }
 }
 
 function switchHealthTab(tab) {
@@ -1262,6 +1641,7 @@ function reloadCurrentTab() {
     else if (tab === 'weight') { loadWeightLogs(); }
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
+    else if (tab === 'today') { loadToday(); }
     else if (tab === 'health') {
         const activeHealthTab = document.querySelector('.health-tab.active');
         const currentSubTab = activeHealthTab ? activeHealthTab.dataset.tab : 'overview';
@@ -2203,11 +2583,20 @@ async function renderNextIntakeTrigger() {
     }
 
     try {
-        const res = await window.DataStore.fetchFresh(
+        // Kick off a refresh as a side-effect. fetchFresh returns null for
+        // both "no data" and "superseded by a concurrent invalidation", so we
+        // can't use its return value to decide between "render empty" and
+        // "leave the card alone". Instead, read the cache afterwards — it
+        // reflects whichever fetch most recently won. This avoids wiping a
+        // correctly-rendered card when an older, invalidated fetch resolves
+        // after a newer one has already populated the cache.
+        await window.DataStore.fetchFresh(
             'next_intake',
-            async () => await apiCall('/api/medications/next-intake', 'GET'),
+            fetchNextIntakePayload,
             ['history', 'medications']
         );
+
+        const res = await window.DataStore.getCached('next_intake');
 
         if (!res || !res.scheduled_at) {
             container.replaceChildren();

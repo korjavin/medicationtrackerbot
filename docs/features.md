@@ -1,5 +1,37 @@
 # Feature Implementation Patterns
 
+## Today Dashboard
+
+Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashboard`). Default first tab for new users and existing users on upgrade (tab_order migration prepends `today`). Opt-out is currently dev-only: `localStorage['today_opt_out'] = '1'`.
+
+**Aggregation contract** — `aggregateToday(bootstrap, swrCaches, now)` is pure and synchronous; `Date.now()` is injected for testability. Returns a flat object where each field is `{ value, deeplink, status }`. Status values:
+
+- `ok` — data present and fresh
+- `missing` — feature enabled, no data yet
+- `stale` — cached data older than its freshness threshold (BP: 24h, weight: 7d, sleep: 2d; the 1h `FRESHNESS_MS` constant only gates the offline-banner trigger via `isOfflineStale`)
+- `overdue` — scheduled event passed without action (5-min grace period for `nextMed`)
+- `disabled` — feature disabled; renderer omits the card entirely
+
+**Fields and deep-link targets**:
+
+| Field | Source | Deeplink |
+|-------|--------|----------|
+| `greeting` | local hour (good morning/afternoon/evening/night) | — |
+| `nextMed` | `bootstrap.next_intake` | `meds` |
+| `bpLatest`, `bpTrend7d` | `bootstrap.bp.readings` (7-day anchors) | `bp` |
+| `weightLatest`, `weightTrend7d` | `bootstrap.weight.logs` (7-day anchors) | `weight` |
+| `caloriesToday`, `caloriesTarget` | SWR `food_today` cache + `settings_bundle` food_targets | `food` |
+| `nextWorkout` | SWR `workout_next` cache | `workouts` |
+| `sleepLastNight` | SWR `health_overview.sleep_stats_7d` (most recent) | `health` |
+
+`loadToday()` (app.js) reads these caches via `ApiCache.getWithMeta` for `settings_bundle`, `next_intake`, `bp`, `weight`, `workout_next`, `health_overview`, and today's food key (`food_YYYY-MM-DD_day`).
+
+**Data sources**: no new backend endpoints in Phase 1 — everything reads from `/api/bootstrap` and the existing SWR caches in `data-store.js`. A Phase 2 `GET /api/today` server-side aggregate is deferred.
+
+**Live updates**: `TodayDashboard.subscribe()` re-renders on `BOOTSTRAP_UPDATED` `postMessage` from the SW (skipped in the subscriber; the app-level handler already reloads the current tab) and on `online` / `offline` window events and `datastore:changed` CustomEvent. `isOfflineStale({ online, cacheTimestamp, now })` toggles the dashboard's offline banner when cached data exceeds 1h while offline.
+
+**Trend arrows**: 7-day trend computed from two SWR-cached anchors (oldest within the 7-day window and most recent). Fewer than 2 usable samples → status becomes `missing`. A `flat` direction (delta within ~0.5% of the anchor magnitude) renders `7d flat` without a signed number.
+
 ## Medication Tracking
 
 - **Smart Sorting**: Scheduled Soon (>14h) → Recently Taken → As-Needed → Archived

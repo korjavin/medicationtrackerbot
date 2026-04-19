@@ -92,7 +92,9 @@ describe('checkAuth non-blocking with cached bootstrap', () => {
 
       expect(authorized).toBe(true);
       expect(getCacheSpy).toHaveBeenCalledTimes(1);
-      expect(window.applyTabOrder).toHaveBeenCalledWith(['weight', 'bp']);
+      // 'today' is prepended by migrateTabOrderForToday for users whose saved
+      // tab_order predates the Today tab (no explicit opt-out flag set).
+      expect(window.applyTabOrder).toHaveBeenCalledWith(['today', 'weight', 'bp']);
     } finally {
       cleanup();
     }

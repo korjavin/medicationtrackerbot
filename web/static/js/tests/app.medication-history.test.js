@@ -371,7 +371,11 @@ describe('app.js medication, history and intake flows', () => {
       const alertSpy = vi.fn();
       window.Telegram.WebApp.showAlert = alertSpy;
 
-      window.DataStore.fetchFresh = vi
+      // fetchFresh is called for its cache side-effect; the caller reads the
+      // authoritative value via getCached. Mock getCached to drive the render:
+      // first pass returns nothing cached (empty card), second returns data.
+      window.DataStore.fetchFresh = vi.fn().mockResolvedValue(null);
+      window.DataStore.getCached = vi
         .fn()
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({
@@ -419,6 +423,32 @@ describe('app.js medication, history and intake flows', () => {
       await window.triggerNextIntake();
       expect(loadHistorySpy).not.toHaveBeenCalled();
       expect(alertSpy).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('fetchNextIntakePayload maps 204 to an empty-state sentinel so stale reminders clear', async () => {
+    const { window, cleanup } = loadFrontendEnv();
+
+    try {
+      // apiCall coerces a 204 response into boolean `true`. The sentinel object
+      // is what fetchFresh then caches, ensuring a previously-cached reminder
+      // whose scheduled time drifts into the past (no change-event fired)
+      // does not keep rendering.
+      window.apiCall = vi.fn().mockResolvedValue(true);
+      const sentinel = await window.fetchNextIntakePayload();
+      expect(sentinel).toEqual({ scheduled_at: null, medication_names: [] });
+
+      // Real payloads pass through unchanged.
+      const payload = { scheduled_at: '2026-04-19T10:00:00Z', medication_names: ['Aspirin'] };
+      window.apiCall = vi.fn().mockResolvedValue(payload);
+      expect(await window.fetchNextIntakePayload()).toEqual(payload);
+
+      // Null (transient network failure handled by apiCall) still returns null
+      // so fetchFresh leaves the existing cache alone.
+      window.apiCall = vi.fn().mockResolvedValue(null);
+      expect(await window.fetchNextIntakePayload()).toBeNull();
     } finally {
       cleanup();
     }

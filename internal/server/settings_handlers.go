@@ -198,9 +198,11 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var nextIntake any
+	nextIntakeOK := true
 	nextTime, nextNames, err := s.computeNextIntakeData(now)
 	if err != nil {
 		slog.Error("bootstrap next intake query failed", "error", err)
+		nextIntakeOK = false
 	} else if !nextTime.IsZero() {
 		nextIntake = map[string]any{
 			"scheduled_at":     nextTime.Format(time.RFC3339),
@@ -287,7 +289,6 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		"features":        features,
 		"medications":     medications,
 		"history_default": historyDefault,
-		"next_intake":     nextIntake,
 		"bp": map[string]any{
 			"readings": bpReadings,
 			"goal":     bpGoal,
@@ -304,6 +305,12 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 			"tab_order":              tabOrder,
 			"timezone":               currentTimezone,
 		},
+	}
+	// Only include next_intake when the computation succeeded. If it errored,
+	// omit the key so the client can preserve its cached value rather than
+	// treating a transient query failure as "no upcoming dose."
+	if nextIntakeOK {
+		response["next_intake"] = nextIntake
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -472,6 +479,7 @@ func (s *Server) handleSetTabOrder(w http.ResponseWriter, r *http.Request) {
 
 	// Validate tab IDs
 	validTabs := map[string]bool{
+		"today":    true,
 		"bp":       true,
 		"weight":   true,
 		"workouts": true,

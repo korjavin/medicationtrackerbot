@@ -7,7 +7,7 @@ Vanilla JavaScript (no framework), Dexie.js for IndexedDB, Telegram WebApp SDK f
 Four layers:
 
 1. **Service Worker** — precaches all static assets (~25 JS files, CSS, vendor libs, icons, manifest) for a full offline app shell
-2. **IndexedDB** — write-ahead queue for offline writes + generic `api_cache` for SWR
+2. **IndexedDB** — write-ahead queue for offline writes + generic `api_cache` for SWR. `ApiCache.get(key)` returns `data`; `ApiCache.getWithMeta(key)` returns `{ data, timestamp }` for callers that need the cache-write time (e.g. the Today dashboard's offline-stale banner)
 3. **SyncManager** (`sync.js`) — `offlineAwareApiCall()` is the entry point for all API calls; handles retry with exponential backoff (5s → 300s cap, resets on success or `online` event)
 4. **SWR DataStore** (`data-store.js`) — `loadSWR()` returns cached data immediately and refreshes in the background; on fetch failure with no `onError` handler, defaults to rendering cached data with a console warning
 
@@ -28,7 +28,7 @@ Offline writes are supported for BP readings, weight logs, and medication confir
 
 ### Change Detection
 
-Polls `/api/changes?since=` every 30s (SSE disabled due to HTTP/2 proxy issues — see [technical-decisions.md](technical-decisions.md)).
+Polls `/api/changes?since=` every 30s (SSE disabled due to HTTP/2 proxy issues — see [technical-decisions.md](technical-decisions.md)). When the poll reports invalidated tags, `data-store.js` both calls `window.requestTabRefresh({ changedTags, source })` (debounced 500ms, reloads the active tab) **and** dispatches a `datastore:changed` CustomEvent on `window` with `detail = { changedTags, source }`. Features that need to react without owning the active tab (e.g. the Today dashboard's live-update subscriber) listen on the CustomEvent.
 
 ### SW Cache Strategy
 
@@ -86,6 +86,7 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.MedTrackerPush` | `push.js` | app.js |
 | `window.initServiceWorker` | `app-shell.js` | index.html inline |
 | `window.showUpdateToast` | `app-shell.js` | service worker message |
+| `window.TodayDashboard` | `features/today.js` | app.js `loadToday()` |
 
 ## Design Token System
 
@@ -107,6 +108,7 @@ Key rules (enforced by architecture tests in `web/static/js/tests/architecture.d
 - **Active tab treatment**: a 2px accent strip positioned at the top of the active tab via `.tab.active::before` (uses `currentColor`, inheriting from `--color-accent` with fallback to `--link-color`), plus `transform: scale(1.05)` for responsiveness. Replaces the prior `border-bottom` approach. `.tab` must be `position: relative` to anchor the pseudo-element.
 - **Accessibility**: the tab bar is a `<nav aria-label="Primary">` landmark; `app.js` tab switch handler sets `aria-current="page"` on the active tab and removes it from siblings. No `role="tablist"`/`role="tab"` — the full tab widget pattern (`aria-selected`, `role="tabpanel"`, `aria-controls`, roving tabindex, arrow keys) isn't implemented, so we use the navigation-landmark pattern instead.
 - **Health Sub-Tabs**: "Overview" (vitals/sleep/steps charts) and "Notes" (diary notes) using `bindTabGroup()` / `activateTabGroup()` (same pattern as the Food tab). Notes load lazily on first sub-tab click; default is Overview.
+- **Today Tab** (`features/today.js`, exposes `window.TodayDashboard`): read-only landing dashboard. Default for new users; existing users have `'today'` prepended to their saved `tab_order` by `migrateTabOrderForToday()` in `app.js` unless they've opted out via `localStorage['today_opt_out'] === '1'`. Drag-reorder works like any other tab (data-attribute based). Participates in the standard tab switcher in `app.js` via `loadToday()`. See [features.md](features.md#today-dashboard) for the aggregation contract and deep-link targets.
 
 ## Data Flow
 
