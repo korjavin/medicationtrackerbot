@@ -265,40 +265,20 @@ describe('TodayDashboard.aggregateToday', () => {
     expect(result.caloriesToday.value).toBe(0);
   });
 
-  it('flags __firstRun when bootstrap is null and no caches provided', () => {
+  it('does not set __firstRun on aggregate regardless of input shape (caller decides)', () => {
     const now = new Date('2026-04-19T09:00:00Z');
-    const result = env.aggregate(null, null, now);
-    expect(result.__firstRun).toBe(true);
-  });
-
-  it('flags __firstRun when bootstrap has only an empty features map and no caches', () => {
-    const now = new Date('2026-04-19T09:00:00Z');
-    const result = env.aggregate({ features: {} }, {}, now);
-    expect(result.__firstRun).toBe(true);
-  });
-
-  it('does not flag __firstRun when bootstrap has any real data section', () => {
-    const now = new Date('2026-04-19T09:00:00Z');
-    const bootstrap = {
-      features: {},
-      bp: { readings: [{ systolic: 120, diastolic: 80, measured_at: '2026-04-19T08:00:00Z' }] }
-    };
-    const result = env.aggregate(bootstrap, {}, now);
-    expect(result.__firstRun).toBeUndefined();
-  });
-
-  it('still flags __firstRun when bootstrap sections are present but empty (e.g. empty bp.readings)', () => {
-    const now = new Date('2026-04-19T09:00:00Z');
-    const bootstrap = { features: {}, bp: { readings: [] }, weight: { logs: [] } };
-    const result = env.aggregate(bootstrap, {}, now);
-    expect(result.__firstRun).toBe(true);
-  });
-
-  it('does not flag __firstRun when SWR caches hold food data even if bootstrap is empty', () => {
-    const now = new Date('2026-04-19T09:00:00Z');
-    const caches = { food_today: { groups: [{ calories: 400 }] } };
-    const result = env.aggregate({ features: {} }, caches, now);
-    expect(result.__firstRun).toBeUndefined();
+    // Bootstrap-missing shape: aggregate should not infer firstRun from the data.
+    // The decision is made by the caller based on whether any cache entry loaded.
+    expect(env.aggregate(null, null, now).__firstRun).toBeUndefined();
+    expect(env.aggregate({ features: {} }, {}, now).__firstRun).toBeUndefined();
+    const empty = env.aggregate({ features: {}, bp: { readings: [] }, weight: { logs: [] } }, {}, now);
+    expect(empty.__firstRun).toBeUndefined();
+    const withBP = env.aggregate(
+      { features: {}, bp: { readings: [{ systolic: 120, diastolic: 80, measured_at: '2026-04-19T08:00:00Z' }] } },
+      {},
+      now
+    );
+    expect(withBP.__firstRun).toBeUndefined();
   });
 
   it('flags weightLatest as stale when the most recent log is older than one week', () => {

@@ -218,20 +218,6 @@
         return cell(value, 'health', status);
     }
 
-    function hasAnyBootstrapData(bootstrap) {
-        if (!bootstrap || typeof bootstrap !== 'object') return false;
-        if (bootstrap.next_intake) return true;
-        const hasRows = (arr) => Array.isArray(arr) && arr.length > 0;
-        if (bootstrap.bp && hasRows(bootstrap.bp.readings)) return true;
-        if (bootstrap.weight && hasRows(bootstrap.weight.logs)) return true;
-        return false;
-    }
-
-    function hasAnyCacheData(caches) {
-        if (!caches || typeof caches !== 'object') return false;
-        return !!(caches.food_today || caches.workout_next || caches.health_overview);
-    }
-
     function aggregateToday(bootstrap, swrCaches, now) {
         const caches = swrCaches || {};
         const nowDate = now instanceof Date ? now : new Date(now || Date.now());
@@ -257,9 +243,6 @@
             nextWorkout: nextWorkoutCell(caches, workoutEnabled),
             sleepLastNight: sleepLastNightCell(caches, nowMs, healthEnabled)
         };
-        if (!hasAnyBootstrapData(bootstrap) && !hasAnyCacheData(caches)) {
-            result.__firstRun = true;
-        }
         return result;
     }
 
@@ -523,9 +506,19 @@
 
     function fmtDayLabel(iso) {
         if (!iso) return '';
-        const t = Date.parse(iso);
-        if (!Number.isFinite(t)) return String(iso);
-        const d = new Date(t);
+        // `scheduled_date` is a bare YYYY-MM-DD on the API; parsing via Date.parse
+        // treats it as UTC midnight, which shifts the rendered day back by one in
+        // UTC-negative zones. Reconstruct from y/m/d components for local midnight.
+        const dateOnly = String(iso).split('T')[0];
+        const parts = dateOnly.split('-').map(Number);
+        let d;
+        if (parts.length === 3 && parts.every(Number.isFinite)) {
+            d = new Date(parts[0], parts[1] - 1, parts[2]);
+        } else {
+            const t = Date.parse(iso);
+            if (!Number.isFinite(t)) return String(iso);
+            d = new Date(t);
+        }
         try {
             return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
         } catch (_) {
