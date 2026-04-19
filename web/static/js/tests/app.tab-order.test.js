@@ -48,4 +48,33 @@ describe('app.tab-order tests', () => {
             cleanup();
         }
     });
+
+    // Regression: /api/settings has no tab_order field, so a naive fetchBundle
+    // rebuild of settings_bundle would drop the user's saved Today card order
+    // the next time loadSettings / fetchSettingsBundle runs. Both must read
+    // the existing cache and preserve tabOrder.
+    it('fetchSettingsBundle preserves cached tabOrder when /api/settings omits it', async () => {
+        const { window, cleanup } = loadFrontendEnv();
+        try {
+            const originalOrder = ['weight', 'food', 'bp'];
+            window.apiCall = vi.fn(async (path) => {
+                if (path === '/api/settings/features') return { bp: true, weight: true };
+                if (path === '/api/food/settings/targets') return { calories: 2000 };
+                if (path === '/api/bp/reminder/status') return { enabled: false };
+                if (path === '/api/weight/reminder/status') return { enabled: false };
+                if (path === '/api/settings') return { timezone: 'UTC', server_time: '' };
+                return null;
+            });
+            window.DataStore.getCached = vi.fn(async (key) => {
+                if (key === 'settings_bundle') return { tabOrder: originalOrder, foodTargets: {} };
+                return null;
+            });
+
+            const bundle = await window.fetchSettingsBundle();
+            expect(bundle).not.toBeNull();
+            expect(bundle.tabOrder).toEqual(originalOrder);
+        } finally {
+            cleanup();
+        }
+    });
 });

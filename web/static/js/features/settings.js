@@ -108,12 +108,17 @@
     window.saveTabOrder = async function (order) {
         if (!Array.isArray(order)) return;
         const res = await window.apiCall('/api/settings/tab-order', 'POST', { order });
-        if (res && window.DataStore) {
-            // Update local settings_bundle cache so it survives reload
-            const cached = await window.DataStore.getCached('settings_bundle');
-            if (cached) {
-                cached.tabOrder = order;
-                await window.DataStore.setCached('settings_bundle', cached);
+        if (res) {
+            if (typeof window.persistTabOrder === 'function') {
+                window.persistTabOrder(order);
+            }
+            if (window.DataStore) {
+                // Update local settings_bundle cache so it survives reload
+                const cached = await window.DataStore.getCached('settings_bundle');
+                if (cached) {
+                    cached.tabOrder = order;
+                    await window.DataStore.setCached('settings_bundle', cached);
+                }
             }
         }
     };

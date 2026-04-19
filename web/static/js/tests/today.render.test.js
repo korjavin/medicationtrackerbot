@@ -235,6 +235,29 @@ describe('TodayDashboard.renderToday', () => {
         expect(withStyle.length).toBe(0);
     });
 
+    it('honours handlers.cardOrder to reorder cards (tab_order semantics for Today)', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(allPresentState(now), root, { now, cardOrder: ['weight', 'bp', 'food'] });
+
+        const deeplinks = Array.from(root.querySelectorAll('.today-card'))
+            .map((c) => c.getAttribute('data-deeplink'));
+        // Saved order first (weight, bp, food), then remaining cards in default sequence
+        // (meds, workouts, health).
+        expect(deeplinks).toEqual(['weight', 'bp', 'food', 'meds', 'workouts', 'health']);
+    });
+
+    it('ignores unknown keys and duplicates in cardOrder', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(allPresentState(now), root, {
+            now,
+            cardOrder: ['today', 'bp', 'bp', 'settings', 'unknown', 'weight']
+        });
+
+        const deeplinks = Array.from(root.querySelectorAll('.today-card'))
+            .map((c) => c.getAttribute('data-deeplink'));
+        expect(deeplinks).toEqual(['bp', 'weight', 'meds', 'food', 'workouts', 'health']);
+    });
+
     it('clears previous content on re-render to avoid duplicates', () => {
         const root = env.document.getElementById('today-content');
         env.render(allPresentState(now), root, { now });

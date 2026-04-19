@@ -270,9 +270,11 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var tabOrder any
+	tabOrderOK := true
 	tabOrderStr, err := s.settings.GetTabOrder(ctx)
 	if err != nil {
 		slog.Error("bootstrap tab order query failed", "error", err)
+		tabOrderOK = false
 	} else if tabOrderStr != "" {
 		if err := json.Unmarshal([]byte(tabOrderStr), &tabOrder); err != nil {
 			slog.Error("bootstrap invalid tab order json", "error", err)
@@ -302,9 +304,14 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 			"food_targets":           foodTargets,
 			"bp_reminder_status":     bpReminderStatus,
 			"weight_reminder_status": weightReminderStatus,
-			"tab_order":              tabOrder,
 			"timezone":               currentTimezone,
 		},
+	}
+	// Only include tab_order when the read succeeded. If it errored, omit the
+	// key so the client preserves its local fallback rather than treating a
+	// transient backend failure as an explicit reset.
+	if tabOrderOK {
+		response["settings"].(map[string]any)["tab_order"] = tabOrder
 	}
 	// Only include next_intake when the computation succeeded. If it errored,
 	// omit the key so the client can preserve its cached value rather than
