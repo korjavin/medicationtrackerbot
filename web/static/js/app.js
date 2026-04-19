@@ -899,6 +899,7 @@ function hydrateSectionHeader(tab) {
 function switchTab(tab) {
     const tabToFeature = {
         food: 'food',
+        health: 'health',
         bp: 'bp',
         weight: 'weight',
         meds: 'medication',
