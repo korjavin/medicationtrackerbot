@@ -278,6 +278,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	} else if tabOrderStr != "" {
 		if err := json.Unmarshal([]byte(tabOrderStr), &tabOrder); err != nil {
 			slog.Error("bootstrap invalid tab order json", "error", err)
+			tabOrderOK = false
 		}
 	}
 
