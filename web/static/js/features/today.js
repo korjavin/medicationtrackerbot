@@ -572,6 +572,61 @@
         return card;
     }
 
+    function buildSettingsGearButton(onSettings) {
+        const d = doc();
+        const btn = d.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-icon today-settings-gear';
+        btn.setAttribute('aria-label', 'Settings');
+        const ns = 'http://www.w3.org/2000/svg';
+        const svg = d.createElementNS(ns, 'svg');
+        svg.setAttribute('width', '20');
+        svg.setAttribute('height', '20');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2.25');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.setAttribute('aria-hidden', 'true');
+        const circle = d.createElementNS(ns, 'circle');
+        circle.setAttribute('cx', '12');
+        circle.setAttribute('cy', '12');
+        circle.setAttribute('r', '3');
+        svg.appendChild(circle);
+        const path = d.createElementNS(ns, 'path');
+        path.setAttribute('d', 'M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42');
+        svg.appendChild(path);
+        btn.appendChild(svg);
+        btn.addEventListener('click', () => {
+            if (typeof onSettings === 'function') onSettings();
+        });
+        return btn;
+    }
+
+    function buildTodayHeader(titleText, onSettings) {
+        const d = doc();
+        const gear = buildSettingsGearButton(onSettings);
+        const factory = (typeof window !== 'undefined' && window.SectionHeader && typeof window.SectionHeader.create === 'function')
+            ? window.SectionHeader.create
+            : null;
+        if (factory) {
+            return factory({ title: titleText, onBack: null, rightSlot: gear });
+        }
+        // Fallback when SectionHeader component isn't loaded (e.g., in isolated unit tests).
+        const header = d.createElement('header');
+        header.className = 'section-header no-back';
+        const titleEl = d.createElement('h2');
+        titleEl.className = 'section-title';
+        titleEl.textContent = titleText;
+        header.appendChild(titleEl);
+        const right = d.createElement('div');
+        right.className = 'section-header-right';
+        right.appendChild(gear);
+        header.appendChild(right);
+        return header;
+    }
+
     function renderToday(state, root, handlers) {
         const d = doc();
         if (!d || !root) return;
@@ -581,15 +636,19 @@
                 window.switchTab(target);
             }
         });
+        const onSettings = opts.onSettings || (() => {
+            if (typeof window !== 'undefined' && typeof window.switchTab === 'function') {
+                window.switchTab('settings');
+            }
+        });
         const nowMs = (opts.now instanceof Date) ? opts.now.getTime() : (opts.now || Date.now());
 
         root.innerHTML = '';
         root.classList.add('today-root');
 
-        const greeting = d.createElement('h2');
-        greeting.className = 'today-greeting';
-        greeting.textContent = (state && state.greeting && state.greeting.value) || '';
-        root.appendChild(greeting);
+        const greetingText = (state && state.greeting && state.greeting.value) || 'Today';
+        const header = buildTodayHeader(greetingText, onSettings);
+        root.appendChild(header);
 
         if (state && state.__offline && !state.__firstRun) {
             const banner = d.createElement('div');
