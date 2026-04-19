@@ -22,9 +22,9 @@ func TestRoutesRegistration(t *testing.T) {
 	defer os.Chdir(originalWd)
 
 	// We create a temp dir and then chdir into it, so the static handlers
-    // reading "./web/static" will read from our temp dir rather than
-    // overwriting or deleting actual project source code.
-    tempDir := t.TempDir()
+	// reading "./web/static" will read from our temp dir rather than
+	// overwriting or deleting actual project source code.
+	tempDir := t.TempDir()
 	err = os.Chdir(tempDir)
 	if err != nil {
 		t.Fatalf("failed to chdir to temp dir: %v", err)
