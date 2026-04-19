@@ -1,3 +1,15 @@
+/**
+ * bootstrap.js dynamic tab-order behavior.
+ *
+ * After the Today-as-primary-nav rework the tab strip is gone; `tab_order`
+ * no longer selects the initial view. `migrateTabOrderForToday` still runs
+ * to keep the saved order compatible (prepending 'today' for users whose
+ * saved order predates the Today card). This file guards that:
+ *
+ *   - A saved `tab_order` never overrides 'today' as the initial view.
+ *   - A pre-Today `tab_order` does not redirect bootstrap to a section view
+ *     just because its first entry is a section like 'bp'.
+ */
 import { describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
@@ -11,14 +23,13 @@ const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const BOOTSTRAP_JS = path.join(REPO_ROOT, 'web/static/js/features/bootstrap.js');
 
 describe('bootstrap.js dynamic tab selection', () => {
-    it('prepends today when the saved tab_order predates the Today tab', async () => {
+    it('saved tab_order with a leading section does not override the Today landing', async () => {
         allowConsoleNoise();
-        const { window, document, cleanup } = loadFrontendEnv();
+        const { window, cleanup } = loadFrontendEnv();
         try {
             try { window.localStorage.removeItem('today_opt_out'); } catch (_) {}
-            // Mock API calls for checkAuth
             const bootstrapPayload = {
-                features: { bp: false, weight: true, medication: true }, // BP is disabled
+                features: { bp: false, weight: true, medication: true },
                 settings: { tab_order: JSON.stringify(['bp', 'weight', 'meds']) }
             };
 
@@ -42,11 +53,6 @@ describe('bootstrap.js dynamic tab selection', () => {
 
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            const bpTab = document.querySelector('.tab[data-tab="bp"]');
-            if (bpTab) expect(bpTab.style.display).toBe('none');
-
-            // Today is prepended for users with a pre-Today tab_order, so it
-            // becomes the first visible tab (bp is hidden) and the default switchTab target.
             expect(switchTabSpy).toHaveBeenCalledWith('today');
             expect(switchTabSpy).not.toHaveBeenCalledWith('bp');
         } finally {
@@ -54,13 +60,10 @@ describe('bootstrap.js dynamic tab selection', () => {
         }
     });
 
-    it('falls back to today if no visible tabs found (sanity check)', async () => {
+    it('bootstrap lands on Today even when no section loaders resolve first', async () => {
         allowConsoleNoise();
-        const { window, document, cleanup } = loadFrontendEnv();
+        const { window, cleanup } = loadFrontendEnv();
         try {
-            // Hide all tabs
-            document.querySelectorAll('.tab').forEach(t => t.style.display = 'none');
-
             const switchTabSpy = vi.fn();
             window.switchTab = switchTabSpy;
             window.checkAuth = vi.fn().mockResolvedValue(true);
