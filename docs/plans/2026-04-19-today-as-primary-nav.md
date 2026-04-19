@@ -81,14 +81,14 @@ Benefit: more vertical screen real-estate, cards preview their own data ("BP 118
 
 ### Task 3: Replace section view headers (bp, weight, workouts, food, health, meds, settings)
 
-- [ ] for each of the 7 section views in `index.html`, REPLACE the existing `<h3>…</h3>` (or absent header) with a placeholder `<div class="section-header-mount" data-title="…"></div>`
-- [ ] in `app.js` `switchTab`, after the view becomes active, hydrate the placeholder by calling `window.SectionHeader.create({ title, onBack: () => switchTab('today') })` and inserting it once (idempotent — check if the header is already mounted)
-- [ ] for `meds-view`, `workouts-view`, `food-view`, `health-view`: the section header sits ABOVE the existing sub-tabs (e.g., History/Schedule for meds), not replacing them
-- [ ] for `workouts-view`: the existing `🏋️ Workout Planner` emoji-prefixed h3 becomes plain `Workouts` in the new header (consistent with sibling section titles)
-- [ ] for `food-view`: the `(experimental)` annotation moves into the rightSlot as a small `.badge.badge-experimental` element
-- [ ] for `settings-view`: title is `Settings`; back button returns to Today like every other section
-- [ ] write Vitest cases: switching to each section creates exactly one section header; switching away and back doesn't duplicate; back button invokes switchTab('today')
-- [ ] run `pnpm test` — must pass before next task
+- [x] for each of the 7 section views in `index.html`, REPLACE the existing `<h3>…</h3>` (or absent header) with a placeholder `<div class="section-header-mount" data-title="…"></div>`
+- [x] in `app.js` `switchTab`, after the view becomes active, hydrate the placeholder by calling `window.SectionHeader.create({ title, onBack: () => switchTab('today') })` and inserting it once (idempotent — check if the header is already mounted)
+- [x] for `meds-view`, `workouts-view`, `food-view`, `health-view`: the section header sits ABOVE the existing sub-tabs (e.g., History/Schedule for meds), not replacing them
+- [x] for `workouts-view`: the existing `🏋️ Workout Planner` emoji-prefixed h3 becomes plain `Workouts` in the new header (consistent with sibling section titles)
+- [x] for `food-view`: the `(experimental)` annotation moves into the rightSlot as a small `.badge.badge-experimental` element
+- [x] for `settings-view`: title is `Settings`; back button returns to Today like every other section
+- [x] write Vitest cases: switching to each section creates exactly one section header; switching away and back doesn't duplicate; back button invokes switchTab('today')
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Wire Telegram WebApp BackButton
 

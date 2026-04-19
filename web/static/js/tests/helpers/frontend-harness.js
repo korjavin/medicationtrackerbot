@@ -13,6 +13,7 @@ const MT_ELEMENTS_JS = path.join(REPO_ROOT, 'web/static/js/components/mt-element
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const STAT_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/stat-card.js');
 const ACTION_ROW_JS = path.join(REPO_ROOT, 'web/static/js/components/action-row.js');
+const SECTION_HEADER_JS = path.join(REPO_ROOT, 'web/static/js/components/section-header.js');
 const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
 const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
 const APP_KERNEL_JS = path.join(REPO_ROOT, 'web/static/js/core/app-kernel.js');
@@ -131,6 +132,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalWithSourceURL(window, fs.readFileSync(EMPTY_STATE_JS, 'utf8'), EMPTY_STATE_JS);
   evalWithSourceURL(window, fs.readFileSync(STAT_CARD_JS, 'utf8'), STAT_CARD_JS);
   evalWithSourceURL(window, fs.readFileSync(ACTION_ROW_JS, 'utf8'), ACTION_ROW_JS);
+  evalWithSourceURL(window, fs.readFileSync(SECTION_HEADER_JS, 'utf8'), SECTION_HEADER_JS);
   evalWithSourceURL(window, fs.readFileSync(MODAL_MANAGER_JS, 'utf8'), MODAL_MANAGER_JS);
   evalWithSourceURL(window, fs.readFileSync(CORE_API_JS, 'utf8'), CORE_API_JS);
   evalWithSourceURL(window, fs.readFileSync(APP_KERNEL_JS, 'utf8'), APP_KERNEL_JS);
