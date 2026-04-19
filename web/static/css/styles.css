@@ -3688,7 +3688,7 @@ input:checked+.toggle-slider:before {
 
 .section-header .section-back-label {
     font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-regular);
+    font-weight: var(--font-weight-normal);
 }
 
 .section-header.no-back .section-back {
