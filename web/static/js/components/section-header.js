@@ -25,7 +25,7 @@
         backBtn.type = 'button';
         backBtn.className = 'section-back btn btn-icon';
         backBtn.setAttribute('aria-label', 'Back to Today');
-        backBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>';
+        backBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg><span class="section-back-label">Today</span>';
         if (typeof onBack === 'function') {
             backBtn.addEventListener('click', onBack);
         }

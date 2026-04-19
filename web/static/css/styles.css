@@ -3659,12 +3659,12 @@ input:checked+.toggle-slider:before {
     position: sticky;
     top: 0;
     z-index: 10;
-    /* Three-column grid keeps the title geometrically centered regardless of
-       whether the back button is rendered (Today's no-back variant still has
-       a 44px left slot so the greeting sits in the same place as a section
-       title with both sides populated). */
+    /* Three-column grid: left slot holds the "← Today" pill (grows to fit its
+       label), right slot grows for optional badge/gear. Title is centered
+       within its own column; on Today's no-back variant the left slot is
+       hidden via visibility so the greeting still sits in the center column. */
     display: grid;
-    grid-template-columns: 44px 1fr 44px;
+    grid-template-columns: minmax(44px, auto) 1fr minmax(44px, auto);
     align-items: center;
     gap: var(--space-sm);
     padding: var(--space-sm) var(--space-md);
@@ -3679,6 +3679,16 @@ input:checked+.toggle-slider:before {
     background: transparent;
     color: var(--text-color);
     justify-self: start;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    width: auto;
+    padding: 0 var(--space-sm);
+}
+
+.section-header .section-back-label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-regular);
 }
 
 .section-header.no-back .section-back {

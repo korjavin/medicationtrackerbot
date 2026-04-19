@@ -45,6 +45,10 @@ describe('createSectionHeader', () => {
             expect(back).not.toBeNull();
             expect(back.tagName).toBe('BUTTON');
             expect(back.getAttribute('aria-label')).toBe('Back to Today');
+            // Visible pill label (plan spec: "<svg…/> Today")
+            const label = back.querySelector('.section-back-label');
+            expect(label).not.toBeNull();
+            expect(label.textContent).toBe('Today');
 
             const title = header.querySelector('.section-title');
             expect(title).not.toBeNull();
