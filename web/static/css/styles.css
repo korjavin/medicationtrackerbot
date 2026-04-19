@@ -256,10 +256,11 @@ h3 {
     color: var(--hint-color);
     font-weight: var(--font-weight-medium);
     cursor: pointer;
-    transition: color 0.15s ease;
+    transition: transform 0.15s ease, color 0.15s ease;
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
 }
 
 .tab svg {
@@ -268,9 +269,36 @@ h3 {
     display: block;
 }
 
+.tab .tab-icon-stroke {
+    display: inline-block;
+}
+
+.tab .tab-icon-fill {
+    display: none;
+}
+
+.tab.active .tab-icon-stroke {
+    display: none;
+}
+
+.tab.active .tab-icon-fill {
+    display: inline-block;
+}
+
 .tab.active {
-    color: var(--link-color);
-    border-bottom: 2px solid var(--link-color);
+    color: var(--color-accent, var(--link-color));
+    transform: scale(1.05);
+}
+
+.tab.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 12.5%;
+    right: 12.5%;
+    height: 2px;
+    background: currentColor;
+    border-radius: 2px;
 }
 
 /* Sub-tabs (medications, workouts, food, health) */

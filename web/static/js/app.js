@@ -832,16 +832,20 @@ var formatDate = (dateStr) => {
 
 // UI Functions
 function activateTabGroup(tab, options) {
-    const { buttonSelector, contentSelector, contentIdFromTab } = options;
+    const { buttonSelector, contentSelector, contentIdFromTab, ariaCurrent } = options;
     // Validate target exists BEFORE clearing active state to avoid blank-page on unknown tabs
     const tabButton = document.querySelector(`${buttonSelector}[data-tab="${tab}"]`);
     const tabContent = document.getElementById(contentIdFromTab(tab));
     if (!tabButton || !tabContent) return false;
 
-    document.querySelectorAll(buttonSelector).forEach((el) => el.classList.remove('active'));
+    document.querySelectorAll(buttonSelector).forEach((el) => {
+        el.classList.remove('active');
+        if (ariaCurrent) el.removeAttribute('aria-current');
+    });
     document.querySelectorAll(contentSelector).forEach((el) => el.classList.remove('active'));
     tabButton.classList.add('active');
     tabContent.classList.add('active');
+    if (ariaCurrent) tabButton.setAttribute('aria-current', ariaCurrent);
     return true;
 }
 
@@ -876,7 +880,8 @@ function switchTab(tab) {
     const activated = activateTabGroup(tab, {
         buttonSelector: '.tab',
         contentSelector: '.view',
-        contentIdFromTab: (tabName) => `${tabName}-view`
+        contentIdFromTab: (tabName) => `${tabName}-view`,
+        ariaCurrent: 'page'
     });
     if (!activated) return;
 

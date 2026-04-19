@@ -923,8 +923,9 @@ describe('Architecture – design tokens', () => {
         const htmlPath = path.join(REPO_ROOT, 'web/static/index.html');
         const html = fs.readFileSync(htmlPath, 'utf8');
 
-        // All 8 tab buttons (Today + 7 feature tabs) should contain an <svg> element
-        const tabButtons = html.match(/<button\s+class="tab[^"]*"\s+data-tab="[^"]*"[^>]*>[\s\S]*?<\/button>/g);
+        // All 8 tab buttons (Today + 7 feature tabs) should contain an <svg> element.
+        // Regex tolerates other attributes (e.g. aria-current) appearing between class and data-tab.
+        const tabButtons = html.match(/<button\s+class="tab[^"]*"[^>]*\sdata-tab="[^"]*"[^>]*>[\s\S]*?<\/button>/g);
         expect(tabButtons).not.toBeNull();
         expect(tabButtons.length).toBe(8);
 
