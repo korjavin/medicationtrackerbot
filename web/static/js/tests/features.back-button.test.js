@@ -3,15 +3,18 @@
  *
  * Task 4 — Telegram WebApp BackButton wiring for section-level navigation.
  *
- * features/back-button.js drives the BackButton with three behaviors:
+ * features/back-button.js owns the Telegram BackButton onClick handler and
+ * drives three behaviors:
  *   1. show on non-Today views, hide on Today (when no modal is open)
  *   2. clicking BackButton returns to Today when no modal is open
- *   3. when a modal IS open, defers to modal-history.js (no-op here)
+ *   3. when a modal IS open, BackButton closes the topmost modal (via ModalManager)
  *
- * Uses a hand-rolled JSDOM setup rather than the shared frontend-harness so
- * the BackButton mock can record ALL registered onClick handlers — the shared
- * harness mock stores only the last handler, which loses modal-history's
- * wiring when back-button.js is also loaded.
+ * It also exposes AppBackButton.refresh() so modal-history.js can ask for a
+ * visibility recomputation after a modal closes on a non-Today section.
+ *
+ * Uses a hand-rolled JSDOM setup to record ALL BackButton onClick registrations
+ * and to exercise the AppBackButton.refresh integration without wiring the full
+ * frontend-harness.
  */
 import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
@@ -161,9 +164,11 @@ describe('features/back-button.js — Telegram BackButton for section navigation
         }
     });
 
-    it('click handler defers to modal-history when a modal is open', () => {
+    it('click handler closes top-most modal (via ModalManager) when one is open', () => {
         const { window, document, backButtonState, cleanup } = createEnv();
         try {
+            const closeSpy = vi.fn();
+            window.ModalManager = { closeTopMostVisibleModal: closeSpy };
             window.AppBackButton.setup();
             window.switchTab('bp');
             document.getElementById('modal-overlay').classList.remove('hidden');
@@ -171,7 +176,46 @@ describe('features/back-button.js — Telegram BackButton for section navigation
 
             backButtonState.handlers[0]();
 
+            expect(closeSpy).toHaveBeenCalled();
             expect(window.switchTab).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('exposes refresh() that recomputes visibility from currentTab', () => {
+        const { window, document, backButtonState, cleanup } = createEnv();
+        try {
+            window.AppBackButton.setup();
+            window.switchTab('bp');
+            // Simulate modal-history hiding the button when a modal opened and closed
+            // on a section view. refresh() should re-show it because currentTab is bp.
+            const showBefore = backButtonState.showCalls;
+            window.AppBackButton.refresh();
+            expect(backButtonState.showCalls).toBeGreaterThan(showBefore);
+
+            window.switchTab('today');
+            const hideBefore = backButtonState.hideCalls;
+            window.AppBackButton.refresh();
+            expect(backButtonState.hideCalls).toBeGreaterThan(hideBefore);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('refresh() is a no-op while a modal is open (modal-history owns visibility)', () => {
+        const { window, document, backButtonState, cleanup } = createEnv();
+        try {
+            window.AppBackButton.setup();
+            window.switchTab('bp');
+            document.getElementById('modal-overlay').classList.remove('hidden');
+            const showBefore = backButtonState.showCalls;
+            const hideBefore = backButtonState.hideCalls;
+
+            window.AppBackButton.refresh();
+
+            expect(backButtonState.showCalls).toBe(showBefore);
+            expect(backButtonState.hideCalls).toBe(hideBefore);
         } finally {
             cleanup();
         }

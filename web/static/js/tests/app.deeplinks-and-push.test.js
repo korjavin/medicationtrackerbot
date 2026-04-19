@@ -153,8 +153,9 @@ describe('handleDeepLinks – query-param deep links (?tab=…&action=add)', () 
       const switchTabSpy = vi.spyOn(window, 'switchTab');
       const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
 
-      // Record which tab/view is active before the deep-link runs
-      const activeBefore = document.querySelector('.tab.active')?.dataset?.tab;
+      // Record which view is active before the deep-link runs (there is no
+      // persistent tab strip post-Today-as-primary-nav; views carry .active).
+      const activeBefore = document.querySelector('.view.active')?.id;
 
       window.handleDeepLinks();
 
@@ -162,8 +163,8 @@ describe('handleDeepLinks – query-param deep links (?tab=…&action=add)', () 
       expect(switchTabSpy).not.toHaveBeenCalled();
       // URL must still be cleaned up
       expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/');
-      // The previously-active tab must remain active (no blank-page regression)
-      expect(document.querySelector('.tab.active')?.dataset?.tab).toBe(activeBefore);
+      // The previously-active view must remain active (no blank-page regression)
+      expect(document.querySelector('.view.active')?.id).toBe(activeBefore);
     } finally {
       cleanup();
     }

@@ -3659,7 +3659,12 @@ input:checked+.toggle-slider:before {
     position: sticky;
     top: 0;
     z-index: 10;
-    display: flex;
+    /* Three-column grid keeps the title geometrically centered regardless of
+       whether the back button is rendered (Today's no-back variant still has
+       a 44px left slot so the greeting sits in the same place as a section
+       title with both sides populated). */
+    display: grid;
+    grid-template-columns: 44px 1fr 44px;
     align-items: center;
     gap: var(--space-sm);
     padding: var(--space-sm) var(--space-md);
@@ -3671,17 +3676,16 @@ input:checked+.toggle-slider:before {
 }
 
 .section-header .section-back {
-    flex: 0 0 auto;
     background: transparent;
     color: var(--text-color);
+    justify-self: start;
 }
 
 .section-header.no-back .section-back {
-    display: none;
+    visibility: hidden;
 }
 
 .section-header .section-title {
-    flex: 1 1 auto;
     margin: 0;
     text-align: center;
     font-size: var(--font-size-md);
@@ -3693,10 +3697,10 @@ input:checked+.toggle-slider:before {
 }
 
 .section-header .section-header-right {
-    flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    justify-self: end;
     min-width: 44px;
 }
 

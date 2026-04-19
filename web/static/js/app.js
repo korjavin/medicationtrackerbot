@@ -1207,8 +1207,7 @@ async function loadToday() {
                 // banner updates without waiting for a data change.
                 const source = payload && payload.source;
                 if (source === 'bootstrap' || source === 'datastore') return;
-                const active = document.querySelector('.tab.active');
-                if (active && active.dataset && active.dataset.tab === 'today') {
+                if (window.AppStore && window.AppStore.get('currentTab') === 'today') {
                     loadToday();
                 }
             }
@@ -1287,8 +1286,7 @@ async function loadToday() {
     } finally {
         todayRefreshInFlight = false;
     }
-    const active = document.querySelector('.tab.active');
-    if (active && active.dataset && active.dataset.tab === 'today') {
+    if (window.AppStore && window.AppStore.get('currentTab') === 'today') {
         await _todayRender(foodKey);
     }
 }
@@ -1308,12 +1306,6 @@ bindTabGroup({
     container: document.querySelector('.health-tabs'),
     buttonSelector: '.health-tab',
     onTabSelect: switchHealthTab
-});
-
-bindTabGroup({
-    container: document.getElementById('tabs'),
-    buttonSelector: '.tab',
-    onTabSelect: switchTab
 });
 
 let medicationControlsBound = false;
@@ -1551,22 +1543,10 @@ function updateFeatureTabVisibility() {
         workouts: 'workout'
     };
 
-    Object.entries(tabToFeature).forEach(([tab, feature]) => {
-        const tabBtn = document.querySelector(`.tab[data-tab="${tab}"]`);
-        if (tabBtn) {
-            tabBtn.style.display = featureSettings[feature] ? '' : 'none';
-        }
-    });
-
-    const activeTab = document.querySelector('.tab.active');
-    if (activeTab && activeTab.style.display === 'none') {
-        const fallback = ['meds', 'bp', 'weight', 'workouts', 'food', 'settings']
-            .find(tab => {
-                if (tab === 'settings') return true;
-                const feature = tabToFeature[tab];
-                return !!featureSettings[feature];
-            }) || 'settings';
-        switchTab(fallback);
+    const currentTab = window.AppStore && window.AppStore.get('currentTab');
+    const currentFeature = tabToFeature[currentTab];
+    if (currentFeature && !featureSettings[currentFeature]) {
+        switchTab('today');
     }
     updateFoodTargetsVisibility();
 }
