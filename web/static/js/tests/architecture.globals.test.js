@@ -61,8 +61,7 @@ const ALLOWED_GLOBALS = new Set([
     // features/settings.js — feature toggles, food targets, reminder settings
     'window.applyFeatureSettings',      // features/settings.js — applies feature toggles to DOM and state
     'window.featureSettings',           // features/settings.js — ephemeral cache of current feature flags
-    'window.saveTabOrder',              // features/settings.js - persists tab order to DB
-    'window.initTabsDragAndDrop',       // features/tabs-dnd.js - handles drag/drop UI
+    'window.saveTabOrder',              // features/settings.js - persists Today card order to DB
     'window.featureSettingsLoaded',     // features/settings.js — flag: settings have been fetched at least once
     'window.switchTab',                 // features/settings.js — re-exported tab switcher used by applyFeatureSettings
     'window.loadFeatureSettings',       // features/settings.js — SWR loader for /api/settings/features

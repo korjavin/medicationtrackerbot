@@ -85,17 +85,9 @@ checkAuth().then(async authorized => {
         // Detect timezone after auth so bootstrap payload is cached
         await maybeUpdateTimezone();
 
-        // Default start tab selection.
-        // applyBootstrapPayload (in app.js) has already applied the user's tab_order
-        // and prepended 'today' when their saved order predates the Today feature
-        // (unless they've explicitly opted out via localStorage).  Here we simply
-        // pick the first visible tab.
-        const firstVisible = document.querySelector('#tabs .tab:not([style*="display: none"])');
-        if (firstVisible) {
-            switchTab(firstVisible.dataset.tab);
-        } else {
-            switchTab('today');
-        }
+        // Today is unconditionally the initial view; sections are reached via
+        // Today cards or deep links.
+        switchTab('today');
 
         // Wire the Telegram BackButton to return-to-Today once the initial tab is active.
         if (window.AppBackButton && typeof window.AppBackButton.setup === 'function') {

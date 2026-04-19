@@ -1892,7 +1892,9 @@ async function saveFoodTargets() {
         foodTargets = payload;
         await window.DataStore.invalidateTags(['settings', 'food_targets']);
         safeAlert('Food targets saved');
-        if (document.querySelector('.tab.active')?.dataset.tab === 'food') {
+        const currentTab = (window.AppStore && typeof window.AppStore.get === 'function' && window.AppStore.get('currentTab'))
+            || document.querySelector('.view.active')?.id?.replace(/-view$/, '');
+        if (currentTab === 'food') {
             loadFoodLogs();
         }
     } catch (e) {

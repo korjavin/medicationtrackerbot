@@ -1,67 +1,41 @@
 /**
- * PR3 – Single Event Source for Tabs
+ * Single-active invariant for the top-level view group.
  *
- * Confirms that the tab system has exactly one event handler per tab group
- * so that one user click triggers exactly one handler invocation.
- *
- * The implementation uses a single delegated 'click' listener on the #tabs
- * container (via bindTabGroup) with a data-tabBound guard that prevents
- * accidental double-wiring.
+ * After the Today-as-primary-nav rework there is no tab strip; switchTab()
+ * activates exactly one `.view` element at a time. This test guards that
+ * invariant and keeps coverage on the sub-tab (delegated click) path.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
-describe('PR3 – Single event source for tab switching', () => {
-  it('one click on a main tab invokes its loader exactly once', () => {
+describe('Top-level view switching', () => {
+  it('switching to a tab activates exactly one .view', () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
-      const loadBPSpy = vi.fn();
-      window.loadBPReadings = loadBPSpy;
+      window.loadBPReadings = vi.fn();
 
-      document.querySelector('.tab[data-tab="bp"]').click();
+      window.switchTab('bp');
 
-      expect(loadBPSpy).toHaveBeenCalledTimes(1);
+      const active = document.querySelectorAll('.view.active');
+      expect(active.length).toBe(1);
+      expect(active[0].id).toBe('bp-view');
     } finally {
       cleanup();
     }
   });
 
-  it('two sequential clicks on different main tabs each fire their loader once', () => {
+  it('switching between tabs keeps exactly one .view active', () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
-      const loadBPSpy = vi.fn();
-      const loadWeightSpy = vi.fn();
-      window.loadBPReadings = loadBPSpy;
-      window.loadWeightLogs = loadWeightSpy;
+      window.loadBPReadings = vi.fn();
+      window.loadWeightLogs = vi.fn();
 
-      document.querySelector('.tab[data-tab="bp"]').click();
-      document.querySelector('.tab[data-tab="weight"]').click();
+      window.switchTab('bp');
+      window.switchTab('weight');
 
-      expect(loadBPSpy).toHaveBeenCalledTimes(1);
-      expect(loadWeightSpy).toHaveBeenCalledTimes(1);
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('bindTabGroup data-tabBound guard prevents the container from being wired twice', () => {
-    const { window, document, cleanup } = loadFrontendEnv();
-    try {
-      const loadSettingsSpy = vi.fn();
-      window.loadSettings = loadSettingsSpy;
-
-      const tabsContainer = document.getElementById('tabs');
-
-      // Simulate a second call to bindTabGroup on the same container
-      window.bindTabGroup({
-        container: tabsContainer,
-        buttonSelector: '.tab',
-        onTabSelect: window.switchTab
-      });
-
-      // Click should still fire exactly once (guard prevented double registration)
-      document.querySelector('.tab[data-tab="settings"]').click();
-      expect(loadSettingsSpy).toHaveBeenCalledTimes(1);
+      const active = document.querySelectorAll('.view.active');
+      expect(active.length).toBe(1);
+      expect(active[0].id).toBe('weight-view');
     } finally {
       cleanup();
     }
