@@ -139,10 +139,10 @@ Benefit: more vertical screen real-estate, cards preview their own data ("BP 118
 
 ### Task 8: Documentation
 
-- [ ] update `docs/frontend.md` "Tabs and Navigation" section: rename to "Navigation"; document the Today-as-home pattern, section headers, BackButton wiring
-- [ ] update `CLAUDE.md` Critical Rules: add a rule that section views are entered via Today cards or deep links, NOT via a persistent tab strip
-- [ ] note in `docs/frontend.md` that `tab_order` semantically now controls Today card order (the schema name didn't change)
-- [ ] file a follow-up plan stub `docs/plans/2026-04-XX-today-card-drag-reorder.md` (skeleton only, mark "deferred from today-as-primary-nav")
+- [x] update `docs/frontend.md` "Tabs and Navigation" section: rename to "Navigation"; document the Today-as-home pattern, section headers, BackButton wiring
+- [x] update `CLAUDE.md` Critical Rules: add a rule that section views are entered via Today cards or deep links, NOT via a persistent tab strip
+- [x] note in `docs/frontend.md` that `tab_order` semantically now controls Today card order (the schema name didn't change)
+- [x] file a follow-up plan stub `docs/plans/2026-04-XX-today-card-drag-reorder.md` (skeleton only, mark "deferred from today-as-primary-nav")
 
 ## Technical Details
 
