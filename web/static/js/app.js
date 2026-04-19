@@ -35,8 +35,13 @@ window.onDataStoreUnauthorized = function () {
 };
 
 async function cacheApiSnapshot(key, value, tags = []) {
-    if (tags.length > 0 && window.DataStore) {
-        await window.DataStore.fetchFresh(key, () => Promise.resolve(value), tags);
+    if (!window.DataStore) return;
+    if (tags.length > 0 && typeof window.DataStore.setCachedWithTags === 'function') {
+        // setCachedWithTags writes the authoritative value directly and
+        // bumps the key's generation so any older fetchFresh still in flight
+        // (which could have been issued before the server-side change that
+        // produced `value`) cannot overwrite this snapshot when it resolves.
+        await window.DataStore.setCachedWithTags(key, value, tags);
     } else {
         await window.DataStore.setCached(key, value);
     }
@@ -261,6 +266,13 @@ async function applyBootstrapPayload(res) {
 
     if (res.next_intake) {
         await cacheApiSnapshot('next_intake', res.next_intake, ['history', 'medications']);
+    } else if ('next_intake' in res && window.DataStore) {
+        // Key present with falsy value = backend confirmed no upcoming dose;
+        // clear any stale cache so Today doesn't keep showing the last reminder
+        // after the final pending dose is taken or the schedule is removed.
+        // Key absent = backend's compute step errored; preserve cache instead
+        // of wiping it on a transient subquery failure.
+        await window.DataStore.clearCached('next_intake');
     }
 
     if (res.bp) {
@@ -898,6 +910,20 @@ function todayFoodKey(nowDate) {
     return `food_${y}-${m}-${day}_day`;
 }
 
+// /api/medications/next-intake returns 204 No Content when no dose is upcoming;
+// apiCall coerces that into boolean `true`. Map it to an explicit empty-state
+// object so fetchFresh caches the authoritative "no upcoming" result. Without
+// this, a previously-cached reminder whose scheduled time drifted into the
+// past (no change event fired — wall-clock time alone doesn't invalidate)
+// would keep rendering in Today and the History trigger indefinitely.
+// Both renderNextIntakeTrigger and today.js nextMedCell treat a falsy
+// scheduled_at as "missing", so the empty-state sentinel renders as no card.
+async function fetchNextIntakePayload() {
+    const res = await apiCall('/api/medications/next-intake');
+    if (res === true) return { scheduled_at: null, medication_names: [] };
+    return res && typeof res === 'object' ? res : null;
+}
+
 // Fetchers for every key Today reads from IndexedDB. Calling fetchFresh with
 // these tags both populates the cache and registers the key→tag mapping, so
 // future applyChangesPayload invalidations can evict the entry.
@@ -911,7 +937,7 @@ function todayFetchSpecs(foodKey) {
         next_intake: {
             feature: 'medication',
             tags: ['history', 'medications'],
-            fetch: () => apiCall('/api/medications/next-intake')
+            fetch: fetchNextIntakePayload
         },
         bp: {
             feature: 'bp',
@@ -946,15 +972,19 @@ function todayFetchSpecs(foodKey) {
         workout_next: {
             feature: 'workout',
             tags: ['workout'],
-            // Wrap a legitimate `null` server response ("no next workout") as
-            // `{session: null}` so fetchFresh caches it. Without this, null is
-            // filtered by hasValue() and Today re-probes /sessions/next on
-            // every tab switch. A transient API error also surfaces as null
-            // here; we accept that tradeoff — the next `workout` tag
-            // invalidation evicts the sentinel.
+            // Use apiCallDirect (which throws on error) so a legitimate null
+            // server response ("no next workout") is distinguishable from a
+            // transient failure. Only the former is cached as `{session: null}`;
+            // errors return null so fetchFresh leaves the existing cache alone
+            // and Today retries on the next visit.
             fetch: async () => {
-                const res = await apiCall('/api/workout/sessions/next');
-                return res || { session: null };
+                if (!window.apiCallDirect) return null;
+                try {
+                    const res = await window.apiCallDirect('/api/workout/sessions/next');
+                    return res === null ? { session: null } : res;
+                } catch (_e) {
+                    return null;
+                }
             }
         },
         health_overview: {
@@ -1148,24 +1178,69 @@ async function loadToday() {
     // showing "missing" until the user navigates away and back. fetchFresh
     // also registers tags so future invalidations work correctly.
     if (!ctx.online || todayRefreshInFlight || !window.DataStore) return;
-    const presence = {
-        settings_bundle: !!ctx.bootstrap.settings,
-        next_intake: !!ctx.bootstrap.next_intake,
-        bp: !!ctx.bootstrap.bp,
-        weight: !!ctx.bootstrap.weight,
-        workout_next: !!ctx.swrCaches.workout_next,
-        health_overview: !!ctx.swrCaches.health_overview,
-        [foodKey]: !!ctx.swrCaches.food_today
-    };
-    const missing = Object.keys(presence).filter((k) => !presence[k]);
-    if (missing.length === 0) return;
     const specs = todayFetchSpecs(foodKey);
     todayRefreshInFlight = true;
+    let bootstrap = ctx.bootstrap;
+    let swrCaches = ctx.swrCaches;
     try {
+        // Phase 1: if the settings bundle was invalidated (e.g. a cross-device
+        // feature flip just came through the change stream), refresh it first
+        // so Phase 2 sees the freshly-enabled features. Without this, a
+        // false→true flip renders the newly-visible card as empty until a
+        // second loadToday() pass fetches its data.
+        if (!bootstrap.settings) {
+            await window.DataStore.fetchFresh(
+                'settings_bundle',
+                specs.settings_bundle.fetch,
+                specs.settings_bundle.tags
+            ).catch(() => {});
+            const refreshed = await _todayReadCaches(foodKey);
+            bootstrap = refreshed.bootstrap;
+            swrCaches = refreshed.swrCaches;
+        }
+
+        // Prefer the per-render features map (sourced from cached settings_bundle)
+        // over the in-memory featureSettings global. On cached-start / offline
+        // boot paths, featureSettingsLoaded is false but cached features still
+        // tell us which cards Today will omit — without this, we'd refetch
+        // disabled bp/food/workout/health caches even though their cards aren't
+        // rendered.
+        const renderFeatures = (bootstrap && bootstrap.features) || null;
+        const isFeatureDisabled = (feature) => {
+            if (!feature) return false;
+            if (renderFeatures && Object.prototype.hasOwnProperty.call(renderFeatures, feature)) {
+                return !renderFeatures[feature];
+            }
+            if (featureSettingsLoaded) {
+                return !featureSettings[feature];
+            }
+            return false;
+        };
+        // Treat the `{ scheduled_at: null }` empty-state sentinel as "missing"
+        // for presence. The endpoint's 12-hour window is wall-clock-based, so a
+        // dose that started >12h away can drift into the window with no change
+        // event firing — relying on cached sentinel presence alone would keep
+        // the card hidden indefinitely until some unrelated invalidation ran.
+        const presence = {
+            next_intake: !!(bootstrap.next_intake && bootstrap.next_intake.scheduled_at),
+            bp: !!bootstrap.bp,
+            weight: !!bootstrap.weight,
+            workout_next: !!swrCaches.workout_next,
+            health_overview: !!swrCaches.health_overview,
+            [foodKey]: !!swrCaches.food_today
+        };
+        const missing = Object.keys(presence).filter((k) => {
+            if (presence[k]) return false;
+            const spec = specs[k];
+            if (!spec) return false;
+            // Skip fetches for features the user has disabled — Today omits those
+            // cards entirely, so hitting the endpoint would be wasted work.
+            if (isFeatureDisabled(spec.feature)) return false;
+            return true;
+        });
+        if (missing.length === 0) return;
         await Promise.allSettled(
-            missing
-                .filter((k) => specs[k])
-                .map((k) => window.DataStore.fetchFresh(k, specs[k].fetch, specs[k].tags))
+            missing.map((k) => window.DataStore.fetchFresh(k, specs[k].fetch, specs[k].tags))
         );
     } finally {
         todayRefreshInFlight = false;
@@ -2503,11 +2578,20 @@ async function renderNextIntakeTrigger() {
     }
 
     try {
-        const res = await window.DataStore.fetchFresh(
+        // Kick off a refresh as a side-effect. fetchFresh returns null for
+        // both "no data" and "superseded by a concurrent invalidation", so we
+        // can't use its return value to decide between "render empty" and
+        // "leave the card alone". Instead, read the cache afterwards — it
+        // reflects whichever fetch most recently won. This avoids wiping a
+        // correctly-rendered card when an older, invalidated fetch resolves
+        // after a newer one has already populated the cache.
+        await window.DataStore.fetchFresh(
             'next_intake',
-            async () => await apiCall('/api/medications/next-intake', 'GET'),
+            fetchNextIntakePayload,
             ['history', 'medications']
         );
+
+        const res = await window.DataStore.getCached('next_intake');
 
         if (!res || !res.scheduled_at) {
             container.replaceChildren();

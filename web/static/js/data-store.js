@@ -63,7 +63,28 @@
             await window.MedTrackerDB.ApiCache.set(key, data);
         },
 
+        // Cache an authoritative value (e.g. from a bootstrap payload) and
+        // register its tags. Bumps the key's generation and drops any pending
+        // in-flight fetch for it so an older request — which may have been
+        // issued before the server-side change that produced `data` — cannot
+        // overwrite this value once it eventually resolves.
+        async setCachedWithTags(key, data, tags = []) {
+            registerKeyTags(key, tags);
+            if (key) {
+                fetchGeneration.set(key, (fetchGeneration.get(key) || 0) + 1);
+                inFlight.delete(key);
+            }
+            await this.setCached(key, data);
+        },
+
         async clearCached(key) {
+            // Bump generation and drop the in-flight entry first so any
+            // pre-existing fetchFresh promise that resolves after this clear
+            // cannot repopulate the cache with stale data.
+            if (key) {
+                fetchGeneration.set(key, (fetchGeneration.get(key) || 0) + 1);
+                inFlight.delete(key);
+            }
             if (!window.MedTrackerDB?.ApiCache) return;
             await window.MedTrackerDB.ApiCache.clear(key);
         },
@@ -80,12 +101,24 @@
 
             const request = (async () => {
                 const fresh = await fetcher();
-                if (hasValue(fresh) && fetchGeneration.get(key) === gen) {
-                    await this.setCached(key, fresh);
+                if (!hasValue(fresh)) return fresh;
+                if (fetchGeneration.get(key) !== gen) {
+                    // Superseded by setCachedWithTags/clearCached/invalidateByTag
+                    // while this request was in flight. Don't write the stale
+                    // payload to the cache, and return null so callers
+                    // (loadSWR's onFresh, direct callers) don't repaint UI with
+                    // a value the authoritative source has already replaced.
+                    return null;
                 }
+                await this.setCached(key, fresh);
                 return fresh;
             })().finally(() => {
-                inFlight.delete(key);
+                // Only clear the slot if it still holds this request. An older
+                // abandoned fetch (evicted by clearCached/invalidateByTag) must
+                // not remove a newer replacement that now occupies the slot.
+                if (inFlight.get(key) === request) {
+                    inFlight.delete(key);
+                }
             });
 
             inFlight.set(key, request);
@@ -111,11 +144,23 @@
             }
 
             try {
+                // Snapshot fetchFresh's expected effect on the generation counter
+                // so we can detect a mid-flight supersede. A fresh fetch bumps
+                // generation by 1; a reused in-flight promise does not bump.
+                // Anything beyond that means invalidateByTag / clearCached /
+                // setCachedWithTags ran while the fetch was pending, so the null
+                // returned below is a supersede signal — not a genuine "backend
+                // returned no data" — and onFresh must not repaint UI with it.
+                const reusedInFlight = inFlight.has(key);
+                const genBefore = fetchGeneration.get(key) || 0;
+                const expectedBump = reusedInFlight ? 0 : 1;
                 const fresh = await this.fetchFresh(key, fetcher, tags);
-                if ((allowNullFresh || hasValue(fresh)) && onFresh) {
+                const genAfter = fetchGeneration.get(key) || 0;
+                const wasSuperseded = fresh === null && genAfter > genBefore + expectedBump;
+                if (!wasSuperseded && (allowNullFresh || hasValue(fresh)) && onFresh) {
                     await onFresh(fresh, cached);
                 }
-                return { cached, fresh };
+                return { cached, fresh: wasSuperseded ? null : fresh };
             } catch (error) {
                 if (onError) {
                     await onError(error, cached);

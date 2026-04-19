@@ -144,6 +144,162 @@ describe('data-store.js unit tests', () => {
     }
   });
 
+  it('setCachedWithTags beats a stale in-flight fetchFresh resolving after bootstrap', async () => {
+    const { window, cacheMap, cleanup } = loadDataStoreEnv();
+
+    try {
+      let resolveStaleFetch;
+      const staleFetcher = vi.fn(() => new Promise((resolve) => {
+        resolveStaleFetch = resolve;
+      }));
+
+      const staleReq = window.DataStore.fetchFresh('next_intake', staleFetcher, ['history', 'medications']);
+
+      await window.DataStore.setCachedWithTags('next_intake', { scheduled_at: 'bootstrap-value' }, ['history', 'medications']);
+      expect(cacheMap.get('next_intake')).toEqual({ scheduled_at: 'bootstrap-value' });
+
+      resolveStaleFetch({ scheduled_at: 'stale-value' });
+      await staleReq;
+
+      expect(cacheMap.get('next_intake')).toEqual({ scheduled_at: 'bootstrap-value' });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('fetchFresh resolves with null (not the stale payload) when superseded by setCachedWithTags', async () => {
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      let resolveStaleFetch;
+      const staleFetcher = vi.fn(() => new Promise((resolve) => {
+        resolveStaleFetch = resolve;
+      }));
+
+      const staleReq = window.DataStore.fetchFresh('next_intake', staleFetcher, ['history', 'medications']);
+
+      await window.DataStore.setCachedWithTags('next_intake', { scheduled_at: 'bootstrap-value' }, ['history', 'medications']);
+
+      resolveStaleFetch({ scheduled_at: 'stale-value' });
+      const staleResult = await staleReq;
+
+      expect(staleResult).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('loadSWR skips onFresh when the in-flight fetch is superseded by setCachedWithTags', async () => {
+    const { window, cleanup } = loadDataStoreEnv({
+      initialCache: { next_intake: { scheduled_at: 'cached-value' } }
+    });
+
+    try {
+      let resolveStaleFetch;
+      const staleFetcher = vi.fn(() => new Promise((resolve) => {
+        resolveStaleFetch = resolve;
+      }));
+
+      const onCached = vi.fn();
+      const onFresh = vi.fn();
+
+      const swrPromise = window.DataStore.loadSWR({
+        key: 'next_intake',
+        tags: ['history', 'medications'],
+        fetcher: staleFetcher,
+        onCached,
+        onFresh
+      });
+
+      // Wait until loadSWR has actually invoked the fetcher (i.e. is past
+      // getCached/onCached and is awaiting fetchFresh), so the simulated
+      // bootstrap write below truly races an in-flight fetch.
+      while (staleFetcher.mock.calls.length === 0) {
+        await Promise.resolve();
+      }
+
+      await window.DataStore.setCachedWithTags('next_intake', { scheduled_at: 'bootstrap-value' }, ['history', 'medications']);
+
+      resolveStaleFetch({ scheduled_at: 'stale-value' });
+      const result = await swrPromise;
+
+      expect(onCached).toHaveBeenCalledTimes(1);
+      expect(onFresh).not.toHaveBeenCalled();
+      expect(result.fresh).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('loadSWR with allowNullFresh still skips onFresh when superseded by invalidateByTag', async () => {
+    // Regression: loadHistory() passes allowNullFresh:true so an empty backend
+    // response can clear the list. A superseded fetchFresh also resolves with
+    // null — without the wasSuperseded guard, onFresh would fire with null and
+    // blank a list that a concurrent newer fetch is about to repaint correctly.
+    const { window, cleanup } = loadDataStoreEnv({
+      initialCache: { history_7_all: [{ id: 1 }, { id: 2 }] }
+    });
+
+    try {
+      let resolveStaleFetch;
+      const staleFetcher = vi.fn(() => new Promise((resolve) => {
+        resolveStaleFetch = resolve;
+      }));
+
+      const onCached = vi.fn();
+      const onFresh = vi.fn();
+
+      const swrPromise = window.DataStore.loadSWR({
+        key: 'history_7_all',
+        tags: ['history'],
+        fetcher: staleFetcher,
+        allowNullFresh: true,
+        onCached,
+        onFresh
+      });
+
+      while (staleFetcher.mock.calls.length === 0) {
+        await Promise.resolve();
+      }
+
+      // Simulate a write-path invalidation (matches what `await DataStore.invalidateByTag('history')`
+      // does after confirmLogPast / triggerNextIntake).
+      await window.DataStore.invalidateByTag('history');
+
+      resolveStaleFetch([{ id: 1 }, { id: 2 }, { id: 3 }]);
+      const result = await swrPromise;
+
+      expect(onFresh).not.toHaveBeenCalled();
+      expect(result.fresh).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('loadSWR with allowNullFresh calls onFresh when the backend legitimately returns null', async () => {
+    const { window, cleanup } = loadDataStoreEnv({
+      initialCache: { history_7_all: [{ id: 1 }] }
+    });
+
+    try {
+      const fetcher = vi.fn().mockResolvedValue(null);
+      const onFresh = vi.fn();
+
+      const result = await window.DataStore.loadSWR({
+        key: 'history_7_all',
+        tags: ['history'],
+        fetcher,
+        allowNullFresh: true,
+        onFresh
+      });
+
+      expect(onFresh).toHaveBeenCalledWith(null, [{ id: 1 }]);
+      expect(result.fresh).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
   it('requestTabRefresh falls back to reloadCurrentTab when no global request handler exists', () => {
     const { window, cleanup } = loadDataStoreEnv();
 
