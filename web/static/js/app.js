@@ -1009,11 +1009,15 @@ async function fetchSettingsBundle() {
 async function _todayReadCaches(foodKey) {
     const bootstrap = { features: featureSettings || {} };
     const swrCaches = {};
-    let oldestCacheTimestamp = null;
-    let bundleCached = false;
+    // Tracks the *most recent* write among all caches we read. The offline-stale
+    // banner ("cached data is >1h old") should fire only when nothing we have
+    // is fresh. Using the oldest timestamp would let a single rarely-updated
+    // cache (e.g. health_overview) pin the window even after bootstrap just
+    // refreshed.
+    let latestCacheTimestamp = null;
     const trackTs = (ts) => {
-        if (Number.isFinite(ts) && (oldestCacheTimestamp === null || ts < oldestCacheTimestamp)) {
-            oldestCacheTimestamp = ts;
+        if (Number.isFinite(ts) && (latestCacheTimestamp === null || ts > latestCacheTimestamp)) {
+            latestCacheTimestamp = ts;
         }
     };
     try {
@@ -1026,7 +1030,6 @@ async function _todayReadCaches(foodKey) {
             const metas = await Promise.all(keys.map(readMeta));
             const [bundleM, nextIntakeM, bpM, weightM, workoutM, healthM, foodM] = metas;
             if (bundleM?.data) {
-                bundleCached = true;
                 bootstrap.features = bundleM.data.featureSettings || bootstrap.features;
                 bootstrap.settings = { food_targets: bundleM.data.foodTargets };
             }
@@ -1059,7 +1062,6 @@ async function _todayReadCaches(foodKey) {
                 keys.map((k) => window.DataStore.getCached(k).catch(() => null))
             );
             if (bundle) {
-                bundleCached = true;
                 bootstrap.features = bundle.featureSettings || bootstrap.features;
                 bootstrap.settings = { food_targets: bundle.foodTargets };
             }
@@ -1085,24 +1087,24 @@ async function _todayReadCaches(foodKey) {
             }
         }
     } catch (_) { /* best-effort — render whatever we have */ }
-    return { bootstrap, swrCaches, oldestCacheTimestamp, bundleCached };
+    return { bootstrap, swrCaches, latestCacheTimestamp };
 }
 
 async function _todayRender(foodKey) {
     const root = document.getElementById('today-content');
     if (!root || !window.TodayDashboard) return { rendered: false };
-    const { bootstrap, swrCaches, oldestCacheTimestamp } = await _todayReadCaches(foodKey);
+    const { bootstrap, swrCaches, latestCacheTimestamp } = await _todayReadCaches(foodKey);
     const online = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
     const nowMs = Date.now();
     const state = window.TodayDashboard.aggregateToday(bootstrap, swrCaches, nowMs);
-    if (oldestCacheTimestamp === null) {
+    if (latestCacheTimestamp === null) {
         // No cached entry of any kind means bootstrap has never loaded on this
         // device — show the first-run "connect to load your day" message rather
         // than a grid of empty cards. Empty but cached bootstrap (new account
         // with no data yet) still renders the grid.
         state.__firstRun = true;
     }
-    if (window.TodayDashboard.isOfflineStale({ online, cacheTimestamp: oldestCacheTimestamp, now: nowMs })) {
+    if (window.TodayDashboard.isOfflineStale({ online, cacheTimestamp: latestCacheTimestamp, now: nowMs })) {
         state.__offline = true;
     }
     window.TodayDashboard.renderToday(state, root, { now: nowMs });

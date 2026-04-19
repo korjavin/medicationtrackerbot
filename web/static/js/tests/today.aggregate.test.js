@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -101,6 +101,11 @@ describe('TodayDashboard.aggregateToday', () => {
 
   beforeEach(() => {
     env = loadTodayEnv();
+  });
+
+  afterEach(() => {
+    env?.cleanup();
+    env = null;
   });
 
   it('returns ok-state fields when all bootstrap + SWR caches are populated', () => {
