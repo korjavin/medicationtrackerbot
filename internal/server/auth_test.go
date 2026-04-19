@@ -310,10 +310,10 @@ func TestHandleTelegramCallback_GET_ValidParams(t *testing.T) {
 	var allowedID int64 = 123456
 
 	srv := &Server{
-		botToken:       token,
-		sessionSecret:  secret,
-		allowedUserID:  allowedID,
-		nonces: newMockNonceStore(),
+		botToken:      token,
+		sessionSecret: secret,
+		allowedUserID: allowedID,
+		nonces:        newMockNonceStore(),
 	}
 
 	data := buildLoginData(token, TelegramLoginData{
@@ -443,10 +443,10 @@ func TestHandleTelegramCallback_POST_ValidJSON(t *testing.T) {
 	var allowedID int64 = 123456
 
 	srv := &Server{
-		botToken:       token,
-		sessionSecret:  secret,
-		allowedUserID:  allowedID,
-		nonces: newMockNonceStore(),
+		botToken:      token,
+		sessionSecret: secret,
+		allowedUserID: allowedID,
+		nonces:        newMockNonceStore(),
 	}
 
 	data := buildLoginData(token, TelegramLoginData{
@@ -498,8 +498,8 @@ func TestHandleTelegramCallback_POST_ValidJSON(t *testing.T) {
 
 func TestHandleTelegramCallback_POST_InvalidJSON(t *testing.T) {
 	srv := &Server{
-		botToken:      "test-bot-token",    // #nosec G101
-		sessionSecret: "test-session-sec",  // #nosec G101
+		botToken:      "test-bot-token",   // #nosec G101
+		sessionSecret: "test-session-sec", // #nosec G101
 		allowedUserID: 123456,
 	}
 
@@ -575,10 +575,10 @@ func TestHandleTelegramCallback_GET_ReplayRejected(t *testing.T) {
 	var allowedID int64 = 123456
 
 	srv := &Server{
-		botToken:       token,
-		sessionSecret:  secret,
-		allowedUserID:  allowedID,
-		nonces: newMockNonceStore(),
+		botToken:      token,
+		sessionSecret: secret,
+		allowedUserID: allowedID,
+		nonces:        newMockNonceStore(),
 	}
 
 	data := buildLoginData(token, TelegramLoginData{

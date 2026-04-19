@@ -200,7 +200,6 @@ type MiBandStore interface {
 	CheckDuplicateMiBandWorkout(ctx context.Context, userID int64, startMsMin, startMsMax int64) (bool, error)
 }
 
-
 // TZPlanStore is the subset of store operations needed for timezone plan approval/rejection.
 type TZPlanStore interface {
 	SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error)

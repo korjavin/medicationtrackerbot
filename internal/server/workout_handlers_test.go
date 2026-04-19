@@ -847,13 +847,13 @@ func TestHandleAddExerciseToSession_RejectsInvalidSource(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(map[string]interface{}{
-		"session_id":     session.ID,
-		"exercise_id":    exercise.ID,
-		"exercise_name":  "Squat",
-		"target_sets":    3,
+		"session_id":      session.ID,
+		"exercise_id":     exercise.ID,
+		"exercise_name":   "Squat",
+		"target_sets":     3,
 		"target_reps_min": 8,
-		"status":         "completed",
-		"source":         "invalid_value",
+		"status":          "completed",
+		"source":          "invalid_value",
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/workout/exercises/log/add", bytes.NewReader(body))

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net"
@@ -41,30 +42,30 @@ type WorkoutInteractor interface {
 }
 
 type Server struct {
-	meds            MedicationStore
-	medSvc          domain.MedicationService
-	bp              BloodPressureStore
-	weight          WeightStore
-	workouts        WorkoutStore
-	workoutSvc      workoutsvc.WorkoutService
-	food            FoodStore
-	settings        SettingsStore
-	health          HealthStore
-	changes         ChangeStore
-	push            PushStore
-	miband          MiBandStore
-	notes           DiaryNotesStore
-	workout         WorkoutInteractor
-	notifiers       []notifier.Notifier
-	rxnorm          *rxnorm.Client
-	botToken        string
-	sessionSecret   string
-	allowedUserID   int64
-	oidcConfig      OIDCConfig
-	oauthConfig     *oauth2.Config
-	oidcUserInfo    string
-	botUsername     string
-	vapidPublicKey  string
+	meds                MedicationStore
+	medSvc              domain.MedicationService
+	bp                  BloodPressureStore
+	weight              WeightStore
+	workouts            WorkoutStore
+	workoutSvc          workoutsvc.WorkoutService
+	food                FoodStore
+	settings            SettingsStore
+	health              HealthStore
+	changes             ChangeStore
+	push                PushStore
+	miband              MiBandStore
+	notes               DiaryNotesStore
+	workout             WorkoutInteractor
+	notifiers           []notifier.Notifier
+	rxnorm              *rxnorm.Client
+	botToken            string
+	sessionSecret       string
+	allowedUserID       int64
+	oidcConfig          OIDCConfig
+	oauthConfig         *oauth2.Config
+	oidcUserInfo        string
+	botUsername         string
+	vapidPublicKey      string
 	foodSearchTTL       time.Duration
 	foodSearchCache     *fastcache.Cache
 	changeStreamSem     chan struct{}
@@ -744,10 +745,10 @@ func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Inject timestamp for cache busting
-	html := strings.ReplaceAll(string(content), "TIMESTAMP_PLACEHOLDER", fmt.Sprintf("%d", time.Now().UnixNano()))
+	htmlContent := strings.ReplaceAll(string(content), "TIMESTAMP_PLACEHOLDER", fmt.Sprintf("%d", time.Now().UnixNano()))
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if _, err := w.Write([]byte(html)); err != nil { // #nosec G203
+	if _, err := w.Write([]byte(htmlContent)); err != nil { // #nosec G203
 		slog.Error("write response", "error", err)
 	}
 }
@@ -800,15 +801,15 @@ func (s *Server) serveOIDCSetup(w http.ResponseWriter, r *http.Request) {
 	webClientID := os.Getenv("OIDC_CLIENT_ID")
 	mcpClientID := os.Getenv("OIDC_MCP_CLIENT_ID")
 
-	html := string(content)
-	html = strings.ReplaceAll(html, "APP_DOMAIN_PLACEHOLDER", appDomain)
-	html = strings.ReplaceAll(html, "POCKET_ID_DOMAIN_PLACEHOLDER", pocketIDDomain)
-	html = strings.ReplaceAll(html, "MCP_SERVER_URL_PLACEHOLDER", mcpServerURL)
-	html = strings.ReplaceAll(html, "WEB_CLIENT_ID_PLACEHOLDER", webClientID)
-	html = strings.ReplaceAll(html, "MCP_CLIENT_ID_PLACEHOLDER", mcpClientID)
+	htmlContent := string(content)
+	htmlContent = strings.ReplaceAll(htmlContent, "APP_DOMAIN_PLACEHOLDER", html.EscapeString(appDomain))
+	htmlContent = strings.ReplaceAll(htmlContent, "POCKET_ID_DOMAIN_PLACEHOLDER", html.EscapeString(pocketIDDomain))
+	htmlContent = strings.ReplaceAll(htmlContent, "MCP_SERVER_URL_PLACEHOLDER", html.EscapeString(mcpServerURL))
+	htmlContent = strings.ReplaceAll(htmlContent, "WEB_CLIENT_ID_PLACEHOLDER", html.EscapeString(webClientID))
+	htmlContent = strings.ReplaceAll(htmlContent, "MCP_CLIENT_ID_PLACEHOLDER", html.EscapeString(mcpClientID))
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if _, err := w.Write([]byte(html)); err != nil { // #nosec G203
+	if _, err := w.Write([]byte(htmlContent)); err != nil { // #nosec G203
 		slog.Error("write response", "error", err)
 	}
 }
