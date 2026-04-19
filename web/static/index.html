@@ -49,6 +49,7 @@
 
 
         <div id="meds-view" class="view">
+            <div class="section-header-mount" data-title="Medications"></div>
             <!-- Med Tabs -->
             <div class="med-tabs">
                 <button class="med-tab active" data-tab="history">History</button>
@@ -80,7 +81,7 @@
         </div>
 
         <div id="bp-view" class="view">
-            <h3>Blood Pressure Readings</h3>
+            <div class="section-header-mount" data-title="Blood Pressure"></div>
             <button id="add-bp-btn" class="btn btn-primary btn-pill btn-fab btn-lg">+ Record BP</button>
             <div id="bpChart"></div>
             <div id="bp-averages"></div>
@@ -88,7 +89,7 @@
         </div>
 
         <div id="weight-view" class="view">
-            <h3>Weight Tracking</h3>
+            <div class="section-header-mount" data-title="Weight"></div>
             <button id="add-weight-btn" class="btn btn-primary btn-pill btn-fab btn-lg">+ Log Weight</button>
             <div id="weightChart"></div>
             <div id="weight-stats"></div>
@@ -96,7 +97,7 @@
         </div>
 
         <div id="workouts-view" class="view">
-            <h3>🏋️ Workout Planner</h3>
+            <div class="section-header-mount" data-title="Workouts"></div>
 
             <!-- Tab Navigation for Workouts -->
             <div class="workout-tabs">
@@ -142,14 +143,11 @@
         </div>
 
         <div id="food-view" class="view">
-            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;">
-                <h3 style="margin-bottom: 0;">Food Intake (experimental)</h3>
-                <div id="food-stats-period-container" class="food-stats-period-container"
-                    style="font-size: 13px; font-weight: normal;">
-                    <span id="food-period-day-link" class="period-link active" data-period="day">Day</span>
-                    <span style="color:var(--hint-color)">|</span>
-                    <span id="food-period-week-link" class="period-link" data-period="week">Week</span>
-                </div>
+            <div class="section-header-mount" data-title="Food Intake" data-badge="experimental"></div>
+            <div id="food-stats-period-container" class="food-stats-period-container food-stats-period-row">
+                <span id="food-period-day-link" class="period-link active" data-period="day">Day</span>
+                <span class="period-divider">|</span>
+                <span id="food-period-week-link" class="period-link" data-period="week">Week</span>
             </div>
 
             <!-- Food Tabs -->
@@ -216,6 +214,7 @@
         </div>
 
         <div id="health-view" class="view">
+            <div class="section-header-mount" data-title="Health"></div>
             <div class="health-tabs">
                 <button class="health-tab active" data-tab="overview">Overview</button>
                 <button class="health-tab" data-tab="notes">Notes</button>
@@ -242,7 +241,7 @@
         </div>
 
         <div id="settings-view" class="view">
-            <h3>Settings</h3>
+            <div class="section-header-mount" data-title="Settings"></div>
 
             <div class="setting-item sync-status-item">
                 <div>

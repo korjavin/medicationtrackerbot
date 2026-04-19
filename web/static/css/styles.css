@@ -3759,3 +3759,33 @@ input:checked+.toggle-slider:before {
     justify-content: flex-end;
     min-width: 44px;
 }
+
+.section-header .badge {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    padding: 2px var(--space-sm);
+    border-radius: var(--radius-pill);
+    background: var(--secondary-bg-color);
+    color: var(--hint-color);
+    text-transform: lowercase;
+    letter-spacing: 0.03em;
+}
+
+.section-header .badge-experimental {
+    background: var(--color-warning);
+    color: var(--bg-color);
+}
+
+.food-stats-period-row {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-normal);
+    margin-bottom: var(--space-sm);
+}
+
+.food-stats-period-row .period-divider {
+    color: var(--hint-color);
+}

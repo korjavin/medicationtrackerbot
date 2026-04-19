@@ -863,6 +863,35 @@ function bindTabGroup(options) {
     });
 }
 
+// Hydrate a section view's [data-section-header-mount] placeholder (if any) into
+// a SectionHeader component. Idempotent: skips if already hydrated. Today builds
+// its own header inside renderToday, so hydrateSectionHeader is a no-op there.
+function hydrateSectionHeader(tab) {
+    if (tab === 'today') return;
+    const view = document.getElementById(`${tab}-view`);
+    if (!view) return;
+    const mount = view.querySelector('.section-header-mount');
+    if (!mount || mount.dataset.hydrated === '1') return;
+    const factory = window.SectionHeader && window.SectionHeader.create;
+    if (typeof factory !== 'function') return;
+    const title = mount.dataset.title || '';
+    const badge = mount.dataset.badge || '';
+    let rightSlot = null;
+    if (badge) {
+        const b = document.createElement('span');
+        b.className = `badge badge-${badge}`;
+        b.textContent = badge;
+        rightSlot = b;
+    }
+    const header = factory({
+        title,
+        onBack: () => switchTab('today'),
+        rightSlot
+    });
+    mount.replaceWith(header);
+    header.dataset.hydrated = '1';
+}
+
 function switchTab(tab) {
     const tabToFeature = {
         food: 'food',
@@ -884,6 +913,8 @@ function switchTab(tab) {
         ariaCurrent: 'page'
     });
     if (!activated) return;
+
+    hydrateSectionHeader(tab);
 
     if (tab === 'meds') {
         if (!document.querySelector('.med-tab.active')) {
