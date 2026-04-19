@@ -1,14 +1,18 @@
 // Telegram WebApp BackButton integration for section-level navigation.
-// Companion to features/modal-history.js:
-//   modal-history.js  → BackButton click closes the topmost open modal
-//   back-button.js    → BackButton click returns to Today when no modal is open
-// Both integrations call BackButton.show()/hide() independently; this one only
-// drives visibility when no modal is on-screen, so it never fights modal-history.
+// Single BackButton click handler for the whole app:
+//   - If a modal is open → close the topmost modal (modal-history's MutationObserver
+//     handles the history.back() + visibility reconciliation via refresh()).
+//   - Otherwise → switch back to Today from the current section view.
+//
+// modal-history.js drives show() when a modal opens; after a modal closes it calls
+// AppBackButton.refresh() so the button re-appears on non-Today sections.
 //
 // Loaded after app.js and modal-history.js.  bootstrap.js calls
 // AppBackButton.setup() once, after the initial tab is activated.
 
 (function () {
+    let refreshFn = null;
+
     function setupAppBackButton() {
         const webApp = window.Telegram && window.Telegram.WebApp;
         const backButton = webApp && webApp.BackButton;
@@ -22,17 +26,32 @@
             return !!overlay && !overlay.classList.contains('hidden');
         }
 
+        function currentTab() {
+            if (window.AppStore && typeof window.AppStore.get === 'function') {
+                const t = window.AppStore.get('currentTab');
+                if (t) return t;
+            }
+            return ((document.querySelector('.view.active') || {}).id || '').replace(/-view$/, '');
+        }
+
         function refreshBackButton(tab) {
             if (modalIsOpen()) return;
-            if (tab && tab !== 'today') {
+            const t = (typeof tab === 'string') ? tab : currentTab();
+            if (t && t !== 'today') {
                 backButton.show();
             } else {
                 backButton.hide();
             }
         }
+        refreshFn = refreshBackButton;
 
         backButton.onClick(function () {
-            if (modalIsOpen()) return;
+            if (modalIsOpen()) {
+                if (window.ModalManager && typeof window.ModalManager.closeTopMostVisibleModal === 'function') {
+                    window.ModalManager.closeTopMostVisibleModal();
+                }
+                return;
+            }
             if (typeof window.switchTab === 'function') {
                 window.switchTab('today');
             }
@@ -42,10 +61,11 @@
             window.AppStore.subscribe('currentTab', refreshBackButton);
         }
 
-        const initialTab = (window.AppStore && typeof window.AppStore.get === 'function' && window.AppStore.get('currentTab'))
-            || ((document.querySelector('.view.active') || {}).id || '').replace(/-view$/, '');
-        refreshBackButton(initialTab);
+        refreshBackButton(currentTab());
     }
 
-    window.AppBackButton = { setup: setupAppBackButton };
+    window.AppBackButton = {
+        setup: setupAppBackButton,
+        refresh: function () { if (refreshFn) refreshFn(); }
+    };
 })();

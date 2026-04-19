@@ -40,7 +40,7 @@ If you lose your internet, the app still works. If you switch AI assistants, you
 
 ## What you get
 
-**Today dashboard** — a read-only landing view that surfaces your greeting, next medication, latest blood pressure + 7-day trend, weight + 7-day trend, today's calories, next workout, and last night's sleep. Each card deep-links to the relevant tab for action.
+**Today dashboard** — a read-only landing view that surfaces your greeting, next medication, latest blood pressure + 7-day trend, weight + 7-day trend, today's calories, next workout, and last night's sleep. Each card deep-links to the relevant section for action.
 
 **Medications** — scheduled, weekly, and as-needed doses · intake history · snooze, skip, log past · inventory with restocks and low-stock alerts · drug-interaction checks · CSV export.
 
@@ -56,7 +56,7 @@ If you lose your internet, the app still works. If you switch AI assistants, you
 
 **Diary** — free-text notes via `/note` or the web UI, automatically included as context for AI analysis.
 
-**Delivery & fit-and-finish** — web push notifications · offline-first PWA · reorderable tabs · automatic timezone detection with user confirmation · Telegram WebApp auth or OIDC for browser access.
+**Delivery & fit-and-finish** — web push notifications · offline-first PWA · Today dashboard as home with deep-link navigation · automatic timezone detection with user confirmation · Telegram WebApp auth or OIDC for browser access.
 
 ## Two ways to use it
 
