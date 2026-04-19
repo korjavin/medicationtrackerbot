@@ -87,6 +87,8 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.initServiceWorker` | `app-shell.js` | index.html inline |
 | `window.showUpdateToast` | `app-shell.js` | service worker message |
 | `window.TodayDashboard` | `features/today.js` | app.js `loadToday()` |
+| `window.SectionHeader` | `components/section-header.js` | app.js, features/today.js |
+| `window.AppBackButton` | `features/back-button.js` | features/bootstrap.js |
 
 ## Design Token System
 
@@ -100,15 +102,18 @@ Key rules (enforced by architecture tests in `web/static/js/tests/architecture.d
 - **Spacing / radius / shadow / typography / z-index** all use tokens (`--space-*`, `--radius-*`, `--shadow-*`, `--font-size-*`, `--z-*`)
 - **Utility classes**: `.flex-row`, `.flex-between`, `.flex-center`, `.text-hint`, `.text-center`, `.hidden`, `.empty-state`, spacing helpers (`.mt-sm`, `.mb-md`, …)
 
-## Tabs and Navigation
+## Navigation
 
-- **Tab Reordering** (`tabs-dnd.js`): drag-and-drop for custom tab layouts, persisted via `tab_order` in the bootstrap payload and cached in `settings_bundle`
-- **Tab Icons**: inline SVGs (`currentColor`, 20×20) replace emoji; all tab buttons have `aria-label`
-- **Stroke/fill icon convention**: each tab button wraps its icon in `<span class="tab-icon">` containing two sibling SVGs — `<svg class="tab-icon-stroke">` (outline, shown when inactive) and `<svg class="tab-icon-fill">` (filled variant, shown when active). CSS toggles visibility via `.tab.active`. Inactive `stroke-width` is tuned per-icon (1.75 for dense shapes, 2.25 for sparse outlines) so the 7 tabs aren't a uniform grey blur. Any new tab must ship both variants.
-- **Active tab treatment**: a 2px accent strip positioned at the top of the active tab via `.tab.active::before` (uses `currentColor`, inheriting from `--color-accent` with fallback to `--link-color`), plus `transform: scale(1.05)` for responsiveness. Replaces the prior `border-bottom` approach. `.tab` must be `position: relative` to anchor the pseudo-element.
-- **Accessibility**: the tab bar is a `<nav aria-label="Primary">` landmark; `app.js` tab switch handler sets `aria-current="page"` on the active tab and removes it from siblings. No `role="tablist"`/`role="tab"` — the full tab widget pattern (`aria-selected`, `role="tabpanel"`, `aria-controls`, roving tabindex, arrow keys) isn't implemented, so we use the navigation-landmark pattern instead.
-- **Health Sub-Tabs**: "Overview" (vitals/sleep/steps charts) and "Notes" (diary notes) using `bindTabGroup()` / `activateTabGroup()` (same pattern as the Food tab). Notes load lazily on first sub-tab click; default is Overview.
-- **Today Tab** (`features/today.js`, exposes `window.TodayDashboard`): read-only landing dashboard. Default for new users; existing users have `'today'` prepended to their saved `tab_order` by `migrateTabOrderForToday()` in `app.js` unless they've opted out via `localStorage['today_opt_out'] === '1'`. Drag-reorder works like any other tab (data-attribute based). Participates in the standard tab switcher in `app.js` via `loadToday()`. See [features.md](features.md#today-dashboard) for the aggregation contract and deep-link targets.
+The app uses a Today-as-home pattern: Today is the only landing surface, and every other section is a push-navigation destination. There is no persistent tab strip.
+
+- **Today is home** (`features/today.js`, exposes `window.TodayDashboard`): the default view on every cold start. Its data cards (BP, Weight, Meds, Workouts, Food, Health) are the entry points into each section — tapping a card calls `switchTab(section)`. Today's own header shows a greeting on the left and a gear button on the right that deep-links to Settings.
+- **Section headers** (`components/section-header.js`, exposes `window.SectionHeader`): every non-Today view mounts a sticky `<header class="section-header">` with a leading "← Today" back pill, a centered section title, and an optional `rightSlot`. `app.js` `switchTab` hydrates the header into each view's `<div class="section-header-mount" data-title="…">` placeholder on first activation (idempotent — re-switching doesn't duplicate). Today passes `onBack: null` to hide the back pill and uses `rightSlot` for the gear.
+- **Telegram WebApp BackButton** (`features/back-button.js`, exposes `window.AppBackButton`): `setupAppBackButton()` is called from `features/bootstrap.js` after the initial tab activates. It shows the Telegram BackButton on any non-Today view and hides it on Today. Clicking it returns to Today — unless a modal is open, in which case `modal-history.js` wins (the handler checks `.modal-overlay.active` first and defers). Gated on `Telegram.WebApp.isVersionAtLeast('6.1')` like modal-history.
+- **`tab_order` semantics**: the `tab_order` array persisted in `settings_bundle` now controls the render order of Today's cards (BP, Weight, Meds, Workouts, Food, Health), NOT the order of tab buttons (there are none). The schema name didn't change — only the rendering call site did. Settings is excluded from `tab_order` because it isn't a card.
+- **Today card drag-reorder is deferred.** `tabs-dnd.js` was removed with the tab strip; re-implementing drag-reorder for a CSS grid is tracked separately.
+- **Sub-tab groups inside section views stay** (`.med-tabs`, `.workout-tabs`, `.food-tabs`, `.health-tabs`): use `bindTabGroup()` / `activateTabGroup()`. Health sub-tabs are "Overview" (charts) and "Notes" (diary); Notes loads lazily.
+- **Accessibility**: section headers use `<header>` with the title as an `<h2>`. The back button has `aria-label="Back to Today"`. Today's gear has `aria-label="Settings"`. No `role="tablist"` anywhere — navigation is landmark-based, not tab-widget-based.
+- **Deep-link router** (`features/deeplink-router.js`, `window.handleDeepLinks`): URL hash and `tgWebAppStartParam` still route to any section by name. Deep links land directly on the section (with its sticky header and BackButton visible), bypassing Today.
 
 ## Data Flow
 
