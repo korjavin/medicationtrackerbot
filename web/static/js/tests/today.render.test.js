@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -103,6 +103,11 @@ describe('TodayDashboard.renderToday', () => {
 
     beforeEach(() => {
         env = loadRenderEnv();
+    });
+
+    afterEach(() => {
+        env?.cleanup();
+        env = null;
     });
 
     it('renders a card for each populated metric in all-present state', () => {

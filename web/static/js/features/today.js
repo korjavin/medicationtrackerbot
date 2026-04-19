@@ -277,10 +277,12 @@
         if (!iso) return '';
         const t = Date.parse(iso);
         if (!Number.isFinite(t)) return '';
-        const ageMs = nowMs - t;
-        if (ageMs < 0) return 'upcoming';
-        if (ageMs < DAY_IN_MS) return 'today';
-        const days = Math.floor(ageMs / DAY_IN_MS);
+        if (t > nowMs) return 'upcoming';
+        const dNow = new Date(nowMs);
+        const dThen = new Date(t);
+        const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+        const days = Math.round((startOfDay(dNow) - startOfDay(dThen)) / DAY_IN_MS);
+        if (days <= 0) return 'today';
         if (days === 1) return 'yesterday';
         return `${days}d ago`;
     }
