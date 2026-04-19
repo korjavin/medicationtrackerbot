@@ -484,16 +484,15 @@ func (s *Server) handleSetTabOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate tab IDs
+	// Validate tab IDs. tab_order now controls Today card order only;
+	// 'today' and 'settings' are not cards, so reject them.
 	validTabs := map[string]bool{
-		"today":    true,
 		"bp":       true,
 		"weight":   true,
 		"workouts": true,
 		"food":     true,
 		"health":   true,
 		"meds":     true,
-		"settings": true,
 	}
 
 	for _, tab := range req.Order {

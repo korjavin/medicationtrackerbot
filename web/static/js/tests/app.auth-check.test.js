@@ -67,7 +67,7 @@ describe('app.js checkAuth behavior', () => {
     }
   });
 
-  it('applies tab order from cache during offline fallback', async () => {
+  it('reads cached settings_bundle during offline fallback', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
       window.localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({
@@ -88,16 +88,10 @@ describe('app.js checkAuth behavior', () => {
       });
       window.DataStore.getCached = getCachedSpy;
 
-      const applyTabOrderSpy = vi.fn();
-      window.applyTabOrder = applyTabOrderSpy;
-
       const authorized = await window.checkAuth();
 
       expect(authorized).toBe(true);
       expect(getCachedSpy).toHaveBeenCalledWith('settings_bundle');
-      // 'today' is prepended by migrateTabOrderForToday for users whose saved
-      // tab_order predates the Today tab (no explicit opt-out flag set).
-      expect(applyTabOrderSpy).toHaveBeenCalledWith(['today', 'weight', 'bp', 'food']);
     } finally {
       cleanup();
     }
