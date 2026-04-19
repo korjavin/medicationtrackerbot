@@ -40,6 +40,8 @@ If you lose your internet, the app still works. If you switch AI assistants, you
 
 ## What you get
 
+**Today dashboard** — a read-only landing view that surfaces your greeting, next medication, latest blood pressure + 7-day trend, weight + 7-day trend, today's calories, next workout, and last night's sleep. Each card deep-links to the relevant tab for action.
+
 **Medications** — scheduled, weekly, and as-needed doses · intake history · snooze, skip, log past · inventory with restocks and low-stock alerts · drug-interaction checks · CSV export.
 
 **Blood pressure** — quick logging · goals · reminders · statistics · imports · CSV export.

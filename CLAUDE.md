@@ -70,7 +70,7 @@ go run cmd/genvapid/main.go                                   # VAPID keys for w
 | Topic | File |
 |-------|------|
 | Architecture, code structure, DB schema, auth, domain services, scheduler, logging, testing | [docs/architecture.md](docs/architecture.md) |
-| Feature behaviors (meds, BP, weight, food, workouts, MCP) | [docs/features.md](docs/features.md) |
+| Feature behaviors (Today dashboard, meds, BP, weight, food, workouts, MCP) | [docs/features.md](docs/features.md) |
 | API endpoints | [docs/api.md](docs/api.md) |
 | Environment variables | [docs/environment.md](docs/environment.md) |
 | MCP server deployment (Pocket-ID, Docker, Claude config) | [docs/mcp-deployment.md](docs/mcp-deployment.md) |
