@@ -104,15 +104,15 @@ Benefit: more vertical screen real-estate, cards preview their own data ("BP 118
 
 ### Task 5: Remove the tab strip
 
-- [ ] delete the entire `<nav id="tabs">…</nav>` block from `web/static/index.html:33-44`
-- [ ] delete `#tabs`, `.tab`, `.tab.active`, `.tab.active::before`, `.tab-icon`, `.tab-icon-stroke`, `.tab-icon-fill` CSS rules from `web/static/css/styles.css`
-- [ ] in `app.js` `activateTabGroup`, the button-side toggle becomes a no-op when no buttons match the selector — verify it doesn't throw on an empty querySelectorAll (it shouldn't, but assert in a test)
-- [ ] in `features/bootstrap.js`, ensure the initial tab is `today` (drop the "first visible tab" fallback logic — Today is now always first)
-- [ ] DELETE `web/static/js/features/tabs-dnd.js` and its test `web/static/js/tests/tabs-dnd.cleanup.test.js` (drag-reorder is deferred per Design Decision 6)
-- [ ] DELETE the `initTabsDragAndDrop` consumer call sites in `app.js` / `features/bootstrap.js`
-- [ ] remove `window.initTabsDragAndDrop` from globals allowlist
-- [ ] write a Vitest case asserting `<nav id="tabs">` is ABSENT from `index.html` (architecture-level guard against accidental reintroduction)
-- [ ] run `pnpm test` — must pass before next task
+- [x] delete the entire `<nav id="tabs">…</nav>` block from `web/static/index.html:33-44`
+- [x] delete `#tabs`, `.tab`, `.tab.active`, `.tab.active::before`, `.tab-icon`, `.tab-icon-stroke`, `.tab-icon-fill` CSS rules from `web/static/css/styles.css`
+- [x] in `app.js` `activateTabGroup`, the button-side toggle becomes a no-op when no buttons match the selector — verify it doesn't throw on an empty querySelectorAll (it shouldn't, but assert in a test)
+- [x] in `features/bootstrap.js`, ensure the initial tab is `today` (drop the "first visible tab" fallback logic — Today is now always first)
+- [x] DELETE `web/static/js/features/tabs-dnd.js` and its test `web/static/js/tests/tabs-dnd.cleanup.test.js` (drag-reorder is deferred per Design Decision 6)
+- [x] DELETE the `initTabsDragAndDrop` consumer call sites in `app.js` / `features/bootstrap.js`
+- [x] remove `window.initTabsDragAndDrop` from globals allowlist
+- [x] write a Vitest case asserting `<nav id="tabs">` is ABSENT from `index.html` (architecture-level guard against accidental reintroduction)
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Update tab-strip-dependent tests
 

@@ -1,18 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
-function makeTouchEvent(window, type, { x, y }) {
-  const event = new window.Event(type, { bubbles: true, cancelable: true });
-  const point = { clientX: x, clientY: y };
-  if (type === 'touchstart') {
-    Object.defineProperty(event, 'touches', { configurable: true, value: [point] });
-  } else {
-    Object.defineProperty(event, 'changedTouches', { configurable: true, value: [point] });
-  }
-  return event;
-}
-
-describe('app.js loadMeds/BP/swipe edge branches', () => {
+describe('app.js loadMeds/BP edge branches', () => {
   it('wrapped loadMeds runs original loader', async () => {
     const { window, cleanup } = loadFrontendEnv();
 
@@ -74,29 +63,4 @@ describe('app.js loadMeds/BP/swipe edge branches', () => {
     }
   });
 
-  it('swipe navigation skips hidden tabs and ignores out-of-range swipes', () => {
-    const { window, document, cleanup } = loadFrontendEnv();
-
-    try {
-      const tabs = Array.from(document.querySelectorAll('#tabs .tab'));
-      tabs.forEach((tab) => tab.classList.remove('active'));
-
-      tabs[1].style.display = 'none';
-      tabs[0].classList.add('active');
-
-      const visibleTabs = tabs.filter((tab) => tab.style.display !== 'none');
-      const switchSpy = vi.fn();
-      window.switchTab = switchSpy;
-
-      document.body.dispatchEvent(makeTouchEvent(window, 'touchstart', { x: 320, y: 180 }));
-      document.body.dispatchEvent(makeTouchEvent(window, 'touchend', { x: 220, y: 190 }));
-      expect(switchSpy).toHaveBeenCalledWith(visibleTabs[1].dataset.tab);
-
-      document.body.dispatchEvent(makeTouchEvent(window, 'touchstart', { x: 200, y: 180 }));
-      document.body.dispatchEvent(makeTouchEvent(window, 'touchend', { x: 300, y: 185 }));
-      expect(switchSpy).toHaveBeenCalledTimes(1);
-    } finally {
-      cleanup();
-    }
-  });
 });

@@ -8,24 +8,6 @@
         workout: 'workout-feature-toggle'
     };
 
-    const TAB_BY_FEATURE = {
-        food: 'food',
-        bp: 'bp',
-        weight: 'weight',
-        health: 'health',
-        medication: 'meds',
-        workout: 'workouts'
-    };
-
-    function setFeatureTabVisibility(feature, enabled) {
-        const tabName = TAB_BY_FEATURE[feature];
-        if (!tabName) return;
-        const tabButton = document.querySelector(`.tab[data-tab="${tabName}"]`);
-        if (tabButton) {
-            tabButton.style.display = enabled ? '' : 'none';
-        }
-    }
-
     window.applyFeatureSettings = function (settings) {
         if (!settings) return;
         window.featureSettings = { ...window.featureSettings, ...settings };
@@ -34,16 +16,7 @@
         Object.entries(FEATURE_TOGGLE_IDS).forEach(([feature, id]) => {
             const input = document.getElementById(id);
             if (input) input.checked = !!window.featureSettings[feature];
-            setFeatureTabVisibility(feature, !!window.featureSettings[feature]);
         });
-
-        const activeTab = document.querySelector('#tabs .tab.active');
-        if (activeTab && activeTab.style.display === 'none') {
-            const firstVisible = document.querySelector('#tabs .tab:not([style*="display: none"])');
-            if (firstVisible && typeof window.switchTab === 'function') {
-                window.switchTab(firstVisible.dataset.tab);
-            }
-        }
     };
 
     window.loadFeatureSettings = async function () {
@@ -125,7 +98,9 @@
         if (window.DataStore) await window.DataStore.invalidateTags(['settings', 'food_targets']);
         if (typeof window.safeAlert === 'function') window.safeAlert('Food targets saved');
 
-        if (document.querySelector('.tab.active')?.dataset.tab === 'food' && typeof window.loadFoodLogs === 'function') {
+        const currentTab = (window.AppStore && typeof window.AppStore.get === 'function' && window.AppStore.get('currentTab'))
+            || document.querySelector('.view.active')?.id?.replace(/-view$/, '');
+        if (currentTab === 'food' && typeof window.loadFoodLogs === 'function') {
             window.loadFoodLogs();
         }
     };

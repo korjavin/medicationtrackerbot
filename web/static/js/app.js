@@ -833,19 +833,23 @@ var formatDate = (dateStr) => {
 // UI Functions
 function activateTabGroup(tab, options) {
     const { buttonSelector, contentSelector, contentIdFromTab, ariaCurrent } = options;
-    // Validate target exists BEFORE clearing active state to avoid blank-page on unknown tabs
+    // Validate target exists BEFORE clearing active state to avoid blank-page on unknown tabs.
+    // tabButton is optional: the top-level view group has no button strip after the
+    // Today-as-primary-nav rework, so the button-side toggle is a no-op when missing.
     const tabButton = document.querySelector(`${buttonSelector}[data-tab="${tab}"]`);
     const tabContent = document.getElementById(contentIdFromTab(tab));
-    if (!tabButton || !tabContent) return false;
+    if (!tabContent) return false;
 
     document.querySelectorAll(buttonSelector).forEach((el) => {
         el.classList.remove('active');
         if (ariaCurrent) el.removeAttribute('aria-current');
     });
     document.querySelectorAll(contentSelector).forEach((el) => el.classList.remove('active'));
-    tabButton.classList.add('active');
+    if (tabButton) {
+        tabButton.classList.add('active');
+        if (ariaCurrent) tabButton.setAttribute('aria-current', ariaCurrent);
+    }
     tabContent.classList.add('active');
-    if (ariaCurrent) tabButton.setAttribute('aria-current', ariaCurrent);
     return true;
 }
 
@@ -1661,10 +1665,13 @@ document.addEventListener('visibilitychange', () => {
 
 // Reload current active tab data.
 function reloadCurrentTab() {
-    const activeTab = document.querySelector('.tab.active');
-    if (!activeTab) return;
+    let tab = window.AppStore && window.AppStore.get && window.AppStore.get('currentTab');
+    if (!tab) {
+        const activeView = document.querySelector('.view.active');
+        if (!activeView) return;
+        tab = activeView.id.replace(/-view$/, '');
+    }
 
-    const tab = activeTab.dataset.tab;
     if (tab === 'meds') {
         const activeMedTab = document.querySelector('.med-tab.active');
         const medTab = activeMedTab ? activeMedTab.dataset.tab : 'history';
@@ -3089,69 +3096,6 @@ window.saveTabOrder = async function(order) {
         }
     }
 };
-
-// Initialize drag and drop for tabs if loaded
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        if (typeof window.initTabsDragAndDrop === 'function') {
-            window.initTabsDragAndDrop(document.getElementById('tabs'), async (order) => {
-                if (typeof window.saveTabOrder === 'function') {
-                    await window.saveTabOrder(order);
-                }
-            });
-        }
-    }, { once: true });
-} else {
-    if (typeof window.initTabsDragAndDrop === 'function') {
-        window.initTabsDragAndDrop(document.getElementById('tabs'), async (order) => {
-            if (typeof window.saveTabOrder === 'function') {
-                await window.saveTabOrder(order);
-            }
-        });
-    }
-}
-
-// Swipe gesture navigation between tabs
-(function initSwipeNav() {
-    const MIN_SWIPE_X = 60;  // minimum horizontal distance to trigger tab switch
-    const MAX_SWIPE_Y = 80;  // maximum vertical drift allowed (to avoid hijacking scroll)
-    let touchStartX = 0;
-    let touchStartY = 0;
-
-    function getVisibleTabs() {
-        return Array.from(document.querySelectorAll('#tabs .tab'))
-            .filter(t => t.style.display !== 'none');
-    }
-
-    document.addEventListener('touchstart', (e) => {
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-    }, { passive: true });
-
-    document.addEventListener('touchend', (e) => {
-        const dx = e.changedTouches[0].clientX - touchStartX;
-        const dy = e.changedTouches[0].clientY - touchStartY;
-
-        if (Math.abs(dx) < MIN_SWIPE_X || Math.abs(dy) > MAX_SWIPE_Y) return;
-
-        // Ignore swipes that start inside a modal or scrollable list
-        const target = e.target;
-        if (target.closest('.modal, .modal-overlay, select, input, textarea')) return;
-
-        const tabs = getVisibleTabs();
-        const activeTab = document.querySelector('#tabs .tab.active');
-        if (!activeTab) return;
-
-        const currentIndex = tabs.indexOf(activeTab);
-        if (currentIndex === -1) return;
-
-        // Swipe left → next tab; swipe right → previous tab
-        const nextIndex = dx < 0 ? currentIndex + 1 : currentIndex - 1;
-        if (nextIndex < 0 || nextIndex >= tabs.length) return;
-
-        switchTab(tabs[nextIndex].dataset.tab);
-    }, { passive: true });
-})();
 
 // Modal back-gesture integration lives in features/modal-history.js.
 
