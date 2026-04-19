@@ -237,10 +237,11 @@ describe('TodayDashboard.renderToday', () => {
         expect(firstCount).toBe(secondCount);
     });
 
-    it('first-run offline: aggregate flags __firstRun and render shows connect empty state with no cards', () => {
+    it('first-run offline: render shows connect empty state with no cards when __firstRun is set', () => {
         const root = env.document.getElementById('today-content');
         const state = env.aggregate(null, null, now);
-        expect(state.__firstRun).toBe(true);
+        // loadToday sets __firstRun when no cache entries were loaded at all.
+        state.__firstRun = true;
         env.render(state, root, { now });
 
         expect(root.querySelectorAll('.today-card').length).toBe(0);
@@ -251,17 +252,14 @@ describe('TodayDashboard.renderToday', () => {
         expect(empty.textContent).toMatch(/Connect to load your day/i);
     });
 
-    it('first-run offline: treats empty bootstrap with no caches as first-run', () => {
-        const root = env.document.getElementById('today-content');
+    it('empty bootstrap without caches is NOT auto-flagged first-run by aggregate', () => {
+        // Aggregate is pure and no longer infers first-run from data shape;
+        // the caller (loadToday) decides based on whether caches were loaded.
         const state = env.aggregate({ features: {} }, {}, now);
-        expect(state.__firstRun).toBe(true);
-        env.render(state, root, { now });
-
-        expect(root.querySelectorAll('.today-card').length).toBe(0);
-        expect(root.querySelector('.today-empty-firstrun')).not.toBeNull();
+        expect(state.__firstRun).toBeUndefined();
     });
 
-    it('first-run offline: bootstrap with real data (e.g. bp readings) is NOT treated as first-run', () => {
+    it('bootstrap with real data is not treated as first-run', () => {
         const bootstrap = {
             features: {},
             bp: { readings: [{ systolic: 118, diastolic: 76, measured_at: new Date(now - 60000).toISOString() }] }
@@ -349,6 +347,7 @@ describe('TodayDashboard.renderToday', () => {
     it('first-run while offline shows a single combined message, no separate banner', () => {
         const root = env.document.getElementById('today-content');
         const state = env.aggregate(null, null, now);
+        state.__firstRun = true;
         state.__offline = true;
         env.render(state, root, { now });
 
