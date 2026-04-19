@@ -96,6 +96,21 @@ describe('TodayDashboard.subscribe', () => {
         expect(onRefresh).not.toHaveBeenCalled();
     });
 
+    it.each([['workout'], ['history'], ['settings'], ['medications'], ['weight'], ['food'], ['health']])(
+        'invokes onRefresh for backend-emitted tag %s',
+        (tag) => {
+            const onRefresh = vi.fn();
+            const target = makeEventTarget(env.window);
+            env.api.subscribe({ onRefresh, target, win: env.window });
+
+            env.window.dispatchEvent(new env.window.CustomEvent('datastore:changed', {
+                detail: { changedTags: [tag] }
+            }));
+            expect(onRefresh).toHaveBeenCalledTimes(1);
+            expect(onRefresh.mock.calls[0][0]).toMatchObject({ source: 'datastore', tags: [tag] });
+        }
+    );
+
     it('unsubscribe removes all listeners', () => {
         const onRefresh = vi.fn();
         const target = makeEventTarget(env.window);
