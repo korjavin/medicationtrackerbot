@@ -3709,3 +3709,53 @@ input:checked+.toggle-slider:before {
     background: var(--secondary-bg-color);
     border-radius: var(--radius-lg);
 }
+
+/* =============================================
+   SECTION HEADER — Today-as-primary-nav pattern
+   Sticky header at top of every view with
+   [back-to-Today] [title] [right-slot]
+   ============================================= */
+.section-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    padding-top: calc(var(--space-sm) + env(safe-area-inset-top, 0px));
+    background: var(--bg-color);
+    box-shadow: var(--shadow-sm);
+    min-height: 48px;
+    box-sizing: border-box;
+}
+
+.section-header .section-back {
+    flex: 0 0 auto;
+    background: transparent;
+    color: var(--text-color);
+}
+
+.section-header.no-back .section-back {
+    display: none;
+}
+
+.section-header .section-title {
+    flex: 1 1 auto;
+    margin: 0;
+    text-align: center;
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-medium);
+    color: var(--text-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.section-header .section-header-right {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 44px;
+}

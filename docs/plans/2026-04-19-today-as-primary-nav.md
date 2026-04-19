@@ -63,13 +63,13 @@ Benefit: more vertical screen real-estate, cards preview their own data ("BP 118
 
 ### Task 1: Build the section-header component
 
-- [ ] create `web/static/js/components/section-header.js` exposing `createSectionHeader({ title, onBack, rightSlot? })` returning an `HTMLElement`
-- [ ] structure: `<header class="section-header"><button class="section-back btn btn-icon" aria-label="Back to Today"><svg…/> Today</button><h2 class="section-title">{title}</h2><div class="section-header-right">{rightSlot}</div></header>`
-- [ ] add CSS for `.section-header` in `web/static/css/styles.css` — sticky top, flex row (back left / title center / right slot right), uses design tokens, respects safe-area insets
-- [ ] no inline `style.` assignments; classes only
-- [ ] register `window.SectionHeader = { create: createSectionHeader }`; add to `tests/architecture.globals.test.js` allowlist with justification
-- [ ] write Vitest cases for `createSectionHeader`: structure, back-button click invokes `onBack`, optional `rightSlot` slots in correctly, omitted `rightSlot` produces empty container
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/section-header.js` exposing `createSectionHeader({ title, onBack, rightSlot? })` returning an `HTMLElement`
+- [x] structure: `<header class="section-header"><button class="section-back btn btn-icon" aria-label="Back to Today"><svg…/> Today</button><h2 class="section-title">{title}</h2><div class="section-header-right">{rightSlot}</div></header>`
+- [x] add CSS for `.section-header` in `web/static/css/styles.css` — sticky top, flex row (back left / title center / right slot right), uses design tokens, respects safe-area insets
+- [x] no inline `style.` assignments; classes only
+- [x] register `window.SectionHeader = { create: createSectionHeader }`; add to `tests/architecture.globals.test.js` allowlist with justification
+- [x] write Vitest cases for `createSectionHeader`: structure, back-button click invokes `onBack`, optional `rightSlot` slots in correctly, omitted `rightSlot` produces empty container
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 2: Add the Today header (greeting + gear)
 
