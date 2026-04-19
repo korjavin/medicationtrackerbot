@@ -472,6 +472,7 @@ func (s *Server) handleSetTabOrder(w http.ResponseWriter, r *http.Request) {
 
 	// Validate tab IDs
 	validTabs := map[string]bool{
+		"today":    true,
 		"bp":       true,
 		"weight":   true,
 		"workouts": true,

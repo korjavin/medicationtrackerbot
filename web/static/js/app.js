@@ -1136,6 +1136,7 @@ async function loadToday() {
     // also registers tags so future invalidations work correctly.
     if (!ctx.online || todayRefreshInFlight || !window.DataStore) return;
     const presence = {
+        settings_bundle: !!ctx.bootstrap.settings,
         next_intake: !!ctx.bootstrap.next_intake,
         bp: !!ctx.bootstrap.bp,
         weight: !!ctx.bootstrap.weight,
