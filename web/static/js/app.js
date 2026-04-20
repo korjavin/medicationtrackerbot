@@ -226,6 +226,13 @@ async function applyBootstrapPayload(res) {
         window.featureSettingsLoaded = true;
         window.AppStore && window.AppStore.set('featureSettings', featureSettings);
         updateFeatureTabVisibility();
+        // When fresh features arrive after the canonical nav is already mounted
+        // (e.g. SW BOOTSTRAP_UPDATED from another device's toggle), rebuild so
+        // the nav filters disabled slots rather than bouncing on tap.
+        // Skipped during initial boot — the nav hasn't mounted yet there.
+        if (document.querySelector('.wg-bottom-nav') && typeof window.rebuildCanonicalBottomNav === 'function') {
+            window.rebuildCanonicalBottomNav();
+        }
     }
 
     if (res.settings) {
