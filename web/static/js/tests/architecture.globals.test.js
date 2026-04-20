@@ -56,6 +56,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js
     'window.TodayDashboard',            // features/today.js — aggregation contract consumed by the Today view renderer
     'window.SectionHeader',             // components/section-header.js — factory for sticky section headers with back-to-Today affordance
+    'window.WGPhoneChrome',             // components/wg-phone-chrome.js — Wandergeek decorative iPhone-frame wrapper (status bar, dynamic island, home indicator) around the SPA on desktop; collapses on mobile/PWA
     'window.AppBackButton',             // features/back-button.js — wires Telegram WebApp BackButton to section → Today navigation
 
     // features/settings.js — feature toggles, food targets, reminder settings

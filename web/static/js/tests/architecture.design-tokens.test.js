@@ -268,6 +268,16 @@ const WANDERGEEK_TOKENS = [
     '--wg-icon-btn-size',
     '--wg-font-size-tag',
     '--wg-section-label-pad-top',
+
+    // Phone chrome tokens (added in Task 3 alongside .wg-phone, .wg-status-bar, etc.)
+    '--wg-phone-pad',
+    '--wg-phone-radius',
+    '--wg-phone-screen-radius',
+    '--wg-phone-shadow',
+    '--wg-dynamic-island-radius',
+    '--wg-status-bar-pad-bottom',
+    '--wg-status-bar-font-size',
+    '--wg-radius-pill',
 ];
 
 describe('Architecture – design tokens', () => {
