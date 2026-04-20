@@ -4775,3 +4775,113 @@ input:checked+.toggle-slider:before {
     stroke: var(--wg-teal-stage);
     stroke-width: var(--wg-bp-chart-guide-stroke-width);
 }
+
+/* BP screen — current-reading card, range selector, chart card (Phase 3, Task 3).
+   The current-reading card shows a 44px mono sys/dia display, a status tag via
+   --wg-bp-status-* aliases, an optional pulse sparkline, and a kicker label.
+   The range selector is a gloss-inset strip with three gloss buttons; the
+   active one picks up the sun modifier. Dimensions come entirely from tokens. */
+.wg-bp-current-card {
+    padding: var(--wg-bp-current-card-pad);
+    margin-bottom: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-bp-current-card__kicker {
+    padding: 0;
+}
+
+.wg-bp-current-card__value {
+    font-size: var(--wg-bp-reading-value-size);
+    line-height: 1;
+    color: var(--wg-fg-1);
+}
+
+.wg-bp-current-card__dia {
+    color: var(--wg-fg-4);
+}
+
+.wg-bp-current-card__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.wg-bp-current-card__pulse {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+}
+
+.wg-bp-current-card__spark {
+    display: flex;
+    align-items: center;
+    color: var(--wg-sun);
+}
+
+.wg-bp-current-card__empty {
+    font-size: var(--font-size-md);
+}
+
+.wg-bp-status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-font-size-tag);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 3px var(--space-sm);
+    border-radius: var(--radius-pill);
+    border: 1px solid transparent;
+}
+
+.wg-bp-status--normal {
+    background: var(--wg-bp-status-normal-bg);
+    color: var(--wg-bp-status-normal-fg);
+    border-color: var(--wg-bp-status-normal-border);
+}
+
+.wg-bp-status--highnormal {
+    background: var(--wg-bp-status-highnormal-bg);
+    color: var(--wg-bp-status-highnormal-fg);
+    border-color: var(--wg-bp-status-highnormal-border);
+}
+
+.wg-bp-status--grade1 {
+    background: var(--wg-bp-status-grade1-bg);
+    color: var(--wg-bp-status-grade1-fg);
+    border-color: var(--wg-bp-status-grade1-border);
+}
+
+.wg-bp-status--grade2 {
+    background: var(--wg-bp-status-grade2-bg);
+    color: var(--wg-bp-status-grade2-fg);
+    border-color: var(--wg-bp-status-grade2-border);
+}
+
+.wg-bp-range-selector {
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--wg-bp-range-selector-pad);
+    margin-bottom: var(--space-md);
+}
+
+.wg-bp-range-selector__btn {
+    flex: 1;
+    min-height: var(--wg-bp-range-selector-height);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-bp-chart-card {
+    padding: var(--wg-card-pad);
+    margin-bottom: var(--space-md);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+}
