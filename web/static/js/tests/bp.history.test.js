@@ -6,8 +6,15 @@
 // delete that reuses the existing `deleteBPReading` handler. Offline-pending
 // and rejected states surface as `.wg-tag--mono` variants.
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const CSS_PATH = path.resolve(__dirname, '../../../../web/static/css/styles.css');
 
 function midnightToday() {
     const d = new Date();
@@ -211,5 +218,39 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
         expect(document.querySelectorAll('#bp-list .wg-bp-reading-row').length).toBe(0);
         // Container class is preserved.
         expect(document.getElementById('bp-list').classList.contains('wg-bp-history')).toBe(true);
+    });
+
+    // Phase 3, Task 4 — day-group headers render on the deep-teal stage.
+    // .wg-section-label uses --wg-fg-4 (42% white) which is invisible on
+    // the paper-white body; #bp-view must opt into .wg-screen-stage so
+    // the headers resolve against --wg-bg-stage instead.
+    it('emits day-header <div> with .wg-section-label + .wg-bp-history__group-label inside the staged #bp-view', () => {
+        const { document, window } = env;
+        window.renderBPReadings([
+            { id: 1, measured_at: midnight(0).toISOString(), systolic: 120, diastolic: 78, pulse: 62 },
+            { id: 2, measured_at: midnight(1).toISOString(), systolic: 124, diastolic: 80, pulse: 64 }
+        ]);
+
+        const bpView = document.getElementById('bp-view');
+        expect(bpView.classList.contains('wg-screen-stage')).toBe(true);
+
+        const headers = bpView.querySelectorAll('.wg-bp-history__group .wg-bp-history__group-label');
+        expect(headers.length).toBe(2);
+        for (const h of headers) {
+            expect(h.tagName).toBe('DIV');
+            expect(h.classList.contains('wg-section-label')).toBe(true);
+            expect(h.classList.contains('wg-bp-history__group-label')).toBe(true);
+        }
+    });
+
+    it('styles.css .wg-screen-stage rule references --wg-bg-stage (not paper-white) so 42%-white labels stay legible', () => {
+        // jsdom does not parse the stylesheet (index.html loads it via <link>),
+        // so assert against the rule text — mirrors the pattern used in
+        // architecture.wg-primitives.test.js.
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        const m = css.match(/\.wg-screen-stage\s*\{([^}]+)\}/);
+        expect(m, 'expected .wg-screen-stage rule in styles.css').not.toBeNull();
+        expect(m[1]).toMatch(/var\(--wg-bg-stage\)/);
+        expect(m[1]).not.toMatch(/var\(--wg-paper\)/);
     });
 });
