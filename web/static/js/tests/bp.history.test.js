@@ -263,4 +263,37 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
         expect(m[1]).toMatch(/var\(--wg-bg-stage\)/);
         expect(m[1]).not.toMatch(/var\(--wg-paper\)/);
     });
+
+    // Phase 3 round-2, Task 3 — per-reading timestamps render in --wg-fg-3
+    // (55% white, ~5.2:1 on --wg-bg-stage, AA pass) instead of --wg-fg-4
+    // (42% white, ~3:1, AA fail for small text). Token-level guard so a
+    // regression back to --wg-fg-4 is caught by the test suite.
+    it('styles.css .wg-bp-reading-row__time uses --wg-fg-3 (AA-pass) not --wg-fg-4', () => {
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        const m = css.match(/\.wg-bp-reading-row__time\s*\{([^}]+)\}/);
+        expect(m, 'expected .wg-bp-reading-row__time rule in styles.css').not.toBeNull();
+        expect(m[1]).toMatch(/color:\s*var\(--wg-fg-3\)/);
+        expect(m[1]).not.toMatch(/color:\s*var\(--wg-fg-4\)/);
+    });
+
+    // Regression guard for the round-1 stage fix: the day-group header text
+    // color (inherited from .wg-section-label) must not resolve to the same
+    // token as the .wg-screen-stage background — otherwise headers become
+    // invisible. Verified at the token level via the CSS rule text.
+    it('day-group header color token differs from .wg-screen-stage background token', () => {
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        const stage = css.match(/\.wg-screen-stage\s*\{([^}]+)\}/);
+        const label = css.match(/\.wg-section-label\s*\{([^}]+)\}/);
+        expect(stage, 'expected .wg-screen-stage rule').not.toBeNull();
+        expect(label, 'expected .wg-section-label rule').not.toBeNull();
+
+        // .wg-screen-stage background is a layered gradient ending in the
+        // stage token; assert it's present rather than pattern-matching the
+        // whole background shorthand.
+        expect(stage[1]).toMatch(/var\(--wg-bg-stage\)/);
+
+        const colorTokenMatch = label[1].match(/color:\s*var\((--wg-[a-z0-9-]+)\)/);
+        expect(colorTokenMatch, 'expected .wg-section-label color token').not.toBeNull();
+        expect(colorTokenMatch[1]).not.toBe('--wg-bg-stage');
+    });
 });

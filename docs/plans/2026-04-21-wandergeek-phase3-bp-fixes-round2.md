@@ -96,12 +96,12 @@ All five are frontend-only. No backend changes, no API shape changes. All within
 - [x] run `pnpm test` — must pass before Task 3
 
 ### Task 3: Make BP history dates legible
-- [ ] in `web/static/css/styles.css:4850-4854`, change `.wg-bp-reading-row__time { color: var(--wg-fg-4); }` → `color: var(--wg-fg-3);` — leaves other `--wg-fg-4` consumers untouched
-- [ ] audit `.wg-bp-reading-row__time` font-size — if still ≤10px, bump to 11-12px via an existing `--wg-font-size-*` token
-- [ ] confirm `.wg-bp-history` sits directly below the 3-up averages on a typical scroll — if an extra `margin-top` is pushing it below the fold, tighten to `var(--wg-space-md)`
-- [ ] extend `bp.render.test.js` — render the history with a fixture and assert the time element's computed color rule resolves to `var(--wg-fg-3)` (use the stylesheet cssText lookup pattern already in use)
-- [ ] write a jsdom assertion that day-group header `.wg-bp-history__group-label` text is visible (not the same color as background) — regression guard for the round-1 stage fix
-- [ ] run `pnpm test` — must pass before Task 4
+- [x] in `web/static/css/styles.css:4850-4854`, change `.wg-bp-reading-row__time { color: var(--wg-fg-4); }` → `color: var(--wg-fg-3);` — leaves other `--wg-fg-4` consumers untouched
+- [x] audit `.wg-bp-reading-row__time` font-size — inherits `--font-size-xs` (11px) from `.wg-bp-reading-row__meta`; no bump needed (>10px)
+- [x] confirm `.wg-bp-history` sits directly below the 3-up averages on a typical scroll — averages grid uses `margin-bottom: var(--space-md)` and history has no extra margin-top; gap is already tight
+- [x] extend `bp.history.test.js` — assert `.wg-bp-reading-row__time` rule uses `var(--wg-fg-3)` (not `--wg-fg-4`) via the stylesheet cssText lookup pattern
+- [x] jsdom assertion that day-group header text color token differs from `.wg-screen-stage` background token — regression guard for the round-1 stage fix
+- [x] run `pnpm test` — 71 files, 663 tests passing
 
 ### Task 4: Fix chart y-axis scale and sys-line end marker
 - [ ] in `web/static/js/components/wg-bp-chart.js:154-165`, replace the seed `dataMin = Y_DEFAULT_MIN; dataMax = Y_DEFAULT_MAX;` with `dataMin = Infinity; dataMax = -Infinity;`

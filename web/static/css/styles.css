@@ -4864,7 +4864,7 @@ input:checked+.toggle-slider:before {
 
 .wg-bp-reading-row__time {
     font-family: var(--wg-font-mono);
-    color: var(--wg-fg-4);
+    color: var(--wg-fg-3);
     letter-spacing: 0.02em;
 }
 
