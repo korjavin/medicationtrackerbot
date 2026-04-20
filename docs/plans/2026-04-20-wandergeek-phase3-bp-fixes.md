@@ -62,11 +62,11 @@ All four fixes are localised and land without backend or test-harness changes.
 ## Implementation Steps
 
 ### Task 1: Fix BP submit not refreshing the list
-- [ ] in `web/static/js/features/bp.js` `handleBPSubmit` success branch (around line 89-94), `await loadBPReadings()` before hiding the modal / resolving
-- [ ] verify no other call site relies on the non-awaited behaviour (grep `handleBPSubmit`, `loadBPReadings`)
-- [ ] write/extend a test that asserts: after `handleBPSubmit` resolves, the rendered `#bp-readings-list` contains the newly submitted row
-- [ ] write an error-path test: if the POST rejects, modal stays open, list is not re-loaded, user sees the error (existing behaviour preserved)
-- [ ] run `pnpm test` — must pass before Task 2
+- [x] in `web/static/js/features/bp.js` `handleBPSubmit` success branch (around line 89-94), `await loadBPReadings()` before hiding the modal / resolving
+- [x] verify no other call site relies on the non-awaited behaviour (grep `handleBPSubmit`, `loadBPReadings`)
+- [x] write/extend a test that asserts: after `handleBPSubmit` resolves, the rendered `#bp-readings-list` contains the newly submitted row
+- [x] write an error-path test: if the POST rejects, modal stays open, list is not re-loaded, user sees the error (existing behaviour preserved)
+- [x] run `pnpm test` — must pass before Task 2
 
 ### Task 2: Fix BP chart tower on desktop/tablet
 - [ ] in `web/static/js/components/wg-bp-chart.js:28-29`, swap constants to `DEFAULT_WIDTH = 358; DEFAULT_HEIGHT = 200;` so the viewBox matches the handoff prototype's landscape aspect ratio
