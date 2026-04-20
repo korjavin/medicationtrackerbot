@@ -193,6 +193,74 @@ const REQUIRED_TOKENS = [
     '--z-toast',
 ];
 
+/**
+ * Wandergeek design system tokens (deep-teal / gloss / sun accent).
+ * Added in the wandergeek-design-rewrite plan. All wg-* tokens live on :root
+ * and are CSS-only — no JS reference allowed.
+ */
+const WANDERGEEK_TOKENS = [
+    // Raw palette
+    '--wg-paper',
+    '--wg-paper-deep',
+    '--wg-paper-soft',
+    '--wg-ink',
+    '--wg-ink-85',
+    '--wg-ink-70',
+    '--wg-ink-55',
+    '--wg-ink-35',
+    '--wg-ink-15',
+    '--wg-ink-08',
+    '--wg-teal',
+    '--wg-teal-stage',
+    '--wg-teal-sage',
+    '--wg-mint',
+    '--wg-mint-soft',
+    '--wg-sun',
+    '--wg-sun-deep',
+    '--wg-sun-soft',
+    '--wg-clay',
+    '--wg-clay-soft',
+
+    // Semantic aliases
+    '--wg-bg-stage',
+    '--wg-bg-card',
+    '--wg-bg-card-inset',
+    '--wg-fg-1',
+    '--wg-fg-2',
+    '--wg-fg-3',
+    '--wg-fg-4',
+    '--wg-fg-5',
+    '--wg-border-hairline',
+    '--wg-border-strong',
+
+    // Status tag triplets
+    '--wg-tag-normal-bg',
+    '--wg-tag-normal-fg',
+    '--wg-tag-normal-border',
+    '--wg-tag-high-bg',
+    '--wg-tag-high-fg',
+    '--wg-tag-high-border',
+    '--wg-tag-alert-bg',
+    '--wg-tag-alert-fg',
+    '--wg-tag-alert-border',
+
+    // Type families
+    '--wg-font-display',
+    '--wg-font-ui',
+    '--wg-font-mono',
+
+    // Gloss gradients
+    '--wg-gloss-bg',
+    '--wg-gloss-bg-sun',
+    '--wg-gloss-bg-clay',
+    '--wg-gloss-bg-inset',
+
+    // Gloss shadows
+    '--wg-gloss-shadow',
+    '--wg-gloss-shadow-sun',
+    '--wg-gloss-shadow-inset',
+];
+
 describe('Architecture – design tokens', () => {
     it(':root block contains all required design tokens', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
@@ -959,6 +1027,58 @@ describe('Architecture – design tokens', () => {
             throw new Error(
                 `Missing Telegram theme tokens in :root:\n\n` +
                 missing.map(t => `  • ${t}`).join('\n')
+            );
+        }
+    });
+});
+
+describe('Architecture – Wandergeek tokens', () => {
+    it(':root block contains all Wandergeek (--wg-*) tokens', () => {
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        const rootBlock = extractRootBlock(css);
+        expect(rootBlock).not.toBe('');
+
+        const defined = extractCustomProperties(rootBlock);
+        const missing = WANDERGEEK_TOKENS.filter(t => !defined.has(t));
+
+        if (missing.length > 0) {
+            throw new Error(
+                `Missing Wandergeek tokens in :root block of styles.css:\n\n` +
+                missing.map(t => `  • ${t}`).join('\n') +
+                `\n\nAdd them under the "Wandergeek Design System" comment block.`
+            );
+        }
+    });
+
+    it('no --wg-* tokens are referenced from JS source files', () => {
+        const jsDir = path.join(REPO_ROOT, 'web/static/js');
+        const offenders = [];
+
+        function walk(dir) {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                if (entry.name === 'tests' || entry.name === 'vendor') continue;
+                const full = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    walk(full);
+                } else if (entry.isFile() && entry.name.endsWith('.js')) {
+                    const content = fs.readFileSync(full, 'utf8');
+                    const lines = content.split('\n');
+                    lines.forEach((line, i) => {
+                        if (/--wg-[a-z0-9-]+/i.test(line)) {
+                            offenders.push(`${path.relative(REPO_ROOT, full)}:${i + 1}: ${line.trim()}`);
+                        }
+                    });
+                }
+            }
+        }
+
+        if (fs.existsSync(jsDir)) walk(jsDir);
+
+        if (offenders.length > 0) {
+            throw new Error(
+                `Wandergeek --wg-* tokens are CSS-only; found JS references:\n\n` +
+                offenders.map(o => `  • ${o}`).join('\n') +
+                `\n\nMove the color/gradient logic into a CSS class and reference the class from JS instead.`
             );
         }
     });
