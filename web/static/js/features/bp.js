@@ -117,7 +117,7 @@ async function loadBPReadings() {
         },
         onError: async (e, cached) => {
             console.error('Failed to load BP data:', e);
-            if (!cached) {
+            if (!cached && list) {
                 list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
             }
         }
@@ -126,6 +126,7 @@ async function loadBPReadings() {
 
 async function _renderBPData(readingsRes, goalRes, statsRes) {
     const list = document.getElementById('bp-list');
+    if (!list) return;
 
     // Merge server data with pending local writes
     let allReadings = readingsRes || [];
@@ -427,6 +428,7 @@ function buildBPAverageCard(period, stat) {
 // deleteBPReading handler.
 function renderBPReadings(readings) {
     const list = document.getElementById('bp-list');
+    if (!list) return;
     list.replaceChildren();
     list.className = 'wg-bp-history';
 
