@@ -295,6 +295,10 @@
     --wg-status-bar-pad-bottom: 6px;
     --wg-status-bar-font-size: 15px;
     --wg-radius-pill: 999px;
+
+    /* Wandergeek — app header (Task 4). JetBrains Mono title + uppercase subtitle. */
+    --wg-app-header-title-size: 17px;
+    --wg-app-header-subtitle-size: 10px;
 }
 
 body {
@@ -3818,6 +3822,66 @@ input:checked+.toggle-slider:before {
 .section-header .badge-experimental {
     background: var(--color-warning);
     color: var(--bg-color);
+}
+
+/* =============================================
+   WG APP HEADER — Wandergeek reskin (Task 4)
+   Deep-teal stage header with a gloss back pill,
+   JetBrains Mono title, and optional uppercase
+   caps subtitle. Dual-classed with .section-header
+   on the element so sticky positioning + badge
+   styles from the legacy block still apply.
+   ============================================= */
+.wg-app-header {
+    display: grid;
+    grid-template-columns: var(--wg-icon-btn-size) 1fr var(--wg-icon-btn-size);
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 2px var(--space-lg) var(--space-sm);
+    padding-top: calc(2px + env(safe-area-inset-top, 0px));
+    background: transparent;
+    box-shadow: none;
+    min-height: 0;
+}
+
+.wg-app-header__title {
+    margin: 0;
+    font-family: var(--wg-font-display);
+    font-weight: var(--font-weight-medium);
+    font-size: var(--wg-app-header-title-size);
+    letter-spacing: 0.02em;
+    text-align: center;
+    color: var(--wg-fg-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.wg-app-header__title small {
+    display: block;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-app-header-subtitle-size);
+    font-weight: var(--font-weight-medium);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--wg-fg-4);
+    margin-top: 2px;
+}
+
+.wg-app-header__right {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: var(--wg-icon-btn-size);
+}
+
+.wg-app-header .wg-icon-btn {
+    justify-self: start;
+}
+
+.wg-app-header--no-back .wg-icon-btn {
+    visibility: hidden;
 }
 
 .food-stats-period-row {
