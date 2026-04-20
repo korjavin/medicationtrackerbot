@@ -344,6 +344,39 @@
     --wg-metric-tile-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(0, 0, 0, 0) 60%), var(--wg-bg-card);
     --wg-mini-bar-track-bg: rgba(0, 0, 0, 0.35);
     --wg-mini-bar-track-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+
+    /* Wandergeek — BP screen (Phase 3, Task 1). Dimensional tokens for the
+       current-reading card, range selector, chart geometry, and guide-line
+       strokes. Everything visual in features/bp.js reads from here. */
+    --wg-bp-reading-value-size: 44px;
+    --wg-bp-range-selector-height: 36px;
+    --wg-bp-range-selector-pad: 4px;
+    --wg-bp-chart-width: 358px;
+    --wg-bp-chart-height: 200px;
+    --wg-bp-chart-band-alpha: 0.18;
+    --wg-bp-chart-guide-dasharray: 2 4;
+    --wg-bp-chart-guide-stroke-width: 1px;
+    --wg-bp-chart-line-stroke-width: 2px;
+    --wg-bp-chart-last-point-radius: 4px;
+    --wg-bp-average-value-size: 22px;
+    --wg-bp-current-card-pad: 16px;
+    --wg-bp-history-row-pad: 12px;
+
+    /* BP status aliases — wrap the existing tag triplets so the BP classifier
+       can return a status key (normal / highnormal / grade1 / grade2) and the
+       renderer applies `.wg-bp-status--<key>` without duplicating tag styles. */
+    --wg-bp-status-normal-bg: var(--wg-tag-normal-bg);
+    --wg-bp-status-normal-fg: var(--wg-tag-normal-fg);
+    --wg-bp-status-normal-border: var(--wg-tag-normal-border);
+    --wg-bp-status-highnormal-bg: var(--wg-tag-high-bg);
+    --wg-bp-status-highnormal-fg: var(--wg-tag-high-fg);
+    --wg-bp-status-highnormal-border: var(--wg-tag-high-border);
+    --wg-bp-status-grade1-bg: var(--wg-tag-high-bg);
+    --wg-bp-status-grade1-fg: var(--wg-tag-high-fg);
+    --wg-bp-status-grade1-border: var(--wg-tag-high-border);
+    --wg-bp-status-grade2-bg: var(--wg-tag-alert-bg);
+    --wg-bp-status-grade2-fg: var(--wg-tag-alert-fg);
+    --wg-bp-status-grade2-border: var(--wg-tag-alert-border);
 }
 
 body {
@@ -859,95 +892,6 @@ select {
     margin: 0;
 }
 
-.bp-item {
-    background-color: var(--secondary-bg-color);
-    padding: var(--space-lg);
-    border-radius: var(--radius-md);
-    margin-bottom: var(--space-md);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    transition: background-color 0.15s ease;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.bp-reading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.bp-values {
-    font-size: var(--font-size-lg);
-    font-weight: var(--font-weight-bold);
-}
-
-.bp-values .bp-sys {
-    color: var(--text-color);
-}
-
-.bp-values .bp-dia {
-    color: var(--hint-color);
-    font-weight: var(--font-weight-normal);
-    font-size: var(--font-size-md);
-}
-
-.bp-meta {
-    font-size: var(--font-size-xs);
-    color: var(--hint-color);
-    display: flex;
-    gap: var(--space-md);
-    align-items: center;
-}
-
-.bp-pulse {
-    background: rgba(0, 0, 0, 0.05);
-    padding: 2px var(--space-sm);
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-xs);
-}
-
-.bp-category {
-    padding: 2px var(--space-sm);
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
-}
-
-.bp-category.normal {
-    background: var(--color-toast-success-bg);
-    color: var(--color-toast-success-text);
-}
-
-.bp-category.highnormal {
-    background: var(--color-toast-warning-bg);
-    color: var(--color-toast-warning-text);
-}
-
-.bp-category.grade1 {
-    background: var(--color-bp-category-grade1-bg);
-    color: var(--color-bp-category-grade1-text);
-}
-
-.bp-category.grade2 {
-    background: var(--color-toast-error-bg);
-    color: var(--color-toast-error-text);
-}
-
-/* BP Date Groups */
-.bp-date-group {
-    margin-bottom: var(--space-lg);
-}
-
-.bp-date-header {
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-bold);
-    color: var(--hint-color);
-    padding: var(--space-sm) 0;
-    border-bottom: 1px solid var(--secondary-bg-color);
-    margin-bottom: var(--space-sm);
-}
-
 /* BP Modal */
 #bp-modal h3 {
     margin: 0;
@@ -1154,114 +1098,6 @@ svg.chart-svg {
 .weight-stat-value {
     font-weight: var(--font-weight-bold);
     color: var(--text-color);
-}
-
-/* BP Chart Styles */
-#bpChart {
-    width: 100%;
-    height: 200px;
-    background: var(--secondary-bg-color);
-    border-radius: var(--radius-md);
-    padding: var(--space-md);
-    margin-bottom: var(--space-sm);
-    box-sizing: border-box;
-}
-
-#bp-averages {
-    margin-bottom: var(--space-lg);
-}
-
-.bp-avg-row {
-    display: flex;
-    justify-content: center;
-    gap: var(--space-xl);
-}
-
-.bp-avg-item {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-}
-
-.bp-avg-label {
-    font-size: var(--font-size-xs);
-    color: var(--hint-color);
-}
-
-.bp-avg-value {
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-bold);
-    color: var(--text-color);
-}
-
-.bp-chart-systolic {
-    stroke: var(--color-success);
-    stroke-width: 2;
-    fill: none;
-}
-
-.bp-chart-diastolic {
-    stroke: var(--color-info);
-    stroke-width: 2;
-    fill: none;
-}
-
-.bp-chart-pulse {
-    stroke: var(--color-danger);
-    stroke-width: 1.5;
-    fill: none;
-}
-
-.bp-chart-target {
-    stroke: var(--color-bp-grade1);
-    stroke-width: 1.5;
-    stroke-dasharray: 6 4;
-    opacity: 0.8;
-}
-
-.bp-chart-point-sys {
-    fill: var(--color-success);
-}
-
-.bp-chart-point-dia {
-    fill: var(--color-info);
-}
-
-.bp-chart-point-pulse {
-    fill: var(--color-danger);
-}
-
-/* BP classification colors for points */
-.bp-chart-point-normal {
-    fill: var(--color-success);
-    stroke: var(--bg-color);
-    stroke-width: 2;
-}
-
-.bp-chart-point-highnormal {
-    fill: var(--color-bp-high-normal);
-    stroke: var(--bg-color);
-    stroke-width: 2;
-}
-
-.bp-chart-point-grade1 {
-    fill: var(--color-bp-grade1);
-    stroke: var(--bg-color);
-    stroke-width: 2;
-}
-
-.bp-chart-point-grade2 {
-    fill: var(--color-danger);
-    stroke: var(--bg-color);
-    stroke-width: 2;
-}
-
-/* Average line styling */
-.bp-chart-avg-line {
-    stroke: var(--hint-color);
-    stroke-width: 2;
-    stroke-dasharray: 6 4;
-    opacity: 0.6;
 }
 
 #weight-list {
@@ -4697,4 +4533,286 @@ input:checked+.toggle-slider:before {
 .wg-spark-tail {
     fill: currentColor;
     stroke: none;
+}
+
+/* BP chart (Phase 3, Task 2) — SVG children rely solely on --wg-* tokens
+   via these classes. Colors never appear inline on sys/dia/band paths or
+   last-point circles. */
+.wg-bp-chart {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.wg-bp-chart__guide {
+    stroke: var(--wg-fg-5);
+    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    fill: none;
+}
+
+.wg-bp-chart__band {
+    fill: var(--wg-mint-soft);
+    fill-opacity: var(--wg-bp-chart-band-alpha);
+    stroke: none;
+}
+
+.wg-bp-chart__sys {
+    fill: none;
+    stroke: var(--wg-mint-soft);
+    stroke-width: var(--wg-bp-chart-line-stroke-width);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.wg-bp-chart__dia {
+    fill: none;
+    stroke: var(--wg-teal-sage);
+    stroke-width: var(--wg-bp-chart-line-stroke-width);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.wg-bp-chart__last {
+    fill: var(--wg-sun);
+    stroke: var(--wg-teal-sage);
+    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+}
+
+/* BP screen — current-reading card, range selector, chart card (Phase 3, Task 3).
+   The current-reading card shows a 44px mono sys/dia display, a status tag via
+   --wg-bp-status-* aliases, an optional pulse sparkline, and a kicker label.
+   The range selector is a gloss-inset strip with three gloss buttons; the
+   active one picks up the sun modifier. Dimensions come entirely from tokens. */
+.wg-bp-current-card {
+    padding: var(--wg-bp-current-card-pad);
+    margin-bottom: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-bp-current-card__kicker {
+    padding: 0;
+}
+
+.wg-bp-current-card__value {
+    font-size: var(--wg-bp-reading-value-size);
+    line-height: 1;
+    color: var(--wg-fg-1);
+}
+
+.wg-bp-current-card__dia {
+    color: var(--wg-fg-4);
+}
+
+.wg-bp-current-card__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.wg-bp-current-card__pulse {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+}
+
+.wg-bp-current-card__spark {
+    display: flex;
+    align-items: center;
+    color: var(--wg-sun);
+}
+
+.wg-bp-current-card__empty {
+    font-size: var(--font-size-md);
+}
+
+.wg-bp-status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-font-size-tag);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 3px var(--space-sm);
+    border-radius: var(--radius-pill);
+    border: 1px solid transparent;
+}
+
+.wg-bp-status--normal {
+    background: var(--wg-bp-status-normal-bg);
+    color: var(--wg-bp-status-normal-fg);
+    border-color: var(--wg-bp-status-normal-border);
+}
+
+.wg-bp-status--highnormal {
+    background: var(--wg-bp-status-highnormal-bg);
+    color: var(--wg-bp-status-highnormal-fg);
+    border-color: var(--wg-bp-status-highnormal-border);
+}
+
+.wg-bp-status--grade1 {
+    background: var(--wg-bp-status-grade1-bg);
+    color: var(--wg-bp-status-grade1-fg);
+    border-color: var(--wg-bp-status-grade1-border);
+}
+
+.wg-bp-status--grade2 {
+    background: var(--wg-bp-status-grade2-bg);
+    color: var(--wg-bp-status-grade2-fg);
+    border-color: var(--wg-bp-status-grade2-border);
+}
+
+.wg-bp-range-selector {
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--wg-bp-range-selector-pad);
+    margin-bottom: var(--space-md);
+}
+
+.wg-bp-range-selector__btn {
+    flex: 1;
+    min-height: var(--wg-bp-range-selector-height);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-bp-chart-card {
+    padding: var(--wg-card-pad);
+    margin-bottom: var(--space-md);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+}
+
+/* 3-up averages grid (14d / 30d / 60d). Each tile reuses .wg-card as the
+   gloss-card substrate and stacks section-label → mono-display value →
+   unit suffix → optional readings meta. Missing stats collapse to "—"
+   with .wg-bp-average-card__value--empty dimming the glyph. */
+.wg-bp-averages {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.wg-bp-average-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-bp-average-card__label {
+    padding: 0;
+    margin: 0;
+}
+
+.wg-bp-average-card__value {
+    font-size: var(--wg-bp-average-value-size);
+    line-height: 1.1;
+}
+
+.wg-bp-average-card__value--empty {
+    color: var(--wg-fg-4);
+}
+
+.wg-bp-average-card__unit {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.wg-bp-average-card__meta {
+    font-size: var(--font-size-xs);
+}
+
+/* Day-grouped history list (Phase 3, Task 5). Groups use `.wg-section-label`
+   day headers; each reading is a `.wg-card` row with mono sys/dia values,
+   a status tag, optional pulse tag, and a trailing .wg-icon-btn delete. */
+.wg-bp-history {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.wg-bp-history__group {
+    list-style: none;
+    margin-bottom: var(--space-md);
+}
+
+.wg-bp-history__group-label {
+    padding-top: var(--wg-section-label-pad-top);
+    padding-bottom: var(--space-sm);
+}
+
+.wg-bp-history__rows {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-bp-reading-row {
+    padding: var(--wg-bp-history-row-pad);
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.wg-bp-reading-row__body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-bp-reading-row__value {
+    font-size: var(--wg-bp-average-value-size);
+    line-height: 1.1;
+}
+
+.wg-bp-reading-row__dia {
+    color: var(--wg-fg-4);
+}
+
+.wg-bp-reading-row__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: var(--font-size-xs);
+}
+
+.wg-bp-reading-row__time {
+    font-family: var(--wg-font-mono);
+    color: var(--wg-fg-4);
+    letter-spacing: 0.02em;
+}
+
+.wg-bp-reading-row__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.wg-tag--pending {
+    background: var(--wg-tag-high-bg);
+    color: var(--wg-tag-high-fg);
+    border-color: var(--wg-tag-high-border);
+}
+
+.wg-tag--rejected {
+    background: var(--wg-tag-alert-bg);
+    color: var(--wg-tag-alert-fg);
+    border-color: var(--wg-tag-alert-border);
 }

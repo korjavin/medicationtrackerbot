@@ -1,6 +1,10 @@
 
 // ==================== Blood Pressure Functions ====================
 
+const BP_RANGE_STORAGE_KEY = 'mt-bp-range';
+const BP_RANGE_OPTIONS = [14, 30, 60];
+const BP_RANGE_DEFAULT = 60;
+
 // Get BP category based on ISH 2020 guidelines (for users < 65 years)
 function getBPCategory(sys, dia) {
     // Grade 2 Hypertension: ≥160 and/or ≥100
@@ -11,6 +15,20 @@ function getBPCategory(sys, dia) {
     if (sys >= 130 || dia >= 85) return { label: 'High-normal', class: 'highnormal' };
     // Normal: <130 and <85
     return { label: 'Normal', class: 'normal' };
+}
+
+function getActiveBPRange() {
+    try {
+        const raw = window.localStorage.getItem(BP_RANGE_STORAGE_KEY);
+        const n = parseInt(raw, 10);
+        if (BP_RANGE_OPTIONS.indexOf(n) !== -1) return n;
+    } catch (_) { /* ignore */ }
+    return BP_RANGE_DEFAULT;
+}
+
+function setActiveBPRange(days) {
+    if (BP_RANGE_OPTIONS.indexOf(days) === -1) return;
+    try { window.localStorage.setItem(BP_RANGE_STORAGE_KEY, String(days)); } catch (_) { /* ignore */ }
 }
 
 // Show BP recording modal
@@ -42,15 +60,19 @@ async function handleBPSubmit(event) {
     event.preventDefault();
 
     const datetime = document.getElementById('bp-datetime').value;
-    const systolic = parseInt(document.getElementById('bp-systolic').value);
-    const diastolic = parseInt(document.getElementById('bp-diastolic').value);
-    const pulse = document.getElementById('bp-pulse').value ? parseInt(document.getElementById('bp-pulse').value) : null;
+    const systolic = parseInt(document.getElementById('bp-systolic').value, 10);
+    const diastolic = parseInt(document.getElementById('bp-diastolic').value, 10);
+    const pulse = document.getElementById('bp-pulse').value ? parseInt(document.getElementById('bp-pulse').value, 10) : null;
     const site = document.getElementById('bp-site').value;
     const position = document.getElementById('bp-position').value;
     const notes = document.getElementById('bp-notes').value;
 
-    if (!datetime || !systolic || !diastolic) {
-        safeAlert('Please fill in all required fields');
+    if (!datetime || !Number.isFinite(systolic) || !Number.isFinite(diastolic)) {
+        safeAlert('Please fill in all required fields with valid numbers');
+        return;
+    }
+    if (pulse !== null && !Number.isFinite(pulse)) {
+        safeAlert('Pulse must be a valid number');
         return;
     }
 
@@ -99,7 +121,7 @@ async function loadBPReadings() {
         },
         onError: async (e, cached) => {
             console.error('Failed to load BP data:', e);
-            if (!cached) {
+            if (!cached && list) {
                 list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
             }
         }
@@ -108,6 +130,7 @@ async function loadBPReadings() {
 
 async function _renderBPData(readingsRes, goalRes, statsRes) {
     const list = document.getElementById('bp-list');
+    if (!list) return;
 
     // Merge server data with pending local writes
     let allReadings = readingsRes || [];
@@ -153,466 +176,422 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
         return;
     }
 
+    const activeRange = getActiveBPRange();
+
+    renderCurrentReading(pickLatestReading(allReadings), allReadings);
+    renderRangeSelector({
+        active: activeRange,
+        onChange: (days) => {
+            setActiveBPRange(days);
+            _renderBPData(readingsRes, goalRes, statsRes);
+        }
+    });
     renderBPChart(allReadings, goalRes || {});
     renderBPAverages(statsRes || {});
 
-    // Filter list to only show last 3 days (Today, Yesterday, and Day Before)
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 2);
-    cutoff.setHours(0, 0, 0, 0);
-
-    const filteredReadings = allReadings.filter(r => new Date(r.measured_at) >= cutoff);
+    const filteredReadings = filterReadingsByRange(allReadings, activeRange);
     renderBPReadings(filteredReadings);
 }
 
-// Render BP Chart with color-coded points and segments
+function pickLatestReading(readings) {
+    if (!Array.isArray(readings) || readings.length === 0) return null;
+    let latest = null;
+    let latestMs = -Infinity;
+    for (const r of readings) {
+        const t = new Date(r.measured_at).getTime();
+        if (!Number.isFinite(t)) continue;
+        if (t > latestMs) { latestMs = t; latest = r; }
+    }
+    return latest;
+}
+
+function renderCurrentReading(reading, recentReadings) {
+    const container = document.getElementById('bp-current-card');
+    if (!container) return;
+    container.replaceChildren();
+    container.className = 'wg-card wg-bp-current-card';
+
+    if (!reading) {
+        const empty = document.createElement('div');
+        empty.className = 'wg-bp-current-card__empty wg-muted';
+        empty.textContent = 'No readings yet';
+        container.appendChild(empty);
+        return;
+    }
+
+    const kicker = document.createElement('div');
+    kicker.className = 'wg-section-label wg-bp-current-card__kicker';
+    const kickerText = document.createElement('span');
+    kickerText.textContent = reading.isLocal
+        ? (reading.isRejected ? 'Latest · sync failed' : 'Latest · pending sync')
+        : `Latest · ${formatDate(reading.measured_at)}`;
+    kicker.appendChild(kickerText);
+    container.appendChild(kicker);
+
+    const value = document.createElement('div');
+    value.className = 'wg-mono-display wg-bp-current-card__value';
+    const sysSpan = document.createElement('span');
+    sysSpan.className = 'wg-bp-current-card__sys';
+    sysSpan.textContent = String(reading.systolic);
+    const diaSpan = document.createElement('span');
+    diaSpan.className = 'wg-bp-current-card__dia';
+    diaSpan.textContent = `/${reading.diastolic}`;
+    value.appendChild(sysSpan);
+    value.appendChild(diaSpan);
+    container.appendChild(value);
+
+    const meta = document.createElement('div');
+    meta.className = 'wg-bp-current-card__meta';
+
+    const category = getBPCategory(reading.systolic, reading.diastolic);
+    const tag = document.createElement('span');
+    tag.className = `wg-tag wg-bp-status wg-bp-status--${category.class}`;
+    tag.textContent = category.label;
+    meta.appendChild(tag);
+
+    if (reading.pulse) {
+        const pulse = document.createElement('span');
+        pulse.className = 'wg-muted wg-bp-current-card__pulse';
+        pulse.textContent = `${reading.pulse} bpm`;
+        meta.appendChild(pulse);
+    }
+    container.appendChild(meta);
+
+    if (reading.pulse && window.WGSparkline && typeof window.WGSparkline.render === 'function') {
+        const sparkSlot = document.createElement('div');
+        sparkSlot.className = 'wg-bp-current-card__spark';
+
+        // Extract recent pulse history (up to 7 readings with pulse values)
+        let pulsePoints = [];
+        if (Array.isArray(recentReadings) && recentReadings.length > 0) {
+            pulsePoints = recentReadings
+                .filter(r => r.pulse != null && Number.isFinite(Number(r.pulse)))
+                .sort((a, b) => new Date(a.measured_at).getTime() - new Date(b.measured_at).getTime())
+                .slice(-7)
+                .map(r => Number(r.pulse));
+        }
+
+        // Fall back to current pulse only if no history available
+        if (pulsePoints.length === 0 && Number.isFinite(Number(reading.pulse))) {
+            pulsePoints = [Number(reading.pulse)];
+        }
+
+        const spark = window.WGSparkline.render({
+            points: pulsePoints,
+            variant: 'sun',
+            width: 120,
+            height: 22
+        });
+        if (spark) sparkSlot.appendChild(spark);
+        container.appendChild(sparkSlot);
+    }
+}
+
+function renderRangeSelector(opts) {
+    const container = document.getElementById('bp-range-selector');
+    if (!container) return;
+    const options = opts || {};
+    const active = BP_RANGE_OPTIONS.indexOf(options.active) !== -1 ? options.active : BP_RANGE_DEFAULT;
+    const onChange = typeof options.onChange === 'function' ? options.onChange : null;
+
+    container.replaceChildren();
+    container.className = 'wg-gloss--inset wg-bp-range-selector';
+
+    BP_RANGE_OPTIONS.forEach((days) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'wg-gloss wg-bp-range-selector__btn';
+        if (days === active) btn.classList.add('wg-gloss--sun', 'wg-bp-range-selector__btn--active');
+        btn.setAttribute('data-range', String(days));
+        btn.setAttribute('aria-pressed', days === active ? 'true' : 'false');
+        btn.textContent = `${days}d`;
+        btn.addEventListener('click', () => {
+            if (days === active) return;
+            if (onChange) onChange(days);
+        });
+        container.appendChild(btn);
+    });
+}
+
+// Render BP Chart — delegates to WGBpChart for the Wandergeek SVG and filters
+// the input to the user's active range (14 / 30 / 60 days). Empty input swaps
+// in a short muted message so the card height doesn't collapse.
 function renderBPChart(readings, goalData) {
     const container = document.getElementById('bpChart');
     if (!container) return;
 
     container.replaceChildren();
+    container.classList.add('wg-bp-chart-card');
 
-    if (!readings || readings.length === 0) {
+    const activeRange = getActiveBPRange();
+    container.setAttribute('data-bp-range', String(activeRange));
+
+    const filtered = filterReadingsByRange(readings, activeRange);
+
+    if (!filtered || filtered.length === 0) {
         const noDataSpan = document.createElement('span');
         noDataSpan.className = 'no-data-msg';
-        noDataSpan.textContent = "No data available";
+        noDataSpan.textContent = 'No data available';
         container.appendChild(noDataSpan);
         return;
     }
 
-    // Sort by date (oldest first)
-    const sorted = [...readings].sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
-
-    // Extract data series with classifications
-    const rawData = sorted.map(r => ({
-        date: new Date(r.measured_at),
-        sys: r.systolic,
-        dia: r.diastolic,
-        pulse: r.pulse,
-        category: getBPCategory(r.systolic, r.diastolic)
-    }));
-
-    // Calculate averages from ALL raw readings (before any downsampling)
-    const avgSys = rawData.reduce((sum, d) => sum + d.sys, 0) / rawData.length;
-    const avgDia = rawData.reduce((sum, d) => sum + d.dia, 0) / rawData.length;
-
-    // Noise reduction: aggregate old readings to daily averages, then LTTB downsample if needed
-    const aggregated = window.ChartUtils.aggregateToDaily(rawData, 7);
-    const targetPoints = Math.max(30, Math.floor((container.clientWidth || 320) / 6));
-    let data = aggregated;
-    if (data.length > targetPoints) {
-        // Apply LTTB on systolic series (dominant visual signal) and use its timestamps for both
-        const sysDownsampled = window.ChartUtils.lttbDownsample(
-            data.map(d => [d.date.getTime(), d.sys]), targetPoints
-        );
-        const keptTimes = new Set(sysDownsampled.map(p => p[0]));
-        data = data.filter(d => keptTimes.has(d.date.getTime()));
+    if (!window.WGBpChart || typeof window.WGBpChart.render !== 'function') {
+        const noDataSpan = document.createElement('span');
+        noDataSpan.className = 'no-data-msg';
+        noDataSpan.textContent = 'Chart unavailable';
+        container.appendChild(noDataSpan);
+        return;
     }
 
-    // Dimensions
-    const leftPadding = 40;
-    const totalWidth = container.clientWidth;
-    const chartWidth = totalWidth - leftPadding - 10;
-    const chartHeight = container.clientHeight - 35;
-
-    // Find min/max across all series
-    let minVal = Math.min(...data.map(d => d.dia), ...data.filter(d => d.pulse).map(d => d.pulse));
-    let maxVal = Math.max(...data.map(d => d.sys), ...data.filter(d => d.pulse).map(d => d.pulse));
-
-    // Include averages in range
-    minVal = Math.min(minVal, avgDia);
-    maxVal = Math.max(maxVal, avgSys);
-
-    // Round to nice values for Y-axis
-    minVal = Math.floor(minVal / 10) * 10;
-    maxVal = Math.ceil(maxVal / 10) * 10;
-
-    const range = maxVal - minVal || 1;
-    const yPad = 10; // Fixed padding
-    const effectiveMin = minVal - yPad;
-    const effectiveMax = maxVal + yPad;
-    const effectiveRange = effectiveMax - effectiveMin;
-
-    // Determine Y-axis interval (10 or 20)
-    const yInterval = (effectiveRange > 80) ? 20 : 10;
-
-    // Date range
-    const firstDate = data[0].date;
-    const lastDate = data[data.length - 1].date;
-    const dateRange = lastDate - firstDate || 1;
-
-    const xScaleByDate = (date) => leftPadding + ((date - firstDate) / dateRange) * chartWidth;
-    const yScale = (v) => chartHeight - ((v - effectiveMin) / effectiveRange) * chartHeight;
-
-    // Get color for BP classification
-    const getClassColor = (category) => {
-        const colorMap = {
-            'normal': '#22c55e',
-            'highnormal': '#eab308',
-            'grade1': '#f97316',
-            'grade2': '#ef4444'
-        };
-        return colorMap[category.class] || '#22c55e';
-    };
-
-    // SVG Construction
-    const svgNs = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(svgNs, "svg");
-    svg.setAttribute("width", "100%");
-    svg.setAttribute("height", "100%");
-    svg.setAttribute("viewBox", `0 0 ${totalWidth} ${chartHeight + 20}`);
-
-    // Y-Axis Labels at regular intervals
-    const bpTickVals = [];
-    for (let val = Math.ceil(effectiveMin / yInterval) * yInterval; val <= effectiveMax; val += yInterval) {
-        bpTickVals.push(val);
-    }
-    bpTickVals.forEach((val, idx) => {
-        const y = yScale(val);
-        const text = document.createElementNS(svgNs, "text");
-        text.setAttribute("x", leftPadding - 5);
-        text.setAttribute("y", y + 4);
-        text.setAttribute("class", "chart-label");
-        text.setAttribute("style", "text-anchor: end; fill: var(--hint-color); font-size: 11px;");
-        text.textContent = val;
-        svg.appendChild(text);
-
-        // Skip outermost grid lines to avoid box feel
-        if (idx === 0 || idx === bpTickVals.length - 1) return;
-        const gridLine = document.createElementNS(svgNs, "line");
-        gridLine.setAttribute("x1", leftPadding);
-        gridLine.setAttribute("y1", y);
-        gridLine.setAttribute("x2", totalWidth - 10);
-        gridLine.setAttribute("y2", y);
-        gridLine.setAttribute("class", "chart-grid-refined");
-        svg.appendChild(gridLine);
+    const svg = window.WGBpChart.render({
+        readings: filtered,
+        goal: goalData || {},
+        range: activeRange
     });
-
-    // Draw average lines (dotted)
-    const avgSysY = yScale(avgSys);
-    const avgSysLine = document.createElementNS(svgNs, "line");
-    avgSysLine.setAttribute("x1", leftPadding);
-    avgSysLine.setAttribute("y1", avgSysY);
-    avgSysLine.setAttribute("x2", totalWidth - 10);
-    avgSysLine.setAttribute("y2", avgSysY);
-    avgSysLine.setAttribute("class", "bp-chart-avg-line");
-    svg.appendChild(avgSysLine);
-
-    const avgDiaY = yScale(avgDia);
-    const avgDiaLine = document.createElementNS(svgNs, "line");
-    avgDiaLine.setAttribute("x1", leftPadding);
-    avgDiaLine.setAttribute("y1", avgDiaY);
-    avgDiaLine.setAttribute("x2", totalWidth - 10);
-    avgDiaLine.setAttribute("y2", avgDiaY);
-    avgDiaLine.setAttribute("class", "bp-chart-avg-line");
-    svg.appendChild(avgDiaLine);
-
-    // Build coordinate arrays for spline paths
-    const sysPoints = data.map(d => [xScaleByDate(d.date), yScale(d.sys)]);
-    const diaPoints = data.map(d => [xScaleByDate(d.date), yScale(d.dia)]);
-
-    // Determine dominant color from latest reading for spline lines
-    const lastReading = data[data.length - 1];
-    const lineColor = getClassColor(lastReading.category);
-
-    // Generate spline path strings
-    const sysSplineD = window.ChartUtils.catmullRomSpline(sysPoints);
-    const diaSplineD = window.ChartUtils.catmullRomSpline(diaPoints);
-
-    // Gradient fill area under systolic spline
-    if (data.length >= 2) {
-        window.ChartUtils.createGradient(svgNs, svg, 'grad-bp-sys', lineColor, 0.15);
-        const sysAreaD = sysSplineD
-            + ` L ${xScaleByDate(data[data.length - 1].date)},${chartHeight}`
-            + ` L ${xScaleByDate(data[0].date)},${chartHeight} Z`;
-        const sysArea = document.createElementNS(svgNs, "path");
-        sysArea.setAttribute("d", sysAreaD);
-        sysArea.setAttribute("fill", "url(#grad-bp-sys)");
-        svg.appendChild(sysArea);
-    }
-
-    // Smooth spline path for systolic
-    const sysPath = document.createElementNS(svgNs, "path");
-    sysPath.setAttribute("d", sysSplineD);
-    sysPath.setAttribute("stroke", lineColor);
-    sysPath.setAttribute("stroke-width", "2.5");
-    sysPath.setAttribute("fill", "none");
-    sysPath.classList.add("chart-line");
-    svg.appendChild(sysPath);
-    window.ChartUtils.animateLine(sysPath);
-
-    // Smooth spline path for diastolic
-    const diaPath = document.createElementNS(svgNs, "path");
-    diaPath.setAttribute("d", diaSplineD);
-    diaPath.setAttribute("stroke", lineColor);
-    diaPath.setAttribute("stroke-width", "2.5");
-    diaPath.setAttribute("fill", "none");
-    diaPath.classList.add("chart-line");
-    svg.appendChild(diaPath);
-    window.ChartUtils.animateLine(diaPath);
-
-    // Smooth spline path for pulse (if data has pulse readings)
-    const pulseData = data.filter(d => d.pulse);
-    if (pulseData.length >= 2) {
-        const pulsePoints = pulseData.map(d => [xScaleByDate(d.date), yScale(d.pulse)]);
-        const pulseSplineD = window.ChartUtils.catmullRomSpline(pulsePoints);
-        const pulsePath = document.createElementNS(svgNs, "path");
-        pulsePath.setAttribute("d", pulseSplineD);
-        pulsePath.setAttribute("stroke", "var(--color-info)");
-        pulsePath.setAttribute("stroke-width", "1.5");
-        pulsePath.setAttribute("stroke-dasharray", "4 3");
-        pulsePath.setAttribute("fill", "none");
-        pulsePath.classList.add("chart-line");
-        svg.appendChild(pulsePath);
-    }
-
-    // Draw color-coded points for systolic (all except last)
-    data.forEach((d, i) => {
-        if (i === data.length - 1) return; // last point handled below
-        const x = xScaleByDate(d.date);
-        const y = yScale(d.sys);
-        const color = getClassColor(d.category);
-        const r = d.aggregated ? 3 : 4;
-
-        const circle = document.createElementNS(svgNs, "circle");
-        circle.setAttribute("cx", x);
-        circle.setAttribute("cy", y);
-        circle.setAttribute("r", r);
-        circle.setAttribute("fill", color);
-        circle.setAttribute("stroke", "var(--bg-color)");
-        circle.setAttribute("stroke-width", d.aggregated ? "1.5" : "2");
-        svg.appendChild(circle);
-    });
-
-    // Draw color-coded points for diastolic (all except last)
-    data.forEach((d, i) => {
-        if (i === data.length - 1) return; // last point handled below
-        const x = xScaleByDate(d.date);
-        const y = yScale(d.dia);
-        const color = getClassColor(d.category);
-        const r = d.aggregated ? 3 : 4;
-
-        const circle = document.createElementNS(svgNs, "circle");
-        circle.setAttribute("cx", x);
-        circle.setAttribute("cy", y);
-        circle.setAttribute("r", r);
-        circle.setAttribute("fill", color);
-        circle.setAttribute("stroke", "var(--bg-color)");
-        circle.setAttribute("stroke-width", d.aggregated ? "1.5" : "2");
-        svg.appendChild(circle);
-    });
-
-    // Last-value emphasis for systolic and diastolic
-    {
-        const last = data[data.length - 1];
-        const lastColor = getClassColor(last.category);
-        const lastSysX = xScaleByDate(last.date);
-        const lastSysY = yScale(last.sys);
-        const lastDiaY = yScale(last.dia);
-
-        svg.appendChild(window.ChartUtils.createLastValueDot(svgNs, lastSysX, lastSysY, lastColor));
-        svg.appendChild(window.ChartUtils.createLastValueDot(svgNs, lastSysX, lastDiaY, lastColor));
-
-        // Value labels for latest reading
-        const sysLabel = document.createElementNS(svgNs, "text");
-        sysLabel.setAttribute("x", lastSysX);
-        sysLabel.setAttribute("y", lastSysY - 12);
-        sysLabel.setAttribute("class", "chart-label-emphasis");
-        sysLabel.setAttribute("fill", lastColor);
-        sysLabel.textContent = last.sys;
-        svg.appendChild(sysLabel);
-
-        const diaLabel = document.createElementNS(svgNs, "text");
-        diaLabel.setAttribute("x", lastSysX);
-        diaLabel.setAttribute("y", lastDiaY + 16);
-        diaLabel.setAttribute("class", "chart-label-emphasis");
-        diaLabel.setAttribute("fill", lastColor);
-        diaLabel.textContent = last.dia;
-        svg.appendChild(diaLabel);
-    }
-
-    // Date labels
-    const firstLabel = document.createElementNS(svgNs, "text");
-    firstLabel.setAttribute("x", leftPadding);
-    firstLabel.setAttribute("y", chartHeight + 15);
-    firstLabel.setAttribute("class", "chart-label");
-    firstLabel.setAttribute("style", "text-anchor: start;");
-    firstLabel.textContent = data[0].date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
-    svg.appendChild(firstLabel);
-
-    const lastLabel = document.createElementNS(svgNs, "text");
-    lastLabel.setAttribute("x", totalWidth - 10);
-    lastLabel.setAttribute("y", chartHeight + 15);
-    lastLabel.setAttribute("class", "chart-label");
-    lastLabel.setAttribute("style", "text-anchor: end;");
-    lastLabel.textContent = data[data.length - 1].date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
-    svg.appendChild(lastLabel);
-
-    container.appendChild(svg);
+    if (svg) container.appendChild(svg);
 }
 
-// Render BP averages from backend-calculated daily-weighted stats
+function filterReadingsByRange(readings, days) {
+    if (!Array.isArray(readings) || readings.length === 0) return [];
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    return readings.filter((r) => {
+        const t = new Date(r.measured_at).getTime();
+        return Number.isFinite(t) && t >= cutoff;
+    });
+}
+
+// Render BP averages as a 3-up grid of Wandergeek gloss cards (14d/30d/60d).
+// Values come from the backend-calculated daily-weighted stats payload; missing
+// periods render as "—" so the 3-up layout never collapses.
 function renderBPAverages(stats) {
     const container = document.getElementById('bp-averages');
     if (!container) return;
 
-    // Check if stats object has any data
-    if (!stats || (!stats.stats_14 && !stats.stats_30 && !stats.stats_60)) {
-        container.replaceChildren();
-        return;
-    }
+    container.replaceChildren();
+    container.className = 'wg-bp-averages';
 
-    const row = document.createElement('div');
-    row.className = 'bp-avg-row';
+    const periods = [
+        { key: 'stats_14', label: '14 days', days: 14 },
+        { key: 'stats_30', label: '30 days', days: 30 },
+        { key: 'stats_60', label: '60 days', days: 60 }
+    ];
 
-    const appendAverageItem = (label, stat) => {
-        row.appendChild(createStatItem(
-            `${label} (${stat.days}d)`, `${stat.systolic}/${stat.diastolic}`,
-            { className: 'bp-avg-item', labelClass: 'bp-avg-label', valueClass: 'bp-avg-value' }
-        ));
-    };
-
-    if (stats.stats_14) appendAverageItem('14d', stats.stats_14);
-    if (stats.stats_30) appendAverageItem('30d', stats.stats_30);
-    if (stats.stats_60) appendAverageItem('60d', stats.stats_60);
-
-    container.replaceChildren(row);
+    periods.forEach((period) => {
+        const stat = stats && stats[period.key] ? stats[period.key] : null;
+        container.appendChild(buildBPAverageCard(period, stat));
+    });
 }
 
-// Render BP readings grouped by date
+function buildBPAverageCard(period, stat) {
+    const card = document.createElement('div');
+    card.className = 'wg-card wg-bp-average-card';
+    card.setAttribute('data-period', String(period.days));
+
+    const label = document.createElement('div');
+    label.className = 'wg-section-label wg-bp-average-card__label';
+    const labelText = document.createElement('span');
+    labelText.textContent = period.label;
+    label.appendChild(labelText);
+    card.appendChild(label);
+
+    const value = document.createElement('div');
+    value.className = 'wg-mono-display wg-bp-average-card__value';
+    if (stat && Number.isFinite(stat.systolic) && Number.isFinite(stat.diastolic)) {
+        value.textContent = `${Math.round(stat.systolic)}/${Math.round(stat.diastolic)}`;
+    } else {
+        value.textContent = '\u2014';
+        value.classList.add('wg-bp-average-card__value--empty');
+    }
+    card.appendChild(value);
+
+    const unit = document.createElement('div');
+    unit.className = 'wg-muted wg-bp-average-card__unit';
+    unit.textContent = 'mmHg';
+    card.appendChild(unit);
+
+    if (stat && Number.isFinite(stat.readings) && stat.readings > 0) {
+        const meta = document.createElement('div');
+        meta.className = 'wg-muted wg-bp-average-card__meta';
+        const readingsWord = stat.readings === 1 ? 'reading' : 'readings';
+        meta.textContent = `${stat.readings} ${readingsWord}`;
+        card.appendChild(meta);
+    }
+
+    return card;
+}
+
+// Render BP readings grouped by date as Wandergeek gloss cards.
+// Preserves offline-pending and rejected states via .wg-tag--mono variants;
+// delete action is a .wg-icon-btn trailing cluster that reuses the existing
+// deleteBPReading handler.
 function renderBPReadings(readings) {
     const list = document.getElementById('bp-list');
+    if (!list) return;
     list.replaceChildren();
+    list.className = 'wg-bp-history';
 
     if (!readings || readings.length === 0) {
         return;
     }
 
-    // Group readings by date
-    const groups = { today: [], yesterday: [], older: [] };
+    const groups = groupBPReadingsByDay(readings);
+    groups.forEach((group) => {
+        const groupItem = buildBPHistoryGroup(group.label, group.readings);
+        if (groupItem) list.appendChild(groupItem);
+    });
+}
+
+function groupBPReadingsByDay(readings) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
 
-    readings.forEach(r => {
-        const date = new Date(r.measured_at);
-        date.setHours(0, 0, 0, 0);
-
-        if (date.getTime() === today.getTime()) {
-            groups.today.push(r);
-        } else if (date.getTime() === yesterday.getTime()) {
-            groups.yesterday.push(r);
-        } else {
-            groups.older.push(r);
-        }
-    });
-
-    // Helper to render a group
-    const renderGroup = (headerText, groupReadings) => {
-        if (groupReadings.length === 0) return null;
-
-        // Sort readings within this group by time (newest first)
-        const sortedReadings = [...groupReadings].sort((a, b) =>
-            new Date(b.measured_at) - new Date(a.measured_at)
-        );
-
-        const groupItem = document.createElement('li');
-        groupItem.className = 'bp-date-group';
-
-        const header = document.createElement('div');
-        header.className = 'bp-date-header';
-        header.textContent = headerText;
-
-        const groupList = document.createElement('ul');
-        groupList.className = 'list-reset';
-        groupItem.appendChild(header);
-        groupItem.appendChild(groupList);
-
-        sortedReadings.forEach(r => {
-            const category = getBPCategory(r.systolic, r.diastolic);
-            const [, timeStr = ''] = formatDate(r.measured_at).split(' '); // Get HH:MM part
-            const pendingClass = r.isLocal ? ' pending-sync' : '';
-
-            const item = document.createElement('li');
-            item.className = `bp-item${pendingClass}`;
-
-            const reading = document.createElement('div');
-            reading.className = 'bp-reading';
-
-            const values = document.createElement('div');
-            values.className = 'bp-values';
-
-            const sys = document.createElement('span');
-            sys.className = 'bp-sys';
-            sys.textContent = String(r.systolic);
-
-            const dia = document.createElement('span');
-            dia.className = 'bp-dia';
-            dia.textContent = `/${r.diastolic}`;
-
-            values.appendChild(sys);
-            values.appendChild(dia);
-
-            if (r.isRejected) {
-                values.appendChild(createSyncRejectedBadge(r.errorMessage));
-            } else if (r.isLocal) {
-                values.appendChild(createSyncBadge());
-            }
-
-            const meta = document.createElement('div');
-            meta.className = 'bp-meta';
-
-            const time = document.createElement('span');
-            time.textContent = timeStr;
-            meta.appendChild(time);
-
-            if (r.pulse) {
-                const pulse = document.createElement('span');
-                pulse.className = 'bp-pulse';
-                pulse.textContent = `${r.pulse} bpm`;
-                meta.appendChild(pulse);
-            }
-
-            const categoryEl = document.createElement('span');
-            categoryEl.className = `bp-category ${category.class}`;
-            categoryEl.textContent = category.label;
-            meta.appendChild(categoryEl);
-
-            reading.appendChild(values);
-            reading.appendChild(meta);
-
-            item.appendChild(reading);
-            item.appendChild(createDeleteButton(() => deleteBPReading(String(r.id))));
-            groupList.appendChild(item);
-        });
-
-        return groupItem;
+    const buckets = new Map(); // key -> { label, sortKey, readings }
+    const ensureBucket = (key, label, sortKey) => {
+        if (!buckets.has(key)) buckets.set(key, { label, sortKey, readings: [] });
+        return buckets.get(key);
     };
 
-    // Render groups in order
-    const todayGroup = renderGroup('Today', groups.today);
-    const yesterdayGroup = renderGroup('Yesterday', groups.yesterday);
+    readings.forEach((r) => {
+        const d = new Date(r.measured_at);
+        if (!Number.isFinite(d.getTime())) return;
+        const dayStart = new Date(d);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayMs = dayStart.getTime();
 
-    if (todayGroup) list.appendChild(todayGroup);
-    if (yesterdayGroup) list.appendChild(yesterdayGroup);
+        let key;
+        let label;
+        if (dayMs === today.getTime()) {
+            key = 'today';
+            label = 'Today';
+        } else if (dayMs === yesterday.getTime()) {
+            key = 'yesterday';
+            label = 'Yesterday';
+        } else {
+            key = String(dayMs);
+            label = dayStart.toLocaleDateString(undefined, {
+                day: '2-digit', month: '2-digit', year: 'numeric'
+            });
+        }
+        ensureBucket(key, label, dayMs).readings.push(r);
+    });
 
-    if (groups.older.length > 0) {
-        // Format older dates
-        const olderGroups = new Map();
-        groups.older.forEach(r => {
-            const d = new Date(r.measured_at);
-            const key = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-            if (!olderGroups.has(key)) olderGroups.set(key, []);
-            olderGroups.get(key).push(r);
-        });
+    return Array.from(buckets.values()).sort((a, b) => b.sortKey - a.sortKey);
+}
 
-        olderGroups.forEach((olderReadings, dateKey) => {
-            const olderGroup = renderGroup(dateKey, olderReadings);
-            if (olderGroup) list.appendChild(olderGroup);
-        });
+function buildBPHistoryGroup(label, readings) {
+    if (!readings || readings.length === 0) return null;
+
+    const sorted = [...readings].sort(
+        (a, b) => new Date(b.measured_at) - new Date(a.measured_at)
+    );
+
+    const groupItem = document.createElement('li');
+    groupItem.className = 'wg-bp-history__group';
+
+    const header = document.createElement('div');
+    header.className = 'wg-section-label wg-bp-history__group-label';
+    const headerText = document.createElement('span');
+    headerText.textContent = label;
+    header.appendChild(headerText);
+    groupItem.appendChild(header);
+
+    const rowList = document.createElement('ul');
+    rowList.className = 'list-reset wg-bp-history__rows';
+    sorted.forEach((r) => rowList.appendChild(buildBPReadingRow(r)));
+    groupItem.appendChild(rowList);
+
+    return groupItem;
+}
+
+function buildBPReadingRow(reading) {
+    const item = document.createElement('li');
+    item.className = 'wg-card wg-bp-reading-row';
+    if (reading.isLocal) item.classList.add('wg-bp-reading-row--pending');
+    if (reading.isRejected) item.classList.add('wg-bp-reading-row--rejected');
+    item.setAttribute('data-reading-id', String(reading.id));
+
+    const body = document.createElement('div');
+    body.className = 'wg-bp-reading-row__body';
+
+    const value = document.createElement('div');
+    value.className = 'wg-mono-display wg-bp-reading-row__value';
+    const sysSpan = document.createElement('span');
+    sysSpan.className = 'wg-bp-reading-row__sys';
+    sysSpan.textContent = String(reading.systolic);
+    const diaSpan = document.createElement('span');
+    diaSpan.className = 'wg-bp-reading-row__dia';
+    diaSpan.textContent = `/${reading.diastolic}`;
+    value.appendChild(sysSpan);
+    value.appendChild(diaSpan);
+    body.appendChild(value);
+
+    const meta = document.createElement('div');
+    meta.className = 'wg-bp-reading-row__meta';
+
+    const [, timeStr = ''] = formatDate(reading.measured_at).split(' ');
+    if (timeStr) {
+        const time = document.createElement('span');
+        time.className = 'wg-bp-reading-row__time';
+        time.textContent = timeStr;
+        meta.appendChild(time);
     }
+
+    if (reading.pulse) {
+        const pulse = document.createElement('span');
+        pulse.className = 'wg-tag wg-tag--mono wg-bp-reading-row__pulse';
+        pulse.textContent = `${reading.pulse} bpm`;
+        meta.appendChild(pulse);
+    }
+
+    const category = getBPCategory(reading.systolic, reading.diastolic);
+    const statusTag = document.createElement('span');
+    statusTag.className = `wg-tag wg-bp-status wg-bp-status--${category.class}`;
+    statusTag.textContent = category.label;
+    meta.appendChild(statusTag);
+
+    if (reading.isRejected) {
+        meta.appendChild(buildBPSyncTag('rejected', 'Failed', reading.errorMessage));
+    } else if (reading.isLocal) {
+        meta.appendChild(buildBPSyncTag('pending', 'Pending'));
+    }
+
+    body.appendChild(meta);
+    item.appendChild(body);
+
+    const actions = document.createElement('div');
+    actions.className = 'wg-bp-reading-row__actions';
+    actions.appendChild(buildBPReadingDeleteButton(reading));
+    item.appendChild(actions);
+
+    return item;
+}
+
+function buildBPSyncTag(kind, label, tooltip) {
+    const tag = document.createElement('span');
+    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-bp-reading-row__sync`;
+    tag.textContent = label;
+    if (tooltip) tag.title = tooltip;
+    return tag;
+}
+
+function buildBPReadingDeleteButton(reading) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-icon-btn wg-bp-reading-row__delete';
+    btn.setAttribute('aria-label', 'Delete reading');
+
+    const gloss = document.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg('trash', { size: 16 }));
+    }
+    btn.appendChild(gloss);
+
+    btn.addEventListener('click', () => deleteBPReading(String(reading.id)));
+    return btn;
 }
 
 // Delete a BP reading
@@ -627,7 +606,7 @@ async function deleteBPReading(id) {
 async function _deleteBPApi(id) {
     // Check if this is a local-only reading
     if (typeof id === 'string' && id.startsWith('local_')) {
-        const localId = parseInt(id.replace('local_', ''));
+        const localId = parseInt(id.replace('local_', ''), 10);
         if (window.MedTrackerDB) {
             await window.MedTrackerDB.BPStore.confirmDelete(localId);
             if (window.SyncManager) window.SyncManager.updateStatus();
@@ -644,7 +623,7 @@ async function _deleteBPApi(id) {
             try {
                 // Find and delete the local record with this serverId
                 const allReadings = await window.MedTrackerDB.BPStore.getAll();
-                const localRecord = allReadings.find(r => r.serverId === parseInt(id));
+                const localRecord = allReadings.find(r => r.serverId === parseInt(id, 10));
                 if (localRecord && localRecord.localId) {
                     await window.MedTrackerDB.BPStore.confirmDelete(localRecord.localId);
                     if (window.SyncManager) window.SyncManager.updateStatus();

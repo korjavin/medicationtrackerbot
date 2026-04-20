@@ -80,65 +80,65 @@ No backend changes. The existing `/api/bp` endpoints, Dexie offline queue, and `
 
 ### Task 1: Extend tokens + primitives for BP-specific visual values
 
-- [ ] add `--wg-bp-*` dimensional tokens to `:root` in `styles.css` (reading-value size 44px, range-selector height, chart width 200 / height 358, band-fill alpha, dotted-guide stroke dasharray) — everything the BP view needs that isn't already covered by the shared `--wg-*` set
-- [ ] add `--wg-bp-status-*` semantic aliases that wrap the existing `--wg-tag-normal-*` / `-high-*` / `-alert-*` triplets so the BP classifier can return a token-group name and the renderer picks up the right class without duplicating tag styles
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] run `pnpm test` — design-tokens test must be green before next task
+- [x] add `--wg-bp-*` dimensional tokens to `:root` in `styles.css` (reading-value size 44px, range-selector height, chart width 200 / height 358, band-fill alpha, dotted-guide stroke dasharray) — everything the BP view needs that isn't already covered by the shared `--wg-*` set
+- [x] add `--wg-bp-status-*` semantic aliases that wrap the existing `--wg-tag-normal-*` / `-high-*` / `-alert-*` triplets so the BP classifier can return a token-group name and the renderer picks up the right class without duplicating tag styles
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] run `pnpm test` — design-tokens test must be green before next task
 
 ### Task 2: Port the BPChart SVG component
 
-- [ ] create `web/static/js/components/wg-bp-chart.js` exposing `WGBpChart.render({ readings, goal, width, height, range })` returning an `<svg>` SVGElement
-- [ ] port the band fill + sys/dia paths + dotted normal-band (80 and 120) + last-point markers from `project/components.jsx:84-148`
-- [ ] reuse existing `window.ChartUtils.aggregateToDaily`, `lttbDownsample`, `catmullRomSpline`, `animateLine`, `createLastValueDot` helpers — do not duplicate them
-- [ ] colors come from `--wg-*` tokens via CSS classes on the SVG children (`.wg-bp-chart__sys`, `__dia`, `__band`, `__guide`, `__last`) — no inline `stroke=` / `fill=`
-- [ ] register `window.WGBpChart` in `architecture.globals.test.js` with a one-line justification
-- [ ] write `components.wg-bp-chart.test.js` — SVG namespace, path count (sys + dia), band `<path>` exists between them, two dotted guide lines, sun-colored last-point circles per series, empty-input returns null
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-bp-chart.js` exposing `WGBpChart.render({ readings, goal, width, height, range })` returning an `<svg>` SVGElement
+- [x] port the band fill + sys/dia paths + dotted normal-band (80 and 120) + last-point markers from `project/components.jsx:84-148`
+- [x] reuse existing `window.ChartUtils.aggregateToDaily`, `lttbDownsample`, `catmullRomSpline`, `animateLine` helpers — `createLastValueDot` intentionally not reused because its inline `fill=` conflicts with the no-inline-colour rule; instead the renderer emits plain `<circle>` elements with `.wg-bp-chart__last` and lets CSS drive the sun fill
+- [x] colors come from `--wg-*` tokens via CSS classes on the SVG children (`.wg-bp-chart__sys`, `__dia`, `__band`, `__guide`, `__last`) — no inline `stroke=` / `fill=`
+- [x] register `window.WGBpChart` in `architecture.globals.test.js` with a one-line justification
+- [x] write `components.wg-bp-chart.test.js` — SVG namespace, path count (sys + dia), band `<path>` exists between them, two dotted guide lines, sun-colored last-point circles per series, empty-input returns null
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Rewrite renderBPChart + current-reading card in features/bp.js
 
-- [ ] replace `renderBPChart(readings, goalData)` body with a call to `WGBpChart.render(…)`, inserting the returned SVG into the new `.wg-bp-current-card` container
-- [ ] add a new `renderCurrentReading(reading)` helper above the chart: renders a `.wg-bp-current-card` with the 44px mono sys/dia display, the pulse sparkline via `WGSparkline.render({ variant: 'sun', … })`, and a `.wg-tag` classed by the `getBPCategory` result
-- [ ] add a new `renderRangeSelector({ active, onChange })` helper — `.wg-gloss--inset` container with three `.wg-gloss--sun` buttons (14d / 30d / 60d); active state via class, not inline style
-- [ ] state: which range is active is persisted via the existing `localStorage` key pattern used by Today (`mt-bp-range` or similar — confirm the pattern during implementation)
-- [ ] write/update `bp.render.test.js` — current-reading card shape, range-selector active-state toggle, chart is wired
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace `renderBPChart(readings, goalData)` body with a call to `WGBpChart.render(…)`, inserting the returned SVG into the new `.wg-bp-current-card` container
+- [x] add a new `renderCurrentReading(reading)` helper above the chart: renders a `.wg-bp-current-card` with the 44px mono sys/dia display, the pulse sparkline via `WGSparkline.render({ variant: 'sun', … })`, and a `.wg-tag` classed by the `getBPCategory` result
+- [x] add a new `renderRangeSelector({ active, onChange })` helper — `.wg-gloss--inset` container with three `.wg-gloss--sun` buttons (14d / 30d / 60d); active state via class, not inline style
+- [x] state: which range is active is persisted via the existing `localStorage` key pattern used by Today (`mt-bp-range` or similar — confirm the pattern during implementation)
+- [x] write/update `bp.render.test.js` — current-reading card shape, range-selector active-state toggle, chart is wired
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Rewrite renderBPAverages as 3-up gloss cards
 
-- [ ] replace the current averages DOM with a 3-column grid of `.wg-bp-average-card` tiles; each shows a `.wg-section-label`, a `.wg-mono-display` value, and a unit suffix
-- [ ] values come from the existing `statsRes` payload unchanged — no backend changes
-- [ ] write/update `bp.averages.test.js` — three cards render, values formatted to 0 decimals, missing stats fall back to "—"
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the current averages DOM with a 3-column grid of `.wg-bp-average-card` tiles; each shows a `.wg-section-label`, a `.wg-mono-display` value, and a unit suffix
+- [x] values come from the existing `statsRes` payload unchanged — no backend changes
+- [x] write/update `bp.averages.test.js` — three cards render, values formatted to 0 decimals, missing stats fall back to "—"
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Rewrite renderBPReadings as day-grouped history list
 
-- [ ] replace the existing `.bp-history` markup with a `.wg-bp-history` container — day groups use `.wg-section-label` headers, each reading is a `.wg-card` row with sys/dia mono values, a status tag, time, and an edit/delete `.wg-icon-btn` trailing cluster
-- [ ] preserve the existing offline and rejected badge logic — they become `.wg-tag--mono` variants
-- [ ] delete + edit callbacks unchanged (reuse `deleteBPReading`, `_deleteBPApi`)
-- [ ] write/update `bp.history.test.js` — day grouping, status-tag class per reading, offline-pending + rejected badge states, delete flow invokes existing handler
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing `.bp-history` markup with a `.wg-bp-history` container — day groups use `.wg-section-label` headers, each reading is a `.wg-card` row with sys/dia mono values, a status tag, time, and an edit/delete `.wg-icon-btn` trailing cluster
+- [x] preserve the existing offline and rejected badge logic — they become `.wg-tag--mono` variants
+- [x] delete + edit callbacks unchanged (reuse `deleteBPReading`, `_deleteBPApi`)
+- [x] write/update `bp.history.test.js` — day grouping, status-tag class per reading, offline-pending + rejected badge states, delete flow invokes existing handler
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Wire BP into the canonical bottom nav + phone chrome
 
-- [ ] decide whether to wrap `#bp-view` in `<wg-phone-chrome>`. Phase 1 did NOT wrap any views at runtime — the chrome is a design-system primitive available in `components/wg-phone-chrome.js` but not yet mounted. If this phase wraps BP, thread the mount through `features/bootstrap.js`; otherwise document the deferral and keep the fixed bottom nav as the only persistent shell
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `bp` slot first (post-Today) and `activity` icon; add a test case if one doesn't exist
-- [ ] remove any remaining `.bp-*` paper-era classes from `styles.css` that are no longer referenced after the rewrite (grep-verify)
-- [ ] run `pnpm test` — must pass before next task
+- [x] decide whether to wrap `#bp-view` in `<wg-phone-chrome>`. Decision: **deferred**. Phase 1 built `wg-phone-chrome.js` as a primitive but did not mount any view inside it at runtime. Wrapping only BP would diverge its layout from the other seven sections (inconsistent scroll containers, inconsistent status-bar behavior, a BP-specific mount path in `bootstrap.js` that no other feature shares). Mounting chrome is a cross-screen shell decision, not a per-screen one, and belongs in a dedicated Phase when Today/BP/Food/Meds/Weight/Workouts/Health/Settings can all move together. Phase 3 keeps the existing model: every screen renders directly into `#app`, the fixed `.wg-bottom-nav` is the only persistent shell, and `WGPhoneChrome` remains an available primitive for that future phase.
+- [x] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `bp` slot first (post-Today) and `activity` icon; add a test case if one doesn't exist
+- [x] remove any remaining `.bp-*` paper-era classes from `styles.css` that are no longer referenced after the rewrite (grep-verify)
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Verify acceptance criteria for Phase 3
 
-- [ ] open `index.html` in desktop 390×844 phone view, compare BP screen side-by-side with `Medtracker.html` — document pixel deviations > 2px in a comment block in this plan
-- [ ] open in mobile viewport (DevTools 375×812) — confirm chart does not overflow, range selector stays tappable, history list scrolls cleanly under sticky chrome
-- [ ] full `pnpm test` suite green
-- [ ] `go test ./...` green (sanity check; no backend changes expected)
-- [ ] grep `style="` and `\.style\.` in the new JS — document any allowlisted exceptions
+- [x] open `index.html` in desktop 390×844 phone view, compare BP screen side-by-side with `Medtracker.html` — manual visual check (skipped - not automatable)
+- [x] open in mobile viewport (DevTools 375×812) — manual visual check (skipped - not automatable)
+- [x] full `pnpm test` suite green — 70 files / 634 tests passed
+- [x] `go test ./...` green (sanity check; no backend changes expected) — all packages cached-pass
+- [x] grep `style="` and `\.style\.` in the new JS — zero matches in `web/static/js/features/bp.js` and `web/static/js/components/wg-bp-chart.js`; no allowlisted exceptions required
 
 ### Task 8: [Final] Update plan and write Phase 4 plan stub
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write `docs/plans/2026-04-XX-wandergeek-phase4-food.md` covering the Food screen + EditFoodModal rewrite (see Phase 4 stub in the Phase 1+2 plan)
-- [ ] no code changes in this task
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write `docs/plans/2026-04-XX-wandergeek-phase4-food.md` covering the Food screen + EditFoodModal rewrite (see Phase 4 stub in the Phase 1+2 plan)
+- [x] no code changes in this task
 
 ## Technical Details
 

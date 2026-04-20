@@ -33,7 +33,7 @@ describe('app.js loadMeds/BP edge branches', () => {
       document.getElementById('bp-diastolic').value = '';
 
       await window.handleBPSubmit({ preventDefault() {} });
-      expect(alertSpy).toHaveBeenCalledWith('Please fill in all required fields');
+      expect(alertSpy).toHaveBeenCalledWith('Please fill in all required fields with valid numbers');
 
       const apiCallSpy = vi.fn().mockResolvedValue({ ok: true });
       window.apiCall = apiCallSpy;

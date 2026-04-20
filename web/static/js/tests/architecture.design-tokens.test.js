@@ -323,6 +323,38 @@ const WANDERGEEK_TOKENS = [
     '--wg-metric-tile-bg',
     '--wg-mini-bar-track-bg',
     '--wg-mini-bar-track-shadow',
+
+    // BP screen tokens (Phase 3, Task 1) — current-reading card, range
+    // selector, chart geometry, averages, history row.
+    '--wg-bp-reading-value-size',
+    '--wg-bp-range-selector-height',
+    '--wg-bp-range-selector-pad',
+    '--wg-bp-chart-width',
+    '--wg-bp-chart-height',
+    '--wg-bp-chart-band-alpha',
+    '--wg-bp-chart-guide-dasharray',
+    '--wg-bp-chart-guide-stroke-width',
+    '--wg-bp-chart-line-stroke-width',
+    '--wg-bp-chart-last-point-radius',
+    '--wg-bp-average-value-size',
+    '--wg-bp-current-card-pad',
+    '--wg-bp-history-row-pad',
+
+    // BP status aliases — wrap the tag triplets; classifier returns the
+    // status key (normal / highnormal / grade1 / grade2) and the renderer
+    // applies `.wg-bp-status--<key>` without duplicating tag styles.
+    '--wg-bp-status-normal-bg',
+    '--wg-bp-status-normal-fg',
+    '--wg-bp-status-normal-border',
+    '--wg-bp-status-highnormal-bg',
+    '--wg-bp-status-highnormal-fg',
+    '--wg-bp-status-highnormal-border',
+    '--wg-bp-status-grade1-bg',
+    '--wg-bp-status-grade1-fg',
+    '--wg-bp-status-grade1-border',
+    '--wg-bp-status-grade2-bg',
+    '--wg-bp-status-grade2-fg',
+    '--wg-bp-status-grade2-border',
 ];
 
 describe('Architecture – design tokens', () => {
@@ -1164,5 +1196,22 @@ describe('Architecture – Wandergeek tokens', () => {
                 `\n\nMove the color/gradient logic into a CSS class and reference the class from JS instead.`
             );
         }
+    });
+
+    it('BP status tokens give each classifier key a distinct underlying tag triplet', () => {
+        // The BP classifier returns four keys (normal / highnormal / grade1 /
+        // grade2); the Phase 3 alias layer must map them so Normal and
+        // High-normal do not visually collapse.
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        const rootBlock = extractRootBlock(css);
+        const aliasRe = /--wg-bp-status-(\w+)-bg:\s*var\((--wg-tag-[\w-]+-bg)\)/g;
+        const mapping = new Map();
+        let m;
+        while ((m = aliasRe.exec(rootBlock)) !== null) {
+            mapping.set(m[1], m[2]);
+        }
+        expect(mapping.get('normal')).toBeDefined();
+        expect(mapping.get('highnormal')).toBeDefined();
+        expect(mapping.get('normal')).not.toBe(mapping.get('highnormal'));
     });
 });
