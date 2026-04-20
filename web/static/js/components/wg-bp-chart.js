@@ -25,8 +25,8 @@
 
 (function () {
     const SVG_NS = 'http://www.w3.org/2000/svg';
-    const DEFAULT_WIDTH = 358;
-    const DEFAULT_HEIGHT = 200;
+    const DEFAULT_WIDTH = 200;
+    const DEFAULT_HEIGHT = 358;
     const PAD_L = 28;
     const PAD_R = 14;
     const PAD_T = 14;

@@ -63,7 +63,7 @@ describe('WGBpChart.render', () => {
         expect(svg.namespaceURI).toBe('http://www.w3.org/2000/svg');
         expect(svg.tagName.toLowerCase()).toBe('svg');
         expect(svg.classList.contains('wg-bp-chart')).toBe(true);
-        expect(svg.getAttribute('viewBox')).toBe('0 0 358 200');
+        expect(svg.getAttribute('viewBox')).toBe('0 0 200 358');
         expect(svg.getAttribute('aria-hidden')).toBe('true');
     });
 
@@ -177,9 +177,9 @@ describe('WGBpChart.render', () => {
         expect(lasts.length).toBe(2);
         lasts.forEach((c) => {
             const cy = parseFloat(c.getAttribute('cy'));
-            // PAD_T=14, height=200, PAD_B=26 → valid y in [14, 174].
+            // PAD_T=14, height=358, PAD_B=26 → valid y in [14, 332].
             expect(cy).toBeGreaterThanOrEqual(14);
-            expect(cy).toBeLessThanOrEqual(174);
+            expect(cy).toBeLessThanOrEqual(332);
         });
     });
 
@@ -197,7 +197,7 @@ describe('WGBpChart.render', () => {
         lasts.forEach((c) => {
             const cy = parseFloat(c.getAttribute('cy'));
             expect(cy).toBeGreaterThanOrEqual(14);
-            expect(cy).toBeLessThanOrEqual(174);
+            expect(cy).toBeLessThanOrEqual(332);
         });
     });
 });
