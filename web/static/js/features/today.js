@@ -503,7 +503,13 @@
 
         const cta = d.createElement('span');
         cta.className = 'wg-next-action-card__cta wg-gloss wg-gloss--sun';
-        cta.textContent = cell.status === 'overdue' ? 'Take now' : 'Take';
+        if (cell.status === 'overdue') {
+            cta.textContent = 'Take now';
+        } else if (cell.status === 'missing' || !cell.value) {
+            cta.textContent = 'Plan';
+        } else {
+            cta.textContent = 'Take';
+        }
         card.appendChild(cta);
 
         card.addEventListener('click', () => {
@@ -692,13 +698,16 @@
         if (!cell || cell.status === 'disabled') return null;
         let value = '—';
         let detail = 'No sleep data';
-        if (cell.status === 'ok' && cell.value) {
+        if ((cell.status === 'ok' || cell.status === 'stale') && cell.value) {
             const v = cell.value;
             const totalM = Math.round(v.hours * 60);
             const h = Math.floor(totalM / 60);
             const m = totalM % 60;
             value = `${h}h ${String(m).padStart(2, '0')}m`;
-            detail = v.day || '';
+            const day = v.day || '';
+            detail = cell.status === 'stale'
+                ? (day ? `${day} · stale` : 'stale')
+                : day;
         }
         return renderPlanTile({
             iconName: 'moon',
