@@ -265,7 +265,7 @@ function renderCurrentReading(reading, recentReadings) {
         let pulsePoints = [];
         if (Array.isArray(recentReadings) && recentReadings.length > 0) {
             pulsePoints = recentReadings
-                .filter(r => r.pulse != null && Number.isFinite(r.pulse))
+                .filter(r => r.pulse != null && Number.isFinite(Number(r.pulse)))
                 .sort((a, b) => new Date(a.measured_at).getTime() - new Date(b.measured_at).getTime())
                 .slice(-7)
                 .map(r => Number(r.pulse));
