@@ -46,6 +46,16 @@ describe('WGBottomNav — component', () => {
         } finally { cleanup(); }
     });
 
+    it('BP is the second slot (post-Today) with the "activity" icon — Phase 3 contract', () => {
+        const { window, cleanup } = loadEnv();
+        try {
+            const bpSlot = window.WGBottomNav.DEFAULT_ITEMS[1];
+            expect(bpSlot.id).toBe('bp');
+            expect(bpSlot.icon).toBe('activity');
+            expect(bpSlot.label).toBe('BP');
+        } finally { cleanup(); }
+    });
+
     it('mount() with 5 items lays out a single row (cols=5)', () => {
         const { window, document, cleanup } = loadEnv();
         try {
