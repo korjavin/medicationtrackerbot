@@ -322,4 +322,29 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
             expect(window.getActiveBPRange()).toBe(30);
         });
     });
+
+    describe('#add-bp-btn is a Wandergeek sun-gloss pill', () => {
+        it('carries wg-gloss + wg-gloss--sun and no paper-era btn classes', () => {
+            const { document } = env;
+            const btn = document.getElementById('add-bp-btn');
+            expect(btn).not.toBeNull();
+            expect(btn.classList.contains('wg-gloss')).toBe(true);
+            expect(btn.classList.contains('wg-gloss--sun')).toBe(true);
+            expect(btn.classList.contains('wg-gloss--lg')).toBe(true);
+            expect(btn.classList.contains('btn-primary')).toBe(false);
+            expect(btn.classList.contains('btn-fab')).toBe(false);
+            expect(btn.classList.contains('btn-pill')).toBe(false);
+            expect(btn.classList.contains('btn-lg')).toBe(false);
+            expect(btn.classList.contains('btn')).toBe(false);
+            expect(btn.textContent.trim()).toBe('+ Record BP');
+        });
+
+        it('has no orphan btn-primary or btn-fab inside #bp-view', () => {
+            const { document } = env;
+            const view = document.getElementById('bp-view');
+            expect(view).not.toBeNull();
+            expect(view.querySelectorAll('.btn-primary').length).toBe(0);
+            expect(view.querySelectorAll('.btn-fab').length).toBe(0);
+        });
+    });
 });

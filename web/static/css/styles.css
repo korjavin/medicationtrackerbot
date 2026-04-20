@@ -3857,6 +3857,15 @@ input:checked+.toggle-slider:before {
     border-radius: var(--wg-radius-gloss);
 }
 
+.wg-gloss--lg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--space-md) var(--space-xl);
+    font-size: var(--font-size-md);
+}
+
 .wg-icon-btn {
     width: var(--wg-icon-btn-size);
     height: var(--wg-icon-btn-size);
@@ -4136,6 +4145,49 @@ input:checked+.toggle-slider:before {
     color: var(--wg-sun);
     background: linear-gradient(180deg, rgba(251, 189, 13, 0.14) 0%, rgba(251, 189, 13, 0.05) 100%);
     box-shadow: inset 0 0 0 1px rgba(251, 189, 13, 0.22);
+}
+
+/* =============================================
+   WG SCREEN STAGE — shared substrate utility
+   (Phase 3, Task 4). Applies the deep-teal stage
+   with radial highlights to any top-level screen
+   view. Chosen over per-view rules because Phase
+   4+ will reskin BP/Food/Meds/Weight/Workouts/
+   Health/Settings and all need the same substrate;
+   a shared class avoids per-PR thrash. `.wg-today`
+   keeps its own rule for now — folding it into
+   this utility is a follow-up, not part of Task 4.
+   ============================================= */
+.wg-screen-stage {
+    color: var(--wg-fg-1);
+    /* Bleed the stage past #app's padding so the palette fills edge-to-edge;
+       mirrors the .wg-today pattern. */
+    background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(86, 172, 138, 0.18), transparent 60%),
+        radial-gradient(800px 500px at 80% 110%, rgba(251, 189, 13, 0.08), transparent 60%),
+        var(--wg-bg-stage);
+    margin: calc(var(--space-lg) * -1);
+    margin-bottom: calc(var(--wg-bottom-nav-reserved) * -1);
+    padding: var(--space-lg) var(--space-lg) var(--wg-bottom-nav-reserved);
+    min-height: 100vh;
+    box-sizing: border-box;
+}
+
+/* Header title over the dark stage: legacy .section-header .section-title
+   (0,2,0) would otherwise pin titles to var(--text-color) (black). Scoping
+   to .wg-screen-stage gives 0,3,0 and restores the near-white fg. */
+.wg-screen-stage .section-header .section-title,
+.wg-screen-stage .wg-app-header__title {
+    color: var(--wg-fg-1);
+}
+
+/* Empty-state copy over the dark stage: #bp-list:empty::before and
+   .empty-state-msg both default to var(--hint-color) (mid-grey), which
+   drops to poor contrast on --wg-bg-stage. Restore a near-white muted
+   fg so the "No readings yet" / "No cached data" strings stay legible. */
+.wg-screen-stage #bp-list:empty::before,
+.wg-screen-stage .empty-state-msg {
+    color: var(--wg-fg-3);
 }
 
 /* =============================================
@@ -4541,7 +4593,9 @@ input:checked+.toggle-slider:before {
 .wg-bp-chart {
     display: block;
     width: 100%;
+    max-width: var(--wg-bp-chart-width);
     height: auto;
+    margin-inline: auto;
 }
 
 .wg-bp-chart__guide {
