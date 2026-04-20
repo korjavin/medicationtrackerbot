@@ -53,8 +53,16 @@ describe('Section header hydration — switchTab', () => {
             expect(mount).toBeNull();
             const header = view.querySelector('.section-header');
             expect(header).not.toBeNull();
-            const title = header.querySelector('.section-title');
+            // Hydrated header carries the new Wandergeek class.
+            expect(header.classList.contains('wg-app-header')).toBe(true);
+            const title = header.querySelector('.wg-app-header__title');
+            expect(title).not.toBeNull();
             expect(title.textContent).toBe('Blood Pressure');
+            // Back pill uses the new gloss chrome (icon-only, no label span).
+            const back = header.querySelector('.section-back');
+            expect(back.classList.contains('wg-icon-btn')).toBe(true);
+            expect(back.querySelector('.wg-gloss svg')).not.toBeNull();
+            expect(back.querySelector('.section-back-label')).toBeNull();
         } finally {
             cleanup();
         }

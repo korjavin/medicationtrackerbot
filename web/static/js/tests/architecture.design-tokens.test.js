@@ -278,6 +278,10 @@ const WANDERGEEK_TOKENS = [
     '--wg-status-bar-pad-bottom',
     '--wg-status-bar-font-size',
     '--wg-radius-pill',
+
+    // App header tokens (added in Task 4 alongside .wg-app-header)
+    '--wg-app-header-title-size',
+    '--wg-app-header-subtitle-size',
 ];
 
 describe('Architecture – design tokens', () => {

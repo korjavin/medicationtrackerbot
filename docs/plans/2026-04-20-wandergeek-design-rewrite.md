@@ -122,12 +122,12 @@ This plan covers **Phase 1** (design system + chrome + bottom nav) and **Phase 2
 
 ### Task 4: AppHeader + back-button reskin
 
-- [ ] add `.wg-app-header` CSS — grid `44px 1fr 44px`, padding 2px 16px 8px, `.wg-app-header__title` centered (font `--wg-font-display`, 17px, 500), `.wg-app-header__title small` (10px, 0.18em letter-spacing, uppercase, fg-3 alpha)
-- [ ] update `web/static/js/components/section-header.js` — render the new `.wg-app-header` markup with a `.wg-icon-btn > .wg-gloss` back pill (replaces the existing "← Today" pill); keep the same exported function signature so call sites don't change
-- [ ] keep the Telegram BackButton wiring in `features/back-button.js` intact — only the visual chrome changes
-- [ ] update `app.section-header-hydration.test.js` and `components.section-header.test.js` to assert the new class names
-- [ ] add a new test case: header with `subtitle` prop renders the `<small>` line in mono caps
-- [ ] run `pnpm test` — must pass before next task
+- [x] add `.wg-app-header` CSS — grid `44px 1fr 44px`, padding 2px 16px 8px, `.wg-app-header__title` centered (font `--wg-font-display`, 17px, 500), `.wg-app-header__title small` (10px, 0.18em letter-spacing, uppercase, fg-3 alpha). Added `--wg-app-header-title-size` (17px) and `--wg-app-header-subtitle-size` (10px) tokens and wired them into `WANDERGEEK_TOKENS`. The new block lives next to the legacy `.section-header` rules and intentionally zeroes `background`/`box-shadow`/`min-height` so it layers cleanly over the old paper-era sticky header.
+- [x] update `web/static/js/components/section-header.js` — render the new `.wg-app-header` markup with a `.wg-icon-btn > .wg-gloss` back pill (replaces the existing "← Today" pill); keep the same exported function signature so call sites don't change. Dual-classed the output (`section-header wg-app-header`, `section-back wg-icon-btn`, `section-title wg-app-header__title`, `section-header-right wg-app-header__right`) so legacy queries (Today's renderer fallback, existing tests, hydration CSS for the experimental badge) keep working during the phased rewrite. Also threaded a new optional `subtitle` prop into the factory.
+- [x] keep the Telegram BackButton wiring in `features/back-button.js` intact — only the visual chrome changes (no touches to that file)
+- [x] update `app.section-header-hydration.test.js` and `components.section-header.test.js` to assert the new class names — hydration test now asserts `.wg-app-header`, `.wg-app-header__title`, and that the back pill carries `.wg-icon-btn` with a `.wg-gloss svg` and no legacy `.section-back-label` span; component test asserts dual-class on the root, `.wg-app-header__right` slot, and the new `.wg-app-header--no-back` modifier
+- [x] add a new test case: header with `subtitle` prop renders the `<small>` line in mono caps (two cases actually — one for a non-empty subtitle that asserts the `<small>` is a child of `.wg-app-header__title`, one guard that an empty-string subtitle omits the `<small>`)
+- [x] run `pnpm test` — must pass before next task (545/545 passed)
 
 ### Task 5: Bottom nav web component (multi-row, one slot per section)
 
