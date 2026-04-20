@@ -91,7 +91,7 @@ async function handleBPSubmit(event) {
     if (res) {
         await window.DataStore.invalidateTags(['bp']);
         closeBPRecordModal();
-        loadBPReadings();
+        await loadBPReadings();
     }
 }
 
