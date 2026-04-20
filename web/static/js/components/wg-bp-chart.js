@@ -148,19 +148,26 @@
         const timeSpan = (lastTime - firstTime) || 1;
         const xOf = (t) => PAD_L + ((t - firstTime) / timeSpan) * plotW;
 
-        // Y-axis bounds derived from the data so hypertensive readings (>160)
-        // and very low diastolics don't escape the plot area. Guide values
-        // (80/120) always fit; bounds are clamped to absolute floor/ceiling.
-        let dataMin = Y_DEFAULT_MIN;
-        let dataMax = Y_DEFAULT_MAX;
+        // Y-axis bounds derived from the data so the plotted band fills the
+        // chart rather than sitting in a thin strip at the defaults. Seed with
+        // Infinity/-Infinity so real readings (not defaults) drive the range;
+        // fall back to defaults only when no finite data is present. Bounds
+        // are padded, snapped to the nearest 10, then clamped to the absolute
+        // floor/ceiling so pathological inputs can't break the chart.
+        let dataMin = Infinity;
+        let dataMax = -Infinity;
         for (const d of data) {
             if (d.sys < dataMin) dataMin = d.sys;
             if (d.dia < dataMin) dataMin = d.dia;
             if (d.sys > dataMax) dataMax = d.sys;
             if (d.dia > dataMax) dataMax = d.dia;
         }
-        const yMin = Math.max(Y_FLOOR, Math.floor((dataMin - 5) / 10) * 10);
-        const yMax = Math.min(Y_CEIL, Math.ceil((dataMax + 5) / 10) * 10);
+        if (!Number.isFinite(dataMin) || !Number.isFinite(dataMax)) {
+            dataMin = Y_DEFAULT_MIN;
+            dataMax = Y_DEFAULT_MAX;
+        }
+        const yMin = Math.max(Y_FLOOR, Math.floor((dataMin - 8) / 10) * 10);
+        const yMax = Math.min(Y_CEIL, Math.ceil((dataMax + 8) / 10) * 10);
         const yRange = (yMax - yMin) || 1;
         const yOf = (v) => PAD_T + plotH - ((v - yMin) / yRange) * plotH;
 
@@ -176,8 +183,11 @@
         if (typeof options.range === 'number' || typeof options.range === 'string') {
             svg.dataset.bpRange = String(options.range);
         }
+        svg.dataset.bpYMin = String(yMin);
+        svg.dataset.bpYMax = String(yMax);
 
         for (const value of GUIDE_VALUES) {
+            if (value < yMin || value > yMax) continue;
             svg.appendChild(makeLine(PAD_L, width - PAD_R, yOf(value), value));
         }
 
