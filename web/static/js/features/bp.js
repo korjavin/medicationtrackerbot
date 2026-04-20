@@ -185,12 +185,7 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
     renderBPChart(allReadings, goalRes || {});
     renderBPAverages(statsRes || {});
 
-    // Filter list to only show last 3 days (Today, Yesterday, and Day Before)
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 2);
-    cutoff.setHours(0, 0, 0, 0);
-
-    const filteredReadings = allReadings.filter(r => new Date(r.measured_at) >= cutoff);
+    const filteredReadings = filterReadingsByRange(allReadings, activeRange);
     renderBPReadings(filteredReadings);
 }
 
@@ -274,7 +269,7 @@ function renderCurrentReading(reading, recentReadings) {
 
         // Fall back to current pulse only if no history available
         if (pulsePoints.length === 0) {
-            pulsePoints = [reading.pulse];
+            pulsePoints = [Number(reading.pulse)];
         }
 
         const spark = window.WGSparkline.render({
