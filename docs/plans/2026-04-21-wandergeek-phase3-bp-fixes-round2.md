@@ -135,9 +135,9 @@ All five are frontend-only. No backend changes, no API shape changes. All within
 - [x] manual: record-BP modal reads as Wandergeek, not paper-era (skipped - not automatable)
 
 ### Task 7: [Final] Update plan + notes
-- [ ] mark all checkboxes complete in this plan file
-- [ ] add a one-paragraph note in `docs/frontend.md` under the Design tokens section about `.wg-fab` and `.wg-modal` being the canonical FAB/modal utilities going forward — future section plans should reuse them
-- [ ] no CLAUDE.md changes needed — all fixes operate within existing rules
+- [x] mark all checkboxes complete in this plan file
+- [x] add a one-paragraph note in `docs/frontend.md` under the Design tokens section about `.wg-fab` and `.wg-modal` being the canonical FAB/modal utilities going forward — future section plans should reuse them
+- [x] no CLAUDE.md changes needed — all fixes operate within existing rules
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`.*
 
