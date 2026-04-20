@@ -26,6 +26,7 @@ const STATIC_ASSETS = [
     '/static/js/components/wg-bottom-nav.js',
     '/static/js/components/wg-sparkline.js',
     '/static/js/components/wg-phone-chrome.js',
+    '/static/js/components/wg-bp-chart.js',
     // Infrastructure
     '/static/js/db.js',
     '/static/js/sync.js',

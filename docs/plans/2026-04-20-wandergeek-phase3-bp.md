@@ -87,13 +87,13 @@ No backend changes. The existing `/api/bp` endpoints, Dexie offline queue, and `
 
 ### Task 2: Port the BPChart SVG component
 
-- [ ] create `web/static/js/components/wg-bp-chart.js` exposing `WGBpChart.render({ readings, goal, width, height, range })` returning an `<svg>` SVGElement
-- [ ] port the band fill + sys/dia paths + dotted normal-band (80 and 120) + last-point markers from `project/components.jsx:84-148`
-- [ ] reuse existing `window.ChartUtils.aggregateToDaily`, `lttbDownsample`, `catmullRomSpline`, `animateLine`, `createLastValueDot` helpers — do not duplicate them
-- [ ] colors come from `--wg-*` tokens via CSS classes on the SVG children (`.wg-bp-chart__sys`, `__dia`, `__band`, `__guide`, `__last`) — no inline `stroke=` / `fill=`
-- [ ] register `window.WGBpChart` in `architecture.globals.test.js` with a one-line justification
-- [ ] write `components.wg-bp-chart.test.js` — SVG namespace, path count (sys + dia), band `<path>` exists between them, two dotted guide lines, sun-colored last-point circles per series, empty-input returns null
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-bp-chart.js` exposing `WGBpChart.render({ readings, goal, width, height, range })` returning an `<svg>` SVGElement
+- [x] port the band fill + sys/dia paths + dotted normal-band (80 and 120) + last-point markers from `project/components.jsx:84-148`
+- [x] reuse existing `window.ChartUtils.aggregateToDaily`, `lttbDownsample`, `catmullRomSpline`, `animateLine` helpers — `createLastValueDot` intentionally not reused because its inline `fill=` conflicts with the no-inline-colour rule; instead the renderer emits plain `<circle>` elements with `.wg-bp-chart__last` and lets CSS drive the sun fill
+- [x] colors come from `--wg-*` tokens via CSS classes on the SVG children (`.wg-bp-chart__sys`, `__dia`, `__band`, `__guide`, `__last`) — no inline `stroke=` / `fill=`
+- [x] register `window.WGBpChart` in `architecture.globals.test.js` with a one-line justification
+- [x] write `components.wg-bp-chart.test.js` — SVG namespace, path count (sys + dia), band `<path>` exists between them, two dotted guide lines, sun-colored last-point circles per series, empty-input returns null
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Rewrite renderBPChart + current-reading card in features/bp.js
 
