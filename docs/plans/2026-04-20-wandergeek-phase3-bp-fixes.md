@@ -95,15 +95,15 @@ All four fixes are localised and land without backend or test-harness changes.
 - [x] run `pnpm test` — must pass before Task 5
 
 ### Task 5: Verify acceptance criteria
-- [ ] all four bugs from Overview are addressed with code + tests
-- [ ] `pnpm test` — full suite green
-- [ ] `go test ./...` — sanity check (no Go code touched, but run anyway)
-- [ ] `grep -n "btn-primary\|btn-fab" web/static/index.html | grep -A0 "bp\|BP"` — empty
-- [ ] architecture tests still green (no hex in JS, no inline styles, token allowlist up to date)
+- [x] all four bugs from Overview are addressed with code + tests
+- [x] `pnpm test` — full suite green (70 files, 654 tests)
+- [x] `go test ./...` — sanity check (no Go code touched, but run anyway) — all packages ok
+- [x] `grep -n "btn-primary\|btn-fab" web/static/index.html | grep -A0 "bp\|BP"` — only match is line 888 (bp-modal Save button), inside the modal not `#bp-view`; consistent with other modal Save buttons (weight/med/workout) and out of scope for Phase 3 view reskins
+- [x] architecture tests still green (no hex in JS, no inline styles, token allowlist up to date)
 
 ### Task 6: [Final] Update plan + docs
-- [ ] mark all checkboxes complete in this plan file
-- [ ] no changes needed in CLAUDE.md or docs/frontend.md — these are bug fixes within the existing Wandergeek rules
+- [x] mark all checkboxes complete in this plan file
+- [x] no changes needed in CLAUDE.md or docs/frontend.md — these are bug fixes within the existing Wandergeek rules
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`*
 
