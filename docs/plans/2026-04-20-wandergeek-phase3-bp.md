@@ -121,10 +121,10 @@ No backend changes. The existing `/api/bp` endpoints, Dexie offline queue, and `
 
 ### Task 6: Wire BP into the canonical bottom nav + phone chrome
 
-- [ ] decide whether to wrap `#bp-view` in `<wg-phone-chrome>`. Phase 1 did NOT wrap any views at runtime — the chrome is a design-system primitive available in `components/wg-phone-chrome.js` but not yet mounted. If this phase wraps BP, thread the mount through `features/bootstrap.js`; otherwise document the deferral and keep the fixed bottom nav as the only persistent shell
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `bp` slot first (post-Today) and `activity` icon; add a test case if one doesn't exist
-- [ ] remove any remaining `.bp-*` paper-era classes from `styles.css` that are no longer referenced after the rewrite (grep-verify)
-- [ ] run `pnpm test` — must pass before next task
+- [x] decide whether to wrap `#bp-view` in `<wg-phone-chrome>`. Decision: **deferred**. Phase 1 built `wg-phone-chrome.js` as a primitive but did not mount any view inside it at runtime. Wrapping only BP would diverge its layout from the other seven sections (inconsistent scroll containers, inconsistent status-bar behavior, a BP-specific mount path in `bootstrap.js` that no other feature shares). Mounting chrome is a cross-screen shell decision, not a per-screen one, and belongs in a dedicated Phase when Today/BP/Food/Meds/Weight/Workouts/Health/Settings can all move together. Phase 3 keeps the existing model: every screen renders directly into `#app`, the fixed `.wg-bottom-nav` is the only persistent shell, and `WGPhoneChrome` remains an available primitive for that future phase.
+- [x] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `bp` slot first (post-Today) and `activity` icon; add a test case if one doesn't exist
+- [x] remove any remaining `.bp-*` paper-era classes from `styles.css` that are no longer referenced after the rewrite (grep-verify)
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Verify acceptance criteria for Phase 3
 
