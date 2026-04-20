@@ -81,12 +81,13 @@ function filterNavItemsByFeatures(items, features) {
         return !feature || features[feature];
     });
 }
+let navCtrl = null;
 function mountCanonicalBottomNav() {
     if (!window.WGBottomNav || document.querySelector('.wg-bottom-nav')) return;
     const host = document.getElementById('app') || document.body;
     if (!host) return;
     const items = filterNavItemsByFeatures(window.WGBottomNav.DEFAULT_ITEMS, window.featureSettings);
-    const ctrl = window.WGBottomNav.mount(host, {
+    navCtrl = window.WGBottomNav.mount(host, {
         items,
         active: 'today',
         onChange: (id) => {
@@ -95,10 +96,35 @@ function mountCanonicalBottomNav() {
     });
     if (window.AppKernel && typeof window.AppKernel.register === 'function') {
         window.AppKernel.register('wgBottomNav', {
-            onTabSwitch(tab) { ctrl.setActive(tab); },
+            onTabSwitch(tab) { navCtrl && navCtrl.setActive(tab); },
         });
     }
 }
+
+// Re-mount the bottom nav with the current feature flags. Called from
+// settings.js after a feature toggle so disabled slots disappear without a
+// reload — satisfies CLAUDE.md rule 6 ("filtered out of the nav before mount,
+// not bounced after tap").
+function rebuildCanonicalBottomNav() {
+    if (!window.WGBottomNav) return;
+    const previousActive = navCtrl ? navCtrl.getActive() : 'today';
+    if (navCtrl) {
+        navCtrl.destroy();
+        navCtrl = null;
+    }
+    const host = document.getElementById('app') || document.body;
+    if (!host) return;
+    const items = filterNavItemsByFeatures(window.WGBottomNav.DEFAULT_ITEMS, window.featureSettings);
+    const stillPresent = items.some((i) => i.id === previousActive);
+    navCtrl = window.WGBottomNav.mount(host, {
+        items,
+        active: stillPresent ? previousActive : 'today',
+        onChange: (id) => {
+            if (typeof switchTab === 'function') switchTab(id);
+        },
+    });
+}
+window.rebuildCanonicalBottomNav = rebuildCanonicalBottomNav;
 
 checkAuth().then(async authorized => {
     if (authorized) {
