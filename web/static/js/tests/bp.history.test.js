@@ -50,10 +50,11 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
 
     it('groups readings into Today / Yesterday / older day buckets in descending order', () => {
         const { document, window } = env;
+        const twoDaysAgo = midnight(2);
         window.renderBPReadings([
             { id: 1, measured_at: midnight(0).toISOString(), systolic: 122, diastolic: 78, pulse: 64 },
             { id: 2, measured_at: midnight(1).toISOString(), systolic: 128, diastolic: 82, pulse: 66 },
-            { id: 3, measured_at: midnight(2).toISOString(), systolic: 135, diastolic: 84, pulse: 70 }
+            { id: 3, measured_at: twoDaysAgo.toISOString(), systolic: 135, diastolic: 84, pulse: 70 }
         ]);
 
         const headers = document.querySelectorAll(
@@ -62,8 +63,17 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
         expect(headers.length).toBe(3);
         expect(headers[0].textContent).toBe('Today');
         expect(headers[1].textContent).toBe('Yesterday');
-        // The third header is a formatted date (locale-dependent).
-        expect(headers[2].textContent).toMatch(/^\d{1,2}\/\d{1,2}\/\d{4}$/);
+        // The third header is produced by `dayStart.toLocaleDateString(undefined, ...)`
+        // inside bp.js, so separators, digit order, numeral script, and even the
+        // calendar era depend on the runtime locale (ar-EG arabic-indic digits,
+        // th-TH Buddhist year 2569, etc.). Mirror the exact production call so the
+        // expectation tracks the locale rather than pinning a Gregorian ASCII shape.
+        const dayStart = new Date(twoDaysAgo);
+        dayStart.setHours(0, 0, 0, 0);
+        const expectedHeader = dayStart.toLocaleDateString(undefined, {
+            day: '2-digit', month: '2-digit', year: 'numeric'
+        });
+        expect(headers[2].textContent).toBe(expectedHeader);
     });
 
     it('renders one .wg-card reading row per reading with mono sys/dia and status tag', () => {

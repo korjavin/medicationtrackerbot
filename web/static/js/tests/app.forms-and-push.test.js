@@ -219,6 +219,10 @@ describe('app.js form submissions and push modal behavior', () => {
       await Promise.resolve();
       await Promise.resolve();
       expect(loadResolved).toBe(false);
+      // Modal must stay visible while the reload is pending — we close
+      // only after the list has repainted, otherwise the user briefly
+      // sees the pre-submit list.
+      expect(document.getElementById('bp-modal').classList.contains('hidden')).toBe(false);
 
       resolveLoad();
       await submitPromise;
@@ -226,6 +230,44 @@ describe('app.js form submissions and push modal behavior', () => {
       expect(loadResolved).toBe(true);
       const list = document.getElementById('bp-list');
       expect(list.textContent).toContain('132/84');
+      expect(document.getElementById('bp-modal').classList.contains('hidden')).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('handleBPSubmit guards against double-submit while reload is pending', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      const apiCallSpy = vi.fn().mockResolvedValue({ id: 99 });
+      window.apiCall = apiCallSpy;
+      window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+
+      let resolveLoad;
+      const loadPromise = new Promise((resolve) => { resolveLoad = resolve; });
+      window.loadBPReadings = vi.fn(() => loadPromise);
+
+      window.showBPRecordModal();
+      document.getElementById('bp-datetime').value = '2026-02-27T10:30';
+      document.getElementById('bp-systolic').value = '128';
+      document.getElementById('bp-diastolic').value = '82';
+
+      const firstSubmit = window.handleBPSubmit({ preventDefault() {} });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const saveBtn = document.querySelector('#bp-modal button[form="bp-form"]');
+      expect(saveBtn).not.toBeNull();
+      expect(saveBtn.disabled).toBe(true);
+
+      await window.handleBPSubmit({ preventDefault() {} });
+      expect(apiCallSpy).toHaveBeenCalledTimes(1);
+
+      resolveLoad();
+      await firstSubmit;
+
+      expect(saveBtn.disabled).toBe(false);
     } finally {
       cleanup();
     }
