@@ -1600,17 +1600,24 @@ function updateFoodTargetsVisibility() {
 }
 
 async function toggleFeatureSetting(feature, enabled) {
-    try {
-        await apiCall(`/api/settings/features/${feature}`, 'POST', { enabled });
-        featureSettings[feature] = enabled;
-        window.AppStore && window.AppStore.set('featureSettings', featureSettings);
-        await window.DataStore.invalidateTags(['settings', 'feature_settings']);
-        updateFeatureTabVisibility();
-    } catch (e) {
-        console.error(`Failed to toggle ${feature} feature:`, e);
+    const result = await apiCall(`/api/settings/features/${feature}`, 'POST', { enabled });
+    if (!result) {
+        // apiCall returns null on failure and has already surfaced the error.
+        // Revert the DOM toggle to the last-known state so the UI doesn't lie.
         updateFeatureToggles();
-        safeAlert('Failed to update setting.');
+        return;
     }
+    featureSettings[feature] = enabled;
+    window.AppStore && window.AppStore.set('featureSettings', featureSettings);
+    if (typeof window.rebuildCanonicalBottomNav === 'function') {
+        window.rebuildCanonicalBottomNav();
+    }
+    try {
+        await window.DataStore.invalidateTags(['settings', 'feature_settings']);
+    } catch (e) {
+        console.warn(`Failed to invalidate settings cache after toggling ${feature}:`, e);
+    }
+    updateFeatureTabVisibility();
 }
 
 function updateFeatureTabVisibility() {
