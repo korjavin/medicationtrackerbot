@@ -129,6 +129,9 @@
 
         const updated = { ...window.featureSettings, [feature]: enabled };
         window.applyFeatureSettings(updated);
+        if (typeof window.rebuildCanonicalBottomNav === 'function') {
+            window.rebuildCanonicalBottomNav();
+        }
         if (window.DataStore) await window.DataStore.invalidateTags(['settings', 'feature_settings']);
     };
 

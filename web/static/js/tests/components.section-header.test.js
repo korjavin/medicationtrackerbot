@@ -30,7 +30,7 @@ describe('createSectionHeader', () => {
         }
     });
 
-    it('produces a header with back button, title, and right slot container', () => {
+    it('produces a header with Wandergeek app-header markup, back pill, title, and right slot container', () => {
         const { window, cleanup } = loadSectionHeader();
         try {
             const header = window.SectionHeader.create({
@@ -38,24 +38,35 @@ describe('createSectionHeader', () => {
                 onBack: () => {}
             });
             expect(header.tagName).toBe('HEADER');
+            // Dual-classed: legacy .section-header + new .wg-app-header.
             expect(header.classList.contains('section-header')).toBe(true);
+            expect(header.classList.contains('wg-app-header')).toBe(true);
             expect(header.classList.contains('no-back')).toBe(false);
+            expect(header.classList.contains('wg-app-header--no-back')).toBe(false);
 
             const back = header.querySelector('.section-back');
             expect(back).not.toBeNull();
             expect(back.tagName).toBe('BUTTON');
+            expect(back.classList.contains('wg-icon-btn')).toBe(true);
             expect(back.getAttribute('aria-label')).toBe('Back to Today');
-            // Visible pill label (plan spec: "<svg…/> Today")
-            const label = back.querySelector('.section-back-label');
-            expect(label).not.toBeNull();
-            expect(label.textContent).toBe('Today');
+            // New icon-only gloss pill — chevron SVG wrapped in .wg-gloss, no visible label.
+            const gloss = back.querySelector('.wg-gloss');
+            expect(gloss).not.toBeNull();
+            const svg = gloss.querySelector('svg');
+            expect(svg).not.toBeNull();
+            expect(svg.getAttribute('aria-hidden')).toBe('true');
+            expect(back.querySelector('.section-back-label')).toBeNull();
 
             const title = header.querySelector('.section-title');
             expect(title).not.toBeNull();
+            expect(title.classList.contains('wg-app-header__title')).toBe(true);
             expect(title.textContent).toBe('Blood Pressure');
+            // No subtitle rendered when the prop is omitted.
+            expect(title.querySelector('small')).toBeNull();
 
             const right = header.querySelector('.section-header-right');
             expect(right).not.toBeNull();
+            expect(right.classList.contains('wg-app-header__right')).toBe(true);
             expect(right.children.length).toBe(0);
         } finally {
             cleanup();
@@ -78,11 +89,12 @@ describe('createSectionHeader', () => {
         }
     });
 
-    it('adds .no-back class and skips back handler when onBack is null', () => {
+    it('adds .no-back and .wg-app-header--no-back classes and skips back handler when onBack is null', () => {
         const { window, cleanup } = loadSectionHeader();
         try {
             const header = window.SectionHeader.create({ title: 'Today', onBack: null });
             expect(header.classList.contains('no-back')).toBe(true);
+            expect(header.classList.contains('wg-app-header--no-back')).toBe(true);
             const back = header.querySelector('.section-back');
             expect(back).not.toBeNull();
             // click should not throw (no handler attached)
@@ -92,7 +104,7 @@ describe('createSectionHeader', () => {
         }
     });
 
-    it('slots an Element rightSlot into .section-header-right', () => {
+    it('slots an Element rightSlot into .wg-app-header__right', () => {
         const { window, cleanup } = loadSectionHeader();
         try {
             const gear = window.document.createElement('button');
@@ -103,7 +115,7 @@ describe('createSectionHeader', () => {
                 onBack: null,
                 rightSlot: gear
             });
-            const right = header.querySelector('.section-header-right');
+            const right = header.querySelector('.wg-app-header__right');
             expect(right.children.length).toBe(1);
             expect(right.firstElementChild).toBe(gear);
         } finally {
@@ -119,7 +131,7 @@ describe('createSectionHeader', () => {
                 onBack: () => {},
                 rightSlot: 'experimental'
             });
-            const right = header.querySelector('.section-header-right');
+            const right = header.querySelector('.wg-app-header__right');
             expect(right.textContent).toBe('experimental');
         } finally {
             cleanup();
@@ -130,9 +142,45 @@ describe('createSectionHeader', () => {
         const { window, cleanup } = loadSectionHeader();
         try {
             const header = window.SectionHeader.create({ title: 'Meds', onBack: () => {} });
-            const right = header.querySelector('.section-header-right');
+            const right = header.querySelector('.wg-app-header__right');
             expect(right.children.length).toBe(0);
             expect(right.textContent).toBe('');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('renders a subtitle <small> inside the title when subtitle is provided', () => {
+        const { window, cleanup } = loadSectionHeader();
+        try {
+            const header = window.SectionHeader.create({
+                title: 'Blood Pressure',
+                subtitle: 'last 14 days',
+                onBack: () => {}
+            });
+            const title = header.querySelector('.wg-app-header__title');
+            expect(title).not.toBeNull();
+            // Title text comes first, then the <small> line.
+            expect(title.firstChild.nodeType).toBe(window.Node.TEXT_NODE);
+            expect(title.firstChild.textContent).toBe('Blood Pressure');
+            const small = title.querySelector('small');
+            expect(small).not.toBeNull();
+            expect(small.textContent).toBe('last 14 days');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('omits the subtitle <small> when the subtitle prop is an empty string', () => {
+        const { window, cleanup } = loadSectionHeader();
+        try {
+            const header = window.SectionHeader.create({
+                title: 'Weight',
+                subtitle: '',
+                onBack: () => {}
+            });
+            const title = header.querySelector('.wg-app-header__title');
+            expect(title.querySelector('small')).toBeNull();
         } finally {
             cleanup();
         }

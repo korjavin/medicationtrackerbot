@@ -193,6 +193,138 @@ const REQUIRED_TOKENS = [
     '--z-toast',
 ];
 
+/**
+ * Wandergeek design system tokens (deep-teal / gloss / sun accent).
+ * Added in the wandergeek-design-rewrite plan. All wg-* tokens live on :root
+ * and are CSS-only — no JS reference allowed.
+ */
+const WANDERGEEK_TOKENS = [
+    // Raw palette
+    '--wg-paper',
+    '--wg-paper-deep',
+    '--wg-paper-soft',
+    '--wg-ink',
+    '--wg-ink-85',
+    '--wg-ink-70',
+    '--wg-ink-55',
+    '--wg-ink-35',
+    '--wg-ink-15',
+    '--wg-ink-08',
+    '--wg-teal',
+    '--wg-teal-stage',
+    '--wg-teal-sage',
+    '--wg-mint',
+    '--wg-mint-soft',
+    '--wg-sun',
+    '--wg-sun-deep',
+    '--wg-sun-soft',
+    '--wg-clay',
+    '--wg-clay-soft',
+
+    // Semantic aliases
+    '--wg-bg-stage',
+    '--wg-bg-card',
+    '--wg-bg-card-inset',
+    '--wg-fg-1',
+    '--wg-fg-2',
+    '--wg-fg-3',
+    '--wg-fg-4',
+    '--wg-fg-5',
+    '--wg-border-hairline',
+    '--wg-border-strong',
+
+    // Status tag triplets
+    '--wg-tag-normal-bg',
+    '--wg-tag-normal-fg',
+    '--wg-tag-normal-border',
+    '--wg-tag-high-bg',
+    '--wg-tag-high-fg',
+    '--wg-tag-high-border',
+    '--wg-tag-alert-bg',
+    '--wg-tag-alert-fg',
+    '--wg-tag-alert-border',
+
+    // Type families
+    '--wg-font-display',
+    '--wg-font-ui',
+    '--wg-font-mono',
+
+    // Gloss gradients
+    '--wg-gloss-bg',
+    '--wg-gloss-bg-sun',
+    '--wg-gloss-bg-clay',
+    '--wg-gloss-bg-inset',
+
+    // Gloss shadows
+    '--wg-gloss-shadow',
+    '--wg-gloss-shadow-sun',
+    '--wg-gloss-shadow-inset',
+
+    // Dimensional tokens (added in Task 2 alongside the .wg-* primitives)
+    '--wg-radius-gloss',
+    '--wg-radius-icon',
+    '--wg-radius-card',
+    '--wg-card-pad',
+    '--wg-icon-btn-size',
+    '--wg-font-size-tag',
+    '--wg-section-label-pad-top',
+
+    // Phone chrome tokens (added in Task 3 alongside .wg-phone, .wg-status-bar, etc.)
+    '--wg-phone-pad',
+    '--wg-phone-radius',
+    '--wg-phone-screen-radius',
+    '--wg-phone-shadow',
+    '--wg-dynamic-island-radius',
+    '--wg-status-bar-pad-bottom',
+    '--wg-status-bar-font-size',
+    '--wg-radius-pill',
+
+    // App header tokens (added in Task 4 alongside .wg-app-header)
+    '--wg-app-header-title-size',
+    '--wg-app-header-subtitle-size',
+
+    // Bottom nav tokens (added in Task 5 alongside .wg-bottom-nav)
+    '--wg-bottom-nav-pad-top',
+    '--wg-bottom-nav-pad-x',
+    '--wg-bottom-nav-pad-bottom',
+    '--wg-bottom-nav-inner-radius',
+    '--wg-bottom-nav-inner-pad',
+    '--wg-bottom-nav-gap',
+    '--wg-nav-item-radius',
+    '--wg-nav-item-pad-y',
+    '--wg-nav-item-pad-x',
+    '--wg-nav-item-gap',
+    '--wg-nav-item-font-size',
+    '--wg-nav-icon-size',
+    '--wg-bottom-nav-z',
+    '--wg-bottom-nav-reserved',
+
+    // Today screen tokens (added in Task 7 alongside .wg-next-action-card,
+    // .wg-metric-tile, .wg-fuel-card, .wg-plan-tile, .wg-streak-card).
+    '--wg-today-gap',
+    '--wg-tile-pad-block',
+    '--wg-tile-pad-inline',
+    '--wg-next-action-pad-block',
+    '--wg-next-action-pad-inline',
+    '--wg-fuel-card-pad-block',
+    '--wg-fuel-card-pad-inline',
+    '--wg-section-label-gap',
+    '--wg-font-size-metric-value',
+    '--wg-font-size-fuel-value',
+    '--wg-font-size-plan-value',
+    '--wg-font-size-streak-value',
+    '--wg-streak-bar-height',
+    '--wg-font-size-mini',
+    '--wg-font-size-caps',
+    '--wg-next-action-bg',
+    '--wg-next-action-border',
+    '--wg-next-action-icon-bg',
+    '--wg-next-action-icon-border',
+    '--wg-metric-tile-bg',
+    '--wg-mini-bar-track-bg',
+    '--wg-mini-bar-track-shadow',
+];
+
 describe('Architecture – design tokens', () => {
     it(':root block contains all required design tokens', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
@@ -959,6 +1091,77 @@ describe('Architecture – design tokens', () => {
             throw new Error(
                 `Missing Telegram theme tokens in :root:\n\n` +
                 missing.map(t => `  • ${t}`).join('\n')
+            );
+        }
+    });
+});
+
+describe('Architecture – Wandergeek tokens', () => {
+    it(':root block contains all Wandergeek (--wg-*) tokens', () => {
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        const rootBlock = extractRootBlock(css);
+        expect(rootBlock).not.toBe('');
+
+        const defined = extractCustomProperties(rootBlock);
+        const missing = WANDERGEEK_TOKENS.filter(t => !defined.has(t));
+
+        if (missing.length > 0) {
+            throw new Error(
+                `Missing Wandergeek tokens in :root block of styles.css:\n\n` +
+                missing.map(t => `  • ${t}`).join('\n') +
+                `\n\nAdd them under the "Wandergeek Design System" comment block.`
+            );
+        }
+    });
+
+    it('no --wg-* tokens are referenced from JS source files (except structural allowlist)', () => {
+        // Structural variables (not visual values) are allowed on a
+        // per-file, per-token basis. Visual tokens (colors, gradients,
+        // shadows, spacing) must stay CSS-only.
+        //
+        // --wg-nav-cols in wg-bottom-nav.js: items.length determines the
+        //   grid's column count; it's a structural integer, not a visual
+        //   value, and setting it via style.setProperty is the documented
+        //   pattern from the design plan (Task 5).
+        const ALLOWED_JS_TOKEN_REFS = {
+            'web/static/js/components/wg-bottom-nav.js': new Set(['--wg-nav-cols']),
+        };
+
+        const jsDir = path.join(REPO_ROOT, 'web/static/js');
+        const offenders = [];
+
+        function walk(dir) {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                if (entry.name === 'tests' || entry.name === 'vendor') continue;
+                const full = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    walk(full);
+                } else if (entry.isFile() && entry.name.endsWith('.js')) {
+                    const content = fs.readFileSync(full, 'utf8');
+                    const lines = content.split('\n');
+                    const rel = path.relative(REPO_ROOT, full);
+                    const allowedForFile = ALLOWED_JS_TOKEN_REFS[rel] || new Set();
+                    lines.forEach((line, i) => {
+                        const matches = line.match(/--wg-[a-z0-9-]+/gi);
+                        if (!matches) return;
+                        for (const m of matches) {
+                            if (!allowedForFile.has(m)) {
+                                offenders.push(`${rel}:${i + 1}: ${line.trim()}`);
+                                return;
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        if (fs.existsSync(jsDir)) walk(jsDir);
+
+        if (offenders.length > 0) {
+            throw new Error(
+                `Wandergeek --wg-* tokens are CSS-only; found JS references:\n\n` +
+                offenders.map(o => `  • ${o}`).join('\n') +
+                `\n\nMove the color/gradient logic into a CSS class and reference the class from JS instead.`
             );
         }
     });
