@@ -87,14 +87,14 @@ This plan covers **Phase 1** (design system + chrome + bottom nav) and **Phase 2
 
 ### Task 1: Extend tokens.css with the Wandergeek palette + type tokens
 
-- [ ] add Wandergeek raw palette tokens to `web/static/css/styles.css` `:root`: `--wg-paper` (`#F4FBF7`), `--wg-paper-deep`, `--wg-paper-soft`, `--wg-ink` (`#0F5042`) + alphas (-85/-70/-55/-35/-15/-08), `--wg-teal` (`#2D544F`), `--wg-teal-stage` (`#0f2522`), `--wg-teal-sage` (`#56AC8A`), `--wg-mint`, `--wg-mint-soft` (`#9CE4CC`), `--wg-sun` (`#FBBD0D`), `--wg-sun-deep`, `--wg-sun-soft`, `--wg-clay` (`#C6553A`), `--wg-clay-soft`
-- [ ] add Wandergeek semantic aliases on top of those: `--wg-bg-stage`, `--wg-bg-card`, `--wg-bg-card-inset`, `--wg-fg-1` (`#F4FBF7`), `--wg-fg-2` (rgba(244,251,247,0.72)), `--wg-fg-3` (0.55), `--wg-fg-4` (0.42), `--wg-fg-5` (0.32), `--wg-border-hairline` (rgba(255,255,255,0.06)), `--wg-border-strong` (0.12)
-- [ ] add status-tag tokens: `--wg-tag-normal-bg`, `--wg-tag-normal-fg`, `--wg-tag-normal-border`, plus `-high-` and `-alert-` triplets
-- [ ] add type tokens: `--wg-font-display: 'JetBrains Mono', ui-monospace, …`, `--wg-font-ui: 'Space Grotesk', …`, `--wg-font-mono: 'JetBrains Mono', …` (display + mono share the same family — that's intentional, headlines are mono)
-- [ ] import the Google Fonts URL from `tokens.css` (Instrument Serif + Source Serif 4 + Space Grotesk + JetBrains Mono) at the top of `styles.css` (or inline the equivalent `<link>` in `index.html` — pick one and document)
-- [ ] add gloss-material gradient tokens: `--wg-gloss-bg` (the linear-gradient stack used by `.gloss`), `--wg-gloss-bg-sun`, `--wg-gloss-bg-clay`, `--wg-gloss-bg-inset`; plus their box-shadow strings as `--wg-gloss-shadow`, `--wg-gloss-shadow-sun`, `--wg-gloss-shadow-inset`
-- [ ] update `web/static/js/tests/architecture.design-tokens.test.js` — add a new `WANDERGEEK_TOKENS` array with every `--wg-*` token introduced; add a `describe('Wandergeek tokens', …)` block asserting all are present
-- [ ] run `pnpm test` — design-tokens test must be green before next task
+- [x] add Wandergeek raw palette tokens to `web/static/css/styles.css` `:root`: `--wg-paper` (`#F4FBF7`), `--wg-paper-deep`, `--wg-paper-soft`, `--wg-ink` (`#0F5042`) + alphas (-85/-70/-55/-35/-15/-08), `--wg-teal` (`#2D544F`), `--wg-teal-stage` (`#0f2522`), `--wg-teal-sage` (`#56AC8A`), `--wg-mint`, `--wg-mint-soft` (`#9CE4CC`), `--wg-sun` (`#FBBD0D`), `--wg-sun-deep`, `--wg-sun-soft`, `--wg-clay` (`#C6553A`), `--wg-clay-soft`
+- [x] add Wandergeek semantic aliases on top of those: `--wg-bg-stage`, `--wg-bg-card`, `--wg-bg-card-inset`, `--wg-fg-1` (`#F4FBF7`), `--wg-fg-2` (rgba(244,251,247,0.72)), `--wg-fg-3` (0.55), `--wg-fg-4` (0.42), `--wg-fg-5` (0.32), `--wg-border-hairline` (rgba(255,255,255,0.06)), `--wg-border-strong` (0.12)
+- [x] add status-tag tokens: `--wg-tag-normal-bg`, `--wg-tag-normal-fg`, `--wg-tag-normal-border`, plus `-high-` and `-alert-` triplets
+- [x] add type tokens: `--wg-font-display: 'JetBrains Mono', ui-monospace, …`, `--wg-font-ui: 'Space Grotesk', …`, `--wg-font-mono: 'JetBrains Mono', …` (display + mono share the same family — that's intentional, headlines are mono)
+- [x] import the Google Fonts URL from `tokens.css` (Instrument Serif + Source Serif 4 + Space Grotesk + JetBrains Mono) at the top of `styles.css` (or inline the equivalent `<link>` in `index.html` — pick one and document) — chose `<link>` in `index.html` with `preconnect` hints (avoids the render-blocking `@import`); documented in a comment at the top of the Wandergeek token block in `styles.css`
+- [x] add gloss-material gradient tokens: `--wg-gloss-bg` (the linear-gradient stack used by `.gloss`), `--wg-gloss-bg-sun`, `--wg-gloss-bg-clay`, `--wg-gloss-bg-inset`; plus their box-shadow strings as `--wg-gloss-shadow`, `--wg-gloss-shadow-sun`, `--wg-gloss-shadow-inset`
+- [x] update `web/static/js/tests/architecture.design-tokens.test.js` — add a new `WANDERGEEK_TOKENS` array with every `--wg-*` token introduced; add a `describe('Wandergeek tokens', …)` block asserting all are present. Also added a companion test asserting no `--wg-*` token is referenced from JS source files (the CSS-only rule).
+- [x] run `pnpm test` — design-tokens test must be green before next task (489/489 passed)
 
 ### Task 2: Build the gloss material primitives (CSS classes, no JS yet)
 
