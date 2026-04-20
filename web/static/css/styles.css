@@ -4731,3 +4731,47 @@ input:checked+.toggle-slider:before {
     fill: currentColor;
     stroke: none;
 }
+
+/* BP chart (Phase 3, Task 2) — SVG children rely solely on --wg-* tokens
+   via these classes. Colors never appear inline on sys/dia/band paths or
+   last-point circles. */
+.wg-bp-chart {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.wg-bp-chart__guide {
+    stroke: var(--wg-fg-5);
+    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    fill: none;
+}
+
+.wg-bp-chart__band {
+    fill: var(--wg-mint-soft);
+    fill-opacity: var(--wg-bp-chart-band-alpha);
+    stroke: none;
+}
+
+.wg-bp-chart__sys {
+    fill: none;
+    stroke: var(--wg-mint-soft);
+    stroke-width: var(--wg-bp-chart-line-stroke-width);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.wg-bp-chart__dia {
+    fill: none;
+    stroke: var(--wg-teal-sage);
+    stroke-width: var(--wg-bp-chart-line-stroke-width);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.wg-bp-chart__last {
+    fill: var(--wg-sun);
+    stroke: var(--wg-teal-stage);
+    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+}
