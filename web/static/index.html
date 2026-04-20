@@ -880,51 +880,53 @@
     </mt-modal>
 
     <!-- Modal for BP Recording -->
-    <mt-modal id="bp-modal" class="hidden">
-        <div class="modal-header">
-            <h3 id="bp-modal-title">Record Blood Pressure</h3>
-            <div class="actions">
-                <button type="button" id="bp-modal-cancel-btn" class="btn btn-secondary">Cancel</button>
-                <button type="submit" form="bp-form" class="btn btn-primary">Save</button>
+    <mt-modal id="bp-modal" class="hidden wg-modal">
+        <div class="wg-modal__header">
+            <h3 id="bp-modal-title" class="wg-modal__title">Record Blood Pressure</h3>
+            <div class="wg-modal__actions">
+                <button type="button" id="bp-modal-cancel-btn" class="wg-gloss">Cancel</button>
+                <button type="submit" form="bp-form" class="wg-gloss wg-gloss--sun">Save</button>
             </div>
         </div>
-        <form id="bp-form">
-            <input type="datetime-local" id="bp-datetime" required>
-            <div class="bp-inputs-row">
-                <div class="bp-input-group">
-                    <label for="bp-systolic">Systolic</label>
-                    <input type="number" id="bp-systolic" min="60" max="250" placeholder="120" required
-                        inputmode="numeric">
+        <form id="bp-form" class="wg-modal__body">
+            <div class="wg-field">
+                <label for="bp-datetime" class="wg-label">Time</label>
+                <input type="datetime-local" id="bp-datetime" class="wg-input" required>
+            </div>
+            <div class="wg-field--row">
+                <div class="wg-field">
+                    <label for="bp-systolic" class="wg-label">Systolic</label>
+                    <input type="number" id="bp-systolic" class="wg-input" min="60" max="250" placeholder="120"
+                        required inputmode="numeric">
                 </div>
-                <div class="bp-input-group">
-                    <label for="bp-diastolic">Diastolic</label>
-                    <input type="number" id="bp-diastolic" min="40" max="150" placeholder="80" required
-                        inputmode="numeric">
+                <div class="wg-field">
+                    <label for="bp-diastolic" class="wg-label">Diastolic</label>
+                    <input type="number" id="bp-diastolic" class="wg-input" min="40" max="150" placeholder="80"
+                        required inputmode="numeric">
                 </div>
             </div>
-            <div class="bp-inputs-row">
-                <div class="bp-input-group">
-                    <label for="bp-pulse">Pulse (optional)</label>
-                    <input type="number" id="bp-pulse" min="30" max="250" placeholder="70" inputmode="numeric">
-                </div>
+            <div class="wg-field">
+                <label for="bp-pulse" class="wg-label">Pulse (optional)</label>
+                <input type="number" id="bp-pulse" class="wg-input" min="30" max="250" placeholder="70"
+                    inputmode="numeric">
             </div>
-            <div class="form-row">
-                <label for="bp-site">Site:</label>
-                <select id="bp-site">
+            <div class="wg-field">
+                <label for="bp-site" class="wg-label">Site</label>
+                <select id="bp-site" class="wg-select">
                     <option value="right_arm">Right Arm</option>
                     <option value="left_arm">Left Arm</option>
                 </select>
             </div>
-            <div class="form-row">
-                <label for="bp-position">Position:</label>
-                <select id="bp-position">
+            <div class="wg-field">
+                <label for="bp-position" class="wg-label">Position</label>
+                <select id="bp-position" class="wg-select">
                     <option value="seated">Seated</option>
                     <option value="horizontal">Horizontal</option>
                 </select>
             </div>
-            <div class="form-row">
-                <label for="bp-notes">Notes:</label>
-                <textarea id="bp-notes" placeholder="Any notes..." rows="3"></textarea>
+            <div class="wg-field">
+                <label for="bp-notes" class="wg-label">Notes</label>
+                <textarea id="bp-notes" class="wg-input" placeholder="Any notes..." rows="3"></textarea>
             </div>
         </form>
     </mt-modal>

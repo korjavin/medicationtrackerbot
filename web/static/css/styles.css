@@ -677,7 +677,6 @@ h3 {
 #workout-exercise-modal,
 #exercise-library-modal,
 #miband-workout-modal,
-#bp-modal,
 #weight-modal,
 #workout-session-modal,
 #med-confirm-modal,
@@ -723,7 +722,6 @@ h3 {
 #workout-exercise-modal.hidden,
 #exercise-library-modal.hidden,
 #miband-workout-modal.hidden,
-#bp-modal.hidden,
 #weight-modal.hidden,
 #workout-session-modal.hidden,
 #workout-add-exercise-to-session-modal.hidden,
@@ -897,11 +895,8 @@ select {
     margin: 0;
 }
 
-/* BP Modal */
-#bp-modal h3 {
-    margin: 0;
-    font-size: var(--font-size-lg);
-}
+/* BP Modal — shell is the generic `.wg-modal` utility; `.wg-modal__title`
+   owns typography. The paper-era #bp-modal h3 rule is obsolete. */
 
 .modal-header {
     display: flex;
@@ -3900,6 +3895,125 @@ input:checked+.toggle-slider:before {
     align-items: center;
     justify-content: center;
     border-radius: var(--wg-radius-icon);
+}
+
+/* Wandergeek modal shell — generic card-like overlay container.
+   Reused by every section that needs a centered modal dialog (BP, Food,
+   Medication, Weight, Workouts). Inner layout composes __title + __body +
+   __actions. Positioning/sizing mirrors the legacy #bp-modal block so the
+   ModalManager open/close wiring keeps working without shell changes. */
+.wg-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    max-width: 320px;
+    max-height: 85vh;
+    overflow-y: auto;
+    z-index: var(--z-modal);
+    padding: var(--wg-card-pad);
+    font-family: var(--wg-font-ui);
+    color: var(--wg-fg-1);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(0, 0, 0, 0) 60%),
+        var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+        0 1px 0 rgba(0, 0, 0, 0.3);
+    animation: modal-enter 0.2s ease;
+}
+
+.wg-modal__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-modal__title {
+    margin: 0;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+}
+
+.wg-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-modal__actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.wg-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-field--row {
+    display: flex;
+    flex-direction: row;
+    gap: var(--space-md);
+}
+
+.wg-label {
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--wg-fg-3);
+}
+
+.wg-input {
+    width: 100%;
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    background: var(--wg-bg-card-inset);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-gloss);
+    box-sizing: border-box;
+    margin: 0;
+}
+
+.wg-select {
+    width: 100%;
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    background: var(--wg-bg-card-inset);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-gloss);
+    box-sizing: border-box;
+    margin: 0;
+}
+
+.wg-input:focus {
+    outline: none;
+    border-color: var(--wg-sun);
+}
+
+.wg-select:focus {
+    outline: none;
+    border-color: var(--wg-sun);
+}
+
+.wg-input::placeholder {
+    color: var(--wg-fg-4);
 }
 
 .wg-tag {
