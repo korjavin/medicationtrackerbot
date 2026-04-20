@@ -106,10 +106,10 @@ No backend changes. The existing `/api/bp` endpoints, Dexie offline queue, and `
 
 ### Task 4: Rewrite renderBPAverages as 3-up gloss cards
 
-- [ ] replace the current averages DOM with a 3-column grid of `.wg-bp-average-card` tiles; each shows a `.wg-section-label`, a `.wg-mono-display` value, and a unit suffix
-- [ ] values come from the existing `statsRes` payload unchanged — no backend changes
-- [ ] write/update `bp.averages.test.js` — three cards render, values formatted to 0 decimals, missing stats fall back to "—"
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the current averages DOM with a 3-column grid of `.wg-bp-average-card` tiles; each shows a `.wg-section-label`, a `.wg-mono-display` value, and a unit suffix
+- [x] values come from the existing `statsRes` payload unchanged — no backend changes
+- [x] write/update `bp.averages.test.js` — three cards render, values formatted to 0 decimals, missing stats fall back to "—"
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Rewrite renderBPReadings as day-grouped history list
 

@@ -187,14 +187,21 @@ describe('app.js charts, scanner and visualization helpers', () => {
       expect(wgSvg.querySelectorAll('line.wg-bp-chart__guide').length).toBe(2);
 
       window.renderBPAverages({
-        stats_14: { days: 12, systolic: 123, diastolic: 79 },
-        stats_30: { days: 28, systolic: 126, diastolic: 81 }
+        stats_14: { days: 12, systolic: 123, diastolic: 79, readings: 14 },
+        stats_30: { days: 28, systolic: 126, diastolic: 81, readings: 30 }
       });
-      expect(document.getElementById('bp-averages').innerHTML).toContain('14d');
-      expect(document.querySelectorAll('#bp-averages .bp-avg-item')).toHaveLength(2);
+      // Wandergeek BP averages (Phase 3, Task 4): 3-up grid always renders
+      // three .wg-bp-average-card tiles (14d / 30d / 60d). Missing periods
+      // fall back to "—" so the grid never collapses.
+      expect(document.getElementById('bp-averages').innerHTML).toContain('14 days');
+      expect(document.querySelectorAll('#bp-averages .wg-bp-average-card')).toHaveLength(3);
+      const emptyCard = document.querySelector('#bp-averages .wg-bp-average-card[data-period="60"] .wg-bp-average-card__value');
+      expect(emptyCard.textContent).toBe('\u2014');
 
       window.renderBPAverages(null);
-      expect(document.getElementById('bp-averages').children).toHaveLength(0);
+      expect(document.querySelectorAll('#bp-averages .wg-bp-average-card')).toHaveLength(3);
+      const allEmpty = document.querySelectorAll('#bp-averages .wg-bp-average-card__value');
+      allEmpty.forEach((v) => expect(v.textContent).toBe('\u2014'));
 
       window.renderBPReadings(readings);
       const bpListHtml = document.getElementById('bp-list').innerHTML;
