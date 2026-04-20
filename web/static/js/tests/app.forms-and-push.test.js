@@ -199,13 +199,12 @@ describe('app.js form submissions and push modal behavior', () => {
       const loadPromise = new Promise((resolve) => { resolveLoad = resolve; });
       let loadResolved = false;
       window.loadBPReadings = vi.fn(() => loadPromise.then(() => {
-        const list = document.getElementById('bp-list') || document.getElementById('bp-readings-list');
-        if (list) {
-          const row = document.createElement('div');
-          row.className = 'wg-bp-history__item';
-          row.textContent = '132/84';
-          list.appendChild(row);
-        }
+        const list = document.getElementById('bp-list');
+        expect(list).not.toBeNull();
+        const row = document.createElement('div');
+        row.className = 'wg-bp-history__item';
+        row.textContent = '132/84';
+        list.appendChild(row);
         loadResolved = true;
       }));
 
@@ -225,7 +224,7 @@ describe('app.js form submissions and push modal behavior', () => {
       await submitPromise;
 
       expect(loadResolved).toBe(true);
-      const list = document.getElementById('bp-list') || document.getElementById('bp-readings-list');
+      const list = document.getElementById('bp-list');
       expect(list.textContent).toContain('132/84');
     } finally {
       cleanup();
