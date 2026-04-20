@@ -12,10 +12,10 @@ A self-hosted Telegram Mini App for comprehensive health tracking (medications, 
 
 1. **Domain service pattern is mandatory.** Bot callbacks and HTTP handlers may only call `internal/domain/*` services (plus Telegram / HTTP transport). No direct store calls for business logic — both transports must share the same code path. See [docs/architecture.md](docs/architecture.md#domain-service-pattern).
 2. **Never modify existing migrations.** Always add new ones in `internal/store/migrations/`.
-3. **No hardcoded colors or inline `.style.` assignments in frontend code.** Use design tokens and CSS classes. Architecture tests enforce this. See [docs/frontend.md](docs/frontend.md#design-token-system).
+3. **No hardcoded colors or inline `.style.` assignments in frontend code.** Use design tokens and CSS classes. All visual values come from `--wg-*` tokens (Wandergeek system). Architecture tests enforce this. See [docs/frontend.md](docs/frontend.md#design-tokens).
 4. **New `window.*` globals require an allowlist entry** in `tests/architecture.globals.test.js` with justification.
 5. **Use `log/slog` with contextual args** (`slog.Error("msg", "error", err)`), not `log.Printf`.
-6. **Today is the only landing surface; there is no persistent tab strip.** Section views (BP, Weight, Meds, Workouts, Food, Health, Settings) are entered via Today cards, the gear icon (Settings), or deep links. Every non-Today view must mount `window.SectionHeader` so the "← Today" back pill and Telegram BackButton work. Do not re-introduce `<nav id="tabs">` or any `.tab` / `.tab-icon-*` rules. See [docs/frontend.md](docs/frontend.md#navigation).
+6. **The bottom nav is the canonical navigation** — one slot per real section (Today, BP, Food, Meds, Weight, Workouts, Health, Settings), wrapping to two rows when needed. No "More" aggregator: every section is a first-class destination with its own icon. Every screen must mount inside `<wg-phone-chrome>` and render under the active nav item. See [docs/frontend.md](docs/frontend.md#navigation).
 
 ## Development Commands
 
