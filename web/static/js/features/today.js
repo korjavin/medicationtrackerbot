@@ -573,7 +573,11 @@
             }
         }
         if (latest.status === 'stale') {
-            tag = statusTag('high', 'Stale');
+            if (tag) {
+                tag.textContent = `${tag.textContent} · stale`;
+            } else {
+                tag = statusTag('high', 'Stale');
+            }
         }
         return renderMetricTile({
             label: 'Weight',
