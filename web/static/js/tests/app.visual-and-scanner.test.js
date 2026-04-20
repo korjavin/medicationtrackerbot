@@ -174,27 +174,34 @@ describe('app.js charts, scanner and visualization helpers', () => {
         { id: 3, measured_at: isoDaysAgo(0), systolic: 145, diastolic: 95, pulse: 72 }
       ];
       window.renderBPChart(readings, { systolic_target: 130, diastolic_target: 85 });
-      expect(bpChart.querySelector('svg')).toBeTruthy();
-      expect(bpChart.querySelectorAll('circle').length).toBeGreaterThan(2);
-
-      // BP chart uses spline paths (not line segments) for systolic and diastolic
-      const chartPaths = bpChart.querySelectorAll('path.chart-line');
-      expect(chartPaths.length).toBeGreaterThanOrEqual(2); // systolic + diastolic (+ optional pulse)
-      // Verify no <line> segments for data series (only grid/average/target lines remain)
-      const dataLines = Array.from(bpChart.querySelectorAll('line')).filter(
-        l => !l.classList.contains('chart-grid') && !l.classList.contains('chart-grid-refined') && !l.classList.contains('bp-chart-avg-line') && !l.classList.contains('bp-chart-target')
-      );
-      expect(dataLines.length).toBe(0);
+      // Wandergeek BP chart (Phase 3): renderBPChart delegates to WGBpChart,
+      // which emits one sys path, one dia path, one band path between them,
+      // two dotted guide lines at 80 and 120, and one last-point circle per
+      // series. Color comes from CSS classes, not inline stroke/fill.
+      const wgSvg = bpChart.querySelector('svg.wg-bp-chart');
+      expect(wgSvg).toBeTruthy();
+      expect(wgSvg.querySelectorAll('circle.wg-bp-chart__last').length).toBe(2);
+      expect(wgSvg.querySelectorAll('path.wg-bp-chart__sys').length).toBe(1);
+      expect(wgSvg.querySelectorAll('path.wg-bp-chart__dia').length).toBe(1);
+      expect(wgSvg.querySelector('path.wg-bp-chart__band')).not.toBeNull();
+      expect(wgSvg.querySelectorAll('line.wg-bp-chart__guide').length).toBe(2);
 
       window.renderBPAverages({
-        stats_14: { days: 12, systolic: 123, diastolic: 79 },
-        stats_30: { days: 28, systolic: 126, diastolic: 81 }
+        stats_14: { days: 12, systolic: 123, diastolic: 79, readings: 14 },
+        stats_30: { days: 28, systolic: 126, diastolic: 81, readings: 30 }
       });
-      expect(document.getElementById('bp-averages').innerHTML).toContain('14d');
-      expect(document.querySelectorAll('#bp-averages .bp-avg-item')).toHaveLength(2);
+      // Wandergeek BP averages (Phase 3, Task 4): 3-up grid always renders
+      // three .wg-bp-average-card tiles (14d / 30d / 60d). Missing periods
+      // fall back to "—" so the grid never collapses.
+      expect(document.getElementById('bp-averages').innerHTML).toContain('14 days');
+      expect(document.querySelectorAll('#bp-averages .wg-bp-average-card')).toHaveLength(3);
+      const emptyCard = document.querySelector('#bp-averages .wg-bp-average-card[data-period="60"] .wg-bp-average-card__value');
+      expect(emptyCard.textContent).toBe('\u2014');
 
       window.renderBPAverages(null);
-      expect(document.getElementById('bp-averages').children).toHaveLength(0);
+      expect(document.querySelectorAll('#bp-averages .wg-bp-average-card')).toHaveLength(3);
+      const allEmpty = document.querySelectorAll('#bp-averages .wg-bp-average-card__value');
+      allEmpty.forEach((v) => expect(v.textContent).toBe('\u2014'));
 
       window.renderBPReadings(readings);
       const bpListHtml = document.getElementById('bp-list').innerHTML;
