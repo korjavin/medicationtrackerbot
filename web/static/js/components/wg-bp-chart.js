@@ -32,7 +32,7 @@
     const PAD_T = 14;
     const PAD_B = 26;
     const Y_FLOOR = 40;
-    const Y_CEIL = 220;
+    const Y_CEIL = 260;
     const Y_DEFAULT_MIN = 50;
     const Y_DEFAULT_MAX = 160;
     const GUIDE_VALUES = [80, 120];

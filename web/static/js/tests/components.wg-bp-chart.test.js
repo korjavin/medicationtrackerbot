@@ -182,4 +182,22 @@ describe('WGBpChart.render', () => {
             expect(cy).toBeLessThanOrEqual(174);
         });
     });
+
+    it('renders high systolic readings above 220 inside the plot area', () => {
+        // Form accepts systolic up to 250; chart must accommodate them.
+        // Y_CEIL=260 ensures readings up to 250 fit inside the viewport.
+        const readings = [
+            { measured_at: '2026-04-01T12:00:00Z', systolic: 118, diastolic: 76 },
+            { measured_at: '2026-04-10T12:00:00Z', systolic: 250, diastolic: 140 },
+        ];
+        const svg = env.api.render({ readings });
+        expect(svg).not.toBeNull();
+        const lasts = svg.querySelectorAll('circle.wg-bp-chart__last');
+        expect(lasts.length).toBe(2);
+        lasts.forEach((c) => {
+            const cy = parseFloat(c.getAttribute('cy'));
+            expect(cy).toBeGreaterThanOrEqual(14);
+            expect(cy).toBeLessThanOrEqual(174);
+        });
+    });
 });
