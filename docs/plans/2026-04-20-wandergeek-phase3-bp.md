@@ -97,12 +97,12 @@ No backend changes. The existing `/api/bp` endpoints, Dexie offline queue, and `
 
 ### Task 3: Rewrite renderBPChart + current-reading card in features/bp.js
 
-- [ ] replace `renderBPChart(readings, goalData)` body with a call to `WGBpChart.render(…)`, inserting the returned SVG into the new `.wg-bp-current-card` container
-- [ ] add a new `renderCurrentReading(reading)` helper above the chart: renders a `.wg-bp-current-card` with the 44px mono sys/dia display, the pulse sparkline via `WGSparkline.render({ variant: 'sun', … })`, and a `.wg-tag` classed by the `getBPCategory` result
-- [ ] add a new `renderRangeSelector({ active, onChange })` helper — `.wg-gloss--inset` container with three `.wg-gloss--sun` buttons (14d / 30d / 60d); active state via class, not inline style
-- [ ] state: which range is active is persisted via the existing `localStorage` key pattern used by Today (`mt-bp-range` or similar — confirm the pattern during implementation)
-- [ ] write/update `bp.render.test.js` — current-reading card shape, range-selector active-state toggle, chart is wired
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace `renderBPChart(readings, goalData)` body with a call to `WGBpChart.render(…)`, inserting the returned SVG into the new `.wg-bp-current-card` container
+- [x] add a new `renderCurrentReading(reading)` helper above the chart: renders a `.wg-bp-current-card` with the 44px mono sys/dia display, the pulse sparkline via `WGSparkline.render({ variant: 'sun', … })`, and a `.wg-tag` classed by the `getBPCategory` result
+- [x] add a new `renderRangeSelector({ active, onChange })` helper — `.wg-gloss--inset` container with three `.wg-gloss--sun` buttons (14d / 30d / 60d); active state via class, not inline style
+- [x] state: which range is active is persisted via the existing `localStorage` key pattern used by Today (`mt-bp-range` or similar — confirm the pattern during implementation)
+- [x] write/update `bp.render.test.js` — current-reading card shape, range-selector active-state toggle, chart is wired
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Rewrite renderBPAverages as 3-up gloss cards
 
