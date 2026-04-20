@@ -77,12 +77,12 @@ All four fixes are localised and land without backend or test-harness changes.
 - [x] run `pnpm test` — must pass before Task 3
 
 ### Task 3: Restyle "+ Record BP" button to Wandergeek
-- [ ] in `web/static/index.html:78`, change the button class from `btn btn-primary btn-pill btn-fab btn-lg` to `wg-gloss wg-gloss--sun` (preserve `id="add-bp-btn"` and the `+ Record BP` text)
-- [ ] confirm the sizing/padding of `.wg-gloss--sun` is acceptable at the bottom of the BP view; if it reads too small compared to the previous FAB, add a task-scoped size modifier (e.g. reuse an existing `.wg-gloss--lg` if present, else add one new token-driven rule in `styles.css` — do not introduce hex, use `--wg-*` tokens)
-- [ ] if a new rule was added, extend `tests/architecture.wg-primitives.test.js` to assert it references only `--wg-*` tokens (mirrors existing block patterns)
-- [ ] write/extend a DOM test that asserts `#add-bp-btn` has classes `wg-gloss` + `wg-gloss--sun` and no `btn-primary`
-- [ ] grep for any other orphan `btn-primary` or `btn-fab` instances inside `#bp-view` in `index.html` — if any exist, restyle them in the same task so the screen is visually consistent
-- [ ] run `pnpm test` — must pass before Task 4
+- [x] in `web/static/index.html:78`, change the button class from `btn btn-primary btn-pill btn-fab btn-lg` to `wg-gloss wg-gloss--sun` (preserve `id="add-bp-btn"` and the `+ Record BP` text)
+- [x] confirm the sizing/padding of `.wg-gloss--sun` is acceptable at the bottom of the BP view; if it reads too small compared to the previous FAB, add a task-scoped size modifier (e.g. reuse an existing `.wg-gloss--lg` if present, else add one new token-driven rule in `styles.css` — do not introduce hex, use `--wg-*` tokens)
+- [x] if a new rule was added, extend `tests/architecture.wg-primitives.test.js` to assert it references only `--wg-*` tokens (mirrors existing block patterns)
+- [x] write/extend a DOM test that asserts `#add-bp-btn` has classes `wg-gloss` + `wg-gloss--sun` and no `btn-primary`
+- [x] grep for any other orphan `btn-primary` or `btn-fab` instances inside `#bp-view` in `index.html` — if any exist, restyle them in the same task so the screen is visually consistent
+- [x] run `pnpm test` — must pass before Task 4
 
 ### Task 4: Apply deep-teal stage to BP view so section labels are visible
 - [ ] in `web/static/css/styles.css`, add a background rule for `#bp-view` (or introduce a shared `.wg-screen-stage` utility that `#bp-view` — and future BP/Food/Meds/Weight/Workouts/Health/Settings views — can opt into). Mirror the `.wg-today` pattern at styles.css:4149-4166: radial-gradient highlight stack + `var(--wg-bg-stage)`, with negative horizontal margins so the stage bleeds past `#app`'s padding to fill the viewport edge-to-edge. Use `--wg-*` tokens only, no hex
