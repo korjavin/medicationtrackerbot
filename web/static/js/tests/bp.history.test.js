@@ -55,8 +55,8 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
         expect(headers.length).toBe(3);
         expect(headers[0].textContent).toBe('Today');
         expect(headers[1].textContent).toBe('Yesterday');
-        // The third header is a de-DE-formatted date (dd.MM.yyyy).
-        expect(headers[2].textContent).toMatch(/^\d{2}\.\d{2}\.\d{4}$/);
+        // The third header is a formatted date (locale-dependent).
+        expect(headers[2].textContent).toMatch(/^\d{1,2}\/\d{1,2}\/\d{4}$/);
     });
 
     it('renders one .wg-card reading row per reading with mono sys/dia and status tag', () => {
