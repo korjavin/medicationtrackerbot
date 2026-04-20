@@ -259,6 +259,15 @@ const WANDERGEEK_TOKENS = [
     '--wg-gloss-shadow',
     '--wg-gloss-shadow-sun',
     '--wg-gloss-shadow-inset',
+
+    // Dimensional tokens (added in Task 2 alongside the .wg-* primitives)
+    '--wg-radius-gloss',
+    '--wg-radius-icon',
+    '--wg-radius-card',
+    '--wg-card-pad',
+    '--wg-icon-btn-size',
+    '--wg-font-size-tag',
+    '--wg-section-label-pad-top',
 ];
 
 describe('Architecture – design tokens', () => {

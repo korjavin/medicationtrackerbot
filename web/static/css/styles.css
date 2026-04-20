@@ -273,6 +273,15 @@
     --wg-gloss-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(0, 0, 0, 0.25), 0 2px 0 rgba(0, 0, 0, 0.18), 0 6px 16px -6px rgba(0, 0, 0, 0.35);
     --wg-gloss-shadow-sun: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -1px 0 rgba(0, 0, 0, 0.18), 0 2px 0 rgba(160, 110, 0, 0.4), 0 6px 18px -4px rgba(251, 189, 13, 0.45);
     --wg-gloss-shadow-inset: inset 0 2px 4px rgba(0, 0, 0, 0.35), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+
+    /* Wandergeek — dimensional tokens (specific to the gloss material). */
+    --wg-radius-gloss: 10px;
+    --wg-radius-icon: 12px;
+    --wg-radius-card: 14px;
+    --wg-card-pad: 14px;
+    --wg-icon-btn-size: 44px;
+    --wg-font-size-tag: 10.5px;
+    --wg-section-label-pad-top: 18px;
 }
 
 body {
@@ -3810,4 +3819,185 @@ input:checked+.toggle-slider:before {
 
 .food-stats-period-row .period-divider {
     color: var(--hint-color);
+}
+
+/* ==========================================================================
+   Wandergeek primitives — gloss material classes for the deep-teal stage.
+   All values come from --wg-* tokens; no hardcoded hex in this block.
+   ========================================================================== */
+
+.wg-stage {
+    background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(86, 172, 138, 0.18), transparent 60%),
+        radial-gradient(800px 500px at 80% 110%, rgba(251, 189, 13, 0.08), transparent 60%),
+        var(--wg-bg-stage);
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-ui);
+    -webkit-font-smoothing: antialiased;
+}
+
+.wg-card {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(0, 0, 0, 0) 60%),
+        var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+        0 1px 0 rgba(0, 0, 0, 0.3);
+    padding: var(--wg-card-pad);
+}
+
+.wg-card--inset {
+    background: var(--wg-gloss-bg-inset);
+    box-shadow: var(--wg-gloss-shadow-inset);
+    border: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+.wg-gloss {
+    font-family: var(--wg-font-ui);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--wg-radius-gloss);
+    background: var(--wg-gloss-bg);
+    box-shadow: var(--wg-gloss-shadow);
+    transition: filter 120ms ease, transform 120ms ease;
+    cursor: pointer;
+}
+
+.wg-gloss:active {
+    transform: translateY(1px);
+    filter: brightness(0.95);
+}
+
+.wg-gloss:hover {
+    filter: brightness(1.07);
+}
+
+.wg-gloss--sun {
+    color: var(--wg-ink);
+    background: var(--wg-gloss-bg-sun);
+    border-color: rgba(0, 0, 0, 0.18);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
+    box-shadow: var(--wg-gloss-shadow-sun);
+}
+
+.wg-gloss--clay {
+    color: var(--wg-fg-1);
+    background: var(--wg-gloss-bg-clay);
+    border-color: rgba(0, 0, 0, 0.2);
+}
+
+.wg-gloss--inset {
+    background: var(--wg-gloss-bg-inset);
+    box-shadow: var(--wg-gloss-shadow-inset);
+    border: 1px solid rgba(0, 0, 0, 0.25);
+    color: var(--wg-fg-1);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-icon-btn {
+    width: var(--wg-icon-btn-size);
+    height: var(--wg-icon-btn-size);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    padding: 0;
+}
+
+.wg-icon-btn .wg-gloss {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--wg-radius-icon);
+}
+
+.wg-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-font-size-tag);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 3px var(--space-sm);
+    border-radius: var(--radius-pill);
+    border: 1px solid transparent;
+}
+
+.wg-tag--normal {
+    background: var(--wg-tag-normal-bg);
+    color: var(--wg-tag-normal-fg);
+    border-color: var(--wg-tag-normal-border);
+}
+
+.wg-tag--high {
+    background: var(--wg-tag-high-bg);
+    color: var(--wg-tag-high-fg);
+    border-color: var(--wg-tag-high-border);
+}
+
+.wg-tag--alert {
+    background: var(--wg-tag-alert-bg);
+    color: var(--wg-tag-alert-fg);
+    border-color: var(--wg-tag-alert-border);
+}
+
+.wg-tag--mono {
+    font-family: var(--wg-font-mono);
+    letter-spacing: 0;
+}
+
+.wg-section-label {
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-font-size-tag);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--wg-fg-4);
+    padding: var(--wg-section-label-pad-top) var(--space-xs) var(--space-sm);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+
+.wg-section-label > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wg-section-label::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: var(--wg-sun);
+    border-radius: 50%;
+    margin-right: var(--space-sm);
+    box-shadow: 0 0 8px var(--wg-sun);
+    flex-shrink: 0;
+}
+
+.wg-mono-display {
+    font-family: var(--wg-font-mono);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--wg-fg-1);
+}
+
+.wg-muted {
+    color: var(--wg-fg-3);
+}
+
+.wg-muted-strong {
+    color: var(--wg-fg-2);
 }
