@@ -85,14 +85,14 @@ All four fixes are localised and land without backend or test-harness changes.
 - [x] run `pnpm test` — must pass before Task 4
 
 ### Task 4: Apply deep-teal stage to BP view so section labels are visible
-- [ ] in `web/static/css/styles.css`, add a background rule for `#bp-view` (or introduce a shared `.wg-screen-stage` utility that `#bp-view` — and future BP/Food/Meds/Weight/Workouts/Health/Settings views — can opt into). Mirror the `.wg-today` pattern at styles.css:4149-4166: radial-gradient highlight stack + `var(--wg-bg-stage)`, with negative horizontal margins so the stage bleeds past `#app`'s padding to fill the viewport edge-to-edge. Use `--wg-*` tokens only, no hex
-- [ ] decide: per-view rule (YAGNI, matches current state) vs shared utility class (reused by later phases). Default to **shared `.wg-screen-stage`** since Phase 4+ will need it — less thrash across future PRs. Document the decision in a one-line comment in styles.css
-- [ ] if the shared utility route is chosen, apply the class to `#bp-view` in `web/static/index.html`
-- [ ] verify the Today view still renders correctly (`.wg-today` keeps its own rule — do not delete it; just add the BP coverage). If `.wg-today` now duplicates the shared utility, fold it in as a follow-up — do not fold in this task
-- [ ] also verify that any scoped title-color override from the `.wg-today` fix applies to BP too — the day-grouped `.wg-section-label` reads correctly, but the header title color should also resolve against the dark stage (check `.wg-app-header__title` on BP)
-- [ ] write an architecture test asserting `#bp-view` (or the shared utility) pulls `--wg-bg-stage`; assert no hex was introduced
-- [ ] write a jsdom test: mount `renderBPReadings` with a 2-day fixture, assert the day-header `<div>` exists with `.wg-section-label wg-bp-history__group-label` AND that the computed background of its containing view is not paper-white (assert via cssText lookup of the `#bp-view` rule since jsdom getComputedStyle won't resolve the gradient)
-- [ ] run `pnpm test` — must pass before Task 5
+- [x] in `web/static/css/styles.css`, add a background rule for `#bp-view` (or introduce a shared `.wg-screen-stage` utility that `#bp-view` — and future BP/Food/Meds/Weight/Workouts/Health/Settings views — can opt into). Mirror the `.wg-today` pattern at styles.css:4149-4166: radial-gradient highlight stack + `var(--wg-bg-stage)`, with negative horizontal margins so the stage bleeds past `#app`'s padding to fill the viewport edge-to-edge. Use `--wg-*` tokens only, no hex
+- [x] decide: per-view rule (YAGNI, matches current state) vs shared utility class (reused by later phases). Default to **shared `.wg-screen-stage`** since Phase 4+ will need it — less thrash across future PRs. Document the decision in a one-line comment in styles.css
+- [x] if the shared utility route is chosen, apply the class to `#bp-view` in `web/static/index.html`
+- [x] verify the Today view still renders correctly (`.wg-today` keeps its own rule — do not delete it; just add the BP coverage). If `.wg-today` now duplicates the shared utility, fold it in as a follow-up — do not fold in this task
+- [x] also verify that any scoped title-color override from the `.wg-today` fix applies to BP too — the day-grouped `.wg-section-label` reads correctly, but the header title color should also resolve against the dark stage (check `.wg-app-header__title` on BP)
+- [x] write an architecture test asserting `#bp-view` (or the shared utility) pulls `--wg-bg-stage`; assert no hex was introduced
+- [x] write a jsdom test: mount `renderBPReadings` with a 2-day fixture, assert the day-header `<div>` exists with `.wg-section-label wg-bp-history__group-label` AND that the computed background of its containing view is not paper-white (assert via cssText lookup of the `#bp-view` rule since jsdom getComputedStyle won't resolve the gradient)
+- [x] run `pnpm test` — must pass before Task 5
 
 ### Task 5: Verify acceptance criteria
 - [ ] all four bugs from Overview are addressed with code + tests

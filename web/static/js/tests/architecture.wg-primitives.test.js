@@ -17,6 +17,7 @@ const CSS_PATH = path.join(REPO_ROOT, 'web/static/css/styles.css');
 
 const REQUIRED_CLASSES = [
     '.wg-stage',
+    '.wg-screen-stage',
     '.wg-card',
     '.wg-card--inset',
     '.wg-gloss',
@@ -134,5 +135,24 @@ describe('Wandergeek material primitives', () => {
         const blocks = extractClassBlocks(css, '#app');
         expect(blocks.length).toBeGreaterThan(0);
         expect(blocks[0]).toMatch(/padding-bottom:\s*var\(--wg-bottom-nav-reserved\)/);
+    });
+
+    it('screen stage utility pulls --wg-bg-stage so section labels render on the deep-teal substrate', () => {
+        const blocks = extractClassBlocks(css, '.wg-screen-stage');
+        expect(blocks.length).toBeGreaterThan(0);
+        expect(blocks[0]).toMatch(/background:[\s\S]*var\(--wg-bg-stage\)/);
+        // No hex literals in the stage rule — enforced generically by the
+        // hex-literal loop above, re-asserted here so regressions are loud.
+        expect(blocks[0]).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    });
+
+    it('#bp-view opts into the shared screen-stage utility in index.html', () => {
+        const html = fs.readFileSync(
+            path.join(REPO_ROOT, 'web/static/index.html'),
+            'utf8'
+        );
+        // Must be on the bp-view div — not just present somewhere.
+        const re = /<div\s+id="bp-view"[^>]*\bclass="[^"]*\bwg-screen-stage\b/;
+        expect(re.test(html), 'expected #bp-view to carry .wg-screen-stage').toBe(true);
     });
 });
