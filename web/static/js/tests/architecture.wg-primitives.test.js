@@ -107,4 +107,31 @@ describe('Wandergeek material primitives', () => {
         expect(labelBlock.length).toBeGreaterThan(0);
         expect(labelBlock[0]).toMatch(/background:\s*var\(--wg-sun\)/);
     });
+
+    it('hides the back pill on --no-back headers without hiding right-slot icon buttons', () => {
+        // The selector must target the back button specifically (not any
+        // descendant .wg-icon-btn) so that the Today screen's settings gear,
+        // which also carries .wg-icon-btn, remains visible in the right slot.
+        const badRe = /\.wg-app-header--no-back\s+\.wg-icon-btn\s*\{/;
+        expect(badRe.test(css), 'selector must not match all .wg-icon-btn descendants').toBe(false);
+        expect(css).toMatch(/\.wg-app-header--no-back\s*>\s*\.section-back\.wg-icon-btn\s*\{[^}]*visibility:\s*hidden/);
+    });
+
+    it('streak bars declare an explicit height so they render as visible vertical bars', () => {
+        const blocks = extractClassBlocks(css, '.wg-streak-bar');
+        expect(blocks.length).toBeGreaterThan(0);
+        expect(blocks[0]).toMatch(/height:\s*var\(--wg-streak-bar-height\)/);
+    });
+
+    it('bottom nav anchors to the viewport via position:fixed (nav has no positioned ancestor at runtime)', () => {
+        const blocks = extractClassBlocks(css, '.wg-bottom-nav');
+        expect(blocks.length).toBeGreaterThan(0);
+        expect(blocks[0]).toMatch(/position:\s*fixed\b/);
+    });
+
+    it('#app reserves bottom space for the fixed nav via --wg-bottom-nav-reserved', () => {
+        const blocks = extractClassBlocks(css, '#app');
+        expect(blocks.length).toBeGreaterThan(0);
+        expect(blocks[0]).toMatch(/padding-bottom:\s*var\(--wg-bottom-nav-reserved\)/);
+    });
 });
