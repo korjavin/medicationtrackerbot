@@ -868,15 +868,18 @@ function activateTabGroup(tab, options) {
     const { buttonSelector, contentSelector, contentIdFromTab, ariaCurrent } = options;
     // Validate target exists BEFORE clearing active state to avoid blank-page on unknown tabs.
     // tabButton is optional: the top-level view group has no button strip after the
-    // Today-as-primary-nav rework, so the button-side toggle is a no-op when missing.
-    const tabButton = document.querySelector(`${buttonSelector}[data-tab="${tab}"]`);
+    // Wandergeek bottom-nav rework (buttonSelector is omitted), so the button-side
+    // toggle is a no-op when missing.
+    const tabButton = buttonSelector ? document.querySelector(`${buttonSelector}[data-tab="${tab}"]`) : null;
     const tabContent = document.getElementById(contentIdFromTab(tab));
     if (!tabContent) return false;
 
-    document.querySelectorAll(buttonSelector).forEach((el) => {
-        el.classList.remove('active');
-        if (ariaCurrent) el.removeAttribute('aria-current');
-    });
+    if (buttonSelector) {
+        document.querySelectorAll(buttonSelector).forEach((el) => {
+            el.classList.remove('active');
+            if (ariaCurrent) el.removeAttribute('aria-current');
+        });
+    }
     document.querySelectorAll(contentSelector).forEach((el) => el.classList.remove('active'));
     if (tabButton) {
         tabButton.classList.add('active');
@@ -945,7 +948,6 @@ function switchTab(tab) {
     }
 
     const activated = activateTabGroup(tab, {
-        buttonSelector: '.tab',
         contentSelector: '.view',
         contentIdFromTab: (tabName) => `${tabName}-view`,
         ariaCurrent: 'page'

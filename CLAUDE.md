@@ -15,7 +15,7 @@ A self-hosted Telegram Mini App for comprehensive health tracking (medications, 
 3. **No hardcoded colors or inline `.style.` assignments in frontend code.** Use design tokens and CSS classes. All visual values come from `--wg-*` tokens (Wandergeek system). Architecture tests enforce this. See [docs/frontend.md](docs/frontend.md#design-tokens).
 4. **New `window.*` globals require an allowlist entry** in `tests/architecture.globals.test.js` with justification.
 5. **Use `log/slog` with contextual args** (`slog.Error("msg", "error", err)`), not `log.Printf`.
-6. **The bottom nav is the canonical navigation** — one slot per real section (Today, BP, Food, Meds, Weight, Workouts, Health, Settings), wrapping to two rows when needed. No "More" aggregator: every section is a first-class destination with its own icon. Every screen must mount inside `<wg-phone-chrome>` and render under the active nav item. See [docs/frontend.md](docs/frontend.md#navigation).
+6. **The bottom nav is the canonical navigation** — one slot per real section (Today, BP, Food, Meds, Weight, Workouts, Health, Settings), wrapping to two rows when needed. No "More" aggregator: every section is a first-class destination with its own icon. Disabled features are filtered out of the nav before mount, not bounced after tap. `<wg-phone-chrome>` is a design-system primitive available for Phase 3+ screen reskins; it is not yet wrapped around screens at runtime. See [docs/frontend.md](docs/frontend.md#navigation).
 
 ## Development Commands
 
