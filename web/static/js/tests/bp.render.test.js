@@ -330,6 +330,7 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
             expect(btn).not.toBeNull();
             expect(btn.classList.contains('wg-gloss')).toBe(true);
             expect(btn.classList.contains('wg-gloss--sun')).toBe(true);
+            expect(btn.classList.contains('wg-gloss--lg')).toBe(true);
             expect(btn.classList.contains('btn-primary')).toBe(false);
             expect(btn.classList.contains('btn-fab')).toBe(false);
             expect(btn.classList.contains('btn-pill')).toBe(false);
