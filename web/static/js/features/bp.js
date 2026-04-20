@@ -345,32 +345,64 @@ function filterReadingsByRange(readings, days) {
     });
 }
 
-// Render BP averages from backend-calculated daily-weighted stats
+// Render BP averages as a 3-up grid of Wandergeek gloss cards (14d/30d/60d).
+// Values come from the backend-calculated daily-weighted stats payload; missing
+// periods render as "—" so the 3-up layout never collapses.
 function renderBPAverages(stats) {
     const container = document.getElementById('bp-averages');
     if (!container) return;
 
-    // Check if stats object has any data
-    if (!stats || (!stats.stats_14 && !stats.stats_30 && !stats.stats_60)) {
-        container.replaceChildren();
-        return;
+    container.replaceChildren();
+    container.className = 'wg-bp-averages';
+
+    const periods = [
+        { key: 'stats_14', label: '14 days', days: 14 },
+        { key: 'stats_30', label: '30 days', days: 30 },
+        { key: 'stats_60', label: '60 days', days: 60 }
+    ];
+
+    periods.forEach((period) => {
+        const stat = stats && stats[period.key] ? stats[period.key] : null;
+        container.appendChild(buildBPAverageCard(period, stat));
+    });
+}
+
+function buildBPAverageCard(period, stat) {
+    const card = document.createElement('div');
+    card.className = 'wg-card wg-bp-average-card';
+    card.setAttribute('data-period', String(period.days));
+
+    const label = document.createElement('div');
+    label.className = 'wg-section-label wg-bp-average-card__label';
+    const labelText = document.createElement('span');
+    labelText.textContent = period.label;
+    label.appendChild(labelText);
+    card.appendChild(label);
+
+    const value = document.createElement('div');
+    value.className = 'wg-mono-display wg-bp-average-card__value';
+    if (stat && Number.isFinite(stat.systolic) && Number.isFinite(stat.diastolic)) {
+        value.textContent = `${Math.round(stat.systolic)}/${Math.round(stat.diastolic)}`;
+    } else {
+        value.textContent = '\u2014';
+        value.classList.add('wg-bp-average-card__value--empty');
+    }
+    card.appendChild(value);
+
+    const unit = document.createElement('div');
+    unit.className = 'wg-muted wg-bp-average-card__unit';
+    unit.textContent = 'mmHg';
+    card.appendChild(unit);
+
+    if (stat && Number.isFinite(stat.readings) && stat.readings > 0) {
+        const meta = document.createElement('div');
+        meta.className = 'wg-muted wg-bp-average-card__meta';
+        const readingsWord = stat.readings === 1 ? 'reading' : 'readings';
+        meta.textContent = `${stat.readings} ${readingsWord}`;
+        card.appendChild(meta);
     }
 
-    const row = document.createElement('div');
-    row.className = 'bp-avg-row';
-
-    const appendAverageItem = (label, stat) => {
-        row.appendChild(createStatItem(
-            `${label} (${stat.days}d)`, `${stat.systolic}/${stat.diastolic}`,
-            { className: 'bp-avg-item', labelClass: 'bp-avg-label', valueClass: 'bp-avg-value' }
-        ));
-    };
-
-    if (stats.stats_14) appendAverageItem('14d', stats.stats_14);
-    if (stats.stats_30) appendAverageItem('30d', stats.stats_30);
-    if (stats.stats_60) appendAverageItem('60d', stats.stats_60);
-
-    container.replaceChildren(row);
+    return card;
 }
 
 // Render BP readings grouped by date
