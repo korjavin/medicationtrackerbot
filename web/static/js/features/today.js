@@ -79,7 +79,11 @@
         pts.sort((a, b) => a.t - b.t);
         const recent = pts.filter((p) => p.t >= cutoff);
         if (recent.length < MIN_TREND_POINTS) return null;
-        return { first: recent[0], last: recent[recent.length - 1] };
+        return {
+            first: recent[0],
+            last: recent[recent.length - 1],
+            points: recent.map((p) => p.v)
+        };
     }
 
     function nextMedCell(bootstrap, nowMs, enabled) {
@@ -118,7 +122,8 @@
             systolicDirection: trendDirection(sys.first.v, sys.last.v),
             systolicDelta: Math.round((sys.last.v - sys.first.v) * 10) / 10,
             diastolicDirection: trendDirection(dia.first.v, dia.last.v),
-            diastolicDelta: Math.round((dia.last.v - dia.first.v) * 10) / 10
+            diastolicDelta: Math.round((dia.last.v - dia.first.v) * 10) / 10,
+            systolicPoints: sys.points
         };
         return cell(value, 'bp', 'ok');
     }
@@ -143,7 +148,8 @@
         if (!anchors) return cell(null, 'weight', 'missing');
         const value = {
             direction: trendDirection(anchors.first.v, anchors.last.v),
-            delta: Math.round((anchors.last.v - anchors.first.v) * 10) / 10
+            delta: Math.round((anchors.last.v - anchors.first.v) * 10) / 10,
+            points: anchors.points
         };
         return cell(value, 'weight', 'ok');
     }
@@ -497,7 +503,7 @@
 
         const cta = d.createElement('span');
         cta.className = 'wg-next-action-card__cta wg-gloss wg-gloss--sun';
-        cta.textContent = cell.status === 'overdue' ? 'Take' : 'Take';
+        cta.textContent = cell.status === 'overdue' ? 'Take now' : 'Take';
         card.appendChild(cta);
 
         card.addEventListener('click', () => {
@@ -521,9 +527,9 @@
             muted = `/${v.diastolic}`;
             unit = `mmHg · ${relativeDayLabel(v.measured_at, nowMs) || 'today'}`;
             tag = bpStatusTag(v.systolic, v.diastolic);
-            // Stub sparkline points: only the latest reading is in state.  Real
-            // history is charted on the BP screen — this is a visual cue.
-            points = [v.diastolic, (v.systolic + v.diastolic) / 2, v.systolic];
+            if (trend && trend.status === 'ok' && trend.value && Array.isArray(trend.value.systolicPoints)) {
+                points = trend.value.systolicPoints;
+            }
         }
         if (latest.status === 'stale' && tag) tag.textContent = `${tag.textContent} · stale`;
         return renderMetricTile({
@@ -557,8 +563,8 @@
                     ? '7d flat'
                     : `7d ${sign}${trend.value.delta}`;
                 tag = statusTag('normal', label);
+                if (Array.isArray(trend.value.points)) points = trend.value.points;
             }
-            points = [v.weight - 0.4, v.weight - 0.2, v.weight];
         }
         if (latest.status === 'stale') {
             tag = statusTag('high', 'Stale');
@@ -618,10 +624,7 @@
 
         const bars = d.createElement('div');
         bars.className = 'wg-fuel-card__bars';
-        bars.appendChild(renderMiniBar({ label: 'Energy',  pct: pctValue, variant: 'sun' }));
-        bars.appendChild(renderMiniBar({ label: 'Protein', pct: 0,        variant: 'mint' }));
-        bars.appendChild(renderMiniBar({ label: 'Carbs',   pct: 0,        variant: 'sage' }));
-        bars.appendChild(renderMiniBar({ label: 'Fat',     pct: 0,        variant: 'sun-deep' }));
+        bars.appendChild(renderMiniBar({ label: 'Energy', pct: pctValue, variant: 'sun' }));
         card.appendChild(bars);
 
         card.addEventListener('click', () => {
@@ -691,8 +694,9 @@
         let detail = 'No sleep data';
         if (cell.status === 'ok' && cell.value) {
             const v = cell.value;
-            const h = Math.floor(v.hours);
-            const m = Math.round((v.hours - h) * 60);
+            const totalM = Math.round(v.hours * 60);
+            const h = Math.floor(totalM / 60);
+            const m = totalM % 60;
             value = `${h}h ${String(m).padStart(2, '0')}m`;
             detail = v.day || '';
         }
@@ -732,7 +736,6 @@
         for (let i = 0; i < 14; i += 1) {
             const bar = d.createElement('span');
             bar.className = 'wg-streak-bar';
-            card.appendChild(bar);
             bars.appendChild(bar);
         }
         card.appendChild(bars);

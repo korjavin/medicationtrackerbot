@@ -48,7 +48,11 @@ function allPresentState(now) {
             status: 'ok'
         },
         bpTrend7d: {
-            value: { systolicDirection: 'down', systolicDelta: -10, diastolicDirection: 'down', diastolicDelta: -4 },
+            value: {
+                systolicDirection: 'down', systolicDelta: -10,
+                diastolicDirection: 'down', diastolicDelta: -4,
+                systolicPoints: [132, 128, 125, 122]
+            },
             deeplink: 'bp',
             status: 'ok'
         },
@@ -58,7 +62,7 @@ function allPresentState(now) {
             status: 'ok'
         },
         weightTrend7d: {
-            value: { direction: 'down', delta: -0.8 },
+            value: { direction: 'down', delta: -0.8, points: [82.4, 82.0, 81.8, 81.6] },
             deeplink: 'weight',
             status: 'ok'
         },
@@ -130,7 +134,7 @@ describe('TodayDashboard.renderToday', () => {
         expect(root.querySelector('.wg-vitals-grid')).not.toBeNull();
         expect(root.querySelectorAll('.wg-metric-tile').length).toBe(2);
         expect(root.querySelector('.wg-fuel-card')).not.toBeNull();
-        expect(root.querySelectorAll('.wg-mini-bar').length).toBe(4);
+        expect(root.querySelectorAll('.wg-mini-bar').length).toBe(1);
         expect(root.querySelector('.wg-plan-grid')).not.toBeNull();
         expect(root.querySelectorAll('.wg-plan-tile').length).toBe(2);
         expect(root.querySelector('.wg-streak-card')).not.toBeNull();

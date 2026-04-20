@@ -64,12 +64,30 @@ async function maybeUpdateTimezone() {
 // calls update the active slot. Tapping a slot calls switchTab(id) which
 // then fires AppKernel.onTabSwitch back into this module; the setActive()
 // call there is a no-op on the already-active button, no loop.
+// Disabled feature slots are hidden so tapping them can't silently bounce
+// back to Today via the switchTab feature-flag guard.
+const NAV_ID_TO_FEATURE = {
+    bp: 'bp',
+    weight: 'weight',
+    meds: 'medication',
+    workouts: 'workout',
+    food: 'food',
+    health: 'health',
+};
+function filterNavItemsByFeatures(items, features) {
+    if (!features) return items.slice();
+    return items.filter((item) => {
+        const feature = NAV_ID_TO_FEATURE[item.id];
+        return !feature || features[feature];
+    });
+}
 function mountCanonicalBottomNav() {
     if (!window.WGBottomNav || document.querySelector('.wg-bottom-nav')) return;
     const host = document.getElementById('app') || document.body;
     if (!host) return;
+    const items = filterNavItemsByFeatures(window.WGBottomNav.DEFAULT_ITEMS, window.featureSettings);
     const ctrl = window.WGBottomNav.mount(host, {
-        items: window.WGBottomNav.DEFAULT_ITEMS,
+        items,
         active: 'today',
         onChange: (id) => {
             if (typeof switchTab === 'function') switchTab(id);

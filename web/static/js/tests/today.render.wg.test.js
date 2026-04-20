@@ -52,13 +52,21 @@ function presentState(now) {
             deeplink: 'bp',
             status: 'ok'
         },
-        bpTrend7d: { value: null, deeplink: 'bp', status: 'missing' },
+        bpTrend7d: {
+            value: {
+                systolicDirection: 'up', systolicDelta: 3,
+                diastolicDirection: 'flat', diastolicDelta: 0,
+                systolicPoints: [128, 130, 132]
+            },
+            deeplink: 'bp',
+            status: 'ok'
+        },
         weightLatest: {
             value: { weight: 84.2, measured_at: new Date(now.getTime() - 24 * 60 * 60000).toISOString() },
             deeplink: 'weight',
             status: 'ok'
         },
-        weightTrend7d: { value: { direction: 'down', delta: -0.4 }, deeplink: 'weight', status: 'ok' },
+        weightTrend7d: { value: { direction: 'down', delta: -0.4, points: [84.6, 84.4, 84.2] }, deeplink: 'weight', status: 'ok' },
         caloriesToday: { value: 1100, deeplink: 'food', status: 'ok' },
         caloriesTarget: { value: 2200, deeplink: 'food', status: 'ok' },
         nextWorkout: {
@@ -135,23 +143,21 @@ describe('Wandergeek Today render (Task 7)', () => {
         expect(onDeeplink.mock.calls.map((c) => c[0])).toEqual(['workouts', 'health']);
     });
 
-    it('fuel card mini bars render 4 macros, all as SVG-based width (no inline style)', () => {
+    it('fuel card energy mini bar reflects kcal / target percentage with SVG width (no inline style)', () => {
         const root = env.document.getElementById('today-content');
         env.render(presentState(now), root, { now });
 
         const bars = root.querySelectorAll('.wg-mini-bar');
-        expect(bars.length).toBe(4);
-        const labels = Array.from(bars).map((b) => b.querySelector('.wg-mini-bar__label').textContent);
-        expect(labels).toEqual(['Energy', 'Protein', 'Carbs', 'Fat']);
+        expect(bars.length).toBe(1);
+        const label = bars[0].querySelector('.wg-mini-bar__label').textContent;
+        expect(label).toBe('Energy');
 
         // Energy bar width reflects the kcal / target percentage (1100/2200 → 50%).
         const energyRect = bars[0].querySelector('.wg-mini-bar__fill');
         expect(energyRect).not.toBeNull();
         expect(parseFloat(energyRect.getAttribute('width'))).toBeCloseTo(50, 0);
         // No inline style anywhere in the rendered bar.
-        for (const bar of bars) {
-            expect(bar.querySelectorAll('[style]').length).toBe(0);
-        }
+        expect(bars[0].querySelectorAll('[style]').length).toBe(0);
     });
 
     it('renders sparklines inside metric tiles using WGSparkline variants', () => {

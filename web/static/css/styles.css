@@ -208,9 +208,9 @@
 
     /* ==========================================================================
        Wandergeek Design System — deep-teal stage, glossy tiles, sun accent.
-       Fonts (Instrument Serif, Source Serif 4, Space Grotesk, JetBrains Mono)
-       are loaded via <link> in index.html (see head block). No --wg-* token
-       may be referenced from JS — CSS-only per docs/frontend.md#design-tokens.
+       Fonts (Space Grotesk, JetBrains Mono) are loaded via <link> in
+       index.html (see head block). No --wg-* token may be referenced from
+       JS — CSS-only per docs/frontend.md#design-tokens.
        ========================================================================== */
 
     /* Wandergeek — raw palette */
