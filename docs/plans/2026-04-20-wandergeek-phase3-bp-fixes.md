@@ -69,12 +69,12 @@ All four fixes are localised and land without backend or test-harness changes.
 - [x] run `pnpm test` — must pass before Task 2
 
 ### Task 2: Fix BP chart tower on desktop/tablet
-- [ ] in `web/static/js/components/wg-bp-chart.js:28-29`, swap constants to `DEFAULT_WIDTH = 358; DEFAULT_HEIGHT = 200;` so the viewBox matches the handoff prototype's landscape aspect ratio
-- [ ] verify the doc comment at lines 19-20 matches the code (update comment if it drifted)
-- [ ] in `web/static/css/styles.css`, add a `max-width: 358px` (or `max-width: 100%` with `aspect-ratio: 358 / 200`) on `.wg-bp-chart` so wider containers don't upscale the SVG past its design size; centre it in the card with `margin-inline: auto`. Pick whichever approach matches the chosen guard on the three averages cards — keep the file stylistically consistent.
-- [ ] update `components.wg-bp-chart.test.js` default-dims assertion to the new 358×200; add a case asserting `viewBox === "0 0 358 200"`
-- [ ] write a test that mounts the chart inside a 900px-wide container and asserts its rendered width is capped (jsdom getBoundingClientRect may be 0, so assert the CSS rule exists in the computed stylesheet instead)
-- [ ] run `pnpm test` — must pass before Task 3
+- [x] in `web/static/js/components/wg-bp-chart.js:28-29`, swap constants to `DEFAULT_WIDTH = 358; DEFAULT_HEIGHT = 200;` so the viewBox matches the handoff prototype's landscape aspect ratio
+- [x] verify the doc comment at lines 19-20 matches the code (update comment if it drifted)
+- [x] in `web/static/css/styles.css`, add a `max-width: 358px` (or `max-width: 100%` with `aspect-ratio: 358 / 200`) on `.wg-bp-chart` so wider containers don't upscale the SVG past its design size; centre it in the card with `margin-inline: auto`. Pick whichever approach matches the chosen guard on the three averages cards — keep the file stylistically consistent.
+- [x] update `components.wg-bp-chart.test.js` default-dims assertion to the new 358×200; add a case asserting `viewBox === "0 0 358 200"`
+- [x] write a test that mounts the chart inside a 900px-wide container and asserts its rendered width is capped (jsdom getBoundingClientRect may be 0, so assert the CSS rule exists in the computed stylesheet instead)
+- [x] run `pnpm test` — must pass before Task 3
 
 ### Task 3: Restyle "+ Record BP" button to Wandergeek
 - [ ] in `web/static/index.html:78`, change the button class from `btn btn-primary btn-pill btn-fab btn-lg` to `wg-gloss wg-gloss--sun` (preserve `id="add-bp-btn"` and the `+ Record BP` text)

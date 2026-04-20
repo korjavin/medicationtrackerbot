@@ -63,7 +63,7 @@ describe('WGBpChart.render', () => {
         expect(svg.namespaceURI).toBe('http://www.w3.org/2000/svg');
         expect(svg.tagName.toLowerCase()).toBe('svg');
         expect(svg.classList.contains('wg-bp-chart')).toBe(true);
-        expect(svg.getAttribute('viewBox')).toBe('0 0 200 358');
+        expect(svg.getAttribute('viewBox')).toBe('0 0 358 200');
         expect(svg.getAttribute('aria-hidden')).toBe('true');
     });
 
@@ -177,9 +177,9 @@ describe('WGBpChart.render', () => {
         expect(lasts.length).toBe(2);
         lasts.forEach((c) => {
             const cy = parseFloat(c.getAttribute('cy'));
-            // PAD_T=14, height=358, PAD_B=26 → valid y in [14, 332].
+            // PAD_T=14, height=200, PAD_B=26 → valid y in [14, 174].
             expect(cy).toBeGreaterThanOrEqual(14);
-            expect(cy).toBeLessThanOrEqual(332);
+            expect(cy).toBeLessThanOrEqual(174);
         });
     });
 
@@ -197,7 +197,29 @@ describe('WGBpChart.render', () => {
         lasts.forEach((c) => {
             const cy = parseFloat(c.getAttribute('cy'));
             expect(cy).toBeGreaterThanOrEqual(14);
-            expect(cy).toBeLessThanOrEqual(332);
+            expect(cy).toBeLessThanOrEqual(174);
         });
+    });
+
+    it('exposes landscape DEFAULT_WIDTH=358 and DEFAULT_HEIGHT=200 so the SVG is wider than tall', () => {
+        // Guards against the Phase 3 bug where the viewBox was emitted as
+        // "0 0 200 358" (portrait). On a >360px column that produced a
+        // chart taller than the viewport. Keep this assertion tight.
+        expect(env.api.DEFAULT_WIDTH).toBe(358);
+        expect(env.api.DEFAULT_HEIGHT).toBe(200);
+        const svg = env.api.render({ readings: sampleReadings() });
+        expect(svg.getAttribute('viewBox')).toBe('0 0 358 200');
+    });
+
+    it('caps the SVG width via .wg-bp-chart CSS so wider containers do not upscale it', () => {
+        // jsdom does not evaluate the stylesheet, so assert the CSS rule
+        // itself pins a max-width to --wg-bp-chart-width (358px). This
+        // guarantees a 900px or 1200px BP view column cannot stretch the
+        // SVG past its designed fidelity.
+        const cssPath = path.join(REPO_ROOT, 'web/static/css/styles.css');
+        const css = fs.readFileSync(cssPath, 'utf8');
+        const rule = css.match(/\.wg-bp-chart\s*\{[^}]*\}/);
+        expect(rule).not.toBeNull();
+        expect(rule[0]).toMatch(/max-width:\s*var\(--wg-bp-chart-width\)/);
     });
 });

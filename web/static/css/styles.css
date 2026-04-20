@@ -4541,7 +4541,9 @@ input:checked+.toggle-slider:before {
 .wg-bp-chart {
     display: block;
     width: 100%;
+    max-width: var(--wg-bp-chart-width);
     height: auto;
+    margin-inline: auto;
 }
 
 .wg-bp-chart__guide {
