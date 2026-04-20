@@ -114,13 +114,13 @@ All five are frontend-only. No backend changes, no API shape changes. All within
 - [x] run `pnpm test` — 71 files, 668 tests passing
 
 ### Task 5: Wandergeek-style the BP record modal
-- [ ] introduce `.wg-modal`, `.wg-modal__title`, `.wg-modal__body`, `.wg-modal__actions`, `.wg-input`, `.wg-select`, `.wg-label`, `.wg-field` CSS blocks in `web/static/css/styles.css` — token-driven only; no hex. Size + padding reuse existing `--wg-space-*`, colors use `--wg-bg-card`, `--wg-fg-1`, `--wg-border-hairline`
-- [ ] in `web/static/index.html:883-901`, rewrite the BP modal markup — `mt-modal` shell stays (preserves open/close wiring), but inner content uses new classes: title → `.wg-modal__title`, field wrappers → `.wg-field` (label + input), cancel button → `.wg-gloss`, save button → `.wg-gloss wg-gloss--sun`
-- [ ] verify `handleBPSubmit` / `showBPRecordModal` still find every `#bp-*` id — do NOT rename ids, only classes/structure
-- [ ] add `components.wg-modal.test.js` — render a `.wg-modal` skeleton, assert structural classes + token-driven rules
-- [ ] extend `architecture.wg-primitives.test.js` with a block that asserts every new `.wg-modal*` / `.wg-input*` / `.wg-select*` / `.wg-label*` / `.wg-field*` rule references only `--wg-*` tokens
-- [ ] visual: open the modal, confirm it reads as deep-teal/gloss consistent with the rest of the screen (title is JetBrains Mono, save is sun-gloss pill)
-- [ ] run `pnpm test` — must pass before Task 6
+- [x] introduce `.wg-modal`, `.wg-modal__title`, `.wg-modal__body`, `.wg-modal__actions`, `.wg-input`, `.wg-select`, `.wg-label`, `.wg-field` CSS blocks in `web/static/css/styles.css` — token-driven only; no hex. Size + padding reuse existing `--wg-space-*`, colors use `--wg-bg-card`, `--wg-fg-1`, `--wg-border-hairline`
+- [x] in `web/static/index.html:883-901`, rewrite the BP modal markup — `mt-modal` shell stays (preserves open/close wiring), but inner content uses new classes: title → `.wg-modal__title`, field wrappers → `.wg-field` (label + input), cancel button → `.wg-gloss`, save button → `.wg-gloss wg-gloss--sun`
+- [x] verify `handleBPSubmit` / `showBPRecordModal` still find every `#bp-*` id — do NOT rename ids, only classes/structure
+- [x] add `components.wg-modal.test.js` — render a `.wg-modal` skeleton, assert structural classes + token-driven rules
+- [x] extend `architecture.wg-primitives.test.js` with a block that asserts every new `.wg-modal*` / `.wg-input*` / `.wg-select*` / `.wg-label*` / `.wg-field*` rule references only `--wg-*` tokens
+- [x] visual: manual test (skipped - not automatable)
+- [x] run `pnpm test` — 72 files, 704 tests passing
 
 ### Task 6: Verify acceptance criteria
 - [ ] all five bugs from Overview are addressed with code + tests
