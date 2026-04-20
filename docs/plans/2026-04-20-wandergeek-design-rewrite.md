@@ -145,11 +145,11 @@ This plan covers **Phase 1** (design system + chrome + bottom nav) and **Phase 2
 
 ### Task 6: Update CLAUDE.md and architecture docs
 
-- [ ] in `CLAUDE.md` Critical Rules section: replace rule 6 ("Today is the only landing surface; there is no persistent tab strip.") with the new rule: *"The bottom nav is the canonical navigation — one slot per real section (Today, BP, Food, Meds, Weight, Workouts, Health, Settings), wrapping to two rows when needed. No 'More' aggregator: every section is a first-class destination with its own icon. Every screen must mount inside `<wg-phone-chrome>` and render under the active nav item. See `docs/frontend.md#navigation`."*
-- [ ] update rule 3 to keep its ban on inline styles + hardcoded hex but add: *"All visual values come from `--wg-*` tokens (Wandergeek system). See `docs/frontend.md#design-tokens`."*
-- [ ] update `docs/frontend.md` Navigation section — document the new bottom nav, its 5 fixed slots, the back-pill in `AppHeader`, and how `wg-phone-chrome` wraps every view
-- [ ] update `docs/frontend.md` Design tokens section — add the Wandergeek subsection cataloguing `--wg-*` tokens by group (palette, semantic, gloss, type, status-tag) and the rule that **no `--wg-*` token may be referenced from JS** (only CSS)
-- [ ] no test changes in this task — pure docs
+- [x] in `CLAUDE.md` Critical Rules section: replace rule 6 ("Today is the only landing surface; there is no persistent tab strip.") with the new rule: *"The bottom nav is the canonical navigation — one slot per real section (Today, BP, Food, Meds, Weight, Workouts, Health, Settings), wrapping to two rows when needed. No 'More' aggregator: every section is a first-class destination with its own icon. Every screen must mount inside `<wg-phone-chrome>` and render under the active nav item. See `docs/frontend.md#navigation`."*
+- [x] update rule 3 to keep its ban on inline styles + hardcoded hex but add: *"All visual values come from `--wg-*` tokens (Wandergeek system). See `docs/frontend.md#design-tokens`."* The anchor target is the renamed heading `## Design Tokens` (was `## Design Token System`); no other refs to the old anchor exist in-tree.
+- [x] update `docs/frontend.md` Navigation section — rewrote to document the bottom nav as the canonical surface, `WGBottomNav.DEFAULT_ITEMS` canonical ordering (8 slots, no "More"), the `mountCanonicalBottomNav()` bootstrap path, `AppKernel.onTabSwitch` nav-sync, `WGIcons` stroke-icon registry, `WGPhoneChrome` wrapper + mobile media-query, and the updated `.wg-app-header` back-pill (legacy `section-*` classes retained for the phased rewrite). Back-stack model (lateral nav taps don't push; card taps do) is explicit.
+- [x] update `docs/frontend.md` Design tokens section — renamed `## Design Token System` → `## Design Tokens` (and anchor to `#design-tokens`), added the Wandergeek subsection cataloguing `--wg-*` tokens by group (palette, semantic, gloss, status-tag, typography, dimensional), and stated the rule that **no `--wg-*` token may be referenced from JS** with the `ALLOWED_JS_TOKEN_REFS` narrow-exception carve-out (e.g. `--wg-nav-cols`).
+- [x] no test changes in this task — pure docs
 
 ### Task 7: Today screen reskin (Phase 2 starts)
 
