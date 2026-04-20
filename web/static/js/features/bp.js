@@ -470,7 +470,7 @@ function groupBPReadingsByDay(readings) {
             label = 'Yesterday';
         } else {
             key = String(dayMs);
-            label = dayStart.toLocaleDateString('de-DE', {
+            label = dayStart.toLocaleDateString(undefined, {
                 day: '2-digit', month: '2-digit', year: 'numeric'
             });
         }
