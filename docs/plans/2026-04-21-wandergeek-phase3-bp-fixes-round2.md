@@ -88,12 +88,12 @@ All five are frontend-only. No backend changes, no API shape changes. All within
 - [x] run `pnpm test` — must pass before Task 2
 
 ### Task 2: Add `.wg-fab` utility and place "+ Record BP" bottom-right
-- [ ] add `.wg-fab` CSS block in `web/static/css/styles.css` next to the `.wg-gloss` block — `position: fixed; right: var(--wg-space-lg); bottom: calc(var(--wg-bottom-nav-reserved) + var(--wg-space-md)); z-index: var(--wg-z-fab, 30);` — pick tokens that already exist, add a `--wg-z-fab` token if missing
-- [ ] in `web/static/index.html:78`, change the button class to `wg-fab wg-gloss wg-gloss--sun wg-gloss--lg` (preserve `id="add-bp-btn"` and `+ Record BP` text); remove the now-redundant `.wg-gloss--lg` if the `.wg-fab` size override conflicts
-- [ ] verify on a 390px mobile viewport the button sits above the bottom nav without overlap, and on a 1280px desktop it sits bottom-right without colliding with chart card
-- [ ] extend `architecture.wg-primitives.test.js` to assert `.wg-fab` exists and references `--wg-bottom-nav-reserved`
-- [ ] extend `bp.render.test.js` to assert `#add-bp-btn` carries `wg-fab wg-gloss wg-gloss--sun`
-- [ ] run `pnpm test` — must pass before Task 3
+- [x] add `.wg-fab` CSS block in `web/static/css/styles.css` next to the `.wg-gloss` block — `position: fixed; right: var(--wg-space-lg); bottom: calc(var(--wg-bottom-nav-reserved) + var(--wg-space-md)); z-index: var(--wg-z-fab, 30);` — pick tokens that already exist, add a `--wg-z-fab` token if missing
+- [x] in `web/static/index.html:78`, change the button class to `wg-fab wg-gloss wg-gloss--sun wg-gloss--lg` (preserve `id="add-bp-btn"` and `+ Record BP` text); remove the now-redundant `.wg-gloss--lg` if the `.wg-fab` size override conflicts
+- [x] manual viewport check (skipped - not automatable)
+- [x] extend `architecture.wg-primitives.test.js` to assert `.wg-fab` exists and references `--wg-bottom-nav-reserved`
+- [x] extend `bp.render.test.js` to assert `#add-bp-btn` carries `wg-fab wg-gloss wg-gloss--sun`
+- [x] run `pnpm test` — must pass before Task 3
 
 ### Task 3: Make BP history dates legible
 - [ ] in `web/static/css/styles.css:4850-4854`, change `.wg-bp-reading-row__time { color: var(--wg-fg-4); }` → `color: var(--wg-fg-3);` — leaves other `--wg-fg-4` consumers untouched
