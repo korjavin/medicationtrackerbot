@@ -25,6 +25,7 @@ const REQUIRED_CLASSES = [
     '.wg-gloss--clay',
     '.wg-gloss--inset',
     '.wg-gloss--lg',
+    '.wg-fab',
     '.wg-icon-btn',
     '.wg-tag',
     '.wg-tag--normal',
@@ -144,6 +145,16 @@ describe('Wandergeek material primitives', () => {
         // No hex literals in the stage rule — enforced generically by the
         // hex-literal loop above, re-asserted here so regressions are loud.
         expect(blocks[0]).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    });
+
+    it('.wg-fab is a fixed FAB anchored above the bottom nav via --wg-bottom-nav-reserved', () => {
+        const blocks = extractClassBlocks(css, '.wg-fab');
+        expect(blocks.length).toBeGreaterThan(0);
+        const body = blocks[0];
+        expect(body).toMatch(/position:\s*fixed\b/);
+        expect(body).toMatch(/right:\s*var\(--space-/);
+        expect(body).toMatch(/bottom:\s*calc\([^)]*var\(--wg-bottom-nav-reserved\)/);
+        expect(body).toMatch(/z-index:\s*var\(--wg-z-fab\)/);
     });
 
     it('#bp-view opts into the shared screen-stage utility in index.html', () => {

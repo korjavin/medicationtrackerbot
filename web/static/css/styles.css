@@ -314,6 +314,10 @@
     --wg-nav-item-font-size: 9.5px;
     --wg-nav-icon-size: 22px;
     --wg-bottom-nav-z: 40;
+    /* FAB sits below the fixed bottom nav (z 40) in stacking order, but
+       its vertical bottom offset (--wg-bottom-nav-reserved + --space-md)
+       keeps it geometrically above the nav so the two never overlap. */
+    --wg-z-fab: 30;
     /* Reserved viewport-bottom space so fixed nav never occludes page content.
        Sized for the two-row default (8 items): 30px bottom pad + 12px inner pad +
        two 52px rows + 4px row gap + ~12px slack ≈ 160px. */
@@ -3864,6 +3868,17 @@ input:checked+.toggle-slider:before {
     min-height: 44px;
     padding: var(--space-md) var(--space-xl);
     font-size: var(--font-size-md);
+}
+
+/* Floating action button utility — generic, reused by every section that
+   needs an "add new entry" pill above the bottom nav (BP, Food, Meds,
+   Weight, Workouts). Vertical offset comes from --wg-bottom-nav-reserved
+   so the FAB sits clear of the fixed nav at every viewport. */
+.wg-fab {
+    position: fixed;
+    right: var(--space-lg);
+    bottom: calc(var(--wg-bottom-nav-reserved) + var(--space-md));
+    z-index: var(--wg-z-fab);
 }
 
 .wg-icon-btn {
