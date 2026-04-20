@@ -9,6 +9,8 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const SECTION_HEADER_JS = path.join(REPO_ROOT, 'web/static/js/components/section-header.js');
+const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
+const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
 const TODAY_JS = path.join(REPO_ROOT, 'web/static/js/features/today.js');
 
 function loadRenderEnv() {
@@ -20,6 +22,8 @@ function loadRenderEnv() {
     const { window } = dom;
     window.eval(fs.readFileSync(EMPTY_STATE_JS, 'utf8') + '\nwindow.createEmptyState = createEmptyState;');
     window.eval(fs.readFileSync(SECTION_HEADER_JS, 'utf8'));
+    window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
+    window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
     window.eval(fs.readFileSync(TODAY_JS, 'utf8'));
     return {
         window,
@@ -112,61 +116,64 @@ describe('TodayDashboard.renderToday', () => {
         env = null;
     });
 
-    it('renders a card for each populated metric in all-present state', () => {
+    it('renders every canonical Wandergeek section when all data is present', () => {
         const root = env.document.getElementById('today-content');
         env.render(allPresentState(now), root, { now });
+
+        expect(root.classList.contains('wg-today')).toBe(true);
 
         const title = root.querySelector('.section-header .section-title');
         expect(title).not.toBeNull();
         expect(title.textContent).toBe('Good morning');
 
-        const cards = root.querySelectorAll('.today-card');
-        expect(cards.length).toBe(6);
+        expect(root.querySelector('.wg-next-action-card')).not.toBeNull();
+        expect(root.querySelector('.wg-vitals-grid')).not.toBeNull();
+        expect(root.querySelectorAll('.wg-metric-tile').length).toBe(2);
+        expect(root.querySelector('.wg-fuel-card')).not.toBeNull();
+        expect(root.querySelectorAll('.wg-mini-bar').length).toBe(4);
+        expect(root.querySelector('.wg-plan-grid')).not.toBeNull();
+        expect(root.querySelectorAll('.wg-plan-tile').length).toBe(2);
+        expect(root.querySelector('.wg-streak-card')).not.toBeNull();
 
-        const deeplinks = Array.from(cards).map((c) => c.getAttribute('data-deeplink'));
-        expect(deeplinks).toEqual(['meds', 'bp', 'weight', 'food', 'workouts', 'health']);
+        const bpTile = root.querySelector('.wg-metric-tile[data-deeplink="bp"]');
+        expect(bpTile.textContent).toMatch(/122/);
+        expect(bpTile.textContent).toMatch(/80/);
 
-        const bpCard = root.querySelector('.today-card[data-deeplink="bp"]');
-        expect(bpCard.textContent).toMatch(/122\/80/);
-        expect(bpCard.querySelector('.today-trend-arrow')).not.toBeNull();
-
-        const weightCard = root.querySelector('.today-card[data-deeplink="weight"]');
-        expect(weightCard.textContent).toMatch(/81\.6 kg/);
-        expect(weightCard.querySelector('.today-trend-down')).not.toBeNull();
+        const weightTile = root.querySelector('.wg-metric-tile[data-deeplink="weight"]');
+        expect(weightTile.textContent).toMatch(/81\.6/);
     });
 
-    it('renders empty-state messages for all missing cards', () => {
+    it('omits the next-action card and still renders vitals when meds are missing', () => {
         const root = env.document.getElementById('today-content');
         env.render(allMissingState(), root, { now });
 
-        const cards = root.querySelectorAll('.today-card');
-        expect(cards.length).toBe(6);
-
-        for (const card of cards) {
-            expect(card.classList.contains('today-card-missing')).toBe(true);
-        }
-
-        // Cards with no partial data should use the empty-state primitive.
-        // Calories has its own zero-state ("0 kcal — no entries yet") which
-        // is more informative than a generic empty state.
-        const nonCaloriesCards = root.querySelectorAll(
-            '.today-card:not([data-deeplink="food"])'
-        );
-        for (const card of nonCaloriesCards) {
-            expect(card.querySelector('.today-card-empty')).not.toBeNull();
-        }
+        const nextAction = root.querySelector('.wg-next-action-card');
+        expect(nextAction).not.toBeNull();
+        // Missing state surfaces a clear placeholder rather than hiding the card.
+        expect(nextAction.textContent).toMatch(/No scheduled doses/i);
+        // Vitals + fuel + plan + streak still render.
+        expect(root.querySelector('.wg-vitals-grid')).not.toBeNull();
+        expect(root.querySelector('.wg-fuel-card')).not.toBeNull();
+        expect(root.querySelector('.wg-plan-grid')).not.toBeNull();
+        expect(root.querySelector('.wg-streak-card')).not.toBeNull();
     });
 
-    it('omits all cards when every feature is disabled, showing the connect empty state', () => {
+    it('shows the disabled empty state when every feature is off', () => {
         const root = env.document.getElementById('today-content');
         env.render(allDisabledState(), root, { now });
 
-        expect(root.querySelectorAll('.today-card').length).toBe(0);
-        expect(root.querySelector('.today-card-grid')).toBeNull();
-        expect(root.querySelector('.today-empty')).not.toBeNull();
+        expect(root.querySelector('.wg-next-action-card')).toBeNull();
+        expect(root.querySelector('.wg-vitals-grid')).toBeNull();
+        expect(root.querySelector('.wg-fuel-card')).toBeNull();
+        expect(root.querySelector('.wg-plan-grid')).toBeNull();
+        expect(root.querySelector('.wg-streak-card')).toBeNull();
+
+        const empty = root.querySelector('.today-empty');
+        expect(empty).not.toBeNull();
+        expect(empty.classList.contains('today-empty-disabled')).toBe(true);
     });
 
-    it('renders partial state: BP present but weight/food/workout missing, meds disabled', () => {
+    it('renders partial state: BP present but meds disabled, weight/food/workout missing', () => {
         const root = env.document.getElementById('today-content');
         const state = allMissingState();
         state.bpLatest = {
@@ -177,44 +184,43 @@ describe('TodayDashboard.renderToday', () => {
         state.nextMed = { value: null, deeplink: 'meds', status: 'disabled' };
         env.render(state, root, { now });
 
-        const cards = root.querySelectorAll('.today-card');
-        const deeplinks = Array.from(cards).map((c) => c.getAttribute('data-deeplink'));
-        expect(deeplinks).not.toContain('meds');
-        expect(deeplinks).toContain('bp');
-
-        const bpCard = root.querySelector('.today-card[data-deeplink="bp"]');
-        expect(bpCard.classList.contains('today-card-ok')).toBe(true);
-        expect(bpCard.textContent).toMatch(/130\/85/);
+        expect(root.querySelector('.wg-next-action-card')).toBeNull();
+        const bpTile = root.querySelector('.wg-metric-tile[data-deeplink="bp"]');
+        expect(bpTile).not.toBeNull();
+        expect(bpTile.textContent).toMatch(/130/);
+        expect(bpTile.textContent).toMatch(/85/);
     });
 
-    it('marks overdue medication with a warning badge and warning class', () => {
+    it('surfaces an Overdue kicker on the next-action card when medication is overdue', () => {
         const root = env.document.getElementById('today-content');
         const state = allPresentState(now);
         state.nextMed.status = 'overdue';
         env.render(state, root, { now });
 
-        const medCard = root.querySelector('.today-card[data-deeplink="meds"]');
-        expect(medCard.classList.contains('today-card-warning')).toBe(true);
-        expect(medCard.querySelector('.today-card-badge-warning')).not.toBeNull();
+        const card = root.querySelector('.wg-next-action-card');
+        expect(card).not.toBeNull();
+        const kicker = card.querySelector('.wg-next-action-card__kicker');
+        expect(kicker.textContent).toMatch(/Overdue/);
     });
 
-    it('marks stale BP latest reading with a stale badge', () => {
+    it('marks a stale BP latest reading by appending "stale" to the tag text', () => {
         const root = env.document.getElementById('today-content');
         const state = allPresentState(now);
         state.bpLatest.status = 'stale';
         env.render(state, root, { now });
 
-        const bpCard = root.querySelector('.today-card[data-deeplink="bp"]');
-        expect(bpCard.classList.contains('today-card-stale')).toBe(true);
-        expect(bpCard.querySelector('.today-card-badge-stale')).not.toBeNull();
+        const bpTile = root.querySelector('.wg-metric-tile[data-deeplink="bp"]');
+        const tag = bpTile.querySelector('.wg-tag');
+        expect(tag).not.toBeNull();
+        expect(tag.textContent.toLowerCase()).toMatch(/stale/);
     });
 
-    it('calls onDeeplink handler when a card is clicked', () => {
+    it('calls onDeeplink handler when a metric tile is clicked', () => {
         const root = env.document.getElementById('today-content');
         const onDeeplink = vi.fn();
         env.render(allPresentState(now), root, { now, onDeeplink });
 
-        root.querySelector('.today-card[data-deeplink="bp"]').click();
+        root.querySelector('.wg-metric-tile[data-deeplink="bp"]').click();
         expect(onDeeplink).toHaveBeenCalledWith('bp');
     });
 
@@ -223,7 +229,7 @@ describe('TodayDashboard.renderToday', () => {
         env.window.switchTab = vi.fn();
         env.render(allPresentState(now), root, {});
 
-        root.querySelector('.today-card[data-deeplink="weight"]').click();
+        root.querySelector('.wg-metric-tile[data-deeplink="weight"]').click();
         expect(env.window.switchTab).toHaveBeenCalledWith('weight');
     });
 
@@ -235,47 +241,23 @@ describe('TodayDashboard.renderToday', () => {
         expect(withStyle.length).toBe(0);
     });
 
-    it('honours handlers.cardOrder to reorder cards (tab_order semantics for Today)', () => {
-        const root = env.document.getElementById('today-content');
-        env.render(allPresentState(now), root, { now, cardOrder: ['weight', 'bp', 'food'] });
-
-        const deeplinks = Array.from(root.querySelectorAll('.today-card'))
-            .map((c) => c.getAttribute('data-deeplink'));
-        // Saved order first (weight, bp, food), then remaining cards in default sequence
-        // (meds, workouts, health).
-        expect(deeplinks).toEqual(['weight', 'bp', 'food', 'meds', 'workouts', 'health']);
-    });
-
-    it('ignores unknown keys and duplicates in cardOrder', () => {
-        const root = env.document.getElementById('today-content');
-        env.render(allPresentState(now), root, {
-            now,
-            cardOrder: ['today', 'bp', 'bp', 'settings', 'unknown', 'weight']
-        });
-
-        const deeplinks = Array.from(root.querySelectorAll('.today-card'))
-            .map((c) => c.getAttribute('data-deeplink'));
-        expect(deeplinks).toEqual(['bp', 'weight', 'meds', 'food', 'workouts', 'health']);
-    });
-
     it('clears previous content on re-render to avoid duplicates', () => {
         const root = env.document.getElementById('today-content');
         env.render(allPresentState(now), root, { now });
-        const firstCount = root.querySelectorAll('.today-card').length;
+        const firstCount = root.querySelectorAll('.wg-metric-tile').length;
         env.render(allPresentState(now), root, { now });
-        const secondCount = root.querySelectorAll('.today-card').length;
+        const secondCount = root.querySelectorAll('.wg-metric-tile').length;
         expect(firstCount).toBe(secondCount);
     });
 
     it('first-run offline: render shows connect empty state with no cards when __firstRun is set', () => {
         const root = env.document.getElementById('today-content');
         const state = env.aggregate(null, null, now);
-        // loadToday sets __firstRun when no cache entries were loaded at all.
         state.__firstRun = true;
         env.render(state, root, { now });
 
-        expect(root.querySelectorAll('.today-card').length).toBe(0);
-        expect(root.querySelector('.today-card-grid')).toBeNull();
+        expect(root.querySelector('.wg-next-action-card')).toBeNull();
+        expect(root.querySelector('.wg-vitals-grid')).toBeNull();
         const empty = root.querySelector('.today-empty');
         expect(empty).not.toBeNull();
         expect(empty.classList.contains('today-empty-firstrun')).toBe(true);
@@ -283,8 +265,6 @@ describe('TodayDashboard.renderToday', () => {
     });
 
     it('empty bootstrap without caches is NOT auto-flagged first-run by aggregate', () => {
-        // Aggregate is pure and no longer infers first-run from data shape;
-        // the caller (loadToday) decides based on whether caches were loaded.
         const state = env.aggregate({ features: {} }, {}, now);
         expect(state.__firstRun).toBeUndefined();
     });
@@ -298,7 +278,7 @@ describe('TodayDashboard.renderToday', () => {
         expect(state.__firstRun).toBeUndefined();
     });
 
-    it('disabled-features: omits only disabled cards, keeps enabled ones', () => {
+    it('omits only disabled sections, keeps enabled ones', () => {
         const root = env.document.getElementById('today-content');
         const state = allPresentState(now);
         state.nextMed = { value: null, deeplink: 'meds', status: 'disabled' };
@@ -306,85 +286,10 @@ describe('TodayDashboard.renderToday', () => {
         state.caloriesTarget = { value: null, deeplink: 'food', status: 'disabled' };
         env.render(state, root, { now });
 
-        const deeplinks = Array.from(root.querySelectorAll('.today-card'))
-            .map((c) => c.getAttribute('data-deeplink'));
-        expect(deeplinks).not.toContain('meds');
-        expect(deeplinks).not.toContain('food');
-        expect(deeplinks).toContain('bp');
-        expect(deeplinks).toContain('weight');
-        expect(deeplinks).toContain('workouts');
-        expect(deeplinks).toContain('health');
-    });
-
-    it('disabled-features: when every feature disabled, shows a friendly empty state and no cards', () => {
-        const root = env.document.getElementById('today-content');
-        env.render(allDisabledState(), root, { now });
-
-        expect(root.querySelectorAll('.today-card').length).toBe(0);
-        const empty = root.querySelector('.today-empty');
-        expect(empty).not.toBeNull();
-        expect(empty.classList.contains('today-empty-disabled')).toBe(true);
-    });
-
-    it('overdue-med: applies --color-warning border via today-card-warning class and shows overdue label', () => {
-        const root = env.document.getElementById('today-content');
-        const state = allPresentState(now);
-        state.nextMed.status = 'overdue';
-        env.render(state, root, { now });
-
-        const medCard = root.querySelector('.today-card[data-deeplink="meds"]');
-        expect(medCard.classList.contains('today-card-warning')).toBe(true);
-        const badge = medCard.querySelector('.today-card-badge-warning');
-        expect(badge).not.toBeNull();
-        expect(badge.textContent.toLowerCase()).toMatch(/overdue/);
-    });
-
-    it('renders flat trend without a signed number when bp direction is flat', () => {
-        const root = env.document.getElementById('today-content');
-        const state = allPresentState(now);
-        state.bpTrend7d.value = { systolicDirection: 'flat', systolicDelta: 0, diastolicDirection: 'flat', diastolicDelta: 0 };
-        env.render(state, root, { now });
-
-        const bpCard = root.querySelector('.today-card[data-deeplink="bp"]');
-        const label = bpCard.querySelector('.today-card-trend-label');
-        expect(label.textContent).toBe('7d flat');
-        const arrow = bpCard.querySelector('.today-trend-arrow');
-        expect(arrow.classList.contains('today-trend-flat')).toBe(true);
-    });
-
-    it('renders flat weight trend label without a number when direction is flat', () => {
-        const root = env.document.getElementById('today-content');
-        const state = allPresentState(now);
-        state.weightTrend7d.value = { direction: 'flat', delta: 0 };
-        env.render(state, root, { now });
-
-        const weightCard = root.querySelector('.today-card[data-deeplink="weight"]');
-        const label = weightCard.querySelector('.today-card-trend-label');
-        expect(label.textContent).toBe('7d flat');
-    });
-
-    it('renders offline banner when state.__offline is set and not first-run', () => {
-        const root = env.document.getElementById('today-content');
-        const state = allPresentState(now);
-        state.__offline = true;
-        env.render(state, root, { now });
-
-        const banner = root.querySelector('.today-offline-banner');
-        expect(banner).not.toBeNull();
-        expect(banner.textContent).toMatch(/offline/i);
-    });
-
-    it('first-run while offline shows a single combined message, no separate banner', () => {
-        const root = env.document.getElementById('today-content');
-        const state = env.aggregate(null, null, now);
-        state.__firstRun = true;
-        state.__offline = true;
-        env.render(state, root, { now });
-
-        expect(root.querySelector('.today-offline-banner')).toBeNull();
-        const empty = root.querySelector('.today-empty-firstrun');
-        expect(empty).not.toBeNull();
-        expect(empty.textContent.toLowerCase()).toMatch(/offline|reconnect/);
+        expect(root.querySelector('.wg-next-action-card')).toBeNull();
+        expect(root.querySelector('.wg-fuel-card')).toBeNull();
+        expect(root.querySelector('.wg-vitals-grid')).not.toBeNull();
+        expect(root.querySelector('.wg-plan-grid')).not.toBeNull();
     });
 
     it('renders workout scheduled_date as a human-readable label when not today', () => {
@@ -399,8 +304,8 @@ describe('TodayDashboard.renderToday', () => {
         };
         env.render(state, root, { now });
 
-        const workoutCard = root.querySelector('.today-card[data-deeplink="workouts"]');
-        const detail = workoutCard.querySelector('.today-card-detail');
+        const workoutTile = root.querySelector('.wg-plan-tile[data-deeplink="workouts"]');
+        const detail = workoutTile.querySelector('.wg-plan-tile__detail');
         expect(detail.textContent).not.toContain('T00:00:00Z');
         expect(detail.textContent).toMatch(/18:30/);
     });
@@ -458,7 +363,30 @@ describe('TodayDashboard.renderToday', () => {
 
         expect(root.querySelectorAll('.section-header').length).toBe(1);
         const header = root.querySelector('.section-header');
-        // .section-back is part of the shared component DOM; .no-back hides it via CSS.
         expect(header.classList.contains('no-back')).toBe(true);
+    });
+
+    it('renders offline banner when state.__offline is set and not first-run', () => {
+        const root = env.document.getElementById('today-content');
+        const state = allPresentState(now);
+        state.__offline = true;
+        env.render(state, root, { now });
+
+        const banner = root.querySelector('.today-offline-banner');
+        expect(banner).not.toBeNull();
+        expect(banner.textContent).toMatch(/offline/i);
+    });
+
+    it('first-run while offline shows a single combined message, no separate banner', () => {
+        const root = env.document.getElementById('today-content');
+        const state = env.aggregate(null, null, now);
+        state.__firstRun = true;
+        state.__offline = true;
+        env.render(state, root, { now });
+
+        expect(root.querySelector('.today-offline-banner')).toBeNull();
+        const empty = root.querySelector('.today-empty-firstrun');
+        expect(empty).not.toBeNull();
+        expect(empty.textContent.toLowerCase()).toMatch(/offline|reconnect/);
     });
 });

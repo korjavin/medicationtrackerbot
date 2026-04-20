@@ -314,6 +314,31 @@
     --wg-nav-item-font-size: 9.5px;
     --wg-nav-icon-size: 22px;
     --wg-bottom-nav-z: 40;
+
+    /* Wandergeek — Today screen (Task 7). Next-action, vitals grid, fuel,
+       plan, streak cards. Tokens for dimensions that fall outside the
+       standard --space-*/--font-size-* ladder. */
+    --wg-today-gap: 10px;
+    --wg-tile-pad-block: 10px;
+    --wg-tile-pad-inline: 11px;
+    --wg-next-action-pad-block: 10px;
+    --wg-next-action-pad-inline: 12px;
+    --wg-fuel-card-pad-block: 12px;
+    --wg-fuel-card-pad-inline: 14px;
+    --wg-section-label-gap: 6px;
+    --wg-font-size-metric-value: 20px;
+    --wg-font-size-fuel-value: 22px;
+    --wg-font-size-plan-value: 13px;
+    --wg-font-size-streak-value: 18px;
+    --wg-font-size-mini: 10px;
+    --wg-font-size-caps: 10px;
+    --wg-next-action-bg: linear-gradient(180deg, rgba(251, 189, 13, 0.18) 0%, rgba(251, 189, 13, 0.06) 100%);
+    --wg-next-action-border: rgba(251, 189, 13, 0.3);
+    --wg-next-action-icon-bg: rgba(251, 189, 13, 0.2);
+    --wg-next-action-icon-border: rgba(251, 189, 13, 0.4);
+    --wg-metric-tile-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(0, 0, 0, 0) 60%), var(--wg-bg-card);
+    --wg-mini-bar-track-bg: rgba(0, 0, 0, 0.35);
+    --wg-mini-bar-track-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 body {
@@ -4269,4 +4294,381 @@ input:checked+.toggle-slider:before {
     color: var(--wg-sun);
     background: linear-gradient(180deg, rgba(251, 189, 13, 0.14) 0%, rgba(251, 189, 13, 0.05) 100%);
     box-shadow: inset 0 0 0 1px rgba(251, 189, 13, 0.22);
+}
+
+/* =============================================
+   WG TODAY — Wandergeek reskin (Task 7)
+   Deep-teal stage layout with: next-action
+   (sun), vitals grid, fuel card + mini bars,
+   plan tiles, streak card, and the sparkline
+   primitive used by metric tiles.
+   ============================================= */
+
+.wg-today {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    color: var(--wg-fg-1);
+}
+
+.wg-next-action-card {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--wg-next-action-pad-block) var(--wg-next-action-pad-inline);
+    background: var(--wg-next-action-bg);
+    border: 1px solid var(--wg-next-action-border);
+    border-radius: var(--wg-radius-card);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+}
+
+.wg-next-action-card__icon {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: var(--wg-radius-gloss);
+    background: var(--wg-next-action-icon-bg);
+    border: 1px solid var(--wg-next-action-icon-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-sun);
+}
+
+.wg-next-action-card__text {
+    flex: 1;
+    min-width: 0;
+}
+
+.wg-next-action-card__kicker {
+    font-size: var(--wg-font-size-caps);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-sun-soft);
+    font-weight: 600;
+}
+
+.wg-next-action-card__value {
+    font-family: var(--wg-font-display);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wg-next-action-card__cta {
+    flex-shrink: 0;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-sm);
+}
+
+.wg-section-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    padding: var(--wg-section-label-pad-top) var(--space-xs) var(--wg-section-label-gap);
+}
+
+.wg-section-label-row .wg-section-label {
+    padding: 0;
+}
+
+.wg-section-label-row__hint {
+    font-size: var(--wg-font-size-caps);
+    color: var(--wg-fg-3);
+}
+
+.wg-vitals-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-sm);
+}
+
+.wg-metric-tile {
+    padding: var(--wg-tile-pad-block) var(--wg-tile-pad-inline);
+    text-align: left;
+    background: var(--wg-metric-tile-bg);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-metric-tile__label {
+    font-size: var(--wg-font-size-caps);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: 600;
+}
+
+.wg-metric-tile__value {
+    font-family: var(--wg-font-display);
+    font-size: var(--wg-font-size-metric-value);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--wg-fg-1);
+    line-height: 1;
+}
+
+.wg-metric-tile__value-muted {
+    color: var(--wg-fg-3);
+    font-weight: 500;
+}
+
+.wg-metric-tile__unit {
+    font-size: var(--wg-font-size-caps);
+    color: var(--wg-fg-3);
+    font-family: var(--wg-font-ui);
+}
+
+.wg-metric-tile__spark {
+    min-height: 22px;
+}
+
+.wg-metric-tile__status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.wg-fuel-card {
+    padding: var(--wg-fuel-card-pad-block) var(--wg-fuel-card-pad-inline);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+}
+
+.wg-fuel-card__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-sm);
+}
+
+.wg-fuel-card__total {
+    font-family: var(--wg-font-display);
+    font-size: var(--wg-font-size-fuel-value);
+    line-height: 1;
+    color: var(--wg-fg-1);
+}
+
+.wg-fuel-card__total-unit {
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+    margin-left: var(--space-xs);
+}
+
+.wg-fuel-card__pct {
+    font-family: var(--wg-font-display);
+    font-size: var(--font-size-md);
+    color: var(--wg-sun);
+    line-height: 1;
+    text-align: right;
+}
+
+.wg-fuel-card__pct-label {
+    font-size: var(--wg-font-size-caps);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    margin-top: 2px;
+}
+
+.wg-fuel-card__bars {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+}
+
+.wg-mini-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.wg-mini-bar__label {
+    width: 52px;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: var(--wg-fg-2);
+}
+
+.wg-mini-bar__track {
+    flex: 1;
+    height: 6px;
+    background: var(--wg-mini-bar-track-bg);
+    border-radius: var(--wg-radius-pill);
+    box-shadow: var(--wg-mini-bar-track-shadow);
+    overflow: hidden;
+    display: block;
+}
+
+.wg-mini-bar__svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* .wg-mini-bar__fill is the SVG <rect> whose `width` attribute drives the
+   bar length. Colour comes from variant classes so consumers don't set
+   inline fill/stroke. */
+.wg-mini-bar__fill {
+    fill: var(--wg-sun);
+}
+.wg-mini-bar__fill--sun { fill: var(--wg-sun); }
+.wg-mini-bar__fill--mint { fill: var(--wg-mint-soft); }
+.wg-mini-bar__fill--sage { fill: var(--wg-teal-sage); }
+.wg-mini-bar__fill--sun-deep { fill: var(--wg-sun-deep); }
+
+.wg-mini-bar__value {
+    width: 44px;
+    font-family: var(--wg-font-display);
+    font-size: var(--wg-font-size-mini);
+    color: var(--wg-fg-3);
+    text-align: right;
+}
+
+.wg-plan-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-sm);
+}
+
+.wg-plan-tile {
+    padding: var(--wg-tile-pad-block) var(--wg-tile-pad-inline);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-plan-tile__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.wg-plan-tile__label {
+    font-size: var(--wg-font-size-caps);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: 600;
+}
+
+.wg-plan-tile__value {
+    font-family: var(--wg-font-display);
+    font-size: var(--wg-font-size-plan-value);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-plan-tile__detail {
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+}
+
+.wg-streak-card {
+    padding: var(--wg-tile-pad-block) var(--space-md);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+}
+
+.wg-streak-card__value {
+    font-family: var(--wg-font-display);
+    font-size: var(--wg-font-size-streak-value);
+    color: var(--wg-sun);
+    letter-spacing: -0.02em;
+    line-height: 1;
+}
+
+.wg-streak-card__value-label {
+    color: var(--wg-fg-3);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0;
+    margin-left: var(--space-xs);
+}
+
+.wg-streak-card__detail {
+    font-size: var(--wg-font-size-caps);
+    color: var(--wg-fg-3);
+    margin-top: 3px;
+}
+
+.wg-streak-bars {
+    display: flex;
+    gap: 3px;
+}
+
+.wg-streak-bar {
+    width: 5px;
+    border-radius: 2px;
+    background: var(--wg-mint-soft);
+}
+
+.wg-streak-bar--hot {
+    background: var(--wg-sun);
+}
+
+/* Sparkline variants — stroke & fill colours come from a single
+   `color` per variant so the <path>, fill path, and tail circle
+   all track the same --wg-* token. */
+.wg-sparkline {
+    display: block;
+    color: var(--wg-mint-soft);
+}
+.wg-sparkline--sun { color: var(--wg-sun); }
+.wg-sparkline--mint { color: var(--wg-mint-soft); }
+.wg-sparkline--mint-soft { color: var(--wg-mint-soft); }
+.wg-sparkline--coral { color: var(--wg-clay-soft); }
+
+.wg-spark {
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+}
+
+.wg-spark-fill {
+    fill: currentColor;
+    opacity: 0.14;
+    stroke: none;
+}
+
+.wg-spark-tail {
+    fill: currentColor;
+    stroke: none;
 }

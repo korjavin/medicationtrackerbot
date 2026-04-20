@@ -297,6 +297,30 @@ const WANDERGEEK_TOKENS = [
     '--wg-nav-item-font-size',
     '--wg-nav-icon-size',
     '--wg-bottom-nav-z',
+
+    // Today screen tokens (added in Task 7 alongside .wg-next-action-card,
+    // .wg-metric-tile, .wg-fuel-card, .wg-plan-tile, .wg-streak-card).
+    '--wg-today-gap',
+    '--wg-tile-pad-block',
+    '--wg-tile-pad-inline',
+    '--wg-next-action-pad-block',
+    '--wg-next-action-pad-inline',
+    '--wg-fuel-card-pad-block',
+    '--wg-fuel-card-pad-inline',
+    '--wg-section-label-gap',
+    '--wg-font-size-metric-value',
+    '--wg-font-size-fuel-value',
+    '--wg-font-size-plan-value',
+    '--wg-font-size-streak-value',
+    '--wg-font-size-mini',
+    '--wg-font-size-caps',
+    '--wg-next-action-bg',
+    '--wg-next-action-border',
+    '--wg-next-action-icon-bg',
+    '--wg-next-action-icon-border',
+    '--wg-metric-tile-bg',
+    '--wg-mini-bar-track-bg',
+    '--wg-mini-bar-track-shadow',
 ];
 
 describe('Architecture – design tokens', () => {
