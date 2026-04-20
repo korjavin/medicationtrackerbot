@@ -362,6 +362,7 @@
     --wg-bp-chart-guide-stroke-width: 1px;
     --wg-bp-chart-line-stroke-width: 2px;
     --wg-bp-chart-last-point-radius: 4px;
+    --wg-bp-chart-last-stroke-width: 2px;
     --wg-bp-average-value-size: 22px;
     --wg-bp-current-card-pad: 16px;
     --wg-bp-history-row-pad: 12px;
@@ -4644,8 +4645,8 @@ input:checked+.toggle-slider:before {
 
 .wg-bp-chart__last {
     fill: var(--wg-sun);
-    stroke: var(--wg-teal-sage);
-    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+    stroke: var(--wg-teal-stage);
+    stroke-width: var(--wg-bp-chart-last-stroke-width);
 }
 
 /* BP screen — current-reading card, range selector, chart card (Phase 3, Task 3).

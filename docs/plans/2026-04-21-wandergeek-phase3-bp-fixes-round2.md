@@ -104,14 +104,14 @@ All five are frontend-only. No backend changes, no API shape changes. All within
 - [x] run `pnpm test` — 71 files, 663 tests passing
 
 ### Task 4: Fix chart y-axis scale and sys-line end marker
-- [ ] in `web/static/js/components/wg-bp-chart.js:154-165`, replace the seed `dataMin = Y_DEFAULT_MIN; dataMax = Y_DEFAULT_MAX;` with `dataMin = Infinity; dataMax = -Infinity;`
-- [ ] after the loop, if `dataMin === Infinity` (empty data), fall back to `Y_DEFAULT_MIN`/`Y_DEFAULT_MAX` so the empty-state render still draws a chart
-- [ ] pad and snap: `yMin = Math.max(Y_FLOOR, Math.floor((dataMin - 8) / 10) * 10); yMax = Math.min(Y_CEIL, Math.ceil((dataMax + 8) / 10) * 10);` — guarantees ≥16u span + decade alignment for readable grid
-- [ ] conditionally draw the 80 and 120 normal-band dotted lines: only when they fall within `[yMin, yMax]`; when off-plot, omit them so the chart doesn't render dotted lines at clipped positions
-- [ ] in `web/static/css/styles.css:4630-4634`, give `.wg-bp-chart__last` a distinct stroke (`stroke: var(--wg-teal-stage); stroke-width: 2;`) so the sun-fill circle reads clearly against any underlying path; verify sys and dia circles render over their respective paths (adjust SVG element order in the renderer if needed)
-- [ ] update `components.wg-bp-chart.test.js` — (a) tight-range fixture → assert computed `yMin >= 60 && yMax <= 140` (span ≤80, not 110); (b) extreme-range fixture → assert `yMin === Y_FLOOR && yMax === Y_CEIL`; (c) both end-circles present in the output SVG
-- [ ] visual sanity: manually verify on a seeded 60-day fixture that the chart fills vertically, not a thin middle band
-- [ ] run `pnpm test` — must pass before Task 5
+- [x] in `web/static/js/components/wg-bp-chart.js:154-165`, replace the seed `dataMin = Y_DEFAULT_MIN; dataMax = Y_DEFAULT_MAX;` with `dataMin = Infinity; dataMax = -Infinity;`
+- [x] after the loop, if `dataMin === Infinity` (empty data), fall back to `Y_DEFAULT_MIN`/`Y_DEFAULT_MAX` so the empty-state render still draws a chart
+- [x] pad and snap: `yMin = Math.max(Y_FLOOR, Math.floor((dataMin - 8) / 10) * 10); yMax = Math.min(Y_CEIL, Math.ceil((dataMax + 8) / 10) * 10);` — guarantees ≥16u span + decade alignment for readable grid
+- [x] conditionally draw the 80 and 120 normal-band dotted lines: only when they fall within `[yMin, yMax]`; when off-plot, omit them so the chart doesn't render dotted lines at clipped positions
+- [x] in `web/static/css/styles.css:4630-4634`, give `.wg-bp-chart__last` a distinct stroke (`stroke: var(--wg-teal-stage); stroke-width: 2;`) so the sun-fill circle reads clearly against any underlying path; verify sys and dia circles render over their respective paths (adjust SVG element order in the renderer if needed)
+- [x] update `components.wg-bp-chart.test.js` — (a) tight-range fixture → assert computed `yMin >= 60 && yMax <= 140` (span ≤80, not 110); (b) extreme-range fixture → assert `yMin === Y_FLOOR && yMax === Y_CEIL`; (c) both end-circles present in the output SVG
+- [x] visual sanity: manual test (skipped - not automatable)
+- [x] run `pnpm test` — 71 files, 668 tests passing
 
 ### Task 5: Wandergeek-style the BP record modal
 - [ ] introduce `.wg-modal`, `.wg-modal__title`, `.wg-modal__body`, `.wg-modal__actions`, `.wg-input`, `.wg-select`, `.wg-label`, `.wg-field` CSS blocks in `web/static/css/styles.css` — token-driven only; no hex. Size + padding reuse existing `--wg-space-*`, colors use `--wg-bg-card`, `--wg-fg-1`, `--wg-border-hairline`
