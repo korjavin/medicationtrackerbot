@@ -80,10 +80,10 @@ No backend changes. The existing `/api/bp` endpoints, Dexie offline queue, and `
 
 ### Task 1: Extend tokens + primitives for BP-specific visual values
 
-- [ ] add `--wg-bp-*` dimensional tokens to `:root` in `styles.css` (reading-value size 44px, range-selector height, chart width 200 / height 358, band-fill alpha, dotted-guide stroke dasharray) — everything the BP view needs that isn't already covered by the shared `--wg-*` set
-- [ ] add `--wg-bp-status-*` semantic aliases that wrap the existing `--wg-tag-normal-*` / `-high-*` / `-alert-*` triplets so the BP classifier can return a token-group name and the renderer picks up the right class without duplicating tag styles
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] run `pnpm test` — design-tokens test must be green before next task
+- [x] add `--wg-bp-*` dimensional tokens to `:root` in `styles.css` (reading-value size 44px, range-selector height, chart width 200 / height 358, band-fill alpha, dotted-guide stroke dasharray) — everything the BP view needs that isn't already covered by the shared `--wg-*` set
+- [x] add `--wg-bp-status-*` semantic aliases that wrap the existing `--wg-tag-normal-*` / `-high-*` / `-alert-*` triplets so the BP classifier can return a token-group name and the renderer picks up the right class without duplicating tag styles
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] run `pnpm test` — design-tokens test must be green before next task
 
 ### Task 2: Port the BPChart SVG component
 

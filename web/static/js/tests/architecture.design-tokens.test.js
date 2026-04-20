@@ -323,6 +323,38 @@ const WANDERGEEK_TOKENS = [
     '--wg-metric-tile-bg',
     '--wg-mini-bar-track-bg',
     '--wg-mini-bar-track-shadow',
+
+    // BP screen tokens (Phase 3, Task 1) — current-reading card, range
+    // selector, chart geometry, averages, history row.
+    '--wg-bp-reading-value-size',
+    '--wg-bp-range-selector-height',
+    '--wg-bp-range-selector-pad',
+    '--wg-bp-chart-width',
+    '--wg-bp-chart-height',
+    '--wg-bp-chart-band-alpha',
+    '--wg-bp-chart-guide-dasharray',
+    '--wg-bp-chart-guide-stroke-width',
+    '--wg-bp-chart-line-stroke-width',
+    '--wg-bp-chart-last-point-radius',
+    '--wg-bp-average-value-size',
+    '--wg-bp-current-card-pad',
+    '--wg-bp-history-row-pad',
+
+    // BP status aliases — wrap the tag triplets; classifier returns the
+    // status key (normal / highnormal / grade1 / grade2) and the renderer
+    // applies `.wg-bp-status--<key>` without duplicating tag styles.
+    '--wg-bp-status-normal-bg',
+    '--wg-bp-status-normal-fg',
+    '--wg-bp-status-normal-border',
+    '--wg-bp-status-highnormal-bg',
+    '--wg-bp-status-highnormal-fg',
+    '--wg-bp-status-highnormal-border',
+    '--wg-bp-status-grade1-bg',
+    '--wg-bp-status-grade1-fg',
+    '--wg-bp-status-grade1-border',
+    '--wg-bp-status-grade2-bg',
+    '--wg-bp-status-grade2-fg',
+    '--wg-bp-status-grade2-border',
 ];
 
 describe('Architecture – design tokens', () => {

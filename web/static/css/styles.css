@@ -344,6 +344,39 @@
     --wg-metric-tile-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(0, 0, 0, 0) 60%), var(--wg-bg-card);
     --wg-mini-bar-track-bg: rgba(0, 0, 0, 0.35);
     --wg-mini-bar-track-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+
+    /* Wandergeek — BP screen (Phase 3, Task 1). Dimensional tokens for the
+       current-reading card, range selector, chart geometry, and guide-line
+       strokes. Everything visual in features/bp.js reads from here. */
+    --wg-bp-reading-value-size: 44px;
+    --wg-bp-range-selector-height: 36px;
+    --wg-bp-range-selector-pad: 4px;
+    --wg-bp-chart-width: 200px;
+    --wg-bp-chart-height: 358px;
+    --wg-bp-chart-band-alpha: 0.18;
+    --wg-bp-chart-guide-dasharray: 2 4;
+    --wg-bp-chart-guide-stroke-width: 1px;
+    --wg-bp-chart-line-stroke-width: 2px;
+    --wg-bp-chart-last-point-radius: 4px;
+    --wg-bp-average-value-size: 22px;
+    --wg-bp-current-card-pad: 16px;
+    --wg-bp-history-row-pad: 12px;
+
+    /* BP status aliases — wrap the existing tag triplets so the BP classifier
+       can return a status key (normal / highnormal / grade1 / grade2) and the
+       renderer applies `.wg-bp-status--<key>` without duplicating tag styles. */
+    --wg-bp-status-normal-bg: var(--wg-tag-normal-bg);
+    --wg-bp-status-normal-fg: var(--wg-tag-normal-fg);
+    --wg-bp-status-normal-border: var(--wg-tag-normal-border);
+    --wg-bp-status-highnormal-bg: var(--wg-tag-normal-bg);
+    --wg-bp-status-highnormal-fg: var(--wg-tag-normal-fg);
+    --wg-bp-status-highnormal-border: var(--wg-tag-normal-border);
+    --wg-bp-status-grade1-bg: var(--wg-tag-high-bg);
+    --wg-bp-status-grade1-fg: var(--wg-tag-high-fg);
+    --wg-bp-status-grade1-border: var(--wg-tag-high-border);
+    --wg-bp-status-grade2-bg: var(--wg-tag-alert-bg);
+    --wg-bp-status-grade2-fg: var(--wg-tag-alert-fg);
+    --wg-bp-status-grade2-border: var(--wg-tag-alert-border);
 }
 
 body {
