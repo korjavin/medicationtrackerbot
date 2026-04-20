@@ -175,9 +175,9 @@ This plan covers **Phase 1** (design system + chrome + bottom nav) and **Phase 2
 
 ### Task 9: [Final] Update plan and write Phase 3 plan stub
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write `docs/plans/2026-04-XX-wandergeek-phase3-bp.md` with the BP screen task breakdown (see Phase 3 stub below). Phases 4–9 follow the same template — write each one when its predecessor lands, not preemptively.
-- [ ] no code changes in this task
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write `docs/plans/2026-04-XX-wandergeek-phase3-bp.md` with the BP screen task breakdown (see Phase 3 stub below). Phases 4–9 follow the same template — write each one when its predecessor lands, not preemptively. Authored as `docs/plans/2026-04-20-wandergeek-phase3-bp.md` (XX resolved to today's date, 2026-04-20).
+- [x] no code changes in this task
 
 ## Technical Details
 
