@@ -31,8 +31,10 @@
     const PAD_R = 14;
     const PAD_T = 14;
     const PAD_B = 26;
-    const Y_MIN = 50;
-    const Y_MAX = 160;
+    const Y_FLOOR = 40;
+    const Y_CEIL = 220;
+    const Y_DEFAULT_MIN = 50;
+    const Y_DEFAULT_MAX = 160;
     const GUIDE_VALUES = [80, 120];
     const LAST_POINT_RADIUS = 4;
 
@@ -145,7 +147,20 @@
         const lastTime = data[data.length - 1].date.getTime();
         const timeSpan = (lastTime - firstTime) || 1;
         const xOf = (t) => PAD_L + ((t - firstTime) / timeSpan) * plotW;
-        const yOf = (v) => PAD_T + plotH - ((v - Y_MIN) / (Y_MAX - Y_MIN)) * plotH;
+
+        // Y-axis bounds derived from the data so hypertensive readings (>160)
+        // and very low diastolics don't escape the plot area. Guide values
+        // (80/120) always fit; bounds are clamped to absolute floor/ceiling.
+        let dataMin = Y_DEFAULT_MIN;
+        let dataMax = Y_DEFAULT_MAX;
+        for (const d of data) {
+            if (d.dia < dataMin) dataMin = d.dia;
+            if (d.sys > dataMax) dataMax = d.sys;
+        }
+        const yMin = Math.max(Y_FLOOR, Math.floor((dataMin - 5) / 10) * 10);
+        const yMax = Math.min(Y_CEIL, Math.ceil((dataMax + 5) / 10) * 10);
+        const yRange = (yMax - yMin) || 1;
+        const yOf = (v) => PAD_T + plotH - ((v - yMin) / yRange) * plotH;
 
         const sysPoints = data.map((d) => [xOf(d.date.getTime()), yOf(d.sys)]);
         const diaPoints = data.map((d) => [xOf(d.date.getTime()), yOf(d.dia)]);

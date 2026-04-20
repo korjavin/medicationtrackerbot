@@ -351,8 +351,8 @@
     --wg-bp-reading-value-size: 44px;
     --wg-bp-range-selector-height: 36px;
     --wg-bp-range-selector-pad: 4px;
-    --wg-bp-chart-width: 200px;
-    --wg-bp-chart-height: 358px;
+    --wg-bp-chart-width: 358px;
+    --wg-bp-chart-height: 200px;
     --wg-bp-chart-band-alpha: 0.18;
     --wg-bp-chart-guide-dasharray: 2 4;
     --wg-bp-chart-guide-stroke-width: 1px;
@@ -368,9 +368,9 @@
     --wg-bp-status-normal-bg: var(--wg-tag-normal-bg);
     --wg-bp-status-normal-fg: var(--wg-tag-normal-fg);
     --wg-bp-status-normal-border: var(--wg-tag-normal-border);
-    --wg-bp-status-highnormal-bg: var(--wg-tag-normal-bg);
-    --wg-bp-status-highnormal-fg: var(--wg-tag-normal-fg);
-    --wg-bp-status-highnormal-border: var(--wg-tag-normal-border);
+    --wg-bp-status-highnormal-bg: var(--wg-tag-high-bg);
+    --wg-bp-status-highnormal-fg: var(--wg-tag-high-fg);
+    --wg-bp-status-highnormal-border: var(--wg-tag-high-border);
     --wg-bp-status-grade1-bg: var(--wg-tag-high-bg);
     --wg-bp-status-grade1-fg: var(--wg-tag-high-fg);
     --wg-bp-status-grade1-border: var(--wg-tag-high-border);
