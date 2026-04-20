@@ -92,6 +92,74 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
             expect(svg.classList.contains('wg-sparkline--sun')).toBe(true);
         });
 
+        it('uses actual pulse history when recentReadings are provided', () => {
+            const { document, window } = env;
+            const recentReadings = [
+                { measured_at: '2026-04-20T08:00:00Z', pulse: 60 },
+                { measured_at: '2026-04-20T08:04:00Z', pulse: 62 },
+                { measured_at: '2026-04-20T08:08:00Z', pulse: 65 },
+                { measured_at: '2026-04-20T08:12:00Z', pulse: 66 },
+            ];
+            const latestReading = recentReadings[recentReadings.length - 1];
+            const sparkRenderSpy = vi.spyOn(window.WGSparkline, 'render');
+
+            window.renderCurrentReading(latestReading, recentReadings);
+
+            expect(sparkRenderSpy).toHaveBeenCalled();
+            const callArgs = sparkRenderSpy.mock.calls[0][0];
+            // Must use actual pulse history [60, 62, 65, 66], not fabricated values
+            expect(callArgs.points).toEqual([60, 62, 65, 66]);
+        });
+
+        it('sorts unsorted readings by measured_at before extracting pulse sparkline', () => {
+            const { document, window } = env;
+            const recentReadings = [
+                // Simulate pending items first (unsorted), then server data (newest-first)
+                { measured_at: '2026-04-20T08:08:00Z', pulse: 65 },
+                { measured_at: '2026-04-20T08:00:00Z', pulse: 60 },
+                { measured_at: '2026-04-20T08:12:00Z', pulse: 66 },
+                { measured_at: '2026-04-20T08:04:00Z', pulse: 62 },
+            ];
+            const latestReading = {
+                id: 2,
+                measured_at: '2026-04-20T08:12:00Z',
+                systolic: 118,
+                diastolic: 76,
+                pulse: 66
+            };
+            const sparkRenderSpy = vi.spyOn(window.WGSparkline, 'render');
+
+            window.renderCurrentReading(latestReading, recentReadings);
+
+            expect(sparkRenderSpy).toHaveBeenCalled();
+            const callArgs = sparkRenderSpy.mock.calls[0][0];
+            // Must sort by measured_at despite unsorted input, and show chronological trend
+            expect(callArgs.points).toEqual([60, 62, 65, 66]);
+        });
+
+        it('falls back to current pulse only if no history has pulse values', () => {
+            const { document, window } = env;
+            const recentReadings = [
+                { measured_at: '2026-04-20T08:00:00Z', pulse: null },
+                { measured_at: '2026-04-20T08:04:00Z', pulse: null },
+            ];
+            const latestReading = {
+                id: 2,
+                measured_at: '2026-04-20T08:12:00Z',
+                systolic: 118,
+                diastolic: 76,
+                pulse: 66
+            };
+            const sparkRenderSpy = vi.spyOn(window.WGSparkline, 'render');
+
+            window.renderCurrentReading(latestReading, recentReadings);
+
+            expect(sparkRenderSpy).toHaveBeenCalled();
+            const callArgs = sparkRenderSpy.mock.calls[0][0];
+            // No pulse history available, so fall back to current pulse only
+            expect(callArgs.points).toEqual([66]);
+        });
+
         it('shows "No readings yet" when the reading is null', () => {
             const { document, window } = env;
             window.renderCurrentReading(null);

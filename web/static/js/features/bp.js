@@ -173,7 +173,7 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
 
     const activeRange = getActiveBPRange();
 
-    renderCurrentReading(pickLatestReading(allReadings));
+    renderCurrentReading(pickLatestReading(allReadings), allReadings);
     renderRangeSelector({
         active: activeRange,
         onChange: (days) => {
@@ -205,7 +205,7 @@ function pickLatestReading(readings) {
     return latest;
 }
 
-function renderCurrentReading(reading) {
+function renderCurrentReading(reading, recentReadings) {
     const container = document.getElementById('bp-current-card');
     if (!container) return;
     container.replaceChildren();
@@ -260,8 +260,24 @@ function renderCurrentReading(reading) {
     if (reading.pulse && window.WGSparkline && typeof window.WGSparkline.render === 'function') {
         const sparkSlot = document.createElement('div');
         sparkSlot.className = 'wg-bp-current-card__spark';
+
+        // Extract recent pulse history (up to 7 readings with pulse values)
+        let pulsePoints = [];
+        if (Array.isArray(recentReadings) && recentReadings.length > 0) {
+            pulsePoints = recentReadings
+                .filter(r => r.pulse != null && Number.isFinite(r.pulse))
+                .sort((a, b) => new Date(a.measured_at).getTime() - new Date(b.measured_at).getTime())
+                .slice(-7)
+                .map(r => Number(r.pulse));
+        }
+
+        // Fall back to current pulse only if no history available
+        if (pulsePoints.length === 0) {
+            pulsePoints = [reading.pulse];
+        }
+
         const spark = window.WGSparkline.render({
-            points: [reading.pulse - 4, reading.pulse, reading.pulse - 2, reading.pulse + 2, reading.pulse],
+            points: pulsePoints,
             variant: 'sun',
             width: 120,
             height: 22
