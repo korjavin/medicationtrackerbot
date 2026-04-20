@@ -4315,6 +4315,25 @@ input:checked+.toggle-slider:before {
     flex-direction: column;
     gap: var(--space-sm);
     color: var(--wg-fg-1);
+    /* Bleed the deep-teal stage past #app's padding so the Wandergeek
+       palette fills edge-to-edge. Without this the near-white fg tokens
+       render near-invisible on the paper-white body. */
+    background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(86, 172, 138, 0.18), transparent 60%),
+        radial-gradient(800px 500px at 80% 110%, rgba(251, 189, 13, 0.08), transparent 60%),
+        var(--wg-bg-stage);
+    margin: calc(var(--space-lg) * -1);
+    margin-bottom: calc(var(--wg-bottom-nav-reserved) * -1);
+    padding: var(--space-lg) var(--space-lg) var(--wg-bottom-nav-reserved);
+    min-height: 100vh;
+    box-sizing: border-box;
+}
+
+/* Header title on Today: legacy .section-header .section-title (0,2,0)
+   would otherwise pin the greeting to var(--text-color) (black) on the
+   dark stage. Scoping to .wg-today gives 0,3,0 and restores the near-white. */
+.wg-today .section-header .section-title {
+    color: var(--wg-fg-1);
 }
 
 .wg-next-action-card {
