@@ -4575,7 +4575,7 @@ input:checked+.toggle-slider:before {
 
 .wg-bp-chart__last {
     fill: var(--wg-sun);
-    stroke: var(--wg-teal-stage);
+    stroke: var(--wg-teal-sage);
     stroke-width: var(--wg-bp-chart-guide-stroke-width);
 }
 
