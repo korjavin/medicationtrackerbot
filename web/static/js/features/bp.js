@@ -60,15 +60,19 @@ async function handleBPSubmit(event) {
     event.preventDefault();
 
     const datetime = document.getElementById('bp-datetime').value;
-    const systolic = parseInt(document.getElementById('bp-systolic').value);
-    const diastolic = parseInt(document.getElementById('bp-diastolic').value);
-    const pulse = document.getElementById('bp-pulse').value ? parseInt(document.getElementById('bp-pulse').value) : null;
+    const systolic = parseInt(document.getElementById('bp-systolic').value, 10);
+    const diastolic = parseInt(document.getElementById('bp-diastolic').value, 10);
+    const pulse = document.getElementById('bp-pulse').value ? parseInt(document.getElementById('bp-pulse').value, 10) : null;
     const site = document.getElementById('bp-site').value;
     const position = document.getElementById('bp-position').value;
     const notes = document.getElementById('bp-notes').value;
 
-    if (!datetime || !systolic || !diastolic) {
-        safeAlert('Please fill in all required fields');
+    if (!datetime || !Number.isFinite(systolic) || !Number.isFinite(diastolic)) {
+        safeAlert('Please fill in all required fields with valid numbers');
+        return;
+    }
+    if (pulse !== null && !Number.isFinite(pulse)) {
+        safeAlert('Pulse must be a valid number');
         return;
     }
 
@@ -268,7 +272,7 @@ function renderCurrentReading(reading, recentReadings) {
         }
 
         // Fall back to current pulse only if no history available
-        if (pulsePoints.length === 0) {
+        if (pulsePoints.length === 0 && Number.isFinite(Number(reading.pulse))) {
             pulsePoints = [Number(reading.pulse)];
         }
 
@@ -602,7 +606,7 @@ async function deleteBPReading(id) {
 async function _deleteBPApi(id) {
     // Check if this is a local-only reading
     if (typeof id === 'string' && id.startsWith('local_')) {
-        const localId = parseInt(id.replace('local_', ''));
+        const localId = parseInt(id.replace('local_', ''), 10);
         if (window.MedTrackerDB) {
             await window.MedTrackerDB.BPStore.confirmDelete(localId);
             if (window.SyncManager) window.SyncManager.updateStatus();
@@ -619,7 +623,7 @@ async function _deleteBPApi(id) {
             try {
                 // Find and delete the local record with this serverId
                 const allReadings = await window.MedTrackerDB.BPStore.getAll();
-                const localRecord = allReadings.find(r => r.serverId === parseInt(id));
+                const localRecord = allReadings.find(r => r.serverId === parseInt(id, 10));
                 if (localRecord && localRecord.localId) {
                     await window.MedTrackerDB.BPStore.confirmDelete(localRecord.localId);
                     if (window.SyncManager) window.SyncManager.updateStatus();
