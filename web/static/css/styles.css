@@ -299,6 +299,21 @@
     /* Wandergeek — app header (Task 4). JetBrains Mono title + uppercase subtitle. */
     --wg-app-header-title-size: 17px;
     --wg-app-header-subtitle-size: 10px;
+
+    /* Wandergeek — bottom nav (Task 5). Multi-row nav, one slot per section. */
+    --wg-bottom-nav-pad-top: 10px;
+    --wg-bottom-nav-pad-x: 12px;
+    --wg-bottom-nav-pad-bottom: 30px;
+    --wg-bottom-nav-inner-radius: 20px;
+    --wg-bottom-nav-inner-pad: 6px;
+    --wg-bottom-nav-gap: 4px;
+    --wg-nav-item-radius: 14px;
+    --wg-nav-item-pad-y: 8px;
+    --wg-nav-item-pad-x: 4px;
+    --wg-nav-item-gap: 3px;
+    --wg-nav-item-font-size: 9.5px;
+    --wg-nav-icon-size: 22px;
+    --wg-bottom-nav-z: 40;
 }
 
 body {
@@ -4184,4 +4199,74 @@ input:checked+.toggle-slider:before {
     .wg-home-indicator {
         display: none;
     }
+}
+
+/* ==========================================================================
+   Wandergeek bottom nav — canonical lateral navigation (Task 5).
+   One slot per real section (Today, BP, Food, Meds, Weight, Workouts, Health,
+   Settings). --wg-nav-cols is set on .wg-bottom-nav__inner by JS (items.length
+   drives the column count); when items > 5 the grid wraps to a second row.
+   ========================================================================== */
+
+.wg-bottom-nav {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: var(--wg-bottom-nav-pad-top) var(--wg-bottom-nav-pad-x) var(--wg-bottom-nav-pad-bottom);
+    background: linear-gradient(180deg, rgba(15, 37, 34, 0) 0%, rgba(15, 37, 34, 0.85) 40%, rgba(15, 37, 34, 0.95) 100%);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    z-index: var(--wg-bottom-nav-z);
+}
+
+.wg-bottom-nav__inner {
+    display: grid;
+    grid-template-columns: repeat(var(--wg-nav-cols, 5), 1fr);
+    grid-auto-flow: row;
+    gap: var(--wg-bottom-nav-gap);
+    padding: var(--wg-bottom-nav-inner-pad);
+    border-radius: var(--wg-bottom-nav-inner-radius);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(0, 0, 0, 0) 60%),
+        rgba(15, 37, 34, 0.85);
+    border: 1px solid var(--wg-border-strong);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 10px 30px -8px rgba(0, 0, 0, 0.6);
+}
+
+.wg-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--wg-nav-item-gap);
+    padding: var(--wg-nav-item-pad-y) var(--wg-nav-item-pad-x);
+    border-radius: var(--wg-nav-item-radius);
+    background: none;
+    border: none;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-nav-item-font-size);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--wg-fg-4);
+    cursor: pointer;
+    transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.wg-nav-item > svg {
+    width: var(--wg-nav-icon-size);
+    height: var(--wg-nav-icon-size);
+    stroke: currentColor;
+    fill: none;
+}
+
+.wg-nav-item:hover:not(.wg-nav-item--active) {
+    color: var(--wg-fg-2);
+}
+
+.wg-nav-item--active {
+    color: var(--wg-sun);
+    background: linear-gradient(180deg, rgba(251, 189, 13, 0.14) 0%, rgba(251, 189, 13, 0.05) 100%);
+    box-shadow: inset 0 0 0 1px rgba(251, 189, 13, 0.22);
 }

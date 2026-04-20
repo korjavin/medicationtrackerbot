@@ -282,6 +282,21 @@ const WANDERGEEK_TOKENS = [
     // App header tokens (added in Task 4 alongside .wg-app-header)
     '--wg-app-header-title-size',
     '--wg-app-header-subtitle-size',
+
+    // Bottom nav tokens (added in Task 5 alongside .wg-bottom-nav)
+    '--wg-bottom-nav-pad-top',
+    '--wg-bottom-nav-pad-x',
+    '--wg-bottom-nav-pad-bottom',
+    '--wg-bottom-nav-inner-radius',
+    '--wg-bottom-nav-inner-pad',
+    '--wg-bottom-nav-gap',
+    '--wg-nav-item-radius',
+    '--wg-nav-item-pad-y',
+    '--wg-nav-item-pad-x',
+    '--wg-nav-item-gap',
+    '--wg-nav-item-font-size',
+    '--wg-nav-icon-size',
+    '--wg-bottom-nav-z',
 ];
 
 describe('Architecture – design tokens', () => {
@@ -1073,7 +1088,19 @@ describe('Architecture – Wandergeek tokens', () => {
         }
     });
 
-    it('no --wg-* tokens are referenced from JS source files', () => {
+    it('no --wg-* tokens are referenced from JS source files (except structural allowlist)', () => {
+        // Structural variables (not visual values) are allowed on a
+        // per-file, per-token basis. Visual tokens (colors, gradients,
+        // shadows, spacing) must stay CSS-only.
+        //
+        // --wg-nav-cols in wg-bottom-nav.js: items.length determines the
+        //   grid's column count; it's a structural integer, not a visual
+        //   value, and setting it via style.setProperty is the documented
+        //   pattern from the design plan (Task 5).
+        const ALLOWED_JS_TOKEN_REFS = {
+            'web/static/js/components/wg-bottom-nav.js': new Set(['--wg-nav-cols']),
+        };
+
         const jsDir = path.join(REPO_ROOT, 'web/static/js');
         const offenders = [];
 
@@ -1086,9 +1113,16 @@ describe('Architecture – Wandergeek tokens', () => {
                 } else if (entry.isFile() && entry.name.endsWith('.js')) {
                     const content = fs.readFileSync(full, 'utf8');
                     const lines = content.split('\n');
+                    const rel = path.relative(REPO_ROOT, full);
+                    const allowedForFile = ALLOWED_JS_TOKEN_REFS[rel] || new Set();
                     lines.forEach((line, i) => {
-                        if (/--wg-[a-z0-9-]+/i.test(line)) {
-                            offenders.push(`${path.relative(REPO_ROOT, full)}:${i + 1}: ${line.trim()}`);
+                        const matches = line.match(/--wg-[a-z0-9-]+/gi);
+                        if (!matches) return;
+                        for (const m of matches) {
+                            if (!allowedForFile.has(m)) {
+                                offenders.push(`${rel}:${i + 1}: ${line.trim()}`);
+                                return;
+                            }
                         }
                     });
                 }

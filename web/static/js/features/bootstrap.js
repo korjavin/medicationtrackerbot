@@ -59,6 +59,29 @@ async function maybeUpdateTimezone() {
     }
 }
 
+// Mount the Wandergeek bottom nav into #app once. Idempotent — re-entry is a
+// no-op. The nav registers itself with AppKernel so subsequent switchTab()
+// calls update the active slot. Tapping a slot calls switchTab(id) which
+// then fires AppKernel.onTabSwitch back into this module; the setActive()
+// call there is a no-op on the already-active button, no loop.
+function mountCanonicalBottomNav() {
+    if (!window.WGBottomNav || document.querySelector('.wg-bottom-nav')) return;
+    const host = document.getElementById('app') || document.body;
+    if (!host) return;
+    const ctrl = window.WGBottomNav.mount(host, {
+        items: window.WGBottomNav.DEFAULT_ITEMS,
+        active: 'today',
+        onChange: (id) => {
+            if (typeof switchTab === 'function') switchTab(id);
+        },
+    });
+    if (window.AppKernel && typeof window.AppKernel.register === 'function') {
+        window.AppKernel.register('wgBottomNav', {
+            onTabSwitch(tab) { ctrl.setActive(tab); },
+        });
+    }
+}
+
 checkAuth().then(async authorized => {
     if (authorized) {
         window.DataStore.startChangePolling();
@@ -84,6 +107,10 @@ checkAuth().then(async authorized => {
 
         // Detect timezone after auth so bootstrap payload is cached
         await maybeUpdateTimezone();
+
+        // Mount the canonical bottom nav once (before the first switchTab so
+        // it can receive the AppKernel.onTabSwitch('today') notification).
+        mountCanonicalBottomNav();
 
         // Today is unconditionally the initial view; sections are reached via
         // Today cards or deep links.

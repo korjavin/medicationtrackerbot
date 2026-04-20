@@ -955,6 +955,9 @@ function switchTab(tab) {
     hydrateSectionHeader(tab);
 
     window.AppStore && window.AppStore.set('currentTab', tab);
+    if (window.AppKernel && typeof window.AppKernel.onTabSwitch === 'function') {
+        window.AppKernel.onTabSwitch(tab);
+    }
 
     if (tab === 'meds') {
         if (!document.querySelector('.med-tab.active')) {
