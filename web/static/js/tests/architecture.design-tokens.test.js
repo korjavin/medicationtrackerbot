@@ -1197,4 +1197,21 @@ describe('Architecture – Wandergeek tokens', () => {
             );
         }
     });
+
+    it('BP status tokens give each classifier key a distinct underlying tag triplet', () => {
+        // The BP classifier returns four keys (normal / highnormal / grade1 /
+        // grade2); the Phase 3 alias layer must map them so Normal and
+        // High-normal do not visually collapse.
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        const rootBlock = extractRootBlock(css);
+        const aliasRe = /--wg-bp-status-(\w+)-bg:\s*var\((--wg-tag-[\w-]+-bg)\)/g;
+        const mapping = new Map();
+        let m;
+        while ((m = aliasRe.exec(rootBlock)) !== null) {
+            mapping.set(m[1], m[2]);
+        }
+        expect(mapping.get('normal')).toBeDefined();
+        expect(mapping.get('highnormal')).toBeDefined();
+        expect(mapping.get('normal')).not.toBe(mapping.get('highnormal'));
+    });
 });

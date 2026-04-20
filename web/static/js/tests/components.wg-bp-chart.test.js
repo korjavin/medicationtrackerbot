@@ -163,4 +163,23 @@ describe('WGBpChart.render', () => {
         const svg = env.api.render({ readings: sampleReadings(), range: 14 });
         expect(svg.dataset.bpRange).toBe('14');
     });
+
+    it('keeps extreme hypertensive readings inside the plot area', () => {
+        // A Grade 2 HTN reading (180/110) must not be truncated above the top
+        // padding; the last-point marker's cy must fall within [PAD_T, height - PAD_B].
+        const readings = [
+            { measured_at: '2026-04-01T12:00:00Z', systolic: 118, diastolic: 76 },
+            { measured_at: '2026-04-10T12:00:00Z', systolic: 180, diastolic: 110 },
+        ];
+        const svg = env.api.render({ readings });
+        expect(svg).not.toBeNull();
+        const lasts = svg.querySelectorAll('circle.wg-bp-chart__last');
+        expect(lasts.length).toBe(2);
+        lasts.forEach((c) => {
+            const cy = parseFloat(c.getAttribute('cy'));
+            // PAD_T=14, height=200, PAD_B=26 → valid y in [14, 174].
+            expect(cy).toBeGreaterThanOrEqual(14);
+            expect(cy).toBeLessThanOrEqual(174);
+        });
+    });
 });
