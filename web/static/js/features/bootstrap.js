@@ -59,6 +59,73 @@ async function maybeUpdateTimezone() {
     }
 }
 
+// Mount the Wandergeek bottom nav into #app once. Idempotent — re-entry is a
+// no-op. The nav registers itself with AppKernel so subsequent switchTab()
+// calls update the active slot. Tapping a slot calls switchTab(id) which
+// then fires AppKernel.onTabSwitch back into this module; the setActive()
+// call there is a no-op on the already-active button, no loop.
+// Disabled feature slots are hidden so tapping them can't silently bounce
+// back to Today via the switchTab feature-flag guard.
+const NAV_ID_TO_FEATURE = {
+    bp: 'bp',
+    weight: 'weight',
+    meds: 'medication',
+    workouts: 'workout',
+    food: 'food',
+    health: 'health',
+};
+function filterNavItemsByFeatures(items, features) {
+    if (!features) return items.slice();
+    return items.filter((item) => {
+        const feature = NAV_ID_TO_FEATURE[item.id];
+        return !feature || features[feature];
+    });
+}
+let navCtrl = null;
+function mountCanonicalBottomNav() {
+    if (!window.WGBottomNav || document.querySelector('.wg-bottom-nav')) return;
+    const host = document.getElementById('app') || document.body;
+    if (!host) return;
+    const items = filterNavItemsByFeatures(window.WGBottomNav.DEFAULT_ITEMS, window.featureSettings);
+    navCtrl = window.WGBottomNav.mount(host, {
+        items,
+        active: 'today',
+        onChange: (id) => {
+            if (typeof switchTab === 'function') switchTab(id);
+        },
+    });
+    if (window.AppKernel && typeof window.AppKernel.register === 'function') {
+        window.AppKernel.register('wgBottomNav', {
+            onTabSwitch(tab) { navCtrl && navCtrl.setActive(tab); },
+        });
+    }
+}
+
+// Re-mount the bottom nav with the current feature flags. Called from
+// settings.js after a feature toggle so disabled slots disappear without a
+// reload — satisfies CLAUDE.md rule 6 ("filtered out of the nav before mount,
+// not bounced after tap").
+function rebuildCanonicalBottomNav() {
+    if (!window.WGBottomNav) return;
+    const previousActive = navCtrl ? navCtrl.getActive() : 'today';
+    if (navCtrl) {
+        navCtrl.destroy();
+        navCtrl = null;
+    }
+    const host = document.getElementById('app') || document.body;
+    if (!host) return;
+    const items = filterNavItemsByFeatures(window.WGBottomNav.DEFAULT_ITEMS, window.featureSettings);
+    const stillPresent = items.some((i) => i.id === previousActive);
+    navCtrl = window.WGBottomNav.mount(host, {
+        items,
+        active: stillPresent ? previousActive : 'today',
+        onChange: (id) => {
+            if (typeof switchTab === 'function') switchTab(id);
+        },
+    });
+}
+window.rebuildCanonicalBottomNav = rebuildCanonicalBottomNav;
+
 checkAuth().then(async authorized => {
     if (authorized) {
         window.DataStore.startChangePolling();
@@ -84,6 +151,10 @@ checkAuth().then(async authorized => {
 
         // Detect timezone after auth so bootstrap payload is cached
         await maybeUpdateTimezone();
+
+        // Mount the canonical bottom nav once (before the first switchTab so
+        // it can receive the AppKernel.onTabSwitch('today') notification).
+        mountCanonicalBottomNav();
 
         // Today is unconditionally the initial view; sections are reached via
         // Today cards or deep links.

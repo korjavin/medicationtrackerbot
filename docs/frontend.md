@@ -45,6 +45,7 @@ Loading order matters — there is no bundler; cross-file communication happens 
 1. `core/utils.js` — `safeAlert`, format helpers
 2. `components/mt-elements.js` — registers `<mt-modal>`, `<mt-setting-toggle>`
 3. `components/empty-state.js`, `stat-card.js`, `action-row.js` — UI primitives
+3b. `components/wg-icons.js`, `wg-bottom-nav.js`, `wg-sparkline.js`, `wg-phone-chrome.js` — Wandergeek design-system primitives (icon registry, bottom nav, sparkline, phone-chrome). Must load before `features/bootstrap.js` mounts the bottom nav and before `today.js` renders sparklines.
 4. `core/modal-manager.js` — `window.ModalManager`
 5. `core/api.js` — `apiCallDirect`, `apiCall` (reads `window.userInitData` lazily)
 6. `core/app-kernel.js` — `window.AppKernel` module registry
@@ -60,7 +61,7 @@ Loading order matters — there is no bundler; cross-file communication happens 
 16. `features/modal-history.js` — MutationObserver setup
 17. `features/deeplink-router.js` — `window.handleDeepLinks`
 18. `workout.js`, `push.js`, `app-shell.js` — feature extensions
-19. `features/bootstrap.js` — **must be last**. Runs `checkAuth()` then `maybeUpdateTimezone()` (detects browser timezone via `Intl.DateTimeFormat`, compares against `settings_bundle` cache, prompts on change; errors are swallowed).
+19. `features/bootstrap.js` — **must be last**. Runs `checkAuth()`, then `maybeUpdateTimezone()` (detects browser timezone via `Intl.DateTimeFormat`, compares against `settings_bundle` cache, prompts on change; errors are swallowed), then `mountCanonicalBottomNav()` (filters `WGBottomNav.DEFAULT_ITEMS` by `window.featureSettings`, mounts the nav into `#app`, and registers an AppKernel module so `switchTab()` mirrors into `ctrl.setActive()`), then the initial `switchTab('today')`, then `AppBackButton.setup()`, then `handleDeepLinks()`.
 
 ## Global Namespace Policy
 
@@ -89,30 +90,51 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.TodayDashboard` | `features/today.js` | app.js `loadToday()` |
 | `window.SectionHeader` | `components/section-header.js` | app.js, features/today.js |
 | `window.AppBackButton` | `features/back-button.js` | features/bootstrap.js |
+| `window.WGIcons` | `components/wg-icons.js` | `wg-bottom-nav.js`, `features/today.js` (tile icons) |
+| `window.WGBottomNav` | `components/wg-bottom-nav.js` | `features/bootstrap.js` (`mountCanonicalBottomNav`) |
+| `window.WGSparkline` | `components/wg-sparkline.js` | `features/today.js` (metric tile sparklines) |
+| `window.WGPhoneChrome` | `components/wg-phone-chrome.js` | design-system primitive (no runtime consumer yet) |
 
-## Design Token System
+## Design Tokens
 
 CSS custom properties defined in `:root` of `web/static/css/styles.css`. See the comment block at the top of that file for the full reference.
 
 Key rules (enforced by architecture tests in `web/static/js/tests/architecture.design-tokens.test.js`):
 
-- **No hardcoded colors in CSS** — use `--color-*` tokens
+- **No hardcoded colors in CSS** — use `--wg-*` or `--color-*` tokens
 - **No inline styles in JS** — use CSS classes (tests scan for `.style.` assignments)
-- **Button system**: `.btn` base + `.btn-primary` / `.btn-secondary` / `.btn-danger` variants + `.btn-sm` / `.btn-lg` sizes + `.btn-pill` / `.btn-icon` shapes
-- **Spacing / radius / shadow / typography / z-index** all use tokens (`--space-*`, `--radius-*`, `--shadow-*`, `--font-size-*`, `--z-*`)
+- **No `--wg-*` token may be referenced from JS** — Wandergeek tokens are CSS-only. JS sets *class names*, CSS resolves values. Narrow exceptions (e.g. structural variables like `--wg-nav-cols` on the bottom nav's grid) are allowlisted in `ALLOWED_JS_TOKEN_REFS` inside the architecture test, one file at a time with a justification.
+- **Button system (legacy)**: `.btn` base + `.btn-primary` / `.btn-secondary` / `.btn-danger` variants + `.btn-sm` / `.btn-lg` sizes + `.btn-pill` / `.btn-icon` shapes. Being phased out in favor of `.wg-gloss` variants.
+- **Spacing / radius / shadow / typography / z-index** all use tokens (`--space-*`, `--radius-*`, `--shadow-*`, `--font-size-*`, `--z-*`, and the Wandergeek `--wg-*` counterparts)
 - **Utility classes**: `.flex-row`, `.flex-between`, `.flex-center`, `.text-hint`, `.text-center`, `.hidden`, `.empty-state`, spacing helpers (`.mt-sm`, `.mb-md`, …)
+
+### Wandergeek tokens (`--wg-*`)
+
+The canonical visual system. Every new screen and component uses these. Organized by group (see `WANDERGEEK_TOKENS` in the design-tokens architecture test for the authoritative list):
+
+- **Palette** — raw color primitives: `--wg-paper`, `--wg-paper-deep`, `--wg-paper-soft`; `--wg-ink` + alpha variants (`--wg-ink-85/-70/-55/-35/-15/-08`); `--wg-teal`, `--wg-teal-stage` (deep-teal page background `#0f2522`), `--wg-teal-sage`; `--wg-mint`, `--wg-mint-soft`; `--wg-sun` (`#FBBD0D`, primary accent), `--wg-sun-deep`, `--wg-sun-soft`; `--wg-clay` (`#C6553A`, alert), `--wg-clay-soft`.
+- **Semantic** — role-based aliases on top of the palette: `--wg-bg-stage`, `--wg-bg-card`, `--wg-bg-card-inset`; foreground alphas `--wg-fg-1` through `--wg-fg-5`; `--wg-border-hairline`, `--wg-border-strong`.
+- **Gloss material** — gradient + shadow strings for the convex tile look: `--wg-gloss-bg`, `--wg-gloss-bg-sun`, `--wg-gloss-bg-clay`, `--wg-gloss-bg-inset`; matching `--wg-gloss-shadow`, `--wg-gloss-shadow-sun`, `--wg-gloss-shadow-inset`.
+- **Status tags** — triplets per severity: `--wg-tag-normal-bg/-fg/-border`, `--wg-tag-high-*`, `--wg-tag-alert-*`.
+- **Typography** — `--wg-font-display` (JetBrains Mono for headlines and numerics), `--wg-font-ui` (Space Grotesk for body text), `--wg-font-mono` (JetBrains Mono, shared family as display — headlines are intentionally mono).
+- **Dimensional** — radii (`--wg-radius-gloss/-icon/-card/-pill`), padding (`--wg-card-pad`, `--wg-phone-pad`, etc.), component sizing (`--wg-icon-btn-size`, `--wg-nav-icon-size`), font sizes (`--wg-font-size-tag`, `--wg-app-header-title-size`, …). Phone chrome, bottom nav, and app header all expose their fixed dimensions as tokens so `no-hardcoded-px` stays green.
+
+Every new `.wg-*` CSS class block must source its colors/gradients/shadows from `var(--wg-*)` — hex literals inside `.wg-*` blocks are caught by `architecture.wg-primitives.test.js`. Every new token must be added to `WANDERGEEK_TOKENS` in the architecture test in the same commit that introduces it.
 
 ## Navigation
 
-The app uses a Today-as-home pattern: Today is the only landing surface, and every other section is a push-navigation destination. There is no persistent tab strip.
+The app uses the Wandergeek **bottom nav** as the canonical navigation surface, with **Today** as the root of the back stack. Every real section has its own first-class slot — there is no "More" aggregator.
 
-- **Today is home** (`features/today.js`, exposes `window.TodayDashboard`): the default view on every cold start. Its data cards (BP, Weight, Meds, Workouts, Food, Health) are the entry points into each section — tapping a card calls `switchTab(section)`. Today's own header shows a greeting on the left and a gear button on the right that deep-links to Settings.
-- **Section headers** (`components/section-header.js`, exposes `window.SectionHeader`): every non-Today view mounts a sticky `<header class="section-header">` with a leading "← Today" back pill, a centered section title, and an optional `rightSlot`. `app.js` `switchTab` hydrates the header into each view's `<div class="section-header-mount" data-title="…">` placeholder on first activation (idempotent — re-switching doesn't duplicate). Today passes `onBack: null` to hide the back pill and uses `rightSlot` for the gear.
-- **Telegram WebApp BackButton** (`features/back-button.js`, exposes `window.AppBackButton`): `setupAppBackButton()` is called from `features/bootstrap.js` after the initial tab activates. It owns the single Telegram `BackButton.onClick` handler for the app: if a modal is open it calls `ModalManager.closeTopMostVisibleModal()`; otherwise it returns to Today via `switchTab('today')`. Visibility tracks `currentTab` via `AppStore.subscribe('currentTab')` — shown on any non-Today view, hidden on Today. `modal-history.js` calls `AppBackButton.refresh()` after a modal closes so the button re-appears on non-Today sections. Gated on `Telegram.WebApp.isVersionAtLeast('6.1')` like modal-history.
-- **`tab_order` persistence**: the `tab_order` array in `settings_bundle` and the `POST /api/settings/tab-order` endpoint now control Today card order. `renderToday()` reads `opts.cardOrder` (plumbed through `_todayReadCaches()` from the cached bootstrap / localStorage fallback), filters out unknown keys, and appends any missing cards from the default sequence so new features stay visible until the user reorders. A drag-reorder UI is still a follow-up — see `docs/plans/2026-04-XX-today-card-drag-reorder.md`.
+- **Bottom nav** (`components/wg-bottom-nav.js`, exposes `window.WGBottomNav`): `WGBottomNav.mount(rootEl, { items, active, onChange })` renders an absolute-positioned nav with one gloss tile per section. Canonical order via `WGBottomNav.DEFAULT_ITEMS` (frozen): `today, bp, food, meds, weight, workouts, health, settings` (8 slots). Layout is driven by `items.length`: ≤5 → one row, 6–8 → two rows of `Math.ceil(n/2)` columns, >8 throws `RangeError`. Column count is set via the `--wg-nav-cols` CSS variable on the inner grid (the only inline style allowed in the component, allowlisted in `architecture.design-tokens.test.js`). Mounted from `features/bootstrap.js` via `mountCanonicalBottomNav()` before the initial `switchTab('today')`; `DEFAULT_ITEMS` is filtered against `window.featureSettings` so disabled sections are hidden from the nav. Slot clicks route through `switchTab(id)`.
+- **Nav ↔ active-tab sync** (`core/app-kernel.js`): `switchTab(tab)` in `app.js` fires `window.AppKernel.onTabSwitch(tab)` after activating the view. `mountCanonicalBottomNav` registers a module whose `onTabSwitch` calls `ctrl.setActive(tab)`, so the nav mirrors whichever tab is active (including deep-link entry points and Telegram BackButton pops). Calling `setActive()` on the already-active button is a no-op.
+- **Icon registry** (`components/wg-icons.js`, exposes `window.WGIcons`): `iconSvg(name, { size, stroke })` returns a fresh `<svg>` element for a stroke-icon by name (`home, activity, apple, pill, scale, dumbbell, heart, settings`, plus a few extras). Unknown names throw. Used by the bottom nav and any future toolbar/tile icons — **do not hardcode inline SVG markup in feature code**.
+- **Phone chrome** (`components/wg-phone-chrome.js`, exposes `window.WGPhoneChrome`): `WGPhoneChrome.mount(rootEl)` / `WGPhoneChrome.create()` wrap an element in the `.wg-phone` shell (status bar + dynamic island + home indicator). Built and tested as a primitive but **not yet mounted in the runtime** — `index.html` does not load it and `bootstrap.js` does not call `mount()`. It ships for the Phase 3+ screen reskins that will wrap individual views; until then the component is a primitive available to the design system only.
+- **AppHeader / back pill** (`components/section-header.js`, exposes `window.SectionHeader`): each non-Today view still mounts a sticky header via the `<div class="section-header-mount" data-title="…">` placeholder. The header now uses the `.wg-app-header` layout (grid `44px 1fr 44px`, JetBrains Mono title with optional mono-caps `<small>` subtitle) and the back pill is a `.wg-icon-btn > .wg-gloss` button. Today passes `onBack: null` to suppress the back pill and uses `rightSlot` for the settings gear. Legacy classes (`section-header`, `section-back`, `section-title`, `section-header-right`) are retained alongside the new `.wg-app-header*` classes for a phased rewrite.
+- **Telegram WebApp BackButton** (`features/back-button.js`, exposes `window.AppBackButton`): `setupAppBackButton()` is called from `features/bootstrap.js` after the initial tab activates. It owns the single Telegram `BackButton.onClick` handler: if a modal is open it calls `ModalManager.closeTopMostVisibleModal()`; otherwise it returns to Today via `switchTab('today')`. Visibility tracks `currentTab` via `AppStore.subscribe('currentTab')` — shown on any non-Today view, hidden on Today. Tapping a nav slot is a lateral jump (no back stack); tapping into a deep view from a card creates a back stack.
+- **`tab_order` persistence**: the `tab_order` array in `settings_bundle` and the `POST /api/settings/tab-order` endpoint are still read/written, but the Wandergeek Today layout is fixed (next-action → vitals → fuel → plan → streak) and `renderToday()` does not consume `opts.cardOrder` — the stored preference is inert until a reorderable surface lands. Bottom nav order is **not** user-reorderable either.
 - **Sub-tab groups inside section views stay** (`.med-tabs`, `.workout-tabs`, `.food-tabs`, `.health-tabs`): use `bindTabGroup()` / `activateTabGroup()`. Health sub-tabs are "Overview" (charts) and "Notes" (diary); Notes loads lazily.
-- **Accessibility**: section headers use `<header>` with the title as an `<h2>`. The back button has `aria-label="Back to Today"`. Today's gear has `aria-label="Settings"`. No `role="tablist"` anywhere — navigation is landmark-based, not tab-widget-based.
-- **Deep-link router** (`features/deeplink-router.js`, `window.handleDeepLinks`): URL hash and `tgWebAppStartParam` still route to any section by name. Deep links land directly on the section (with its sticky header and BackButton visible), bypassing Today.
+- **Accessibility**: the bottom nav uses `<nav>` with each slot as a `<button aria-current="page">` when active. Section headers use `<header>` with the title as an `<h2>`. The back pill has `aria-label="Back to Today"`. Today's gear has `aria-label="Settings"`. No `role="tablist"` anywhere — navigation is landmark-based, not tab-widget-based.
+- **Deep-link router** (`features/deeplink-router.js`, `window.handleDeepLinks`): URL hash and `tgWebAppStartParam` still route to any section by name. Deep links land directly on the section with the bottom nav highlighting it and the sticky header + BackButton visible, bypassing Today.
 
 ## Data Flow
 

@@ -56,6 +56,11 @@ const ALLOWED_GLOBALS = new Set([
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js
     'window.TodayDashboard',            // features/today.js — aggregation contract consumed by the Today view renderer
     'window.SectionHeader',             // components/section-header.js — factory for sticky section headers with back-to-Today affordance
+    'window.WGPhoneChrome',             // components/wg-phone-chrome.js — Wandergeek decorative iPhone-frame wrapper (status bar, dynamic island, home indicator) around the SPA on desktop; collapses on mobile/PWA
+    'window.WGIcons',                   // components/wg-icons.js — Wandergeek stroke-icon registry (iconSvg(name) returns an <svg>); consumed by wg-bottom-nav.js and later screens
+    'window.WGBottomNav',               // components/wg-bottom-nav.js — canonical multi-row bottom nav; one slot per real section, no aggregator
+    'window.rebuildCanonicalBottomNav', // features/bootstrap.js — re-mounts the canonical bottom nav with the current feature flags; called from settings.js after a feature toggle
+    'window.WGSparkline',               // components/wg-sparkline.js — Wandergeek SVG sparkline for Today metric tiles; stroke colour is driven by CSS variant class, not a JS colour
     'window.AppBackButton',             // features/back-button.js — wires Telegram WebApp BackButton to section → Today navigation
 
     // features/settings.js — feature toggles, food targets, reminder settings

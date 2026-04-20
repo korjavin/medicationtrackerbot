@@ -79,7 +79,11 @@
         pts.sort((a, b) => a.t - b.t);
         const recent = pts.filter((p) => p.t >= cutoff);
         if (recent.length < MIN_TREND_POINTS) return null;
-        return { first: recent[0], last: recent[recent.length - 1] };
+        return {
+            first: recent[0],
+            last: recent[recent.length - 1],
+            points: recent.map((p) => p.v)
+        };
     }
 
     function nextMedCell(bootstrap, nowMs, enabled) {
@@ -118,7 +122,8 @@
             systolicDirection: trendDirection(sys.first.v, sys.last.v),
             systolicDelta: Math.round((sys.last.v - sys.first.v) * 10) / 10,
             diastolicDirection: trendDirection(dia.first.v, dia.last.v),
-            diastolicDelta: Math.round((dia.last.v - dia.first.v) * 10) / 10
+            diastolicDelta: Math.round((dia.last.v - dia.first.v) * 10) / 10,
+            systolicPoints: sys.points
         };
         return cell(value, 'bp', 'ok');
     }
@@ -143,7 +148,8 @@
         if (!anchors) return cell(null, 'weight', 'missing');
         const value = {
             direction: trendDirection(anchors.first.v, anchors.last.v),
-            delta: Math.round((anchors.last.v - anchors.first.v) * 10) / 10
+            delta: Math.round((anchors.last.v - anchors.first.v) * 10) / 10,
+            points: anchors.points
         };
         return cell(value, 'weight', 'ok');
     }
@@ -248,17 +254,19 @@
 
     // ---- Rendering ----------------------------------------------------------
     //
-    // renderToday(state, root, handlers) fills `root` with the dashboard DOM.
-    // `state` is the object returned by aggregateToday. Cards with status
-    // 'disabled' are omitted. Card activation calls handlers.onDeeplink(target).
+    // renderToday(state, root, handlers) fills `root` with the Wandergeek
+    // Today layout: sun-accent next-action card → vitals grid → fuel card
+    // with mini-bars → workout+sleep plan grid → consistency streak card.
     //
     // Rules:
-    //  - No inline style.* assignments; use CSS classes only.
-    //  - Uses existing primitives when applicable (createEmptyState).
-    //  - Stroke SVG icons, currentColor, tokens for color.
+    //  - No inline `style.*` assignments. Dynamic values (mini-bar widths)
+    //    ride on SVG attributes, not style.
+    //  - Every colour comes from a --wg-* token via a CSS class.
+    //  - Icons pulled from window.WGIcons; sparklines from window.WGSparkline.
     // ------------------------------------------------------------------------
 
     const DAY_IN_MS = 24 * 60 * 60 * 1000;
+    const SVG_NS = 'http://www.w3.org/2000/svg';
 
     function doc() {
         return (typeof document !== 'undefined') ? document : null;
@@ -287,230 +295,8 @@
         return `${days}d ago`;
     }
 
-    function svgEl(pathD) {
-        const ns = 'http://www.w3.org/2000/svg';
-        const d = doc();
-        const svg = d.createElementNS(ns, 'svg');
-        svg.setAttribute('viewBox', '0 0 24 24');
-        svg.setAttribute('fill', 'none');
-        svg.setAttribute('stroke', 'currentColor');
-        svg.setAttribute('stroke-width', '2');
-        svg.setAttribute('stroke-linecap', 'round');
-        svg.setAttribute('stroke-linejoin', 'round');
-        svg.setAttribute('aria-hidden', 'true');
-        const path = d.createElementNS(ns, 'path');
-        path.setAttribute('d', pathD);
-        svg.appendChild(path);
-        return svg;
-    }
-
-    function trendArrow(direction) {
-        // Stroke-based triangular arrow.  `direction`: 'up' | 'down' | 'flat'
-        const span = doc().createElement('span');
-        span.className = `today-trend-arrow today-trend-${direction}`;
-        if (direction === 'up') {
-            span.appendChild(svgEl('M5 15l7-7 7 7'));
-        } else if (direction === 'down') {
-            span.appendChild(svgEl('M5 9l7 7 7-7'));
-        } else {
-            span.appendChild(svgEl('M5 12h14'));
-        }
-        return span;
-    }
-
-    function cardShell({ title, status, deeplink }, onDeeplink) {
-        const d = doc();
-        const actionable = !!(deeplink && typeof onDeeplink === 'function');
-        const card = d.createElement(actionable ? 'button' : 'div');
-        if (actionable) {
-            card.type = 'button';
-        } else {
-            card.setAttribute('role', 'group');
-        }
-        card.className = `today-card today-card-${status}`;
-        card.setAttribute('data-deeplink', deeplink || '');
-        if (status === 'overdue') card.classList.add('today-card-warning');
-        if (status === 'stale') card.classList.add('today-card-stale');
-
-        const header = d.createElement('div');
-        header.className = 'today-card-header';
-        const titleEl = d.createElement('span');
-        titleEl.className = 'today-card-title';
-        titleEl.textContent = title;
-        header.appendChild(titleEl);
-        if (status === 'overdue') {
-            const badge = d.createElement('span');
-            badge.className = 'today-card-badge today-card-badge-warning';
-            badge.textContent = 'overdue';
-            header.appendChild(badge);
-        } else if (status === 'stale') {
-            const badge = d.createElement('span');
-            badge.className = 'today-card-badge today-card-badge-stale';
-            badge.textContent = 'stale';
-            header.appendChild(badge);
-        }
-        card.appendChild(header);
-
-        if (actionable) {
-            card.addEventListener('click', () => onDeeplink(deeplink));
-        }
-        return card;
-    }
-
-    function cardBody(card, textNodes) {
-        const d = doc();
-        const body = d.createElement('div');
-        body.className = 'today-card-body';
-        for (const node of textNodes) {
-            if (node == null) continue;
-            if (typeof node === 'string') {
-                const span = d.createElement('span');
-                span.textContent = node;
-                body.appendChild(span);
-            } else {
-                body.appendChild(node);
-            }
-        }
-        card.appendChild(body);
-        return body;
-    }
-
-    function cardMissing(card, message) {
-        const d = doc();
-        const empty = (typeof window !== 'undefined' && typeof window.createEmptyState === 'function')
-            ? window.createEmptyState(message, { tag: 'div', className: 'today-card-empty' })
-            : null;
-        if (empty) {
-            card.appendChild(empty);
-            return empty;
-        }
-        const fallback = d.createElement('div');
-        fallback.className = 'empty-state-msg today-card-empty';
-        fallback.textContent = message;
-        card.appendChild(fallback);
-        return fallback;
-    }
-
-    function renderNextMedCard(cell, onDeeplink, nowMs) {
-        if (cell.status === 'disabled') return null;
-        const card = cardShell(
-            { title: 'Next medication', status: cell.status, deeplink: cell.deeplink },
-            onDeeplink
-        );
-        if (cell.status === 'missing') {
-            cardMissing(card, 'No scheduled doses');
-            return card;
-        }
-        const names = (cell.value && Array.isArray(cell.value.names)) ? cell.value.names : [];
-        const at = fmtTimeHM(cell.value && cell.value.scheduledAt);
-        const primary = doc().createElement('span');
-        primary.className = 'today-card-value';
-        primary.textContent = at || '—';
-        const secondary = doc().createElement('span');
-        secondary.className = 'today-card-detail';
-        secondary.textContent = names.length > 0 ? names.join(', ') : 'scheduled';
-        cardBody(card, [primary, secondary]);
-        return card;
-    }
-
-    function renderBpCard(latest, trend, onDeeplink, nowMs) {
-        if (latest.status === 'disabled') return null;
-        const card = cardShell(
-            { title: 'Blood pressure', status: latest.status, deeplink: latest.deeplink },
-            onDeeplink
-        );
-        if (latest.status === 'missing') {
-            cardMissing(card, 'Log a reading to see it here');
-            return card;
-        }
-        const v = latest.value || {};
-        const primary = doc().createElement('span');
-        primary.className = 'today-card-value';
-        primary.textContent = `${v.systolic}/${v.diastolic}`;
-        const secondary = doc().createElement('span');
-        secondary.className = 'today-card-detail';
-        secondary.textContent = relativeDayLabel(v.measured_at, nowMs);
-        cardBody(card, [primary, secondary]);
-        if (trend && trend.status === 'ok') {
-            const row = doc().createElement('div');
-            row.className = 'today-card-trend';
-            const dir = trend.value.systolicDirection;
-            row.appendChild(trendArrow(dir));
-            const label = doc().createElement('span');
-            label.className = 'today-card-trend-label';
-            const delta = trend.value.systolicDelta;
-            const sign = delta > 0 ? '+' : '';
-            label.textContent = dir === 'flat' ? '7d flat' : `7d ${sign}${delta}`;
-            row.appendChild(label);
-            card.appendChild(row);
-        }
-        return card;
-    }
-
-    function renderWeightCard(latest, trend, onDeeplink, nowMs) {
-        if (latest.status === 'disabled') return null;
-        const card = cardShell(
-            { title: 'Weight', status: latest.status, deeplink: latest.deeplink },
-            onDeeplink
-        );
-        if (latest.status === 'missing') {
-            cardMissing(card, 'Log your weight to start tracking');
-            return card;
-        }
-        const v = latest.value || {};
-        const primary = doc().createElement('span');
-        primary.className = 'today-card-value';
-        primary.textContent = `${v.weight} kg`;
-        const secondary = doc().createElement('span');
-        secondary.className = 'today-card-detail';
-        secondary.textContent = relativeDayLabel(v.measured_at, nowMs);
-        cardBody(card, [primary, secondary]);
-        if (trend && trend.status === 'ok') {
-            const row = doc().createElement('div');
-            row.className = 'today-card-trend';
-            const dir = trend.value.direction;
-            row.appendChild(trendArrow(dir));
-            const label = doc().createElement('span');
-            label.className = 'today-card-trend-label';
-            const delta = trend.value.delta;
-            const sign = delta > 0 ? '+' : '';
-            label.textContent = dir === 'flat' ? '7d flat' : `7d ${sign}${delta} kg`;
-            row.appendChild(label);
-            card.appendChild(row);
-        }
-        return card;
-    }
-
-    function renderCaloriesCard(today, target, onDeeplink) {
-        if (today.status === 'disabled') return null;
-        const card = cardShell(
-            { title: 'Calories today', status: today.status, deeplink: today.deeplink },
-            onDeeplink
-        );
-        const primary = doc().createElement('span');
-        primary.className = 'today-card-value';
-        const current = Number.isFinite(today.value) ? today.value : 0;
-        primary.textContent = String(current);
-        cardBody(card, [primary]);
-        if (target && target.status === 'ok') {
-            const sub = doc().createElement('span');
-            sub.className = 'today-card-detail';
-            sub.textContent = `of ${target.value} kcal`;
-            card.querySelector('.today-card-body').appendChild(sub);
-        } else if (today.status === 'missing') {
-            const sub = doc().createElement('span');
-            sub.className = 'today-card-detail';
-            sub.textContent = 'no entries yet';
-            card.querySelector('.today-card-body').appendChild(sub);
-        }
-        return card;
-    }
-
     function fmtDayLabel(iso) {
         if (!iso) return '';
-        // `scheduled_date` is a bare YYYY-MM-DD on the API; parsing via Date.parse
-        // treats it as UTC midnight, which shifts the rendered day back by one in
-        // UTC-negative zones. Reconstruct from y/m/d components for local midnight.
         const dateOnly = String(iso).split('T')[0];
         const parts = dateOnly.split('-').map(Number);
         let d;
@@ -528,47 +314,444 @@
         }
     }
 
-    function renderWorkoutCard(cell, onDeeplink) {
-        if (cell.status === 'disabled') return null;
-        const card = cardShell(
-            { title: 'Next workout', status: cell.status, deeplink: cell.deeplink },
-            onDeeplink
-        );
-        if (cell.status === 'missing') {
-            cardMissing(card, 'No scheduled workout');
-            return card;
+    function iconSvgOrNull(name, size) {
+        if (typeof window === 'undefined' || !window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') {
+            return null;
         }
-        const v = cell.value || {};
-        const primary = doc().createElement('span');
-        primary.className = 'today-card-value';
-        primary.textContent = v.group_name || 'Workout';
-        const secondary = doc().createElement('span');
-        secondary.className = 'today-card-detail';
-        const when = v.is_today ? 'today' : fmtDayLabel(v.scheduled_date);
-        const time = v.scheduled_time ? ` · ${v.scheduled_time}` : '';
-        secondary.textContent = `${when}${time}`.trim();
-        cardBody(card, [primary, secondary]);
+        try {
+            return window.WGIcons.iconSvg(name, { size: size || 16 });
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function sparklineOrNull(points, variant) {
+        if (typeof window === 'undefined' || !window.WGSparkline || typeof window.WGSparkline.render !== 'function') {
+            return null;
+        }
+        return window.WGSparkline.render({ points, variant });
+    }
+
+    function sectionLabelRow(labelText, hintText) {
+        const d = doc();
+        const row = d.createElement('div');
+        row.className = 'wg-section-label-row';
+        const label = d.createElement('span');
+        label.className = 'wg-section-label';
+        label.textContent = labelText;
+        row.appendChild(label);
+        if (hintText) {
+            const hint = d.createElement('span');
+            hint.className = 'wg-section-label-row__hint';
+            hint.textContent = hintText;
+            row.appendChild(hint);
+        }
+        return row;
+    }
+
+    // Private helper used by the vitals grid. Each tile is a single <button>
+    // that fires `onClick` when tapped.
+    function renderMetricTile({ label, value, valueMuted, unit, statusTag, sparkPoints, variant, deeplink, onClick }) {
+        const d = doc();
+        const tile = d.createElement('button');
+        tile.type = 'button';
+        tile.className = 'wg-metric-tile';
+        tile.setAttribute('data-deeplink', deeplink || '');
+        tile.setAttribute('data-section', deeplink || 'metric');
+
+        const labelEl = d.createElement('span');
+        labelEl.className = 'wg-metric-tile__label';
+        labelEl.textContent = label;
+        tile.appendChild(labelEl);
+
+        const valueEl = d.createElement('span');
+        valueEl.className = 'wg-metric-tile__value';
+        valueEl.textContent = value != null ? String(value) : '—';
+        if (valueMuted != null && valueMuted !== '') {
+            const muted = d.createElement('span');
+            muted.className = 'wg-metric-tile__value-muted';
+            muted.textContent = valueMuted;
+            valueEl.appendChild(muted);
+        }
+        tile.appendChild(valueEl);
+
+        const unitEl = d.createElement('span');
+        unitEl.className = 'wg-metric-tile__unit';
+        unitEl.textContent = unit || '';
+        tile.appendChild(unitEl);
+
+        const sparkSlot = d.createElement('span');
+        sparkSlot.className = 'wg-metric-tile__spark';
+        const sparkSvg = Array.isArray(sparkPoints) && sparkPoints.length > 0
+            ? sparklineOrNull(sparkPoints, variant)
+            : null;
+        if (sparkSvg) sparkSlot.appendChild(sparkSvg);
+        tile.appendChild(sparkSlot);
+
+        const statusSlot = d.createElement('span');
+        statusSlot.className = 'wg-metric-tile__status';
+        if (statusTag instanceof Node) {
+            statusSlot.appendChild(statusTag);
+        } else if (typeof statusTag === 'string' && statusTag.length > 0) {
+            const tag = d.createElement('span');
+            tag.className = 'wg-tag wg-tag--normal';
+            tag.textContent = statusTag;
+            statusSlot.appendChild(tag);
+        }
+        tile.appendChild(statusSlot);
+
+        if (typeof onClick === 'function') {
+            tile.addEventListener('click', onClick);
+        }
+        return tile;
+    }
+
+    // Private helper for the fuel card's mini-bar stack. Uses an SVG <rect>
+    // whose `width` attribute encodes the percentage (not an inline style),
+    // so the [style] attribute stays off the DOM.
+    function renderMiniBar({ label, pct, variant }) {
+        const d = doc();
+        const row = d.createElement('div');
+        row.className = 'wg-mini-bar';
+
+        const labelEl = d.createElement('span');
+        labelEl.className = 'wg-mini-bar__label';
+        labelEl.textContent = label;
+        row.appendChild(labelEl);
+
+        const track = d.createElement('span');
+        track.className = 'wg-mini-bar__track';
+        const svg = d.createElementNS(SVG_NS, 'svg');
+        svg.setAttribute('viewBox', '0 0 100 6');
+        svg.setAttribute('preserveAspectRatio', 'none');
+        svg.setAttribute('aria-hidden', 'true');
+        svg.classList.add('wg-mini-bar__svg');
+
+        const clamped = Math.max(0, Math.min(100, Number.isFinite(pct) ? pct : 0));
+        const rect = d.createElementNS(SVG_NS, 'rect');
+        rect.setAttribute('x', '0');
+        rect.setAttribute('y', '0');
+        rect.setAttribute('width', String(clamped.toFixed(2)));
+        rect.setAttribute('height', '6');
+        rect.classList.add('wg-mini-bar__fill');
+        if (variant) rect.classList.add(`wg-mini-bar__fill--${variant}`);
+        svg.appendChild(rect);
+        track.appendChild(svg);
+        row.appendChild(track);
+
+        const valueEl = d.createElement('span');
+        valueEl.className = 'wg-mini-bar__value';
+        valueEl.textContent = `${Math.round(clamped)}%`;
+        row.appendChild(valueEl);
+
+        return row;
+    }
+
+    function statusTag(kind, text) {
+        const span = doc().createElement('span');
+        span.className = `wg-tag wg-tag--${kind}`;
+        span.textContent = text;
+        return span;
+    }
+
+    function bpStatusTag(systolic, diastolic) {
+        if (!Number.isFinite(systolic) || !Number.isFinite(diastolic)) return null;
+        if (systolic >= 140 || diastolic >= 90) return statusTag('alert', 'High');
+        if (systolic >= 130 || diastolic >= 85) return statusTag('high', 'Stage 1');
+        if (systolic >= 120 || diastolic >= 80) return statusTag('high', 'High-normal');
+        return statusTag('normal', 'Normal');
+    }
+
+    function renderNextActionCard(cell, onDeeplink) {
+        if (!cell || cell.status === 'disabled') return null;
+        const d = doc();
+        const card = d.createElement('button');
+        card.type = 'button';
+        card.className = 'wg-next-action-card';
+        card.setAttribute('data-deeplink', cell.deeplink || 'meds');
+        card.setAttribute('data-section', 'next-action');
+
+        const iconWrap = d.createElement('span');
+        iconWrap.className = 'wg-next-action-card__icon';
+        const icon = iconSvgOrNull('pill', 18);
+        if (icon) iconWrap.appendChild(icon);
+        card.appendChild(iconWrap);
+
+        const text = d.createElement('span');
+        text.className = 'wg-next-action-card__text';
+        const kicker = d.createElement('span');
+        kicker.className = 'wg-next-action-card__kicker';
+        const value = d.createElement('span');
+        value.className = 'wg-next-action-card__value';
+
+        if (cell.status === 'missing' || !cell.value) {
+            kicker.textContent = 'No scheduled doses';
+            value.textContent = 'Tap to plan';
+        } else {
+            const v = cell.value;
+            const when = fmtTimeHM(v.scheduledAt);
+            const prefix = cell.status === 'overdue' ? 'Overdue' : 'Next';
+            kicker.textContent = when ? `${prefix} · ${when}` : prefix;
+            const names = Array.isArray(v.names) ? v.names : [];
+            value.textContent = names.length > 0
+                ? names.join(' · ')
+                : 'Scheduled';
+        }
+        text.appendChild(kicker);
+        text.appendChild(value);
+        card.appendChild(text);
+
+        const cta = d.createElement('span');
+        cta.className = 'wg-next-action-card__cta wg-gloss wg-gloss--sun';
+        if (cell.status === 'overdue') {
+            cta.textContent = 'Take now';
+        } else if (cell.status === 'missing' || !cell.value) {
+            cta.textContent = 'Plan';
+        } else {
+            cta.textContent = 'Take';
+        }
+        card.appendChild(cta);
+
+        card.addEventListener('click', () => {
+            if (typeof onDeeplink === 'function') onDeeplink(cell.deeplink || 'meds');
+        });
         return card;
     }
 
-    function renderSleepCard(cell, onDeeplink) {
-        if (cell.status === 'disabled') return null;
-        const card = cardShell(
-            { title: 'Sleep last night', status: cell.status, deeplink: cell.deeplink },
-            onDeeplink
-        );
-        if (cell.status === 'missing') {
-            cardMissing(card, 'No sleep data');
-            return card;
+    function renderBpTile(latest, trend, onDeeplink, nowMs) {
+        if (!latest || latest.status === 'disabled') return null;
+        let value = '—';
+        let muted = '';
+        let unit = 'mmHg';
+        let tag = null;
+        let points = null;
+        if (latest.status === 'missing' || !latest.value) {
+            unit = 'Log a reading';
+        } else {
+            const v = latest.value;
+            value = String(v.systolic);
+            muted = `/${v.diastolic}`;
+            unit = `mmHg · ${relativeDayLabel(v.measured_at, nowMs) || 'today'}`;
+            tag = bpStatusTag(v.systolic, v.diastolic);
+            if (trend && trend.status === 'ok' && trend.value && Array.isArray(trend.value.systolicPoints)) {
+                points = trend.value.systolicPoints;
+            }
         }
-        const v = cell.value || {};
-        const primary = doc().createElement('span');
-        primary.className = 'today-card-value';
-        primary.textContent = `${v.hours} h`;
-        const secondary = doc().createElement('span');
-        secondary.className = 'today-card-detail';
-        secondary.textContent = v.day || '';
-        cardBody(card, [primary, secondary]);
+        if (latest.status === 'stale' && tag) tag.textContent = `${tag.textContent} · stale`;
+        return renderMetricTile({
+            label: 'Blood pressure',
+            value,
+            valueMuted: muted,
+            unit,
+            statusTag: tag,
+            sparkPoints: points,
+            variant: 'sun',
+            deeplink: latest.deeplink || 'bp',
+            onClick: () => { if (typeof onDeeplink === 'function') onDeeplink(latest.deeplink || 'bp'); },
+        });
+    }
+
+    function renderWeightTile(latest, trend, onDeeplink, nowMs) {
+        if (!latest || latest.status === 'disabled') return null;
+        let value = '—';
+        let unit = 'kg';
+        let tag = null;
+        let points = null;
+        if (latest.status === 'missing' || !latest.value) {
+            unit = 'Log your weight';
+        } else {
+            const v = latest.value;
+            value = String(v.weight);
+            unit = `kg · ${relativeDayLabel(v.measured_at, nowMs) || 'today'}`;
+            if (trend && trend.status === 'ok' && trend.value) {
+                const sign = trend.value.delta > 0 ? '+' : '';
+                const label = trend.value.direction === 'flat'
+                    ? '7d flat'
+                    : `7d ${sign}${trend.value.delta}`;
+                tag = statusTag('normal', label);
+                if (Array.isArray(trend.value.points)) points = trend.value.points;
+            }
+        }
+        if (latest.status === 'stale') {
+            if (tag) {
+                tag.textContent = `${tag.textContent} · stale`;
+            } else {
+                tag = statusTag('high', 'Stale');
+            }
+        }
+        return renderMetricTile({
+            label: 'Weight',
+            value,
+            unit,
+            statusTag: tag,
+            sparkPoints: points,
+            variant: 'mint-soft',
+            deeplink: latest.deeplink || 'weight',
+            onClick: () => { if (typeof onDeeplink === 'function') onDeeplink(latest.deeplink || 'weight'); },
+        });
+    }
+
+    function renderFuelCard(today, target, onDeeplink) {
+        if (!today || today.status === 'disabled') return null;
+        const d = doc();
+        const card = d.createElement('button');
+        card.type = 'button';
+        card.className = 'wg-fuel-card';
+        card.setAttribute('data-deeplink', today.deeplink || 'food');
+        card.setAttribute('data-section', 'fuel');
+
+        const header = d.createElement('div');
+        header.className = 'wg-fuel-card__header';
+
+        const leftCol = d.createElement('div');
+        const total = d.createElement('div');
+        total.className = 'wg-fuel-card__total';
+        const current = Number.isFinite(today.value) ? today.value : 0;
+        total.textContent = String(current);
+        const unit = d.createElement('span');
+        unit.className = 'wg-fuel-card__total-unit';
+        const targetValue = (target && target.status === 'ok' && Number.isFinite(target.value))
+            ? target.value
+            : null;
+        unit.textContent = targetValue ? `/ ${targetValue} kcal` : 'kcal';
+        total.appendChild(unit);
+        leftCol.appendChild(total);
+
+        const rightCol = d.createElement('div');
+        const pct = d.createElement('div');
+        pct.className = 'wg-fuel-card__pct';
+        const pctValue = targetValue ? Math.round((current / targetValue) * 100) : 0;
+        pct.textContent = targetValue ? `${pctValue}%` : '—';
+        rightCol.appendChild(pct);
+        const pctLabel = d.createElement('div');
+        pctLabel.className = 'wg-fuel-card__pct-label';
+        pctLabel.textContent = targetValue ? 'of target' : 'No target set';
+        rightCol.appendChild(pctLabel);
+
+        header.appendChild(leftCol);
+        header.appendChild(rightCol);
+        card.appendChild(header);
+
+        const bars = d.createElement('div');
+        bars.className = 'wg-fuel-card__bars';
+        bars.appendChild(renderMiniBar({ label: 'Energy', pct: pctValue, variant: 'sun' }));
+        card.appendChild(bars);
+
+        card.addEventListener('click', () => {
+            if (typeof onDeeplink === 'function') onDeeplink(today.deeplink || 'food');
+        });
+        return card;
+    }
+
+    function renderPlanTile({ iconName, label, value, detail, deeplink, onDeeplink }) {
+        const d = doc();
+        const tile = d.createElement('button');
+        tile.type = 'button';
+        tile.className = 'wg-plan-tile';
+        tile.setAttribute('data-deeplink', deeplink || '');
+        tile.setAttribute('data-section', label.toLowerCase());
+
+        const head = d.createElement('div');
+        head.className = 'wg-plan-tile__header';
+        const icon = iconSvgOrNull(iconName, 14);
+        if (icon) head.appendChild(icon);
+        const labelEl = d.createElement('span');
+        labelEl.className = 'wg-plan-tile__label';
+        labelEl.textContent = label;
+        head.appendChild(labelEl);
+        tile.appendChild(head);
+
+        const valueEl = d.createElement('div');
+        valueEl.className = 'wg-plan-tile__value';
+        valueEl.textContent = value || '—';
+        tile.appendChild(valueEl);
+
+        const detailEl = d.createElement('div');
+        detailEl.className = 'wg-plan-tile__detail';
+        detailEl.textContent = detail || '';
+        tile.appendChild(detailEl);
+
+        if (typeof onDeeplink === 'function') {
+            tile.addEventListener('click', () => onDeeplink(deeplink));
+        }
+        return tile;
+    }
+
+    function renderWorkoutTile(cell, onDeeplink) {
+        if (!cell || cell.status === 'disabled') return null;
+        let value = 'Not scheduled';
+        let detail = '';
+        if (cell.status === 'ok' && cell.value) {
+            const v = cell.value;
+            value = v.group_name || 'Workout';
+            const when = v.is_today ? 'today' : fmtDayLabel(v.scheduled_date);
+            const time = v.scheduled_time ? ` · ${v.scheduled_time}` : '';
+            detail = `${when}${time}`.trim();
+        }
+        return renderPlanTile({
+            iconName: 'dumbbell',
+            label: 'Workout',
+            value,
+            detail,
+            deeplink: cell.deeplink || 'workouts',
+            onDeeplink,
+        });
+    }
+
+    function renderSleepTile(cell, onDeeplink) {
+        if (!cell || cell.status === 'disabled') return null;
+        let value = '—';
+        let detail = 'No sleep data';
+        if ((cell.status === 'ok' || cell.status === 'stale') && cell.value) {
+            const v = cell.value;
+            const totalM = Math.round(v.hours * 60);
+            const h = Math.floor(totalM / 60);
+            const m = totalM % 60;
+            value = `${h}h ${String(m).padStart(2, '0')}m`;
+            const day = v.day || '';
+            detail = cell.status === 'stale'
+                ? (day ? `${day} · stale` : 'stale')
+                : day;
+        }
+        return renderPlanTile({
+            iconName: 'moon',
+            label: 'Sleep',
+            value,
+            detail,
+            deeplink: cell.deeplink || 'health',
+            onDeeplink,
+        });
+    }
+
+    function renderStreakCard() {
+        const d = doc();
+        const card = d.createElement('div');
+        card.className = 'wg-streak-card';
+        card.setAttribute('data-section', 'streak');
+
+        const left = d.createElement('div');
+        const value = d.createElement('div');
+        value.className = 'wg-streak-card__value';
+        value.textContent = '—';
+        const lbl = d.createElement('span');
+        lbl.className = 'wg-streak-card__value-label';
+        lbl.textContent = 'day streak';
+        value.appendChild(lbl);
+        left.appendChild(value);
+        const detail = d.createElement('div');
+        detail.className = 'wg-streak-card__detail';
+        detail.textContent = 'Consistency tracking coming soon';
+        left.appendChild(detail);
+        card.appendChild(left);
+
+        const bars = d.createElement('div');
+        bars.className = 'wg-streak-bars';
+        for (let i = 0; i < 14; i += 1) {
+            const bar = d.createElement('span');
+            bar.className = 'wg-streak-bar';
+            bars.appendChild(bar);
+        }
+        card.appendChild(bars);
         return card;
     }
 
@@ -576,28 +759,33 @@
         const d = doc();
         const btn = d.createElement('button');
         btn.type = 'button';
-        btn.className = 'btn btn-icon today-settings-gear';
+        btn.className = 'btn btn-icon today-settings-gear wg-icon-btn';
         btn.setAttribute('aria-label', 'Settings');
-        const ns = 'http://www.w3.org/2000/svg';
-        const svg = d.createElementNS(ns, 'svg');
-        svg.setAttribute('width', '20');
-        svg.setAttribute('height', '20');
-        svg.setAttribute('viewBox', '0 0 24 24');
-        svg.setAttribute('fill', 'none');
-        svg.setAttribute('stroke', 'currentColor');
-        svg.setAttribute('stroke-width', '2.25');
-        svg.setAttribute('stroke-linecap', 'round');
-        svg.setAttribute('stroke-linejoin', 'round');
-        svg.setAttribute('aria-hidden', 'true');
-        const circle = d.createElementNS(ns, 'circle');
-        circle.setAttribute('cx', '12');
-        circle.setAttribute('cy', '12');
-        circle.setAttribute('r', '3');
-        svg.appendChild(circle);
-        const path = d.createElementNS(ns, 'path');
-        path.setAttribute('d', 'M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42');
-        svg.appendChild(path);
-        btn.appendChild(svg);
+        const icon = iconSvgOrNull('settings', 20);
+        if (icon) {
+            btn.appendChild(icon);
+        } else {
+            // Fallback: inline SVG when WGIcons isn't loaded.
+            const svg = d.createElementNS(SVG_NS, 'svg');
+            svg.setAttribute('width', '20');
+            svg.setAttribute('height', '20');
+            svg.setAttribute('viewBox', '0 0 24 24');
+            svg.setAttribute('fill', 'none');
+            svg.setAttribute('stroke', 'currentColor');
+            svg.setAttribute('stroke-width', '2.25');
+            svg.setAttribute('stroke-linecap', 'round');
+            svg.setAttribute('stroke-linejoin', 'round');
+            svg.setAttribute('aria-hidden', 'true');
+            const circle = d.createElementNS(SVG_NS, 'circle');
+            circle.setAttribute('cx', '12');
+            circle.setAttribute('cy', '12');
+            circle.setAttribute('r', '3');
+            svg.appendChild(circle);
+            const path = d.createElementNS(SVG_NS, 'path');
+            path.setAttribute('d', 'M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42');
+            svg.appendChild(path);
+            btn.appendChild(svg);
+        }
         btn.addEventListener('click', () => {
             if (typeof onSettings === 'function') onSettings();
         });
@@ -613,7 +801,6 @@
         if (factory) {
             return factory({ title: titleText, onBack: null, rightSlot: gear });
         }
-        // Fallback when SectionHeader component isn't loaded (e.g., in isolated unit tests).
         const header = d.createElement('header');
         header.className = 'section-header no-back';
         const titleEl = d.createElement('h2');
@@ -644,6 +831,7 @@
         const nowMs = (opts.now instanceof Date) ? opts.now.getTime() : (opts.now || Date.now());
 
         root.innerHTML = '';
+        root.classList.add('wg-today');
         root.classList.add('today-root');
 
         const greetingText = (state && state.greeting && state.greeting.value) || 'Today';
@@ -667,54 +855,52 @@
             return root;
         }
 
-        const grid = d.createElement('div');
-        grid.className = 'today-card-grid';
-        root.appendChild(grid);
+        let rendered = 0;
 
-        // Map each card to the `tab_order` key it corresponds to (Design Decision 5:
-        // the existing tab_order array now controls Today card order since there's
-        // no tab strip to order). DEFAULT_CARD_ORDER is the fallback sequence when
-        // no saved order is available or a key is missing from the saved order.
-        const cardBuilders = {
-            meds: () => renderNextMedCard(state.nextMed, onDeeplink, nowMs),
-            bp: () => renderBpCard(state.bpLatest, state.bpTrend7d, onDeeplink, nowMs),
-            weight: () => renderWeightCard(state.weightLatest, state.weightTrend7d, onDeeplink, nowMs),
-            food: () => renderCaloriesCard(state.caloriesToday, state.caloriesTarget, onDeeplink),
-            workouts: () => renderWorkoutCard(state.nextWorkout, onDeeplink),
-            health: () => renderSleepCard(state.sleepLastNight, onDeeplink)
-        };
-        const DEFAULT_CARD_ORDER = ['meds', 'bp', 'weight', 'food', 'workouts', 'health'];
-        const savedOrder = Array.isArray(opts.cardOrder) ? opts.cardOrder : null;
-        const seen = new Set();
-        const finalOrder = [];
-        if (savedOrder) {
-            for (const key of savedOrder) {
-                if (cardBuilders[key] && !seen.has(key)) {
-                    finalOrder.push(key);
-                    seen.add(key);
-                }
-            }
+        const nextAction = renderNextActionCard(state && state.nextMed, onDeeplink);
+        if (nextAction) { root.appendChild(nextAction); rendered += 1; }
+
+        const bpTile = renderBpTile(state && state.bpLatest, state && state.bpTrend7d, onDeeplink, nowMs);
+        const weightTile = renderWeightTile(state && state.weightLatest, state && state.weightTrend7d, onDeeplink, nowMs);
+        if (bpTile || weightTile) {
+            root.appendChild(sectionLabelRow('Vitals', 'Tap to open'));
+            const grid = d.createElement('div');
+            grid.className = 'wg-vitals-grid';
+            if (bpTile) grid.appendChild(bpTile);
+            if (weightTile) grid.appendChild(weightTile);
+            root.appendChild(grid);
+            rendered += 1;
         }
-        for (const key of DEFAULT_CARD_ORDER) {
-            if (!seen.has(key)) {
-                finalOrder.push(key);
-                seen.add(key);
-            }
+
+        const fuelCard = renderFuelCard(state && state.caloriesToday, state && state.caloriesTarget, onDeeplink);
+        if (fuelCard) {
+            root.appendChild(sectionLabelRow('Fuel today', null));
+            root.appendChild(fuelCard);
+            rendered += 1;
         }
-        const cards = finalOrder.map((key) => cardBuilders[key]());
-        let visible = 0;
-        for (const c of cards) {
-            if (!c) continue;
-            grid.appendChild(c);
-            visible += 1;
+
+        const workoutTile = renderWorkoutTile(state && state.nextWorkout, onDeeplink);
+        const sleepTile = renderSleepTile(state && state.sleepLastNight, onDeeplink);
+        if (workoutTile || sleepTile) {
+            root.appendChild(sectionLabelRow("Today's plan", null));
+            const planGrid = d.createElement('div');
+            planGrid.className = 'wg-plan-grid';
+            if (workoutTile) planGrid.appendChild(workoutTile);
+            if (sleepTile) planGrid.appendChild(sleepTile);
+            root.appendChild(planGrid);
+            rendered += 1;
         }
-        if (visible === 0) {
-            grid.remove();
+
+        if (rendered > 0) {
+            root.appendChild(sectionLabelRow('Consistency', null));
+            root.appendChild(renderStreakCard());
+        } else {
             const empty = d.createElement('div');
             empty.className = 'today-empty today-empty-disabled';
             empty.textContent = 'All features are off — enable one in Settings';
             root.appendChild(empty);
         }
+
         return root;
     }
 
