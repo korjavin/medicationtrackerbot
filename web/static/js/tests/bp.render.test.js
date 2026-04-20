@@ -210,12 +210,15 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
             const { window } = env;
             window.localStorage.setItem('mt-bp-range', '14');
             const renderSpy = vi.spyOn(window.WGBpChart, 'render');
+            // Capture cutoff BEFORE the render call so it is guaranteed to be
+            // <= the Date.now() the renderer uses internally (otherwise a 1ms
+            // delta makes the boundary reading fail the assertion).
+            const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
             window.renderBPChart(sampleReadings(30), {});
 
             expect(renderSpy).toHaveBeenCalled();
             const { readings } = renderSpy.mock.calls[0][0];
             // Every reading handed to the chart must fall within the last 14 days.
-            const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
             for (const r of readings) {
                 expect(new Date(r.measured_at).getTime()).toBeGreaterThanOrEqual(cutoff);
             }

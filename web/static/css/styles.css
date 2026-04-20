@@ -4929,3 +4929,87 @@ input:checked+.toggle-slider:before {
 .wg-bp-average-card__meta {
     font-size: var(--font-size-xs);
 }
+
+/* Day-grouped history list (Phase 3, Task 5). Groups use `.wg-section-label`
+   day headers; each reading is a `.wg-card` row with mono sys/dia values,
+   a status tag, optional pulse tag, and a trailing .wg-icon-btn delete. */
+.wg-bp-history {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.wg-bp-history__group {
+    list-style: none;
+    margin-bottom: var(--space-md);
+}
+
+.wg-bp-history__group-label {
+    padding-top: var(--wg-section-label-pad-top);
+    padding-bottom: var(--space-sm);
+}
+
+.wg-bp-history__rows {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-bp-reading-row {
+    padding: var(--wg-bp-history-row-pad);
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.wg-bp-reading-row__body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-bp-reading-row__value {
+    font-size: var(--wg-bp-average-value-size);
+    line-height: 1.1;
+}
+
+.wg-bp-reading-row__dia {
+    color: var(--wg-fg-4);
+}
+
+.wg-bp-reading-row__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: var(--font-size-xs);
+}
+
+.wg-bp-reading-row__time {
+    font-family: var(--wg-font-mono);
+    color: var(--wg-fg-4);
+    letter-spacing: 0.02em;
+}
+
+.wg-bp-reading-row__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.wg-tag--pending {
+    background: var(--wg-tag-high-bg);
+    color: var(--wg-tag-high-fg);
+    border-color: var(--wg-tag-high-border);
+}
+
+.wg-tag--rejected {
+    background: var(--wg-tag-alert-bg);
+    color: var(--wg-tag-alert-fg);
+    border-color: var(--wg-tag-alert-border);
+}
