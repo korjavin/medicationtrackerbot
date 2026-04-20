@@ -4181,6 +4181,15 @@ input:checked+.toggle-slider:before {
     color: var(--wg-fg-1);
 }
 
+/* Empty-state copy over the dark stage: #bp-list:empty::before and
+   .empty-state-msg both default to var(--hint-color) (mid-grey), which
+   drops to poor contrast on --wg-bg-stage. Restore a near-white muted
+   fg so the "No readings yet" / "No cached data" strings stay legible. */
+.wg-screen-stage #bp-list:empty::before,
+.wg-screen-stage .empty-state-msg {
+    color: var(--wg-fg-3);
+}
+
 /* =============================================
    WG TODAY — Wandergeek reskin (Task 7)
    Deep-teal stage layout with: next-action
