@@ -297,6 +297,7 @@ const WANDERGEEK_TOKENS = [
     '--wg-nav-item-font-size',
     '--wg-nav-icon-size',
     '--wg-bottom-nav-z',
+    '--wg-bottom-nav-reserved',
 
     // Today screen tokens (added in Task 7 alongside .wg-next-action-card,
     // .wg-metric-tile, .wg-fuel-card, .wg-plan-tile, .wg-streak-card).
@@ -312,6 +313,7 @@ const WANDERGEEK_TOKENS = [
     '--wg-font-size-fuel-value',
     '--wg-font-size-plan-value',
     '--wg-font-size-streak-value',
+    '--wg-streak-bar-height',
     '--wg-font-size-mini',
     '--wg-font-size-caps',
     '--wg-next-action-bg',

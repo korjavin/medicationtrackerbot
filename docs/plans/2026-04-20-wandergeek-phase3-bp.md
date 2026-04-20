@@ -2,7 +2,7 @@
 
 ## Overview
 
-Reskin the BP screen to match the Wandergeek deep-teal / glossy / JetBrains-Mono aesthetic established in Phase 1+2 (`docs/plans/completed/2026-04-20-wandergeek-design-rewrite.md`). The BP view becomes a full first-class destination mounted under the `wg-phone-chrome` shell, driven by the bottom nav from `WGBottomNav.DEFAULT_ITEMS`.
+Reskin the BP screen to match the Wandergeek deep-teal / glossy / JetBrains-Mono aesthetic established in Phase 1+2 (`docs/plans/completed/2026-04-20-wandergeek-design-rewrite.md`). The BP view becomes a full first-class destination driven by the bottom nav from `WGBottomNav.DEFAULT_ITEMS`. Phase 1 built `<wg-phone-chrome>` as a design-system primitive but did NOT mount it at runtime — screens render directly into `#app` under the fixed bottom nav. This phase decides whether to wrap the BP view in `wg-phone-chrome` or defer that to a later phase (see Task 6).
 
 The handoff prototype gives us the target layout (see `project/screens.jsx:BPScreen` and `project/components.jsx:BPChart`):
 
@@ -40,7 +40,7 @@ No backend changes. The existing `/api/bp` endpoints, Dexie offline queue, and `
 - `.wg-card` / `.wg-card--inset` / `.wg-gloss` / `.wg-gloss--sun` / `.wg-gloss--inset` / `.wg-tag` + variants / `.wg-mono-display` / `.wg-section-label` — all in `web/static/css/styles.css`
 - `WGSparkline.render({ points, variant, width, height })` — already ported from `project/components.jsx:Sparkline`; reuse for the pulse line under the current-reading card
 - `WGIcons.iconSvg('activity', …)` — BP's bottom-nav icon; also usable for the averages card header
-- `<wg-phone-chrome>` wrapper + the `section-header` / `.wg-app-header` back-pill combo — every screen mounts inside this
+- `<wg-phone-chrome>` wrapper (primitive available but not yet mounted at runtime in Phase 1+2) + the `section-header` / `.wg-app-header` back-pill combo — Phase 3 decides whether to wrap BP in the chrome or defer
 
 **Tests touching BP (will need updates):**
 
@@ -121,7 +121,7 @@ No backend changes. The existing `/api/bp` endpoints, Dexie offline queue, and `
 
 ### Task 6: Wire BP into the canonical bottom nav + phone chrome
 
-- [ ] verify `#bp-view` mounts inside `<wg-phone-chrome>` (it should, since Phase 1 wrapped every view) — if not, thread it through `features/bootstrap.js`
+- [ ] decide whether to wrap `#bp-view` in `<wg-phone-chrome>`. Phase 1 did NOT wrap any views at runtime — the chrome is a design-system primitive available in `components/wg-phone-chrome.js` but not yet mounted. If this phase wraps BP, thread the mount through `features/bootstrap.js`; otherwise document the deferral and keep the fixed bottom nav as the only persistent shell
 - [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `bp` slot first (post-Today) and `activity` icon; add a test case if one doesn't exist
 - [ ] remove any remaining `.bp-*` paper-era classes from `styles.css` that are no longer referenced after the rewrite (grep-verify)
 - [ ] run `pnpm test` — must pass before next task

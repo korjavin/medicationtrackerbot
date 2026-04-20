@@ -314,6 +314,10 @@
     --wg-nav-item-font-size: 9.5px;
     --wg-nav-icon-size: 22px;
     --wg-bottom-nav-z: 40;
+    /* Reserved viewport-bottom space so fixed nav never occludes page content.
+       Sized for the two-row default (8 items): 30px bottom pad + 12px inner pad +
+       two 52px rows + 4px row gap + ~12px slack ≈ 160px. */
+    --wg-bottom-nav-reserved: 160px;
 
     /* Wandergeek — Today screen (Task 7). Next-action, vitals grid, fuel,
        plan, streak cards. Tokens for dimensions that fall outside the
@@ -330,6 +334,7 @@
     --wg-font-size-fuel-value: 22px;
     --wg-font-size-plan-value: 13px;
     --wg-font-size-streak-value: 18px;
+    --wg-streak-bar-height: 22px;
     --wg-font-size-mini: 10px;
     --wg-font-size-caps: 10px;
     --wg-next-action-bg: linear-gradient(180deg, rgba(251, 189, 13, 0.18) 0%, rgba(251, 189, 13, 0.06) 100%);
@@ -352,8 +357,9 @@ body {
 
 #app {
     padding: var(--space-lg);
-    padding-bottom: 80px;
-    /* Space for FAB */
+    /* Reserves room for the fixed Wandergeek bottom nav (two-row default) plus
+       legacy FAB space so the last card is never clipped by the nav. */
+    padding-bottom: var(--wg-bottom-nav-reserved);
 }
 
 h1 {
@@ -3920,7 +3926,7 @@ input:checked+.toggle-slider:before {
     justify-self: start;
 }
 
-.wg-app-header--no-back .wg-icon-btn {
+.wg-app-header--no-back > .section-back.wg-icon-btn {
     visibility: hidden;
 }
 
@@ -4234,7 +4240,7 @@ input:checked+.toggle-slider:before {
    ========================================================================== */
 
 .wg-bottom-nav {
-    position: absolute;
+    position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
@@ -4634,6 +4640,7 @@ input:checked+.toggle-slider:before {
 
 .wg-streak-bar {
     width: 5px;
+    height: var(--wg-streak-bar-height);
     border-radius: 2px;
     background: var(--wg-mint-soft);
 }
