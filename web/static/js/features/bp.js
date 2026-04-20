@@ -56,8 +56,10 @@ function closeBPRecordModal() {
 }
 
 // Handle BP form submission
+let bpSubmitInFlight = false;
 async function handleBPSubmit(event) {
     event.preventDefault();
+    if (bpSubmitInFlight) return;
 
     const datetime = document.getElementById('bp-datetime').value;
     const systolic = parseInt(document.getElementById('bp-systolic').value, 10);
@@ -86,12 +88,20 @@ async function handleBPSubmit(event) {
         notes
     };
 
-    const res = await apiCall('/api/bp', 'POST', payload);
+    bpSubmitInFlight = true;
+    const saveBtn = document.querySelector('#bp-modal button[form="bp-form"]');
+    if (saveBtn) saveBtn.disabled = true;
+    try {
+        const res = await apiCall('/api/bp', 'POST', payload);
 
-    if (res) {
-        await window.DataStore.invalidateTags(['bp']);
-        closeBPRecordModal();
-        loadBPReadings();
+        if (res) {
+            await window.DataStore.invalidateTags(['bp']);
+            await loadBPReadings();
+            closeBPRecordModal();
+        }
+    } finally {
+        bpSubmitInFlight = false;
+        if (saveBtn) saveBtn.disabled = false;
     }
 }
 
