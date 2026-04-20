@@ -113,12 +113,12 @@ This plan covers **Phase 1** (design system + chrome + bottom nav) and **Phase 2
 
 ### Task 3: Phone chrome web components (status bar, dynamic island, home indicator)
 
-- [ ] create `web/static/js/components/wg-phone-chrome.js` — exports a `<wg-phone-chrome>` custom element (or vanilla render fn `mountPhoneChrome(rootEl)`) that wraps `index.html`'s main view container with the `.wg-phone` shell + `.wg-phone-screen` inner + `.wg-dynamic-island` + `.wg-status-bar` + `.wg-home-indicator`
-- [ ] add CSS for those classes — `.wg-phone` (390×844 desktop, full-viewport mobile via `@media (max-width: 480px)`), `.wg-phone-screen` (border-radius 38px, overflow hidden, deep-teal bg), `.wg-dynamic-island` (110×32 black pill, top:20px, centered, z-index above content), `.wg-status-bar` (50px height, "9:41" + signal/wifi/battery SVGs), `.wg-home-indicator` (134×5 white-45% pill at bottom)
-- [ ] inline the three SVG icons (signal bars, wifi arc, battery) in the chrome component as constants — each `<svg>` keeps the original viewBox + paths from `components.jsx:42-58`
-- [ ] register `window.WGPhoneChrome` (or the custom element name) in `architecture.globals.test.js` allowlist with a one-line justification
-- [ ] write `components.wg-phone-chrome.test.js` — mounts the component, asserts `.wg-status-bar`, `.wg-dynamic-island`, `.wg-home-indicator` exist; asserts `@media` shrinks chrome on small viewports (use jsdom + getComputedStyle on a stub)
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-phone-chrome.js` — exports a `<wg-phone-chrome>` custom element (or vanilla render fn `mountPhoneChrome(rootEl)`) that wraps `index.html`'s main view container with the `.wg-phone` shell + `.wg-phone-screen` inner + `.wg-dynamic-island` + `.wg-status-bar` + `.wg-home-indicator`. Exposed as `window.WGPhoneChrome` with `mount(rootEl)` and `create()` helpers (no custom-element registration — vanilla render path matches the rest of the `components/` folder).
+- [x] add CSS for those classes — `.wg-phone` (390×844 desktop, full-viewport mobile via `@media (max-width: 480px)`), `.wg-phone-screen` (border-radius 38px, overflow hidden, deep-teal bg), `.wg-dynamic-island` (110×32 black pill, top:20px, centered, z-index above content), `.wg-status-bar` (50px height, "9:41" + signal/wifi/battery SVGs), `.wg-home-indicator` (134×5 white-45% pill at bottom). Added `--wg-phone-pad`, `--wg-phone-radius`, `--wg-phone-screen-radius`, `--wg-phone-shadow`, `--wg-dynamic-island-radius`, `--wg-status-bar-pad-bottom`, `--wg-status-bar-font-size`, `--wg-radius-pill` tokens and wired them into `WANDERGEEK_TOKENS`.
+- [x] inline the three SVG icons (signal bars, wifi arc, battery) in the chrome component as constants — each `<svg>` keeps the original viewBox + paths from `components.jsx:42-58`
+- [x] register `window.WGPhoneChrome` (or the custom element name) in `architecture.globals.test.js` allowlist with a one-line justification
+- [x] write `components.wg-phone-chrome.test.js` — mounts the component, asserts `.wg-status-bar`, `.wg-dynamic-island`, `.wg-home-indicator` exist; asserts `@media` shrinks chrome on small viewports (use jsdom + getComputedStyle on a stub). Mount-error test uses regex message match rather than `toThrow(TypeError)` because jsdom's TypeError is a different constructor across realms.
+- [x] run `pnpm test` — must pass before next task (543/543 passed)
 
 ### Task 4: AppHeader + back-button reskin
 

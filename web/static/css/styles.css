@@ -282,6 +282,19 @@
     --wg-icon-btn-size: 44px;
     --wg-font-size-tag: 10.5px;
     --wg-section-label-pad-top: 18px;
+
+    /* Wandergeek — phone chrome (Task 3). Decorative iPhone frame on desktop. */
+    --wg-phone-pad: 12px;
+    --wg-phone-radius: 48px;
+    --wg-phone-screen-radius: 38px;
+    --wg-phone-shadow:
+        0 50px 100px -20px rgba(0, 0, 0, 0.7),
+        0 0 0 2px rgba(255, 255, 255, 0.06),
+        0 0 0 3px rgba(0, 0, 0, 0.8);
+    --wg-dynamic-island-radius: 20px;
+    --wg-status-bar-pad-bottom: 6px;
+    --wg-status-bar-font-size: 15px;
+    --wg-radius-pill: 999px;
 }
 
 body {
@@ -4000,4 +4013,111 @@ input:checked+.toggle-slider:before {
 
 .wg-muted-strong {
     color: var(--wg-fg-2);
+}
+
+/* ==========================================================================
+   Wandergeek phone chrome — decorative iPhone frame (Task 3).
+   On desktop the chrome wraps the SPA in a 390×844 phone shell with status bar,
+   dynamic island, and home indicator. On mobile/PWA viewports the chrome
+   collapses (display: contents on the shell, hidden ornaments) so the app
+   fills the viewport. All values via --wg-* tokens.
+   ========================================================================== */
+
+.wg-phone {
+    width: 390px;
+    height: 844px;
+    flex-shrink: 0;
+    position: relative;
+    background: #000;
+    padding: var(--wg-phone-pad);
+    border-radius: var(--wg-phone-radius);
+    box-shadow: var(--wg-phone-shadow);
+}
+
+.wg-phone-screen {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    border-radius: var(--wg-phone-screen-radius);
+    background: var(--wg-bg-stage);
+    display: flex;
+    flex-direction: column;
+}
+
+.wg-phone-screen__content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    position: relative;
+}
+
+.wg-dynamic-island {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 110px;
+    height: 32px;
+    background: #000;
+    border-radius: var(--wg-dynamic-island-radius);
+    z-index: 1003;
+    pointer-events: none;
+}
+
+.wg-status-bar {
+    flex-shrink: 0;
+    height: 50px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 0 28px var(--wg-status-bar-pad-bottom);
+    font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif;
+    font-size: var(--wg-status-bar-font-size);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+    z-index: 10;
+    position: relative;
+}
+
+.wg-status-bar__icons {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.wg-home-indicator {
+    position: absolute;
+    bottom: 7px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 134px;
+    height: 5px;
+    border-radius: var(--wg-radius-pill);
+    background: rgba(255, 255, 255, 0.45);
+    z-index: 1003;
+    pointer-events: none;
+}
+
+/* Mobile / PWA: collapse the chrome and let the screen fill the viewport. */
+@media (max-width: 480px) {
+    .wg-phone {
+        width: 100%;
+        height: 100vh;
+        height: 100dvh;
+        padding: 0;
+        border-radius: 0;
+        box-shadow: none;
+        background: var(--wg-bg-stage);
+    }
+
+    .wg-phone-screen {
+        border-radius: 0;
+    }
+
+    .wg-dynamic-island,
+    .wg-status-bar,
+    .wg-home-indicator {
+        display: none;
+    }
 }
