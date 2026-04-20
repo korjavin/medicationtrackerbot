@@ -98,18 +98,18 @@ This plan covers **Phase 1** (design system + chrome + bottom nav) and **Phase 2
 
 ### Task 2: Build the gloss material primitives (CSS classes, no JS yet)
 
-- [ ] add `.wg-stage` block to `styles.css` — sets the deep-teal background gradient stack (radial highlights + `--wg-bg-stage`), `color: var(--wg-fg-1)`, `font-family: var(--wg-font-ui)`
-- [ ] add `.wg-card` — `--wg-bg-card` background, `--wg-border-hairline` border, inner highlight + bottom shadow box-shadow stack, 14px border-radius, 14px padding
-- [ ] add `.wg-card--inset` modifier — uses `--wg-gloss-bg-inset` for inset-tile look (used by macro tracks, range selectors)
-- [ ] add `.wg-gloss` — base button material: `--wg-gloss-bg`, `--wg-gloss-shadow`, 10px border-radius, 600 weight, font-family `--wg-font-ui`, `:active` translateY(1px) + brightness, `:hover` brightness 1.07
-- [ ] add `.wg-gloss--sun`, `.wg-gloss--clay`, `.wg-gloss--inset` modifiers
-- [ ] add `.wg-icon-btn` — 44×44 wrapper used inside `AppHeader` slots and toolbar rows
-- [ ] add `.wg-tag`, `.wg-tag--normal`, `.wg-tag--high`, `.wg-tag--alert`, `.wg-tag--mono` — pill badges (10.5px Space Grotesk)
-- [ ] add `.wg-section-label` — uppercase 10.5px section header w/ accent-dot pseudo-element (`var(--wg-sun)`, glow)
-- [ ] add `.wg-mono-display` (large numeric display: JetBrains Mono 500, -0.02em letter-spacing) and `.wg-muted` / `.wg-muted-strong` text utilities
-- [ ] add a Storybook-style demo route at `/wg-primitives.html` that renders one of every primitive against the stage — used as a visual checklist (not shipped in `index.html`)
-- [ ] write `web/static/js/tests/architecture.wg-primitives.test.js` — parses `styles.css` and asserts each `.wg-*` class block exists with no hardcoded hex outside `var(--wg-*)` references
-- [ ] run `pnpm test` — must pass before next task
+- [x] add `.wg-stage` block to `styles.css` — sets the deep-teal background gradient stack (radial highlights + `--wg-bg-stage`), `color: var(--wg-fg-1)`, `font-family: var(--wg-font-ui)`
+- [x] add `.wg-card` — `--wg-bg-card` background, `--wg-border-hairline` border, inner highlight + bottom shadow box-shadow stack, 14px border-radius, 14px padding
+- [x] add `.wg-card--inset` modifier — uses `--wg-gloss-bg-inset` for inset-tile look (used by macro tracks, range selectors)
+- [x] add `.wg-gloss` — base button material: `--wg-gloss-bg`, `--wg-gloss-shadow`, 10px border-radius, 600 weight, font-family `--wg-font-ui`, `:active` translateY(1px) + brightness, `:hover` brightness 1.07
+- [x] add `.wg-gloss--sun`, `.wg-gloss--clay`, `.wg-gloss--inset` modifiers
+- [x] add `.wg-icon-btn` — 44×44 wrapper used inside `AppHeader` slots and toolbar rows
+- [x] add `.wg-tag`, `.wg-tag--normal`, `.wg-tag--high`, `.wg-tag--alert`, `.wg-tag--mono` — pill badges (10.5px Space Grotesk)
+- [x] add `.wg-section-label` — uppercase 10.5px section header w/ accent-dot pseudo-element (`var(--wg-sun)`, glow). Implemented via `::before` pseudo-element rather than a `.accent-dot` child so the markup stays clean; test updated to assert the pseudo-element.
+- [x] add `.wg-mono-display` (large numeric display: JetBrains Mono 500, -0.02em letter-spacing) and `.wg-muted` / `.wg-muted-strong` text utilities
+- [x] add a Storybook-style demo route at `/wg-primitives.html` that renders one of every primitive against the stage — used as a visual checklist (not shipped in `index.html`). Uses inline styles (layout-only) since the file is a demo scaffold, not shipped app code — the inline-styles architecture test scans `web/static/js/**/*.js` only.
+- [x] write `web/static/js/tests/architecture.wg-primitives.test.js` — parses `styles.css` and asserts each `.wg-*` class block exists with no hardcoded hex outside `var(--wg-*)` references. Also asserts `.wg-gloss` wires the gloss gradient/shadow tokens, that each tag modifier pulls its triplet of `--wg-tag-*` tokens, and that the section-label accent dot uses `--wg-sun`. Added 7 new `--wg-*` dimensional tokens (`--wg-radius-gloss/icon/card`, `--wg-card-pad`, `--wg-icon-btn-size`, `--wg-font-size-tag`, `--wg-section-label-pad-top`) to satisfy the existing no-hardcoded-px architecture test; these are appended to `WANDERGEEK_TOKENS` in `architecture.design-tokens.test.js`.
+- [x] run `pnpm test` — must pass before next task (62 files / 527 tests passed)
 
 ### Task 3: Phone chrome web components (status bar, dynamic island, home indicator)
 

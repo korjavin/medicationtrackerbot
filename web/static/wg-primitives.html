@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wandergeek Primitives — Visual Checklist</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="wg-stage" style="min-height:100vh;margin:0;padding:32px 20px 80px;">
+    <div style="max-width:420px;margin:0 auto;display:flex;flex-direction:column;gap:24px;">
+
+        <div>
+            <div class="wg-section-label"><span>Stage</span></div>
+            <div class="wg-muted-strong" style="font-size:12px;">
+                Body uses <code>.wg-stage</code> — deep-teal gradient + Space Grotesk body font.
+            </div>
+        </div>
+
+        <div>
+            <div class="wg-section-label"><span>Cards</span></div>
+            <div class="wg-card" style="margin-bottom:10px;">
+                <div class="wg-mono-display" style="font-size:28px;">.wg-card</div>
+                <div class="wg-muted">base card surface</div>
+            </div>
+            <div class="wg-card wg-card--inset">
+                <div class="wg-mono-display" style="font-size:28px;">.wg-card--inset</div>
+                <div class="wg-muted">inset variant</div>
+            </div>
+        </div>
+
+        <div>
+            <div class="wg-section-label"><span>Gloss buttons</span></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="wg-gloss" style="padding:10px 16px;">.wg-gloss</button>
+                <button class="wg-gloss wg-gloss--sun" style="padding:10px 16px;">.wg-gloss--sun</button>
+                <button class="wg-gloss wg-gloss--clay" style="padding:10px 16px;">.wg-gloss--clay</button>
+                <button class="wg-gloss wg-gloss--inset" style="padding:10px 16px;">.wg-gloss--inset</button>
+            </div>
+        </div>
+
+        <div>
+            <div class="wg-section-label"><span>Icon buttons</span></div>
+            <div style="display:flex;gap:8px;">
+                <button class="wg-icon-btn"><span class="wg-gloss">◀</span></button>
+                <button class="wg-icon-btn"><span class="wg-gloss">✕</span></button>
+                <button class="wg-icon-btn"><span class="wg-gloss wg-gloss--sun">★</span></button>
+            </div>
+        </div>
+
+        <div>
+            <div class="wg-section-label"><span>Status tags</span></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <span class="wg-tag wg-tag--normal">NORMAL</span>
+                <span class="wg-tag wg-tag--high">HIGH</span>
+                <span class="wg-tag wg-tag--alert">ALERT</span>
+                <span class="wg-tag wg-tag--normal wg-tag--mono">120/80</span>
+            </div>
+        </div>
+
+        <div>
+            <div class="wg-section-label"><span>Mono display & text utilities</span></div>
+            <div class="wg-card">
+                <div class="wg-mono-display" style="font-size:44px;line-height:1;">128<span style="font-size:18px;"> / 82</span></div>
+                <div class="wg-muted-strong" style="margin-top:4px;font-size:13px;">.wg-muted-strong (fg-2)</div>
+                <div class="wg-muted" style="font-size:13px;">.wg-muted (fg-3)</div>
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>
