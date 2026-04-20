@@ -3857,6 +3857,15 @@ input:checked+.toggle-slider:before {
     border-radius: var(--wg-radius-gloss);
 }
 
+.wg-gloss--lg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--space-md) var(--space-xl);
+    font-size: var(--font-size-md);
+}
+
 .wg-icon-btn {
     width: var(--wg-icon-btn-size);
     height: var(--wg-icon-btn-size);

@@ -23,6 +23,7 @@ const REQUIRED_CLASSES = [
     '.wg-gloss--sun',
     '.wg-gloss--clay',
     '.wg-gloss--inset',
+    '.wg-gloss--lg',
     '.wg-icon-btn',
     '.wg-tag',
     '.wg-tag--normal',
