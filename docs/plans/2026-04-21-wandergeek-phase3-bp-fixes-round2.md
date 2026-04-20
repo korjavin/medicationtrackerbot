@@ -80,12 +80,12 @@ All five are frontend-only. No backend changes, no API shape changes. All within
 ## Implementation Steps
 
 ### Task 1: Fix BP delete not refreshing the list
-- [ ] in `web/static/js/features/bp.js:624`, add `await` to `loadBPReadings();` (local-only delete branch)
-- [ ] in `web/static/js/features/bp.js:645`, add `await` to `loadBPReadings();` (server-delete branch)
-- [ ] confirm `invalidateTags` at line 630 is awaited (per codex-round fix) — if not, wrap in `await` too
-- [ ] write a delete-refresh test: seed a 3-row fixture, trigger `_deleteBPApi` on row 2, assert rendered `#bp-readings-list` contains only 2 rows after the awaited promise settles
-- [ ] write an error-path test: rejected delete leaves the row in place and surfaces the error to the user (existing behaviour preserved)
-- [ ] run `pnpm test` — must pass before Task 2
+- [x] in `web/static/js/features/bp.js:624`, add `await` to `loadBPReadings();` (local-only delete branch)
+- [x] in `web/static/js/features/bp.js:645`, add `await` to `loadBPReadings();` (server-delete branch)
+- [x] confirm `invalidateTags` at line 630 is awaited (per codex-round fix) — if not, wrap in `await` too
+- [x] write a delete-refresh test: seed a 3-row fixture, trigger `_deleteBPApi` on row 2, assert rendered `#bp-readings-list` contains only 2 rows after the awaited promise settles
+- [x] write an error-path test: rejected delete leaves the row in place and surfaces the error to the user (existing behaviour preserved)
+- [x] run `pnpm test` — must pass before Task 2
 
 ### Task 2: Add `.wg-fab` utility and place "+ Record BP" bottom-right
 - [ ] add `.wg-fab` CSS block in `web/static/css/styles.css` next to the `.wg-gloss` block — `position: fixed; right: var(--wg-space-lg); bottom: calc(var(--wg-bottom-nav-reserved) + var(--wg-space-md)); z-index: var(--wg-z-fab, 30);` — pick tokens that already exist, add a `--wg-z-fab` token if missing

@@ -621,7 +621,7 @@ async function _deleteBPApi(id) {
             await window.MedTrackerDB.BPStore.confirmDelete(localId);
             if (window.SyncManager) window.SyncManager.updateStatus();
         }
-        loadBPReadings();
+        await loadBPReadings();
         return;
     }
 
@@ -642,7 +642,7 @@ async function _deleteBPApi(id) {
                 console.error('Failed to delete from local DB:', e);
             }
         }
-        loadBPReadings();
+        await loadBPReadings();
     }
 }
 
