@@ -113,11 +113,11 @@ No backend changes. The existing `/api/bp` endpoints, Dexie offline queue, and `
 
 ### Task 5: Rewrite renderBPReadings as day-grouped history list
 
-- [ ] replace the existing `.bp-history` markup with a `.wg-bp-history` container — day groups use `.wg-section-label` headers, each reading is a `.wg-card` row with sys/dia mono values, a status tag, time, and an edit/delete `.wg-icon-btn` trailing cluster
-- [ ] preserve the existing offline and rejected badge logic — they become `.wg-tag--mono` variants
-- [ ] delete + edit callbacks unchanged (reuse `deleteBPReading`, `_deleteBPApi`)
-- [ ] write/update `bp.history.test.js` — day grouping, status-tag class per reading, offline-pending + rejected badge states, delete flow invokes existing handler
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing `.bp-history` markup with a `.wg-bp-history` container — day groups use `.wg-section-label` headers, each reading is a `.wg-card` row with sys/dia mono values, a status tag, time, and an edit/delete `.wg-icon-btn` trailing cluster
+- [x] preserve the existing offline and rejected badge logic — they become `.wg-tag--mono` variants
+- [x] delete + edit callbacks unchanged (reuse `deleteBPReading`, `_deleteBPApi`)
+- [x] write/update `bp.history.test.js` — day grouping, status-tag class per reading, offline-pending + rejected badge states, delete flow invokes existing handler
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Wire BP into the canonical bottom nav + phone chrome
 

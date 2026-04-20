@@ -405,140 +405,176 @@ function buildBPAverageCard(period, stat) {
     return card;
 }
 
-// Render BP readings grouped by date
+// Render BP readings grouped by date as Wandergeek gloss cards.
+// Preserves offline-pending and rejected states via .wg-tag--mono variants;
+// delete action is a .wg-icon-btn trailing cluster that reuses the existing
+// deleteBPReading handler.
 function renderBPReadings(readings) {
     const list = document.getElementById('bp-list');
     list.replaceChildren();
+    list.className = 'wg-bp-history';
 
     if (!readings || readings.length === 0) {
         return;
     }
 
-    // Group readings by date
-    const groups = { today: [], yesterday: [], older: [] };
+    const groups = groupBPReadingsByDay(readings);
+    groups.forEach((group) => {
+        const groupItem = buildBPHistoryGroup(group.label, group.readings);
+        if (groupItem) list.appendChild(groupItem);
+    });
+}
+
+function groupBPReadingsByDay(readings) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
 
-    readings.forEach(r => {
-        const date = new Date(r.measured_at);
-        date.setHours(0, 0, 0, 0);
-
-        if (date.getTime() === today.getTime()) {
-            groups.today.push(r);
-        } else if (date.getTime() === yesterday.getTime()) {
-            groups.yesterday.push(r);
-        } else {
-            groups.older.push(r);
-        }
-    });
-
-    // Helper to render a group
-    const renderGroup = (headerText, groupReadings) => {
-        if (groupReadings.length === 0) return null;
-
-        // Sort readings within this group by time (newest first)
-        const sortedReadings = [...groupReadings].sort((a, b) =>
-            new Date(b.measured_at) - new Date(a.measured_at)
-        );
-
-        const groupItem = document.createElement('li');
-        groupItem.className = 'bp-date-group';
-
-        const header = document.createElement('div');
-        header.className = 'bp-date-header';
-        header.textContent = headerText;
-
-        const groupList = document.createElement('ul');
-        groupList.className = 'list-reset';
-        groupItem.appendChild(header);
-        groupItem.appendChild(groupList);
-
-        sortedReadings.forEach(r => {
-            const category = getBPCategory(r.systolic, r.diastolic);
-            const [, timeStr = ''] = formatDate(r.measured_at).split(' '); // Get HH:MM part
-            const pendingClass = r.isLocal ? ' pending-sync' : '';
-
-            const item = document.createElement('li');
-            item.className = `bp-item${pendingClass}`;
-
-            const reading = document.createElement('div');
-            reading.className = 'bp-reading';
-
-            const values = document.createElement('div');
-            values.className = 'bp-values';
-
-            const sys = document.createElement('span');
-            sys.className = 'bp-sys';
-            sys.textContent = String(r.systolic);
-
-            const dia = document.createElement('span');
-            dia.className = 'bp-dia';
-            dia.textContent = `/${r.diastolic}`;
-
-            values.appendChild(sys);
-            values.appendChild(dia);
-
-            if (r.isRejected) {
-                values.appendChild(createSyncRejectedBadge(r.errorMessage));
-            } else if (r.isLocal) {
-                values.appendChild(createSyncBadge());
-            }
-
-            const meta = document.createElement('div');
-            meta.className = 'bp-meta';
-
-            const time = document.createElement('span');
-            time.textContent = timeStr;
-            meta.appendChild(time);
-
-            if (r.pulse) {
-                const pulse = document.createElement('span');
-                pulse.className = 'bp-pulse';
-                pulse.textContent = `${r.pulse} bpm`;
-                meta.appendChild(pulse);
-            }
-
-            const categoryEl = document.createElement('span');
-            categoryEl.className = `bp-category ${category.class}`;
-            categoryEl.textContent = category.label;
-            meta.appendChild(categoryEl);
-
-            reading.appendChild(values);
-            reading.appendChild(meta);
-
-            item.appendChild(reading);
-            item.appendChild(createDeleteButton(() => deleteBPReading(String(r.id))));
-            groupList.appendChild(item);
-        });
-
-        return groupItem;
+    const buckets = new Map(); // key -> { label, sortKey, readings }
+    const ensureBucket = (key, label, sortKey) => {
+        if (!buckets.has(key)) buckets.set(key, { label, sortKey, readings: [] });
+        return buckets.get(key);
     };
 
-    // Render groups in order
-    const todayGroup = renderGroup('Today', groups.today);
-    const yesterdayGroup = renderGroup('Yesterday', groups.yesterday);
+    readings.forEach((r) => {
+        const d = new Date(r.measured_at);
+        if (!Number.isFinite(d.getTime())) return;
+        const dayStart = new Date(d);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayMs = dayStart.getTime();
 
-    if (todayGroup) list.appendChild(todayGroup);
-    if (yesterdayGroup) list.appendChild(yesterdayGroup);
+        let key;
+        let label;
+        if (dayMs === today.getTime()) {
+            key = 'today';
+            label = 'Today';
+        } else if (dayMs === yesterday.getTime()) {
+            key = 'yesterday';
+            label = 'Yesterday';
+        } else {
+            key = String(dayMs);
+            label = dayStart.toLocaleDateString('de-DE', {
+                day: '2-digit', month: '2-digit', year: 'numeric'
+            });
+        }
+        ensureBucket(key, label, dayMs).readings.push(r);
+    });
 
-    if (groups.older.length > 0) {
-        // Format older dates
-        const olderGroups = new Map();
-        groups.older.forEach(r => {
-            const d = new Date(r.measured_at);
-            const key = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-            if (!olderGroups.has(key)) olderGroups.set(key, []);
-            olderGroups.get(key).push(r);
-        });
+    return Array.from(buckets.values()).sort((a, b) => b.sortKey - a.sortKey);
+}
 
-        olderGroups.forEach((olderReadings, dateKey) => {
-            const olderGroup = renderGroup(dateKey, olderReadings);
-            if (olderGroup) list.appendChild(olderGroup);
-        });
+function buildBPHistoryGroup(label, readings) {
+    if (!readings || readings.length === 0) return null;
+
+    const sorted = [...readings].sort(
+        (a, b) => new Date(b.measured_at) - new Date(a.measured_at)
+    );
+
+    const groupItem = document.createElement('li');
+    groupItem.className = 'wg-bp-history__group';
+
+    const header = document.createElement('div');
+    header.className = 'wg-section-label wg-bp-history__group-label';
+    const headerText = document.createElement('span');
+    headerText.textContent = label;
+    header.appendChild(headerText);
+    groupItem.appendChild(header);
+
+    const rowList = document.createElement('ul');
+    rowList.className = 'list-reset wg-bp-history__rows';
+    sorted.forEach((r) => rowList.appendChild(buildBPReadingRow(r)));
+    groupItem.appendChild(rowList);
+
+    return groupItem;
+}
+
+function buildBPReadingRow(reading) {
+    const item = document.createElement('li');
+    item.className = 'wg-card wg-bp-reading-row';
+    if (reading.isLocal) item.classList.add('wg-bp-reading-row--pending');
+    if (reading.isRejected) item.classList.add('wg-bp-reading-row--rejected');
+    item.setAttribute('data-reading-id', String(reading.id));
+
+    const body = document.createElement('div');
+    body.className = 'wg-bp-reading-row__body';
+
+    const value = document.createElement('div');
+    value.className = 'wg-mono-display wg-bp-reading-row__value';
+    const sysSpan = document.createElement('span');
+    sysSpan.className = 'wg-bp-reading-row__sys';
+    sysSpan.textContent = String(reading.systolic);
+    const diaSpan = document.createElement('span');
+    diaSpan.className = 'wg-bp-reading-row__dia';
+    diaSpan.textContent = `/${reading.diastolic}`;
+    value.appendChild(sysSpan);
+    value.appendChild(diaSpan);
+    body.appendChild(value);
+
+    const meta = document.createElement('div');
+    meta.className = 'wg-bp-reading-row__meta';
+
+    const [, timeStr = ''] = formatDate(reading.measured_at).split(' ');
+    if (timeStr) {
+        const time = document.createElement('span');
+        time.className = 'wg-bp-reading-row__time';
+        time.textContent = timeStr;
+        meta.appendChild(time);
     }
+
+    if (reading.pulse) {
+        const pulse = document.createElement('span');
+        pulse.className = 'wg-tag wg-tag--mono wg-bp-reading-row__pulse';
+        pulse.textContent = `${reading.pulse} bpm`;
+        meta.appendChild(pulse);
+    }
+
+    const category = getBPCategory(reading.systolic, reading.diastolic);
+    const statusTag = document.createElement('span');
+    statusTag.className = `wg-tag wg-bp-status wg-bp-status--${category.class}`;
+    statusTag.textContent = category.label;
+    meta.appendChild(statusTag);
+
+    if (reading.isRejected) {
+        meta.appendChild(buildBPSyncTag('rejected', 'Failed', reading.errorMessage));
+    } else if (reading.isLocal) {
+        meta.appendChild(buildBPSyncTag('pending', 'Pending'));
+    }
+
+    body.appendChild(meta);
+    item.appendChild(body);
+
+    const actions = document.createElement('div');
+    actions.className = 'wg-bp-reading-row__actions';
+    actions.appendChild(buildBPReadingDeleteButton(reading));
+    item.appendChild(actions);
+
+    return item;
+}
+
+function buildBPSyncTag(kind, label, tooltip) {
+    const tag = document.createElement('span');
+    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-bp-reading-row__sync`;
+    tag.textContent = label;
+    if (tooltip) tag.title = tooltip;
+    return tag;
+}
+
+function buildBPReadingDeleteButton(reading) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-icon-btn wg-bp-reading-row__delete';
+    btn.setAttribute('aria-label', 'Delete reading');
+
+    const gloss = document.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg('trash', { size: 16 }));
+    }
+    btn.appendChild(gloss);
+
+    btn.addEventListener('click', () => deleteBPReading(String(reading.id)));
+    return btn;
 }
 
 // Delete a BP reading
