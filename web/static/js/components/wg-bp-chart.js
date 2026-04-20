@@ -154,8 +154,10 @@
         let dataMin = Y_DEFAULT_MIN;
         let dataMax = Y_DEFAULT_MAX;
         for (const d of data) {
+            if (d.sys < dataMin) dataMin = d.sys;
             if (d.dia < dataMin) dataMin = d.dia;
             if (d.sys > dataMax) dataMax = d.sys;
+            if (d.dia > dataMax) dataMax = d.dia;
         }
         const yMin = Math.max(Y_FLOOR, Math.floor((dataMin - 5) / 10) * 10);
         const yMax = Math.min(Y_CEIL, Math.ceil((dataMax + 5) / 10) * 10);
