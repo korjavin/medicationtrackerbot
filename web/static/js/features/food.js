@@ -49,6 +49,19 @@ function renderFoodDayNavIcons() {
     }
 }
 
+function renderFoodModalIcons() {
+    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
+    const closeGloss = document.querySelector('#food-modal-close-btn .wg-gloss');
+    if (closeGloss && !closeGloss.querySelector('svg')) {
+        closeGloss.replaceChildren(window.WGIcons.iconSvg('close', { size: 14 }));
+    }
+    const scanBtn = document.getElementById('food-scan-btn');
+    if (scanBtn && !scanBtn.querySelector('svg')) {
+        const icon = window.WGIcons.iconSvg('barcode', { size: 14 });
+        scanBtn.insertBefore(icon, scanBtn.firstChild);
+    }
+}
+
 function bindFoodControls() {
     if (foodControlsBound) return;
     foodControlsBound = true;
@@ -126,6 +139,7 @@ function bindFoodControls() {
     bindChange('food-date-filter', () => loadFoodLogs());
 
     bindClick('food-modal-cancel-btn', () => closeFoodModal());
+    bindClick('food-modal-close-btn', () => closeFoodModal());
     bindClick('food-modal-save-btn', () => saveFoodLog());
     bindInput('food-weight', () => calculateFoodCalories());
     bindInput('food-barcode', () => onFoodBarcodeChange());
@@ -153,6 +167,7 @@ function bindFoodControls() {
     bindClick('food-save-meal-confirm-btn', () => confirmSaveMeal());
 
     renderFoodDayNavIcons();
+    renderFoodModalIcons();
     restoreFoodSubTab();
 }
 

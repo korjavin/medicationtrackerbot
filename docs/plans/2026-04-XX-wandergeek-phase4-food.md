@@ -122,16 +122,16 @@ No backend changes. The existing `/api/food*` endpoints, Dexie offline queue, ba
 
 ### Task 6: Rewrite EditFoodModal
 
-- [ ] replace the existing edit-food modal markup in `index.html` with the Wandergeek shell — mono header (dual-line: "Edit entry" / "Food"), `.wg-icon-btn` close trailing the header
-- [ ] Weight (g) + Barcode row — both are `.wg-gloss--inset` input wraps sharing the 10px gap; Scan button is `.wg-gloss` with the barcode icon
-- [ ] Food name input — full-width `.wg-gloss--inset` wrap; autocomplete dropdown from `renderFoodAutocomplete` stays functional
-- [ ] `Macros · per 100g` section — three-column `.wg-gloss--inset` input wraps (Carbs / Protein / Fat)
-- [ ] Total calories input — full-width, larger mono (18px via `--wg-food-total-kcal-input` token)
-- [ ] Date & time input — full-width `.wg-gloss--inset` wrap carrying the existing ISO-local formatter
-- [ ] Cancel + Save entry buttons row at the bottom — Cancel `.wg-gloss`, Save `.wg-gloss--sun` with 2× flex per modal-button order convention (Cancel left, Save right); top-right placement alternative only if keyboard-occlusion still happens on mobile
-- [ ] barcode scanner overlay (`openFoodScannerModal`) unchanged — only the trigger button is restyled
-- [ ] write/update `food.modal.test.js` — open/save/cancel, per-100g recompute, barcode scan handoff, `modal-controller.js` history integration preserved
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing edit-food modal markup in `index.html` with the Wandergeek shell — mono header (dual-line: "Edit entry" / "Food"), `.wg-icon-btn` close trailing the header
+- [x] Weight (g) + Barcode row — both are `.wg-gloss--inset` input wraps sharing the 10px gap; Scan button is `.wg-gloss` with the barcode icon
+- [x] Food name input — full-width `.wg-gloss--inset` wrap; autocomplete dropdown from `renderFoodAutocomplete` stays functional
+- [x] `Macros · per 100g` section — three-column `.wg-gloss--inset` input wraps (Carbs / Protein / Fat)
+- [x] Total calories input — full-width, larger mono (18px via `--wg-food-total-kcal-input` token)
+- [x] Date & time input — full-width `.wg-gloss--inset` wrap carrying the existing ISO-local formatter
+- [x] Cancel + Save entry buttons row at the bottom — Cancel `.wg-gloss`, Save `.wg-gloss--sun` with 2× flex per modal-button order convention (Cancel left, Save right); top-right placement alternative only if keyboard-occlusion still happens on mobile
+- [x] barcode scanner overlay (`openFoodScannerModal`) unchanged — only the trigger button is restyled
+- [x] write/update `food.modal.test.js` — open/save/cancel, per-100g recompute, barcode scan handoff, `modal-controller.js` history integration preserved
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Wire Food into the canonical bottom nav + cleanup
 

@@ -401,6 +401,16 @@
     --wg-food-item-row-pad: 12px;
     --wg-food-total-kcal-input: 18px;
 
+    /* Edit-food modal (Phase 4, Task 6) — eyebrow + mono header layout, input
+       wrapper padding, and the bottom action bar. */
+    --wg-food-modal-eyebrow-size: 10.5px;
+    --wg-food-modal-title-size: 18px;
+    --wg-food-modal-row-gap: 10px;
+    --wg-food-modal-section-gap: 14px;
+    --wg-food-modal-input-pad-y: 10px;
+    --wg-food-modal-input-pad-x: 12px;
+    --wg-food-modal-action-gap: 8px;
+
     /* Food macro color aliases — Energy / Protein / Carbs / Fat map to the
        existing sun / mint / teal-sage / clay-soft palette so the macro-bar
        variants pick up the right fill without duplicating hex values. */
@@ -1917,7 +1927,6 @@ input:checked+.toggle-slider:before {
     transform: translateX(22px);
 }
 
-#food-modal,
 #food-product-modal,
 #food-save-meal-modal {
     position: fixed;
@@ -1941,46 +1950,9 @@ input:checked+.toggle-slider:before {
     z-index: var(--z-popover);
 }
 
-#food-modal.hidden,
 #food-product-modal.hidden,
 #food-save-meal-modal.hidden {
     display: none;
-}
-
-.food-quick-row {
-    display: flex;
-    gap: var(--space-md);
-    align-items: flex-end;
-}
-
-.food-weight-group {
-    flex: 0 0 90px;
-}
-
-.food-weight-group input {
-    margin-bottom: 0;
-}
-
-.food-barcode-group {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-.food-barcode-row {
-    display: flex;
-    gap: var(--space-sm);
-    align-items: stretch;
-}
-
-.food-barcode-row input {
-    margin-bottom: 0;
-}
-
-.food-scan-btn {
-    flex: 0 0 auto;
-    min-width: 60px;
-    padding: 0 var(--space-md);
-    font-size: var(--font-size-sm);
 }
 
 .food-search-status {
@@ -5378,4 +5350,201 @@ textarea.wg-input {
 
 .wg-food-meal-list__empty {
     padding: var(--space-lg) 0;
+}
+
+/* Edit-food modal (Phase 4, Task 6) — uses the shared `.wg-modal` shell
+   for positioning + chrome, then overlays the dual-line eyebrow/title
+   header, gloss-inset input wraps, three-up macros row, and bottom
+   Cancel/Save action bar. Every visual value reads from a `--wg-food-modal-*`
+   or shared `--wg-*` token. */
+.wg-food-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-food-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-food-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-food-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-food-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-food-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-food-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-food-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-food-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-food-modal-section-gap);
+}
+
+.wg-food-modal__row {
+    display: flex;
+    gap: var(--wg-food-modal-row-gap);
+    align-items: flex-end;
+}
+
+.wg-food-modal__row--quick > .wg-food-modal__field--weight {
+    flex: 1 1 90px;
+    min-width: 0;
+}
+
+.wg-food-modal__row--quick > .wg-food-modal__field--barcode {
+    flex: 2 1 auto;
+    min-width: 0;
+}
+
+.wg-food-modal__row--macros > .wg-food-modal__field {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.wg-food-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-food-modal__field--name {
+    position: relative;
+}
+
+.wg-food-modal__label {
+    font-size: var(--wg-food-modal-eyebrow-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-food-modal__input-wrap {
+    padding: var(--wg-food-modal-input-pad-y) var(--wg-food-modal-input-pad-x);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-food-modal__name-wrap {
+    position: relative;
+}
+
+.wg-food-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-food-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-food-modal__input--total-kcal {
+    font-size: var(--wg-food-total-kcal-input);
+}
+
+.wg-food-modal__barcode-row {
+    display: flex;
+    gap: var(--space-sm);
+    align-items: stretch;
+    min-width: 0;
+}
+
+.wg-food-modal__barcode-row > .wg-food-modal__input-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.wg-food-modal__scan-btn {
+    flex: 0 0 auto;
+    padding: var(--wg-food-modal-input-pad-y) var(--wg-food-modal-input-pad-x);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+}
+
+.wg-food-modal__status {
+    margin: 0;
+    font-size: var(--font-size-xs);
+}
+
+.wg-food-modal__product-link {
+    font-size: var(--font-size-xs);
+}
+
+.wg-food-modal__section-label {
+    padding: 0;
+}
+
+.wg-food-modal__section-label::before {
+    content: none;
+}
+
+.wg-food-modal__per100g {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-left: auto;
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-normal);
+    cursor: pointer;
+}
+
+.wg-food-modal__per100g input {
+    margin: 0;
+}
+
+.wg-food-modal__actions {
+    display: flex;
+    gap: var(--wg-food-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-food-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-food-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-food-modal__action--save {
+    flex: 2 1 0;
 }
