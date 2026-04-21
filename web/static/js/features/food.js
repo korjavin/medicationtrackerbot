@@ -1610,24 +1610,77 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
         periodContainer.classList.remove('hidden');
     }
 
+    const macrosCard = document.getElementById('food-macros-card');
     if (period === 'week' || period === '2weeks') {
+        if (macrosCard) macrosCard.classList.add('hidden');
         const stats = weekStats;
         summary.classList.remove('hidden');
         const label = period === 'week' ? '7-Day Total' : '14-Day Total';
         renderFoodSummary(summary, label, Math.round(stats?.calories || 0), Math.round(stats?.carbs || 0), Math.round(stats?.protein || 0), Math.round(stats?.fat || 0));
         renderFoodTargetProgress(Math.round(stats?.calories || 0), Math.round(stats?.carbs || 0), Math.round(stats?.protein || 0), Math.round(stats?.fat || 0), period);
     } else {
-        if (groups && groups.length > 0) {
-            summary.classList.remove('hidden');
-            renderFoodSummary(summary, 'Daily Total', Math.round(dayCals), Math.round(dayCarbs), Math.round(dayProt), Math.round(dayFat));
-            renderFoodTargetProgress(Math.round(dayCals), Math.round(dayCarbs), Math.round(dayProt), Math.round(dayFat), period);
-        } else {
-            summary.classList.add('hidden');
-            renderFoodTargetProgress(0, 0, 0, 0, period);
+        summary.classList.add('hidden');
+        const progress = document.getElementById('food-target-progress');
+        if (progress) {
+            progress.classList.add('hidden');
+            progress.replaceChildren();
         }
+        renderFoodMacrosCard(
+            Math.round(dayCals),
+            Math.round(dayCarbs),
+            Math.round(dayProt),
+            Math.round(dayFat),
+            foodTargets
+        );
     }
 
     updateFoodSelectUI();
+}
+
+// Phase 4, Task 4 — populate the Wandergeek daily macros card. Renders the
+// big mono kcal total, the sun-tinted "NN% of target" subtitle, and four
+// WGMacroBar rows (Energy / Protein / Carbs / Fat) into the existing
+// #food-macros-card shell. Empty-state callers pass zeros; bars collapse
+// to 0% rather than being hidden. Missing targets fall back to "—" in the
+// bar's target suffix and to "—% of target" in the card header.
+function renderFoodMacrosCard(calories, carbs, protein, fat, targets) {
+    const card = document.getElementById('food-macros-card');
+    if (!card) return;
+
+    const safeTargets = targets || {};
+    const targetCalories = Number(safeTargets.calories) > 0 ? Number(safeTargets.calories) : 0;
+    const targetCarbs = Number(safeTargets.carbs) > 0 ? Number(safeTargets.carbs) : 0;
+    const targetProtein = Number(safeTargets.protein) > 0 ? Number(safeTargets.protein) : 0;
+    const targetFat = Number(safeTargets.fat) > 0 ? Number(safeTargets.fat) : 0;
+
+    const kcalEl = document.getElementById('food-macros-card-kcal');
+    if (kcalEl) kcalEl.textContent = String(Math.round(calories || 0));
+
+    const percentEl = document.getElementById('food-macros-card-percent-value');
+    if (percentEl) {
+        if (targetCalories > 0) {
+            const pct = Math.round((calories / targetCalories) * 100);
+            percentEl.textContent = `${pct}%`;
+        } else {
+            percentEl.textContent = '—';
+        }
+    }
+
+    const bars = document.getElementById('food-macros-card-bars');
+    if (bars) {
+        bars.replaceChildren();
+        if (window.WGMacroBar && typeof window.WGMacroBar.render === 'function') {
+            const rows = [
+                { label: 'Energy', value: calories, target: targetCalories, unit: 'kcal', variant: 'energy' },
+                { label: 'Protein', value: protein, target: targetProtein, unit: 'g', variant: 'protein' },
+                { label: 'Carbs', value: carbs, target: targetCarbs, unit: 'g', variant: 'carbs' },
+                { label: 'Fat', value: fat, target: targetFat, unit: 'g', variant: 'fat' }
+            ];
+            rows.forEach(row => bars.appendChild(window.WGMacroBar.render(row)));
+        }
+    }
+
+    card.classList.remove('hidden');
 }
 
 function toggleFoodSelectMode() {

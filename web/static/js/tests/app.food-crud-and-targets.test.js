@@ -258,7 +258,11 @@ describe('app.js food CRUD, targets and period helpers', () => {
       expect(document.getElementById('food-list').innerHTML).toContain('Rice Bowl');
       expect(document.getElementById('food-list').textContent).toContain('<b>Tea</b>');
       expect(document.getElementById('food-list').innerHTML).not.toContain('<b>');
-      expect(document.getElementById('food-summary').innerHTML).toContain('Daily Total');
+      // Phase 4, Task 4: daily totals now render into the Wandergeek macros
+      // card, not the legacy #food-summary block (which stays hidden for day).
+      const macrosCard = document.getElementById('food-macros-card');
+      expect(macrosCard.classList.contains('hidden')).toBe(false);
+      expect(document.getElementById('food-macros-card-kcal').textContent).toBe('500');
 
       window.editFoodLog(1);
       expect(document.getElementById('food-modal-title').innerText).toBe('Edit Food');
