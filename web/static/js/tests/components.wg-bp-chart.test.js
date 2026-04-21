@@ -249,6 +249,62 @@ describe('WGBpChart.render', () => {
         expect(Math.abs(diaCy - sysCy)).toBeGreaterThan(96); // 60% of 160
     });
 
+    it('keeps yMin < yMax when all readings sit below Y_FLOOR (pathological device error)', () => {
+        // Regression: independent clamps on yMin (floor) and yMax (ceil) can
+        // invert the bounds when every reading is below Y_FLOOR. For 5/3 the
+        // old code produced yMin=40 / yMax=20, sending yOf() off-canvas.
+        const readings = [
+            { measured_at: '2026-04-01T12:00:00Z', systolic: 5, diastolic: 3 },
+            { measured_at: '2026-04-02T12:00:00Z', systolic: 6, diastolic: 4 },
+        ];
+        const svg = env.api.render({ readings });
+        expect(svg).not.toBeNull();
+        const yMin = Number(svg.dataset.bpYMin);
+        const yMax = Number(svg.dataset.bpYMax);
+        expect(yMin).toBeGreaterThanOrEqual(40);
+        expect(yMax).toBeLessThanOrEqual(260);
+        expect(yMin).toBeLessThan(yMax);
+        // Last-point markers must stay inside the plot area (PAD_T=14,
+        // plotH=160 → cy ∈ [14, 174]) even when raw values sit below the
+        // clamped yMin. Without clamping inside yOf(), cy would project
+        // hundreds of pixels off-canvas.
+        const sysLast = svg.querySelector('circle.wg-bp-chart__last[data-bp-series="sys"]');
+        const diaLast = svg.querySelector('circle.wg-bp-chart__last[data-bp-series="dia"]');
+        const sysCy = parseFloat(sysLast.getAttribute('cy'));
+        const diaCy = parseFloat(diaLast.getAttribute('cy'));
+        expect(sysCy).toBeGreaterThanOrEqual(14);
+        expect(sysCy).toBeLessThanOrEqual(174);
+        expect(diaCy).toBeGreaterThanOrEqual(14);
+        expect(diaCy).toBeLessThanOrEqual(174);
+    });
+
+    it('keeps yMin < yMax when all readings sit above Y_CEIL (pathological device error)', () => {
+        // Regression mirror: for 300/280 the old code produced yMin=270 /
+        // yMax=260. Auto-scale must stay inside [Y_FLOOR, Y_CEIL] without
+        // inverting.
+        const readings = [
+            { measured_at: '2026-04-01T12:00:00Z', systolic: 300, diastolic: 280 },
+            { measured_at: '2026-04-02T12:00:00Z', systolic: 305, diastolic: 285 },
+        ];
+        const svg = env.api.render({ readings });
+        expect(svg).not.toBeNull();
+        const yMin = Number(svg.dataset.bpYMin);
+        const yMax = Number(svg.dataset.bpYMax);
+        expect(yMin).toBeGreaterThanOrEqual(40);
+        expect(yMax).toBeLessThanOrEqual(260);
+        expect(yMin).toBeLessThan(yMax);
+        // Markers must clamp into the plot area instead of projecting
+        // negative cy values off-canvas when raw readings exceed yMax.
+        const sysLast = svg.querySelector('circle.wg-bp-chart__last[data-bp-series="sys"]');
+        const diaLast = svg.querySelector('circle.wg-bp-chart__last[data-bp-series="dia"]');
+        const sysCy = parseFloat(sysLast.getAttribute('cy'));
+        const diaCy = parseFloat(diaLast.getAttribute('cy'));
+        expect(sysCy).toBeGreaterThanOrEqual(14);
+        expect(sysCy).toBeLessThanOrEqual(174);
+        expect(diaCy).toBeGreaterThanOrEqual(14);
+        expect(diaCy).toBeLessThanOrEqual(174);
+    });
+
     it('clamps y-axis to floor/ceiling when data exceeds the safe envelope', () => {
         // Pathological device readings must not push the axis past the
         // absolute bounds [Y_FLOOR=40, Y_CEIL=260]. Even with one value well

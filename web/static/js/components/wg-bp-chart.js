@@ -166,10 +166,21 @@
             dataMin = Y_DEFAULT_MIN;
             dataMax = Y_DEFAULT_MAX;
         }
-        const yMin = Math.max(Y_FLOOR, Math.floor((dataMin - 8) / 10) * 10);
-        const yMax = Math.min(Y_CEIL, Math.ceil((dataMax + 8) / 10) * 10);
+        // Clamp raw data into the safe envelope before padding so all-below-floor
+        // or all-above-ceiling readings (e.g. a device error of 5/3 or 300/280)
+        // can't invert yMin/yMax after the independent Math.max/Math.min clamps.
+        const boundedMin = Math.max(Y_FLOOR, Math.min(Y_CEIL, dataMin));
+        const boundedMax = Math.max(Y_FLOOR, Math.min(Y_CEIL, dataMax));
+        const yMin = Math.max(Y_FLOOR, Math.floor((boundedMin - 8) / 10) * 10);
+        const yMax = Math.min(Y_CEIL, Math.ceil((boundedMax + 8) / 10) * 10);
         const yRange = (yMax - yMin) || 1;
-        const yOf = (v) => PAD_T + plotH - ((v - yMin) / yRange) * plotH;
+        // Clamp the plotted value to [yMin, yMax] so pathological readings
+        // (e.g. 5/3 or 300/280 from device errors) pin to the chart edge
+        // instead of projecting far off-canvas.
+        const yOf = (v) => {
+            const clamped = v < yMin ? yMin : v > yMax ? yMax : v;
+            return PAD_T + plotH - ((clamped - yMin) / yRange) * plotH;
+        };
 
         const sysPoints = data.map((d) => [xOf(d.date.getTime()), yOf(d.sys)]);
         const diaPoints = data.map((d) => [xOf(d.date.getTime()), yOf(d.dia)]);
