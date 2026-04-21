@@ -5022,3 +5022,70 @@ textarea.wg-input {
     color: var(--wg-tag-alert-fg);
     border-color: var(--wg-tag-alert-border);
 }
+
+/* Food macro bar (Phase 4, Task 2) — reusable row rendered by
+   components/wg-macro-bar.js. Four variants (Energy / Protein / Carbs /
+   Fat) swap the fill color via --wg-food-macro-* tokens. The fill width
+   is driven dynamically from JS via the neutral --fill-pct custom
+   property so no color or visual token ever appears in the component
+   source. */
+.wg-macro-bar {
+    display: grid;
+    grid-template-columns: var(--wg-food-macro-row-cols);
+    gap: var(--wg-food-macro-row-gap);
+    align-items: center;
+}
+
+.wg-macro-bar__label {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-bold);
+    color: var(--wg-fg-2);
+}
+
+.wg-macro-bar__track {
+    height: var(--wg-food-macro-bar-height);
+    border-radius: var(--wg-radius-pill);
+    overflow: hidden;
+    padding: 0;
+}
+
+.wg-macro-bar__fill {
+    height: 100%;
+    width: var(--fill-pct, 0%);
+    border-radius: var(--wg-radius-pill);
+    transition: width 400ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.wg-macro-bar__fill--energy {
+    background: var(--wg-food-macro-energy);
+}
+
+.wg-macro-bar__fill--protein {
+    background: var(--wg-food-macro-protein);
+}
+
+.wg-macro-bar__fill--carbs {
+    background: var(--wg-food-macro-carbs);
+}
+
+.wg-macro-bar__fill--fat {
+    background: var(--wg-food-macro-fat);
+}
+
+.wg-macro-bar__value {
+    min-width: 72px;
+    text-align: right;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+}
+
+.wg-macro-bar__value-target {
+    color: var(--wg-fg-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wg-macro-bar__fill {
+        transition: none;
+    }
+}

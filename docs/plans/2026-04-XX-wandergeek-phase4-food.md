@@ -88,12 +88,12 @@ No backend changes. The existing `/api/food*` endpoints, Dexie offline queue, ba
 
 ### Task 2: Build the `WGMacroBar` component
 
-- [ ] create `web/static/js/components/wg-macro-bar.js` exposing `WGMacroBar.render({ label, value, target, unit, variant })` returning a DOM element
-- [ ] mirror `project/screens.jsx:MacroRow` — `56px / 1fr / auto` grid, `.wg-gloss--inset` track, fill element classed by `variant` (`energy` | `protein` | `carbs` | `fat`)
-- [ ] colors come from `--wg-food-macro-*` tokens via CSS classes — no inline `style=` / hardcoded hex
-- [ ] register `window.WGMacroBar` in `architecture.globals.test.js` with a one-line justification
-- [ ] write `components.wg-macro-bar.test.js` — fill width clamped to 0-100%, unit suffix formatted, variant class present, reduced-motion fill transition still applies via CSS
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-macro-bar.js` exposing `WGMacroBar.render({ label, value, target, unit, variant })` returning a DOM element
+- [x] mirror `project/screens.jsx:MacroRow` — `56px / 1fr / auto` grid, `.wg-gloss--inset` track, fill element classed by `variant` (`energy` | `protein` | `carbs` | `fat`)
+- [x] colors come from `--wg-food-macro-*` tokens via CSS classes — no inline `style=` / hardcoded hex
+- [x] register `window.WGMacroBar` in `architecture.globals.test.js` with a one-line justification
+- [x] write `components.wg-macro-bar.test.js` — fill width clamped to 0-100%, unit suffix formatted, variant class present, reduced-motion fill transition still applies via CSS
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Rewrite Food sub-tab strip + day navigator
 
