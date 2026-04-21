@@ -258,7 +258,7 @@ describe('app.js food helpers', () => {
     }
   });
 
-  it('updateFoodDateNav updates label, chip visibility, and button state correctly', () => {
+  it('updateFoodDateNav updates label and next button disabled state correctly', () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
@@ -267,13 +267,11 @@ describe('app.js food helpers', () => {
         <input id="food-date-filter" />
         <span id="food-date-label"></span>
         <button id="food-date-next-btn"></button>
-        <button id="food-today-btn" style="display: none;"></button>
       `;
 
       const filter = document.getElementById('food-date-filter');
       const label = document.getElementById('food-date-label');
       const nextBtn = document.getElementById('food-date-next-btn');
-      const todayBtn = document.getElementById('food-today-btn');
 
       const today = new Date();
       const yesterday = new Date(today);
@@ -285,7 +283,6 @@ describe('app.js food helpers', () => {
 
       expect(label.textContent).toBe('Today');
       expect(nextBtn.disabled).toBe(true);
-      expect(todayBtn.classList.contains('hidden')).toBe(true);
 
       // Test "Yesterday"
       filter.value = window.toISODateLocal(yesterday);
@@ -293,7 +290,6 @@ describe('app.js food helpers', () => {
 
       expect(label.textContent).toBe('Yesterday');
       expect(nextBtn.disabled).toBe(false);
-      expect(todayBtn.classList.contains('hidden')).toBe(false);
 
     } finally {
       cleanup();

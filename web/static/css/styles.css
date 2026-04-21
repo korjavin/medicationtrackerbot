@@ -1794,20 +1794,6 @@ svg.chart-svg {
     border-radius: var(--radius-sm);
 }
 
-.food-today-chip {
-    font-size: var(--font-size-xs);
-    height: 24px;
-    padding: 0 var(--space-sm);
-    border-radius: var(--radius-md);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background-color: var(--secondary-bg-color);
-    border: 1px solid var(--border-color);
-    color: var(--text-color);
-    white-space: nowrap;
-}
-
 .food-target-progress {
     margin-bottom: var(--space-md);
     padding: var(--space-lg);
@@ -5183,15 +5169,6 @@ textarea.wg-input {
     border: 1px solid var(--wg-border-hairline);
     border-radius: var(--wg-radius-card);
     color: var(--wg-fg-2);
-}
-
-.wg-food-day-nav__today-btn {
-    grid-column: 1 / -1;
-    justify-self: center;
-    min-height: 30px;
-    padding: var(--space-xs) var(--space-md);
-    font-size: var(--font-size-xs);
-    font-family: var(--wg-font-mono);
 }
 
 /* Food meal-grouped item list (Phase 4, Task 5). Each meal is a

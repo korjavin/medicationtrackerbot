@@ -2,8 +2,8 @@
 //
 // Asserts the rewritten day-nav renders as a three-cell row — chevron
 // button, mono-display title + subtitle, chevron button — and that the
-// chevron buttons, today-chip, and date-label click handler still hook
-// into the existing `shiftFoodDate` / `goFoodToday` callbacks.
+// chevron buttons and date-label click handler hook into the existing
+// `shiftFoodDate` callback.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -93,20 +93,27 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         expect(filter.value).toBe('2026-04-20');
     });
 
-    it('clicking the today chip resets the date and hides the chip', () => {
-        const { document, window } = env;
-        window.loadFoodLogs = () => {};
-        const filter = document.getElementById('food-date-filter');
-        const todayChip = document.getElementById('food-today-btn');
+    it('does not render a Today jump-to-today button', () => {
+        const { document } = env;
+        expect(document.getElementById('food-today-btn')).toBeNull();
+        expect(document.querySelector('.wg-food-day-nav__today-btn')).toBeNull();
+        expect(document.querySelector('.food-today-chip')).toBeNull();
+    });
 
-        filter.value = '2026-04-18';
-        window.updateFoodDateNav();
-        expect(todayChip.classList.contains('hidden')).toBe(false);
+    it('#food-view opts into the shared .wg-screen-stage backdrop', () => {
+        const { document } = env;
+        const view = document.getElementById('food-view');
+        expect(view).not.toBeNull();
+        expect(view.classList.contains('wg-screen-stage')).toBe(true);
+    });
 
-        todayChip.click();
-        const today = new Date();
-        expect(filter.value).toBe(toISODateLocal(today));
-        expect(todayChip.classList.contains('hidden')).toBe(true);
+    it('Food section header carries no data-badge attribute', () => {
+        const { document } = env;
+        const mount = document
+            .getElementById('food-view')
+            .querySelector('.section-header-mount');
+        expect(mount).not.toBeNull();
+        expect(mount.hasAttribute('data-badge')).toBe(false);
     });
 
     it('formatFoodDateSubtitle returns DD.MM.YYYY for ISO input and empty string for blank', () => {
