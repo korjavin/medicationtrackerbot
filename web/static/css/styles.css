@@ -3955,6 +3955,11 @@ input:checked+.toggle-slider:before {
     gap: var(--space-md);
 }
 
+.wg-field--row > .wg-field {
+    flex: 1;
+    min-width: 0;
+}
+
 .wg-label {
     font-family: var(--wg-font-ui);
     font-size: var(--font-size-xs);
@@ -4001,6 +4006,10 @@ input:checked+.toggle-slider:before {
 
 .wg-input::placeholder {
     color: var(--wg-fg-4);
+}
+
+textarea.wg-input {
+    resize: vertical;
 }
 
 .wg-tag {
