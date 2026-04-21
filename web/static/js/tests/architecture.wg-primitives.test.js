@@ -25,6 +25,7 @@ const REQUIRED_CLASSES = [
     '.wg-gloss--clay',
     '.wg-gloss--inset',
     '.wg-gloss--lg',
+    '.wg-fab',
     '.wg-icon-btn',
     '.wg-tag',
     '.wg-tag--normal',
@@ -35,6 +36,14 @@ const REQUIRED_CLASSES = [
     '.wg-mono-display',
     '.wg-muted',
     '.wg-muted-strong',
+    '.wg-modal',
+    '.wg-modal__title',
+    '.wg-modal__body',
+    '.wg-modal__actions',
+    '.wg-field',
+    '.wg-label',
+    '.wg-input',
+    '.wg-select',
 ];
 
 function loadCss() {
@@ -144,6 +153,70 @@ describe('Wandergeek material primitives', () => {
         // No hex literals in the stage rule — enforced generically by the
         // hex-literal loop above, re-asserted here so regressions are loud.
         expect(blocks[0]).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    });
+
+    it('.wg-fab is a fixed FAB anchored above the bottom nav via --wg-bottom-nav-reserved', () => {
+        const blocks = extractClassBlocks(css, '.wg-fab');
+        expect(blocks.length).toBeGreaterThan(0);
+        const body = blocks[0];
+        expect(body).toMatch(/position:\s*fixed\b/);
+        expect(body).toMatch(/right:\s*var\(--space-/);
+        expect(body).toMatch(/bottom:\s*calc\([^)]*var\(--wg-bottom-nav-reserved\)/);
+        expect(body).toMatch(/z-index:\s*var\(--wg-z-fab\)/);
+    });
+
+    it('.wg-modal carries card-like background pulling --wg-bg-card and uses z-modal', () => {
+        const blocks = extractClassBlocks(css, '.wg-modal');
+        expect(blocks.length).toBeGreaterThan(0);
+        const body = blocks[0];
+        expect(body).toMatch(/position:\s*fixed\b/);
+        expect(body).toMatch(/background:[\s\S]*var\(--wg-bg-card\)/);
+        expect(body).toMatch(/border-radius:\s*var\(--wg-radius-card\)/);
+        expect(body).toMatch(/z-index:\s*var\(--z-modal\)/);
+    });
+
+    it('.wg-modal__title uses the mono display family so titles read as JetBrains Mono', () => {
+        const blocks = extractClassBlocks(css, '.wg-modal__title');
+        expect(blocks.length).toBeGreaterThan(0);
+        expect(blocks[0]).toMatch(/font-family:\s*var\(--wg-font-mono\)/);
+    });
+
+    it('.wg-input pulls background/border/color from --wg-* tokens', () => {
+        const blocks = extractClassBlocks(css, '.wg-input');
+        expect(blocks.length).toBeGreaterThan(0);
+        const body = blocks[0];
+        expect(body).toMatch(/background:\s*var\(--wg-bg-card-inset\)/);
+        expect(body).toMatch(/color:\s*var\(--wg-fg-1\)/);
+        expect(body).toMatch(/border:[\s\S]*var\(--wg-border-hairline\)/);
+    });
+
+    it('.wg-label uses the --wg-fg-3 quiet-text token (AA on teal stage)', () => {
+        const blocks = extractClassBlocks(css, '.wg-label');
+        expect(blocks.length).toBeGreaterThan(0);
+        expect(blocks[0]).toMatch(/color:\s*var\(--wg-fg-3\)/);
+    });
+
+    it('#bp-modal markup uses the wg-modal + wg-field + wg-input/select utilities', () => {
+        const html = fs.readFileSync(
+            path.join(REPO_ROOT, 'web/static/index.html'),
+            'utf8'
+        );
+        // Shell wears .wg-modal
+        expect(html).toMatch(/<mt-modal[^>]*id="bp-modal"[^>]*class="[^"]*\bwg-modal\b/);
+        // Title wears .wg-modal__title
+        expect(html).toMatch(/<h3[^>]*id="bp-modal-title"[^>]*class="[^"]*\bwg-modal__title\b/);
+        // Cancel is a plain gloss; Save is sun gloss. Form= attr must survive
+        // so handleBPSubmit's querySelector keeps working.
+        expect(html).toMatch(/id="bp-modal-cancel-btn"[^>]*class="[^"]*\bwg-gloss\b/);
+        expect(html).toMatch(/form="bp-form"[^>]*class="[^"]*\bwg-gloss--sun\b/);
+        // Fields carry .wg-input / .wg-select
+        expect(html).toMatch(/id="bp-systolic"[^>]*class="[^"]*\bwg-input\b/);
+        expect(html).toMatch(/id="bp-site"[^>]*class="[^"]*\bwg-select\b/);
+        // Paper-era button + form-row classes must not linger in the BP modal
+        const bpModalBlock = html.match(/<mt-modal[^>]*id="bp-modal"[\s\S]*?<\/mt-modal>/);
+        expect(bpModalBlock, 'expected bp-modal block in index.html').not.toBeNull();
+        expect(bpModalBlock[0]).not.toMatch(/\bbtn-primary\b/);
+        expect(bpModalBlock[0]).not.toMatch(/\bbtn-secondary\b/);
     });
 
     it('#bp-view opts into the shared screen-stage utility in index.html', () => {

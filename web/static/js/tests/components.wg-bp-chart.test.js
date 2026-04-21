@@ -211,6 +211,162 @@ describe('WGBpChart.render', () => {
         expect(svg.getAttribute('viewBox')).toBe('0 0 358 200');
     });
 
+    it('auto-scales the y-axis so tight-range readings fill the plot (not a thin strip)', () => {
+        // Regression: round-1 seeded dataMin/dataMax with 50/160, so a healthy
+        // reader (sys 118-121, dia 71-72) stretched across a 110-unit default
+        // span, leaving the plotted band at ~3% of chart height. Fix: seed
+        // with ±Infinity and let real data drive the bounds, padded + snapped
+        // to the nearest 10, clamped to floor/ceiling.
+        const readings = [];
+        const anchor = Date.UTC(2026, 3, 20, 12, 0, 0);
+        for (let i = 13; i >= 0; i--) {
+            const ts = new Date(anchor - i * 86400000).toISOString();
+            readings.push({
+                measured_at: ts,
+                systolic: 118 + (i % 4),
+                diastolic: 71 + (i % 2),
+            });
+        }
+        const svg = env.api.render({ readings });
+        expect(svg).not.toBeNull();
+        // With data min=71, max=121, ±8 pad, snap to 10 → yMin=60, yMax=130.
+        // Span ≤ 80 (not 110). Assert via last-point positions: the sys marker
+        // at ~121 should sit near the top of the plot area, not in the middle.
+        const sysLast = svg.querySelector('circle.wg-bp-chart__last[data-bp-series="sys"]');
+        const diaLast = svg.querySelector('circle.wg-bp-chart__last[data-bp-series="dia"]');
+        expect(sysLast).not.toBeNull();
+        expect(diaLast).not.toBeNull();
+        const sysCy = parseFloat(sysLast.getAttribute('cy'));
+        const diaCy = parseFloat(diaLast.getAttribute('cy'));
+        // Plot area: PAD_T=14, plotH=160 (200-14-26). If span were 110, a sys
+        // of ~121 at yMin=50 would plot at cy ≈ 14 + 160 - (71/110)*160 ≈ 71.
+        // With the fix (yMin=60, yMax=130), cy ≈ 14 + 160 - (61/70)*160 ≈ 34.6.
+        // Assert cy < 60 — tight to catch regression, loose enough for
+        // aggregation/downsampling variance.
+        expect(sysCy).toBeLessThan(60);
+        // Separation between sys and dia should be > 60% of plot height when
+        // the axis is auto-scaled; with the old bug it was ~30%.
+        expect(Math.abs(diaCy - sysCy)).toBeGreaterThan(96); // 60% of 160
+    });
+
+    it('keeps yMin < yMax when all readings sit below Y_FLOOR (pathological device error)', () => {
+        // Regression: independent clamps on yMin (floor) and yMax (ceil) can
+        // invert the bounds when every reading is below Y_FLOOR. For 5/3 the
+        // old code produced yMin=40 / yMax=20, sending yOf() off-canvas.
+        const readings = [
+            { measured_at: '2026-04-01T12:00:00Z', systolic: 5, diastolic: 3 },
+            { measured_at: '2026-04-02T12:00:00Z', systolic: 6, diastolic: 4 },
+        ];
+        const svg = env.api.render({ readings });
+        expect(svg).not.toBeNull();
+        const yMin = Number(svg.dataset.bpYMin);
+        const yMax = Number(svg.dataset.bpYMax);
+        expect(yMin).toBeGreaterThanOrEqual(40);
+        expect(yMax).toBeLessThanOrEqual(260);
+        expect(yMin).toBeLessThan(yMax);
+        // Last-point markers must stay inside the plot area (PAD_T=14,
+        // plotH=160 → cy ∈ [14, 174]) even when raw values sit below the
+        // clamped yMin. Without clamping inside yOf(), cy would project
+        // hundreds of pixels off-canvas.
+        const sysLast = svg.querySelector('circle.wg-bp-chart__last[data-bp-series="sys"]');
+        const diaLast = svg.querySelector('circle.wg-bp-chart__last[data-bp-series="dia"]');
+        const sysCy = parseFloat(sysLast.getAttribute('cy'));
+        const diaCy = parseFloat(diaLast.getAttribute('cy'));
+        expect(sysCy).toBeGreaterThanOrEqual(14);
+        expect(sysCy).toBeLessThanOrEqual(174);
+        expect(diaCy).toBeGreaterThanOrEqual(14);
+        expect(diaCy).toBeLessThanOrEqual(174);
+    });
+
+    it('keeps yMin < yMax when all readings sit above Y_CEIL (pathological device error)', () => {
+        // Regression mirror: for 300/280 the old code produced yMin=270 /
+        // yMax=260. Auto-scale must stay inside [Y_FLOOR, Y_CEIL] without
+        // inverting.
+        const readings = [
+            { measured_at: '2026-04-01T12:00:00Z', systolic: 300, diastolic: 280 },
+            { measured_at: '2026-04-02T12:00:00Z', systolic: 305, diastolic: 285 },
+        ];
+        const svg = env.api.render({ readings });
+        expect(svg).not.toBeNull();
+        const yMin = Number(svg.dataset.bpYMin);
+        const yMax = Number(svg.dataset.bpYMax);
+        expect(yMin).toBeGreaterThanOrEqual(40);
+        expect(yMax).toBeLessThanOrEqual(260);
+        expect(yMin).toBeLessThan(yMax);
+        // Markers must clamp into the plot area instead of projecting
+        // negative cy values off-canvas when raw readings exceed yMax.
+        const sysLast = svg.querySelector('circle.wg-bp-chart__last[data-bp-series="sys"]');
+        const diaLast = svg.querySelector('circle.wg-bp-chart__last[data-bp-series="dia"]');
+        const sysCy = parseFloat(sysLast.getAttribute('cy'));
+        const diaCy = parseFloat(diaLast.getAttribute('cy'));
+        expect(sysCy).toBeGreaterThanOrEqual(14);
+        expect(sysCy).toBeLessThanOrEqual(174);
+        expect(diaCy).toBeGreaterThanOrEqual(14);
+        expect(diaCy).toBeLessThanOrEqual(174);
+    });
+
+    it('clamps y-axis to floor/ceiling when data exceeds the safe envelope', () => {
+        // Pathological device readings must not push the axis past the
+        // absolute bounds [Y_FLOOR=40, Y_CEIL=260]. Even with one value well
+        // below the floor and one well above the ceiling, the axis stays
+        // within those limits so the rendered chart remains legible.
+        const readings = [
+            { measured_at: '2026-04-01T12:00:00Z', systolic: 30, diastolic: 20 },
+            { measured_at: '2026-04-10T12:00:00Z', systolic: 300, diastolic: 280 },
+        ];
+        const svg = env.api.render({ readings });
+        expect(svg).not.toBeNull();
+        expect(svg.dataset.bpYMin).toBe('40');
+        expect(svg.dataset.bpYMax).toBe('260');
+    });
+
+    it('omits 80/120 guide lines when they fall outside the auto-scaled y-range', () => {
+        // When all readings are low-diastolic (e.g. sys 100-105, dia 60-62),
+        // the 120 guide falls above yMax and should not render off-plot.
+        const readings = [];
+        const anchor = Date.UTC(2026, 3, 20, 12, 0, 0);
+        for (let i = 9; i >= 0; i--) {
+            const ts = new Date(anchor - i * 86400000).toISOString();
+            readings.push({
+                measured_at: ts,
+                systolic: 100 + (i % 3),
+                diastolic: 60 + (i % 2),
+            });
+        }
+        const svg = env.api.render({ readings });
+        expect(svg).not.toBeNull();
+        const guides = svg.querySelectorAll('line.wg-bp-chart__guide');
+        // 80 falls inside [50, 110], 120 falls outside — only one should render.
+        const values = Array.from(guides).map((g) => g.dataset.bpGuide);
+        expect(values).toContain('80');
+        expect(values).not.toContain('120');
+    });
+
+    it('gives the last-point circle a distinct stroke so both sys and dia markers are visible', () => {
+        // Regression: both end-of-line circles used `stroke: --wg-teal-sage`,
+        // which is also the dia path stroke; the sys circle visually fused
+        // with the mint-soft sys path background. Assert the CSS rule now
+        // uses a contrasting stroke (`--wg-teal-stage`) and a thicker
+        // stroke-width via a dedicated token.
+        const cssPath = path.join(REPO_ROOT, 'web/static/css/styles.css');
+        const css = fs.readFileSync(cssPath, 'utf8');
+        const rule = css.match(/\.wg-bp-chart__last\s*\{[^}]*\}/);
+        expect(rule).not.toBeNull();
+        expect(rule[0]).toMatch(/stroke:\s*var\(--wg-teal-stage\)/);
+        expect(rule[0]).toMatch(/stroke-width:\s*var\(--wg-bp-chart-last-stroke-width\)/);
+        expect(css).toMatch(/--wg-bp-chart-last-stroke-width:\s*2px/);
+    });
+
+    it('renders both sys and dia end-circles as the last children (above the paths)', () => {
+        // z-order: circles must follow the paths so they paint on top. Assert
+        // the last two children of the SVG are the sun markers, not paths.
+        const svg = env.api.render({ readings: sampleReadings() });
+        const children = Array.from(svg.children);
+        const lastTwo = children.slice(-2);
+        expect(lastTwo.every((el) => el.tagName.toLowerCase() === 'circle')).toBe(true);
+        expect(lastTwo.every((el) => el.classList.contains('wg-bp-chart__last'))).toBe(true);
+    });
+
     it('caps the SVG width via .wg-bp-chart CSS so wider containers do not upscale it', () => {
         // jsdom does not evaluate the stylesheet, so assert the CSS rule
         // itself pins a max-width to --wg-bp-chart-width (358px). This
