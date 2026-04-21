@@ -444,7 +444,6 @@ async function onFoodBarcodeChange() {
             const reader = res.body.getReader();
             const decoder = new TextDecoder("utf-8");
             let buffer = "";
-            let matchFoundAndFilled = false;
             let localResults = [];
 
             while (true) {
@@ -592,16 +591,16 @@ function setFoodSearchStatus(type, message) {
     const status = document.getElementById('food-search-status');
     if (!status) return;
 
-    status.className = 'food-search-status';
+    status.classList.remove('loading', 'success', 'empty', 'error');
     if (!type || !message) {
         status.classList.add('hidden');
-        status.innerText = '';
+        status.textContent = '';
         return;
     }
 
     status.classList.remove('hidden');
     status.classList.add(type);
-    status.innerText = message;
+    status.textContent = message;
 }
 
 function setFoodScannerStatus(message) {
@@ -1237,7 +1236,7 @@ function shiftFoodDate(deltaDays) {
 
 function showAddFoodModal() {
     window.ModalManager.food.open();
-    document.getElementById('food-modal-title').innerText = 'Log Food';
+    document.getElementById('food-modal-title').innerText = 'New entry';
 
     // Set default date/time
     document.getElementById('food-datetime').value = formatDateTimeLocalForInput();
@@ -1277,7 +1276,7 @@ function editFoodLog(id) {
     if (!log) return;
 
     window.ModalManager.food.open();
-    document.getElementById('food-modal-title').innerText = 'Edit Food';
+    document.getElementById('food-modal-title').innerText = 'Edit entry';
 
     document.getElementById('food-id').value = log.id;
     const pidEl = document.getElementById('food-log-product-id');
@@ -1722,7 +1721,6 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
         renderFoodSummary(summary, label, Math.round(stats?.calories || 0), Math.round(stats?.carbs || 0), Math.round(stats?.protein || 0), Math.round(stats?.fat || 0));
         renderFoodTargetProgress(Math.round(stats?.calories || 0), Math.round(stats?.carbs || 0), Math.round(stats?.protein || 0), Math.round(stats?.fat || 0), period);
     } else {
-        summary.classList.add('hidden');
         const progress = document.getElementById('food-target-progress');
         if (progress) {
             progress.classList.add('hidden');
@@ -1735,6 +1733,7 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
             Math.round(dayFat),
             foodTargets
         );
+        renderFoodDaySelectControl(summary, groups && groups.length > 0);
     }
 
     updateFoodSelectUI();
@@ -1965,6 +1964,34 @@ async function loadMyMeals() {
 
         list.appendChild(card);
     });
+}
+
+// Day-view entry point for the multi-select + Save-as-Meal workflow. Phase 4
+// replaced the old "Daily Total" summary with the macros card, which removed
+// the Select button that lived on the summary. Re-render just the Select
+// button into #food-summary on day view so the My Meals creation flow stays
+// reachable.
+function renderFoodDaySelectControl(summaryEl, hasLogs) {
+    summaryEl.replaceChildren();
+    if (!hasLogs) {
+        summaryEl.classList.add('hidden');
+        return;
+    }
+    const wrapper = document.createElement('div');
+    wrapper.className = 'food-summary-wrapper';
+    const selectBtn = document.createElement('button');
+    selectBtn.type = 'button';
+    selectBtn.className = 'btn btn-sm btn-secondary food-select-btn';
+    if (foodMultiSelectMode) {
+        selectBtn.classList.replace('btn-secondary', 'btn-primary');
+        selectBtn.textContent = 'Cancel';
+    } else {
+        selectBtn.textContent = '\u2611 Select';
+    }
+    selectBtn.addEventListener('click', toggleFoodSelectMode);
+    wrapper.appendChild(selectBtn);
+    summaryEl.appendChild(wrapper);
+    summaryEl.classList.remove('hidden');
 }
 
 function renderFoodSummary(summaryEl, label, calories, carbs, protein, fat) {
