@@ -113,12 +113,12 @@ No backend changes. The existing `/api/food*` endpoints, Dexie offline queue, ba
 
 ### Task 5: Rewrite meal-grouped item list
 
-- [ ] replace the existing `.food-items` markup with a `.wg-food-meal-group` container per meal — `.wg-section-label` headers with a trailing mono kcal total, each item a `.wg-card` row carrying name, grams, kcal (sun), `P/F` macro breakdown, and trailing `.wg-icon-btn` cluster (edit + delete)
-- [ ] preserve the existing offline and rejected badge logic — they become `.wg-tag--mono` variants
-- [ ] delete + edit callbacks unchanged (reuse `editFoodLog`, existing delete path)
-- [ ] full-width `.wg-gloss--sun` "Add food" CTA appended after the last meal group
-- [ ] write/update `food.meallist.test.js` — meal grouping, offline-pending + rejected badge states, edit-button click invokes existing handler, delete flow preserved
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing `.food-items` markup with a `.wg-food-meal-group` container per meal — `.wg-section-label` headers with a trailing mono kcal total, each item a `.wg-card` row carrying name, grams, kcal (sun), `P/F` macro breakdown, and trailing `.wg-icon-btn` cluster (edit + delete)
+- [x] preserve the existing offline and rejected badge logic — they become `.wg-tag--mono` variants
+- [x] delete + edit callbacks unchanged (reuse `editFoodLog`, existing delete path)
+- [x] full-width `.wg-gloss--sun` "Add food" CTA appended after the last meal group
+- [x] write/update `food.meallist.test.js` — meal grouping, offline-pending + rejected badge states, edit-button click invokes existing handler, delete flow preserved
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Rewrite EditFoodModal
 

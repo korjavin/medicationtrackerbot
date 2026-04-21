@@ -1489,6 +1489,178 @@ async function loadFoodLogs() {
     }
 }
 
+// Phase 4, Task 5 — meal-grouped item list renderers. The daily log list
+// is built from `.wg-food-meal-group` containers: each group has a
+// `.wg-section-label` header (meal name + time + trailing mono kcal total)
+// followed by `.wg-card` rows per logged item (name/grams on the left,
+// sun-tinted kcal + mono P/F on the right, icon-button cluster trailing).
+// Offline-pending / rejected logs get `.wg-tag--mono` badges next to the
+// meta line, mirroring the BP Phase 3 pattern.
+function renderFoodMealGroup(group) {
+    const groupEl = document.createElement('section');
+    groupEl.className = 'wg-food-meal-group';
+
+    const header = document.createElement('div');
+    header.className = 'wg-section-label wg-food-meal-group__header';
+
+    const title = document.createElement('span');
+    title.className = 'wg-food-meal-group__title';
+    const namePart = group.name || 'Meal';
+    const timePart = group.time ? ` · ${group.time}` : '';
+    title.textContent = `${namePart}${timePart}`;
+    header.appendChild(title);
+
+    const total = document.createElement('span');
+    total.className = 'wg-mono-display wg-food-meal-group__total';
+    total.textContent = `${Math.round(group.calories || 0)} kcal`;
+    header.appendChild(total);
+
+    groupEl.appendChild(header);
+
+    const rows = document.createElement('div');
+    rows.className = 'wg-food-meal-group__rows';
+    (group.logs || []).forEach(log => {
+        currentFoodLogs[log.id] = log;
+        rows.appendChild(renderFoodItemRow(log));
+    });
+    groupEl.appendChild(rows);
+
+    return groupEl;
+}
+
+function renderFoodItemRow(log) {
+    const item = document.createElement('div');
+    item.className = 'wg-card wg-food-item-row';
+    item.setAttribute('data-log-id', String(log.id));
+    if (log.isLocal || log.pending) {
+        item.classList.add('wg-food-item-row--pending');
+    }
+    if (log.isRejected || log.errorMessage) {
+        item.classList.add('wg-food-item-row--rejected');
+    }
+
+    if (foodMultiSelectMode) {
+        const checkboxDiv = document.createElement('div');
+        checkboxDiv.className = 'food-checkbox-wrap wg-food-item-row__checkbox';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'food-checkbox';
+        cb.checked = foodSelectedLogIds.has(log.id);
+        cb.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (cb.checked) {
+                foodSelectedLogIds.add(log.id);
+            } else {
+                foodSelectedLogIds.delete(log.id);
+            }
+            updateFoodSelectUI();
+        });
+        checkboxDiv.appendChild(cb);
+        item.appendChild(checkboxDiv);
+        item.addEventListener('click', () => cb.click());
+    } else {
+        item.addEventListener('click', () => editFoodLog(log.id));
+    }
+
+    const body = document.createElement('div');
+    body.className = 'wg-food-item-row__body';
+
+    const name = document.createElement('div');
+    name.className = 'wg-food-item-row__name';
+    name.textContent = log.is_meal ? `🍽 ${log.name || 'Food'}` : (log.name || 'Food');
+    body.appendChild(name);
+
+    const meta = document.createElement('div');
+    meta.className = 'wg-food-item-row__meta';
+    const grams = document.createElement('span');
+    grams.className = 'wg-food-item-row__grams';
+    grams.textContent = `${Math.round(log.weight || 0)}g`;
+    meta.appendChild(grams);
+
+    if (log.isRejected || log.errorMessage) {
+        meta.appendChild(buildFoodSyncTag('rejected', 'Failed', log.errorMessage));
+    } else if (log.isLocal || log.pending) {
+        meta.appendChild(buildFoodSyncTag('pending', 'Pending'));
+    }
+
+    body.appendChild(meta);
+    item.appendChild(body);
+
+    const stats = document.createElement('div');
+    stats.className = 'wg-food-item-row__stats';
+
+    const kcal = document.createElement('span');
+    kcal.className = 'wg-mono-display wg-food-item-row__kcal';
+    kcal.textContent = `${Math.round(log.calories || 0)} kcal`;
+    stats.appendChild(kcal);
+
+    const macros = document.createElement('span');
+    macros.className = 'wg-food-item-row__macros';
+    macros.textContent = `P ${Math.round(log.protein || 0)} / F ${Math.round(log.fat || 0)}`;
+    stats.appendChild(macros);
+
+    item.appendChild(stats);
+
+    const actions = document.createElement('div');
+    actions.className = 'wg-food-item-row__actions';
+    actions.appendChild(buildFoodActionButton('pencil', 'Edit entry', (event) => {
+        event.stopPropagation();
+        editFoodLog(log.id);
+    }));
+    actions.appendChild(buildFoodActionButton('trash', 'Delete entry', (event) => {
+        event.stopPropagation();
+        deleteFoodLog(log.id);
+    }));
+    item.appendChild(actions);
+
+    return item;
+}
+
+function buildFoodSyncTag(kind, label, tooltip) {
+    const tag = document.createElement('span');
+    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-food-item-row__sync`;
+    tag.textContent = label;
+    if (tooltip) tag.title = tooltip;
+    return tag;
+}
+
+function buildFoodActionButton(iconName, ariaLabel, onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-icon-btn wg-food-item-row__action';
+    btn.setAttribute('aria-label', ariaLabel);
+    btn.title = ariaLabel;
+    btn.setAttribute('data-icon', iconName);
+
+    const gloss = document.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg(iconName, { size: 16 }));
+    }
+    btn.appendChild(gloss);
+
+    btn.addEventListener('click', onClick);
+    return btn;
+}
+
+function renderFoodAddCta() {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-gloss wg-gloss--sun wg-food-add-cta';
+    btn.id = 'food-add-cta';
+
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        btn.appendChild(window.WGIcons.iconSvg('plus', { size: 18 }));
+    }
+    const label = document.createElement('span');
+    label.className = 'wg-food-add-cta__label';
+    label.textContent = 'Add food';
+    btn.appendChild(label);
+
+    btn.addEventListener('click', () => showAddFoodModal());
+    return btn;
+}
+
 function _renderFoodData(groups, weekStats, period, dateStr) {
     const list = document.getElementById('food-list');
     const summary = document.getElementById('food-summary');
@@ -1503,7 +1675,7 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
 
     if (!groups || groups.length === 0) {
         const empty = document.createElement('p');
-        empty.className = 'hint text-center';
+        empty.className = 'hint text-center wg-food-meal-list__empty';
         empty.textContent = 'No food logs for this day.';
         list.appendChild(empty);
     } else {
@@ -1513,95 +1685,12 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
             dayProt += group.protein;
             dayFat += group.fat;
 
-            const groupDiv = document.createElement('div');
-            groupDiv.className = 'history-group';
-
-            const header = document.createElement('div');
-            header.className = 'history-header';
-            const title = document.createElement('strong');
-            title.textContent = group.name;
-            const time = document.createElement('span');
-            time.className = 'food-group-time';
-            time.textContent = `(${group.time})`;
-            const totals = document.createElement('span');
-            totals.className = 'food-group-totals';
-            totals.textContent = `${Math.round(group.calories)} kcal (C:${Math.round(group.carbs)} P:${Math.round(group.protein)} F:${Math.round(group.fat)})`;
-            header.appendChild(title);
-            header.appendChild(time);
-            header.appendChild(totals);
-            groupDiv.appendChild(header);
-
-            group.logs.forEach(log => {
-                currentFoodLogs[log.id] = log;
-
-                const item = document.createElement('div');
-                item.className = 'history-item food-log-item';
-
-                if (foodMultiSelectMode) {
-                    const checkboxDiv = document.createElement('div');
-                    checkboxDiv.className = 'food-checkbox-wrap';
-                    const cb = document.createElement('input');
-                    cb.type = 'checkbox';
-                    cb.className = 'food-checkbox';
-                    cb.checked = foodSelectedLogIds.has(log.id);
-                    cb.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        if (cb.checked) {
-                            foodSelectedLogIds.add(log.id);
-                        } else {
-                            foodSelectedLogIds.delete(log.id);
-                        }
-                        updateFoodSelectUI();
-                    });
-                    checkboxDiv.appendChild(cb);
-                    item.appendChild(checkboxDiv);
-
-                    item.addEventListener('click', () => cb.click());
-                } else {
-                    item.addEventListener('click', () => {
-                        editFoodLog(log.id);
-                    });
-                }
-
-                const itemBody = document.createElement('div');
-                itemBody.className = 'food-item-body';
-                const name = document.createElement('div');
-                name.className = 'fw-medium';
-
-                if (log.is_meal) {
-                    name.textContent = '🍽 ' + (log.name || 'Food');
-                } else {
-                    name.textContent = log.name || 'Food';
-                }
-                const meta = document.createElement('div');
-                meta.className = 'food-item-meta';
-                meta.textContent = `${Math.round(log.weight)}g • ${Math.round(log.calories)} kcal`;
-                itemBody.appendChild(name);
-                itemBody.appendChild(meta);
-
-                const actionIcons = document.createElement('div');
-                actionIcons.className = 'food-action-icons';
-
-                const editButton = createEditButton((event) => {
-                    event.stopPropagation();
-                    editFoodLog(log.id);
-                });
-
-                const deleteButton = createDeleteButton((event) => {
-                    event.stopPropagation();
-                    deleteFoodLog(log.id);
-                });
-
-                actionIcons.appendChild(editButton);
-                actionIcons.appendChild(deleteButton);
-
-                item.appendChild(itemBody);
-                item.appendChild(actionIcons);
-                groupDiv.appendChild(item);
-            });
-
-            list.appendChild(groupDiv);
+            list.appendChild(renderFoodMealGroup(group));
         });
+    }
+
+    if (period !== 'week' && period !== '2weeks') {
+        list.appendChild(renderFoodAddCta());
     }
 
     const hasTargets = foodTargets.calories > 0 || foodTargets.protein > 0 || foodTargets.carbs > 0 || foodTargets.fat > 0;

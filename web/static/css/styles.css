@@ -5247,3 +5247,135 @@ textarea.wg-input {
     font-size: var(--font-size-xs);
     font-family: var(--wg-font-mono);
 }
+
+/* Food meal-grouped item list (Phase 4, Task 5). Each meal is a
+   `.wg-food-meal-group` — a `.wg-section-label` header with a trailing mono
+   kcal total, followed by `.wg-card` rows for each logged item. Rows carry
+   name + grams on the left, sun-tinted kcal and a mono P/F macro line on the
+   right, with a trailing `.wg-icon-btn` cluster (edit + delete). Offline
+   pending / rejected logs get `.wg-tag--mono` badges, mirroring BP Phase 3. */
+.wg-food-meal-group {
+    margin-bottom: var(--space-lg);
+}
+
+.wg-food-meal-group__header {
+    padding-top: var(--wg-section-label-pad-top);
+    padding-bottom: var(--space-sm);
+    gap: var(--wg-food-meal-header-gap);
+}
+
+.wg-food-meal-group__title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wg-food-meal-group__total {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.wg-food-meal-group__rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-food-item-row {
+    padding: var(--wg-food-item-row-pad);
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    cursor: pointer;
+}
+
+.wg-food-item-row__checkbox {
+    flex-shrink: 0;
+}
+
+.wg-food-item-row__body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-food-item-row__name {
+    font-weight: var(--font-weight-medium);
+    color: var(--wg-fg-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wg-food-item-row__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-food-item-row__grams {
+    letter-spacing: 0.02em;
+}
+
+.wg-food-item-row__stats {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-food-item-row__kcal {
+    font-size: var(--font-size-sm);
+    color: var(--wg-sun);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-food-item-row__macros {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-4);
+    letter-spacing: 0.02em;
+}
+
+.wg-food-item-row__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+.wg-food-item-row--pending {
+    opacity: 0.85;
+}
+
+.wg-food-item-row--rejected {
+    border-color: var(--wg-tag-alert-border);
+}
+
+.wg-food-add-cta {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    min-height: 44px;
+    padding: var(--space-md) var(--space-lg);
+    margin-top: var(--space-md);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-food-meal-list__empty {
+    padding: var(--space-lg) 0;
+}
