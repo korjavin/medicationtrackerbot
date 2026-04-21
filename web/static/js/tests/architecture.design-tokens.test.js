@@ -1033,9 +1033,7 @@ describe('Architecture – design tokens', () => {
             // SVG
             '.svg-chart',
             // Food log items
-            '.food-group-time', '.food-group-totals', '.food-log-item',
-            '.food-checkbox-wrap', '.food-checkbox', '.food-item-body',
-            '.food-item-meta', '.food-action-icons',
+            '.food-checkbox-wrap', '.food-checkbox',
             // Food floating button
             '.food-floating-btn',
             // Food meal cards
