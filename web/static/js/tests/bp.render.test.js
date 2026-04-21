@@ -324,10 +324,11 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
     });
 
     describe('#add-bp-btn is a Wandergeek sun-gloss pill', () => {
-        it('carries wg-gloss + wg-gloss--sun and no paper-era btn classes', () => {
+        it('carries wg-fab + wg-gloss + wg-gloss--sun and no paper-era btn classes', () => {
             const { document } = env;
             const btn = document.getElementById('add-bp-btn');
             expect(btn).not.toBeNull();
+            expect(btn.classList.contains('wg-fab')).toBe(true);
             expect(btn.classList.contains('wg-gloss')).toBe(true);
             expect(btn.classList.contains('wg-gloss--sun')).toBe(true);
             expect(btn.classList.contains('wg-gloss--lg')).toBe(true);
