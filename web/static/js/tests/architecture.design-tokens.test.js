@@ -357,6 +357,29 @@ const WANDERGEEK_TOKENS = [
     '--wg-bp-status-grade2-bg',
     '--wg-bp-status-grade2-fg',
     '--wg-bp-status-grade2-border',
+
+    // Food screen tokens (Phase 4, Task 1) — daily macros card, macro bars,
+    // sub-tab strip, day navigator, meal list, edit-food modal.
+    '--wg-food-kcal-display-size',
+    '--wg-food-kcal-unit-size',
+    '--wg-food-macro-bar-height',
+    '--wg-food-macro-row-cols',
+    '--wg-food-macro-row-gap',
+    '--wg-food-subtab-pad-y',
+    '--wg-food-subtab-pad-x',
+    '--wg-food-subtab-gap',
+    '--wg-food-day-nav-icon-size',
+    '--wg-food-day-nav-title-size',
+    '--wg-food-meal-header-gap',
+    '--wg-food-item-row-pad',
+    '--wg-food-total-kcal-input',
+
+    // Food macro color aliases — map Energy / Protein / Carbs / Fat variants
+    // to existing sun / mint / teal-sage / clay-soft palette tokens.
+    '--wg-food-macro-energy',
+    '--wg-food-macro-protein',
+    '--wg-food-macro-carbs',
+    '--wg-food-macro-fat',
 ];
 
 describe('Architecture – design tokens', () => {

@@ -382,6 +382,32 @@
     --wg-bp-status-grade2-bg: var(--wg-tag-alert-bg);
     --wg-bp-status-grade2-fg: var(--wg-tag-alert-fg);
     --wg-bp-status-grade2-border: var(--wg-tag-alert-border);
+
+    /* Wandergeek — Food screen (Phase 4, Task 1). Dimensional tokens for the
+       daily macros card, macro bars, sub-tab strip, day navigator, meal list,
+       and edit-food modal. Every visual value in features/food.js and
+       components/wg-macro-bar.js reads from here. */
+    --wg-food-kcal-display-size: 30px;
+    --wg-food-kcal-unit-size: 12px;
+    --wg-food-macro-bar-height: 8px;
+    --wg-food-macro-row-cols: 56px 1fr auto;
+    --wg-food-macro-row-gap: 12px;
+    --wg-food-subtab-pad-y: 6px;
+    --wg-food-subtab-pad-x: 10px;
+    --wg-food-subtab-gap: 4px;
+    --wg-food-day-nav-icon-size: 36px;
+    --wg-food-day-nav-title-size: 15px;
+    --wg-food-meal-header-gap: 6px;
+    --wg-food-item-row-pad: 12px;
+    --wg-food-total-kcal-input: 18px;
+
+    /* Food macro color aliases — Energy / Protein / Carbs / Fat map to the
+       existing sun / mint / teal-sage / clay-soft palette so the macro-bar
+       variants pick up the right fill without duplicating hex values. */
+    --wg-food-macro-energy: var(--wg-sun);
+    --wg-food-macro-protein: var(--wg-mint-soft);
+    --wg-food-macro-carbs: var(--wg-teal-sage);
+    --wg-food-macro-fat: var(--wg-clay-soft);
 }
 
 body {
