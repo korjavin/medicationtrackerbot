@@ -105,11 +105,11 @@ No backend changes. The existing `/api/food*` endpoints, Dexie offline queue, ba
 
 ### Task 4: Rewrite the daily macros card
 
-- [ ] replace the existing daily-total block with a `.wg-food-macros-card` — `.wg-mono-display` kcal total with a small `kcal` unit suffix, `% of target` sun value on the right
-- [ ] render four `WGMacroBar` instances (Energy / Protein / Carbs / Fat) using `FOOD_TARGETS` plus `computeFoodTotals()` output unchanged — no backend changes
-- [ ] empty state (no items logged today) renders the card with zero values and the bars collapsed to 0% (not hidden)
-- [ ] write/update `food.macros.test.js` — three/four bars render, totals formatted to 0 decimals, empty state handled, missing targets fall back gracefully
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing daily-total block with a `.wg-food-macros-card` — `.wg-mono-display` kcal total with a small `kcal` unit suffix, `% of target` sun value on the right
+- [x] render four `WGMacroBar` instances (Energy / Protein / Carbs / Fat) using `FOOD_TARGETS` plus `computeFoodTotals()` output unchanged — no backend changes
+- [x] empty state (no items logged today) renders the card with zero values and the bars collapsed to 0% (not hidden)
+- [x] write/update `food.macros.test.js` — three/four bars render, totals formatted to 0 decimals, empty state handled, missing targets fall back gracefully
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Rewrite meal-grouped item list
 

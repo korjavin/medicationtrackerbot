@@ -5090,6 +5090,63 @@ textarea.wg-input {
     }
 }
 
+/* Daily macros card (Phase 4, Task 4). `.wg-card` shell with a mono kcal
+   total on the left, sun-tinted `% of target` on the right, and four
+   WGMacroBar rows stacked below. Populated by renderFoodMacrosCard()
+   from features/food.js; hidden for week / 2-week periods. */
+.wg-food-macros-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    margin-bottom: var(--space-md);
+}
+
+.wg-food-macros-card__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.wg-food-macros-card__total {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-xs);
+}
+
+.wg-food-macros-card__kcal {
+    font-size: var(--wg-food-kcal-display-size);
+    line-height: 1;
+}
+
+.wg-food-macros-card__unit {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-food-kcal-unit-size);
+    color: var(--wg-fg-3);
+    text-transform: lowercase;
+}
+
+.wg-food-macros-card__percent {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+}
+
+.wg-food-macros-card__percent-value {
+    color: var(--wg-sun);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-food-macros-card__percent-label {
+    color: var(--wg-fg-4);
+}
+
+.wg-food-macros-card__bars {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
 /* Food sub-tab strip (Phase 4, Task 3). `.wg-gloss--inset` container wraps
    three `.wg-gloss`-capable pills; the active pill also carries
    `.wg-gloss--sun` (plus `.wg-food-subtabs__btn--active` for tests). Mirrors

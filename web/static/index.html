@@ -170,6 +170,23 @@
                     <button id="food-today-btn" class="wg-gloss wg-food-day-nav__today-btn food-today-chip hidden" type="button">Today</button>
                 </div>
 
+                <!-- Daily macros card (Phase 4, Task 4). Populated by
+                     renderFoodMacrosCard() with kcal total, % of target, and
+                     four WGMacroBar rows. Hidden when period is week/2weeks. -->
+                <div id="food-macros-card" class="wg-card wg-food-macros-card hidden">
+                    <div class="wg-food-macros-card__header">
+                        <div class="wg-food-macros-card__total">
+                            <span id="food-macros-card-kcal" class="wg-mono-display wg-food-macros-card__kcal">0</span>
+                            <span class="wg-food-macros-card__unit">kcal</span>
+                        </div>
+                        <div id="food-macros-card-percent" class="wg-food-macros-card__percent">
+                            <span id="food-macros-card-percent-value" class="wg-food-macros-card__percent-value">0%</span>
+                            <span class="wg-food-macros-card__percent-label"> of target</span>
+                        </div>
+                    </div>
+                    <div id="food-macros-card-bars" class="wg-food-macros-card__bars"></div>
+                </div>
+
                 <div id="food-target-progress" class="food-target-progress hidden"></div>
 
                 <div id="food-summary"
