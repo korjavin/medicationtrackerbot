@@ -131,14 +131,15 @@ Issues to resolve:
 
 ### Task 4: Food-name autocomplete dropdown — readable on the Wandergeek shell
 
-- [ ] `web/static/css/styles.css` — rewrite `.autocomplete-items`, `.autocomplete-item`, `.autocomplete-item-name`, `.autocomplete-item-meta` (≈`:1977–2052`) to use Wandergeek tokens:
-  - container: `background: var(--wg-card-bg)` or a modal-surface token, `border: 1px solid var(--wg-border-1)`, `box-shadow: var(--wg-shadow-pop)`, rounded via `--wg-radius-card`.
-  - item: `color: var(--wg-fg-1)`; hover/active with `background: var(--wg-gloss-hover-bg)`.
-  - name: explicit `color: var(--wg-fg-1)`; meta: `color: var(--wg-fg-2)` (or muted token).
-- [ ] Keep the legacy `.autocomplete-*` class names (the JS render code uses them) but re-alias internal style to WG tokens. No new class names needed unless semantically helpful.
-- [ ] `web/static/js/features/food.js:825–926` — ensure `renderFoodAutocomplete` does not set inline `style.*` on the items; lift any inline sizing into CSS (check for `architecture.inline-styles.test.js` violations).
-- [ ] Update `web/static/js/tests/food.modal.test.js` — add assertions: dropdown element exists + has expected class list; items render name+meta spans; no inline style assignments on items.
-- [ ] Run `pnpm test` — must be green before moving on.
+- [x] `web/static/css/styles.css` — rewrite `.autocomplete-items`, `.autocomplete-item`, `.autocomplete-item-name`, `.autocomplete-item-meta` (≈`:1977–2052`) to use Wandergeek tokens:
+  - container: `background: var(--wg-bg-card-inset)`, `border: 1px solid var(--wg-border-hairline)`, soft inset/pop shadow, rounded via `--wg-radius-gloss`.
+  - item: `color: var(--wg-fg-1)`; hover/active use `background: var(--wg-bg-card)` for a readable contrast bump against the inset surface.
+  - name: explicit `color: var(--wg-fg-1)`; meta: `color: var(--wg-fg-2)` at `--font-size-xs`.
+- [x] Keep the legacy `.autocomplete-*` class names (the JS render code uses them) but re-alias internal style to WG tokens. No new class names needed unless semantically helpful.
+- [x] `web/static/js/features/food.js:825–926` — ensure `renderFoodAutocomplete` does not set inline `style.*` on the items; lift any inline sizing into CSS (check for `architecture.inline-styles.test.js` violations). (No inline styles were set; also split the meta suffix into a dedicated `.autocomplete-item-meta` span so the `--wg-fg-2` muted color applies correctly.)
+- [x] Update `web/static/js/tests/food.modal.test.js` — add assertions: dropdown element exists + has expected class list; items render name+meta spans; no inline style assignments on items.
+- [x] Refresh `architecture.inline-styles.test.js` allowlist line numbers (food.js:2083/2084 → 2092/2093 after the meta-span addition).
+- [x] Run `pnpm test` — must be green before moving on. (791 passed, up from 788.)
 
 ### Task 5: Wandergeek-style the "Meal DB" and "Food DB" sub-tab panels
 
