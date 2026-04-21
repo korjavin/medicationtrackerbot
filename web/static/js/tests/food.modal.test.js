@@ -184,7 +184,7 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         await flushPromises();
 
         expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
-        expect(document.getElementById('food-modal-title').innerText).toBe('Log Food');
+        expect(document.getElementById('food-modal-title').innerText).toBe('New entry');
         expect(document.getElementById('food-name').value).toBe('');
         expect(document.getElementById('food-weight').value).toBe('');
         expect(document.getElementById('food-per-100g').checked).toBe(true);
@@ -209,7 +209,7 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
 
         window.editFoodLog(42);
 
-        expect(document.getElementById('food-modal-title').innerText).toBe('Edit Food');
+        expect(document.getElementById('food-modal-title').innerText).toBe('Edit entry');
         expect(document.getElementById('food-id').value).toBe('42');
         expect(document.getElementById('food-name').value).toBe('Oatmeal');
         expect(document.getElementById('food-barcode').value).toBe('123');
