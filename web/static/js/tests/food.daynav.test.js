@@ -123,6 +123,31 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         expect(window.formatFoodDateSubtitle('')).toBe('');
     });
 
+    it('chevron buttons carry the WG color-bearing classes and inherit currentColor via the SVG stroke', () => {
+        const { document } = env;
+        const prev = document.getElementById('food-date-prev-btn');
+        const next = document.getElementById('food-date-next-btn');
+
+        // Both buttons must carry the color-bearing wg-food-day-nav__icon-btn
+        // class so they pick up the explicit color/background tokens on the
+        // Wandergeek stage backdrop.
+        expect(prev.classList.contains('wg-food-day-nav__icon-btn')).toBe(true);
+        expect(next.classList.contains('wg-food-day-nav__icon-btn')).toBe(true);
+
+        // Chevron SVGs must inherit the button's foreground via currentColor,
+        // not a hard-coded color literal.
+        const prevIcon = prev.querySelector('svg[data-wg-icon="chevronLeft"]');
+        const nextIcon = next.querySelector('svg[data-wg-icon="chevronRight"]');
+        expect(prevIcon).not.toBeNull();
+        expect(nextIcon).not.toBeNull();
+        expect(prevIcon.getAttribute('stroke')).toBe('currentColor');
+        expect(nextIcon.getAttribute('stroke')).toBe('currentColor');
+
+        // No inline style smuggling a color onto the buttons or icons.
+        expect(prev.getAttribute('style')).toBeNull();
+        expect(next.getAttribute('style')).toBeNull();
+    });
+
     it('updateFoodDateNav disables next when the selected date is today or future', () => {
         const { document, window } = env;
         const filter = document.getElementById('food-date-filter');
