@@ -1,5 +1,54 @@
 let foodControlsBound = false;
 
+const FOOD_SUBTAB_STORAGE_KEY = 'mt-food-subtab';
+const FOOD_SUBTAB_OPTIONS = ['log', 'meals', 'fooddb'];
+const FOOD_SUBTAB_DEFAULT = 'log';
+
+function getActiveFoodSubTab() {
+    try {
+        const raw = window.localStorage.getItem(FOOD_SUBTAB_STORAGE_KEY);
+        if (FOOD_SUBTAB_OPTIONS.indexOf(raw) !== -1) return raw;
+    } catch (_) { /* ignore */ }
+    return FOOD_SUBTAB_DEFAULT;
+}
+
+function setActiveFoodSubTab(tab) {
+    if (FOOD_SUBTAB_OPTIONS.indexOf(tab) === -1) return;
+    try { window.localStorage.setItem(FOOD_SUBTAB_STORAGE_KEY, tab); } catch (_) { /* ignore */ }
+}
+
+function restoreFoodSubTab() {
+    const tab = getActiveFoodSubTab();
+    syncFoodSubTabActiveClass(tab);
+    if (tab !== FOOD_SUBTAB_DEFAULT) {
+        switchFoodTab(tab);
+    }
+}
+
+function syncFoodSubTabActiveClass(activeTab) {
+    const container = document.querySelector('.wg-food-subtabs');
+    if (!container) return;
+    const buttons = container.querySelectorAll('.food-tab');
+    buttons.forEach((btn) => {
+        const isActive = btn.dataset.tab === activeTab;
+        btn.classList.toggle('wg-gloss--sun', isActive);
+        btn.classList.toggle('wg-food-subtabs__btn--active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function renderFoodDayNavIcons() {
+    const prev = document.getElementById('food-date-prev-btn');
+    const next = document.getElementById('food-date-next-btn');
+    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
+    if (prev && !prev.querySelector('svg')) {
+        prev.replaceChildren(window.WGIcons.iconSvg('chevronLeft'));
+    }
+    if (next && !next.querySelector('svg')) {
+        next.replaceChildren(window.WGIcons.iconSvg('chevronRight'));
+    }
+}
+
 function bindFoodControls() {
     if (foodControlsBound) return;
     foodControlsBound = true;
@@ -95,13 +144,16 @@ function bindFoodControls() {
     bindClick('food-product-save-btn', () => saveFoodProduct());
 
     bindTabGroup({
-        container: document.querySelector('.food-tabs'),
+        container: document.querySelector('.wg-food-subtabs'),
         buttonSelector: '.food-tab',
         onTabSelect: switchFoodTab
     });
 
     bindClick('food-save-meal-cancel-btn', () => closeFoodSaveMealModal());
     bindClick('food-save-meal-confirm-btn', () => confirmSaveMeal());
+
+    renderFoodDayNavIcons();
+    restoreFoodSubTab();
 }
 
 if (document.readyState === 'loading') {
@@ -1115,9 +1167,18 @@ function formatFoodDateLabel(dateStr) {
     return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+function formatFoodDateSubtitle(dateStr) {
+    if (!dateStr) return '';
+    // Prototype uses "20.04.2026" (DD.MM.YYYY) for the day-nav subtitle.
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    return `${parts[2]}.${parts[1]}.${parts[0]}`;
+}
+
 function updateFoodDateNav() {
     const dateFilter = document.getElementById('food-date-filter');
     const label = document.getElementById('food-date-label');
+    const subtitle = document.getElementById('food-date-subtitle');
     const nextBtn = document.getElementById('food-date-next-btn');
     const todayBtn = document.getElementById('food-today-btn');
     if (!dateFilter || !label || !nextBtn || !todayBtn) return;
@@ -1126,6 +1187,7 @@ function updateFoodDateNav() {
     if (!dateStr) return;
 
     label.textContent = formatFoodDateLabel(dateStr);
+    if (subtitle) subtitle.textContent = formatFoodDateSubtitle(dateStr);
 
     const date = new Date(`${dateStr}T00:00:00`);
     const today = new Date();
@@ -1911,6 +1973,9 @@ function switchFoodTab(tab) {
         contentIdFromTab: (tabName) => `food-${tabName}-tab`
     });
     if (!activated) return;
+
+    syncFoodSubTabActiveClass(tab);
+    setActiveFoodSubTab(tab);
 
     if (tab === 'log') { loadFoodLogs(); }
     else if (tab === 'meals') { loadMyMeals(); }
