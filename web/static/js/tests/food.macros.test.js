@@ -168,6 +168,48 @@ describe('Food daily macros card (Phase 4, Task 4)', () => {
         expect(percent.textContent).toBe('—');
     });
 
+    it('renders header percent uncapped above 100% when intake exceeds target', () => {
+        const { window, document } = env;
+        callRender(
+            window,
+            { calories: 3000, carbs: 330, protein: 180, fat: 105 },
+            { calories: 2000, carbs: 220, protein: 120, fat: 70 }
+        );
+        expect(document.getElementById('food-macros-card-percent-value').textContent).toBe('150%');
+    });
+
+    it('coerces NaN calories to 0 in both kcal header and percent', () => {
+        const { window, document } = env;
+        callRender(
+            window,
+            { calories: NaN, carbs: 0, protein: 0, fat: 0 },
+            { calories: 2000, carbs: 220, protein: 120, fat: 70 }
+        );
+        expect(document.getElementById('food-macros-card-kcal').textContent).toBe('0');
+        expect(document.getElementById('food-macros-card-percent-value').textContent).toBe('0%');
+    });
+
+    it('coerces negative calories to 0 in both kcal header and percent', () => {
+        const { window, document } = env;
+        callRender(
+            window,
+            { calories: -50, carbs: 0, protein: 0, fat: 0 },
+            { calories: 2000, carbs: 220, protein: 120, fat: 70 }
+        );
+        expect(document.getElementById('food-macros-card-kcal').textContent).toBe('0');
+        expect(document.getElementById('food-macros-card-percent-value').textContent).toBe('0%');
+    });
+
+    it('_renderFoodData coerces undefined group macros to 0 (no NaN propagation)', () => {
+        const { window, document } = env;
+        // Malformed group with missing macro fields — must not surface "NaN" in the UI.
+        const groups = [{ name: 'Breakfast', time: '08:00', logs: [] }];
+        window._renderFoodData(groups, null, 'day', '2026-04-20');
+
+        expect(document.getElementById('food-macros-card-kcal').textContent).toBe('0');
+        expect(document.getElementById('food-macros-card-percent-value').textContent).not.toContain('NaN');
+    });
+
     it('rounds non-integer totals to whole kcal in the header display', () => {
         const { window, document } = env;
         callRender(

@@ -2319,6 +2319,14 @@ input:checked+.toggle-slider:before {
 }
 
 /* Food summary */
+.food-summary-block {
+    margin-bottom: var(--space-lg);
+    padding: var(--space-md);
+    font-weight: var(--font-weight-bold);
+    background: var(--secondary-bg-color);
+    border-radius: var(--radius-md);
+}
+
 .food-summary-wrapper {
     display: flex;
     justify-content: space-between;

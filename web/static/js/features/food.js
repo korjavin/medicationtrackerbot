@@ -121,7 +121,6 @@ function bindFoodControls() {
 
     bindClick('food-period-day-link', () => setFoodStatsPeriod('day'));
     bindClick('food-period-week-link', () => setFoodStatsPeriod('week'));
-    bindClick('add-food-btn', () => showAddFoodModal());
     bindClick('food-date-prev-btn', () => shiftFoodDate(-1));
     bindClick('food-date-next-btn', () => shiftFoodDate(1));
     bindClick('food-today-btn', () => goFoodToday());
@@ -173,8 +172,9 @@ function bindFoodControls() {
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bindFoodControls, { once: true });
+} else {
+    bindFoodControls();
 }
-bindFoodControls();
 
 // -- Food Intake Autocomplete & Logic --
 
@@ -1265,7 +1265,7 @@ function showAddFoodModal() {
     document.getElementById('food-per-100g').checked = true;
     document.getElementById('food-weight').focus();
 
-    if (foodProductsCache.length === 0) {
+    if (!foodProductsCache || foodProductsCache.length === 0) {
         initFoodProductsCache().then(() => renderFoodAutocomplete(foodProductsCache, false, null, false));
     } else {
         renderFoodAutocomplete(foodProductsCache, false, null, false);
@@ -1662,7 +1662,7 @@ function renderFoodAddCta() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'wg-gloss wg-gloss--sun wg-food-add-cta';
-    btn.id = 'food-add-cta';
+    btn.id = 'add-food-btn';
 
     if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
         btn.appendChild(window.WGIcons.iconSvg('plus', { size: 18 }));
@@ -1695,10 +1695,10 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
         list.appendChild(empty);
     } else {
         groups.forEach(group => {
-            dayCals += group.calories;
-            dayCarbs += group.carbs;
-            dayProt += group.protein;
-            dayFat += group.fat;
+            dayCals += Number(group.calories) || 0;
+            dayCarbs += Number(group.carbs) || 0;
+            dayProt += Number(group.protein) || 0;
+            dayFat += Number(group.fat) || 0;
 
             list.appendChild(renderFoodMealGroup(group));
         });
@@ -1708,7 +1708,6 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
         list.appendChild(renderFoodAddCta());
     }
 
-    const hasTargets = foodTargets.calories > 0 || foodTargets.protein > 0 || foodTargets.carbs > 0 || foodTargets.fat > 0;
     const periodContainer = document.getElementById('food-stats-period-container');
     if (periodContainer) {
         periodContainer.classList.remove('hidden');
@@ -1757,13 +1756,15 @@ function renderFoodMacrosCard(calories, carbs, protein, fat, targets) {
     const targetProtein = Number(safeTargets.protein) > 0 ? Number(safeTargets.protein) : 0;
     const targetFat = Number(safeTargets.fat) > 0 ? Number(safeTargets.fat) : 0;
 
+    const safeCalories = Number.isFinite(calories) && calories > 0 ? calories : 0;
+
     const kcalEl = document.getElementById('food-macros-card-kcal');
-    if (kcalEl) kcalEl.textContent = String(Math.round(calories || 0));
+    if (kcalEl) kcalEl.textContent = String(Math.round(safeCalories));
 
     const percentEl = document.getElementById('food-macros-card-percent-value');
     if (percentEl) {
         if (targetCalories > 0) {
-            const pct = Math.round((calories / targetCalories) * 100);
+            const pct = Math.round((safeCalories / targetCalories) * 100);
             percentEl.textContent = `${pct}%`;
         } else {
             percentEl.textContent = '—';

@@ -143,6 +143,8 @@ describe('app.js UI characterization', () => {
       const closeFoodModalSpy = vi.spyOn(window, 'closeFoodModal').mockImplementation(() => {});
       window.setFoodStatsPeriod = vi.fn();
 
+      // Add-food CTA is rendered dynamically at the end of the meal list.
+      window._renderFoodData([], null, 'day', '2026-04-20');
       document.getElementById('add-food-btn').click();
       expect(showFoodModalSpy).toHaveBeenCalled();
 
