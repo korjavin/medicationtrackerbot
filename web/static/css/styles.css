@@ -938,19 +938,6 @@ select {
     text-align: center;
 }
 
-#bp-notes {
-    width: 100%;
-    padding: var(--space-md);
-    border: 1px solid var(--hint-color);
-    border-radius: var(--radius-sm);
-    background: var(--bg-color);
-    color: var(--text-color);
-    box-sizing: border-box;
-    font-size: var(--font-size-sm);
-    resize: vertical;
-    font-family: inherit;
-}
-
 #bp-list:empty::before {
     content: 'No blood pressure readings yet.';
     display: block;
