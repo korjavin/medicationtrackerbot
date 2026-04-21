@@ -189,30 +189,30 @@
                 <div id="food-add-cta-dock" class="wg-food-cta-dock"></div>
             </div>
 
-            <div id="food-meals-tab" class="food-tab-content">
-                <p style="font-size: 0.9em; color: var(--hint-color); margin-bottom: 15px;">
+            <div id="food-meals-tab" class="food-tab-content wg-food-db-panel">
+                <p class="wg-food-db-panel__hint">
                     Select items from your log to create a meal template. Use the Select button on the daily total.
                 </p>
-                <div id="food-meals-list">
+                <div id="food-meals-list" class="wg-food-db-panel__list">
                     <!-- Meals injected here -->
                 </div>
             </div>
 
-            <div id="food-fooddb-tab" class="food-tab-content">
-                <input type="text" id="fooddb-search" class="input-field" placeholder="Search products..." style="margin-bottom: 10px;">
-                <div class="fooddb-sort-controls" style="margin-bottom: 15px;">
-                    <button class="btn btn-sm btn-secondary btn-pill fooddb-sort-btn active" data-sort="usage">Most Used</button>
-                    <button class="btn btn-sm btn-secondary btn-pill fooddb-sort-btn" data-sort="last_used">Recently Used</button>
-                    <button class="btn btn-sm btn-secondary btn-pill fooddb-sort-btn" data-sort="name">A-Z</button>
+            <div id="food-fooddb-tab" class="food-tab-content wg-food-db-panel">
+                <input type="text" id="fooddb-search" class="wg-input wg-food-db-panel__search" placeholder="Search products...">
+                <div class="wg-gloss--inset wg-food-db-panel__sort fooddb-sort-controls">
+                    <button class="wg-gloss wg-food-db-panel__sort-btn wg-gloss--sun fooddb-sort-btn active" data-sort="usage" aria-pressed="true">Most Used</button>
+                    <button class="wg-gloss wg-food-db-panel__sort-btn fooddb-sort-btn" data-sort="last_used" aria-pressed="false">Recently Used</button>
+                    <button class="wg-gloss wg-food-db-panel__sort-btn fooddb-sort-btn" data-sort="name" aria-pressed="false">A-Z</button>
                 </div>
-                <div id="fooddb-list">
+                <div id="fooddb-list" class="wg-food-db-panel__list">
                     <!-- Products injected here -->
                 </div>
-                <div id="fooddb-pagination" class="fooddb-pagination-controls hidden">
-                    <span id="fooddb-page-info">Showing 0-0 of 0</span>
-                    <div class="pagination-buttons">
-                        <button id="fooddb-prev-btn" class="btn btn-sm btn-secondary">Prev</button>
-                        <button id="fooddb-next-btn" class="btn btn-sm btn-secondary">Next</button>
+                <div id="fooddb-pagination" class="wg-food-db-panel__pagination fooddb-pagination-controls hidden">
+                    <span id="fooddb-page-info" class="wg-food-db-panel__page-info">Showing 0-0 of 0</span>
+                    <div class="wg-food-db-panel__page-actions pagination-buttons">
+                        <button id="fooddb-prev-btn" class="wg-gloss wg-food-db-panel__page-btn">Prev</button>
+                        <button id="fooddb-next-btn" class="wg-gloss wg-food-db-panel__page-btn">Next</button>
                     </div>
                 </div>
             </div>

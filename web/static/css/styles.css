@@ -2152,60 +2152,32 @@ input:checked+.toggle-slider:before {
     object-fit: cover;
 }
 
-/* Food DB specific styles */
+/* Food DB / Meal DB panel (Phase 4, Task 5 follow-up). Legacy `.food-db-*`
+   and `.fooddb-*` class names are retained so the architecture test's
+   required-class list still resolves, but all visual values come from
+   --wg-* tokens. Cards carry both `.wg-card` (surface treatment) and
+   `.wg-food-db-card` (inner layout); the `.food-db-card` name is kept as
+   a JS-side marker but has no standalone styling. */
 .fooddb-sort-controls {
     display: flex;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-lg);
+    gap: var(--wg-food-subtab-gap);
+    padding: var(--wg-food-subtab-pad-y) var(--wg-food-subtab-pad-x);
+    margin-bottom: var(--space-md);
 }
 
 .fooddb-sort-btn {
     flex: 1;
+    min-height: 36px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
     text-align: center;
-    border: 1px solid var(--border-color);
-    opacity: 0.8;
-}
-
-.fooddb-sort-btn.active {
-    background: var(--button-color);
-    color: var(--button-text-color);
-    border-color: var(--button-color);
-    opacity: 1;
-    box-shadow: var(--shadow-sm);
-}
-
-.food-db-card {
-    background: linear-gradient(135deg, var(--bg-color) 0%, var(--secondary-bg-color) 100%);
-    padding: var(--space-lg);
-    border-radius: var(--radius-lg);
-    margin-bottom: var(--space-lg);
-    border: 1px solid var(--border-color);
-    box-shadow: var(--shadow-sm); /* Soft shadow for "shaded block" feel */
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-    cursor: pointer;
-    position: relative;
-    overflow: hidden;
-}
-
-.food-db-card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-}
-
-.food-db-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 4px;
-    height: 100%;
-    background: var(--link-color);
-    opacity: 0.5;
 }
 
 .food-db-actions {
     display: flex;
-    gap: var(--space-md);
+    gap: var(--space-xs);
     justify-content: flex-end;
     align-items: center;
     flex-shrink: 0;
@@ -2216,7 +2188,7 @@ input:checked+.toggle-slider:before {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: var(--space-sm);
+    gap: var(--space-md);
 }
 
 .food-db-info {
@@ -2226,30 +2198,34 @@ input:checked+.toggle-slider:before {
 
 .food-db-name {
     font-weight: var(--font-weight-bold);
-    font-size: 1.1em;
+    font-size: var(--font-size-md);
     margin-bottom: var(--space-xs);
-    color: var(--text-color);
+    color: var(--wg-fg-1);
 }
 
 .food-db-macros {
+    font-family: var(--wg-font-mono);
     font-size: var(--font-size-sm);
-    color: var(--hint-color);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
 }
 
 .food-db-meta {
     font-size: var(--font-size-xs);
-    color: var(--hint-color);
-    border-top: 1px solid rgba(0, 0, 0, 0.03);
+    color: var(--wg-fg-4);
+    border-top: 1px solid var(--wg-border-hairline);
     padding-top: var(--space-sm);
+    margin-top: var(--space-sm);
     display: flex;
     gap: var(--space-md);
+    font-family: var(--wg-font-mono);
 }
 
 .food-meal-badge {
-    background: rgba(36, 129, 204, 0.1);
-    color: var(--link-color);
+    background: var(--wg-mint-soft);
+    color: var(--wg-ink);
     padding: 1px var(--space-sm);
-    border-radius: var(--radius-sm);
+    border-radius: var(--wg-radius-pill);
     font-weight: var(--font-weight-bold);
     font-size: var(--font-size-sm);
     margin-left: auto;
@@ -2282,12 +2258,13 @@ input:checked+.toggle-slider:before {
     box-shadow: var(--shadow-md);
 }
 
-/* Food meal cards */
+/* Food meal cards — Meal DB panel inner row layout (Phase 4, Task 5 follow-up) */
 .food-meal-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: var(--space-md);
+    gap: var(--space-md);
+    margin-bottom: var(--space-sm);
 }
 
 .food-meal-info {
@@ -2297,21 +2274,23 @@ input:checked+.toggle-slider:before {
 
 .food-meal-name {
     font-weight: var(--font-weight-bold);
-    font-size: 1.1em;
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
 }
 
 .food-meal-actions {
     display: flex;
-    gap: var(--space-sm);
+    gap: var(--space-xs);
     flex-shrink: 0;
 }
 
 .food-nutrition-row {
+    font-family: var(--wg-font-mono);
     font-size: var(--font-size-sm);
-    margin-bottom: var(--space-md);
     display: flex;
     gap: var(--space-lg);
-    color: var(--text-color);
+    color: var(--wg-fg-2);
+    letter-spacing: 0.02em;
 }
 
 /* Food summary */
@@ -2346,12 +2325,14 @@ input:checked+.toggle-slider:before {
     align-items: center;
     margin-top: var(--space-lg);
     padding-top: var(--space-lg);
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid var(--wg-border-hairline);
 }
 
 #fooddb-page-info {
+    font-family: var(--wg-font-mono);
     font-size: var(--font-size-sm);
-    color: var(--hint-color);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
 }
 
 .pagination-buttons {
@@ -5339,6 +5320,96 @@ textarea.wg-input {
 
 .wg-food-meal-list__empty {
     padding: var(--space-lg) 0;
+}
+
+/* Meal DB / Food DB panels (Phase 4, Task 5 follow-up) — .wg-food-db-panel
+   wraps the sub-tab content shell; `.wg-food-db-card` applies to each row
+   alongside `.wg-card` so the gloss surface, hairline border, and inner
+   padding come from the shared card primitive. `.wg-food-db-panel__sort`
+   matches the sub-tab strip layout so Meal/Food DB share rhythm with the
+   daily log. */
+.wg-food-db-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-food-db-panel__hint {
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+    margin: 0 0 var(--space-sm);
+}
+
+.wg-food-db-panel__search {
+    margin-bottom: var(--space-sm);
+}
+
+.wg-food-db-panel__sort {
+    display: flex;
+    gap: var(--wg-food-subtab-gap);
+    padding: var(--wg-food-subtab-pad-y) var(--wg-food-subtab-pad-x);
+    margin-bottom: var(--space-md);
+}
+
+.wg-food-db-panel__sort-btn {
+    flex: 1;
+    min-height: 36px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+    text-align: center;
+}
+
+.wg-food-db-panel__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-food-db-panel__empty {
+    padding: var(--space-lg) 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+    text-align: center;
+    margin: 0;
+}
+
+.wg-food-db-panel__empty--error {
+    color: var(--wg-tag-alert-fg);
+}
+
+.wg-food-db-panel__pagination {
+    margin-top: var(--space-md);
+}
+
+.wg-food-db-panel__page-info {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
+}
+
+.wg-food-db-panel__page-actions {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.wg-food-db-panel__page-btn {
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-food-db-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    cursor: pointer;
 }
 
 /* Edit-food modal (Phase 4, Task 6) — uses the shared `.wg-modal` shell
