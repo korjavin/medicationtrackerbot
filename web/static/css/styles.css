@@ -1769,30 +1769,6 @@ svg.chart-svg {
     margin-bottom: 0;
 }
 
-.food-date-shift-btn {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
-    padding: 0;
-    border: 1px solid var(--hint-color);
-    font-size: var(--font-size-md);
-}
-
-#food-date-label {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-color, #ffffff);
-    color: var(--text-color);
-    font-size: var(--font-size-md);
-    font-weight: var(--font-weight-medium);
-    border-radius: var(--radius-sm);
-}
 
 .food-target-progress {
     margin-bottom: var(--space-md);
@@ -2153,28 +2129,14 @@ input:checked+.toggle-slider:before {
 }
 
 /* Food DB / Meal DB panel (Phase 4, Task 5 follow-up). Legacy `.food-db-*`
-   and `.fooddb-*` class names are retained so the architecture test's
-   required-class list still resolves, but all visual values come from
-   --wg-* tokens. Cards carry both `.wg-card` (surface treatment) and
-   `.wg-food-db-card` (inner layout); the `.food-db-card` name is kept as
-   a JS-side marker but has no standalone styling. */
-.fooddb-sort-controls {
-    display: flex;
-    gap: var(--wg-food-subtab-gap);
-    padding: var(--wg-food-subtab-pad-y) var(--wg-food-subtab-pad-x);
-    margin-bottom: var(--space-md);
-}
-
-.fooddb-sort-btn {
-    flex: 1;
-    min-height: 36px;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    padding: var(--space-xs) var(--space-sm);
-    border-radius: var(--wg-radius-gloss);
-    text-align: center;
-}
-
+   class names are retained on row children (actions, info, name, macros,
+   meta) because the architecture test's required-class list still resolves
+   against them; all visual values come from --wg-* tokens. Cards carry
+   both `.wg-card` (surface treatment) and `.wg-food-db-card` (inner
+   layout); the sort strip styling lives in `.wg-food-db-panel__sort` and
+   `.wg-food-db-panel__sort-btn` (see Meal DB / Food DB rules further
+   down), and the legacy `.fooddb-sort-*` class names remain on the HTML
+   only as JS selectors (`bindFoodControls`, `loadFoodDB`). */
 .food-db-actions {
     display: flex;
     gap: var(--space-xs);

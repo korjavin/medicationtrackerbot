@@ -96,15 +96,16 @@ function bindFoodControls() {
     const sortBtns = document.querySelectorAll('.fooddb-sort-btn');
     sortBtns.forEach(btn => {
         btn.addEventListener('click', (e) => {
+            const target = e.currentTarget;
             sortBtns.forEach(b => {
                 b.classList.remove('active');
                 b.classList.remove('wg-gloss--sun');
                 b.setAttribute('aria-pressed', 'false');
             });
-            e.target.classList.add('active');
-            e.target.classList.add('wg-gloss--sun');
-            e.target.setAttribute('aria-pressed', 'true');
-            foodDBSort = e.target.dataset.sort;
+            target.classList.add('active');
+            target.classList.add('wg-gloss--sun');
+            target.setAttribute('aria-pressed', 'true');
+            foodDBSort = target.dataset.sort;
             foodDBPage = 0;
             loadFoodDB();
         });
@@ -1901,7 +1902,7 @@ async function loadMyMeals() {
 
     meals.forEach(meal => {
         const card = document.createElement('div');
-        card.className = 'wg-card wg-food-db-card food-db-card';
+        card.className = 'wg-card wg-food-db-card';
 
         const mainRow = document.createElement('div');
         mainRow.className = 'food-meal-header';
@@ -2254,7 +2255,7 @@ function renderFoodDBList(products, total) {
 
     products.forEach(p => {
         const card = document.createElement('div');
-        card.className = 'wg-card wg-food-db-card food-db-card';
+        card.className = 'wg-card wg-food-db-card';
         card.onclick = (e) => {
             if (e.target.tagName !== 'BUTTON') {
                 autofillFoodProduct(p);
