@@ -856,13 +856,14 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
         const nameSpan = document.createElement('span');
         nameSpan.className = 'autocomplete-item-name';
 
-        let displayText = displayName;
+        let metaText = '';
         if (p.is_meal) {
-            displayText = `🍱 ${displayName} (Meal)`;
-        } else if (p.barcode) {
-            displayText += ` (${p.barcode})`;
+            nameSpan.textContent = `🍱 ${displayName}`;
+            metaText = 'Meal';
+        } else {
+            nameSpan.textContent = displayName;
+            if (p.barcode) metaText = p.barcode;
         }
-        nameSpan.textContent = displayText;
 
         nameSpan.onclick = function () {
             document.getElementById('food-name').value = displayName;
@@ -871,6 +872,14 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
             list.classList.add('hidden');
         };
         item.appendChild(nameSpan);
+
+        if (metaText) {
+            const metaSpan = document.createElement('span');
+            metaSpan.className = 'autocomplete-item-meta';
+            metaSpan.textContent = metaText;
+            metaSpan.onclick = nameSpan.onclick;
+            item.appendChild(metaSpan);
+        }
 
         // Show edit/delete buttons only for user's own food products (id > 0)
         if (p.id && p.id > 0) {

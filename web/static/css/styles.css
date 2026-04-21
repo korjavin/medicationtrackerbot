@@ -1959,7 +1959,10 @@ input:checked+.toggle-slider:before {
     vertical-align: -1px;
 }
 
-/* Custom Autocomplete */
+/* Custom Autocomplete — Wandergeek-styled dropdown (Phase 4 follow-up).
+   Mounts inside the Food modal (`.wg-food-modal` on `--wg-bg-card`); the
+   list surface uses the inset card token so items read as a recessed
+   popover against the modal body. */
 .autocomplete-items {
     position: absolute;
     top: 100%;
@@ -1967,19 +1970,24 @@ input:checked+.toggle-slider:before {
     right: 0;
     max-height: 250px;
     overflow-y: auto;
-    border: 1px solid var(--hint-color);
+    border: 1px solid var(--wg-border-hairline);
     border-top: none;
     z-index: var(--z-popover);
-    background-color: var(--secondary-bg-color, #fff);
-    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-    box-shadow: var(--shadow-md);
+    background: var(--wg-bg-card-inset);
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-ui);
+    border-radius: 0 0 var(--wg-radius-gloss) var(--wg-radius-gloss);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        0 8px 18px -8px rgba(0, 0, 0, 0.5);
 }
 
 .autocomplete-items div.autocomplete-item {
     padding: var(--space-md) var(--space-md);
     cursor: pointer;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    border-bottom: 1px solid var(--wg-border-hairline);
     font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1992,6 +2000,12 @@ input:checked+.toggle-slider:before {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: var(--wg-fg-1);
+}
+
+.autocomplete-item-meta {
+    color: var(--wg-fg-2);
+    font-size: var(--font-size-xs);
 }
 
 .autocomplete-item-actions {
@@ -2001,49 +2015,50 @@ input:checked+.toggle-slider:before {
 }
 
 .autocomplete-action-btn {
-    background: none;
-    border: 1px solid var(--hint-color);
+    background: transparent;
+    border: 1px solid var(--wg-border-strong);
     border-radius: var(--radius-sm);
     cursor: pointer;
     padding: 2px var(--space-sm);
     font-size: var(--font-size-sm);
     line-height: 1;
-    color: var(--hint-color);
-    transition: color 0.15s, border-color 0.15s;
+    color: var(--wg-fg-2);
+    transition: color 0.15s, border-color 0.15s, background-color 0.15s;
 }
 
 .autocomplete-action-btn:hover {
-    color: var(--link-color);
-    border-color: var(--link-color);
+    color: var(--wg-fg-1);
+    border-color: var(--wg-mint-soft);
 }
 
 .autocomplete-action-delete:hover {
-    color: var(--color-autocomplete-delete);
-    border-color: var(--color-autocomplete-delete);
+    color: var(--wg-clay-soft);
+    border-color: var(--wg-clay-soft);
 }
 
-.autocomplete-items div.autocomplete-item:hover {
-    background-color: var(--link-color);
-    color: white;
+.autocomplete-items div.autocomplete-item:hover,
+.autocomplete-items div.autocomplete-item.autocomplete-active {
+    background: var(--wg-bg-card);
+    color: var(--wg-fg-1);
+}
+
+.autocomplete-items div.autocomplete-item:hover .autocomplete-item-name,
+.autocomplete-items div.autocomplete-item.autocomplete-active .autocomplete-item-name {
+    color: var(--wg-fg-1);
 }
 
 .autocomplete-items div.autocomplete-item:hover .autocomplete-action-btn {
-    color: white;
-    border-color: rgba(255, 255, 255, 0.5);
-}
-
-.autocomplete-items div.autocomplete-item:hover .autocomplete-action-delete:hover {
-    color: var(--color-autocomplete-delete-light);
-    border-color: var(--color-autocomplete-delete-light);
+    color: var(--wg-fg-1);
+    border-color: var(--wg-border-strong);
 }
 
 .autocomplete-close {
     padding: var(--space-sm) var(--space-md) !important;
-    background-color: var(--secondary-bg-color);
-    border-bottom: 1px solid var(--hint-color) !important;
+    background: var(--wg-bg-card-inset);
+    border-bottom: 1px solid var(--wg-border-hairline) !important;
     font-size: var(--font-size-sm) !important;
     font-weight: var(--font-weight-bold);
-    color: var(--hint-color);
+    color: var(--wg-fg-2);
     text-align: right;
     position: sticky;
     top: 0;
@@ -2051,8 +2066,8 @@ input:checked+.toggle-slider:before {
 }
 
 .autocomplete-close:hover {
-    color: var(--text-color) !important;
-    background-color: var(--secondary-bg-color) !important;
+    color: var(--wg-fg-1) !important;
+    background: var(--wg-bg-card) !important;
 }
 
 .autocomplete-load-more {
@@ -2060,9 +2075,9 @@ input:checked+.toggle-slider:before {
     text-align: center;
     font-size: var(--font-size-sm) !important;
     font-weight: var(--font-weight-medium);
-    color: var(--link-color);
-    background-color: var(--secondary-bg-color, #f0f0f0);
-    border-top: 1px solid rgba(0, 0, 0, 0.05) !important;
+    color: var(--wg-mint-soft);
+    background: var(--wg-bg-card-inset);
+    border-top: 1px solid var(--wg-border-hairline) !important;
     border-bottom: none !important;
     position: sticky;
     bottom: 0;
@@ -2070,19 +2085,14 @@ input:checked+.toggle-slider:before {
 }
 
 .autocomplete-load-more:hover {
-    background-color: rgba(0, 0, 0, 0.05) !important;
-    color: var(--link-color) !important;
+    background: var(--wg-bg-card) !important;
+    color: var(--wg-fg-1) !important;
 }
 
 .autocomplete-load-more.loading {
-    color: var(--hint-color);
+    color: var(--wg-fg-3);
     pointer-events: none;
-    background-color: var(--secondary-bg-color, #f0f0f0);
-}
-
-.autocomplete-active {
-    background-color: var(--link-color) !important;
-    color: white;
+    background: var(--wg-bg-card-inset);
 }
 
 .food-search-status.success {
