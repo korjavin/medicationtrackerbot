@@ -374,6 +374,16 @@ const WANDERGEEK_TOKENS = [
     '--wg-food-item-row-pad',
     '--wg-food-total-kcal-input',
 
+    // Edit-food modal tokens (Phase 4, Task 6) — eyebrow size + mono title
+    // size + row/section gaps + input padding + action-bar gap.
+    '--wg-food-modal-eyebrow-size',
+    '--wg-food-modal-title-size',
+    '--wg-food-modal-row-gap',
+    '--wg-food-modal-section-gap',
+    '--wg-food-modal-input-pad-y',
+    '--wg-food-modal-input-pad-x',
+    '--wg-food-modal-action-gap',
+
     // Food macro color aliases — map Energy / Protein / Carbs / Fat variants
     // to existing sun / mint / teal-sage / clay-soft palette tokens.
     '--wg-food-macro-energy',
