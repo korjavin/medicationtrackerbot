@@ -1667,8 +1667,10 @@ function renderFoodAddCta() {
 function _renderFoodData(groups, weekStats, period, dateStr) {
     const list = document.getElementById('food-list');
     const summary = document.getElementById('food-summary');
+    const ctaDock = document.getElementById('food-add-cta-dock');
 
     list.replaceChildren();
+    if (ctaDock) ctaDock.replaceChildren();
     let dayCals = 0, dayCarbs = 0, dayProt = 0, dayFat = 0;
     currentFoodLogs = {};
 
@@ -1693,7 +1695,11 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
     }
 
     if (period !== 'week' && period !== '2weeks') {
-        list.appendChild(renderFoodAddCta());
+        const ctaParent = ctaDock || list;
+        ctaParent.appendChild(renderFoodAddCta());
+        if (ctaDock) ctaDock.classList.remove('hidden');
+    } else if (ctaDock) {
+        ctaDock.classList.add('hidden');
     }
 
     const periodContainer = document.getElementById('food-stats-period-container');
@@ -2159,12 +2165,10 @@ function switchFoodTab(tab) {
 
 function toggleFoodDayNavVisibility(tab) {
     const nav = document.querySelector('.food-date-nav');
-    if (!nav) return;
-    if (tab === 'log') {
-        nav.classList.remove('hidden');
-    } else {
-        nav.classList.add('hidden');
-    }
+    const ctaDock = document.getElementById('food-add-cta-dock');
+    const isLog = tab === 'log';
+    if (nav) nav.classList.toggle('hidden', !isLog);
+    if (ctaDock) ctaDock.classList.toggle('hidden', !isLog);
 }
 
 async function deleteFoodLog(id) {

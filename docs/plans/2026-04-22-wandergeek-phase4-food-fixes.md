@@ -120,14 +120,14 @@ Issues to resolve:
 
 ### Task 3: Add Food CTA — always visible (sticky)
 
-- [ ] Decide placement: (a) hoist `#add-food-btn` out of `#food-list` into a sibling sticky footer inside `#food-log-tab`, or (b) keep it inside `#food-list` but apply `position: sticky; bottom: 0`. Prefer (a) because `#food-list` is the scroll container and sticky inside it anchors to that container, not the viewport.
-- [ ] `web/static/js/features/food.js` — update `renderFoodAddCta()` (≈`:1660`) and its caller to mount the button into a dedicated `#food-add-cta-dock` (sibling of `#food-list` inside `#food-log-tab`) instead of `#food-list.appendChild`.
-- [ ] `web/static/index.html` — add `<div id="food-add-cta-dock" class="wg-food-cta-dock"></div>` after `#food-list` inside `#food-log-tab`.
-- [ ] `web/static/css/styles.css` — add `.wg-food-cta-dock { position: sticky; bottom: var(--wg-bottom-nav-reserved, 0); background: linear-gradient(...transparent→stage-bg...); padding: var(--space-sm) 0; z-index: 2; }` so the CTA floats above scrolling content and sits above the bottom nav.
-- [ ] Verify the CTA is only visible on the Daily log sub-tab (hide the dock on `meals` / `fooddb` — extend Task 2's `switchFoodTab` toggles to cover `#food-add-cta-dock`).
-- [ ] Update `web/static/js/tests/food.meallist.test.js` — adjust expectations for the CTA's parent element; add a test that the dock exists inside `#food-log-tab` and not inside the scrolling `#food-list`.
-- [ ] Refresh `architecture.inline-styles.test.js` allowlist line numbers if shifted.
-- [ ] Run `pnpm test` — must be green before moving on.
+- [x] Decide placement: (a) hoist `#add-food-btn` out of `#food-list` into a sibling sticky footer inside `#food-log-tab`, or (b) keep it inside `#food-list` but apply `position: sticky; bottom: 0`. Prefer (a) because `#food-list` is the scroll container and sticky inside it anchors to that container, not the viewport. (chose (a))
+- [x] `web/static/js/features/food.js` — update `renderFoodAddCta()` (≈`:1660`) and its caller to mount the button into a dedicated `#food-add-cta-dock` (sibling of `#food-list` inside `#food-log-tab`) instead of `#food-list.appendChild`.
+- [x] `web/static/index.html` — add `<div id="food-add-cta-dock" class="wg-food-cta-dock"></div>` after `#food-list` inside `#food-log-tab`.
+- [x] `web/static/css/styles.css` — add `.wg-food-cta-dock { position: sticky; bottom: var(--wg-bottom-nav-reserved, 0); background: linear-gradient(...transparent→stage-bg...); padding: var(--space-sm) 0; z-index: var(--wg-z-fab); }` so the CTA floats above scrolling content and sits above the bottom nav. (used `--wg-z-fab` token to satisfy design-tokens arch test)
+- [x] Verify the CTA is only visible on the Daily log sub-tab (hide the dock on `meals` / `fooddb` — extend Task 2's `switchFoodTab` toggles to cover `#food-add-cta-dock`).
+- [x] Update `web/static/js/tests/food.meallist.test.js` — adjust expectations for the CTA's parent element; add a test that the dock exists inside `#food-log-tab` and not inside the scrolling `#food-list`.
+- [x] Refresh `architecture.inline-styles.test.js` allowlist line numbers if shifted. (food.js:2077/2078 → 2083/2084)
+- [x] Run `pnpm test` — must be green before moving on. (788 passed, up from 786)
 
 ### Task 4: Food-name autocomplete dropdown — readable on the Wandergeek shell
 
