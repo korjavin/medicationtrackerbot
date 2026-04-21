@@ -81,10 +81,10 @@ No backend changes. The existing `/api/food*` endpoints, Dexie offline queue, ba
 
 ### Task 1: Extend tokens + primitives for Food-specific visual values
 
-- [ ] add `--wg-food-*` dimensional tokens to `:root` in `styles.css` (kcal-display size 30px, macro-bar height 8px, macro-row grid-template-columns, sub-tab padding, day-nav icon-button size) — everything the Food view needs that isn't already covered by the shared `--wg-*` set
-- [ ] add `--wg-food-macro-*` semantic aliases for Energy / Protein / Carbs / Fat bar colors mapping to the existing sun / mint / teal / amber tokens so `renderMacroBar` picks up the right class without duplicating styles
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] run `pnpm test` — design-tokens test must be green before next task
+- [x] add `--wg-food-*` dimensional tokens to `:root` in `styles.css` (kcal-display size 30px, macro-bar height 8px, macro-row grid-template-columns, sub-tab padding, day-nav icon-button size) — everything the Food view needs that isn't already covered by the shared `--wg-*` set
+- [x] add `--wg-food-macro-*` semantic aliases for Energy / Protein / Carbs / Fat bar colors mapping to the existing sun / mint / teal / amber tokens so `renderMacroBar` picks up the right class without duplicating styles
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] run `pnpm test` — design-tokens test must be green before next task
 
 ### Task 2: Build the `WGMacroBar` component
 
