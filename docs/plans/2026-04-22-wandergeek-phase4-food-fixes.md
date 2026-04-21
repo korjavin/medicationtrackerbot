@@ -172,9 +172,9 @@ Issues to resolve:
 
 ### Task 7: [Final] Update documentation
 
-- [ ] `docs/frontend.md` — if the Food section entry documents the day-nav Today button or the Experimental badge, remove those references; add a one-line note that `#food-view` inherits `.wg-screen-stage` and that the Add Food CTA is docked (sticky) in `#food-log-tab`.
-- [ ] `CLAUDE.md` — only touch if the Navigation Critical Rule section mentions Food specifics that are now stale (unlikely).
-- [ ] No new public docs needed.
+- [x] `docs/frontend.md` — if the Food section entry documents the day-nav Today button or the Experimental badge, remove those references; add a one-line note that `#food-view` inherits `.wg-screen-stage` and that the Add Food CTA is docked (sticky) in `#food-log-tab`. (no stale Food-specific entries existed; added a new "Food screen shell" bullet in the Navigation section covering `#food-view.view.wg-screen-stage`, the `#food-add-cta-dock` sticky dock inside `#food-log-tab`, and the day-nav/CTA hide behavior on the `meals`/`fooddb` sub-tabs.)
+- [x] `CLAUDE.md` — only touch if the Navigation Critical Rule section mentions Food specifics that are now stale (unlikely). (confirmed: line 18 only lists Food as a canonical bottom-nav slot, no stale Today-button/Experimental references — no change needed.)
+- [x] No new public docs needed.
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`*
 
