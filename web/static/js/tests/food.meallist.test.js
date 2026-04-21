@@ -245,19 +245,34 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         editSpy.mockRestore();
     });
 
-    it('appends a full-width .wg-gloss--sun Add-food CTA after the last meal group (day period)', () => {
+    it('mounts a full-width .wg-gloss--sun Add-food CTA into the sticky dock (day period)', () => {
         const { window, document } = env;
         window._renderFoodData(FIXTURE, null, 'day', '2026-04-20');
 
-        const list = document.getElementById('food-list');
-        const cta = list.querySelector('.wg-food-add-cta');
+        const dock = document.getElementById('food-add-cta-dock');
+        expect(dock).not.toBeNull();
+        expect(dock.classList.contains('wg-food-cta-dock')).toBe(true);
+        expect(dock.classList.contains('hidden')).toBe(false);
+
+        const cta = dock.querySelector('.wg-food-add-cta');
         expect(cta).not.toBeNull();
         expect(cta.classList.contains('wg-gloss')).toBe(true);
         expect(cta.classList.contains('wg-gloss--sun')).toBe(true);
         expect(cta.textContent).toContain('Add food');
 
-        const lastChild = list.lastElementChild;
-        expect(lastChild).toBe(cta);
+        // CTA must NOT live inside the scrolling #food-list — it lives in
+        // the sibling sticky dock so it stays pinned during scroll.
+        const list = document.getElementById('food-list');
+        expect(list.querySelector('.wg-food-add-cta')).toBeNull();
+    });
+
+    it('CTA dock is a sibling of #food-list inside #food-log-tab', () => {
+        const { document } = env;
+        const dock = document.getElementById('food-add-cta-dock');
+        const list = document.getElementById('food-list');
+        const tab = document.getElementById('food-log-tab');
+        expect(dock.parentElement).toBe(tab);
+        expect(list.parentElement).toBe(tab);
     });
 
     it('Add-food CTA click opens the add-food modal', () => {
@@ -265,28 +280,32 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         window._renderFoodData(FIXTURE, null, 'day', '2026-04-20');
 
         const openSpy = vi.spyOn(window, 'showAddFoodModal').mockImplementation(() => {});
-        document.querySelector('#food-list .wg-food-add-cta').click();
+        document.querySelector('#food-add-cta-dock .wg-food-add-cta').click();
         expect(openSpy).toHaveBeenCalled();
         openSpy.mockRestore();
     });
 
-    it('empty-state renders the hint paragraph and still shows the Add-food CTA', () => {
+    it('empty-state renders the hint paragraph and still shows the Add-food CTA in the dock', () => {
         const { window, document } = env;
         window._renderFoodData([], null, 'day', '2026-04-20');
 
         const list = document.getElementById('food-list');
         expect(list.querySelector('.wg-food-meal-list__empty').textContent)
             .toContain('No food logs');
-        expect(list.querySelector('.wg-food-add-cta')).not.toBeNull();
+        const dock = document.getElementById('food-add-cta-dock');
+        expect(dock.querySelector('.wg-food-add-cta')).not.toBeNull();
     });
 
-    it('week period render omits the Add-food CTA (weekly stats view, no log rows)', () => {
+    it('week period render omits the Add-food CTA and hides the dock', () => {
         const { window, document } = env;
         const weekStats = { calories: 3000, carbs: 320, protein: 180, fat: 110 };
         window._renderFoodData([], weekStats, 'week', '2026-04-20');
 
         const list = document.getElementById('food-list');
         expect(list.querySelector('.wg-food-add-cta')).toBeNull();
+        const dock = document.getElementById('food-add-cta-dock');
+        expect(dock.querySelector('.wg-food-add-cta')).toBeNull();
+        expect(dock.classList.contains('hidden')).toBe(true);
     });
 
     it('selects the correct log into currentFoodLogs by id', () => {
