@@ -96,8 +96,14 @@ function bindFoodControls() {
     const sortBtns = document.querySelectorAll('.fooddb-sort-btn');
     sortBtns.forEach(btn => {
         btn.addEventListener('click', (e) => {
-            sortBtns.forEach(b => b.classList.remove('active'));
+            sortBtns.forEach(b => {
+                b.classList.remove('active');
+                b.classList.remove('wg-gloss--sun');
+                b.setAttribute('aria-pressed', 'false');
+            });
             e.target.classList.add('active');
+            e.target.classList.add('wg-gloss--sun');
+            e.target.setAttribute('aria-pressed', 'true');
             foodDBSort = e.target.dataset.sort;
             foodDBPage = 0;
             loadFoodDB();
@@ -1451,11 +1457,10 @@ async function loadFoodLogs() {
     // Highlight active sort button
     const sortButtons = document.querySelectorAll('.fooddb-sort-btn');
     sortButtons.forEach(btn => {
-        if (btn.dataset.sort === foodDBSort) {
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('active');
-        }
+        const isActive = btn.dataset.sort === foodDBSort;
+        btn.classList.toggle('active', isActive);
+        btn.classList.toggle('wg-gloss--sun', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     });
 
     // Show cached data immediately (stale-while-revalidate)
@@ -1888,7 +1893,7 @@ async function loadMyMeals() {
 
     if (meals.length === 0) {
         const p = document.createElement('p');
-        p.className = 'hint';
+        p.className = 'wg-food-db-panel__empty';
         p.textContent = 'You haven\'t created any meals yet.';
         list.appendChild(p);
         return;
@@ -1896,8 +1901,8 @@ async function loadMyMeals() {
 
     meals.forEach(meal => {
         const card = document.createElement('div');
-        card.className = 'food-db-card';
-        
+        card.className = 'wg-card wg-food-db-card food-db-card';
+
         const mainRow = document.createElement('div');
         mainRow.className = 'food-meal-header';
 
@@ -2194,7 +2199,7 @@ async function deleteFoodLog(id) {
 
 async function loadFoodDB() {
     const list = document.getElementById('fooddb-list');
-    list.innerHTML = '<p class="hint">Loading products...</p>';
+    list.innerHTML = '<p class="wg-food-db-panel__empty">Loading products...</p>';
 
     const limit = 20;
     const offset = foodDBPage * limit;
@@ -2225,7 +2230,7 @@ async function loadFoodDB() {
         renderFoodDBList(resp.products || [], foodDBTotal);
     } catch (e) {
         console.error('Failed to load food db products', e);
-        list.innerHTML = '<p class="error">Failed to load products</p>';
+        list.innerHTML = '<p class="wg-food-db-panel__empty wg-food-db-panel__empty--error">Failed to load products</p>';
     }
 }
 
@@ -2239,7 +2244,7 @@ function renderFoodDBList(products, total) {
     list.innerHTML = '';
 
     if (products.length === 0) {
-        list.innerHTML = '<p class="hint">No products found.</p>';
+        list.innerHTML = '<p class="wg-food-db-panel__empty">No products found.</p>';
         pagination.classList.toggle('hidden', total <= 0);
         pageInfo.textContent = `Showing 0 of ${total}`;
         prevBtn.disabled = foodDBPage === 0;
@@ -2249,7 +2254,7 @@ function renderFoodDBList(products, total) {
 
     products.forEach(p => {
         const card = document.createElement('div');
-        card.className = 'food-db-card';
+        card.className = 'wg-card wg-food-db-card food-db-card';
         card.onclick = (e) => {
             if (e.target.tagName !== 'BUTTON') {
                 autofillFoodProduct(p);

@@ -143,14 +143,14 @@ Issues to resolve:
 
 ### Task 5: Wandergeek-style the "Meal DB" and "Food DB" sub-tab panels
 
-- [ ] `web/static/index.html:192–216` — wrap `#food-meals-tab` and `#food-fooddb-tab` content in the standard WG card composition (`.wg-gloss--inset` outer + `.wg-card` content), match the Daily log's visual rhythm (section label, content padding, divider strokes).
-- [ ] Replace any legacy `.btn` / `.btn-*` usages inside these panels with `.wg-gloss` / `.wg-gloss--sun` primary CTAs as appropriate.
-- [ ] `web/static/js/features/food.js` — audit the render functions for Meal DB (`renderMealList`, `renderMealDb`, or similar) and Food DB (`renderFoodDb`, `renderProductList`, etc.) and port any remaining paper-era classes to Wandergeek equivalents. Grep `food-tab-content`, `food-meals-`, `food-fooddb-` to find all touch points.
-- [ ] `web/static/css/styles.css` — add `.wg-food-db-*` or reuse existing `.wg-food-*` classes for the two panels; do **not** add new color values — tokens only. Match card/label/divider rhythm used in `#food-log-tab`.
-- [ ] Verify empty states + error states for both panels render with WG typography/colors.
-- [ ] Add `web/static/js/tests/food.mealdb.test.js` and `web/static/js/tests/food.fooddb.test.js` (or extend `food.subtabs.test.js`) — assert: correct class list on panel roots, list rows carry `.wg-card` or its dedicated variant, primary action buttons use `.wg-gloss`, empty-state copy renders.
-- [ ] Refresh `architecture.inline-styles.test.js` / `architecture.design-tokens.test.js` allowlists if new `--wg-food-*` tokens are introduced (they shouldn't need to be).
-- [ ] Run `pnpm test` — must be green before moving on.
+- [x] `web/static/index.html:192–216` — wrap `#food-meals-tab` and `#food-fooddb-tab` content in the standard WG card composition (`.wg-gloss--inset` outer + `.wg-card` content), match the Daily log's visual rhythm (section label, content padding, divider strokes). (panels carry `.wg-food-db-panel`; sort strip uses `.wg-gloss--inset`; rows use `.wg-card .wg-food-db-card`)
+- [x] Replace any legacy `.btn` / `.btn-*` usages inside these panels with `.wg-gloss` / `.wg-gloss--sun` primary CTAs as appropriate. (sort pills + pagination buttons swapped to `.wg-gloss`; active sort pill wears `.wg-gloss--sun`)
+- [x] `web/static/js/features/food.js` — audit the render functions for Meal DB (`renderMealList`, `renderMealDb`, or similar) and Food DB (`renderFoodDb`, `renderProductList`, etc.) and port any remaining paper-era classes to Wandergeek equivalents. Grep `food-tab-content`, `food-meals-`, `food-fooddb-` to find all touch points. (`loadMyMeals` + `renderFoodDBList` now emit `wg-card wg-food-db-card`; empty/loading/error states use `.wg-food-db-panel__empty`; sort-button click + rerender handlers toggle `.wg-gloss--sun` + `aria-pressed`)
+- [x] `web/static/css/styles.css` — add `.wg-food-db-*` or reuse existing `.wg-food-*` classes for the two panels; do **not** add new color values — tokens only. Match card/label/divider rhythm used in `#food-log-tab`. (added `.wg-food-db-panel`, `.wg-food-db-panel__hint/search/sort/sort-btn/list/empty/pagination/page-info/page-actions/page-btn`, `.wg-food-db-card`; ported legacy `.food-db-*` / `.food-meal-*` / `.fooddb-*` rules to WG tokens; dropped paper-era `.food-db-card` + hover + accent-stripe rules)
+- [x] Verify empty states + error states for both panels render with WG typography/colors. (Meal DB empty → `.wg-food-db-panel__empty`; Food DB empty + loading → same; Food DB error → adds `.wg-food-db-panel__empty--error` for alert-fg)
+- [x] Add `web/static/js/tests/food.mealdb.test.js` and `web/static/js/tests/food.fooddb.test.js` (or extend `food.subtabs.test.js`) — assert: correct class list on panel roots, list rows carry `.wg-card` or its dedicated variant, primary action buttons use `.wg-gloss`, empty-state copy renders.
+- [x] Refresh `architecture.inline-styles.test.js` / `architecture.design-tokens.test.js` allowlists if new `--wg-food-*` tokens are introduced (they shouldn't need to be). (inline-styles allowlist refreshed: food.js 2092/2093 → 2097/2098; no new tokens added)
+- [x] Run `pnpm test` — must be green before moving on. (806 passed, up from 791)
 
 ### Task 6: Verify acceptance criteria
 
