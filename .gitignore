@@ -20,3 +20,4 @@ coverage/
 
 # ralphex progress logs
 .ralphex/worktrees/
+.claude/
