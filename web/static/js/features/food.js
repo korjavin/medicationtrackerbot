@@ -1,5 +1,67 @@
 let foodControlsBound = false;
 
+const FOOD_SUBTAB_STORAGE_KEY = 'mt-food-subtab';
+const FOOD_SUBTAB_OPTIONS = ['log', 'meals', 'fooddb'];
+const FOOD_SUBTAB_DEFAULT = 'log';
+
+function getActiveFoodSubTab() {
+    try {
+        const raw = window.localStorage.getItem(FOOD_SUBTAB_STORAGE_KEY);
+        if (FOOD_SUBTAB_OPTIONS.indexOf(raw) !== -1) return raw;
+    } catch (_) { /* ignore */ }
+    return FOOD_SUBTAB_DEFAULT;
+}
+
+function setActiveFoodSubTab(tab) {
+    if (FOOD_SUBTAB_OPTIONS.indexOf(tab) === -1) return;
+    try { window.localStorage.setItem(FOOD_SUBTAB_STORAGE_KEY, tab); } catch (_) { /* ignore */ }
+}
+
+function restoreFoodSubTab() {
+    const tab = getActiveFoodSubTab();
+    syncFoodSubTabActiveClass(tab);
+    if (tab !== FOOD_SUBTAB_DEFAULT) {
+        switchFoodTab(tab);
+    }
+}
+
+function syncFoodSubTabActiveClass(activeTab) {
+    const container = document.querySelector('.wg-food-subtabs');
+    if (!container) return;
+    const buttons = container.querySelectorAll('.food-tab');
+    buttons.forEach((btn) => {
+        const isActive = btn.dataset.tab === activeTab;
+        btn.classList.toggle('wg-gloss--sun', isActive);
+        btn.classList.toggle('wg-food-subtabs__btn--active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function renderFoodDayNavIcons() {
+    const prev = document.getElementById('food-date-prev-btn');
+    const next = document.getElementById('food-date-next-btn');
+    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
+    if (prev && !prev.querySelector('svg')) {
+        prev.replaceChildren(window.WGIcons.iconSvg('chevronLeft'));
+    }
+    if (next && !next.querySelector('svg')) {
+        next.replaceChildren(window.WGIcons.iconSvg('chevronRight'));
+    }
+}
+
+function renderFoodModalIcons() {
+    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
+    const closeGloss = document.querySelector('#food-modal-close-btn .wg-gloss');
+    if (closeGloss && !closeGloss.querySelector('svg')) {
+        closeGloss.replaceChildren(window.WGIcons.iconSvg('close', { size: 14 }));
+    }
+    const scanBtn = document.getElementById('food-scan-btn');
+    if (scanBtn && !scanBtn.querySelector('svg')) {
+        const icon = window.WGIcons.iconSvg('barcode', { size: 14 });
+        scanBtn.insertBefore(icon, scanBtn.firstChild);
+    }
+}
+
 function bindFoodControls() {
     if (foodControlsBound) return;
     foodControlsBound = true;
@@ -59,7 +121,6 @@ function bindFoodControls() {
 
     bindClick('food-period-day-link', () => setFoodStatsPeriod('day'));
     bindClick('food-period-week-link', () => setFoodStatsPeriod('week'));
-    bindClick('add-food-btn', () => showAddFoodModal());
     bindClick('food-date-prev-btn', () => shiftFoodDate(-1));
     bindClick('food-date-next-btn', () => shiftFoodDate(1));
     bindClick('food-today-btn', () => goFoodToday());
@@ -77,6 +138,7 @@ function bindFoodControls() {
     bindChange('food-date-filter', () => loadFoodLogs());
 
     bindClick('food-modal-cancel-btn', () => closeFoodModal());
+    bindClick('food-modal-close-btn', () => closeFoodModal());
     bindClick('food-modal-save-btn', () => saveFoodLog());
     bindInput('food-weight', () => calculateFoodCalories());
     bindInput('food-barcode', () => onFoodBarcodeChange());
@@ -95,19 +157,24 @@ function bindFoodControls() {
     bindClick('food-product-save-btn', () => saveFoodProduct());
 
     bindTabGroup({
-        container: document.querySelector('.food-tabs'),
+        container: document.querySelector('.wg-food-subtabs'),
         buttonSelector: '.food-tab',
         onTabSelect: switchFoodTab
     });
 
     bindClick('food-save-meal-cancel-btn', () => closeFoodSaveMealModal());
     bindClick('food-save-meal-confirm-btn', () => confirmSaveMeal());
+
+    renderFoodDayNavIcons();
+    renderFoodModalIcons();
+    restoreFoodSubTab();
 }
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bindFoodControls, { once: true });
+} else {
+    bindFoodControls();
 }
-bindFoodControls();
 
 // -- Food Intake Autocomplete & Logic --
 
@@ -377,7 +444,6 @@ async function onFoodBarcodeChange() {
             const reader = res.body.getReader();
             const decoder = new TextDecoder("utf-8");
             let buffer = "";
-            let matchFoundAndFilled = false;
             let localResults = [];
 
             while (true) {
@@ -525,16 +591,16 @@ function setFoodSearchStatus(type, message) {
     const status = document.getElementById('food-search-status');
     if (!status) return;
 
-    status.className = 'food-search-status';
+    status.classList.remove('loading', 'success', 'empty', 'error');
     if (!type || !message) {
         status.classList.add('hidden');
-        status.innerText = '';
+        status.textContent = '';
         return;
     }
 
     status.classList.remove('hidden');
     status.classList.add(type);
-    status.innerText = message;
+    status.textContent = message;
 }
 
 function setFoodScannerStatus(message) {
@@ -1115,9 +1181,18 @@ function formatFoodDateLabel(dateStr) {
     return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+function formatFoodDateSubtitle(dateStr) {
+    if (!dateStr) return '';
+    // Prototype uses "20.04.2026" (DD.MM.YYYY) for the day-nav subtitle.
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    return `${parts[2]}.${parts[1]}.${parts[0]}`;
+}
+
 function updateFoodDateNav() {
     const dateFilter = document.getElementById('food-date-filter');
     const label = document.getElementById('food-date-label');
+    const subtitle = document.getElementById('food-date-subtitle');
     const nextBtn = document.getElementById('food-date-next-btn');
     const todayBtn = document.getElementById('food-today-btn');
     if (!dateFilter || !label || !nextBtn || !todayBtn) return;
@@ -1126,6 +1201,7 @@ function updateFoodDateNav() {
     if (!dateStr) return;
 
     label.textContent = formatFoodDateLabel(dateStr);
+    if (subtitle) subtitle.textContent = formatFoodDateSubtitle(dateStr);
 
     const date = new Date(`${dateStr}T00:00:00`);
     const today = new Date();
@@ -1160,7 +1236,7 @@ function shiftFoodDate(deltaDays) {
 
 function showAddFoodModal() {
     window.ModalManager.food.open();
-    document.getElementById('food-modal-title').innerText = 'Log Food';
+    document.getElementById('food-modal-title').innerText = 'New entry';
 
     // Set default date/time
     document.getElementById('food-datetime').value = formatDateTimeLocalForInput();
@@ -1188,7 +1264,7 @@ function showAddFoodModal() {
     document.getElementById('food-per-100g').checked = true;
     document.getElementById('food-weight').focus();
 
-    if (foodProductsCache.length === 0) {
+    if (!foodProductsCache || foodProductsCache.length === 0) {
         initFoodProductsCache().then(() => renderFoodAutocomplete(foodProductsCache, false, null, false));
     } else {
         renderFoodAutocomplete(foodProductsCache, false, null, false);
@@ -1200,7 +1276,7 @@ function editFoodLog(id) {
     if (!log) return;
 
     window.ModalManager.food.open();
-    document.getElementById('food-modal-title').innerText = 'Edit Food';
+    document.getElementById('food-modal-title').innerText = 'Edit entry';
 
     document.getElementById('food-id').value = log.id;
     const pidEl = document.getElementById('food-log-product-id');
@@ -1427,6 +1503,178 @@ async function loadFoodLogs() {
     }
 }
 
+// Phase 4, Task 5 — meal-grouped item list renderers. The daily log list
+// is built from `.wg-food-meal-group` containers: each group has a
+// `.wg-section-label` header (meal name + time + trailing mono kcal total)
+// followed by `.wg-card` rows per logged item (name/grams on the left,
+// sun-tinted kcal + mono P/F on the right, icon-button cluster trailing).
+// Offline-pending / rejected logs get `.wg-tag--mono` badges next to the
+// meta line, mirroring the BP Phase 3 pattern.
+function renderFoodMealGroup(group) {
+    const groupEl = document.createElement('section');
+    groupEl.className = 'wg-food-meal-group';
+
+    const header = document.createElement('div');
+    header.className = 'wg-section-label wg-food-meal-group__header';
+
+    const title = document.createElement('span');
+    title.className = 'wg-food-meal-group__title';
+    const namePart = group.name || 'Meal';
+    const timePart = group.time ? ` · ${group.time}` : '';
+    title.textContent = `${namePart}${timePart}`;
+    header.appendChild(title);
+
+    const total = document.createElement('span');
+    total.className = 'wg-mono-display wg-food-meal-group__total';
+    total.textContent = `${Math.round(group.calories || 0)} kcal`;
+    header.appendChild(total);
+
+    groupEl.appendChild(header);
+
+    const rows = document.createElement('div');
+    rows.className = 'wg-food-meal-group__rows';
+    (group.logs || []).forEach(log => {
+        currentFoodLogs[log.id] = log;
+        rows.appendChild(renderFoodItemRow(log));
+    });
+    groupEl.appendChild(rows);
+
+    return groupEl;
+}
+
+function renderFoodItemRow(log) {
+    const item = document.createElement('div');
+    item.className = 'wg-card wg-food-item-row';
+    item.setAttribute('data-log-id', String(log.id));
+    if (log.isLocal || log.pending) {
+        item.classList.add('wg-food-item-row--pending');
+    }
+    if (log.isRejected || log.errorMessage) {
+        item.classList.add('wg-food-item-row--rejected');
+    }
+
+    if (foodMultiSelectMode) {
+        const checkboxDiv = document.createElement('div');
+        checkboxDiv.className = 'food-checkbox-wrap wg-food-item-row__checkbox';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'food-checkbox';
+        cb.checked = foodSelectedLogIds.has(log.id);
+        cb.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (cb.checked) {
+                foodSelectedLogIds.add(log.id);
+            } else {
+                foodSelectedLogIds.delete(log.id);
+            }
+            updateFoodSelectUI();
+        });
+        checkboxDiv.appendChild(cb);
+        item.appendChild(checkboxDiv);
+        item.addEventListener('click', () => cb.click());
+    } else {
+        item.addEventListener('click', () => editFoodLog(log.id));
+    }
+
+    const body = document.createElement('div');
+    body.className = 'wg-food-item-row__body';
+
+    const name = document.createElement('div');
+    name.className = 'wg-food-item-row__name';
+    name.textContent = log.is_meal ? `🍽 ${log.name || 'Food'}` : (log.name || 'Food');
+    body.appendChild(name);
+
+    const meta = document.createElement('div');
+    meta.className = 'wg-food-item-row__meta';
+    const grams = document.createElement('span');
+    grams.className = 'wg-food-item-row__grams';
+    grams.textContent = `${Math.round(log.weight || 0)}g`;
+    meta.appendChild(grams);
+
+    if (log.isRejected || log.errorMessage) {
+        meta.appendChild(buildFoodSyncTag('rejected', 'Failed', log.errorMessage));
+    } else if (log.isLocal || log.pending) {
+        meta.appendChild(buildFoodSyncTag('pending', 'Pending'));
+    }
+
+    body.appendChild(meta);
+    item.appendChild(body);
+
+    const stats = document.createElement('div');
+    stats.className = 'wg-food-item-row__stats';
+
+    const kcal = document.createElement('span');
+    kcal.className = 'wg-mono-display wg-food-item-row__kcal';
+    kcal.textContent = `${Math.round(log.calories || 0)} kcal`;
+    stats.appendChild(kcal);
+
+    const macros = document.createElement('span');
+    macros.className = 'wg-food-item-row__macros';
+    macros.textContent = `P ${Math.round(log.protein || 0)} / F ${Math.round(log.fat || 0)}`;
+    stats.appendChild(macros);
+
+    item.appendChild(stats);
+
+    const actions = document.createElement('div');
+    actions.className = 'wg-food-item-row__actions';
+    actions.appendChild(buildFoodActionButton('pencil', 'Edit entry', (event) => {
+        event.stopPropagation();
+        editFoodLog(log.id);
+    }));
+    actions.appendChild(buildFoodActionButton('trash', 'Delete entry', (event) => {
+        event.stopPropagation();
+        deleteFoodLog(log.id);
+    }));
+    item.appendChild(actions);
+
+    return item;
+}
+
+function buildFoodSyncTag(kind, label, tooltip) {
+    const tag = document.createElement('span');
+    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-food-item-row__sync`;
+    tag.textContent = label;
+    if (tooltip) tag.title = tooltip;
+    return tag;
+}
+
+function buildFoodActionButton(iconName, ariaLabel, onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-icon-btn wg-food-item-row__action';
+    btn.setAttribute('aria-label', ariaLabel);
+    btn.title = ariaLabel;
+    btn.setAttribute('data-icon', iconName);
+
+    const gloss = document.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg(iconName, { size: 16 }));
+    }
+    btn.appendChild(gloss);
+
+    btn.addEventListener('click', onClick);
+    return btn;
+}
+
+function renderFoodAddCta() {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-gloss wg-gloss--sun wg-food-add-cta';
+    btn.id = 'add-food-btn';
+
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        btn.appendChild(window.WGIcons.iconSvg('plus', { size: 18 }));
+    }
+    const label = document.createElement('span');
+    label.className = 'wg-food-add-cta__label';
+    label.textContent = 'Add food';
+    btn.appendChild(label);
+
+    btn.addEventListener('click', () => showAddFoodModal());
+    return btn;
+}
+
 function _renderFoodData(groups, weekStats, period, dateStr) {
     const list = document.getElementById('food-list');
     const summary = document.getElementById('food-summary');
@@ -1441,131 +1689,102 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
 
     if (!groups || groups.length === 0) {
         const empty = document.createElement('p');
-        empty.className = 'hint text-center';
+        empty.className = 'hint text-center wg-food-meal-list__empty';
         empty.textContent = 'No food logs for this day.';
         list.appendChild(empty);
     } else {
         groups.forEach(group => {
-            dayCals += group.calories;
-            dayCarbs += group.carbs;
-            dayProt += group.protein;
-            dayFat += group.fat;
+            dayCals += Number(group.calories) || 0;
+            dayCarbs += Number(group.carbs) || 0;
+            dayProt += Number(group.protein) || 0;
+            dayFat += Number(group.fat) || 0;
 
-            const groupDiv = document.createElement('div');
-            groupDiv.className = 'history-group';
-
-            const header = document.createElement('div');
-            header.className = 'history-header';
-            const title = document.createElement('strong');
-            title.textContent = group.name;
-            const time = document.createElement('span');
-            time.className = 'food-group-time';
-            time.textContent = `(${group.time})`;
-            const totals = document.createElement('span');
-            totals.className = 'food-group-totals';
-            totals.textContent = `${Math.round(group.calories)} kcal (C:${Math.round(group.carbs)} P:${Math.round(group.protein)} F:${Math.round(group.fat)})`;
-            header.appendChild(title);
-            header.appendChild(time);
-            header.appendChild(totals);
-            groupDiv.appendChild(header);
-
-            group.logs.forEach(log => {
-                currentFoodLogs[log.id] = log;
-
-                const item = document.createElement('div');
-                item.className = 'history-item food-log-item';
-
-                if (foodMultiSelectMode) {
-                    const checkboxDiv = document.createElement('div');
-                    checkboxDiv.className = 'food-checkbox-wrap';
-                    const cb = document.createElement('input');
-                    cb.type = 'checkbox';
-                    cb.className = 'food-checkbox';
-                    cb.checked = foodSelectedLogIds.has(log.id);
-                    cb.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        if (cb.checked) {
-                            foodSelectedLogIds.add(log.id);
-                        } else {
-                            foodSelectedLogIds.delete(log.id);
-                        }
-                        updateFoodSelectUI();
-                    });
-                    checkboxDiv.appendChild(cb);
-                    item.appendChild(checkboxDiv);
-
-                    item.addEventListener('click', () => cb.click());
-                } else {
-                    item.addEventListener('click', () => {
-                        editFoodLog(log.id);
-                    });
-                }
-
-                const itemBody = document.createElement('div');
-                itemBody.className = 'food-item-body';
-                const name = document.createElement('div');
-                name.className = 'fw-medium';
-
-                if (log.is_meal) {
-                    name.textContent = '🍽 ' + (log.name || 'Food');
-                } else {
-                    name.textContent = log.name || 'Food';
-                }
-                const meta = document.createElement('div');
-                meta.className = 'food-item-meta';
-                meta.textContent = `${Math.round(log.weight)}g • ${Math.round(log.calories)} kcal`;
-                itemBody.appendChild(name);
-                itemBody.appendChild(meta);
-
-                const actionIcons = document.createElement('div');
-                actionIcons.className = 'food-action-icons';
-
-                const editButton = createEditButton((event) => {
-                    event.stopPropagation();
-                    editFoodLog(log.id);
-                });
-
-                const deleteButton = createDeleteButton((event) => {
-                    event.stopPropagation();
-                    deleteFoodLog(log.id);
-                });
-
-                actionIcons.appendChild(editButton);
-                actionIcons.appendChild(deleteButton);
-
-                item.appendChild(itemBody);
-                item.appendChild(actionIcons);
-                groupDiv.appendChild(item);
-            });
-
-            list.appendChild(groupDiv);
+            list.appendChild(renderFoodMealGroup(group));
         });
     }
 
-    const hasTargets = foodTargets.calories > 0 || foodTargets.protein > 0 || foodTargets.carbs > 0 || foodTargets.fat > 0;
+    if (period !== 'week' && period !== '2weeks') {
+        list.appendChild(renderFoodAddCta());
+    }
+
     const periodContainer = document.getElementById('food-stats-period-container');
     if (periodContainer) {
         periodContainer.classList.remove('hidden');
     }
 
+    const macrosCard = document.getElementById('food-macros-card');
     if (period === 'week' || period === '2weeks') {
+        if (macrosCard) macrosCard.classList.add('hidden');
         const stats = weekStats;
         summary.classList.remove('hidden');
         const label = period === 'week' ? '7-Day Total' : '14-Day Total';
         renderFoodSummary(summary, label, Math.round(stats?.calories || 0), Math.round(stats?.carbs || 0), Math.round(stats?.protein || 0), Math.round(stats?.fat || 0));
         renderFoodTargetProgress(Math.round(stats?.calories || 0), Math.round(stats?.carbs || 0), Math.round(stats?.protein || 0), Math.round(stats?.fat || 0), period);
     } else {
-        if (groups && groups.length > 0) {
-            summary.classList.remove('hidden');
-            renderFoodSummary(summary, 'Daily Total', Math.round(dayCals), Math.round(dayCarbs), Math.round(dayProt), Math.round(dayFat));
-            renderFoodTargetProgress(Math.round(dayCals), Math.round(dayCarbs), Math.round(dayProt), Math.round(dayFat), period);
-        } else {
-            summary.classList.add('hidden');
-            renderFoodTargetProgress(0, 0, 0, 0, period);
+        const progress = document.getElementById('food-target-progress');
+        if (progress) {
+            progress.classList.add('hidden');
+            progress.replaceChildren();
         }
+        renderFoodMacrosCard(
+            Math.round(dayCals),
+            Math.round(dayCarbs),
+            Math.round(dayProt),
+            Math.round(dayFat),
+            foodTargets
+        );
+        renderFoodDaySelectControl(summary, groups && groups.length > 0);
     }
 
     updateFoodSelectUI();
+}
+
+// Phase 4, Task 4 — populate the Wandergeek daily macros card. Renders the
+// big mono kcal total, the sun-tinted "NN% of target" subtitle, and four
+// WGMacroBar rows (Energy / Protein / Carbs / Fat) into the existing
+// #food-macros-card shell. Empty-state callers pass zeros; bars collapse
+// to 0% rather than being hidden. Missing targets fall back to "—" in the
+// bar's target suffix and to "—% of target" in the card header.
+function renderFoodMacrosCard(calories, carbs, protein, fat, targets) {
+    const card = document.getElementById('food-macros-card');
+    if (!card) return;
+
+    const safeTargets = targets || {};
+    const targetCalories = Number(safeTargets.calories) > 0 ? Number(safeTargets.calories) : 0;
+    const targetCarbs = Number(safeTargets.carbs) > 0 ? Number(safeTargets.carbs) : 0;
+    const targetProtein = Number(safeTargets.protein) > 0 ? Number(safeTargets.protein) : 0;
+    const targetFat = Number(safeTargets.fat) > 0 ? Number(safeTargets.fat) : 0;
+
+    const safeCalories = Number.isFinite(calories) && calories > 0 ? calories : 0;
+
+    const kcalEl = document.getElementById('food-macros-card-kcal');
+    if (kcalEl) kcalEl.textContent = String(Math.round(safeCalories));
+
+    const percentEl = document.getElementById('food-macros-card-percent-value');
+    if (percentEl) {
+        if (targetCalories > 0) {
+            const pct = Math.round((safeCalories / targetCalories) * 100);
+            percentEl.textContent = `${pct}%`;
+        } else {
+            percentEl.textContent = '—';
+        }
+    }
+
+    const bars = document.getElementById('food-macros-card-bars');
+    if (bars) {
+        bars.replaceChildren();
+        if (window.WGMacroBar && typeof window.WGMacroBar.render === 'function') {
+            const rows = [
+                { label: 'Energy', value: calories, target: targetCalories, unit: 'kcal', variant: 'energy' },
+                { label: 'Protein', value: protein, target: targetProtein, unit: 'g', variant: 'protein' },
+                { label: 'Carbs', value: carbs, target: targetCarbs, unit: 'g', variant: 'carbs' },
+                { label: 'Fat', value: fat, target: targetFat, unit: 'g', variant: 'fat' }
+            ];
+            rows.forEach(row => bars.appendChild(window.WGMacroBar.render(row)));
+        }
+    }
+
+    card.classList.remove('hidden');
 }
 
 function toggleFoodSelectMode() {
@@ -1747,6 +1966,34 @@ async function loadMyMeals() {
     });
 }
 
+// Day-view entry point for the multi-select + Save-as-Meal workflow. Phase 4
+// replaced the old "Daily Total" summary with the macros card, which removed
+// the Select button that lived on the summary. Re-render just the Select
+// button into #food-summary on day view so the My Meals creation flow stays
+// reachable.
+function renderFoodDaySelectControl(summaryEl, hasLogs) {
+    summaryEl.replaceChildren();
+    if (!hasLogs) {
+        summaryEl.classList.add('hidden');
+        return;
+    }
+    const wrapper = document.createElement('div');
+    wrapper.className = 'food-summary-wrapper';
+    const selectBtn = document.createElement('button');
+    selectBtn.type = 'button';
+    selectBtn.className = 'btn btn-sm btn-secondary food-select-btn';
+    if (foodMultiSelectMode) {
+        selectBtn.classList.replace('btn-secondary', 'btn-primary');
+        selectBtn.textContent = 'Cancel';
+    } else {
+        selectBtn.textContent = '\u2611 Select';
+    }
+    selectBtn.addEventListener('click', toggleFoodSelectMode);
+    wrapper.appendChild(selectBtn);
+    summaryEl.appendChild(wrapper);
+    summaryEl.classList.remove('hidden');
+}
+
 function renderFoodSummary(summaryEl, label, calories, carbs, protein, fat) {
     summaryEl.replaceChildren();
 
@@ -1911,6 +2158,9 @@ function switchFoodTab(tab) {
         contentIdFromTab: (tabName) => `food-${tabName}-tab`
     });
     if (!activated) return;
+
+    syncFoodSubTabActiveClass(tab);
+    setActiveFoodSubTab(tab);
 
     if (tab === 'log') { loadFoodLogs(); }
     else if (tab === 'meals') { loadMyMeals(); }
