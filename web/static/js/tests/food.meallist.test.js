@@ -296,4 +296,29 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         expect(window.currentFoodLogs[1].name).toBe('Oatmeal');
         expect(window.currentFoodLogs[3].name).toBe('Apple');
     });
+
+    it('handles a group with missing logs array without throwing', () => {
+        const { window, document } = env;
+        const groups = [{ name: 'Breakfast', time: '08:00', calories: 0, carbs: 0, protein: 0, fat: 0 }];
+        expect(() => window._renderFoodData(groups, null, 'day', '2026-04-20')).not.toThrow();
+
+        const list = document.getElementById('food-list');
+        expect(list.querySelector('.wg-food-meal-group')).not.toBeNull();
+        expect(list.querySelectorAll('.wg-food-item-row')).toHaveLength(0);
+    });
+
+    it('falls back to "Meal" header when group.name is missing', () => {
+        const { window, document } = env;
+        const groups = [{
+            name: '',
+            time: '09:00',
+            calories: 0, carbs: 0, protein: 0, fat: 0,
+            logs: []
+        }];
+        window._renderFoodData(groups, null, 'day', '2026-04-20');
+
+        const header = document.querySelector('#food-list .wg-food-meal-group__header');
+        expect(header).not.toBeNull();
+        expect(header.textContent).toContain('Meal');
+    });
 });
