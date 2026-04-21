@@ -97,11 +97,11 @@ No backend changes. The existing `/api/food*` endpoints, Dexie offline queue, ba
 
 ### Task 3: Rewrite Food sub-tab strip + day navigator
 
-- [ ] replace the current sub-tab buttons with a `.wg-gloss--inset` container carrying three `.wg-gloss--sun`-capable pills (Daily log / My meals / Food DB); active state via class, not inline style
-- [ ] state: which sub-tab is active persists via the existing Food sub-tab `localStorage` key (confirm the exact key during implementation)
-- [ ] rewrite the day navigator as a 3-cell row — left `.wg-icon-btn` (chevronLeft), center `.wg-mono-display` title + `.wg-section-label` date subtitle, right `.wg-icon-btn` (chevronRight) — wiring the existing `shiftFoodDate` / `goFoodToday` callbacks
-- [ ] write/update `food.subtabs.test.js` + `food.daynav.test.js` — active-state toggle, chevron click dispatches correct delta, today-tap resets date
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the current sub-tab buttons with a `.wg-gloss--inset` container carrying three `.wg-gloss--sun`-capable pills (Daily log / My meals / Food DB); active state via class, not inline style
+- [x] state: which sub-tab is active persists via the existing Food sub-tab `localStorage` key (confirm the exact key during implementation) — settled on `mt-food-subtab` (matches the `mt-bp-range` naming pattern)
+- [x] rewrite the day navigator as a 3-cell row — left `.wg-icon-btn` (chevronLeft), center `.wg-mono-display` title + `.wg-section-label` date subtitle, right `.wg-icon-btn` (chevronRight) — wiring the existing `shiftFoodDate` / `goFoodToday` callbacks
+- [x] write/update `food.subtabs.test.js` + `food.daynav.test.js` — active-state toggle, chevron click dispatches correct delta, today-tap resets date
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Rewrite the daily macros card
 

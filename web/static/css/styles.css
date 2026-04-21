@@ -5089,3 +5089,104 @@ textarea.wg-input {
         transition: none;
     }
 }
+
+/* Food sub-tab strip (Phase 4, Task 3). `.wg-gloss--inset` container wraps
+   three `.wg-gloss`-capable pills; the active pill also carries
+   `.wg-gloss--sun` (plus `.wg-food-subtabs__btn--active` for tests). Mirrors
+   the BP range-selector pattern from Phase 3. */
+.wg-food-subtabs {
+    display: flex;
+    gap: var(--wg-food-subtab-gap);
+    padding: var(--wg-food-subtab-pad-y) var(--wg-food-subtab-pad-x);
+    margin-bottom: var(--space-md);
+}
+
+.wg-food-subtabs__btn {
+    flex: 1;
+    min-height: 36px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+/* Food day navigator (Phase 4, Task 3). Three-cell row — chevron button,
+   center mono title + subtitle, chevron button. The hidden <input type="date">
+   lets the mono title trigger the native picker via showPicker(); the
+   "Today" chip slides in when the user navigates away from today. */
+.wg-food-day-nav {
+    display: grid;
+    grid-template-columns:
+        var(--wg-food-day-nav-icon-size) 1fr var(--wg-food-day-nav-icon-size);
+    column-gap: var(--space-sm);
+    row-gap: var(--space-xs);
+    align-items: center;
+    margin-bottom: var(--space-md);
+}
+
+.wg-food-day-nav__icon-btn {
+    width: var(--wg-food-day-nav-icon-size);
+    height: var(--wg-food-day-nav-icon-size);
+    min-width: var(--wg-food-day-nav-icon-size);
+}
+
+.wg-food-day-nav__center {
+    position: relative;
+    text-align: center;
+    min-width: 0;
+}
+
+.wg-food-day-nav__input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    pointer-events: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+}
+
+.wg-food-day-nav__title {
+    font-size: var(--wg-food-day-nav-title-size);
+    cursor: pointer;
+    user-select: none;
+}
+
+.wg-food-day-nav__subtitle {
+    padding: 0;
+    margin: 0;
+    text-transform: uppercase;
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.5px;
+    color: var(--wg-fg-3);
+}
+
+.wg-food-day-nav__subtitle::before {
+    content: none;
+}
+
+.wg-food-day-nav__week {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: var(--font-weight-medium);
+    font-size: var(--font-size-sm);
+    pointer-events: none;
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    color: var(--wg-fg-2);
+}
+
+.wg-food-day-nav__today-btn {
+    grid-column: 1 / -1;
+    justify-self: center;
+    min-height: 30px;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}

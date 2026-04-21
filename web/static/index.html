@@ -145,11 +145,11 @@
                 <span id="food-period-week-link" class="period-link" data-period="week">Week</span>
             </div>
 
-            <!-- Food Tabs -->
-            <div class="food-tabs">
-                <button class="food-tab active" data-tab="log">Daily Log</button>
-                <button class="food-tab" data-tab="meals">My Meals</button>
-                <button class="food-tab" data-tab="fooddb">Food DB</button>
+            <!-- Food Tabs (Phase 4 — .wg-gloss--inset strip, .wg-gloss--sun active pill) -->
+            <div class="wg-gloss--inset wg-food-subtabs" id="food-subtabs">
+                <button class="wg-gloss wg-food-subtabs__btn wg-gloss--sun wg-food-subtabs__btn--active food-tab active" data-tab="log" aria-pressed="true">Daily log</button>
+                <button class="wg-gloss wg-food-subtabs__btn food-tab" data-tab="meals" aria-pressed="false">My meals</button>
+                <button class="wg-gloss wg-food-subtabs__btn food-tab" data-tab="fooddb" aria-pressed="false">Food DB</button>
             </div>
 
             <div id="food-log-tab" class="food-tab-content active">
@@ -157,18 +157,17 @@
                     <button id="add-food-btn" class="btn btn-primary btn-pill btn-fab btn-lg" style="margin-bottom: 0; flex: 1;">+ Log Food</button>
                 </div>
 
-                <div class="food-date-nav">
-                    <button id="food-date-prev-btn" class="btn btn-secondary food-date-shift-btn"
-                        aria-label="Previous day">←</button>
-                    <div style="position: relative; flex: 1;">
-                        <input type="date" id="food-date-filter" style="width: 100%; box-sizing: border-box;">
-                        <span id="food-date-label"></span>
-                        <div id="food-week-display" class="hidden"
-                            style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--secondary-bg-color); color: var(--text-color); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 14px; pointer-events: none; border: 1px solid var(--border-color); border-radius: 8px;">
-                        </div>
+                <div class="wg-food-day-nav food-date-nav">
+                    <button id="food-date-prev-btn" class="wg-gloss wg-icon-btn wg-food-day-nav__icon-btn food-date-shift-btn"
+                        type="button" aria-label="Previous day"></button>
+                    <div class="wg-food-day-nav__center">
+                        <input type="date" id="food-date-filter" class="wg-food-day-nav__input" aria-label="Select date">
+                        <div id="food-date-label" class="wg-mono-display wg-food-day-nav__title" role="button" tabindex="0"></div>
+                        <div id="food-date-subtitle" class="wg-section-label wg-food-day-nav__subtitle"></div>
+                        <div id="food-week-display" class="wg-food-day-nav__week hidden"></div>
                     </div>
-                    <button id="food-date-next-btn" class="btn btn-secondary food-date-shift-btn" aria-label="Next day">→</button>
-                    <button id="food-today-btn" class="food-today-chip hidden">Today</button>
+                    <button id="food-date-next-btn" class="wg-gloss wg-icon-btn wg-food-day-nav__icon-btn food-date-shift-btn" type="button" aria-label="Next day"></button>
+                    <button id="food-today-btn" class="wg-gloss wg-food-day-nav__today-btn food-today-chip hidden" type="button">Today</button>
                 </div>
 
                 <div id="food-target-progress" class="food-target-progress hidden"></div>
