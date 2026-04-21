@@ -135,9 +135,9 @@ No backend changes. The existing `/api/food*` endpoints, Dexie offline queue, ba
 
 ### Task 7: Wire Food into the canonical bottom nav + cleanup
 
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `food` slot and the `apple` icon; add a test case if one doesn't exist
-- [ ] remove any remaining `.food-*` paper-era classes from `styles.css` that are no longer referenced after the rewrite (grep-verify)
-- [ ] run `pnpm test` — must pass before next task
+- [x] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `food` slot and the `apple` icon; add a test case if one doesn't exist
+- [x] remove any remaining `.food-*` paper-era classes from `styles.css` that are no longer referenced after the rewrite (grep-verify)
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 8: Verify acceptance criteria for Phase 4
 

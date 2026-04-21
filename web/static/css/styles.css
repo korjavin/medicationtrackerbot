@@ -455,10 +455,9 @@ h3 {
     letter-spacing: -0.01em;
 }
 
-/* Sub-tabs (medications, workouts, food, health) */
+/* Sub-tabs (medications, workouts, health) */
 .med-tabs,
 .workout-tabs,
-.food-tabs,
 .health-tabs {
     display: flex;
     gap: var(--space-md);
@@ -2261,24 +2260,6 @@ input:checked+.toggle-slider:before {
 }
 
 /* Food log items */
-.food-group-time {
-    font-weight: var(--font-weight-normal);
-    color: var(--hint-color);
-}
-
-.food-group-totals {
-    margin-left: auto;
-    font-size: var(--font-size-sm);
-}
-
-.food-log-item {
-    padding: var(--space-sm) 0;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-}
-
 .food-checkbox-wrap {
     margin-right: var(--space-md);
     flex-shrink: 0;
@@ -2288,21 +2269,6 @@ input:checked+.toggle-slider:before {
     width: 18px;
     height: 18px;
     cursor: pointer;
-}
-
-.food-item-body {
-    flex: 1;
-    overflow: hidden;
-}
-
-.food-item-meta {
-    font-size: var(--font-size-sm);
-    color: var(--hint-color);
-}
-
-.food-action-icons {
-    display: flex;
-    gap: var(--space-sm);
 }
 
 .food-product-link {
