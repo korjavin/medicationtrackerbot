@@ -149,9 +149,9 @@ No backend changes. The existing `/api/food*` endpoints, Dexie offline queue, ba
 
 ### Task 9: [Final] Update plan and write Phase 5 plan stub
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write `docs/plans/2026-04-XX-wandergeek-phase5-meds.md` covering the Meds screen rewrite (see Phase 5 stub in the Phase 1+2 plan)
-- [ ] no code changes in this task
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write `docs/plans/2026-04-XX-wandergeek-phase5-meds.md` covering the Meds screen rewrite (see Phase 5 stub in the Phase 1+2 plan)
+- [x] no code changes in this task
 
 ## Technical Details
 
