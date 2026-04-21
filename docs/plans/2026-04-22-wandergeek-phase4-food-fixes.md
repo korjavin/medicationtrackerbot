@@ -98,15 +98,15 @@ Issues to resolve:
 
 ### Task 1: Food screen shell — backdrop, remove "Experimental" badge, remove Today button
 
-- [ ] `web/static/index.html:141` — add `wg-screen-stage` to `#food-view`'s class list: `class="view wg-screen-stage"`.
-- [ ] `web/static/index.html:140` — remove the `data-badge="experimental"` attribute from the Food `.section-header-mount`.
-- [ ] `web/static/index.html:166` — delete the `#food-today-btn` element entirely.
-- [ ] `web/static/js/features/food.js` — delete `goFoodToday()` (≈`:1215–1221`) and any wiring (`addEventListener` on `#food-today-btn`, `.classList.remove('hidden')` calls that referenced it, `food-today-chip` class manipulation). Grep `food-today-btn` and `goFoodToday` to ensure no dangling references.
-- [ ] `web/static/css/styles.css` — delete the `.wg-food-day-nav__today-btn` and `.food-today-chip` rules (≈`:5188–5195`).
-- [ ] Update `web/static/js/tests/food.daynav.test.js` — remove any assertion about the Today button; add assertion that `#food-today-btn` does **not** exist in the rendered markup.
-- [ ] Update `web/static/js/tests/app.ui-characterization.test.js` if its Food snapshot captured the old shell (badge / today btn / view class).
-- [ ] Refresh `architecture.inline-styles.test.js` allowlist line numbers if they shifted.
-- [ ] Run `pnpm test` — must be green before moving on.
+- [x] `web/static/index.html:141` — add `wg-screen-stage` to `#food-view`'s class list: `class="view wg-screen-stage"`.
+- [x] `web/static/index.html:140` — remove the `data-badge="experimental"` attribute from the Food `.section-header-mount`.
+- [x] `web/static/index.html:166` — delete the `#food-today-btn` element entirely.
+- [x] `web/static/js/features/food.js` — delete `goFoodToday()` (≈`:1215–1221`) and any wiring (`addEventListener` on `#food-today-btn`, `.classList.remove('hidden')` calls that referenced it, `food-today-chip` class manipulation). Grep `food-today-btn` and `goFoodToday` to ensure no dangling references.
+- [x] `web/static/css/styles.css` — delete the `.wg-food-day-nav__today-btn` and `.food-today-chip` rules (≈`:5188–5195`).
+- [x] Update `web/static/js/tests/food.daynav.test.js` — remove any assertion about the Today button; add assertion that `#food-today-btn` does **not** exist in the rendered markup.
+- [x] Update `web/static/js/tests/app.ui-characterization.test.js` if its Food snapshot captured the old shell (badge / today btn / view class). (updated app.section-header-hydration.test.js instead — the actual location of the experimental-badge assertion)
+- [x] Refresh `architecture.inline-styles.test.js` allowlist line numbers if they shifted.
+- [x] Run `pnpm test` — must be green before moving on.
 
 ### Task 2: Day navigator — hide on non-log sub-tabs + fix chevron contrast
 

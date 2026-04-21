@@ -123,7 +123,6 @@ function bindFoodControls() {
     bindClick('food-period-week-link', () => setFoodStatsPeriod('week'));
     bindClick('food-date-prev-btn', () => shiftFoodDate(-1));
     bindClick('food-date-next-btn', () => shiftFoodDate(1));
-    bindClick('food-today-btn', () => goFoodToday());
     bindClick('food-date-label', () => {
         const dateFilter = document.getElementById('food-date-filter');
         if (dateFilter) {
@@ -1194,8 +1193,7 @@ function updateFoodDateNav() {
     const label = document.getElementById('food-date-label');
     const subtitle = document.getElementById('food-date-subtitle');
     const nextBtn = document.getElementById('food-date-next-btn');
-    const todayBtn = document.getElementById('food-today-btn');
-    if (!dateFilter || !label || !nextBtn || !todayBtn) return;
+    if (!dateFilter || !label || !nextBtn) return;
 
     const dateStr = dateFilter.value;
     if (!dateStr) return;
@@ -1209,15 +1207,6 @@ function updateFoodDateNav() {
 
     const isTodayOrFuture = date.getTime() >= today.getTime();
     nextBtn.disabled = isTodayOrFuture;
-    todayBtn.classList.toggle('hidden', isTodayOrFuture);
-}
-
-function goFoodToday() {
-    const dateFilter = document.getElementById('food-date-filter');
-    if (!dateFilter) return;
-    dateFilter.value = toISODateLocal(new Date());
-    loadFoodLogs();
-    updateFoodDateNav();
 }
 
 function shiftFoodDate(deltaDays) {
