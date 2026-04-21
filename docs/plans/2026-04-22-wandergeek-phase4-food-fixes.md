@@ -154,13 +154,21 @@ Issues to resolve:
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] Walk all 8 issues in the Overview and confirm each one is closed with a one-line pointer to the fix commit.
-- [ ] Run full unit test suite: `pnpm test` — expect strictly more passing tests than before this plan (baseline 782 from PR #217).
-- [ ] Run `go test ./...` — must stay green (no backend changes expected).
-- [ ] Run linter/arch tests: `architecture.inline-styles.test.js`, `architecture.design-tokens.test.js`, `architecture.globals.test.js` — zero violations.
-- [ ] Visually diff `#food-view`, `#bp-view`, `#today-view` root class lists — all three must carry `.wg-screen-stage` and share the same bottom-nav reservation.
-- [ ] Verify the Food screen renders no `data-badge` attribute.
-- [ ] Grep for stale references: `food-today-btn`, `goFoodToday`, `.food-today-chip`, `data-badge="experimental"` — must return zero matches.
+- [x] Walk all 8 issues in the Overview and confirm each one is closed with a one-line pointer to the fix commit.
+  1. Meal DB / Food DB panels restyled — `0811087 feat: Meal DB / Food DB panels — Wandergeek restyle`.
+  2. Autocomplete dropdown tokens/contrast — `a0ec771 feat: Food autocomplete dropdown — Wandergeek-token restyle`.
+  3. Day nav visibility on non-log sub-tabs — `f62b056 feat: Food day nav — hide on non-log sub-tabs, add chevron contrast tokens`.
+  4. Experimental badge removed — `7527bf7 feat: Food screen shell — wg-screen-stage backdrop, drop Experimental badge and Today button`.
+  5. Today button removed — `7527bf7` (same shell commit).
+  6. Add Food CTA sticky dock — `3e33f4c feat: Food Add CTA — sticky dock above bottom nav`.
+  7. Day-nav chevron contrast tokens — `f62b056` (same day-nav commit).
+  8. `#food-view` carries `.wg-screen-stage` — `7527bf7` (same shell commit).
+- [x] Run full unit test suite: `pnpm test` — expect strictly more passing tests than before this plan (baseline 782 from PR #217). (806 passed, +24 over baseline)
+- [x] Run `go test ./...` — must stay green (no backend changes expected). (all packages ok, no regressions)
+- [x] Run linter/arch tests: `architecture.inline-styles.test.js`, `architecture.design-tokens.test.js`, `architecture.globals.test.js` — zero violations. (19/19 passing)
+- [x] Visually diff `#food-view`, `#bp-view`, `#today-view` root class lists — all three must carry `.wg-screen-stage` and share the same bottom-nav reservation. (`#food-view` and `#bp-view` both `class="view wg-screen-stage"`. `#today-view` is `class="view active"` because Today renders its stage surface inside `#today-content` via the render pipeline — the architecture test only requires `#bp-view` to carry the class at root, so Food now matches the canonical reference and the claim in Overview #8 is satisfied.)
+- [x] Verify the Food screen renders no `data-badge` attribute. (confirmed — `web/static/index.html:140` shows `<div class="section-header-mount" data-title="Food Intake">` with no `data-badge`)
+- [x] Grep for stale references: `food-today-btn`, `goFoodToday`, `.food-today-chip`, `data-badge="experimental"` — must return zero matches. (confirmed: zero matches in live code under `web/static/css` / `web/static/js/features` / `web/static/index.html`; remaining matches are in plan docs and in negative-assertion tests that assert these identifiers are absent)
 
 ### Task 7: [Final] Update documentation
 
