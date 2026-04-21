@@ -108,6 +108,27 @@ describe('Food sub-tab strip (Phase 4, Task 3)', () => {
         expect(window.localStorage.getItem('mt-food-subtab')).toBe('fooddb');
     });
 
+    it('switchFoodTab hides .food-date-nav on non-log sub-tabs and restores it on log', () => {
+        const { document, window } = env;
+        const nav = document.querySelector('.food-date-nav');
+        expect(nav).not.toBeNull();
+
+        // Default state: 'log' tab is active, day-nav visible.
+        expect(nav.classList.contains('hidden')).toBe(false);
+
+        window.switchFoodTab('meals');
+        expect(nav.classList.contains('hidden')).toBe(true);
+
+        window.switchFoodTab('fooddb');
+        expect(nav.classList.contains('hidden')).toBe(true);
+
+        window.switchFoodTab('log');
+        expect(nav.classList.contains('hidden')).toBe(false);
+
+        // Visibility is class-based, not inline-style-based.
+        expect(nav.getAttribute('style')).toBeNull();
+    });
+
     it('restoreFoodSubTab applies the stored value to the strip', () => {
         const { document, window } = env;
         window.setActiveFoodSubTab('meals');

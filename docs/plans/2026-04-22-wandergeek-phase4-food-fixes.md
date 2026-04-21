@@ -110,13 +110,13 @@ Issues to resolve:
 
 ### Task 2: Day navigator — hide on non-log sub-tabs + fix chevron contrast
 
-- [ ] `web/static/js/features/food.js` — in `switchFoodTab(tab)` (≈`:2154`), explicitly toggle `.food-date-nav` visibility: show only when `tab === 'log'`. Use an existing helper class (e.g. `.hidden`) rather than inline `style.display`.
-- [ ] Audit the sub-tab content switching code path — confirm `#food-log-tab`, `#food-meals-tab`, `#food-fooddb-tab` are mutually exclusive via `.active` / `.hidden` (not just opacity). Fix if not.
-- [ ] `web/static/css/styles.css` — extend `.wg-food-day-nav__icon-btn` with `color: var(--wg-fg-1)` (or the chevron-on-stage equivalent used by BP/Today) and a subtle `background: var(--wg-gloss-bg)` so the chevrons read on the teal stage backdrop; ensure hover/active states also resolve with tokens.
-- [ ] Verify `web/static/js/components/wg-icons.js` `chevronLeft` / `chevronRight` SVGs use `stroke="currentColor"` (or `fill="currentColor"`) so they inherit the button color — if they hard-code a color, fix them.
-- [ ] Update `web/static/js/tests/food.subtabs.test.js` — add cases: switching to `meals` hides `.food-date-nav`; switching to `fooddb` hides it; switching back to `log` restores it.
-- [ ] Update `web/static/js/tests/food.daynav.test.js` — assert both `#food-date-prev-btn` and `#food-date-next-btn` carry the chevron SVG and the expected class list (including the new color-bearing class/token if added).
-- [ ] Run `pnpm test` — must be green before moving on.
+- [x] `web/static/js/features/food.js` — in `switchFoodTab(tab)` (≈`:2154`), explicitly toggle `.food-date-nav` visibility: show only when `tab === 'log'`. Use an existing helper class (e.g. `.hidden`) rather than inline `style.display`.
+- [x] Audit the sub-tab content switching code path — confirm `#food-log-tab`, `#food-meals-tab`, `#food-fooddb-tab` are mutually exclusive via `.active` / `.hidden` (not just opacity). Fix if not. (confirmed: `.food-tab-content` uses `display: none` / `.active { display: block }` at styles.css:494–504 — proper mutual exclusion, no fix needed)
+- [x] `web/static/css/styles.css` — extend `.wg-food-day-nav__icon-btn` with `color: var(--wg-fg-1)` (or the chevron-on-stage equivalent used by BP/Today) and a subtle `background: var(--wg-gloss-bg)` so the chevrons read on the teal stage backdrop; ensure hover/active states also resolve with tokens.
+- [x] Verify `web/static/js/components/wg-icons.js` `chevronLeft` / `chevronRight` SVGs use `stroke="currentColor"` (or `fill="currentColor"`) so they inherit the button color — if they hard-code a color, fix them. (already use `stroke="currentColor"` via `iconSvg()` — no change needed)
+- [x] Update `web/static/js/tests/food.subtabs.test.js` — add cases: switching to `meals` hides `.food-date-nav`; switching to `fooddb` hides it; switching back to `log` restores it.
+- [x] Update `web/static/js/tests/food.daynav.test.js` — assert both `#food-date-prev-btn` and `#food-date-next-btn` carry the chevron SVG and the expected class list (including the new color-bearing class/token if added).
+- [x] Run `pnpm test` — must be green before moving on. (786 passed, up from 782 baseline)
 
 ### Task 3: Add Food CTA — always visible (sticky)
 

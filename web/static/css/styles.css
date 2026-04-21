@@ -5117,6 +5117,17 @@ textarea.wg-input {
     width: var(--wg-food-day-nav-icon-size);
     height: var(--wg-food-day-nav-icon-size);
     min-width: var(--wg-food-day-nav-icon-size);
+    color: var(--wg-fg-1);
+    background: var(--wg-gloss-bg);
+    border: 1px solid var(--wg-border-strong);
+    border-radius: var(--wg-radius-icon);
+    box-shadow: var(--wg-gloss-shadow);
+}
+
+.wg-food-day-nav__icon-btn:disabled {
+    color: var(--wg-fg-4);
+    filter: brightness(0.85);
+    cursor: not-allowed;
 }
 
 .wg-food-day-nav__center {

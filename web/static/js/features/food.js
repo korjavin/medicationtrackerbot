@@ -2150,10 +2150,21 @@ function switchFoodTab(tab) {
 
     syncFoodSubTabActiveClass(tab);
     setActiveFoodSubTab(tab);
+    toggleFoodDayNavVisibility(tab);
 
     if (tab === 'log') { loadFoodLogs(); }
     else if (tab === 'meals') { loadMyMeals(); }
     else if (tab === 'fooddb') { loadFoodDB(); }
+}
+
+function toggleFoodDayNavVisibility(tab) {
+    const nav = document.querySelector('.food-date-nav');
+    if (!nav) return;
+    if (tab === 'log') {
+        nav.classList.remove('hidden');
+    } else {
+        nav.classList.add('hidden');
+    }
 }
 
 async function deleteFoodLog(id) {
