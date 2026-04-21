@@ -211,7 +211,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
       window.showAddFoodModal();
       await flushPromises();
       expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
-      expect(document.getElementById('food-modal-title').innerText).toBe('Log Food');
+      expect(document.getElementById('food-modal-title').innerText).toBe('New entry');
       expect(document.getElementById('food-per-100g').checked).toBe(true);
       expect(window.initFoodProductsCache).toHaveBeenCalled();
 
@@ -258,10 +258,15 @@ describe('app.js food CRUD, targets and period helpers', () => {
       expect(document.getElementById('food-list').innerHTML).toContain('Rice Bowl');
       expect(document.getElementById('food-list').textContent).toContain('<b>Tea</b>');
       expect(document.getElementById('food-list').innerHTML).not.toContain('<b>');
-      expect(document.getElementById('food-summary').innerHTML).toContain('Daily Total');
+      // Phase 4, Task 4: daily totals now render into the Wandergeek macros
+      // card. The legacy #food-summary block still renders on day view but
+      // only as the Select-mode entry point for the Save-as-Meal workflow.
+      const macrosCard = document.getElementById('food-macros-card');
+      expect(macrosCard.classList.contains('hidden')).toBe(false);
+      expect(document.getElementById('food-macros-card-kcal').textContent).toBe('500');
 
       window.editFoodLog(1);
-      expect(document.getElementById('food-modal-title').innerText).toBe('Edit Food');
+      expect(document.getElementById('food-modal-title').innerText).toBe('Edit entry');
       expect(document.getElementById('food-per-100g').checked).toBe(true);
 
       window.editFoodLog(2);

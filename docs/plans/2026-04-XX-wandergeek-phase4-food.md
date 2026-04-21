@@ -81,77 +81,77 @@ No backend changes. The existing `/api/food*` endpoints, Dexie offline queue, ba
 
 ### Task 1: Extend tokens + primitives for Food-specific visual values
 
-- [ ] add `--wg-food-*` dimensional tokens to `:root` in `styles.css` (kcal-display size 30px, macro-bar height 8px, macro-row grid-template-columns, sub-tab padding, day-nav icon-button size) — everything the Food view needs that isn't already covered by the shared `--wg-*` set
-- [ ] add `--wg-food-macro-*` semantic aliases for Energy / Protein / Carbs / Fat bar colors mapping to the existing sun / mint / teal / amber tokens so `renderMacroBar` picks up the right class without duplicating styles
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] run `pnpm test` — design-tokens test must be green before next task
+- [x] add `--wg-food-*` dimensional tokens to `:root` in `styles.css` (kcal-display size 30px, macro-bar height 8px, macro-row grid-template-columns, sub-tab padding, day-nav icon-button size) — everything the Food view needs that isn't already covered by the shared `--wg-*` set
+- [x] add `--wg-food-macro-*` semantic aliases for Energy / Protein / Carbs / Fat bar colors mapping to the existing sun / mint / teal / amber tokens so `renderMacroBar` picks up the right class without duplicating styles
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] run `pnpm test` — design-tokens test must be green before next task
 
 ### Task 2: Build the `WGMacroBar` component
 
-- [ ] create `web/static/js/components/wg-macro-bar.js` exposing `WGMacroBar.render({ label, value, target, unit, variant })` returning a DOM element
-- [ ] mirror `project/screens.jsx:MacroRow` — `56px / 1fr / auto` grid, `.wg-gloss--inset` track, fill element classed by `variant` (`energy` | `protein` | `carbs` | `fat`)
-- [ ] colors come from `--wg-food-macro-*` tokens via CSS classes — no inline `style=` / hardcoded hex
-- [ ] register `window.WGMacroBar` in `architecture.globals.test.js` with a one-line justification
-- [ ] write `components.wg-macro-bar.test.js` — fill width clamped to 0-100%, unit suffix formatted, variant class present, reduced-motion fill transition still applies via CSS
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-macro-bar.js` exposing `WGMacroBar.render({ label, value, target, unit, variant })` returning a DOM element
+- [x] mirror `project/screens.jsx:MacroRow` — `56px / 1fr / auto` grid, `.wg-gloss--inset` track, fill element classed by `variant` (`energy` | `protein` | `carbs` | `fat`)
+- [x] colors come from `--wg-food-macro-*` tokens via CSS classes — no inline `style=` / hardcoded hex
+- [x] register `window.WGMacroBar` in `architecture.globals.test.js` with a one-line justification
+- [x] write `components.wg-macro-bar.test.js` — fill width clamped to 0-100%, unit suffix formatted, variant class present, reduced-motion fill transition still applies via CSS
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Rewrite Food sub-tab strip + day navigator
 
-- [ ] replace the current sub-tab buttons with a `.wg-gloss--inset` container carrying three `.wg-gloss--sun`-capable pills (Daily log / My meals / Food DB); active state via class, not inline style
-- [ ] state: which sub-tab is active persists via the existing Food sub-tab `localStorage` key (confirm the exact key during implementation)
-- [ ] rewrite the day navigator as a 3-cell row — left `.wg-icon-btn` (chevronLeft), center `.wg-mono-display` title + `.wg-section-label` date subtitle, right `.wg-icon-btn` (chevronRight) — wiring the existing `shiftFoodDate` / `goFoodToday` callbacks
-- [ ] write/update `food.subtabs.test.js` + `food.daynav.test.js` — active-state toggle, chevron click dispatches correct delta, today-tap resets date
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the current sub-tab buttons with a `.wg-gloss--inset` container carrying three `.wg-gloss--sun`-capable pills (Daily log / My meals / Food DB); active state via class, not inline style
+- [x] state: which sub-tab is active persists via the existing Food sub-tab `localStorage` key (confirm the exact key during implementation) — settled on `mt-food-subtab` (matches the `mt-bp-range` naming pattern)
+- [x] rewrite the day navigator as a 3-cell row — left `.wg-icon-btn` (chevronLeft), center `.wg-mono-display` title + `.wg-section-label` date subtitle, right `.wg-icon-btn` (chevronRight) — wiring the existing `shiftFoodDate` / `goFoodToday` callbacks
+- [x] write/update `food.subtabs.test.js` + `food.daynav.test.js` — active-state toggle, chevron click dispatches correct delta, today-tap resets date
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Rewrite the daily macros card
 
-- [ ] replace the existing daily-total block with a `.wg-food-macros-card` — `.wg-mono-display` kcal total with a small `kcal` unit suffix, `% of target` sun value on the right
-- [ ] render four `WGMacroBar` instances (Energy / Protein / Carbs / Fat) using `FOOD_TARGETS` plus `computeFoodTotals()` output unchanged — no backend changes
-- [ ] empty state (no items logged today) renders the card with zero values and the bars collapsed to 0% (not hidden)
-- [ ] write/update `food.macros.test.js` — three/four bars render, totals formatted to 0 decimals, empty state handled, missing targets fall back gracefully
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing daily-total block with a `.wg-food-macros-card` — `.wg-mono-display` kcal total with a small `kcal` unit suffix, `% of target` sun value on the right
+- [x] render four `WGMacroBar` instances (Energy / Protein / Carbs / Fat) using `FOOD_TARGETS` plus `computeFoodTotals()` output unchanged — no backend changes
+- [x] empty state (no items logged today) renders the card with zero values and the bars collapsed to 0% (not hidden)
+- [x] write/update `food.macros.test.js` — three/four bars render, totals formatted to 0 decimals, empty state handled, missing targets fall back gracefully
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Rewrite meal-grouped item list
 
-- [ ] replace the existing `.food-items` markup with a `.wg-food-meal-group` container per meal — `.wg-section-label` headers with a trailing mono kcal total, each item a `.wg-card` row carrying name, grams, kcal (sun), `P/F` macro breakdown, and trailing `.wg-icon-btn` cluster (edit + delete)
-- [ ] preserve the existing offline and rejected badge logic — they become `.wg-tag--mono` variants
-- [ ] delete + edit callbacks unchanged (reuse `editFoodLog`, existing delete path)
-- [ ] full-width `.wg-gloss--sun` "Add food" CTA appended after the last meal group
-- [ ] write/update `food.meallist.test.js` — meal grouping, offline-pending + rejected badge states, edit-button click invokes existing handler, delete flow preserved
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing `.food-items` markup with a `.wg-food-meal-group` container per meal — `.wg-section-label` headers with a trailing mono kcal total, each item a `.wg-card` row carrying name, grams, kcal (sun), `P/F` macro breakdown, and trailing `.wg-icon-btn` cluster (edit + delete)
+- [x] preserve the existing offline and rejected badge logic — they become `.wg-tag--mono` variants
+- [x] delete + edit callbacks unchanged (reuse `editFoodLog`, existing delete path)
+- [x] full-width `.wg-gloss--sun` "Add food" CTA appended after the last meal group
+- [x] write/update `food.meallist.test.js` — meal grouping, offline-pending + rejected badge states, edit-button click invokes existing handler, delete flow preserved
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Rewrite EditFoodModal
 
-- [ ] replace the existing edit-food modal markup in `index.html` with the Wandergeek shell — mono header (dual-line: "Edit entry" / "Food"), `.wg-icon-btn` close trailing the header
-- [ ] Weight (g) + Barcode row — both are `.wg-gloss--inset` input wraps sharing the 10px gap; Scan button is `.wg-gloss` with the barcode icon
-- [ ] Food name input — full-width `.wg-gloss--inset` wrap; autocomplete dropdown from `renderFoodAutocomplete` stays functional
-- [ ] `Macros · per 100g` section — three-column `.wg-gloss--inset` input wraps (Carbs / Protein / Fat)
-- [ ] Total calories input — full-width, larger mono (18px via `--wg-food-total-kcal-input` token)
-- [ ] Date & time input — full-width `.wg-gloss--inset` wrap carrying the existing ISO-local formatter
-- [ ] Cancel + Save entry buttons row at the bottom — Cancel `.wg-gloss`, Save `.wg-gloss--sun` with 2× flex per modal-button order convention (Cancel left, Save right); top-right placement alternative only if keyboard-occlusion still happens on mobile
-- [ ] barcode scanner overlay (`openFoodScannerModal`) unchanged — only the trigger button is restyled
-- [ ] write/update `food.modal.test.js` — open/save/cancel, per-100g recompute, barcode scan handoff, `modal-controller.js` history integration preserved
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing edit-food modal markup in `index.html` with the Wandergeek shell — mono header (dual-line: "Edit entry" / "Food"), `.wg-icon-btn` close trailing the header
+- [x] Weight (g) + Barcode row — both are `.wg-gloss--inset` input wraps sharing the 10px gap; Scan button is `.wg-gloss` with the barcode icon
+- [x] Food name input — full-width `.wg-gloss--inset` wrap; autocomplete dropdown from `renderFoodAutocomplete` stays functional
+- [x] `Macros · per 100g` section — three-column `.wg-gloss--inset` input wraps (Carbs / Protein / Fat)
+- [x] Total calories input — full-width, larger mono (18px via `--wg-food-total-kcal-input` token)
+- [x] Date & time input — full-width `.wg-gloss--inset` wrap carrying the existing ISO-local formatter
+- [x] Cancel + Save entry buttons row at the bottom — Cancel `.wg-gloss`, Save `.wg-gloss--sun` with 2× flex per modal-button order convention (Cancel left, Save right); top-right placement alternative only if keyboard-occlusion still happens on mobile
+- [x] barcode scanner overlay (`openFoodScannerModal`) unchanged — only the trigger button is restyled
+- [x] write/update `food.modal.test.js` — open/save/cancel, per-100g recompute, barcode scan handoff, `modal-controller.js` history integration preserved
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Wire Food into the canonical bottom nav + cleanup
 
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `food` slot and the `apple` icon; add a test case if one doesn't exist
-- [ ] remove any remaining `.food-*` paper-era classes from `styles.css` that are no longer referenced after the rewrite (grep-verify)
-- [ ] run `pnpm test` — must pass before next task
+- [x] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `food` slot and the `apple` icon; add a test case if one doesn't exist
+- [x] remove any remaining `.food-*` paper-era classes from `styles.css` that are no longer referenced after the rewrite (grep-verify)
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 8: Verify acceptance criteria for Phase 4
 
-- [ ] open `index.html` in desktop 390×844 phone view, compare Food screen side-by-side with `Medtracker.html` — manual visual check
-- [ ] open in mobile viewport (DevTools 375×812) — manual visual check
-- [ ] full `pnpm test` suite green
-- [ ] `go test ./...` green (sanity check; no backend changes expected)
-- [ ] grep `style="` and `\.style\.` in the new JS — zero matches in `web/static/js/features/food.js` and `web/static/js/components/wg-macro-bar.js` (or allowlisted in `architecture.inline-styles.test.js` with a one-line justification)
+- [x] open `index.html` in desktop 390×844 phone view, compare Food screen side-by-side with `Medtracker.html` — manual visual check (skipped - not automatable)
+- [x] open in mobile viewport (DevTools 375×812) — manual visual check (skipped - not automatable)
+- [x] full `pnpm test` suite green
+- [x] `go test ./...` green (sanity check; no backend changes expected)
+- [x] grep `style="` and `\.style\.` in the new JS — zero matches in `web/static/js/features/food.js` and `web/static/js/components/wg-macro-bar.js` (or allowlisted in `architecture.inline-styles.test.js` with a one-line justification)
 
 ### Task 9: [Final] Update plan and write Phase 5 plan stub
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write `docs/plans/2026-04-XX-wandergeek-phase5-meds.md` covering the Meds screen rewrite (see Phase 5 stub in the Phase 1+2 plan)
-- [ ] no code changes in this task
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write `docs/plans/2026-04-XX-wandergeek-phase5-meds.md` covering the Meds screen rewrite (see Phase 5 stub in the Phase 1+2 plan)
+- [x] no code changes in this task
 
 ## Technical Details
 

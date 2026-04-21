@@ -56,6 +56,16 @@ describe('WGBottomNav — component', () => {
         } finally { cleanup(); }
     });
 
+    it('Food is the third slot with the "apple" icon — Phase 4 contract', () => {
+        const { window, cleanup } = loadEnv();
+        try {
+            const foodSlot = window.WGBottomNav.DEFAULT_ITEMS[2];
+            expect(foodSlot.id).toBe('food');
+            expect(foodSlot.icon).toBe('apple');
+            expect(foodSlot.label).toBe('Food');
+        } finally { cleanup(); }
+    });
+
     it('mount() with 5 items lays out a single row (cols=5)', () => {
         const { window, document, cleanup } = loadEnv();
         try {

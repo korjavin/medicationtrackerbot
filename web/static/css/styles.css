@@ -382,6 +382,42 @@
     --wg-bp-status-grade2-bg: var(--wg-tag-alert-bg);
     --wg-bp-status-grade2-fg: var(--wg-tag-alert-fg);
     --wg-bp-status-grade2-border: var(--wg-tag-alert-border);
+
+    /* Wandergeek — Food screen (Phase 4, Task 1). Dimensional tokens for the
+       daily macros card, macro bars, sub-tab strip, day navigator, meal list,
+       and edit-food modal. Every visual value in features/food.js and
+       components/wg-macro-bar.js reads from here. */
+    --wg-food-kcal-display-size: 30px;
+    --wg-food-kcal-unit-size: 12px;
+    --wg-food-macro-bar-height: 8px;
+    --wg-food-macro-row-cols: 56px 1fr auto;
+    --wg-food-macro-row-gap: 12px;
+    --wg-food-subtab-pad-y: 6px;
+    --wg-food-subtab-pad-x: 10px;
+    --wg-food-subtab-gap: 4px;
+    --wg-food-day-nav-icon-size: 36px;
+    --wg-food-day-nav-title-size: 15px;
+    --wg-food-meal-header-gap: 6px;
+    --wg-food-item-row-pad: 12px;
+    --wg-food-total-kcal-input: 18px;
+
+    /* Edit-food modal (Phase 4, Task 6) — eyebrow + mono header layout, input
+       wrapper padding, and the bottom action bar. */
+    --wg-food-modal-eyebrow-size: 10.5px;
+    --wg-food-modal-title-size: 18px;
+    --wg-food-modal-row-gap: 10px;
+    --wg-food-modal-section-gap: 14px;
+    --wg-food-modal-input-pad-y: 10px;
+    --wg-food-modal-input-pad-x: 12px;
+    --wg-food-modal-action-gap: 8px;
+
+    /* Food macro color aliases — Energy / Protein / Carbs / Fat map to the
+       existing sun / mint / teal-sage / clay-soft palette so the macro-bar
+       variants pick up the right fill without duplicating hex values. */
+    --wg-food-macro-energy: var(--wg-sun);
+    --wg-food-macro-protein: var(--wg-mint-soft);
+    --wg-food-macro-carbs: var(--wg-teal-sage);
+    --wg-food-macro-fat: var(--wg-clay-soft);
 }
 
 body {
@@ -419,10 +455,9 @@ h3 {
     letter-spacing: -0.01em;
 }
 
-/* Sub-tabs (medications, workouts, food, health) */
+/* Sub-tabs (medications, workouts, health) */
 .med-tabs,
 .workout-tabs,
-.food-tabs,
 .health-tabs {
     display: flex;
     gap: var(--space-md);
@@ -1891,7 +1926,6 @@ input:checked+.toggle-slider:before {
     transform: translateX(22px);
 }
 
-#food-modal,
 #food-product-modal,
 #food-save-meal-modal {
     position: fixed;
@@ -1915,46 +1949,9 @@ input:checked+.toggle-slider:before {
     z-index: var(--z-popover);
 }
 
-#food-modal.hidden,
 #food-product-modal.hidden,
 #food-save-meal-modal.hidden {
     display: none;
-}
-
-.food-quick-row {
-    display: flex;
-    gap: var(--space-md);
-    align-items: flex-end;
-}
-
-.food-weight-group {
-    flex: 0 0 90px;
-}
-
-.food-weight-group input {
-    margin-bottom: 0;
-}
-
-.food-barcode-group {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-.food-barcode-row {
-    display: flex;
-    gap: var(--space-sm);
-    align-items: stretch;
-}
-
-.food-barcode-row input {
-    margin-bottom: 0;
-}
-
-.food-scan-btn {
-    flex: 0 0 auto;
-    min-width: 60px;
-    padding: 0 var(--space-md);
-    font-size: var(--font-size-sm);
 }
 
 .food-search-status {
@@ -2263,24 +2260,6 @@ input:checked+.toggle-slider:before {
 }
 
 /* Food log items */
-.food-group-time {
-    font-weight: var(--font-weight-normal);
-    color: var(--hint-color);
-}
-
-.food-group-totals {
-    margin-left: auto;
-    font-size: var(--font-size-sm);
-}
-
-.food-log-item {
-    padding: var(--space-sm) 0;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-}
-
 .food-checkbox-wrap {
     margin-right: var(--space-md);
     flex-shrink: 0;
@@ -2290,21 +2269,6 @@ input:checked+.toggle-slider:before {
     width: 18px;
     height: 18px;
     cursor: pointer;
-}
-
-.food-item-body {
-    flex: 1;
-    overflow: hidden;
-}
-
-.food-item-meta {
-    font-size: var(--font-size-sm);
-    color: var(--hint-color);
-}
-
-.food-action-icons {
-    display: flex;
-    gap: var(--space-sm);
 }
 
 .food-product-link {
@@ -2355,6 +2319,14 @@ input:checked+.toggle-slider:before {
 }
 
 /* Food summary */
+.food-summary-block {
+    margin-bottom: var(--space-lg);
+    padding: var(--space-md);
+    font-weight: var(--font-weight-bold);
+    background: var(--secondary-bg-color);
+    border-radius: var(--radius-md);
+}
+
 .food-summary-wrapper {
     display: flex;
     justify-content: space-between;
@@ -4995,4 +4967,558 @@ textarea.wg-input {
     background: var(--wg-tag-alert-bg);
     color: var(--wg-tag-alert-fg);
     border-color: var(--wg-tag-alert-border);
+}
+
+/* Food macro bar (Phase 4, Task 2) — reusable row rendered by
+   components/wg-macro-bar.js. Four variants (Energy / Protein / Carbs /
+   Fat) swap the fill color via --wg-food-macro-* tokens. The fill width
+   is driven dynamically from JS via the neutral --fill-pct custom
+   property so no color or visual token ever appears in the component
+   source. */
+.wg-macro-bar {
+    display: grid;
+    grid-template-columns: var(--wg-food-macro-row-cols);
+    gap: var(--wg-food-macro-row-gap);
+    align-items: center;
+}
+
+.wg-macro-bar__label {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-bold);
+    color: var(--wg-fg-2);
+}
+
+.wg-macro-bar__track {
+    height: var(--wg-food-macro-bar-height);
+    border-radius: var(--wg-radius-pill);
+    overflow: hidden;
+    padding: 0;
+}
+
+.wg-macro-bar__fill {
+    height: 100%;
+    width: var(--fill-pct, 0%);
+    border-radius: var(--wg-radius-pill);
+    transition: width 400ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.wg-macro-bar__fill--energy {
+    background: var(--wg-food-macro-energy);
+}
+
+.wg-macro-bar__fill--protein {
+    background: var(--wg-food-macro-protein);
+}
+
+.wg-macro-bar__fill--carbs {
+    background: var(--wg-food-macro-carbs);
+}
+
+.wg-macro-bar__fill--fat {
+    background: var(--wg-food-macro-fat);
+}
+
+.wg-macro-bar__value {
+    min-width: 72px;
+    text-align: right;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+}
+
+.wg-macro-bar__value-target {
+    color: var(--wg-fg-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wg-macro-bar__fill {
+        transition: none;
+    }
+}
+
+/* Daily macros card (Phase 4, Task 4). `.wg-card` shell with a mono kcal
+   total on the left, sun-tinted `% of target` on the right, and four
+   WGMacroBar rows stacked below. Populated by renderFoodMacrosCard()
+   from features/food.js; hidden for week / 2-week periods. */
+.wg-food-macros-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    margin-bottom: var(--space-md);
+}
+
+.wg-food-macros-card__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.wg-food-macros-card__total {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-xs);
+}
+
+.wg-food-macros-card__kcal {
+    font-size: var(--wg-food-kcal-display-size);
+    line-height: 1;
+}
+
+.wg-food-macros-card__unit {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-food-kcal-unit-size);
+    color: var(--wg-fg-3);
+    text-transform: lowercase;
+}
+
+.wg-food-macros-card__percent {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+}
+
+.wg-food-macros-card__percent-value {
+    color: var(--wg-sun);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-food-macros-card__percent-label {
+    color: var(--wg-fg-4);
+}
+
+.wg-food-macros-card__bars {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+/* Food sub-tab strip (Phase 4, Task 3). `.wg-gloss--inset` container wraps
+   three `.wg-gloss`-capable pills; the active pill also carries
+   `.wg-gloss--sun` (plus `.wg-food-subtabs__btn--active` for tests). Mirrors
+   the BP range-selector pattern from Phase 3. */
+.wg-food-subtabs {
+    display: flex;
+    gap: var(--wg-food-subtab-gap);
+    padding: var(--wg-food-subtab-pad-y) var(--wg-food-subtab-pad-x);
+    margin-bottom: var(--space-md);
+}
+
+.wg-food-subtabs__btn {
+    flex: 1;
+    min-height: 36px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+/* Food day navigator (Phase 4, Task 3). Three-cell row — chevron button,
+   center mono title + subtitle, chevron button. The hidden <input type="date">
+   lets the mono title trigger the native picker via showPicker(); the
+   "Today" chip slides in when the user navigates away from today. */
+.wg-food-day-nav {
+    display: grid;
+    grid-template-columns:
+        var(--wg-food-day-nav-icon-size) 1fr var(--wg-food-day-nav-icon-size);
+    column-gap: var(--space-sm);
+    row-gap: var(--space-xs);
+    align-items: center;
+    margin-bottom: var(--space-md);
+}
+
+.wg-food-day-nav__icon-btn {
+    width: var(--wg-food-day-nav-icon-size);
+    height: var(--wg-food-day-nav-icon-size);
+    min-width: var(--wg-food-day-nav-icon-size);
+}
+
+.wg-food-day-nav__center {
+    position: relative;
+    text-align: center;
+    min-width: 0;
+}
+
+.wg-food-day-nav__input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    pointer-events: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+}
+
+.wg-food-day-nav__title {
+    font-size: var(--wg-food-day-nav-title-size);
+    cursor: pointer;
+    user-select: none;
+}
+
+.wg-food-day-nav__subtitle {
+    padding: 0;
+    margin: 0;
+    text-transform: uppercase;
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.5px;
+    color: var(--wg-fg-3);
+}
+
+.wg-food-day-nav__subtitle::before {
+    content: none;
+}
+
+.wg-food-day-nav__week {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: var(--font-weight-medium);
+    font-size: var(--font-size-sm);
+    pointer-events: none;
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    color: var(--wg-fg-2);
+}
+
+.wg-food-day-nav__today-btn {
+    grid-column: 1 / -1;
+    justify-self: center;
+    min-height: 30px;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+/* Food meal-grouped item list (Phase 4, Task 5). Each meal is a
+   `.wg-food-meal-group` — a `.wg-section-label` header with a trailing mono
+   kcal total, followed by `.wg-card` rows for each logged item. Rows carry
+   name + grams on the left, sun-tinted kcal and a mono P/F macro line on the
+   right, with a trailing `.wg-icon-btn` cluster (edit + delete). Offline
+   pending / rejected logs get `.wg-tag--mono` badges, mirroring BP Phase 3. */
+.wg-food-meal-group {
+    margin-bottom: var(--space-lg);
+}
+
+.wg-food-meal-group__header {
+    padding-top: var(--wg-section-label-pad-top);
+    padding-bottom: var(--space-sm);
+    gap: var(--wg-food-meal-header-gap);
+}
+
+.wg-food-meal-group__title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wg-food-meal-group__total {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.wg-food-meal-group__rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-food-item-row {
+    padding: var(--wg-food-item-row-pad);
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    cursor: pointer;
+}
+
+.wg-food-item-row__checkbox {
+    flex-shrink: 0;
+}
+
+.wg-food-item-row__body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-food-item-row__name {
+    font-weight: var(--font-weight-medium);
+    color: var(--wg-fg-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wg-food-item-row__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-food-item-row__grams {
+    letter-spacing: 0.02em;
+}
+
+.wg-food-item-row__stats {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-food-item-row__kcal {
+    font-size: var(--font-size-sm);
+    color: var(--wg-sun);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-food-item-row__macros {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-4);
+    letter-spacing: 0.02em;
+}
+
+.wg-food-item-row__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+.wg-food-item-row--pending {
+    opacity: 0.85;
+}
+
+.wg-food-item-row--rejected {
+    border-color: var(--wg-tag-alert-border);
+}
+
+.wg-food-add-cta {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    min-height: 44px;
+    padding: var(--space-md) var(--space-lg);
+    margin-top: var(--space-md);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-food-meal-list__empty {
+    padding: var(--space-lg) 0;
+}
+
+/* Edit-food modal (Phase 4, Task 6) — uses the shared `.wg-modal` shell
+   for positioning + chrome, then overlays the dual-line eyebrow/title
+   header, gloss-inset input wraps, three-up macros row, and bottom
+   Cancel/Save action bar. Every visual value reads from a `--wg-food-modal-*`
+   or shared `--wg-*` token. */
+.wg-food-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-food-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-food-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-food-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-food-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-food-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-food-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-food-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-food-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-food-modal-section-gap);
+}
+
+.wg-food-modal__row {
+    display: flex;
+    gap: var(--wg-food-modal-row-gap);
+    align-items: flex-end;
+}
+
+.wg-food-modal__row--quick > .wg-food-modal__field--weight {
+    flex: 1 1 90px;
+    min-width: 0;
+}
+
+.wg-food-modal__row--quick > .wg-food-modal__field--barcode {
+    flex: 2 1 auto;
+    min-width: 0;
+}
+
+.wg-food-modal__row--macros > .wg-food-modal__field {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.wg-food-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-food-modal__field--name {
+    position: relative;
+}
+
+.wg-food-modal__label {
+    font-size: var(--wg-food-modal-eyebrow-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-food-modal__input-wrap {
+    padding: var(--wg-food-modal-input-pad-y) var(--wg-food-modal-input-pad-x);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-food-modal__name-wrap {
+    position: relative;
+}
+
+.wg-food-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-food-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-food-modal__input--total-kcal {
+    font-size: var(--wg-food-total-kcal-input);
+}
+
+.wg-food-modal__barcode-row {
+    display: flex;
+    gap: var(--space-sm);
+    align-items: stretch;
+    min-width: 0;
+}
+
+.wg-food-modal__barcode-row > .wg-food-modal__input-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.wg-food-modal__scan-btn {
+    flex: 0 0 auto;
+    padding: var(--wg-food-modal-input-pad-y) var(--wg-food-modal-input-pad-x);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+}
+
+.wg-food-modal__status {
+    margin: 0;
+    font-size: var(--font-size-xs);
+}
+
+.wg-food-modal__product-link {
+    font-size: var(--font-size-xs);
+}
+
+.wg-food-modal__section-label {
+    padding: 0;
+}
+
+.wg-food-modal__section-label::before {
+    content: none;
+}
+
+.wg-food-modal__per100g {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-left: auto;
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-normal);
+    cursor: pointer;
+}
+
+.wg-food-modal__per100g input {
+    margin: 0;
+}
+
+.wg-food-modal__actions {
+    display: flex;
+    gap: var(--wg-food-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-food-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-food-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-food-modal__action--save {
+    flex: 2 1 0;
 }
