@@ -236,6 +236,14 @@ function renderNextActionCard(meds, nextIntake, opts) {
             handler({ ids: resolvedIds, names: resolvedNames, scheduledAt: nextIntake.scheduled_at });
             return;
         }
+        // Stale `next_intake` cache: names no longer resolve locally (e.g.
+        // meds deleted after cache write). Avoid opening a blank confirm modal.
+        if (resolvedIds.length === 0) {
+            if (typeof safeAlert === 'function') {
+                safeAlert('Medication list is out of date. Please refresh.');
+            }
+            return;
+        }
         if (typeof showMedicationConfirmModal === 'function') {
             showMedicationConfirmModal(resolvedIds, resolvedNames, nextIntake.scheduled_at, 'confirm');
         }
@@ -650,7 +658,10 @@ function renderHistory(logs) {
 
     const now = new Date();
     const todayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const yesterdayMs = todayMs - 24 * 60 * 60 * 1000;
+    // DST-safe: construct yesterday's local midnight instead of subtracting 24h,
+    // which drifts by ±1h on spring-forward / fall-back days and would break
+    // the dayMs === yesterdayMs match.
+    const yesterdayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime();
 
     const days = [];
     clusters.forEach((cluster) => {
