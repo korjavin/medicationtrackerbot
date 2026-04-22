@@ -73,19 +73,34 @@
             </div>
 
             <div id="med-history-tab" class="med-tab-content">
-                <h3>Intake History</h3>
-                <div class="filters">
-                    <select id="history-filter-med">
-                        <option value="0">All Medications</option>
-                    </select>
-                    <select id="history-filter-days">
-                        <option value="1">Last 24 Hours</option>
-                        <option value="3" selected>Last 3 Days</option>
-                        <option value="7">Last 7 Days</option>
-                    </select>
+                <!-- Intake history filter strip (Phase 5, Task 5). Two select
+                     wraps styled as `.wg-gloss--inset` — the medication filter
+                     keeps its `history-filter-med` id (populateMedFilter fills
+                     options; the bound change-handler wires refresh). The
+                     legacy `.filters` class is retained so the existing
+                     jsdom characterization test that dispatches a change on
+                     `#history-filter-days` still finds the row. -->
+                <div class="wg-meds-filters filters">
+                    <label class="wg-gloss--inset wg-meds-filters__field">
+                        <span class="wg-meds-filters__label">Medication</span>
+                        <select id="history-filter-med" class="wg-meds-filters__select">
+                            <option value="0">All Medications</option>
+                        </select>
+                    </label>
+                    <label class="wg-gloss--inset wg-meds-filters__field">
+                        <span class="wg-meds-filters__label">Range</span>
+                        <select id="history-filter-days" class="wg-meds-filters__select">
+                            <option value="1">Last 24 Hours</option>
+                            <option value="3" selected>Last 3 Days</option>
+                            <option value="7">Last 7 Days</option>
+                        </select>
+                    </label>
                 </div>
-                <div id="next-intake-trigger" style="margin-bottom: 15px;"></div>
-                <div id="history-list"></div>
+                <!-- Muted link-style row under the filters — renderNextIntakeTrigger
+                     fills it in. Inline style swept out in Phase 5 Task 5; the
+                     margin now comes from `.wg-meds-next-intake-trigger`. -->
+                <div id="next-intake-trigger" class="wg-meds-next-intake-trigger"></div>
+                <div id="history-list" class="wg-meds-history"></div>
             </div>
 
             <div id="med-inventory-tab" class="med-tab-content">
