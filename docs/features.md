@@ -53,6 +53,8 @@ Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashb
 
 ## Weight Tracking
 
+- **UI layout** (Wandergeek Phase 6): current-weight card (mono kg display + trend arrow colored by `goal_direction` — decreasing is "good" under `lose`, increasing under `gain`), optional goal card with progress bar, 7d/30d/90d/All range selector persisted via `mt-weight-range` (default `30d`), single-series `WGWeightChart` line chart with optional dashed goal overlay, and a day-grouped history list.
+- **Edit modal**: kg/lb unit toggle (replaces the paper-era drag ruler). Editing an existing entry deletes the original and POSTs the replacement because the backend has no PATCH route for `/api/weight`.
 - **Trend**: exponential moving average for smooth visualization
 - **Export**: CSV in Libra format (compatible with Libra app)
 - **Reminders**: weekly if no weight logged

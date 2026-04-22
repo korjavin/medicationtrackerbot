@@ -1,7 +1,8 @@
 
 // ==================== Weight Tracking Functions ====================
 
-// Global variable to store weight logs for ruler component
+// Cached server logs (plus pending/rejected locals) — used by showWeightModal
+// to seed the input with the most recent weight.
 let cachedWeightLogs = [];
 
 // Range selector constants (Phase 6, Task 4). The active range persists
@@ -137,21 +138,17 @@ function setWeightModalUnit(unit) {
         });
     }
 
-    if (!input || !Number.isFinite(raw)) return;
-    let kg;
-    if (prevUnit === 'kg') kg = raw;
-    else kg = raw * WEIGHT_KG_PER_LB;
-
+    if (!input) return;
     if (unit === 'kg') {
         input.min = '30';
         input.max = '300';
-        input.value = kg.toFixed(1);
     } else {
         input.min = '66';
         input.max = '660';
-        const lb = kg / WEIGHT_KG_PER_LB;
-        input.value = lb.toFixed(1);
     }
+    if (!Number.isFinite(raw)) return;
+    const kg = prevUnit === 'kg' ? raw : raw * WEIGHT_KG_PER_LB;
+    input.value = unit === 'kg' ? kg.toFixed(1) : (kg / WEIGHT_KG_PER_LB).toFixed(1);
 }
 
 function readWeightModalKg() {
@@ -177,6 +174,28 @@ async function handleWeightSubmit(event) {
         weight: Math.round(weight * 10) / 10,
         notes
     };
+
+    // When editing an existing log, remove the original first so the POST
+    // replaces it instead of creating a duplicate row. Backend has no PATCH
+    // route; delete-then-post is the only way to surface "Edit weight" as
+    // in-place correction. Server-backed entries DELETE over the network;
+    // local (pending/rejected) entries are purged from IndexedDB directly.
+    const editing = editingWeightLog;
+    if (editing && editing.id != null) {
+        if (typeof editing.id === 'string' && editing.id.startsWith('local_')) {
+            const localId = parseInt(editing.id.replace('local_', ''), 10);
+            if (window.MedTrackerDB && Number.isFinite(localId)) {
+                try {
+                    await window.MedTrackerDB.WeightStore.confirmDelete(localId);
+                    if (window.SyncManager) window.SyncManager.updateStatus();
+                } catch (e) {
+                    console.error('Failed to purge local edit:', e);
+                }
+            }
+        } else {
+            await apiCall(`/api/weight/${editing.id}`, 'DELETE');
+        }
+    }
 
     const res = await apiCall('/api/weight', 'POST', payload);
 
@@ -242,7 +261,7 @@ function formatWeightTimestamp(measuredAt) {
     if (hours < 24) return `${hours}h ago`;
     const days = Math.floor(hours / 24);
     if (days < 7) return `${days}d ago`;
-    return new Date(ts).toLocaleDateString('de-DE', {
+    return new Date(ts).toLocaleDateString(undefined, {
         day: '2-digit', month: '2-digit', year: 'numeric'
     });
 }
@@ -415,84 +434,6 @@ function renderWeightGoalCard(logs, goalData) {
     container.appendChild(delta);
 }
 
-// =================== Helper Functions for Enhanced Weight Chart ===================
-
-// Linear regression for trend calculation
-function linearRegression(dataPoints) {
-    if (dataPoints.length < 2) return null;
-
-    const n = dataPoints.length;
-    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-
-    dataPoints.forEach(point => {
-        const x = point.x; // Time in days
-        const y = point.y; // Weight
-        sumX += x;
-        sumY += y;
-        sumXY += x * y;
-        sumX2 += x * x;
-    });
-
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-    const intercept = (sumY - slope * sumX) / n;
-
-    return { slope, intercept };
-}
-
-// catmullRomSpline and calculateYAxisTicks moved to core/chart-utils.js
-
-// Calculate weight statistics
-function calculateWeightStats(logs, goalData) {
-    if (!logs || logs.length === 0) {
-        return null;
-    }
-
-    const stats = {};
-
-    // Trend weight from most recent entry
-    const mostRecent = logs[0]; // Already sorted DESC by API
-    stats.trendWeight = mostRecent.weight_trend || mostRecent.weight;
-    stats.currentWeight = mostRecent.weight;
-
-    // Calculate weekly rate using linear regression on last 4 weeks
-    const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
-    const recentLogs = logs
-        .filter(l => new Date(l.measured_at) >= fourWeeksAgo)
-        .reverse(); // Oldest first for regression
-
-    if (recentLogs.length >= 2) {
-        const now = new Date();
-        const regressionData = recentLogs.map(l => {
-            const date = new Date(l.measured_at);
-            const daysAgo = (now - date) / (1000 * 60 * 60 * 24);
-            return { x: -daysAgo, y: l.weight }; // Negative days ago (so slope is positive for weight loss)
-        });
-
-        const regression = linearRegression(regressionData);
-        if (regression) {
-            stats.weeklyRate = regression.slope * 7; // Convert daily rate to weekly
-        }
-    }
-
-    // Calculate forecasted goal date
-    if (goalData && goalData.goal && stats.weeklyRate && stats.weeklyRate < 0) {
-        const weightToLose = stats.currentWeight - goalData.goal;
-        const weeksNeeded = weightToLose / Math.abs(stats.weeklyRate);
-        if (weeksNeeded > 0 && weeksNeeded < 520) { // Max 10 years
-            const forecastDate = new Date(Date.now() + weeksNeeded * 7 * 24 * 60 * 60 * 1000);
-            stats.forecastDate = forecastDate;
-        }
-    }
-
-    // Current diff from goal
-    if (goalData && goalData.goal) {
-        stats.goalWeight = goalData.goal;
-        stats.deltaFromGoal = stats.currentWeight - goalData.goal;
-    }
-
-    return stats;
-}
-
 // Render weight chart — delegates to WGWeightChart for the Wandergeek SVG,
 // honours the active range (7d / 30d / 90d / all) from localStorage, and
 // renders the goal overlay when a goal is set. Empty input or no match in
@@ -588,13 +529,6 @@ async function _renderWeightData(logsRes, goalRes) {
         }
     }
 
-    if (allLogs.length === 0 && logsRes === null) {
-        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
-
-        return;
-    }
-
-    // Cache logs globally for ruler component
     cachedWeightLogs = allLogs;
 
     const goalData = goalRes || {};
@@ -607,8 +541,14 @@ async function _renderWeightData(logsRes, goalRes) {
             _renderWeightData(logsRes, goalRes);
         }
     });
-    renderWeightLogs(allLogs);
     renderWeightChart(allLogs, goalData);
+
+    if (allLogs.length === 0 && logsRes === null) {
+        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+        return;
+    }
+
+    renderWeightLogs(allLogs);
 }
 
 // Render weight logs grouped by day as Wandergeek gloss cards (Phase 6, Task 5).
@@ -841,7 +781,7 @@ async function deleteWeightLog(id) {
 async function _deleteWeightApi(id) {
     // Check if this is a local-only log
     if (typeof id === 'string' && id.startsWith('local_')) {
-        const localId = parseInt(id.replace('local_', ''));
+        const localId = parseInt(id.replace('local_', ''), 10);
         if (window.MedTrackerDB) {
             await window.MedTrackerDB.WeightStore.confirmDelete(localId);
             if (window.SyncManager) window.SyncManager.updateStatus();
@@ -858,7 +798,7 @@ async function _deleteWeightApi(id) {
             try {
                 // Find and delete the local record with this serverId
                 const allLogs = await window.MedTrackerDB.WeightStore.getAll();
-                const localRecord = allLogs.find(l => l.serverId === parseInt(id));
+                const localRecord = allLogs.find(l => l.serverId === parseInt(id, 10));
                 if (localRecord && localRecord.localId) {
                     await window.MedTrackerDB.WeightStore.confirmDelete(localRecord.localId);
                     if (window.SyncManager) window.SyncManager.updateStatus();
