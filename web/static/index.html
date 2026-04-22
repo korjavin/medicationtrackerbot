@@ -43,13 +43,25 @@
 
         <div id="meds-view" class="view">
             <div class="section-header-mount" data-title="Medications"></div>
-            <!-- Med Tabs -->
-            <div class="med-tabs">
-                <button class="med-tab active" data-tab="history">History</button>
-                <button class="med-tab" data-tab="schedule">Schedule</button>
+            <!-- Med Sub-tabs (Phase 5, Task 2). Dual-classed `.med-tabs` +
+                 `.wg-meds-subtabs` so legacy selectors in existing tests keep
+                 working while the Wandergeek strip primitives take over the
+                 visuals. Three pills — Schedule (default) / History /
+                 Inventory — active pill carries `.wg-gloss--sun`. -->
+            <div class="wg-gloss--inset wg-meds-subtabs med-tabs" id="med-subtabs">
+                <button class="wg-gloss wg-meds-subtabs__btn wg-gloss--sun wg-meds-subtabs__btn--active med-tab active" data-tab="schedule" aria-pressed="true">Schedule</button>
+                <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="history" aria-pressed="false">History</button>
+                <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="inventory" aria-pressed="false">Inventory</button>
             </div>
 
-            <div id="med-history-tab" class="med-tab-content active">
+            <div id="med-schedule-tab" class="med-tab-content active">
+                <div id="med-list">
+                    <!-- Meds injected here -->
+                </div>
+                <button id="add-btn" class="btn btn-primary btn-pill btn-fab btn-lg">+ Add Medication</button>
+            </div>
+
+            <div id="med-history-tab" class="med-tab-content">
                 <h3>Intake History</h3>
                 <div class="filters">
                     <select id="history-filter-med">
@@ -65,11 +77,10 @@
                 <div id="history-list"></div>
             </div>
 
-            <div id="med-schedule-tab" class="med-tab-content">
-                <div id="med-list">
-                    <!-- Meds injected here -->
+            <div id="med-inventory-tab" class="med-tab-content">
+                <div id="med-inventory-list">
+                    <!-- Inventory cards injected here in Phase 5, Task 6 -->
                 </div>
-                <button id="add-btn" class="btn btn-primary btn-pill btn-fab btn-lg">+ Add Medication</button>
             </div>
         </div>
 

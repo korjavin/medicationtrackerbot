@@ -5081,6 +5081,26 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
+/* Meds sub-tab strip (Phase 5, Task 2). `.wg-gloss--inset` container wraps
+   three `.wg-gloss`-capable pills — Schedule / History / Inventory — the
+   active pill carries `.wg-gloss--sun` (plus `.wg-meds-subtabs__btn--active`
+   for tests). Mirrors the Phase 4 Food sub-tab strip. */
+.wg-meds-subtabs {
+    display: flex;
+    gap: var(--wg-meds-subtab-gap);
+    padding: var(--wg-meds-subtab-pad-y) var(--wg-meds-subtab-pad-x);
+    margin-bottom: var(--space-md);
+}
+
+.wg-meds-subtabs__btn {
+    flex: 1;
+    min-height: 36px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
 /* Food day navigator (Phase 4, Task 3). Three-cell row — chevron button,
    center mono title + subtitle, chevron button. The hidden <input type="date">
    lets the mono title trigger the native picker via showPicker(); the

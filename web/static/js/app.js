@@ -969,8 +969,10 @@ function switchTab(tab) {
     }
 
     if (tab === 'meds') {
-        if (!document.querySelector('.med-tab.active')) {
-            switchMedTab('history');
+        const stored = typeof getActiveMedsSubTab === 'function' ? getActiveMedsSubTab() : 'schedule';
+        const activeMedTab = document.querySelector('.med-tab.active');
+        if (!activeMedTab || activeMedTab.dataset.tab !== stored) {
+            switchMedTab(stored);
         } else {
             reloadCurrentTab();
         }
@@ -1494,8 +1496,17 @@ function switchMedTab(tab) {
     });
     if (!activated) return;
 
+    if (typeof syncMedsSubTabActiveClass === 'function') syncMedsSubTabActiveClass(tab);
+    if (typeof setActiveMedsSubTab === 'function') setActiveMedsSubTab(tab);
+
     if (tab === 'schedule') { loadMeds(); }
     else if (tab === 'history') { loadHistory(); }
+    else if (tab === 'inventory') {
+        // Inventory sub-tab renderer lands in Phase 5 Task 6; for now the
+        // existing meds list load keeps the cache warm so the subsequent
+        // renderer has data.
+        if (typeof loadMeds === 'function') loadMeds();
+    }
 }
 
 bindTabGroup({
@@ -1741,9 +1752,9 @@ function reloadCurrentTab() {
 
     if (tab === 'meds') {
         const activeMedTab = document.querySelector('.med-tab.active');
-        const medTab = activeMedTab ? activeMedTab.dataset.tab : 'history';
-        if (medTab === 'schedule') { loadMeds(); }
-        else { loadHistory(); }
+        const medTab = activeMedTab ? activeMedTab.dataset.tab : 'schedule';
+        if (medTab === 'history') { loadHistory(); }
+        else { loadMeds(); }
     } else if (tab === 'bp') { loadBPReadings(); }
     else if (tab === 'weight') { loadWeightLogs(); }
     else if (tab === 'workouts') { loadWorkouts(); }
