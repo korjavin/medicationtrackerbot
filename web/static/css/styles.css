@@ -435,6 +435,20 @@
     --wg-meds-subtab-pad-x: 10px;
     --wg-meds-subtab-gap: 4px;
 
+    /* Meds inventory status aliases (Phase 5, Task 1) — wrap the existing
+       --wg-tag-* triplets so the inventory classifier can return a token-
+       group name (ok / low / out) without duplicating tag styles. Mirrors
+       the --wg-bp-status-* pattern. */
+    --wg-meds-status-ok-bg: var(--wg-tag-normal-bg);
+    --wg-meds-status-ok-fg: var(--wg-tag-normal-fg);
+    --wg-meds-status-ok-border: var(--wg-tag-normal-border);
+    --wg-meds-status-low-bg: var(--wg-tag-high-bg);
+    --wg-meds-status-low-fg: var(--wg-tag-high-fg);
+    --wg-meds-status-low-border: var(--wg-tag-high-border);
+    --wg-meds-status-out-bg: var(--wg-tag-alert-bg);
+    --wg-meds-status-out-fg: var(--wg-tag-alert-fg);
+    --wg-meds-status-out-border: var(--wg-tag-alert-border);
+
     /* Meds history sub-tab tokens (Phase 5, Task 5) — filter strip geometry,
        day-group label size, log-row padding, trailing time + status sizes. */
     --wg-meds-filter-gap: 8px;
