@@ -134,9 +134,9 @@ No backend changes. The existing `/api/weight*` endpoints, Dexie offline queue (
 
 ### Task 7: Wire Weight into the canonical bottom nav + cleanup
 
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `weight` slot with the scale icon; add a Phase 6 contract test matching the BP/Food/Meds contract tests
-- [ ] grep-verify remaining paper-era weight classes — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
-- [ ] run `pnpm test` — must pass before next task
+- [x] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `weight` slot with the scale icon; add a Phase 6 contract test matching the BP/Food/Meds contract tests
+- [x] grep-verify remaining paper-era weight classes — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 8: Verify acceptance criteria for Phase 6
 
