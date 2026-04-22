@@ -35,7 +35,7 @@ Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashb
 ## Medication Tracking
 
 - **Sub-tabs**: Schedule (hour-grouped dose list with next-action card on top), History (day-grouped intake log with med + day-range filters and offline/rejected badges), Inventory (per-medication stock with low-stock alerts and Refill button that posts to `/api/medications/{id}/restock`). Active sub-tab persists under the `mt-meds-subtab` localStorage key.
-- **Smart Sorting**: Scheduled Soon (>14h) → Recently Taken → As-Needed → Archived
+- **Schedule order**: hour-of-next-dose buckets (each under a `HH:MM · in Xh Ym` section label, earliest first) → `Scheduled` fallback for entries with no computable next dose → `As needed` → `Archived`. Entries within a bucket are sorted by next-dose time (fallback buckets by most-recent intake).
 - **Archiving & Deleting**: active medications can be archived; archived medications can be permanently deleted only if they have no intake history
 - **Schedule Types**: Daily, Weekly, As-Needed with optional Start/End dates
 - **Duplicate Prevention**: HTTP 409 on creation when name (case-insensitive) + dosage matches an existing medication (including archived)
