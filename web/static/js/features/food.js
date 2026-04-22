@@ -1425,6 +1425,33 @@ function setFoodStatsPeriod(period) {
 async function loadFoodLogs() {
     const list = document.getElementById('food-list');
 
+    const period = currentFoodStatsPeriod || 'day';
+    const isDailyPeriod = period !== 'week' && period !== '2weeks';
+
+    // Sync the sticky Add Food dock before the first await so the CTA
+    // state is correct across every async boundary:
+    //  - weekly summaries: clear+hide so a stale daily CTA never lingers
+    //    (e.g. day→week period switch);
+    //  - daily reloads: ensure a CTA is mounted and visible, covering
+    //    fresh Food-tab opens, week→day switches (where the dock was
+    //    emptied and hidden by the previous weekly render), and the
+    //    no-cache API-failure path (where the catch block renders only
+    //    an error message and never re-adds the CTA).
+    // `_renderFoodData()` rebuilds the CTA on every render, so any
+    // preseeded button here is replaced once data arrives.
+    const ctaDock = document.getElementById('food-add-cta-dock');
+    if (ctaDock) {
+        if (!isDailyPeriod) {
+            ctaDock.replaceChildren();
+            ctaDock.classList.add('hidden');
+        } else if (!ctaDock.querySelector('.wg-food-add-cta')) {
+            ctaDock.replaceChildren(renderFoodAddCta());
+            ctaDock.classList.remove('hidden');
+        } else {
+            ctaDock.classList.remove('hidden');
+        }
+    }
+
     // Ensure targets are available even if Settings tab hasn't been opened yet.
     await loadFoodTargets();
 
@@ -1434,8 +1461,6 @@ async function loadFoodLogs() {
         dateStr = toISODateLocal(new Date());
         dateFilter.value = dateStr;
     }
-
-    const period = currentFoodStatsPeriod || 'day';
 
     if (typeof loadMyMeals === 'function') {
         loadMyMeals();
@@ -2182,8 +2207,13 @@ function toggleFoodDayNavVisibility(tab) {
     const nav = document.querySelector('.food-date-nav');
     const ctaDock = document.getElementById('food-add-cta-dock');
     const isLog = tab === 'log';
+    const period = currentFoodStatsPeriod || 'day';
+    const isDaily = period !== 'week' && period !== '2weeks';
     if (nav) nav.classList.toggle('hidden', !isLog);
-    if (ctaDock) ctaDock.classList.toggle('hidden', !isLog);
+    // CTA dock is only valid on the daily log view — weekly summaries have
+    // no Add Food action, so keep the dock hidden when switching back to
+    // the log tab while a weekly period is active.
+    if (ctaDock) ctaDock.classList.toggle('hidden', !isLog || !isDaily);
 }
 
 async function deleteFoodLog(id) {
