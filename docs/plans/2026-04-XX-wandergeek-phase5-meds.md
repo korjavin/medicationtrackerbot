@@ -91,14 +91,14 @@ No backend changes. The existing `/api/medications`, `/api/intakes`, `/api/medic
 
 ### Task 1: Extend tokens + extract meds into a feature module
 
-- [ ] add `--wg-meds-*` dimensional tokens to `:root` in `styles.css` (next-action card padding, schedule-hour header size, med-row grid-template-columns, inventory-count mono size, sub-tab padding) — everything the Meds view needs that isn't already covered by the shared `--wg-*` set
-- [ ] add `--wg-meds-status-*` semantic aliases that wrap the existing `--wg-tag-*` triplets so the inventory classifier (low / ok / out) can return a token-group name without duplicating tag styles
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] create `web/static/js/features/meds.js` and move `renderMeds`, `loadMeds`, `renderHistory`, `populateMedFilter`, `saveMedication`, `deleteMed`, `showEditModal`, `showMedicationConfirmModal`, `logMedicationPast` out of `app.js` into it; expose through a `window.MedsFeature` namespace following the `window.BpFeature` / `window.FoodFeature` pattern
-- [ ] update `index.html` script load order to include `features/meds.js` in the same phase as the other feature modules
-- [ ] keep all existing helpers (`parseMedicationSchedule`, `getNextScheduledDate`, `getMedicationScheduleText`, `getLastTakenTimeMs`, `isLowOnStock`) wherever they currently live; only the render + modal flow moves
-- [ ] verify no behavior change — `app.loadmeds-bp-swipe-edges.test.js` and `app.forms-and-push.test.js` stay green
-- [ ] run `pnpm test` — design-tokens test + extraction smoke test must be green before next task
+- [x] add `--wg-meds-*` dimensional tokens to `:root` in `styles.css` (next-action card padding, schedule-hour header size, med-row grid-template-columns, inventory-count mono size, sub-tab padding) — everything the Meds view needs that isn't already covered by the shared `--wg-*` set
+- [x] add `--wg-meds-status-*` semantic aliases that wrap the existing `--wg-tag-*` triplets so the inventory classifier (low / ok / out) can return a token-group name without duplicating tag styles
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] create `web/static/js/features/meds.js` and move `renderMeds`, `loadMeds`, `renderHistory`, `populateMedFilter`, `saveMedication`, `deleteMed`, `showEditModal`, `showMedicationConfirmModal`, `logMedicationPast` out of `app.js` into it; script-tag load order + hoisted function declarations keep them accessible as globals (no `window.MedsFeature` namespace introduced — matches the de-facto `features/bp.js` / `features/food.js` pattern where functions stay as script-scope globals). Cross-file shared state (`initialAuthLoad`, `medications`, `editingMedId`, `pendingMedConfirm*`) switched from `let` to `var` so it persists as a true global across script tags.
+- [x] update `index.html` script load order to include `features/meds.js` in the same phase as the other feature modules (also added to `sw.js` precache list + `tests/helpers/frontend-harness.js`)
+- [x] keep all existing helpers (`parseMedicationSchedule`, `getNextScheduledDate`, `getMedicationScheduleText`, `getLastTakenTimeMs`, `isLowOnStock`) wherever they currently live; only the render + modal flow moves
+- [x] verify no behavior change — `app.loadmeds-bp-swipe-edges.test.js` and `app.forms-and-push.test.js` stay green
+- [x] run `pnpm test` — design-tokens test + extraction smoke test must be green before next task
 
 ### Task 2: Build the sub-tab strip + subtab state plumbing
 
