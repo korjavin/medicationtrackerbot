@@ -175,9 +175,9 @@ No backend changes. The existing `/api/medications`, `/api/intakes`, `/api/medic
 
 ### Task 10: [Final] Update plan and write Phase 6 plan stub
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write `docs/plans/2026-04-XX-wandergeek-phase6-weight.md` covering the Weight screen rewrite (big current-weight card, range selector + line chart, day-grouped history with delete actions)
-- [ ] no code changes in this task
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write `docs/plans/2026-04-XX-wandergeek-phase6-weight.md` covering the Weight screen rewrite (big current-weight card, range selector + line chart, day-grouped history with delete actions)
+- [x] no code changes in this task
 
 ## Technical Details
 
