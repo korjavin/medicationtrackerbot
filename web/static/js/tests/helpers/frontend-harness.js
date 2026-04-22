@@ -18,6 +18,7 @@ const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js')
 const WG_BOTTOM_NAV_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-bottom-nav.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
 const WG_BP_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-bp-chart.js');
+const WG_WEIGHT_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-weight-chart.js');
 const WG_MACRO_BAR_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-macro-bar.js');
 const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
 const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
@@ -144,6 +145,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalWithSourceURL(window, fs.readFileSync(WG_BOTTOM_NAV_JS, 'utf8'), WG_BOTTOM_NAV_JS);
   evalWithSourceURL(window, fs.readFileSync(WG_SPARKLINE_JS, 'utf8'), WG_SPARKLINE_JS);
   evalWithSourceURL(window, fs.readFileSync(WG_BP_CHART_JS, 'utf8'), WG_BP_CHART_JS);
+  evalWithSourceURL(window, fs.readFileSync(WG_WEIGHT_CHART_JS, 'utf8'), WG_WEIGHT_CHART_JS);
   evalWithSourceURL(window, fs.readFileSync(WG_MACRO_BAR_JS, 'utf8'), WG_MACRO_BAR_JS);
   evalWithSourceURL(window, fs.readFileSync(MODAL_MANAGER_JS, 'utf8'), MODAL_MANAGER_JS);
   evalWithSourceURL(window, fs.readFileSync(CORE_API_JS, 'utf8'), CORE_API_JS);
