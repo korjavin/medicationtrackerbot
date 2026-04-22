@@ -132,11 +132,138 @@ function showEditModal(id) {
     document.getElementById('med-tz-policy').value = med.tz_shift_policy || 'flexible';
 }
 
+// Next-action card (Phase 5, Task 3) — sun-glossed card mirroring the Today
+// next-action pattern. The helper is pure and DOM-only: it accepts the local
+// medications list and the cached next-intake payload (`{ scheduled_at,
+// medication_names }`), composes a `.wg-meds-next-action` element, and wires
+// the Take button to `showMedicationConfirmModal` (mode=confirm) for the
+// upcoming cluster. Tests pass `opts.onTake` to intercept the click without
+// reaching into the global modal stack.
+
+const MEDS_NEXT_ACTION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h horizon for empty-state cutoff
+
+function _formatNextActionRelative(diffMs) {
+    if (diffMs <= 0) return 'overdue';
+    const totalMinutes = Math.round(diffMs / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours > 0 && minutes > 0) return `in ${hours}h ${minutes}m`;
+    if (hours > 0) return `in ${hours}h`;
+    return `in ${minutes}m`;
+}
+
+function _formatNextActionTime(date) {
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+}
+
+function _formatNextActionNames(names) {
+    if (!Array.isArray(names) || names.length === 0) return 'Scheduled';
+    if (names.length <= 3) return names.join(' · ');
+    const first = names.slice(0, 2).join(' · ');
+    return `${first} · +${names.length - 2}`;
+}
+
+function renderNextActionCard(meds, nextIntake, opts) {
+    const d = (typeof document !== 'undefined') ? document : null;
+    if (!d) return null;
+    const options = opts || {};
+    const now = options.now instanceof Date
+        ? options.now
+        : (options.now != null ? new Date(options.now) : new Date());
+    const nowMs = now.getTime();
+
+    const card = d.createElement('div');
+    card.className = 'wg-meds-next-action wg-gloss wg-gloss--sun';
+    card.setAttribute('data-section', 'next-action');
+
+    const text = d.createElement('div');
+    text.className = 'wg-meds-next-action__text';
+    const subtitle = d.createElement('div');
+    subtitle.className = 'wg-meds-next-action__subtitle';
+    const value = d.createElement('div');
+    value.className = 'wg-meds-next-action__value';
+    text.appendChild(subtitle);
+    text.appendChild(value);
+
+    const scheduledMs = nextIntake && nextIntake.scheduled_at
+        ? Date.parse(nextIntake.scheduled_at)
+        : NaN;
+    const withinHorizon = Number.isFinite(scheduledMs)
+        && (scheduledMs - nowMs) <= MEDS_NEXT_ACTION_WINDOW_MS;
+
+    if (!withinHorizon) {
+        card.classList.add('wg-meds-next-action--empty');
+        subtitle.textContent = 'No upcoming doses';
+        value.textContent = 'Schedule one to see it here';
+        card.appendChild(text);
+        return card;
+    }
+
+    const scheduledDate = new Date(scheduledMs);
+    const timeStr = _formatNextActionTime(scheduledDate);
+    const relStr = _formatNextActionRelative(scheduledMs - nowMs);
+    subtitle.textContent = `Next · ${timeStr} · ${relStr}`;
+
+    const names = Array.isArray(nextIntake.medication_names)
+        ? nextIntake.medication_names.slice()
+        : [];
+    value.textContent = _formatNextActionNames(names);
+    card.appendChild(text);
+
+    const takeBtn = d.createElement('button');
+    takeBtn.type = 'button';
+    takeBtn.className = 'wg-meds-next-action__take wg-gloss wg-gloss--sun';
+    takeBtn.textContent = 'Take';
+    takeBtn.addEventListener('click', () => {
+        const medList = Array.isArray(meds) ? meds : [];
+        const ids = names
+            .map((name) => {
+                const m = medList.find((med) => med && med.name === name);
+                return m ? m.id : null;
+            })
+            .filter((id) => id !== null && id !== undefined);
+        const handler = typeof options.onTake === 'function' ? options.onTake : null;
+        if (handler) {
+            handler({ ids, names, scheduledAt: nextIntake.scheduled_at });
+            return;
+        }
+        if (typeof showMedicationConfirmModal === 'function') {
+            showMedicationConfirmModal(ids, names, nextIntake.scheduled_at, 'confirm');
+        }
+    });
+    card.appendChild(takeBtn);
+    return card;
+}
+
+async function mountNextActionCard() {
+    if (typeof document === 'undefined') return;
+    const container = document.getElementById('med-next-action');
+    if (!container) return;
+    let nextIntake = null;
+    try {
+        if (window.DataStore && typeof window.DataStore.getCached === 'function') {
+            nextIntake = await window.DataStore.getCached('next_intake');
+        }
+    } catch (_) { /* offline / cache miss falls through to empty state */ }
+    const card = renderNextActionCard(
+        Array.isArray(medications) ? medications : [],
+        nextIntake
+    );
+    if (card) {
+        container.replaceChildren(card);
+    } else {
+        container.replaceChildren();
+    }
+}
+
 // Render
 function renderMeds() {
     const list = document.getElementById('med-list');
     list.replaceChildren();
     const now = new Date();
+    void mountNextActionCard();
 
     // Buckets
     const scheduledSoon = [];
