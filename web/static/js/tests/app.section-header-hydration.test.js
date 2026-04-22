@@ -108,7 +108,7 @@ describe('Section header hydration — switchTab', () => {
         }
     });
 
-    it('food-view hydration places an experimental badge in the right slot', () => {
+    it('food-view hydration renders the section header without an experimental badge', () => {
         const { window, document, cleanup } = loadFrontendEnv();
         try {
             window.loadFoodLogs = vi.fn();
@@ -119,9 +119,7 @@ describe('Section header hydration — switchTab', () => {
             const header = view.querySelector('.section-header');
             expect(header).not.toBeNull();
             const badge = header.querySelector('.section-header-right .badge');
-            expect(badge).not.toBeNull();
-            expect(badge.classList.contains('badge-experimental')).toBe(true);
-            expect(badge.textContent).toBe('experimental');
+            expect(badge).toBeNull();
         } finally {
             cleanup();
         }

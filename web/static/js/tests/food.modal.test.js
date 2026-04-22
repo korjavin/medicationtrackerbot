@@ -17,9 +17,12 @@ function flushPromises() {
 describe('EditFoodModal (Phase 4, Task 6)', () => {
     let env;
 
+    let realRenderFoodAutocomplete;
+
     beforeEach(() => {
         env = loadFrontendEnv();
         env.window.initFoodProductsCache = vi.fn().mockResolvedValue(undefined);
+        realRenderFoodAutocomplete = env.window.renderFoodAutocomplete;
         env.window.renderFoodAutocomplete = vi.fn();
 
         // JSDOM does not implement HTMLMediaElement.prototype.pause; the
@@ -266,6 +269,54 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
             'POST',
             expect.objectContaining({ name: 'Apple', weight: 180, calories: 95 })
         );
+    });
+
+    describe('food-autocomplete-list (Phase 4 follow-up)', () => {
+        it('container exists with the .autocomplete-items class inside the name wrap', () => {
+            const { document } = env;
+            const list = document.getElementById('food-autocomplete-list');
+            expect(list).not.toBeNull();
+            expect(list.classList.contains('autocomplete-items')).toBe(true);
+            expect(list.parentElement.classList.contains('wg-food-modal__name-wrap')).toBe(true);
+        });
+
+        it('renders items with .autocomplete-item-name and .autocomplete-item-meta spans', () => {
+            const { document } = env;
+            const list = document.getElementById('food-autocomplete-list');
+
+            realRenderFoodAutocomplete([
+                { id: 1, name: 'Oatmeal', barcode: '1234567' },
+                { id: 2, name: 'Lunch Bowl', is_meal: true },
+                { id: 3, name: 'Plain Rice' },
+            ]);
+
+            const items = list.querySelectorAll('.autocomplete-item');
+            expect(items).toHaveLength(3);
+
+            items.forEach((item) => {
+                expect(item.querySelector('.autocomplete-item-name')).not.toBeNull();
+                expect(item.getAttribute('style')).toBeNull();
+                expect(item.querySelector('.autocomplete-item-name').getAttribute('style')).toBeNull();
+            });
+
+            // Meta span is present for barcoded products and meals, absent for plain rows.
+            expect(items[0].querySelector('.autocomplete-item-meta').textContent).toContain('1234567');
+            expect(items[1].querySelector('.autocomplete-item-meta').textContent).toContain('Meal');
+            expect(items[2].querySelector('.autocomplete-item-meta')).toBeNull();
+
+            // Dropdown becomes visible once items are rendered.
+            expect(list.classList.contains('hidden')).toBe(false);
+        });
+
+        it('empty result set keeps the dropdown hidden', () => {
+            const { document } = env;
+            const list = document.getElementById('food-autocomplete-list');
+
+            realRenderFoodAutocomplete([]);
+
+            expect(list.classList.contains('hidden')).toBe(true);
+            expect(list.querySelectorAll('.autocomplete-item')).toHaveLength(0);
+        });
     });
 
     it('Telegram BackButton handler still pops the modal (modal-controller history wiring)', () => {
