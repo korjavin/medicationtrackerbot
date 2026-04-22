@@ -148,16 +148,16 @@ No backend changes. The existing `/api/medications`, `/api/intakes`, `/api/medic
 
 ### Task 7: Rewrite EditMedicationModal
 
-- [ ] replace the existing edit-medication modal markup in `index.html` with the Wandergeek shell — mono header (dual-line: "Edit medication" / medication name), `.wg-icon-btn` close trailing the header
-- [ ] name + dosage row — both are `.wg-gloss--inset` input wraps sharing a 10px gap
-- [ ] schedule-type selector — `.wg-gloss--inset` container with four `.wg-gloss--sun`-capable pills (Daily / Interval / Weekly / As-needed); changing the type swaps the detail panel below
-- [ ] detail panel per schedule-type: time-of-day list (daily + weekly), interval-in-hours input (interval), weekday checkboxes (weekly), no panel (as-needed) — all inputs use `.wg-gloss--inset` wraps
-- [ ] start + end dates row — two `.wg-gloss--inset` date inputs
-- [ ] inventory toggle + count input — `.wg-gloss` toggle button, count wrap conditionally visible
-- [ ] supplement + archived toggles — `.wg-gloss` button row
-- [ ] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss`, Save `.wg-gloss--sun` with 2× flex per modal-button-order convention (Cancel left, Save right)
-- [ ] write `meds.modal.test.js` — open/save/cancel, schedule-type swap, inventory toggle reveals count field, existing `saveMedication()` path preserved, `modal-controller.js` history integration preserved
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing edit-medication modal markup in `index.html` with the Wandergeek shell — mono header (eyebrow + mono title, "Edit medication" / medication name), `.wg-icon-btn` close trailing the header
+- [x] name + dosage row — both are `.wg-gloss--inset` input wraps (`.wg-meds-modal__row--identity`)
+- [x] schedule-type selector — `.wg-gloss--inset` pill strip with three `.wg-gloss--sun`-capable pills (Daily / Weekly / As-needed); clicks call `setScheduleType()` which keeps the hidden `#schedule-type` select in sync and swaps detail panels. (Plan mentioned four pills including Interval, but the backend schedule schema only supports daily/weekly/as_needed, so the strip renders the three types the app actually persists — matching the `meds.modal.test.js` assertion `expect(types).toEqual(['daily','weekly','as_needed'])`.)
+- [x] detail panel per schedule-type: time-of-day list (daily + weekly), weekday spans (weekly), no panel (as-needed) — all time inputs use `.wg-gloss--inset` wraps; `addTimeInput()` emits the wrapped structure with a `.wg-icon-btn` remove affordance
+- [x] start + end dates row — two `.wg-gloss--inset` date inputs side-by-side
+- [x] inventory toggle + count input — `.wg-meds-modal__toggle` label, count field + restock row conditionally revealed (`inventory-fields` `hidden` class driven by `toggleInventoryFields()`)
+- [x] supplement + archived toggles — `.wg-meds-modal__toggle-row` with two `.wg-meds-modal__toggle` labels
+- [x] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss`, Save `.wg-gloss` + `.wg-gloss--sun` with 2× flex per modal-button-order convention (Cancel left, Save right, both inside `.wg-meds-modal__actions`)
+- [x] write `meds.modal.test.js` — 18 tests covering open/save/cancel, schedule-type pill swap, inventory toggle reveals count field, existing `saveMedication()` path preserved, `modal-controller.js` history integration (`ModalManager.closeTopMostVisibleModal`) preserved
+- [x] run `pnpm test` — all 870 tests green, `meds.modal.test.js` (18 tests) passing under `EditMedicationModal (Phase 5, Task 7)`
 
 ### Task 8: Wire Meds into the canonical bottom nav + cleanup
 

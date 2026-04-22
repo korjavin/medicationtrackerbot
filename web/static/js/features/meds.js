@@ -65,6 +65,10 @@ function showEditModal(id) {
 
     window.ModalManager.med.open();
 
+    if (typeof setMedModalHeader === 'function') {
+        setMedModalHeader('Edit medication', med.name || 'Medication');
+    }
+
     // Fill inputs
     document.getElementById('med-name').value = med.name;
     document.getElementById('med-dosage').value = med.dosage;

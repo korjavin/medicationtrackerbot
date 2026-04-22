@@ -1398,9 +1398,16 @@ function bindMedicationControls() {
 
     bindClick('add-btn', () => showAddModal());
     bindClick('med-modal-cancel-btn', () => closeModal());
+    bindClick('med-modal-close-btn', () => closeModal());
     bindClick('med-modal-save-btn', () => saveMedication());
 
     bindChange('schedule-type', () => toggleScheduleFields());
+    document.querySelectorAll('.wg-meds-modal__pill').forEach((pill) => {
+        pill.addEventListener('click', () => {
+            const type = pill.dataset.scheduleType;
+            if (type) setScheduleType(type);
+        });
+    });
     document.querySelectorAll('#days-container .days-select span').forEach((day) => {
         day.addEventListener('click', () => toggleDay(day));
     });
@@ -1773,6 +1780,8 @@ function showAddModal() {
     editingMedId = null;
     window.ModalManager.med.open();
 
+    setMedModalHeader('Medication', 'New medication');
+
     // Reset inputs
     document.getElementById('med-name').value = '';
     document.getElementById('med-dosage').value = '';
@@ -1803,6 +1812,13 @@ function showAddModal() {
     document.querySelectorAll('#days-container .days-select span').forEach(s => s.classList.remove('selected'));
 }
 
+function setMedModalHeader(eyebrow, title) {
+    const eyebrowEl = document.getElementById('med-modal-eyebrow');
+    const titleEl = document.getElementById('med-modal-title');
+    if (eyebrowEl) eyebrowEl.textContent = eyebrow;
+    if (titleEl) titleEl.textContent = title;
+}
+
 // showEditModal() moved to features/meds.js (Phase 5 Task 1)
 
 function closeModal() {
@@ -1825,6 +1841,24 @@ function toggleScheduleFields() {
     } else {
         timesContainer.classList.remove('hidden');
     }
+
+    syncScheduleTypePills(type);
+}
+
+function syncScheduleTypePills(activeType) {
+    const pills = document.querySelectorAll('.wg-meds-modal__pill');
+    pills.forEach((pill) => {
+        const isActive = pill.dataset.scheduleType === activeType;
+        pill.classList.toggle('wg-gloss--sun', isActive);
+        pill.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function setScheduleType(type) {
+    const select = document.getElementById('schedule-type');
+    if (!select) return;
+    if (select.value !== type) select.value = type;
+    toggleScheduleFields();
 }
 
 function toggleDay(el) {
@@ -1960,22 +1994,27 @@ function calculateDailyUsage(med) {
 function addTimeInput(value = '') {
     const container = document.getElementById('time-inputs');
     const div = document.createElement('div');
-    div.className = 'time-row';
+    div.className = 'time-row wg-meds-modal__time-row';
+
+    const wrap = document.createElement('div');
+    wrap.className = 'wg-gloss--inset wg-meds-modal__input-wrap wg-meds-modal__time-wrap';
 
     const input = document.createElement('input');
     input.type = 'time';
-    input.className = 'med-time-input';
+    input.className = 'med-time-input wg-meds-modal__input';
     input.value = value;
+    wrap.appendChild(input);
 
     const removeButton = document.createElement('button');
     removeButton.type = 'button';
-    removeButton.className = 'btn btn-danger btn-icon remove-time';
+    removeButton.className = 'wg-icon-btn remove-time wg-meds-modal__remove-time';
+    removeButton.setAttribute('aria-label', 'Remove time');
     removeButton.textContent = '×';
     removeButton.addEventListener('click', () => {
         removeTime(removeButton);
     });
 
-    div.appendChild(input);
+    div.appendChild(wrap);
     div.appendChild(removeButton);
     container.appendChild(div);
 }
