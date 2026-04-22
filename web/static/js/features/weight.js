@@ -493,8 +493,11 @@ async function loadWeightLogs() {
         key: 'weight',
         tags: ['weight'],
         fetcher: async () => {
+            // days=0 disables the server's since filter; limit=1000 overrides
+            // the 100-row default so the 90d / All range-selector options can
+            // actually plot older history for long-term users.
             const [logsResult, goalResult] = await Promise.allSettled([
-                apiCall('/api/weight?days=35'),
+                apiCall('/api/weight?days=0&limit=1000'),
                 apiCall('/api/weight/goal')
             ]);
             const logsRes = logsResult.status === 'fulfilled' ? logsResult.value : null;
@@ -581,7 +584,31 @@ async function _renderWeightData(logsRes, goalRes) {
         return;
     }
 
-    renderWeightLogs(allLogs);
+    renderWeightLogs(allLogs, getActiveWeightRange());
+}
+
+// Filter logs to entries inside the active range so the history list tracks
+// the same window the chart shows. The chart has its own filter; we mirror
+// the cutoff rule here (anchor on the newest entry so future-dated logs don't
+// collapse the window). 'all' returns unfiltered input.
+const WEIGHT_RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90 };
+
+function filterWeightLogsByRange(logs, range) {
+    if (!logs || logs.length === 0) return logs || [];
+    if (!range || range === 'all') return logs;
+    const days = WEIGHT_RANGE_DAYS[range];
+    if (!days) return logs;
+    let newest = -Infinity;
+    for (const l of logs) {
+        const t = new Date(l && l.measured_at).getTime();
+        if (Number.isFinite(t) && t > newest) newest = t;
+    }
+    if (!Number.isFinite(newest)) return logs;
+    const cutoff = newest - days * 86400000;
+    return logs.filter((l) => {
+        const t = new Date(l && l.measured_at).getTime();
+        return Number.isFinite(t) && t > cutoff;
+    });
 }
 
 // Render weight logs grouped by day as Wandergeek gloss cards (Phase 6, Task 5).
@@ -589,18 +616,19 @@ async function _renderWeightData(logsRes, goalRes) {
 // with a .wg-section-label header and a list of .wg-card rows. Offline +
 // rejected states surface as .wg-tag--mono variants. Each row carries a
 // trailing .wg-icon-btn cluster (edit + delete).
-function renderWeightLogs(logs) {
+function renderWeightLogs(logs, range) {
     const list = document.getElementById('weight-list');
     if (!list) return;
     list.replaceChildren();
     list.classList.add('wg-weight-history');
 
-    if (!logs || logs.length === 0) {
+    const filtered = filterWeightLogsByRange(logs || [], range);
+    if (filtered.length === 0) {
         return;
     }
 
-    // Limit to 30 most recent entries for the history panel.
-    const capped = logs.length > 30 ? logs.slice(0, 30) : logs;
+    // Cap at 100 rows to keep DOM bounded even on 'all' for long-term users.
+    const capped = filtered.length > 100 ? filtered.slice(0, 100) : filtered;
 
     const groups = groupWeightLogsByDay(capped);
     groups.forEach((group) => {
