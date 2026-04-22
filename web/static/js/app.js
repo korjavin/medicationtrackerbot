@@ -1049,7 +1049,7 @@ function todayFetchSpecs(foodKey) {
             tags: ['weight'],
             fetch: async () => {
                 const [l, g] = await Promise.allSettled([
-                    apiCall('/api/weight?days=35'),
+                    apiCall('/api/weight?days=0&limit=1000'),
                     apiCall('/api/weight/goal')
                 ]);
                 const logsRes = l.status === 'fulfilled' ? l.value : null;

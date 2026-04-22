@@ -211,16 +211,31 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         expect(document.getElementById('weight-list').classList.contains('wg-weight-history')).toBe(true);
     });
 
-    it('caps the list at 30 most-recent rows', () => {
+    it('filters to the active range (30d) so entries older than the window are dropped', () => {
         const { document, window } = env;
-        const logs = [];
+        // 45 logs at 24h spacing from a fixed anchor (avoids DST drift that
+        // plain `new Date().setDate(-n)` would introduce). The 30d range
+        // should drop entries older than the 30-day cutoff.
+        const base = Date.now();
+        const dayMs = 86400000;
+        const dailyLogs = [];
         for (let i = 0; i < 45; i += 1) {
-            const d = midnight(i);
-            logs.push({ id: i, measured_at: d.toISOString(), weight: 80 + (i % 5) * 0.1 });
+            dailyLogs.push({ id: i, measured_at: new Date(base - i * dayMs).toISOString(), weight: 80 + (i % 5) * 0.1 });
         }
-        window.renderWeightLogs(logs);
-        const rows = document.querySelectorAll('#weight-list .wg-weight-history-row');
-        expect(rows.length).toBe(30);
+        window.renderWeightLogs(dailyLogs, '30d');
+        const dailyRows = document.querySelectorAll('#weight-list .wg-weight-history-row');
+        // i=0..29 fall inside the 30d cutoff; i=30..44 are dropped.
+        expect(dailyRows.length).toBe(30);
+
+        // 105 logs at 1-hour spacing all fall inside any range; the 100-row
+        // DOM cap protects the list from running away on 'all'.
+        const denseLogs = [];
+        for (let i = 0; i < 105; i += 1) {
+            denseLogs.push({ id: `d${i}`, measured_at: new Date(base - i * 3600000).toISOString(), weight: 80.0 });
+        }
+        window.renderWeightLogs(denseLogs, 'all');
+        const denseRows = document.querySelectorAll('#weight-list .wg-weight-history-row');
+        expect(denseRows.length).toBe(100);
     });
 
     it('#weight-view opts into the shared .wg-screen-stage backdrop', () => {
