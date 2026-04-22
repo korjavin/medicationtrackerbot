@@ -1246,15 +1246,6 @@ svg.chart-svg {
     font-size: var(--font-size-lg);
 }
 
-/* Inventory Section */
-.inventory-section {
-    margin-bottom: var(--space-lg);
-    padding: var(--space-lg);
-    background: var(--secondary-bg-color);
-    border-radius: var(--radius-sm);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-}
-
 .inventory-badge {
     display: inline-block;
     padding: var(--space-xs) var(--space-md);

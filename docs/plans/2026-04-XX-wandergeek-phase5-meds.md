@@ -161,9 +161,9 @@ No backend changes. The existing `/api/medications`, `/api/intakes`, `/api/medic
 
 ### Task 8: Wire Meds into the canonical bottom nav + cleanup
 
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `meds` slot and the `pill` icon; add a test case if one doesn't exist
-- [ ] remove any remaining `.med-*` / `.filters` / `.inventory-badge` / `.med-supplement-badge` paper-era classes from `styles.css` that are no longer referenced after the rewrite (grep-verify)
-- [ ] run `pnpm test` — must pass before next task
+- [x] confirmed `WGBottomNav.DEFAULT_ITEMS[3] = { id:'meds', label:'Meds', icon:'pill' }` and added a Phase 5 contract test (`components.wg-bottom-nav.test.js` — "Meds is the fourth slot with the 'pill' icon — Phase 5 contract") matching the BP/Food contract tests
+- [x] grep-verified paper-era classes still referenced: `.med-tabs` / `.med-tab` / `.med-tab-content` (dual-classed on `#med-subtabs` in `index.html` so existing query selectors in `app.js` + 5 test files still resolve); `.med-item` / `.med-info` (reused by `workout.js` for workout-group-cards — cross-feature reuse); `.med-supplement-badge` / `.med-normalized-name` / `.med-action-icons` / `.med-empty-text` / `.inventory-badge` (dual-classed in `features/meds.js` rows for styling layering). `.filters` CSS rule was already absent (only the dual-class marker remains in `index.html` for test compat). Removed the one truly orphan rule — `.inventory-section` (no DOM references anywhere) — from `styles.css:1249-1256`
+- [x] run `pnpm test` — all 871 tests green (28 tests in `components.wg-bottom-nav.test.js`, including the new Phase 5 contract test)
 
 ### Task 9: Verify acceptance criteria for Phase 5
 
