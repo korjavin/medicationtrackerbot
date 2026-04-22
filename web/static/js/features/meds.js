@@ -209,6 +209,9 @@ function renderNextActionCard(meds, nextIntake, opts) {
     const names = Array.isArray(nextIntake.medication_names)
         ? nextIntake.medication_names.slice()
         : [];
+    const serverIds = Array.isArray(nextIntake.medication_ids)
+        ? nextIntake.medication_ids.slice()
+        : null;
     value.textContent = _formatNextActionNames(names);
     card.appendChild(text);
 
@@ -218,17 +221,36 @@ function renderNextActionCard(meds, nextIntake, opts) {
     takeBtn.textContent = 'Take';
     takeBtn.addEventListener('click', () => {
         const medList = Array.isArray(meds) ? meds : [];
-        // Resolve {id, name} pairs together and filter together so the
-        // confirm modal's `ids.forEach((id, index) => names[index])` loop
-        // can't desync when a name in the cached payload no longer
-        // resolves locally (e.g. the med was deleted after `next_intake`
-        // was cached).
-        const pairs = names
-            .map((name) => {
-                const m = medList.find((med) => med && med.name === name);
-                return m ? { id: m.id, name } : null;
-            })
-            .filter((p) => p !== null);
+        // Prefer the server-provided medication_ids (zip by index with names):
+        // two meds can share the same name with different dosages, and a pure
+        // name-based resolver would collapse them to the first match. Fall
+        // back to name-based resolution only when the payload predates the
+        // id-aware server (older cached next_intake entries) so the card
+        // remains usable across the upgrade.
+        let pairs;
+        if (serverIds && serverIds.length === names.length) {
+            const byId = new Map(
+                medList.filter((m) => m && m.id != null).map((m) => [m.id, m])
+            );
+            pairs = serverIds
+                .map((id, idx) => (byId.has(id) ? { id, name: names[idx] } : null))
+                .filter((p) => p !== null);
+        } else {
+            // Resolve {id, name} pairs together and filter together so the
+            // confirm modal's `ids.forEach((id, index) => names[index])` loop
+            // can't desync when a name in the cached payload no longer
+            // resolves locally (e.g. the med was deleted after `next_intake`
+            // was cached).
+            const used = new Set();
+            pairs = names
+                .map((name) => {
+                    const m = medList.find((med) => med && med.name === name && !used.has(med.id));
+                    if (!m) return null;
+                    used.add(m.id);
+                    return { id: m.id, name };
+                })
+                .filter((p) => p !== null);
+        }
         const resolvedIds = pairs.map((p) => p.id);
         const resolvedNames = pairs.map((p) => p.name);
         const handler = typeof options.onTake === 'function' ? options.onTake : null;
@@ -258,6 +280,21 @@ async function mountNextActionCard() {
     if (!container) return;
     let nextIntake = null;
     try {
+        // Kick off a refresh so the card reflects mutations that just
+        // invalidated `next_intake` (save / delete / archive from Schedule).
+        // Reading the cache afterwards lets a concurrent invalidation win
+        // over an already-inflight stale fetch — matches the pattern
+        // renderNextIntakeTrigger uses on the History tab.
+        if (window.DataStore && typeof window.DataStore.fetchFresh === 'function'
+            && typeof fetchNextIntakePayload === 'function') {
+            try {
+                await window.DataStore.fetchFresh(
+                    'next_intake',
+                    fetchNextIntakePayload,
+                    ['history', 'medications']
+                );
+            } catch (_) { /* offline / fetch failed — fall back to cached value */ }
+        }
         if (window.DataStore && typeof window.DataStore.getCached === 'function') {
             nextIntake = await window.DataStore.getCached('next_intake');
         }
@@ -896,12 +933,22 @@ function renderInventory() {
 }
 
 async function loadInventory() {
-    // Reuse the same `medications` cache the schedule tab populates. If the
-    // user lands on Inventory first we still need to populate it, so fall
-    // back to loadMeds() when the list is empty.
+    // Render eagerly from whatever's in memory or the DataStore cache so the
+    // Inventory pane is never blank while loadMeds() is awaiting its network
+    // refresh. loadSWR does not resolve until fetchFresh completes, and its
+    // onCached handler only repaints the Schedule tab — without this
+    // pre-render the Inventory list would stay empty on a slow/offline first
+    // open even when cached medications are already available.
     if (!Array.isArray(medications) || medications.length === 0) {
-        await loadMeds();
+        const cached = window.DataStore ? await window.DataStore.getCached('medications') : null;
+        if (Array.isArray(cached)) {
+            medications = cached;
+        }
     }
+    renderInventory();
+    // Fall through to a full refresh so the pane picks up mutations from
+    // polling / another device (DataStore cache may be stale).
+    await loadMeds();
     renderInventory();
 }
 
