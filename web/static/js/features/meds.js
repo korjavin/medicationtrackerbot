@@ -6,6 +6,58 @@
 // _archiveMedApi, editingMedId, medications, initialAuthLoad, etc.) that
 // remain in app.js.
 
+// Sub-tab state (Phase 5, Task 2). Mirrors the `mt-food-subtab` pattern —
+// one of three values (`schedule`, `history`, `inventory`), persisted to
+// localStorage so the user's choice survives reload. The default is
+// `schedule` (distinct from the paper-era default of `history`).
+const MEDS_SUBTAB_STORAGE_KEY = 'mt-meds-subtab';
+const MEDS_SUBTAB_OPTIONS = ['schedule', 'history', 'inventory'];
+const MEDS_SUBTAB_DEFAULT = 'schedule';
+
+function getActiveMedsSubTab() {
+    try {
+        const raw = window.localStorage.getItem(MEDS_SUBTAB_STORAGE_KEY);
+        if (MEDS_SUBTAB_OPTIONS.indexOf(raw) !== -1) return raw;
+    } catch (_) { /* ignore */ }
+    return MEDS_SUBTAB_DEFAULT;
+}
+
+function setActiveMedsSubTab(tab) {
+    if (MEDS_SUBTAB_OPTIONS.indexOf(tab) === -1) return;
+    try { window.localStorage.setItem(MEDS_SUBTAB_STORAGE_KEY, tab); } catch (_) { /* ignore */ }
+}
+
+function syncMedsSubTabActiveClass(activeTab) {
+    const container = document.querySelector('.wg-meds-subtabs');
+    if (!container) return;
+    const buttons = container.querySelectorAll('.med-tab');
+    buttons.forEach((btn) => {
+        const isActive = btn.dataset.tab === activeTab;
+        btn.classList.toggle('wg-gloss--sun', isActive);
+        btn.classList.toggle('wg-meds-subtabs__btn--active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function restoreMedsSubTab() {
+    const tab = getActiveMedsSubTab();
+    syncMedsSubTabActiveClass(tab);
+    if (tab !== MEDS_SUBTAB_DEFAULT && typeof switchMedTab === 'function') {
+        switchMedTab(tab);
+    }
+}
+
+// Apply the stored sub-tab on boot so the Meds view reflects the user's
+// last choice across reloads. DOMContentLoaded guarantees the strip markup
+// exists (the view itself is not visible yet — switchTab('meds') will only
+// activate it later — but the strip classes must already be correct so the
+// strip paints in the right state the first time it becomes visible).
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', restoreMedsSubTab, { once: true });
+} else {
+    restoreMedsSubTab();
+}
+
 function showEditModal(id) {
     editingMedId = id;
     const med = medications.find(m => m.id === id);

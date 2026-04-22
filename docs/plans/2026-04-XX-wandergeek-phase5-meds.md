@@ -102,11 +102,11 @@ No backend changes. The existing `/api/medications`, `/api/intakes`, `/api/medic
 
 ### Task 2: Build the sub-tab strip + subtab state plumbing
 
-- [ ] replace the current `.med-tabs` buttons (History / Schedule) with a `.wg-gloss--inset` container carrying three `.wg-gloss--sun`-capable pills (Schedule / History / Inventory) — active state via class, not inline style
-- [ ] state: which sub-tab is active persists via a new `mt-meds-subtab` localStorage key matching the `mt-bp-range` / `mt-food-subtab` naming pattern
-- [ ] default sub-tab: Schedule (distinct from current default of History, which was the paper-era default)
-- [ ] write `meds.subtabs.test.js` — active-state toggle, persistence across reload, default-tab behavior
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the current `.med-tabs` buttons (History / Schedule) with a `.wg-gloss--inset` container carrying three `.wg-gloss--sun`-capable pills (Schedule / History / Inventory) — active state via class, not inline style
+- [x] state: which sub-tab is active persists via a new `mt-meds-subtab` localStorage key matching the `mt-bp-range` / `mt-food-subtab` naming pattern
+- [x] default sub-tab: Schedule (distinct from current default of History, which was the paper-era default)
+- [x] write `meds.subtabs.test.js` — active-state toggle, persistence across reload, default-tab behavior
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Build the next-action card
 
