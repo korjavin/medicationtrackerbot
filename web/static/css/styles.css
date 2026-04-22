@@ -449,19 +449,6 @@
     --wg-meds-next-intake-pad-y: 6px;
     --wg-meds-next-intake-pad-x: 10px;
 
-    /* Meds inventory status aliases — wrap the --wg-tag-* triplets so the
-       inventory classifier (ok / low / out) picks a token-group name without
-       duplicating tag styles. */
-    --wg-meds-status-ok-bg: var(--wg-tag-normal-bg);
-    --wg-meds-status-ok-fg: var(--wg-tag-normal-fg);
-    --wg-meds-status-ok-border: var(--wg-tag-normal-border);
-    --wg-meds-status-low-bg: var(--wg-tag-high-bg);
-    --wg-meds-status-low-fg: var(--wg-tag-high-fg);
-    --wg-meds-status-low-border: var(--wg-tag-high-border);
-    --wg-meds-status-out-bg: var(--wg-tag-alert-bg);
-    --wg-meds-status-out-fg: var(--wg-tag-alert-fg);
-    --wg-meds-status-out-border: var(--wg-tag-alert-border);
-
     /* Meds inventory sub-tab tokens (Phase 5, Task 6) — card padding and
        gap, dosage / count-label / refilled-row type sizes. The big mono
        count reuses the existing `--wg-meds-inventory-count-size` token. */

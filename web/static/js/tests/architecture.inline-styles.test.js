@@ -49,43 +49,43 @@ const ALLOWED = new Map([
         "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS",
     ],
     [
-        'web/static/js/features/meds.js:82',
+        'web/static/js/features/meds.js:78',
         "pre-Phase-5 show/hide toggle for the RxNorm display row — preserved as-is during the Task 1 extraction from app.js (no-behavior-change extraction); CSS-class migration tracked separately",
     ],
     [
-        'web/static/js/features/meds.js:84',
+        'web/static/js/features/meds.js:80',
         "pre-Phase-5 show/hide toggle for the RxNorm display row — preserved as-is during the Task 1 extraction from app.js (no-behavior-change extraction); CSS-class migration tracked separately",
+    ],
+    [
+        'web/static/js/features/meds.js:93',
+        "pre-Phase-5 show/hide toggle for the restock-section modal block — preserved as-is during the Task 1 extraction from app.js; inventory-fields sibling already uses .hidden class, this row slated for the same migration",
     ],
     [
         'web/static/js/features/meds.js:97',
         "pre-Phase-5 show/hide toggle for the restock-section modal block — preserved as-is during the Task 1 extraction from app.js; inventory-fields sibling already uses .hidden class, this row slated for the same migration",
     ],
     [
-        'web/static/js/features/meds.js:101',
-        "pre-Phase-5 show/hide toggle for the restock-section modal block — preserved as-is during the Task 1 extraction from app.js; inventory-fields sibling already uses .hidden class, this row slated for the same migration",
-    ],
-    [
-        'web/static/js/features/meds.js:1125',
+        'web/static/js/features/meds.js:1128',
         "pre-Phase-5 show/hide toggle in showMedicationConfirmModal (edit/log_past branch) — preserved as-is during the Task 1 extraction; modal is a paper-era structure not rewritten in Phase 5",
     ],
     [
-        'web/static/js/features/meds.js:1136',
+        'web/static/js/features/meds.js:1139',
         "pre-Phase-5 show/hide toggle for the snooze button in edit/log_past mode — preserved as-is during the Task 1 extraction; modal is a paper-era structure not rewritten in Phase 5",
     ],
     [
-        'web/static/js/features/meds.js:1142',
+        'web/static/js/features/meds.js:1145',
         "pre-Phase-5 show/hide toggle in showMedicationConfirmModal (confirm branch) — preserved as-is during the Task 1 extraction; modal is a paper-era structure not rewritten in Phase 5",
     ],
     [
-        'web/static/js/features/meds.js:1154',
+        'web/static/js/features/meds.js:1157',
         "pre-Phase-5 show/hide toggle for the snooze button in confirm mode — preserved as-is during the Task 1 extraction; modal is a paper-era structure not rewritten in Phase 5",
     ],
     [
-        'web/static/js/features/meds.js:1159',
+        'web/static/js/features/meds.js:1162',
         "pre-Phase-5 show/hide toggle for the skip button in confirm mode — preserved as-is during the Task 1 extraction; modal is a paper-era structure not rewritten in Phase 5",
     ],
     [
-        'web/static/js/features/meds.js:1167',
+        'web/static/js/features/meds.js:1170',
         "pre-Phase-5 show/hide toggle for the skip button in non-confirm mode — preserved as-is during the Task 1 extraction; modal is a paper-era structure not rewritten in Phase 5",
     ],
 ]);
