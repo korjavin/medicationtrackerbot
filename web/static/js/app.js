@@ -807,8 +807,7 @@ document.getElementById('weight-reminders-toggle').addEventListener('change', as
 navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', event => {
     if (event.data.type === 'MEDICATION_CONFIRMED') {
         // Reload data if visible
-        loadMeds();
-        loadHistory();
+        refreshMedsAfterMutation();
     } else if (event.data.type === 'BOOTSTRAP_UPDATED' && event.data.data) {
         // Fresh bootstrap data arrived from SW background revalidation
         applyBootstrapPayload(event.data.data).then(() => {
@@ -1758,6 +1757,9 @@ function reloadCurrentTab() {
         const activeMedTab = document.querySelector('.med-tab.active');
         const medTab = activeMedTab ? activeMedTab.dataset.tab : 'schedule';
         if (medTab === 'history') { loadHistory(); }
+        else if (medTab === 'inventory') {
+            if (typeof loadInventory === 'function') loadInventory();
+        }
         else { loadMeds(); }
     } else if (tab === 'bp') { loadBPReadings(); }
     else if (tab === 'weight') { loadWeightLogs(); }
@@ -1774,6 +1776,25 @@ function reloadCurrentTab() {
 
 // Expose for sync manager
 window.reloadCurrentTab = reloadCurrentTab;
+
+// Refresh the meds view siblings after a mutation (confirm/skip/edit/log-past).
+// loadMeds refreshes the schedule data and the `medications` array; loadHistory
+// refreshes the history list. Inventory is re-rendered (after loadMeds resolves)
+// only when it's the active sub-tab, so stock counts stay correct without
+// burning the per-med last-refilled fetch when off-screen.
+function refreshMedsAfterMutation() {
+    const medsPromise = typeof loadMeds === 'function' ? loadMeds() : null;
+    if (typeof loadHistory === 'function') loadHistory();
+    if (medsPromise && typeof medsPromise.then === 'function') {
+        medsPromise.then(() => {
+            const activeMedTab = document.querySelector('.med-tab.active');
+            if (activeMedTab && activeMedTab.dataset.tab === 'inventory' &&
+                typeof renderInventory === 'function') {
+                renderInventory();
+            }
+        });
+    }
+}
 
 
 function showAddModal() {
@@ -2332,8 +2353,7 @@ async function confirmSelectedMedications() {
 
         if (res) {
             safeAlert("Confirmed!");
-            loadMeds();
-            loadHistory();
+            refreshMedsAfterMutation();
         }
 
         closeMedicationConfirmModal();
@@ -2383,8 +2403,7 @@ async function skipSelectedMedications() {
             }
         }
 
-        loadMeds();
-        loadHistory();
+        refreshMedsAfterMutation();
         if (!hasErrors) {
             safeAlert("Skipped!");
         } else {
@@ -2445,8 +2464,7 @@ async function updateIntakeHistory() {
         const res = await apiCall('/api/intakes/update', 'POST', { updates });
         if (res) { // status 200 assumed
             safeAlert("Updated!");
-            loadMeds(); // Stocks might change
-            loadHistory();
+            refreshMedsAfterMutation();
         }
         closeMedicationConfirmModal();
     });

@@ -41,9 +41,13 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         const { window, document } = env;
         const now = new Date();
         // Two meds in the same hour bucket (~+1h) and a third in a later bucket (~+4h).
+        // Anchor minutes to :05 so `alsoInOneHour` (+12min → :17) never spills
+        // into the next hour regardless of the wall-clock minute when the
+        // test runs.
         const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
+        inOneHour.setMinutes(5, 0, 0);
         const alsoInOneHour = new Date(inOneHour.getTime() + 12 * 60 * 1000); // same hour
-        const fourHoursOut = new Date(now.getTime() + 4 * 60 * 60 * 1000);
+        const fourHoursOut = new Date(inOneHour.getTime() + 3 * 60 * 60 * 1000);
 
         await seedMedications(window, [
             {

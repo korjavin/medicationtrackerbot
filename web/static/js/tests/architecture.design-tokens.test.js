@@ -422,19 +422,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-meds-next-intake-pad-y',
     '--wg-meds-next-intake-pad-x',
 
-    // Meds inventory status aliases — wrap the --wg-tag-* triplets so the
-    // inventory classifier (ok / low / out) picks a token-group name without
-    // duplicating tag styles.
-    '--wg-meds-status-ok-bg',
-    '--wg-meds-status-ok-fg',
-    '--wg-meds-status-ok-border',
-    '--wg-meds-status-low-bg',
-    '--wg-meds-status-low-fg',
-    '--wg-meds-status-low-border',
-    '--wg-meds-status-out-bg',
-    '--wg-meds-status-out-fg',
-    '--wg-meds-status-out-border',
-
     // Meds inventory sub-tab tokens (Phase 5, Task 6) — card padding and
     // gap, dosage / count-label / refilled-row type sizes, refill input gap.
     '--wg-meds-inventory-card-pad',

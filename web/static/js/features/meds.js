@@ -40,18 +40,14 @@ function syncMedsSubTabActiveClass(activeTab) {
 }
 
 function restoreMedsSubTab() {
-    const tab = getActiveMedsSubTab();
-    syncMedsSubTabActiveClass(tab);
-    if (tab !== MEDS_SUBTAB_DEFAULT && typeof switchMedTab === 'function') {
-        switchMedTab(tab);
-    }
+    syncMedsSubTabActiveClass(getActiveMedsSubTab());
 }
 
-// Apply the stored sub-tab on boot so the Meds view reflects the user's
-// last choice across reloads. DOMContentLoaded guarantees the strip markup
-// exists (the view itself is not visible yet — switchTab('meds') will only
-// activate it later — but the strip classes must already be correct so the
-// strip paints in the right state the first time it becomes visible).
+// On boot, sync the pill-strip active classes to the stored sub-tab so the
+// strip paints in the right state the first time the Meds view is shown.
+// Data loads are deferred to switchTab('meds'), which calls switchMedTab with
+// the stored tab — firing a load before auth finishes would race with the
+// bootstrap and emit spurious 401s.
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', restoreMedsSubTab, { once: true });
 } else {
@@ -591,7 +587,6 @@ function _buildHistoryClusterRow(cluster, medsList) {
             showMedicationConfirmModal(ids, names, time, mode, intakeIds);
         };
         row.onclick = clickHandler;
-        row._historyClickHandler = clickHandler;
     }
 
     const main = document.createElement('div');
@@ -821,22 +816,27 @@ function _buildInventoryCard(med) {
         input.value = '';
     });
 
-    confirmBtn.addEventListener('click', async () => {
+    confirmBtn.addEventListener('click', () => {
         const qty = parseInt(input.value, 10);
         if (!qty || qty <= 0) {
             safeAlert('Please enter a valid quantity');
             return;
         }
-        const res = await apiCall(`/api/medications/${med.id}/restock`, 'POST', { quantity: qty });
-        if (!res) return;
-        // Update local medications list so the next render reflects the new
-        // count without waiting for a full SWR refresh.
-        if (typeof res.inventory_count === 'number') {
-            const m = medications.find((x) => x.id === med.id);
-            if (m) m.inventory_count = res.inventory_count;
-        }
-        await window.DataStore.invalidateTags(['medications']);
-        renderInventory();
+        // withSubmit disables the button for the duration of the request so a
+        // rapid second tap can't fire a duplicate /restock POST (which would
+        // double-increment inventory).
+        withSubmit(confirmBtn, async () => {
+            const res = await apiCall(`/api/medications/${med.id}/restock`, 'POST', { quantity: qty });
+            if (!res) return;
+            // Update local medications list so the next render reflects the
+            // new count without waiting for a full SWR refresh.
+            if (typeof res.inventory_count === 'number') {
+                const m = medications.find((x) => x.id === med.id);
+                if (m) m.inventory_count = res.inventory_count;
+            }
+            await window.DataStore.invalidateTags(['medications']);
+            renderInventory();
+        });
     });
 
     return card;
@@ -864,8 +864,11 @@ function renderInventory() {
         const card = _buildInventoryCard(med);
         list.appendChild(card);
         // Kick off the last-refilled fetch; fill the row in-place when it
-        // resolves so the rest of the card paints immediately.
+        // resolves so the rest of the card paints immediately. If the card
+        // has been detached (e.g. another render supplanted it), drop the
+        // update — its querySelector would silently target a stale node.
         _fetchLastRefilledAt(med.id).then((iso) => {
+            if (!card.isConnected) return;
             const row = card.querySelector('.wg-meds-inventory__refilled');
             if (!row) return;
             const formatted = _formatRestockedDate(iso);
@@ -999,7 +1002,7 @@ async function saveMedication() {
     const inventoryCountRaw = document.getElementById('med-inventory-count').value;
     let inventoryCount = null;
     if (trackInventory && inventoryCountRaw !== '') {
-        inventoryCount = parseInt(inventoryCountRaw);
+        inventoryCount = parseInt(inventoryCountRaw, 10);
     }
 
     if (!name) { safeAlert("Name is required!"); return; }

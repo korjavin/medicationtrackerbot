@@ -10,6 +10,8 @@
 | PATCH | `/api/medications/:id` | Update medication |
 | POST | `/api/medications/confirm-schedule` | Confirm dose intake |
 | POST | `/api/medications/log-past` | Log a past intake (returns full `IntakeLog`; routed through `MedicationService.LogMedicationAt`) |
+| POST | `/api/medications/{id}/restock` | Record a restock (increments `inventory_count`, returns updated medication) |
+| GET | `/api/medications/{id}/restocks` | List restock history for a medication (newest first) |
 | GET | `/api/history` | Intake history (filter by `days`, `med_id`) |
 | GET | `/api/medications/next-intake` | Next scheduled dose |
 | GET | `/api/bp` | BP readings |
