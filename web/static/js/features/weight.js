@@ -645,55 +645,220 @@ async function _renderWeightData(logsRes, goalRes) {
     renderWeightChart(allLogs, goalData);
 }
 
+// Render weight logs grouped by day as Wandergeek gloss cards (Phase 6, Task 5).
+// Mirrors renderBPReadings: each group is a .wg-weight-history__group <li>
+// with a .wg-section-label header and a list of .wg-card rows. Offline +
+// rejected states surface as .wg-tag--mono variants. Each row carries a
+// trailing .wg-icon-btn cluster (edit + delete).
 function renderWeightLogs(logs) {
     const list = document.getElementById('weight-list');
+    if (!list) return;
     list.replaceChildren();
+    list.classList.add('wg-weight-history');
 
     if (!logs || logs.length === 0) {
         return;
     }
 
-    // Limit to 30 most recent
-    if (logs.length > 30) {
-        logs = logs.slice(0, 30);
+    // Limit to 30 most recent entries for the history panel.
+    const capped = logs.length > 30 ? logs.slice(0, 30) : logs;
+
+    const groups = groupWeightLogsByDay(capped);
+    groups.forEach((group) => {
+        const groupItem = buildWeightHistoryGroup(group.label, group.logs);
+        if (groupItem) list.appendChild(groupItem);
+    });
+}
+
+function groupWeightLogsByDay(logs) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const buckets = new Map();
+    const ensureBucket = (key, label, sortKey) => {
+        if (!buckets.has(key)) buckets.set(key, { label, sortKey, logs: [] });
+        return buckets.get(key);
+    };
+
+    logs.forEach((w) => {
+        const d = new Date(w.measured_at);
+        if (!Number.isFinite(d.getTime())) return;
+        const dayStart = new Date(d);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayMs = dayStart.getTime();
+
+        let key;
+        let label;
+        if (dayMs === today.getTime()) {
+            key = 'today';
+            label = 'Today';
+        } else if (dayMs === yesterday.getTime()) {
+            key = 'yesterday';
+            label = 'Yesterday';
+        } else {
+            key = String(dayMs);
+            label = dayStart.toLocaleDateString(undefined, {
+                day: '2-digit', month: '2-digit', year: 'numeric'
+            });
+        }
+        ensureBucket(key, label, dayMs).logs.push(w);
+    });
+
+    return Array.from(buckets.values()).sort((a, b) => b.sortKey - a.sortKey);
+}
+
+function buildWeightHistoryGroup(label, logs) {
+    if (!logs || logs.length === 0) return null;
+
+    const sorted = [...logs].sort(
+        (a, b) => new Date(b.measured_at) - new Date(a.measured_at)
+    );
+
+    const groupItem = document.createElement('li');
+    groupItem.className = 'wg-weight-history__group';
+
+    const header = document.createElement('div');
+    header.className = 'wg-section-label wg-weight-history__group-label';
+    const headerText = document.createElement('span');
+    headerText.textContent = label;
+    header.appendChild(headerText);
+    groupItem.appendChild(header);
+
+    const rowList = document.createElement('ul');
+    rowList.className = 'list-reset wg-weight-history__rows';
+    sorted.forEach((w) => rowList.appendChild(buildWeightHistoryRow(w)));
+    groupItem.appendChild(rowList);
+
+    return groupItem;
+}
+
+function buildWeightHistoryRow(log) {
+    const item = document.createElement('li');
+    item.className = 'wg-card wg-weight-history-row';
+    if (log.isLocal) item.classList.add('wg-weight-history-row--pending');
+    if (log.isRejected) item.classList.add('wg-weight-history-row--rejected');
+    item.setAttribute('data-weight-id', String(log.id));
+
+    const body = document.createElement('div');
+    body.className = 'wg-weight-history-row__body';
+
+    const value = document.createElement('div');
+    value.className = 'wg-mono-display wg-weight-history-row__value';
+    const weightSpan = document.createElement('span');
+    weightSpan.className = 'wg-weight-history-row__weight';
+    const weightNum = Number(log.weight);
+    weightSpan.textContent = Number.isFinite(weightNum) ? weightNum.toFixed(1) : '—';
+    const unitSpan = document.createElement('span');
+    unitSpan.className = 'wg-weight-history-row__unit';
+    unitSpan.textContent = 'kg';
+    value.appendChild(weightSpan);
+    value.appendChild(unitSpan);
+    body.appendChild(value);
+
+    const meta = document.createElement('div');
+    meta.className = 'wg-weight-history-row__meta';
+
+    const [, timeStr = ''] = formatDate(log.measured_at).split(' ');
+    if (timeStr) {
+        const time = document.createElement('span');
+        time.className = 'wg-weight-history-row__time';
+        time.textContent = timeStr;
+        meta.appendChild(time);
     }
 
-    logs.forEach(w => {
-        const dateStr = formatDate(w.measured_at);
-        const trendDiff = w.weight_trend ? (w.weight - w.weight_trend).toFixed(1) : '0.0';
-        const trendIcon = trendDiff > 0 ? '📈' : (trendDiff < 0 ? '📉' : '➡️');
-        const pendingClass = w.isLocal ? ' pending-sync' : '';
-        const listItem = document.createElement('li');
-        listItem.className = `weight-item${pendingClass}`;
+    if (log.isRejected) {
+        meta.appendChild(buildWeightSyncTag('rejected', 'Failed', log.errorMessage));
+    } else if (log.isLocal) {
+        meta.appendChild(buildWeightSyncTag('pending', 'Pending'));
+    }
 
-        const data = document.createElement('div');
-        data.className = 'weight-data';
+    body.appendChild(meta);
+    item.appendChild(body);
 
-        const value = document.createElement('div');
-        value.className = 'weight-value';
-        value.appendChild(document.createTextNode(`${w.weight.toFixed(1)} kg `));
-        if (w.isRejected) {
-            value.appendChild(createSyncRejectedBadge(w.errorMessage));
-        } else if (w.isLocal) {
-            value.appendChild(createSyncBadge());
+    const actions = document.createElement('div');
+    actions.className = 'wg-weight-history-row__actions';
+    actions.appendChild(buildWeightRowEditButton(log));
+    actions.appendChild(buildWeightRowDeleteButton(log));
+    item.appendChild(actions);
+
+    return item;
+}
+
+function buildWeightSyncTag(kind, label, tooltip) {
+    const tag = document.createElement('span');
+    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-weight-history-row__sync`;
+    tag.textContent = label;
+    if (tooltip) tag.title = tooltip;
+    return tag;
+}
+
+function buildWeightRowEditButton(log) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-icon-btn wg-weight-history-row__edit';
+    btn.setAttribute('aria-label', 'Edit weight');
+
+    const gloss = document.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg('pencil', { size: 16 }));
+    }
+    btn.appendChild(gloss);
+
+    btn.addEventListener('click', () => {
+        if (typeof window.editWeightLog === 'function') {
+            window.editWeightLog(log);
         }
-
-        const trend = document.createElement('div');
-        trend.className = 'weight-trend';
-        trend.textContent = `${trendIcon} Trend: ${w.weight_trend ? w.weight_trend.toFixed(1) : w.weight.toFixed(1)} kg`;
-
-        const meta = document.createElement('div');
-        meta.className = 'weight-meta';
-        meta.textContent = dateStr;
-
-        data.appendChild(value);
-        data.appendChild(trend);
-        data.appendChild(meta);
-
-        listItem.appendChild(data);
-        listItem.appendChild(createDeleteButton(() => deleteWeightLog(String(w.id))));
-        list.appendChild(listItem);
     });
+    return btn;
+}
+
+function buildWeightRowDeleteButton(log) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-icon-btn wg-weight-history-row__delete';
+    btn.setAttribute('aria-label', 'Delete weight');
+
+    const gloss = document.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg('trash', { size: 16 }));
+    }
+    btn.appendChild(gloss);
+
+    btn.addEventListener('click', () => deleteWeightLog(String(log.id)));
+    return btn;
+}
+
+// Edit a weight log — prefill the existing weight modal with the selected
+// log's values and open it. The save path (handleWeightSubmit) currently
+// POSTs a new entry; Phase 6 Task 6 will extend the modal to support edit
+// semantics. This stub wires the edit-button UX now so the history list is
+// fully interactive without requiring the modal rewrite.
+function editWeightLog(log) {
+    if (!log) return;
+    if (typeof window.showWeightModal === 'function') {
+        window.showWeightModal();
+    }
+    const valueInput = document.getElementById('weight-value');
+    const dtInput = document.getElementById('weight-datetime');
+    const notesInput = document.getElementById('weight-notes');
+    const weightNum = Number(log.weight);
+    if (valueInput && Number.isFinite(weightNum)) {
+        valueInput.value = weightNum.toFixed(1);
+    }
+    if (dtInput && log.measured_at) {
+        const d = new Date(log.measured_at);
+        if (Number.isFinite(d.getTime())) {
+            const pad = (n) => String(n).padStart(2, '0');
+            dtInput.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+    }
+    if (notesInput) {
+        notesInput.value = typeof log.notes === 'string' ? log.notes : '';
+    }
 }
 
 async function deleteWeightLog(id) {

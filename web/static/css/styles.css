@@ -4980,6 +4980,108 @@ textarea.wg-input {
     border-radius: var(--wg-radius-card);
 }
 
+/* Weight history list (Phase 6, Task 5). Day-grouped gloss cards with a
+   mono weight value, ISO-local time, optional sync badge, and a trailing
+   edit/delete icon-button cluster. Mirrors the .wg-bp-history structure. */
+.wg-weight-history {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.wg-weight-history__group {
+    list-style: none;
+    margin-bottom: var(--space-md);
+}
+
+.wg-weight-history__group-label {
+    padding-top: var(--wg-section-label-pad-top);
+    padding-bottom: var(--space-sm);
+    font-size: var(--wg-weight-history-day-size);
+}
+
+.wg-weight-history__rows {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-weight-history-row {
+    padding: var(--wg-weight-history-row-pad);
+    display: grid;
+    grid-template-columns: var(--wg-weight-history-row-cols);
+    gap: var(--wg-weight-history-row-gap);
+    align-items: center;
+}
+
+.wg-weight-history-row__body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-weight-history-row__value {
+    font-size: var(--wg-weight-history-weight-size);
+    line-height: 1.1;
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-xs);
+}
+
+.wg-weight-history-row__unit {
+    font-size: var(--wg-weight-history-time-size);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--wg-fg-4);
+}
+
+.wg-weight-history-row__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: var(--font-size-xs);
+}
+
+.wg-weight-history-row__time {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-weight-history-time-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
+}
+
+.wg-weight-history-row__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+/* Full-width Add-weight CTA (Phase 6, Task 5). Sits at the bottom of the
+   weight view in place of the paper-era FAB. Uses the shared .wg-gloss
+   primitive with the sun modifier; width + padding come from tokens. */
+.wg-weight-add-cta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    width: 100%;
+    min-height: 44px;
+    margin-top: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-weight: var(--font-weight-bold);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-weight-add-cta__label {
+    font-size: var(--font-size-md);
+    letter-spacing: 0.02em;
+}
+
 /* BP screen — current-reading card, range selector, chart card (Phase 3, Task 3).
    The current-reading card shows a 44px mono sys/dia display, a status tag via
    --wg-bp-status-* aliases, an optional pulse sparkline, and a kicker label.
