@@ -390,6 +390,35 @@ const WANDERGEEK_TOKENS = [
     '--wg-food-macro-protein',
     '--wg-food-macro-carbs',
     '--wg-food-macro-fat',
+
+    // Meds screen tokens (Phase 5, Task 1) — next-action card pad/type,
+    // hour header, schedule row layout, inventory count display, sub-tab strip.
+    '--wg-meds-next-card-pad',
+    '--wg-meds-next-subtitle-size',
+    '--wg-meds-next-names-size',
+    '--wg-meds-hour-header-size',
+    '--wg-meds-row-cols',
+    '--wg-meds-row-gap',
+    '--wg-meds-row-pad',
+    '--wg-meds-name-size',
+    '--wg-meds-dosage-size',
+    '--wg-meds-inventory-count-size',
+    '--wg-meds-subtab-pad-y',
+    '--wg-meds-subtab-pad-x',
+    '--wg-meds-subtab-gap',
+
+    // Meds inventory status aliases — wrap the --wg-tag-* triplets so the
+    // inventory classifier (ok / low / out) picks a token-group name without
+    // duplicating tag styles.
+    '--wg-meds-status-ok-bg',
+    '--wg-meds-status-ok-fg',
+    '--wg-meds-status-ok-border',
+    '--wg-meds-status-low-bg',
+    '--wg-meds-status-low-fg',
+    '--wg-meds-status-low-border',
+    '--wg-meds-status-out-bg',
+    '--wg-meds-status-out-fg',
+    '--wg-meds-status-out-border',
 ];
 
 describe('Architecture – design tokens', () => {
