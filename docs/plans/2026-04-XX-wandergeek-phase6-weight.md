@@ -99,12 +99,12 @@ No backend changes. The existing `/api/weight*` endpoints, Dexie offline queue (
 
 ### Task 3: Rewrite the current-weight + goal cards
 
-- [ ] replace the current stats block with a `.wg-weight-current-card` — `.wg-mono-display` kilo value, small uppercase "kg" suffix, trend arrow (↓/↑/→) + delta mono, small section-label timestamp subtitle
-- [ ] trend classifier: compare latest entry vs. previous entry; variant flips based on goal direction (`lose` → down-is-sun, `gain` → up-is-sun)
-- [ ] goal card renders only when a goal exists — `.wg-card--inset` row with goal mono, progress bar (reuse `WGMacroBar` if token overlap permits; otherwise a simple `.wg-gloss--inset` track), and a muted "Δ kg to goal" label
-- [ ] empty state (no weight entries yet) renders a single muted card: "No weight logged yet — add your first entry."
-- [ ] write `weight.current-card.test.js` — trend direction + color variant for lose/gain goals, goal card visibility, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the current stats block with a `.wg-weight-current-card` — `.wg-mono-display` kilo value, small uppercase "kg" suffix, trend arrow (↓/↑/→) + delta mono, small section-label timestamp subtitle
+- [x] trend classifier: compare latest entry vs. previous entry; variant flips based on goal direction (`lose` → down-is-sun, `gain` → up-is-sun)
+- [x] goal card renders only when a goal exists — `.wg-card--inset` row with goal mono, progress bar (reuse `WGMacroBar` if token overlap permits; otherwise a simple `.wg-gloss--inset` track), and a muted "Δ kg to goal" label
+- [x] empty state (no weight entries yet) renders a single muted card: "No weight logged yet — add your first entry."
+- [x] write `weight.current-card.test.js` — trend direction + color variant for lose/gain goals, goal card visibility, empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Rewrite the range selector + chart panel
 

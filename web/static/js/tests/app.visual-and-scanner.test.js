@@ -236,15 +236,16 @@ describe('app.js charts, scanner and visualization helpers', () => {
 
       window.renderWeightChart(logs, goalData);
       expect(weightChart.querySelector('svg')).toBeTruthy();
-      expect(document.getElementById('weight-stats').innerHTML).toContain('Trend:');
-      expect(document.querySelectorAll('#weight-stats .weight-stat-item').length).toBeGreaterThan(2);
 
-      window.renderWeightStats({
-        trendWeight: 80.5,
-        weeklyRate: undefined,
-        forecastDate: null
-      });
-      expect(document.getElementById('weight-stats').textContent).toContain('Forecast: Unknown');
+      // Wandergeek Phase 6: the paper-era #weight-stats block is replaced by a
+      // pair of cards (#weight-current-card + #weight-goal-card). Each is
+      // covered by weight.current-card.test.js; here we just sanity-check the
+      // render path wires up without throwing.
+      window.renderWeightCurrentCard(logs, goalData);
+      expect(document.querySelector('#weight-current-card.wg-weight-current-card')).toBeTruthy();
+      expect(document.querySelector('#weight-current-card .wg-mono-display')).toBeTruthy();
+      window.renderWeightGoalCard(logs, goalData);
+      expect(document.querySelector('#weight-goal-card.wg-weight-goal-card')).toBeTruthy();
 
       const tsBase = Date.now() - (24 * 60 * 60 * 1000);
       window.renderVitalsLineChart('heartRateChart', [

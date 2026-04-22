@@ -4827,6 +4827,132 @@ textarea.wg-input {
     stroke-width: var(--wg-weight-chart-last-stroke-width);
 }
 
+/* Weight current-reading + goal cards (Phase 6, Task 3). The current-reading
+   card shows a big mono kilo readout with a small "kg" suffix, a trend tag
+   ("↓ −0.6 kg" / "↑ +0.4 kg" / "→ 0.0 kg") whose colour flips via
+   --wg-weight-trend-{good,bad,flat}-* aliases against the user's goal
+   direction, and a kicker timestamp. The goal card renders only when a goal
+   exists; it carries a mono target, a gloss-inset progress track with a
+   --fill-pct width driven by goalData progress, and a muted "Δ kg to goal"
+   label. */
+.wg-weight-current-card {
+    padding: var(--wg-weight-current-card-pad);
+    margin-bottom: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-weight-current-card__empty {
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-4);
+}
+
+.wg-weight-current-card__kicker {
+    padding: 0;
+}
+
+.wg-weight-current-card__value {
+    font-size: var(--wg-weight-current-value-size);
+    line-height: 1;
+    color: var(--wg-fg-1);
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-xs);
+}
+
+.wg-weight-current-card__unit {
+    font-size: var(--wg-weight-current-unit-size);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--wg-fg-4);
+}
+
+.wg-weight-current-card__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.wg-weight-trend {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-weight-trend-size);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 3px var(--space-sm);
+    border-radius: var(--radius-pill);
+    border: 1px solid transparent;
+}
+
+.wg-weight-trend__arrow {
+    font-size: var(--wg-weight-trend-icon-size);
+    line-height: 1;
+}
+
+.wg-weight-trend--good {
+    background: var(--wg-weight-trend-good-bg);
+    color: var(--wg-weight-trend-good-fg);
+    border-color: var(--wg-weight-trend-good-border);
+}
+
+.wg-weight-trend--bad {
+    background: var(--wg-weight-trend-bad-bg);
+    color: var(--wg-weight-trend-bad-fg);
+    border-color: var(--wg-weight-trend-bad-border);
+}
+
+.wg-weight-trend--flat {
+    background: var(--wg-weight-trend-flat-bg);
+    color: var(--wg-weight-trend-flat-fg);
+    border-color: var(--wg-weight-trend-flat-border);
+}
+
+.wg-weight-goal-card {
+    padding: var(--wg-weight-goal-card-pad);
+    margin-bottom: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-weight-goal-card[hidden] {
+    display: none;
+}
+
+.wg-weight-goal-card__label {
+    padding: 0;
+}
+
+.wg-weight-goal-card__value {
+    font-size: var(--wg-weight-goal-value-size);
+    line-height: 1;
+    color: var(--wg-fg-1);
+}
+
+.wg-weight-goal-card__track {
+    position: relative;
+    height: var(--wg-weight-goal-bar-height);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+}
+
+.wg-weight-goal-card__fill {
+    height: 100%;
+    width: var(--fill-pct, 0%);
+    background: var(--wg-sun);
+    border-radius: inherit;
+    transition: width 0.4s ease;
+}
+
+.wg-weight-goal-card__delta {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-weight-goal-delta-size);
+}
+
 /* BP screen — current-reading card, range selector, chart card (Phase 3, Task 3).
    The current-reading card shows a 44px mono sys/dia display, a status tag via
    --wg-bp-status-* aliases, an optional pulse sparkline, and a kicker label.
