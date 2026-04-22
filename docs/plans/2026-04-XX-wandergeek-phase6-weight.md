@@ -90,12 +90,12 @@ No backend changes. The existing `/api/weight*` endpoints, Dexie offline queue (
 
 ### Task 2: Build the `WGWeightChart` component
 
-- [ ] create `web/static/js/components/wg-weight-chart.js` exposing `WGWeightChart.render({ logs, range, goal })` returning a DOM element
-- [ ] mirror `WGBpChart` structure — SVG canvas, axis + grid rendering, line plot (single-series, not two), goal-line overlay when a goal is set
-- [ ] colors + stroke widths come from `--wg-weight-*` tokens via CSS classes — no inline `style=` / hardcoded hex (canvas/SVG attribute values count as styling here; prefer CSS custom properties piped into `stroke`/`fill` attributes)
-- [ ] register `window.WGWeightChart` in `architecture.globals.test.js` with a one-line justification
-- [ ] write `components.wg-weight-chart.test.js` — range filter applied, goal line rendered when goal present / hidden when absent, empty-state card when no logs, axis tick count sane for short + long ranges
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-weight-chart.js` exposing `WGWeightChart.render({ logs, range, goal })` returning a DOM element
+- [x] mirror `WGBpChart` structure — SVG canvas, axis + grid rendering, line plot (single-series, not two), goal-line overlay when a goal is set
+- [x] colors + stroke widths come from `--wg-weight-*` tokens via CSS classes — no inline `style=` / hardcoded hex (canvas/SVG attribute values count as styling here; prefer CSS custom properties piped into `stroke`/`fill` attributes)
+- [x] register `window.WGWeightChart` in `architecture.globals.test.js` with a one-line justification
+- [x] write `components.wg-weight-chart.test.js` — range filter applied, goal line rendered when goal present / hidden when absent, empty-state card when no logs, axis tick count sane for short + long ranges
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Rewrite the current-weight + goal cards
 
