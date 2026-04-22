@@ -83,10 +83,10 @@ No backend changes. The existing `/api/weight*` endpoints, Dexie offline queue (
 
 ### Task 1: Extend tokens for Weight-specific visual values
 
-- [ ] add `--wg-weight-*` dimensional tokens to `:root` in `styles.css` (current-weight mono display size, trend-arrow size, chart height, range-selector padding, goal-bar height, history-row grid-template-columns) — everything the Weight view needs that isn't already covered by the shared `--wg-*` set
-- [ ] add `--wg-weight-trend-*` semantic aliases wrapping the existing sun / alert / mint tokens so the trend-direction classifier (decrease / increase / flat, relative to goal direction) returns a token-group name without duplicating styles
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] run `pnpm test` — design-tokens test must be green before next task
+- [x] add `--wg-weight-*` dimensional tokens to `:root` in `styles.css` (current-weight mono display size, trend-arrow size, chart height, range-selector padding, goal-bar height, history-row grid-template-columns) — everything the Weight view needs that isn't already covered by the shared `--wg-*` set
+- [x] add `--wg-weight-trend-*` semantic aliases wrapping the existing sun / alert / mint tokens so the trend-direction classifier (decrease / increase / flat, relative to goal direction) returns a token-group name without duplicating styles
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] run `pnpm test` — design-tokens test must be green before next task
 
 ### Task 2: Build the `WGWeightChart` component
 
