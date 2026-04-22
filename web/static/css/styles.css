@@ -4779,6 +4779,54 @@ textarea.wg-input {
     stroke-width: var(--wg-bp-chart-last-stroke-width);
 }
 
+/* Weight chart (Phase 6, Task 2) — single-series line with optional goal
+   overlay. Every stroke/fill resolves via tokens; SVG children carry no
+   inline stroke= / fill= / style= attributes. */
+.wg-weight-chart {
+    display: block;
+    width: 100%;
+    max-width: var(--wg-weight-chart-width);
+    height: auto;
+    margin-inline: auto;
+}
+
+.wg-weight-chart--empty {
+    min-height: var(--wg-weight-chart-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-fg-5);
+    font-size: var(--wg-weight-history-time-size);
+}
+
+.wg-weight-chart__guide {
+    stroke: var(--wg-fg-5);
+    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    fill: none;
+}
+
+.wg-weight-chart__line {
+    fill: none;
+    stroke: var(--wg-mint-soft);
+    stroke-width: var(--wg-weight-chart-line-stroke-width);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.wg-weight-chart__goal {
+    stroke: var(--wg-sun);
+    stroke-width: var(--wg-weight-chart-goal-stroke-width);
+    stroke-dasharray: var(--wg-weight-chart-goal-dasharray);
+    fill: none;
+}
+
+.wg-weight-chart__last {
+    fill: var(--wg-sun);
+    stroke: var(--wg-teal-stage);
+    stroke-width: var(--wg-weight-chart-last-stroke-width);
+}
+
 /* BP screen — current-reading card, range selector, chart card (Phase 3, Task 3).
    The current-reading card shows a 44px mono sys/dia display, a status tag via
    --wg-bp-status-* aliases, an optional pulse sparkline, and a kicker label.
