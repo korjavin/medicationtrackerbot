@@ -96,9 +96,16 @@ function bindFoodControls() {
     const sortBtns = document.querySelectorAll('.fooddb-sort-btn');
     sortBtns.forEach(btn => {
         btn.addEventListener('click', (e) => {
-            sortBtns.forEach(b => b.classList.remove('active'));
-            e.target.classList.add('active');
-            foodDBSort = e.target.dataset.sort;
+            const target = e.currentTarget;
+            sortBtns.forEach(b => {
+                b.classList.remove('active');
+                b.classList.remove('wg-gloss--sun');
+                b.setAttribute('aria-pressed', 'false');
+            });
+            target.classList.add('active');
+            target.classList.add('wg-gloss--sun');
+            target.setAttribute('aria-pressed', 'true');
+            foodDBSort = target.dataset.sort;
             foodDBPage = 0;
             loadFoodDB();
         });
@@ -123,7 +130,6 @@ function bindFoodControls() {
     bindClick('food-period-week-link', () => setFoodStatsPeriod('week'));
     bindClick('food-date-prev-btn', () => shiftFoodDate(-1));
     bindClick('food-date-next-btn', () => shiftFoodDate(1));
-    bindClick('food-today-btn', () => goFoodToday());
     bindClick('food-date-label', () => {
         const dateFilter = document.getElementById('food-date-filter');
         if (dateFilter) {
@@ -857,13 +863,14 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
         const nameSpan = document.createElement('span');
         nameSpan.className = 'autocomplete-item-name';
 
-        let displayText = displayName;
+        let metaText = '';
         if (p.is_meal) {
-            displayText = `🍱 ${displayName} (Meal)`;
-        } else if (p.barcode) {
-            displayText += ` (${p.barcode})`;
+            nameSpan.textContent = `🍱 ${displayName}`;
+            metaText = 'Meal';
+        } else {
+            nameSpan.textContent = displayName;
+            if (p.barcode) metaText = p.barcode;
         }
-        nameSpan.textContent = displayText;
 
         nameSpan.onclick = function () {
             document.getElementById('food-name').value = displayName;
@@ -872,6 +879,14 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
             list.classList.add('hidden');
         };
         item.appendChild(nameSpan);
+
+        if (metaText) {
+            const metaSpan = document.createElement('span');
+            metaSpan.className = 'autocomplete-item-meta';
+            metaSpan.textContent = metaText;
+            metaSpan.onclick = nameSpan.onclick;
+            item.appendChild(metaSpan);
+        }
 
         // Show edit/delete buttons only for user's own food products (id > 0)
         if (p.id && p.id > 0) {
@@ -1194,8 +1209,7 @@ function updateFoodDateNav() {
     const label = document.getElementById('food-date-label');
     const subtitle = document.getElementById('food-date-subtitle');
     const nextBtn = document.getElementById('food-date-next-btn');
-    const todayBtn = document.getElementById('food-today-btn');
-    if (!dateFilter || !label || !nextBtn || !todayBtn) return;
+    if (!dateFilter || !label || !nextBtn) return;
 
     const dateStr = dateFilter.value;
     if (!dateStr) return;
@@ -1209,15 +1223,6 @@ function updateFoodDateNav() {
 
     const isTodayOrFuture = date.getTime() >= today.getTime();
     nextBtn.disabled = isTodayOrFuture;
-    todayBtn.classList.toggle('hidden', isTodayOrFuture);
-}
-
-function goFoodToday() {
-    const dateFilter = document.getElementById('food-date-filter');
-    if (!dateFilter) return;
-    dateFilter.value = toISODateLocal(new Date());
-    loadFoodLogs();
-    updateFoodDateNav();
 }
 
 function shiftFoodDate(deltaDays) {
@@ -1420,6 +1425,33 @@ function setFoodStatsPeriod(period) {
 async function loadFoodLogs() {
     const list = document.getElementById('food-list');
 
+    const period = currentFoodStatsPeriod || 'day';
+    const isDailyPeriod = period !== 'week' && period !== '2weeks';
+
+    // Sync the sticky Add Food dock before the first await so the CTA
+    // state is correct across every async boundary:
+    //  - weekly summaries: clear+hide so a stale daily CTA never lingers
+    //    (e.g. day→week period switch);
+    //  - daily reloads: ensure a CTA is mounted and visible, covering
+    //    fresh Food-tab opens, week→day switches (where the dock was
+    //    emptied and hidden by the previous weekly render), and the
+    //    no-cache API-failure path (where the catch block renders only
+    //    an error message and never re-adds the CTA).
+    // `_renderFoodData()` rebuilds the CTA on every render, so any
+    // preseeded button here is replaced once data arrives.
+    const ctaDock = document.getElementById('food-add-cta-dock');
+    if (ctaDock) {
+        if (!isDailyPeriod) {
+            ctaDock.replaceChildren();
+            ctaDock.classList.add('hidden');
+        } else if (!ctaDock.querySelector('.wg-food-add-cta')) {
+            ctaDock.replaceChildren(renderFoodAddCta());
+            ctaDock.classList.remove('hidden');
+        } else {
+            ctaDock.classList.remove('hidden');
+        }
+    }
+
     // Ensure targets are available even if Settings tab hasn't been opened yet.
     await loadFoodTargets();
 
@@ -1429,8 +1461,6 @@ async function loadFoodLogs() {
         dateStr = toISODateLocal(new Date());
         dateFilter.value = dateStr;
     }
-
-    const period = currentFoodStatsPeriod || 'day';
 
     if (typeof loadMyMeals === 'function') {
         loadMyMeals();
@@ -1453,11 +1483,10 @@ async function loadFoodLogs() {
     // Highlight active sort button
     const sortButtons = document.querySelectorAll('.fooddb-sort-btn');
     sortButtons.forEach(btn => {
-        if (btn.dataset.sort === foodDBSort) {
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('active');
-        }
+        const isActive = btn.dataset.sort === foodDBSort;
+        btn.classList.toggle('active', isActive);
+        btn.classList.toggle('wg-gloss--sun', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     });
 
     // Show cached data immediately (stale-while-revalidate)
@@ -1678,8 +1707,10 @@ function renderFoodAddCta() {
 function _renderFoodData(groups, weekStats, period, dateStr) {
     const list = document.getElementById('food-list');
     const summary = document.getElementById('food-summary');
+    const ctaDock = document.getElementById('food-add-cta-dock');
 
     list.replaceChildren();
+    if (ctaDock) ctaDock.replaceChildren();
     let dayCals = 0, dayCarbs = 0, dayProt = 0, dayFat = 0;
     currentFoodLogs = {};
 
@@ -1704,7 +1735,11 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
     }
 
     if (period !== 'week' && period !== '2weeks') {
-        list.appendChild(renderFoodAddCta());
+        const ctaParent = ctaDock || list;
+        ctaParent.appendChild(renderFoodAddCta());
+        if (ctaDock) ctaDock.classList.remove('hidden');
+    } else if (ctaDock) {
+        ctaDock.classList.add('hidden');
     }
 
     const periodContainer = document.getElementById('food-stats-period-container');
@@ -1884,7 +1919,7 @@ async function loadMyMeals() {
 
     if (meals.length === 0) {
         const p = document.createElement('p');
-        p.className = 'hint';
+        p.className = 'wg-food-db-panel__empty';
         p.textContent = 'You haven\'t created any meals yet.';
         list.appendChild(p);
         return;
@@ -1892,8 +1927,8 @@ async function loadMyMeals() {
 
     meals.forEach(meal => {
         const card = document.createElement('div');
-        card.className = 'food-db-card';
-        
+        card.className = 'wg-card wg-food-db-card';
+
         const mainRow = document.createElement('div');
         mainRow.className = 'food-meal-header';
 
@@ -2161,10 +2196,24 @@ function switchFoodTab(tab) {
 
     syncFoodSubTabActiveClass(tab);
     setActiveFoodSubTab(tab);
+    toggleFoodDayNavVisibility(tab);
 
     if (tab === 'log') { loadFoodLogs(); }
     else if (tab === 'meals') { loadMyMeals(); }
     else if (tab === 'fooddb') { loadFoodDB(); }
+}
+
+function toggleFoodDayNavVisibility(tab) {
+    const nav = document.querySelector('.food-date-nav');
+    const ctaDock = document.getElementById('food-add-cta-dock');
+    const isLog = tab === 'log';
+    const period = currentFoodStatsPeriod || 'day';
+    const isDaily = period !== 'week' && period !== '2weeks';
+    if (nav) nav.classList.toggle('hidden', !isLog);
+    // CTA dock is only valid on the daily log view — weekly summaries have
+    // no Add Food action, so keep the dock hidden when switching back to
+    // the log tab while a weekly period is active.
+    if (ctaDock) ctaDock.classList.toggle('hidden', !isLog || !isDaily);
 }
 
 async function deleteFoodLog(id) {
@@ -2181,7 +2230,7 @@ async function deleteFoodLog(id) {
 
 async function loadFoodDB() {
     const list = document.getElementById('fooddb-list');
-    list.innerHTML = '<p class="hint">Loading products...</p>';
+    list.innerHTML = '<p class="wg-food-db-panel__empty">Loading products...</p>';
 
     const limit = 20;
     const offset = foodDBPage * limit;
@@ -2212,7 +2261,7 @@ async function loadFoodDB() {
         renderFoodDBList(resp.products || [], foodDBTotal);
     } catch (e) {
         console.error('Failed to load food db products', e);
-        list.innerHTML = '<p class="error">Failed to load products</p>';
+        list.innerHTML = '<p class="wg-food-db-panel__empty wg-food-db-panel__empty--error">Failed to load products</p>';
     }
 }
 
@@ -2226,7 +2275,7 @@ function renderFoodDBList(products, total) {
     list.innerHTML = '';
 
     if (products.length === 0) {
-        list.innerHTML = '<p class="hint">No products found.</p>';
+        list.innerHTML = '<p class="wg-food-db-panel__empty">No products found.</p>';
         pagination.classList.toggle('hidden', total <= 0);
         pageInfo.textContent = `Showing 0 of ${total}`;
         prevBtn.disabled = foodDBPage === 0;
@@ -2236,7 +2285,7 @@ function renderFoodDBList(products, total) {
 
     products.forEach(p => {
         const card = document.createElement('div');
-        card.className = 'food-db-card';
+        card.className = 'wg-card wg-food-db-card';
         card.onclick = (e) => {
             if (e.target.tagName !== 'BUTTON') {
                 autofillFoodProduct(p);

@@ -10,6 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 const FIXTURE = [
     {
@@ -245,19 +246,34 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         editSpy.mockRestore();
     });
 
-    it('appends a full-width .wg-gloss--sun Add-food CTA after the last meal group (day period)', () => {
+    it('mounts a full-width .wg-gloss--sun Add-food CTA into the sticky dock (day period)', () => {
         const { window, document } = env;
         window._renderFoodData(FIXTURE, null, 'day', '2026-04-20');
 
-        const list = document.getElementById('food-list');
-        const cta = list.querySelector('.wg-food-add-cta');
+        const dock = document.getElementById('food-add-cta-dock');
+        expect(dock).not.toBeNull();
+        expect(dock.classList.contains('wg-food-cta-dock')).toBe(true);
+        expect(dock.classList.contains('hidden')).toBe(false);
+
+        const cta = dock.querySelector('.wg-food-add-cta');
         expect(cta).not.toBeNull();
         expect(cta.classList.contains('wg-gloss')).toBe(true);
         expect(cta.classList.contains('wg-gloss--sun')).toBe(true);
         expect(cta.textContent).toContain('Add food');
 
-        const lastChild = list.lastElementChild;
-        expect(lastChild).toBe(cta);
+        // CTA must NOT live inside the scrolling #food-list — it lives in
+        // the sibling sticky dock so it stays pinned during scroll.
+        const list = document.getElementById('food-list');
+        expect(list.querySelector('.wg-food-add-cta')).toBeNull();
+    });
+
+    it('CTA dock is a sibling of #food-list inside #food-log-tab', () => {
+        const { document } = env;
+        const dock = document.getElementById('food-add-cta-dock');
+        const list = document.getElementById('food-list');
+        const tab = document.getElementById('food-log-tab');
+        expect(dock.parentElement).toBe(tab);
+        expect(list.parentElement).toBe(tab);
     });
 
     it('Add-food CTA click opens the add-food modal', () => {
@@ -265,28 +281,136 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         window._renderFoodData(FIXTURE, null, 'day', '2026-04-20');
 
         const openSpy = vi.spyOn(window, 'showAddFoodModal').mockImplementation(() => {});
-        document.querySelector('#food-list .wg-food-add-cta').click();
+        document.querySelector('#food-add-cta-dock .wg-food-add-cta').click();
         expect(openSpy).toHaveBeenCalled();
         openSpy.mockRestore();
     });
 
-    it('empty-state renders the hint paragraph and still shows the Add-food CTA', () => {
+    it('empty-state renders the hint paragraph and still shows the Add-food CTA in the dock', () => {
         const { window, document } = env;
         window._renderFoodData([], null, 'day', '2026-04-20');
 
         const list = document.getElementById('food-list');
         expect(list.querySelector('.wg-food-meal-list__empty').textContent)
             .toContain('No food logs');
-        expect(list.querySelector('.wg-food-add-cta')).not.toBeNull();
+        const dock = document.getElementById('food-add-cta-dock');
+        expect(dock.querySelector('.wg-food-add-cta')).not.toBeNull();
     });
 
-    it('week period render omits the Add-food CTA (weekly stats view, no log rows)', () => {
+    it('week period render omits the Add-food CTA and hides the dock', () => {
         const { window, document } = env;
         const weekStats = { calories: 3000, carbs: 320, protein: 180, fat: 110 };
         window._renderFoodData([], weekStats, 'week', '2026-04-20');
 
         const list = document.getElementById('food-list');
         expect(list.querySelector('.wg-food-add-cta')).toBeNull();
+        const dock = document.getElementById('food-add-cta-dock');
+        expect(dock.querySelector('.wg-food-add-cta')).toBeNull();
+        expect(dock.classList.contains('hidden')).toBe(true);
+    });
+
+    it('loadFoodLogs() synchronously hides #food-add-cta-dock before awaiting', async () => {
+        // Reproduces the "setFoodStatsPeriod('week') leaves the dock
+        // visible while loadFoodLogs() awaits data" regression: the dock
+        // must be hidden up front so it never lingers with a stale
+        // daily-view Add Food button on a weekly summary.
+        const { window, document } = env;
+
+        // Seed the dock into the "visible, populated" state the daily
+        // render path leaves behind.
+        const dock = document.getElementById('food-add-cta-dock');
+        dock.classList.remove('hidden');
+        const staleCta = document.createElement('button');
+        staleCta.className = 'wg-food-add-cta';
+        dock.appendChild(staleCta);
+
+        // Stub out the async dependencies so loadFoodLogs() can settle
+        // without hitting the network; we only care that the dock is
+        // hidden synchronously before the first await returns.
+        window.loadFoodTargets = async () => {};
+        window.DataStore.getCached = async () => null;
+        window.DataStore.setCached = async () => {};
+        window.apiCall = async () => null;
+        window.setFoodStatsPeriod('week');
+
+        const pending = window.loadFoodLogs();
+        expect(dock.classList.contains('hidden')).toBe(true);
+        expect(dock.querySelector('.wg-food-add-cta')).toBeNull();
+        await pending;
+    });
+
+    it('loadFoodLogs() preserves the visible Add-food CTA on a daily reload', async () => {
+        // Regression guard for the inverse of the weekly-leak fix: on a
+        // daily reload the existing dock contents must remain in place
+        // while the function awaits targets/data, so the Add-food action
+        // never disappears across slow first loads, day changes, or the
+        // no-cache/error path. `_renderFoodData()` rebuilds the CTA on
+        // every render, so transient flicker is the only failure mode.
+        const { window, document } = env;
+
+        const dock = document.getElementById('food-add-cta-dock');
+        dock.classList.remove('hidden');
+        const cta = document.createElement('button');
+        cta.className = 'wg-food-add-cta';
+        cta.id = 'add-food-btn';
+        dock.appendChild(cta);
+
+        window.loadFoodTargets = async () => {};
+        window.DataStore.getCached = async () => null;
+        window.DataStore.setCached = async () => {};
+        window.apiCall = async () => null;
+        window.setFoodStatsPeriod('day');
+
+        const pending = window.loadFoodLogs();
+        expect(dock.classList.contains('hidden')).toBe(false);
+        expect(dock.querySelector('.wg-food-add-cta')).not.toBeNull();
+        await pending;
+    });
+
+    it('loadFoodLogs() mounts the Add-food CTA synchronously on a week→day switch', async () => {
+        // After a weekly render, `_renderFoodData()` empties + hides the
+        // dock. A subsequent daily reload must re-mount the CTA up front
+        // so it stays visible across the async data fetch rather than
+        // flashing empty until `_renderFoodData()` rebuilds it.
+        const { window, document } = env;
+
+        const dock = document.getElementById('food-add-cta-dock');
+        dock.replaceChildren();
+        dock.classList.add('hidden');
+
+        window.loadFoodTargets = async () => {};
+        window.DataStore.getCached = async () => null;
+        window.DataStore.setCached = async () => {};
+        window.apiCall = async () => null;
+        window.setFoodStatsPeriod('day');
+
+        const pending = window.loadFoodLogs();
+        expect(dock.classList.contains('hidden')).toBe(false);
+        expect(dock.querySelector('.wg-food-add-cta')).not.toBeNull();
+        await pending;
+    });
+
+    it('loadFoodLogs() keeps the CTA mounted when the daily fetch fails without cache', async () => {
+        // No-cache API failure path: the catch branch only renders an
+        // error message inside `#food-list` and never re-adds the CTA.
+        // The synchronous preseed in `loadFoodLogs()` must leave the
+        // dock populated so the Add-food action survives the failure.
+        allowConsoleNoise();
+        const { window, document } = env;
+
+        const dock = document.getElementById('food-add-cta-dock');
+        dock.replaceChildren();
+        dock.classList.add('hidden');
+
+        window.loadFoodTargets = async () => {};
+        window.DataStore.getCached = async () => null;
+        window.DataStore.setCached = async () => {};
+        window.apiCall = async () => { throw new Error('network'); };
+        window.setFoodStatsPeriod('day');
+
+        await window.loadFoodLogs();
+        expect(dock.classList.contains('hidden')).toBe(false);
+        expect(dock.querySelector('.wg-food-add-cta')).not.toBeNull();
     });
 
     it('selects the correct log into currentFoodLogs by id', () => {

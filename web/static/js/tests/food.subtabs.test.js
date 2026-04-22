@@ -108,6 +108,69 @@ describe('Food sub-tab strip (Phase 4, Task 3)', () => {
         expect(window.localStorage.getItem('mt-food-subtab')).toBe('fooddb');
     });
 
+    it('switchFoodTab hides .food-date-nav on non-log sub-tabs and restores it on log', () => {
+        const { document, window } = env;
+        const nav = document.querySelector('.food-date-nav');
+        expect(nav).not.toBeNull();
+
+        // Default state: 'log' tab is active, day-nav visible.
+        expect(nav.classList.contains('hidden')).toBe(false);
+
+        window.switchFoodTab('meals');
+        expect(nav.classList.contains('hidden')).toBe(true);
+
+        window.switchFoodTab('fooddb');
+        expect(nav.classList.contains('hidden')).toBe(true);
+
+        window.switchFoodTab('log');
+        expect(nav.classList.contains('hidden')).toBe(false);
+
+        // Visibility is class-based, not inline-style-based.
+        expect(nav.getAttribute('style')).toBeNull();
+    });
+
+    it('switchFoodTab hides #food-add-cta-dock on non-log sub-tabs and restores it on log', () => {
+        const { document, window } = env;
+        const dock = document.getElementById('food-add-cta-dock');
+        expect(dock).not.toBeNull();
+
+        // Default state: 'log' tab is active, dock visible.
+        expect(dock.classList.contains('hidden')).toBe(false);
+
+        window.switchFoodTab('meals');
+        expect(dock.classList.contains('hidden')).toBe(true);
+
+        window.switchFoodTab('fooddb');
+        expect(dock.classList.contains('hidden')).toBe(true);
+
+        window.switchFoodTab('log');
+        expect(dock.classList.contains('hidden')).toBe(false);
+
+        // Visibility is class-based, not inline-style-based.
+        expect(dock.getAttribute('style')).toBeNull();
+    });
+
+    it('switchFoodTab keeps #food-add-cta-dock hidden when returning to log on a weekly view', () => {
+        // Reproduces the "switching meals -> log unhides the dock on a
+        // weekly summary" regression: the Add Food action must stay
+        // unavailable whenever the resolved period is not a daily view,
+        // regardless of the active sub-tab.
+        const { document, window } = env;
+        const dock = document.getElementById('food-add-cta-dock');
+
+        // Flip the period to 'week' via the real setter so the
+        // module-scoped `currentFoodStatsPeriod` binding is updated
+        // (let-bindings aren't reachable as window.* properties).
+        window.setFoodStatsPeriod('week');
+        dock.classList.add('hidden');
+
+        window.switchFoodTab('meals');
+        expect(dock.classList.contains('hidden')).toBe(true);
+
+        window.switchFoodTab('log');
+        expect(dock.classList.contains('hidden')).toBe(true);
+    });
+
     it('restoreFoodSubTab applies the stored value to the strip', () => {
         const { document, window } = env;
         window.setActiveFoodSubTab('meals');

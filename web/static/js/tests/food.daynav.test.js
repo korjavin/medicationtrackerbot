@@ -2,8 +2,8 @@
 //
 // Asserts the rewritten day-nav renders as a three-cell row — chevron
 // button, mono-display title + subtitle, chevron button — and that the
-// chevron buttons, today-chip, and date-label click handler still hook
-// into the existing `shiftFoodDate` / `goFoodToday` callbacks.
+// chevron buttons and date-label click handler hook into the existing
+// `shiftFoodDate` callback.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -93,20 +93,27 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         expect(filter.value).toBe('2026-04-20');
     });
 
-    it('clicking the today chip resets the date and hides the chip', () => {
-        const { document, window } = env;
-        window.loadFoodLogs = () => {};
-        const filter = document.getElementById('food-date-filter');
-        const todayChip = document.getElementById('food-today-btn');
+    it('does not render a Today jump-to-today button', () => {
+        const { document } = env;
+        expect(document.getElementById('food-today-btn')).toBeNull();
+        expect(document.querySelector('.wg-food-day-nav__today-btn')).toBeNull();
+        expect(document.querySelector('.food-today-chip')).toBeNull();
+    });
 
-        filter.value = '2026-04-18';
-        window.updateFoodDateNav();
-        expect(todayChip.classList.contains('hidden')).toBe(false);
+    it('#food-view opts into the shared .wg-screen-stage backdrop', () => {
+        const { document } = env;
+        const view = document.getElementById('food-view');
+        expect(view).not.toBeNull();
+        expect(view.classList.contains('wg-screen-stage')).toBe(true);
+    });
 
-        todayChip.click();
-        const today = new Date();
-        expect(filter.value).toBe(toISODateLocal(today));
-        expect(todayChip.classList.contains('hidden')).toBe(true);
+    it('Food section header carries no data-badge attribute', () => {
+        const { document } = env;
+        const mount = document
+            .getElementById('food-view')
+            .querySelector('.section-header-mount');
+        expect(mount).not.toBeNull();
+        expect(mount.hasAttribute('data-badge')).toBe(false);
     });
 
     it('formatFoodDateSubtitle returns DD.MM.YYYY for ISO input and empty string for blank', () => {
@@ -114,6 +121,31 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         expect(window.formatFoodDateSubtitle('2026-04-20')).toBe('20.04.2026');
         expect(window.formatFoodDateSubtitle('2026-12-01')).toBe('01.12.2026');
         expect(window.formatFoodDateSubtitle('')).toBe('');
+    });
+
+    it('chevron buttons carry the WG color-bearing classes and inherit currentColor via the SVG stroke', () => {
+        const { document } = env;
+        const prev = document.getElementById('food-date-prev-btn');
+        const next = document.getElementById('food-date-next-btn');
+
+        // Both buttons must carry the color-bearing wg-food-day-nav__icon-btn
+        // class so they pick up the explicit color/background tokens on the
+        // Wandergeek stage backdrop.
+        expect(prev.classList.contains('wg-food-day-nav__icon-btn')).toBe(true);
+        expect(next.classList.contains('wg-food-day-nav__icon-btn')).toBe(true);
+
+        // Chevron SVGs must inherit the button's foreground via currentColor,
+        // not a hard-coded color literal.
+        const prevIcon = prev.querySelector('svg[data-wg-icon="chevronLeft"]');
+        const nextIcon = next.querySelector('svg[data-wg-icon="chevronRight"]');
+        expect(prevIcon).not.toBeNull();
+        expect(nextIcon).not.toBeNull();
+        expect(prevIcon.getAttribute('stroke')).toBe('currentColor');
+        expect(nextIcon.getAttribute('stroke')).toBe('currentColor');
+
+        // No inline style smuggling a color onto the buttons or icons.
+        expect(prev.getAttribute('style')).toBeNull();
+        expect(next.getAttribute('style')).toBeNull();
     });
 
     it('updateFoodDateNav disables next when the selected date is today or future', () => {
