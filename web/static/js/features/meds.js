@@ -218,19 +218,26 @@ function renderNextActionCard(meds, nextIntake, opts) {
     takeBtn.textContent = 'Take';
     takeBtn.addEventListener('click', () => {
         const medList = Array.isArray(meds) ? meds : [];
-        const ids = names
+        // Resolve {id, name} pairs together and filter together so the
+        // confirm modal's `ids.forEach((id, index) => names[index])` loop
+        // can't desync when a name in the cached payload no longer
+        // resolves locally (e.g. the med was deleted after `next_intake`
+        // was cached).
+        const pairs = names
             .map((name) => {
                 const m = medList.find((med) => med && med.name === name);
-                return m ? m.id : null;
+                return m ? { id: m.id, name } : null;
             })
-            .filter((id) => id !== null && id !== undefined);
+            .filter((p) => p !== null);
+        const resolvedIds = pairs.map((p) => p.id);
+        const resolvedNames = pairs.map((p) => p.name);
         const handler = typeof options.onTake === 'function' ? options.onTake : null;
         if (handler) {
-            handler({ ids, names, scheduledAt: nextIntake.scheduled_at });
+            handler({ ids: resolvedIds, names: resolvedNames, scheduledAt: nextIntake.scheduled_at });
             return;
         }
         if (typeof showMedicationConfirmModal === 'function') {
-            showMedicationConfirmModal(ids, names, nextIntake.scheduled_at, 'confirm');
+            showMedicationConfirmModal(resolvedIds, resolvedNames, nextIntake.scheduled_at, 'confirm');
         }
     });
     card.appendChild(takeBtn);
@@ -1023,7 +1030,7 @@ async function saveMedication() {
 
     if (type === 'weekly') {
         const days = Array.from(document.querySelectorAll('.days-select span.selected'))
-            .map(s => parseInt(s.dataset.day));
+            .map(s => parseInt(s.dataset.day, 10));
 
         if (days.length === 0) {
             safeAlert("Select at least one day!");
