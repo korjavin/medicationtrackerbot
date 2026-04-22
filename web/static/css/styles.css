@@ -492,6 +492,52 @@
     --wg-meds-modal-day-size: 32px;
     --wg-meds-modal-time-row-gap: 8px;
     --wg-meds-modal-toggle-gap: 8px;
+
+    /* Wandergeek — Weight screen (Phase 6, Task 1). Dimensional tokens for
+       the big current-weight card, trend arrow + delta, optional goal card,
+       range selector, single-series chart, and day-grouped history rows.
+       Everything visual in features/weight.js and components/wg-weight-chart.js
+       reads from here. */
+    --wg-weight-current-value-size: 44px;
+    --wg-weight-current-unit-size: 12px;
+    --wg-weight-current-card-pad: 16px;
+    --wg-weight-trend-size: 14px;
+    --wg-weight-trend-icon-size: 16px;
+    --wg-weight-goal-card-pad: 12px;
+    --wg-weight-goal-value-size: 16px;
+    --wg-weight-goal-bar-height: 8px;
+    --wg-weight-goal-delta-size: 11px;
+    --wg-weight-range-selector-height: 36px;
+    --wg-weight-range-selector-pad: 4px;
+    --wg-weight-chart-width: 358px;
+    --wg-weight-chart-height: 200px;
+    --wg-weight-chart-line-stroke-width: 2px;
+    --wg-weight-chart-goal-stroke-width: 1px;
+    --wg-weight-chart-goal-dasharray: 2 4;
+    --wg-weight-chart-last-point-radius: 4px;
+    --wg-weight-chart-last-stroke-width: 2px;
+    --wg-weight-history-row-cols: 1fr auto;
+    --wg-weight-history-row-gap: 10px;
+    --wg-weight-history-row-pad: 12px;
+    --wg-weight-history-weight-size: 16px;
+    --wg-weight-history-time-size: 12px;
+    --wg-weight-history-day-size: 11px;
+
+    /* Weight trend aliases (Phase 6, Task 1) — wrap the shared sun / alert /
+       mint tag triplets so the JS classifier can return a token-group name
+       (good / bad / flat) relative to goal direction without duplicating
+       styles. `good` is sun (decrease when lose-goal; increase when gain-goal);
+       `bad` is alert (opposite direction); `flat` is mint (no change or no
+       goal). Mirrors the --wg-bp-status-* / --wg-meds-status-* pattern. */
+    --wg-weight-trend-good-bg: var(--wg-tag-high-bg);
+    --wg-weight-trend-good-fg: var(--wg-tag-high-fg);
+    --wg-weight-trend-good-border: var(--wg-tag-high-border);
+    --wg-weight-trend-bad-bg: var(--wg-tag-alert-bg);
+    --wg-weight-trend-bad-fg: var(--wg-tag-alert-fg);
+    --wg-weight-trend-bad-border: var(--wg-tag-alert-border);
+    --wg-weight-trend-flat-bg: var(--wg-tag-normal-bg);
+    --wg-weight-trend-flat-fg: var(--wg-tag-normal-fg);
+    --wg-weight-trend-flat-border: var(--wg-tag-normal-border);
 }
 
 body {
