@@ -117,6 +117,22 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(kgBtn.getAttribute('aria-pressed')).toBe('true');
             expect(lbBtn.getAttribute('aria-pressed')).toBe('false');
         });
+
+        it('restores the kg input min/max on reopen after a prior lb toggle', () => {
+            const { window, document } = env;
+            window.showWeightModal();
+            const lbBtn = document.querySelector('.wg-weight-modal__unit-btn[data-unit="lb"]');
+            lbBtn.click();
+            const input = document.getElementById('weight-value');
+            expect(input.min).toBe('66');
+            expect(input.max).toBe('660');
+
+            window.closeWeightModal();
+            window.showWeightModal();
+
+            expect(input.min).toBe('30');
+            expect(input.max).toBe('300');
+        });
     });
 
     describe('editWeightLog()', () => {
@@ -264,6 +280,29 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(postUrl).toBe('/api/weight');
             expect(postMethod).toBe('POST');
             expect(postPayload.weight).toBeCloseTo(80.1, 2);
+        });
+
+        it('aborts the POST when DELETE fails (offline) so the edit does not duplicate', async () => {
+            const { window, document } = env;
+            // First call (DELETE) returns null (offline / write failure contract
+            // in core/api.js). POST must NOT be issued.
+            const apiCallSpy = vi.fn().mockResolvedValueOnce(null);
+            window.apiCall = apiCallSpy;
+            window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+            const loadWeightSpy = vi.fn();
+            window.loadWeightLogs = loadWeightSpy;
+
+            window.editWeightLog({ id: 99, measured_at: '2026-04-20T08:00:00Z', weight: 81.2, notes: '' });
+            document.getElementById('weight-datetime').value = '2026-04-22T08:15';
+            document.getElementById('weight-value').value = '80.1';
+
+            await window.handleWeightSubmit({ preventDefault() {} });
+
+            expect(apiCallSpy).toHaveBeenCalledTimes(1);
+            const [delUrl, delMethod] = apiCallSpy.mock.calls[0];
+            expect(delUrl).toBe('/api/weight/99');
+            expect(delMethod).toBe('DELETE');
+            expect(loadWeightSpy).not.toHaveBeenCalled();
         });
 
         it('editing a local (pending) log purges IndexedDB instead of issuing a DELETE request', async () => {

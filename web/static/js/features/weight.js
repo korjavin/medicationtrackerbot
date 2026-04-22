@@ -96,6 +96,14 @@ function setWeightModalTitle(text) {
 
 function resetWeightUnitToggle() {
     weightModalUnit = 'kg';
+    // Restore the kg input bounds so a previous lb toggle doesn't leak stale
+    // min/max across modal close/reopen — setWeightModalUnit('kg') would
+    // no-op because weightModalUnit is already kg.
+    const input = document.getElementById('weight-value');
+    if (input) {
+        input.min = '30';
+        input.max = '300';
+    }
     const toggle = document.querySelector('#weight-modal .wg-weight-modal__unit-toggle');
     if (!toggle) return;
     toggle.querySelectorAll('.wg-weight-modal__unit-btn').forEach((btn) => {
@@ -193,7 +201,12 @@ async function handleWeightSubmit(event) {
                 }
             }
         } else {
-            await apiCall(`/api/weight/${editing.id}`, 'DELETE');
+            // Bail out if DELETE failed (offline or network error). apiCall
+            // returns null on write failure and has already surfaced the
+            // error to the user — proceeding with POST would leave the
+            // original row on the server and create a duplicate pending row.
+            const delRes = await apiCall(`/api/weight/${editing.id}`, 'DELETE');
+            if (!delRes) return;
         }
     }
 
@@ -528,6 +541,18 @@ async function _renderWeightData(logsRes, goalRes) {
             console.error('Failed to get pending weight logs:', e);
         }
     }
+
+    // Sort by measured_at DESC so downstream renderers (current card, seed
+    // for new-entry modal) see a true newest-first order even when the user
+    // backdates an offline entry. The history grouping re-sorts within days,
+    // and the chart has its own filter, so their output is unaffected.
+    allLogs.sort((a, b) => {
+        const ta = new Date(a && a.measured_at).getTime();
+        const tb = new Date(b && b.measured_at).getTime();
+        const va = Number.isFinite(ta) ? ta : 0;
+        const vb = Number.isFinite(tb) ? tb : 0;
+        return vb - va;
+    });
 
     cachedWeightLogs = allLogs;
 
