@@ -491,120 +491,193 @@ function logMedicationPast(id, name) {
 }
 
 
+// Meds history render (Phase 5, Task 5). Logs are grouped twice — first by
+// minute-precision cluster (so simultaneous intakes collapse into a single
+// card that can be edited/confirmed in one action, matching the legacy
+// group-click contract), then those clusters are bucketed by local day so
+// each day can carry its own `.wg-section-label` header. Each cluster is a
+// `.wg-card` row with the med names (mono-display), the trailing ISO-local
+// time, an edit `.wg-icon-btn`, and a `.wg-tag--mono` status pill. The
+// status emoji stays in the pill label so existing tests grepping for `✅`
+// continue to pass.
+
+function _buildHistoryClusters(logs) {
+    const clusters = [];
+    logs.forEach((l) => {
+        let key = l.scheduled_at;
+        let timeSource = l.scheduled_at;
+        if (l.status === 'TAKEN' && l.taken_at) {
+            const d = new Date(l.taken_at);
+            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()} ${d.getHours()}:${d.getMinutes()}`;
+            timeSource = l.taken_at;
+        }
+        let cluster = clusters.find((c) => c.key === key && c.status === l.status);
+        if (!cluster) {
+            cluster = {
+                key,
+                status: l.status,
+                items: [],
+                sortTime: new Date(timeSource).getTime(),
+                timeSource
+            };
+            clusters.push(cluster);
+        }
+        cluster.items.push(l);
+    });
+    clusters.sort((a, b) => b.sortTime - a.sortTime);
+    return clusters;
+}
+
+function _buildHistoryDayLabel(dateMs, todayMs, yesterdayMs) {
+    const d = new Date(dateMs);
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    if (dayStart === todayMs) return 'Today';
+    if (dayStart === yesterdayMs) return 'Yesterday';
+    return d.toLocaleDateString(undefined, {
+        weekday: 'short',
+        day: '2-digit',
+        month: '2-digit'
+    });
+}
+
+function _formatHistoryRowTime(dateMs) {
+    const d = new Date(dateMs);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+}
+
+function _buildHistoryStatusTag(status) {
+    const tag = document.createElement('span');
+    tag.className = 'wg-tag wg-tag--mono wg-meds-history__status';
+    if (status === 'TAKEN') {
+        tag.classList.add('wg-tag--normal');
+        tag.textContent = '✅ Taken';
+    } else if (status === 'PENDING') {
+        tag.classList.add('wg-tag--high');
+        tag.textContent = '⏳ Pending';
+    } else {
+        tag.classList.add('wg-tag--alert');
+        tag.textContent = `❌ ${status || 'Missed'}`;
+    }
+    return tag;
+}
+
+function _buildHistoryClusterRow(cluster, medsList) {
+    const row = document.createElement('div');
+    row.className = 'wg-card wg-meds-history__row history-group';
+    row.dataset.status = cluster.status || '';
+
+    if (cluster.status === 'PENDING' || cluster.status === 'TAKEN') {
+        row.classList.add('cursor-pointer');
+        const clickHandler = () => {
+            const ids = cluster.items.map((i) => i.medication_id);
+            const names = cluster.items.map((i) => {
+                const med = medsList.find((m) => m.id === i.medication_id);
+                return med ? med.name : 'Unknown';
+            });
+            const intakeIds = cluster.items.map((i) => i.id);
+            const mode = cluster.status === 'TAKEN' ? 'edit' : 'confirm';
+            let time = cluster.key;
+            if (mode === 'edit' && cluster.items[0].taken_at) {
+                time = cluster.items[0].taken_at;
+            } else if (cluster.items[0].scheduled_at) {
+                time = cluster.items[0].scheduled_at;
+            }
+            showMedicationConfirmModal(ids, names, time, mode, intakeIds);
+        };
+        row.onclick = clickHandler;
+        row._historyClickHandler = clickHandler;
+    }
+
+    const main = document.createElement('div');
+    main.className = 'wg-meds-history__row-main';
+
+    const namesWrap = document.createElement('div');
+    namesWrap.className = 'wg-meds-history__names history-items';
+    cluster.items.forEach((l) => {
+        const med = medsList.find((m) => m.id === l.medication_id);
+        const medName = med ? med.name : 'Unknown Med';
+        const nameEl = document.createElement('span');
+        nameEl.className = 'wg-meds-history__name wg-mono-display history-subitem';
+        if (l.id !== undefined && l.id !== null) {
+            nameEl.dataset.intakeId = String(l.id);
+        }
+        nameEl.textContent = medName;
+        namesWrap.appendChild(nameEl);
+    });
+    main.appendChild(namesWrap);
+
+    const meta = document.createElement('div');
+    meta.className = 'wg-meds-history__meta';
+    const timeEl = document.createElement('span');
+    timeEl.className = 'wg-meds-history__time';
+    timeEl.textContent = _formatHistoryRowTime(cluster.sortTime);
+    meta.appendChild(timeEl);
+    main.appendChild(meta);
+
+    row.appendChild(main);
+
+    const actions = document.createElement('div');
+    actions.className = 'wg-meds-history__actions';
+    actions.appendChild(_buildHistoryStatusTag(cluster.status));
+    row.appendChild(actions);
+
+    return row;
+}
+
 function renderHistory(logs) {
     const list = document.getElementById('history-list');
     list.replaceChildren();
+    list.classList.add('wg-meds-history');
 
     if (!logs || logs.length === 0) {
         const empty = document.createElement('p');
-        empty.className = 'med-empty-text';
+        empty.className = 'wg-meds-history__empty med-empty-text';
         empty.textContent = 'No history yet.';
         list.appendChild(empty);
         return;
     }
 
-    // Group logs by taken_at timestamp (formatted to minute precision)
-    const groups = [];
-    // Helper for European Date Format (DD.MM.YYYY HH:MM)
-    /* formatDate is now global */
+    const medsList = Array.isArray(medications) ? medications : [];
+    const clusters = _buildHistoryClusters(logs);
 
-    logs.forEach(l => {
-        let key = l.scheduled_at; // Default key
-        let timeLabel = formatDate(l.scheduled_at);
+    const now = new Date();
+    const todayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const yesterdayMs = todayMs - 24 * 60 * 60 * 1000;
 
-        // If taken, use taken_at as grouping key
-        if (l.status === 'TAKEN' && l.taken_at) {
-            const d = new Date(l.taken_at);
-            // Key is string to minute precision
-            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()} ${d.getHours()}:${d.getMinutes()}`;
-            timeLabel = formatDate(l.taken_at);
+    const days = [];
+    clusters.forEach((cluster) => {
+        const d = new Date(cluster.sortTime);
+        const dayMs = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+        let day = days.find((x) => x.dayMs === dayMs);
+        if (!day) {
+            day = { dayMs, clusters: [] };
+            days.push(day);
         }
-
-        // Check if group exists
-        let grp = groups.find(g => g.key === key && g.status === l.status);
-        if (!grp) {
-            grp = { key, status: l.status, timeLabel, items: [], sortTime: 0 };
-
-            // Determine sort time
-            if (l.status === 'TAKEN' && l.taken_at) {
-                grp.sortTime = new Date(l.taken_at).getTime();
-            } else {
-                grp.sortTime = new Date(l.scheduled_at).getTime();
-            }
-
-            groups.push(grp);
-        }
-        grp.items.push(l);
+        day.clusters.push(cluster);
     });
+    days.sort((a, b) => b.dayMs - a.dayMs);
 
-    // Sort Groups Descending (Most Recent First)
-    groups.sort((a, b) => b.sortTime - a.sortTime);
-
-    // Render Groups
-    groups.forEach(g => {
-        const div = document.createElement('div');
-        div.className = 'history-group';
-
-        // Make PENDING and TAKEN items clickable
-        if (g.status === 'PENDING' || g.status === 'TAKEN') {
-            div.classList.add('cursor-pointer');
-            div.onclick = () => {
-                // Collect med ids and names
-                const ids = g.items.map(i => i.medication_id);
-                const names = g.items.map(i => {
-                    const med = medications.find(m => m.id === i.medication_id);
-                    return med ? med.name : 'Unknown';
-                });
-
-                // Collect intake IDs for updating specific rows
-                const intakeIds = g.items.map(i => i.id);
-
-                // Determine mode and time
-                const mode = g.status === 'TAKEN' ? 'edit' : 'confirm';
-                // Use the group key (which is formatted time) or a raw timestamp if available
-                // For editing, we want the actual taken time to populate the input
-                let time = g.key;
-                if (mode === 'edit' && g.items[0].taken_at) {
-                    time = g.items[0].taken_at;
-                } else if (g.items[0].scheduled_at) {
-                    time = g.items[0].scheduled_at;
-                }
-
-                showMedicationConfirmModal(ids, names, time, mode, intakeIds);
-            };
-        }
-
-        const statusIcon = g.status === 'TAKEN' ? '✅' : (g.status === 'PENDING' ? '⏳' : '❌');
-        // Better header formatting
-        let headerTime = g.timeLabel;
-        if (g.status === 'TAKEN') {
-            // If taken, maybe show "Taken at HH:MM"
-            // But timeLabel is already formatted.
-        }
+    days.forEach((day) => {
+        const dayWrap = document.createElement('div');
+        dayWrap.className = 'wg-meds-history__day';
 
         const header = document.createElement('div');
-        header.className = 'history-header';
-        const strong = document.createElement('strong');
-        strong.textContent = `${statusIcon} ${headerTime}`;
-        header.appendChild(strong);
+        header.className = 'wg-section-label wg-meds-history__day-label';
+        const headerText = document.createElement('span');
+        headerText.textContent = _buildHistoryDayLabel(day.dayMs, todayMs, yesterdayMs);
+        header.appendChild(headerText);
+        dayWrap.appendChild(header);
 
-        const items = document.createElement('div');
-        items.className = 'history-items';
-        g.items.forEach((l) => {
-            const med = medications.find(m => m.id === l.medication_id);
-            const medName = med ? med.name : 'Unknown Med';
-            const subitem = document.createElement('div');
-            subitem.className = 'history-subitem';
-            if (l.id !== undefined && l.id !== null) {
-                subitem.dataset.intakeId = String(l.id);
-            }
-            subitem.textContent = medName;
-            items.appendChild(subitem);
+        const rows = document.createElement('div');
+        rows.className = 'wg-meds-history__rows';
+        day.clusters.forEach((cluster) => {
+            rows.appendChild(_buildHistoryClusterRow(cluster, medsList));
         });
+        dayWrap.appendChild(rows);
 
-        div.appendChild(header);
-        div.appendChild(items);
-        list.appendChild(div);
+        list.appendChild(dayWrap);
     });
 }
 

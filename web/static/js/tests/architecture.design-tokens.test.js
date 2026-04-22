@@ -407,6 +407,21 @@ const WANDERGEEK_TOKENS = [
     '--wg-meds-subtab-pad-x',
     '--wg-meds-subtab-gap',
 
+    // Meds history sub-tab tokens (Phase 5, Task 5) — filter-strip geometry,
+    // day-group label, log-row padding, trailing time + status sizes, and
+    // the muted next-intake link row.
+    '--wg-meds-filter-gap',
+    '--wg-meds-filter-field-pad-y',
+    '--wg-meds-filter-field-pad-x',
+    '--wg-meds-filter-label-size',
+    '--wg-meds-history-row-pad',
+    '--wg-meds-history-row-gap',
+    '--wg-meds-history-day-size',
+    '--wg-meds-history-time-size',
+    '--wg-meds-history-name-size',
+    '--wg-meds-next-intake-pad-y',
+    '--wg-meds-next-intake-pad-x',
+
     // Meds inventory status aliases — wrap the --wg-tag-* triplets so the
     // inventory classifier (ok / low / out) picks a token-group name without
     // duplicating tag styles.

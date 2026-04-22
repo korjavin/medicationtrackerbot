@@ -435,6 +435,20 @@
     --wg-meds-subtab-pad-x: 10px;
     --wg-meds-subtab-gap: 4px;
 
+    /* Meds history sub-tab tokens (Phase 5, Task 5) — filter strip geometry,
+       day-group label size, log-row padding, trailing time + status sizes. */
+    --wg-meds-filter-gap: 8px;
+    --wg-meds-filter-field-pad-y: 4px;
+    --wg-meds-filter-field-pad-x: 10px;
+    --wg-meds-filter-label-size: 10px;
+    --wg-meds-history-row-pad: 12px;
+    --wg-meds-history-row-gap: 8px;
+    --wg-meds-history-day-size: 11px;
+    --wg-meds-history-time-size: 12px;
+    --wg-meds-history-name-size: 14px;
+    --wg-meds-next-intake-pad-y: 6px;
+    --wg-meds-next-intake-pad-x: 10px;
+
     /* Meds inventory status aliases — wrap the --wg-tag-* triplets so the
        inventory classifier (ok / low / out) picks a token-group name without
        duplicating tag styles. */
@@ -5261,6 +5275,148 @@ textarea.wg-input {
 
 .wg-meds-add-cta__label {
     letter-spacing: 0.04em;
+}
+
+/* Meds history sub-tab (Phase 5, Task 5). Two `.wg-gloss--inset` select
+   wraps sit atop a muted next-intake link row, followed by a day-grouped
+   list where each minute-cluster of intakes is a `.wg-card` row. Status
+   tokens come from `.wg-tag` + `.wg-tag--mono` variants so the paper-era
+   ✅/⏳/❌ icons become mono-label pills. */
+.wg-meds-filters {
+    display: flex;
+    gap: var(--wg-meds-filter-gap);
+    margin-bottom: var(--space-md);
+}
+
+.wg-meds-filters__field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: var(--wg-meds-filter-field-pad-y) var(--wg-meds-filter-field-pad-x);
+    min-width: 0;
+}
+
+.wg-meds-filters__label {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-filter-label-size);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--wg-fg-4);
+}
+
+.wg-meds-filters__select {
+    appearance: none;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    width: 100%;
+    cursor: pointer;
+}
+
+.wg-meds-filters__select:focus {
+    outline: none;
+}
+
+.wg-meds-next-intake-trigger {
+    display: block;
+    padding: var(--wg-meds-next-intake-pad-y) var(--wg-meds-next-intake-pad-x);
+    margin-bottom: var(--space-md);
+    color: var(--wg-fg-3);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+}
+
+.wg-meds-next-intake-trigger:empty {
+    display: none;
+}
+
+.wg-meds-history {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-meds-history__empty {
+    color: var(--wg-fg-4);
+    text-align: center;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    margin: var(--space-lg) 0;
+}
+
+.wg-meds-history__day {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-meds-history__day-label {
+    font-size: var(--wg-meds-history-day-size);
+}
+
+.wg-meds-history__rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-meds-history__row {
+    display: flex;
+    align-items: center;
+    gap: var(--wg-meds-history-row-gap);
+    padding: var(--wg-meds-history-row-pad);
+}
+
+.wg-meds-history__row.cursor-pointer {
+    cursor: pointer;
+}
+
+.wg-meds-history__row-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-meds-history__names {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+
+.wg-meds-history__name {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-history-name-size);
+    color: var(--wg-fg-1);
+}
+
+.wg-meds-history__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.wg-meds-history__time {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-history-time-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.04em;
+}
+
+.wg-meds-history__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+.wg-meds-history__status {
+    white-space: nowrap;
 }
 
 /* Food day navigator (Phase 4, Task 3). Three-cell row — chevron button,

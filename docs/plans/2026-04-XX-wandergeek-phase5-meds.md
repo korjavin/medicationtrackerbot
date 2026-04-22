@@ -129,13 +129,13 @@ No backend changes. The existing `/api/medications`, `/api/intakes`, `/api/medic
 
 ### Task 5: Rewrite the history sub-tab
 
-- [ ] replace the existing `#history-list` markup with a `.wg-meds-history` container — day groups use `.wg-section-label` headers, each log row is a `.wg-card` row with med name (mono), dosage, ISO-local time, and an edit/delete `.wg-icon-btn` trailing cluster
-- [ ] restyle the filter controls (`#history-filter-med` + `#history-filter-days`) as `.wg-gloss--inset` select wraps; preserve existing options and change handlers
-- [ ] preserve offline-pending + rejected badge logic — become `.wg-tag--mono` variants
-- [ ] delete + edit callbacks unchanged (reuse existing handlers)
-- [ ] `#next-intake-trigger` becomes a link-style muted row under the filters, unchanged behavior
-- [ ] write `meds.history.test.js` — day grouping, filter-change refetch, offline-pending + rejected badge states, delete flow invokes existing handler
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing `#history-list` markup with a `.wg-meds-history` container — day groups use `.wg-section-label` headers, each minute-cluster log row is a `.wg-card` row with med names (mono), ISO-local time, and a trailing `.wg-tag--mono` status tag. (The plan also mentioned an edit/delete `.wg-icon-btn` trailing cluster, but there is no `/api/intakes` DELETE endpoint and the existing edit handler is the whole-row click — adding separate icons would duplicate the row-click behavior, so the row remains fully clickable and the trailing cluster carries only the status tag.)
+- [x] restyle the filter controls (`#history-filter-med` + `#history-filter-days`) as `.wg-gloss--inset` select wraps inside a `.wg-meds-filters` strip with monospace eyebrow labels; preserve existing `id`s + change-handler wiring
+- [x] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` + `.wg-tag--normal` (TAKEN), `.wg-tag--mono` + `.wg-tag--high` (PENDING), `.wg-tag--mono` + `.wg-tag--alert` (MISSED/other). Emojis retained inside the pill text so existing tests grepping for `✅` still pass.
+- [x] delete + edit callbacks unchanged (reuse existing `showMedicationConfirmModal` handler — row click dispatches `'edit'` for TAKEN and `'confirm'` for PENDING clusters, identical to the paper-era behavior)
+- [x] `#next-intake-trigger` becomes a link-style muted row under the filters, unchanged behavior (inline `style="margin-bottom:15px"` swept out; geometry now comes from `.wg-meds-next-intake-trigger`)
+- [x] write `meds.history.test.js` — day grouping, filter-change refetch, pending + missed badge states, row click dispatches existing handler, empty state, filter-strip structure, `next-intake-trigger` class
+- [x] run `pnpm test` — all 844 tests green (new suite: 9 tests under `features/meds.js renderHistory (Phase 5, Task 5)`)
 
 ### Task 6: Build the inventory sub-tab (new)
 
