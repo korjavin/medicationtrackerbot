@@ -139,6 +139,30 @@ describe('Meds next-action card (Phase 5, Task 3)', () => {
         expect(arg.scheduledAt).toBe(scheduledAt);
     });
 
+    it('Take button keeps resolved ids and names aligned when a cached name no longer resolves locally', () => {
+        const { window } = env;
+        const now = new Date('2026-04-22T07:00:00Z');
+        const scheduledAt = new Date(now.getTime() + 45 * 60 * 1000).toISOString();
+        // Local meds list lost "Allopurinol" (e.g. deleted after the
+        // next_intake payload was cached). The handler must drop the
+        // unresolved name from BOTH the ids and names arrays so the
+        // confirm modal's zip-by-index pairing cannot mismatch.
+        const meds = [{ id: 2, name: 'Bisoprolol', schedule: '', archived: false }];
+        const onTake = vi.fn();
+        const card = window.renderNextActionCard(
+            meds,
+            { scheduled_at: scheduledAt, medication_names: ['Allopurinol', 'Bisoprolol'] },
+            { now, onTake }
+        );
+
+        card.querySelector('.wg-meds-next-action__take').click();
+
+        expect(onTake).toHaveBeenCalledTimes(1);
+        const arg = onTake.mock.calls[0][0];
+        expect(arg.ids).toEqual([2]);
+        expect(arg.names).toEqual(['Bisoprolol']);
+    });
+
     it('Take button falls back to showMedicationConfirmModal when opts.onTake is omitted', () => {
         const { window } = env;
         const spy = vi.fn();
