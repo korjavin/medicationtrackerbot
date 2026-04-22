@@ -110,12 +110,12 @@ No backend changes. The existing `/api/medications`, `/api/intakes`, `/api/medic
 
 ### Task 3: Build the next-action card
 
-- [ ] create a `renderNextActionCard(meds, nextIntake)` helper that picks the upcoming med cluster (the meds scheduled within the same hour as `nextIntake.scheduled_at`)
-- [ ] mirror the Today next-action card pattern — `.wg-gloss--sun` container, small uppercase "Next · HH:MM · in Xh Ym" subtitle, mono names list ("Allopurinol · Bisoprolol · +4" when > 3), and a `.wg-gloss--sun` Take button
-- [ ] Take button click invokes `showMedicationConfirmModal([ids], [names], now, 'take')` — same handler Today uses
-- [ ] empty state (no upcoming dose within 24h) renders a muted card with "No upcoming doses" and hides the Take button
-- [ ] write `meds.nextaction.test.js` — primary state, empty state, > 3 names truncation, Take button dispatch
-- [ ] run `pnpm test` — must pass before next task
+- [x] create a `renderNextActionCard(meds, nextIntake)` helper that picks the upcoming med cluster (the meds scheduled within the same hour as `nextIntake.scheduled_at`)
+- [x] mirror the Today next-action card pattern — `.wg-gloss--sun` container, small uppercase "Next · HH:MM · in Xh Ym" subtitle, mono names list ("Allopurinol · Bisoprolol · +4" when > 3), and a `.wg-gloss--sun` Take button
+- [x] Take button click invokes `showMedicationConfirmModal([ids], [names], scheduledAt, 'confirm')` — names→ids resolved against the local `medications` list; mode is `confirm` (the actual modal mode for a scheduled intake; the plan's `'take'` was colloquial)
+- [x] empty state (no upcoming dose within 24h) renders a muted card with "No upcoming doses" and hides the Take button
+- [x] write `meds.nextaction.test.js` — primary state, empty state, > 3 names truncation, Take button dispatch
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Rewrite the schedule sub-tab (grouped by hour)
 
