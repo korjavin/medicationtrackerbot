@@ -1502,10 +1502,7 @@ function switchMedTab(tab) {
     if (tab === 'schedule') { loadMeds(); }
     else if (tab === 'history') { loadHistory(); }
     else if (tab === 'inventory') {
-        // Inventory sub-tab renderer lands in Phase 5 Task 6; for now the
-        // existing meds list load keeps the cache warm so the subsequent
-        // renderer has data.
-        if (typeof loadMeds === 'function') loadMeds();
+        if (typeof loadInventory === 'function') loadInventory();
     }
 }
 

@@ -461,6 +461,16 @@
     --wg-meds-status-out-bg: var(--wg-tag-alert-bg);
     --wg-meds-status-out-fg: var(--wg-tag-alert-fg);
     --wg-meds-status-out-border: var(--wg-tag-alert-border);
+
+    /* Meds inventory sub-tab tokens (Phase 5, Task 6) — card padding and
+       gap, dosage / count-label / refilled-row type sizes. The big mono
+       count reuses the existing `--wg-meds-inventory-count-size` token. */
+    --wg-meds-inventory-card-pad: 14px;
+    --wg-meds-inventory-card-gap: 10px;
+    --wg-meds-inventory-dosage-size: 12px;
+    --wg-meds-inventory-count-label-size: 12px;
+    --wg-meds-inventory-refilled-size: 11px;
+    --wg-meds-inventory-refill-gap: 8px;
 }
 
 body {
@@ -5417,6 +5427,143 @@ textarea.wg-input {
 
 .wg-meds-history__status {
     white-space: nowrap;
+}
+
+/* Meds inventory sub-tab (Phase 5, Task 6). One `.wg-card` per medication
+   that tracks inventory. Each card shows the med name + dosage, a large
+   mono count + label, an optional low-stock alert pill, a muted
+   last-refilled row, and a trailing Refill button that toggles a
+   gloss-inset quantity input + confirm/cancel row underneath. */
+.wg-meds-inventory {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-meds-inventory__empty {
+    color: var(--wg-fg-4);
+    text-align: center;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    margin: var(--space-lg) 0;
+}
+
+.wg-meds-inventory__card {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    column-gap: var(--wg-meds-inventory-card-gap);
+    row-gap: var(--wg-meds-inventory-card-gap);
+    align-items: center;
+    padding: var(--wg-meds-inventory-card-pad);
+}
+
+.wg-meds-inventory__main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-meds-inventory__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-sm);
+}
+
+.wg-meds-inventory__name {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-name-size);
+    color: var(--wg-fg-1);
+}
+
+.wg-meds-inventory__dosage {
+    color: var(--wg-fg-3);
+    font-size: var(--wg-meds-inventory-dosage-size);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-meds-inventory__count-wrap {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.wg-meds-inventory__count {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-inventory-count-size);
+    color: var(--wg-fg-1);
+    line-height: 1;
+    letter-spacing: 0.02em;
+}
+
+.wg-meds-inventory__count-label {
+    color: var(--wg-fg-3);
+    font-size: var(--wg-meds-inventory-count-label-size);
+    font-family: var(--wg-font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.wg-meds-inventory__low {
+    white-space: nowrap;
+}
+
+.wg-meds-inventory__refilled {
+    color: var(--wg-fg-4);
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-inventory-refilled-size);
+    letter-spacing: 0.04em;
+}
+
+.wg-meds-inventory__actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.wg-meds-inventory__refill-btn {
+    white-space: nowrap;
+}
+
+.wg-meds-inventory__refill-form {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: var(--wg-meds-inventory-refill-gap);
+    flex-wrap: wrap;
+}
+
+.wg-meds-inventory__refill-form[hidden] {
+    display: none;
+}
+
+.wg-meds-inventory__refill-input-wrap {
+    flex: 1 1 160px;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--wg-meds-filter-field-pad-y) var(--wg-meds-filter-field-pad-x);
+}
+
+.wg-meds-inventory__refill-input-label {
+    color: var(--wg-fg-3);
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-filter-label-size);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+
+.wg-meds-inventory__refill-input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    outline: none;
+    min-width: 0;
 }
 
 /* Food day navigator (Phase 4, Task 3). Three-cell row — chevron button,

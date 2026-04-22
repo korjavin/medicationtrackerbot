@@ -681,6 +681,205 @@ function renderHistory(logs) {
     });
 }
 
+// Inventory sub-tab (Phase 5, Task 6). Renders one `.wg-card` per
+// medication that tracks inventory (i.e. `med.inventory_count !== null`).
+// Each card carries the med name (mono), a large mono count, an optional
+// low-stock `.wg-tag--alert` pill, the last-refilled date (resolved via
+// the existing `/api/medications/{id}/restocks` endpoint), and a trailing
+// `.wg-gloss--sun` Refill button that toggles an inline quantity input.
+// Confirming the refill POSTs to the existing `/restock` endpoint and
+// re-renders with the updated count. A muted placeholder renders when
+// no meds track inventory.
+
+function _formatRestockedDate(iso) {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleDateString(undefined, {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    });
+}
+
+async function _fetchLastRefilledAt(medId) {
+    try {
+        const restocks = await apiCall(`/api/medications/${medId}/restocks`);
+        if (!Array.isArray(restocks) || restocks.length === 0) return null;
+        // Restocks come back newest-first from the server; guard by sorting
+        // defensively in case a client mutates order.
+        const sorted = restocks.slice().sort((a, b) => {
+            return new Date(b.restocked_at).getTime() - new Date(a.restocked_at).getTime();
+        });
+        return sorted[0].restocked_at;
+    } catch (_) {
+        return null;
+    }
+}
+
+function _buildInventoryCard(med) {
+    const card = document.createElement('div');
+    card.className = 'wg-card wg-meds-inventory__card';
+    card.dataset.medId = String(med.id);
+
+    const main = document.createElement('div');
+    main.className = 'wg-meds-inventory__main';
+
+    const title = document.createElement('div');
+    title.className = 'wg-meds-inventory__title';
+    const name = document.createElement('span');
+    name.className = 'wg-meds-inventory__name wg-mono-display';
+    name.textContent = med.name;
+    title.appendChild(name);
+    if (med.dosage) {
+        const dosage = document.createElement('span');
+        dosage.className = 'wg-meds-inventory__dosage';
+        dosage.textContent = med.dosage;
+        title.appendChild(dosage);
+    }
+    main.appendChild(title);
+
+    const countWrap = document.createElement('div');
+    countWrap.className = 'wg-meds-inventory__count-wrap';
+    const count = document.createElement('span');
+    count.className = 'wg-meds-inventory__count wg-mono-display';
+    count.textContent = String(med.inventory_count);
+    countWrap.appendChild(count);
+    const countLabel = document.createElement('span');
+    countLabel.className = 'wg-meds-inventory__count-label';
+    countLabel.textContent = 'left';
+    countWrap.appendChild(countLabel);
+    if (isLowOnStock(med)) {
+        const low = document.createElement('span');
+        low.className = 'wg-tag wg-tag--mono wg-tag--alert wg-meds-inventory__low';
+        low.textContent = '⚠️ Low stock';
+        countWrap.appendChild(low);
+    }
+    main.appendChild(countWrap);
+
+    const refilled = document.createElement('div');
+    refilled.className = 'wg-meds-inventory__refilled';
+    refilled.textContent = 'Last refilled: —';
+    main.appendChild(refilled);
+
+    card.appendChild(main);
+
+    const actions = document.createElement('div');
+    actions.className = 'wg-meds-inventory__actions';
+    const refillBtn = document.createElement('button');
+    refillBtn.type = 'button';
+    refillBtn.className = 'wg-gloss wg-gloss--sun wg-meds-inventory__refill-btn';
+    refillBtn.textContent = 'Refill';
+    actions.appendChild(refillBtn);
+    card.appendChild(actions);
+
+    const form = document.createElement('div');
+    form.className = 'wg-meds-inventory__refill-form';
+    form.hidden = true;
+
+    const inputWrap = document.createElement('label');
+    inputWrap.className = 'wg-gloss--inset wg-meds-inventory__refill-input-wrap';
+    const inputLabel = document.createElement('span');
+    inputLabel.className = 'wg-meds-inventory__refill-input-label';
+    inputLabel.textContent = 'Add';
+    inputWrap.appendChild(inputLabel);
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = '1';
+    input.placeholder = '30';
+    input.className = 'wg-meds-inventory__refill-input';
+    inputWrap.appendChild(input);
+    form.appendChild(inputWrap);
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.type = 'button';
+    confirmBtn.className = 'wg-gloss wg-gloss--sun wg-meds-inventory__refill-confirm';
+    confirmBtn.textContent = 'Confirm';
+    form.appendChild(confirmBtn);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'wg-gloss wg-meds-inventory__refill-cancel';
+    cancelBtn.textContent = 'Cancel';
+    form.appendChild(cancelBtn);
+
+    card.appendChild(form);
+
+    refillBtn.addEventListener('click', () => {
+        form.hidden = false;
+        refillBtn.hidden = true;
+        try { input.focus(); } catch (_) { /* jsdom */ }
+    });
+
+    cancelBtn.addEventListener('click', () => {
+        form.hidden = true;
+        refillBtn.hidden = false;
+        input.value = '';
+    });
+
+    confirmBtn.addEventListener('click', async () => {
+        const qty = parseInt(input.value, 10);
+        if (!qty || qty <= 0) {
+            safeAlert('Please enter a valid quantity');
+            return;
+        }
+        const res = await apiCall(`/api/medications/${med.id}/restock`, 'POST', { quantity: qty });
+        if (!res) return;
+        // Update local medications list so the next render reflects the new
+        // count without waiting for a full SWR refresh.
+        if (typeof res.inventory_count === 'number') {
+            const m = medications.find((x) => x.id === med.id);
+            if (m) m.inventory_count = res.inventory_count;
+        }
+        await window.DataStore.invalidateTags(['medications']);
+        renderInventory();
+    });
+
+    return card;
+}
+
+function renderInventory() {
+    const list = document.getElementById('med-inventory-list');
+    if (!list) return;
+    list.replaceChildren();
+    list.classList.add('wg-meds-inventory');
+
+    const tracked = (Array.isArray(medications) ? medications : [])
+        .filter((m) => m && m.inventory_count !== null && m.inventory_count !== undefined)
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    if (tracked.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'wg-meds-inventory__empty';
+        empty.textContent = 'No medications track inventory — enable tracking in the edit modal.';
+        list.appendChild(empty);
+        return;
+    }
+
+    tracked.forEach((med) => {
+        const card = _buildInventoryCard(med);
+        list.appendChild(card);
+        // Kick off the last-refilled fetch; fill the row in-place when it
+        // resolves so the rest of the card paints immediately.
+        _fetchLastRefilledAt(med.id).then((iso) => {
+            const row = card.querySelector('.wg-meds-inventory__refilled');
+            if (!row) return;
+            const formatted = _formatRestockedDate(iso);
+            row.textContent = formatted ? `Last refilled: ${formatted}` : 'Last refilled: —';
+        });
+    });
+}
+
+async function loadInventory() {
+    // Reuse the same `medications` cache the schedule tab populates. If the
+    // user lands on Inventory first we still need to populate it, so fall
+    // back to loadMeds() when the list is empty.
+    if (!Array.isArray(medications) || medications.length === 0) {
+        await loadMeds();
+    }
+    renderInventory();
+}
+
 // Logic
 async function loadMeds() {
     if (initialAuthLoad) {

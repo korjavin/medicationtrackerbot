@@ -139,12 +139,12 @@ No backend changes. The existing `/api/medications`, `/api/intakes`, `/api/medic
 
 ### Task 6: Build the inventory sub-tab (new)
 
-- [ ] create an `Inventory` sub-tab rendering one `.wg-card` per medication with `inventory_count !== null`
-- [ ] each card: med name (mono-display), current count (large mono-display), low-stock warning as `.wg-tag--alert` when `isLowOnStock(med)`, last-refilled date from the most recent inventory adjustment (if tracked)
-- [ ] Refill button (`.wg-gloss--sun`, trailing) opens a small modal (or inline spinner) to set a new count — wires to existing inventory-update endpoint
-- [ ] empty state (no meds track inventory) renders a muted placeholder: "No medications track inventory — enable tracking in the edit modal."
-- [ ] write `meds.inventory.test.js` — inventory-count display, low-stock tag, refill flow, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] create an `Inventory` sub-tab rendering one `.wg-card` per medication with `inventory_count !== null`
+- [x] each card: med name (mono-display), current count (large mono-display), low-stock warning as `.wg-tag--alert` when `isLowOnStock(med)`, last-refilled date from the most recent inventory adjustment (if tracked) — resolved async via the existing `/api/medications/{id}/restocks` endpoint; row paints "—" until the fetch settles
+- [x] Refill button (`.wg-gloss--sun`, trailing) opens an inline `.wg-gloss--inset` quantity input + Confirm/Cancel row that POSTs to the existing `/api/medications/{id}/restock` endpoint and re-renders with the updated count
+- [x] empty state (no meds track inventory) renders a muted placeholder: "No medications track inventory — enable tracking in the edit modal."
+- [x] write `meds.inventory.test.js` — inventory-count display, low-stock tag, refill flow, empty state (8 tests under `Meds inventory sub-tab (Phase 5, Task 6)`)
+- [x] run `pnpm test` — all 852 tests green
 
 ### Task 7: Rewrite EditMedicationModal
 

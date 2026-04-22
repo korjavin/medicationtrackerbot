@@ -434,6 +434,15 @@ const WANDERGEEK_TOKENS = [
     '--wg-meds-status-out-bg',
     '--wg-meds-status-out-fg',
     '--wg-meds-status-out-border',
+
+    // Meds inventory sub-tab tokens (Phase 5, Task 6) — card padding and
+    // gap, dosage / count-label / refilled-row type sizes, refill input gap.
+    '--wg-meds-inventory-card-pad',
+    '--wg-meds-inventory-card-gap',
+    '--wg-meds-inventory-dosage-size',
+    '--wg-meds-inventory-count-label-size',
+    '--wg-meds-inventory-refilled-size',
+    '--wg-meds-inventory-refill-gap',
 ];
 
 describe('Architecture – design tokens', () => {
