@@ -66,6 +66,16 @@ describe('WGBottomNav — component', () => {
         } finally { cleanup(); }
     });
 
+    it('Meds is the fourth slot with the "pill" icon — Phase 5 contract', () => {
+        const { window, cleanup } = loadEnv();
+        try {
+            const medsSlot = window.WGBottomNav.DEFAULT_ITEMS[3];
+            expect(medsSlot.id).toBe('meds');
+            expect(medsSlot.icon).toBe('pill');
+            expect(medsSlot.label).toBe('Meds');
+        } finally { cleanup(); }
+    });
+
     it('mount() with 5 items lays out a single row (cols=5)', () => {
         const { window, document, cleanup } = loadEnv();
         try {

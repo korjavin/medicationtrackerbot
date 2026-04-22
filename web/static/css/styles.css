@@ -418,6 +418,80 @@
     --wg-food-macro-protein: var(--wg-mint-soft);
     --wg-food-macro-carbs: var(--wg-teal-sage);
     --wg-food-macro-fat: var(--wg-clay-soft);
+
+    /* Meds screen tokens (Phase 5, Task 1) — next-action card, schedule-hour
+       headers, med row grid, inventory count mono display, sub-tab strip. */
+    --wg-meds-next-card-pad: 16px;
+    --wg-meds-next-subtitle-size: 11px;
+    --wg-meds-next-names-size: 15px;
+    --wg-meds-hour-header-size: 13px;
+    --wg-meds-row-cols: 1fr auto;
+    --wg-meds-row-gap: 10px;
+    --wg-meds-row-pad: 12px;
+    --wg-meds-name-size: 16px;
+    --wg-meds-dosage-size: 12px;
+    --wg-meds-inventory-count-size: 28px;
+    --wg-meds-subtab-pad-y: 6px;
+    --wg-meds-subtab-pad-x: 10px;
+    --wg-meds-subtab-gap: 4px;
+
+    /* Meds inventory status aliases (Phase 5, Task 1) — wrap the existing
+       --wg-tag-* triplets so the inventory classifier can return a token-
+       group name (ok / low / out) without duplicating tag styles. Mirrors
+       the --wg-bp-status-* pattern. */
+    --wg-meds-status-ok-bg: var(--wg-tag-normal-bg);
+    --wg-meds-status-ok-fg: var(--wg-tag-normal-fg);
+    --wg-meds-status-ok-border: var(--wg-tag-normal-border);
+    --wg-meds-status-low-bg: var(--wg-tag-high-bg);
+    --wg-meds-status-low-fg: var(--wg-tag-high-fg);
+    --wg-meds-status-low-border: var(--wg-tag-high-border);
+    --wg-meds-status-out-bg: var(--wg-tag-alert-bg);
+    --wg-meds-status-out-fg: var(--wg-tag-alert-fg);
+    --wg-meds-status-out-border: var(--wg-tag-alert-border);
+
+    /* Meds history sub-tab tokens (Phase 5, Task 5) — filter strip geometry,
+       day-group label size, log-row padding, trailing time + status sizes. */
+    --wg-meds-filter-gap: 8px;
+    --wg-meds-filter-field-pad-y: 4px;
+    --wg-meds-filter-field-pad-x: 10px;
+    --wg-meds-filter-label-size: 10px;
+    --wg-meds-history-row-pad: 12px;
+    --wg-meds-history-row-gap: 8px;
+    --wg-meds-history-day-size: 11px;
+    --wg-meds-history-time-size: 12px;
+    --wg-meds-history-name-size: 14px;
+    --wg-meds-next-intake-pad-y: 6px;
+    --wg-meds-next-intake-pad-x: 10px;
+
+    /* Meds inventory sub-tab tokens (Phase 5, Task 6) — card padding and
+       gap, dosage / count-label / refilled-row type sizes. The big mono
+       count reuses the existing `--wg-meds-inventory-count-size` token. */
+    --wg-meds-inventory-card-pad: 14px;
+    --wg-meds-inventory-card-gap: 10px;
+    --wg-meds-inventory-dosage-size: 12px;
+    --wg-meds-inventory-count-label-size: 12px;
+    --wg-meds-inventory-refilled-size: 11px;
+    --wg-meds-inventory-refill-gap: 8px;
+
+    /* Edit-medication modal tokens (Phase 5, Task 7) — dual-line header,
+       gloss-inset input wraps, schedule-pill strip, times-row layout, and
+       the Cancel / Save action bar. */
+    --wg-meds-modal-eyebrow-size: 10.5px;
+    --wg-meds-modal-title-size: 18px;
+    --wg-meds-modal-row-gap: 10px;
+    --wg-meds-modal-section-gap: 14px;
+    --wg-meds-modal-input-pad-y: 10px;
+    --wg-meds-modal-input-pad-x: 12px;
+    --wg-meds-modal-action-gap: 8px;
+    --wg-meds-modal-pill-gap: 4px;
+    --wg-meds-modal-pill-pad-y: 6px;
+    --wg-meds-modal-pill-pad-x: 10px;
+    --wg-meds-modal-pill-size: 12px;
+    --wg-meds-modal-label-size: 10.5px;
+    --wg-meds-modal-rx-size: 11px;
+    --wg-meds-modal-day-size: 32px;
+    --wg-meds-modal-time-row-gap: 8px;
+    --wg-meds-modal-toggle-gap: 8px;
 }
 
 body {
@@ -706,7 +780,6 @@ h3 {
     z-index: var(--z-overlay);
 }
 
-#med-modal,
 #workout-group-modal,
 #workout-variant-modal,
 #workout-exercise-modal,
@@ -751,7 +824,6 @@ h3 {
 }
 
 
-#med-modal.hidden,
 #workout-group-modal.hidden,
 #workout-variant-modal.hidden,
 #workout-exercise-modal.hidden,
@@ -1173,15 +1245,6 @@ svg.chart-svg {
 #weight-modal h3 {
     margin: 0 0 var(--space-xl) 0;
     font-size: var(--font-size-lg);
-}
-
-/* Inventory Section */
-.inventory-section {
-    margin-bottom: var(--space-lg);
-    padding: var(--space-lg);
-    background: var(--secondary-bg-color);
-    border-radius: var(--radius-sm);
-    border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .inventory-badge {
@@ -5052,6 +5115,467 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
+/* Meds next-action card (Phase 5, Task 3). Sun-glossed card mirroring the
+   Today next-action pattern; subtitle = "Next · HH:MM · in Xh Ym", value =
+   mono-display names list (truncated to "Name1 · Name2 · +N" for >3), and a
+   trailing sun-gloss Take button. Empty state hides the Take button and
+   shows muted copy. */
+.wg-meds-next-action {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--wg-meds-next-card-pad);
+    border-radius: var(--wg-radius-card);
+    color: inherit;
+    text-align: left;
+    width: 100%;
+    margin-bottom: var(--space-md);
+}
+
+.wg-meds-next-action__text {
+    flex: 1;
+    min-width: 0;
+}
+
+.wg-meds-next-action__subtitle {
+    font-size: var(--wg-meds-next-subtitle-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-sun-soft);
+    font-weight: 600;
+}
+
+.wg-meds-next-action__value {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-next-names-size);
+    color: var(--wg-fg-1);
+    margin-top: var(--space-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wg-meds-next-action__take {
+    flex-shrink: 0;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-sm);
+    font-family: var(--wg-font-mono);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+/* Meds sub-tab strip (Phase 5, Task 2). `.wg-gloss--inset` container wraps
+   three `.wg-gloss`-capable pills — Schedule / History / Inventory — the
+   active pill carries `.wg-gloss--sun` (plus `.wg-meds-subtabs__btn--active`
+   for tests). Mirrors the Phase 4 Food sub-tab strip. */
+.wg-meds-subtabs {
+    display: flex;
+    gap: var(--wg-meds-subtab-gap);
+    padding: var(--wg-meds-subtab-pad-y) var(--wg-meds-subtab-pad-x);
+    margin-bottom: var(--space-md);
+}
+
+.wg-meds-subtabs__btn {
+    flex: 1;
+    min-height: 36px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+/* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
+   bracket clusters of scheduled meds; each row is a `.wg-card` with a name
+   (mono-display), dosage, schedule summary, optional inventory tag, and a
+   trailing `.wg-icon-btn` cluster (Log / Edit / Delete). As-needed and
+   Archived groups reuse the same section-label header pattern. */
+.wg-meds-section-label {
+    font-size: var(--wg-meds-hour-header-size);
+}
+
+.wg-meds-row {
+    display: grid;
+    grid-template-columns: var(--wg-meds-row-cols);
+    column-gap: var(--wg-meds-row-gap);
+    padding: var(--wg-meds-row-pad);
+    margin-bottom: var(--space-sm);
+}
+
+.wg-meds-row.archived {
+    opacity: 0.65;
+}
+
+.wg-meds-row__info {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-meds-row__title {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+
+.wg-meds-row__name {
+    font-size: var(--wg-meds-name-size);
+    color: var(--wg-fg-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.wg-meds-row__dosage {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-dosage-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
+}
+
+.wg-meds-row__supplement {
+    flex-shrink: 0;
+}
+
+.wg-meds-row__schedule {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+}
+
+.wg-meds-row__rx,
+.wg-meds-row__dates {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-4);
+    letter-spacing: 0.02em;
+}
+
+.wg-meds-row__inventory {
+    align-self: flex-start;
+}
+
+.wg-meds-row__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+.wg-meds-row__log-btn {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-md);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-meds-row__action-icons {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.wg-meds-add-cta {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    min-height: 44px;
+    padding: var(--space-md) var(--space-lg);
+    margin-top: var(--space-md);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-meds-add-cta__label {
+    letter-spacing: 0.04em;
+}
+
+/* Meds history sub-tab (Phase 5, Task 5). Two `.wg-gloss--inset` select
+   wraps sit atop a muted next-intake link row, followed by a day-grouped
+   list where each minute-cluster of intakes is a `.wg-card` row. Status
+   tokens come from `.wg-tag` + `.wg-tag--mono` variants so the paper-era
+   ✅/⏳/❌ icons become mono-label pills. */
+.wg-meds-filters {
+    display: flex;
+    gap: var(--wg-meds-filter-gap);
+    margin-bottom: var(--space-md);
+}
+
+.wg-meds-filters__field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: var(--wg-meds-filter-field-pad-y) var(--wg-meds-filter-field-pad-x);
+    min-width: 0;
+}
+
+.wg-meds-filters__label {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-filter-label-size);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--wg-fg-4);
+}
+
+.wg-meds-filters__select {
+    appearance: none;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    width: 100%;
+    cursor: pointer;
+}
+
+.wg-meds-filters__select:focus {
+    outline: none;
+}
+
+.wg-meds-next-intake-trigger {
+    display: block;
+    padding: var(--wg-meds-next-intake-pad-y) var(--wg-meds-next-intake-pad-x);
+    margin-bottom: var(--space-md);
+    color: var(--wg-fg-3);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+}
+
+.wg-meds-next-intake-trigger:empty {
+    display: none;
+}
+
+.wg-meds-history {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-meds-history__empty {
+    color: var(--wg-fg-4);
+    text-align: center;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    margin: var(--space-lg) 0;
+}
+
+.wg-meds-history__day {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-meds-history__day-label {
+    font-size: var(--wg-meds-history-day-size);
+}
+
+.wg-meds-history__rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-meds-history__row {
+    display: flex;
+    align-items: center;
+    gap: var(--wg-meds-history-row-gap);
+    padding: var(--wg-meds-history-row-pad);
+}
+
+.wg-meds-history__row.cursor-pointer {
+    cursor: pointer;
+}
+
+.wg-meds-history__row-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-meds-history__names {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+
+.wg-meds-history__name {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-history-name-size);
+    color: var(--wg-fg-1);
+}
+
+.wg-meds-history__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.wg-meds-history__time {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-history-time-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.04em;
+}
+
+.wg-meds-history__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+.wg-meds-history__status {
+    white-space: nowrap;
+}
+
+/* Meds inventory sub-tab (Phase 5, Task 6). One `.wg-card` per medication
+   that tracks inventory. Each card shows the med name + dosage, a large
+   mono count + label, an optional low-stock alert pill, a muted
+   last-refilled row, and a trailing Refill button that toggles a
+   gloss-inset quantity input + confirm/cancel row underneath. */
+.wg-meds-inventory {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-meds-inventory__empty {
+    color: var(--wg-fg-4);
+    text-align: center;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    margin: var(--space-lg) 0;
+}
+
+.wg-meds-inventory__card {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    column-gap: var(--wg-meds-inventory-card-gap);
+    row-gap: var(--wg-meds-inventory-card-gap);
+    align-items: center;
+    padding: var(--wg-meds-inventory-card-pad);
+}
+
+.wg-meds-inventory__main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-meds-inventory__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-sm);
+}
+
+.wg-meds-inventory__name {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-name-size);
+    color: var(--wg-fg-1);
+}
+
+.wg-meds-inventory__dosage {
+    color: var(--wg-fg-3);
+    font-size: var(--wg-meds-inventory-dosage-size);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-meds-inventory__count-wrap {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.wg-meds-inventory__count {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-inventory-count-size);
+    color: var(--wg-fg-1);
+    line-height: 1;
+    letter-spacing: 0.02em;
+}
+
+.wg-meds-inventory__count-label {
+    color: var(--wg-fg-3);
+    font-size: var(--wg-meds-inventory-count-label-size);
+    font-family: var(--wg-font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.wg-meds-inventory__low {
+    white-space: nowrap;
+}
+
+.wg-meds-inventory__refilled {
+    color: var(--wg-fg-4);
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-inventory-refilled-size);
+    letter-spacing: 0.04em;
+}
+
+.wg-meds-inventory__actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.wg-meds-inventory__refill-btn {
+    white-space: nowrap;
+}
+
+.wg-meds-inventory__refill-form {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: var(--wg-meds-inventory-refill-gap);
+    flex-wrap: wrap;
+}
+
+.wg-meds-inventory__refill-form[hidden] {
+    display: none;
+}
+
+.wg-meds-inventory__refill-input-wrap {
+    flex: 1 1 160px;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--wg-meds-filter-field-pad-y) var(--wg-meds-filter-field-pad-x);
+}
+
+.wg-meds-inventory__refill-input-label {
+    color: var(--wg-fg-3);
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-filter-label-size);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+
+.wg-meds-inventory__refill-input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    outline: none;
+    min-width: 0;
+}
+
 /* Food day navigator (Phase 4, Task 3). Three-cell row — chevron button,
    center mono title + subtitle, chevron button. The hidden <input type="date">
    lets the mono title trigger the native picker via showPicker(); the
@@ -5568,5 +6092,274 @@ textarea.wg-input {
 }
 
 .wg-food-modal__action--save {
+    flex: 2 1 0;
+}
+
+/* Edit-medication modal (Phase 5, Task 7) — shares the generic `.wg-modal`
+   shell for positioning and chrome; overlays a dual-line mono header, gloss
+   input wraps, schedule-type pill strip, times editor, inventory block,
+   toggle row, and the Cancel/Save action bar. Every visual value comes from
+   a `--wg-meds-modal-*` or shared `--wg-*` token. */
+.wg-meds-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-meds-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-meds-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-meds-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-meds-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-meds-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-meds-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-meds-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-meds-modal-section-gap);
+}
+
+.wg-meds-modal__row {
+    display: flex;
+    gap: var(--wg-meds-modal-row-gap);
+    align-items: flex-end;
+}
+
+.wg-meds-modal__row > .wg-meds-modal__field {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.wg-meds-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-meds-modal__label {
+    font-size: var(--wg-meds-modal-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-meds-modal__input-wrap {
+    padding: var(--wg-meds-modal-input-pad-y) var(--wg-meds-modal-input-pad-x);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-meds-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-meds-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-meds-modal__select {
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+}
+
+.wg-meds-modal__rx {
+    margin: 0;
+    font-size: var(--wg-meds-modal-rx-size);
+    color: var(--wg-fg-3);
+    font-family: var(--wg-font-mono);
+    display: none;
+}
+
+.wg-meds-modal__pills {
+    display: flex;
+    gap: var(--wg-meds-modal-pill-gap);
+    padding: var(--wg-meds-modal-pill-gap);
+    align-items: stretch;
+}
+
+.wg-meds-modal__pill {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: var(--wg-meds-modal-pill-pad-y) var(--wg-meds-modal-pill-pad-x);
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-meds-modal-pill-size);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--wg-fg-2);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-meds-modal__pill[aria-pressed="true"] {
+    color: var(--wg-ink);
+}
+
+.wg-meds-modal__hidden-select {
+    display: none;
+}
+
+.wg-meds-modal__days {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0;
+}
+
+.wg-meds-modal__days span {
+    width: var(--wg-meds-modal-day-size);
+    height: var(--wg-meds-modal-day-size);
+}
+
+.wg-meds-modal__times {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-meds-modal-time-row-gap);
+}
+
+.wg-meds-modal__time-row {
+    display: flex;
+    gap: var(--wg-meds-modal-time-row-gap);
+    align-items: center;
+    margin-bottom: 0;
+}
+
+.wg-meds-modal__time-wrap {
+    flex: 1 1 auto;
+}
+
+.wg-meds-modal__remove-time {
+    flex: 0 0 auto;
+    font-size: var(--font-size-lg);
+}
+
+.wg-meds-modal__add-time {
+    align-self: flex-start;
+    padding: var(--wg-meds-modal-pill-pad-y) var(--wg-meds-modal-pill-pad-x);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-meds-modal__inventory-block {
+    gap: var(--wg-meds-modal-row-gap);
+}
+
+.wg-meds-modal__inventory {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-meds-modal-row-gap);
+}
+
+.wg-meds-modal__inventory.hidden {
+    display: none;
+}
+
+.wg-meds-modal__restock {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-meds-modal__restock-row {
+    display: flex;
+    gap: var(--wg-meds-modal-time-row-gap);
+    align-items: center;
+}
+
+.wg-meds-modal__restock-qty-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.wg-meds-modal__restock-add {
+    flex: 0 0 auto;
+    padding: var(--wg-meds-modal-pill-pad-y) var(--wg-meds-modal-pill-pad-x);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-meds-modal__restock-history {
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+}
+
+.wg-meds-modal__toggle-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--wg-meds-modal-toggle-gap);
+}
+
+.wg-meds-modal__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+    cursor: pointer;
+}
+
+.wg-meds-modal__toggle input[type="checkbox"] {
+    margin: 0;
+    width: auto;
+}
+
+.wg-meds-modal__actions {
+    display: flex;
+    gap: var(--wg-meds-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-meds-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-meds-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-meds-modal__action--save {
     flex: 2 1 0;
 }

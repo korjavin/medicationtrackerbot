@@ -390,6 +390,78 @@ const WANDERGEEK_TOKENS = [
     '--wg-food-macro-protein',
     '--wg-food-macro-carbs',
     '--wg-food-macro-fat',
+
+    // Meds screen tokens (Phase 5, Task 1) — next-action card pad/type,
+    // hour header, schedule row layout, inventory count display, sub-tab strip.
+    '--wg-meds-next-card-pad',
+    '--wg-meds-next-subtitle-size',
+    '--wg-meds-next-names-size',
+    '--wg-meds-hour-header-size',
+    '--wg-meds-row-cols',
+    '--wg-meds-row-gap',
+    '--wg-meds-row-pad',
+    '--wg-meds-name-size',
+    '--wg-meds-dosage-size',
+    '--wg-meds-inventory-count-size',
+    '--wg-meds-subtab-pad-y',
+    '--wg-meds-subtab-pad-x',
+    '--wg-meds-subtab-gap',
+
+    // Meds inventory status aliases (Phase 5, Task 1) — wrap the existing
+    // --wg-tag-* triplets so the inventory classifier (ok / low / out) can
+    // return a token-group name without duplicating tag styles.
+    '--wg-meds-status-ok-bg',
+    '--wg-meds-status-ok-fg',
+    '--wg-meds-status-ok-border',
+    '--wg-meds-status-low-bg',
+    '--wg-meds-status-low-fg',
+    '--wg-meds-status-low-border',
+    '--wg-meds-status-out-bg',
+    '--wg-meds-status-out-fg',
+    '--wg-meds-status-out-border',
+
+    // Meds history sub-tab tokens (Phase 5, Task 5) — filter-strip geometry,
+    // day-group label, log-row padding, trailing time + status sizes, and
+    // the muted next-intake link row.
+    '--wg-meds-filter-gap',
+    '--wg-meds-filter-field-pad-y',
+    '--wg-meds-filter-field-pad-x',
+    '--wg-meds-filter-label-size',
+    '--wg-meds-history-row-pad',
+    '--wg-meds-history-row-gap',
+    '--wg-meds-history-day-size',
+    '--wg-meds-history-time-size',
+    '--wg-meds-history-name-size',
+    '--wg-meds-next-intake-pad-y',
+    '--wg-meds-next-intake-pad-x',
+
+    // Meds inventory sub-tab tokens (Phase 5, Task 6) — card padding and
+    // gap, dosage / count-label / refilled-row type sizes, refill input gap.
+    '--wg-meds-inventory-card-pad',
+    '--wg-meds-inventory-card-gap',
+    '--wg-meds-inventory-dosage-size',
+    '--wg-meds-inventory-count-label-size',
+    '--wg-meds-inventory-refilled-size',
+    '--wg-meds-inventory-refill-gap',
+
+    // Edit-medication modal tokens (Phase 5, Task 7) — dual-line header,
+    // gloss-inset input wraps, schedule-pill strip, times layout, action bar.
+    '--wg-meds-modal-eyebrow-size',
+    '--wg-meds-modal-title-size',
+    '--wg-meds-modal-row-gap',
+    '--wg-meds-modal-section-gap',
+    '--wg-meds-modal-input-pad-y',
+    '--wg-meds-modal-input-pad-x',
+    '--wg-meds-modal-action-gap',
+    '--wg-meds-modal-pill-gap',
+    '--wg-meds-modal-pill-pad-y',
+    '--wg-meds-modal-pill-pad-x',
+    '--wg-meds-modal-pill-size',
+    '--wg-meds-modal-label-size',
+    '--wg-meds-modal-rx-size',
+    '--wg-meds-modal-day-size',
+    '--wg-meds-modal-time-row-gap',
+    '--wg-meds-modal-toggle-gap',
 ];
 
 describe('Architecture – design tokens', () => {
