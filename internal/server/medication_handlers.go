@@ -695,7 +695,7 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 // timezone that differs from the server's local timezone can see a bootstrap
 // "no upcoming dose" result overridden by a stale reminder from this endpoint.
 func (s *Server) handleGetNextIntake(w http.ResponseWriter, r *http.Request) {
-	nextTime, nextNames, err := s.computeNextIntakeData(time.Now())
+	nextTime, nextIDs, nextNames, err := s.computeNextIntakeData(time.Now())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -709,6 +709,7 @@ func (s *Server) handleGetNextIntake(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"scheduled_at":     nextTime.Format(time.RFC3339),
+		"medication_ids":   nextIDs,
 		"medication_names": nextNames,
 	}); err != nil {
 		slog.Error("encode response", "error", err)

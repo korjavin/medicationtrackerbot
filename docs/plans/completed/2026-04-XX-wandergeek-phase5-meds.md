@@ -91,93 +91,93 @@ No backend changes. The existing `/api/medications`, `/api/intakes`, `/api/medic
 
 ### Task 1: Extend tokens + extract meds into a feature module
 
-- [ ] add `--wg-meds-*` dimensional tokens to `:root` in `styles.css` (next-action card padding, schedule-hour header size, med-row grid-template-columns, inventory-count mono size, sub-tab padding) — everything the Meds view needs that isn't already covered by the shared `--wg-*` set
-- [ ] add `--wg-meds-status-*` semantic aliases that wrap the existing `--wg-tag-*` triplets so the inventory classifier (low / ok / out) can return a token-group name without duplicating tag styles
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] create `web/static/js/features/meds.js` and move `renderMeds`, `loadMeds`, `renderHistory`, `populateMedFilter`, `saveMedication`, `deleteMed`, `showEditModal`, `showMedicationConfirmModal`, `logMedicationPast` out of `app.js` into it; expose through a `window.MedsFeature` namespace following the `window.BpFeature` / `window.FoodFeature` pattern
-- [ ] update `index.html` script load order to include `features/meds.js` in the same phase as the other feature modules
-- [ ] keep all existing helpers (`parseMedicationSchedule`, `getNextScheduledDate`, `getMedicationScheduleText`, `getLastTakenTimeMs`, `isLowOnStock`) wherever they currently live; only the render + modal flow moves
-- [ ] verify no behavior change — `app.loadmeds-bp-swipe-edges.test.js` and `app.forms-and-push.test.js` stay green
-- [ ] run `pnpm test` — design-tokens test + extraction smoke test must be green before next task
+- [x] add `--wg-meds-*` dimensional tokens to `:root` in `styles.css` (next-action card padding, schedule-hour header size, med-row grid-template-columns, inventory-count mono size, sub-tab padding) — everything the Meds view needs that isn't already covered by the shared `--wg-*` set
+- [x] add `--wg-meds-status-*` semantic aliases that wrap the existing `--wg-tag-*` triplets so the inventory classifier (low / ok / out) can return a token-group name without duplicating tag styles
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] create `web/static/js/features/meds.js` and move `renderMeds`, `loadMeds`, `renderHistory`, `populateMedFilter`, `saveMedication`, `deleteMed`, `showEditModal`, `showMedicationConfirmModal`, `logMedicationPast` out of `app.js` into it; script-tag load order + hoisted function declarations keep them accessible as globals (no `window.MedsFeature` namespace introduced — matches the de-facto `features/bp.js` / `features/food.js` pattern where functions stay as script-scope globals). Cross-file shared state (`initialAuthLoad`, `medications`, `editingMedId`, `pendingMedConfirm*`) switched from `let` to `var` so it persists as a true global across script tags.
+- [x] update `index.html` script load order to include `features/meds.js` in the same phase as the other feature modules (also added to `sw.js` precache list + `tests/helpers/frontend-harness.js`)
+- [x] keep all existing helpers (`parseMedicationSchedule`, `getNextScheduledDate`, `getMedicationScheduleText`, `getLastTakenTimeMs`, `isLowOnStock`) wherever they currently live; only the render + modal flow moves
+- [x] verify no behavior change — `app.loadmeds-bp-swipe-edges.test.js` and `app.forms-and-push.test.js` stay green
+- [x] run `pnpm test` — design-tokens test + extraction smoke test must be green before next task
 
 ### Task 2: Build the sub-tab strip + subtab state plumbing
 
-- [ ] replace the current `.med-tabs` buttons (History / Schedule) with a `.wg-gloss--inset` container carrying three `.wg-gloss--sun`-capable pills (Schedule / History / Inventory) — active state via class, not inline style
-- [ ] state: which sub-tab is active persists via a new `mt-meds-subtab` localStorage key matching the `mt-bp-range` / `mt-food-subtab` naming pattern
-- [ ] default sub-tab: Schedule (distinct from current default of History, which was the paper-era default)
-- [ ] write `meds.subtabs.test.js` — active-state toggle, persistence across reload, default-tab behavior
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the current `.med-tabs` buttons (History / Schedule) with a `.wg-gloss--inset` container carrying three `.wg-gloss--sun`-capable pills (Schedule / History / Inventory) — active state via class, not inline style
+- [x] state: which sub-tab is active persists via a new `mt-meds-subtab` localStorage key matching the `mt-bp-range` / `mt-food-subtab` naming pattern
+- [x] default sub-tab: Schedule (distinct from current default of History, which was the paper-era default)
+- [x] write `meds.subtabs.test.js` — active-state toggle, persistence across reload, default-tab behavior
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Build the next-action card
 
-- [ ] create a `renderNextActionCard(meds, nextIntake)` helper that picks the upcoming med cluster (the meds scheduled within the same hour as `nextIntake.scheduled_at`)
-- [ ] mirror the Today next-action card pattern — `.wg-gloss--sun` container, small uppercase "Next · HH:MM · in Xh Ym" subtitle, mono names list ("Allopurinol · Bisoprolol · +4" when > 3), and a `.wg-gloss--sun` Take button
-- [ ] Take button click invokes `showMedicationConfirmModal([ids], [names], now, 'take')` — same handler Today uses
-- [ ] empty state (no upcoming dose within 24h) renders a muted card with "No upcoming doses" and hides the Take button
-- [ ] write `meds.nextaction.test.js` — primary state, empty state, > 3 names truncation, Take button dispatch
-- [ ] run `pnpm test` — must pass before next task
+- [x] create a `renderNextActionCard(meds, nextIntake)` helper that picks the upcoming med cluster (the meds scheduled within the same hour as `nextIntake.scheduled_at`)
+- [x] mirror the Today next-action card pattern — `.wg-gloss--sun` container, small uppercase "Next · HH:MM · in Xh Ym" subtitle, mono names list ("Allopurinol · Bisoprolol · +4" when > 3), and a `.wg-gloss--sun` Take button
+- [x] Take button click invokes `showMedicationConfirmModal([ids], [names], scheduledAt, 'confirm')` — names→ids resolved against the local `medications` list; mode is `confirm` (the actual modal mode for a scheduled intake; the plan's `'take'` was colloquial)
+- [x] empty state (no upcoming dose within 24h) renders a muted card with "No upcoming doses" and hides the Take button
+- [x] write `meds.nextaction.test.js` — primary state, empty state, > 3 names truncation, Take button dispatch
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Rewrite the schedule sub-tab (grouped by hour)
 
-- [ ] replace `renderMeds()` body to group scheduled meds by next-dose hour rather than flat bucketed list — `.wg-section-label` header per hour ("08:00 · in 1h 21m"), items within the hour rendered as `.wg-card` rows
-- [ ] preserve the existing bucket fallbacks — as-needed and archived meds collapse into separate `.wg-section-label` groups below the scheduled ones
-- [ ] each `.wg-card` row: med name (mono-display, 16px), dosage (section-label style), schedule summary (small muted), inventory tag if tracked (`.wg-tag--mono` or `.wg-tag--alert` for low), trailing `.wg-icon-btn` cluster (Log / Edit / Delete)
-- [ ] full-width `.wg-gloss--sun` "Add medication" CTA appended at the bottom of the sub-tab (replaces `#add-btn` FAB)
-- [ ] preserve the existing `med.archived` → archived-bucket collapse behavior
-- [ ] write `meds.schedule.test.js` — hour grouping, inventory tag rendering, low-stock alert state, archived collapse, Log/Edit/Delete callback dispatch
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace `renderMeds()` body to group scheduled meds by next-dose hour rather than flat bucketed list — `.wg-section-label` header per hour ("08:00 · in 1h 21m"), items within the hour rendered as `.wg-card` rows
+- [x] preserve the existing bucket fallbacks — as-needed and archived meds collapse into separate `.wg-section-label` groups below the scheduled ones
+- [x] each `.wg-card` row: med name (mono-display, 16px), dosage (section-label style), schedule summary (small muted), inventory tag if tracked (`.wg-tag--mono` or `.wg-tag--alert` for low), trailing `.wg-icon-btn` cluster (Log / Edit / Delete)
+- [x] full-width `.wg-gloss--sun` "Add medication" CTA appended at the bottom of the sub-tab (replaces `#add-btn` FAB)
+- [x] preserve the existing `med.archived` → archived-bucket collapse behavior
+- [x] write `meds.schedule.test.js` — hour grouping, inventory tag rendering, low-stock alert state, archived collapse, Log/Edit/Delete callback dispatch
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Rewrite the history sub-tab
 
-- [ ] replace the existing `#history-list` markup with a `.wg-meds-history` container — day groups use `.wg-section-label` headers, each log row is a `.wg-card` row with med name (mono), dosage, ISO-local time, and an edit/delete `.wg-icon-btn` trailing cluster
-- [ ] restyle the filter controls (`#history-filter-med` + `#history-filter-days`) as `.wg-gloss--inset` select wraps; preserve existing options and change handlers
-- [ ] preserve offline-pending + rejected badge logic — become `.wg-tag--mono` variants
-- [ ] delete + edit callbacks unchanged (reuse existing handlers)
-- [ ] `#next-intake-trigger` becomes a link-style muted row under the filters, unchanged behavior
-- [ ] write `meds.history.test.js` — day grouping, filter-change refetch, offline-pending + rejected badge states, delete flow invokes existing handler
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing `#history-list` markup with a `.wg-meds-history` container — day groups use `.wg-section-label` headers, each minute-cluster log row is a `.wg-card` row with med names (mono), ISO-local time, and a trailing `.wg-tag--mono` status tag. (The plan also mentioned an edit/delete `.wg-icon-btn` trailing cluster, but there is no `/api/intakes` DELETE endpoint and the existing edit handler is the whole-row click — adding separate icons would duplicate the row-click behavior, so the row remains fully clickable and the trailing cluster carries only the status tag.)
+- [x] restyle the filter controls (`#history-filter-med` + `#history-filter-days`) as `.wg-gloss--inset` select wraps inside a `.wg-meds-filters` strip with monospace eyebrow labels; preserve existing `id`s + change-handler wiring
+- [x] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` + `.wg-tag--normal` (TAKEN), `.wg-tag--mono` + `.wg-tag--high` (PENDING), `.wg-tag--mono` + `.wg-tag--alert` (MISSED/other). Emojis retained inside the pill text so existing tests grepping for `✅` still pass.
+- [x] delete + edit callbacks unchanged (reuse existing `showMedicationConfirmModal` handler — row click dispatches `'edit'` for TAKEN and `'confirm'` for PENDING clusters, identical to the paper-era behavior)
+- [x] `#next-intake-trigger` becomes a link-style muted row under the filters, unchanged behavior (inline `style="margin-bottom:15px"` swept out; geometry now comes from `.wg-meds-next-intake-trigger`)
+- [x] write `meds.history.test.js` — day grouping, filter-change refetch, pending + missed badge states, row click dispatches existing handler, empty state, filter-strip structure, `next-intake-trigger` class
+- [x] run `pnpm test` — all 844 tests green (new suite: 9 tests under `features/meds.js renderHistory (Phase 5, Task 5)`)
 
 ### Task 6: Build the inventory sub-tab (new)
 
-- [ ] create an `Inventory` sub-tab rendering one `.wg-card` per medication with `inventory_count !== null`
-- [ ] each card: med name (mono-display), current count (large mono-display), low-stock warning as `.wg-tag--alert` when `isLowOnStock(med)`, last-refilled date from the most recent inventory adjustment (if tracked)
-- [ ] Refill button (`.wg-gloss--sun`, trailing) opens a small modal (or inline spinner) to set a new count — wires to existing inventory-update endpoint
-- [ ] empty state (no meds track inventory) renders a muted placeholder: "No medications track inventory — enable tracking in the edit modal."
-- [ ] write `meds.inventory.test.js` — inventory-count display, low-stock tag, refill flow, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] create an `Inventory` sub-tab rendering one `.wg-card` per medication with `inventory_count !== null`
+- [x] each card: med name (mono-display), current count (large mono-display), low-stock warning as `.wg-tag--alert` when `isLowOnStock(med)`, last-refilled date from the most recent inventory adjustment (if tracked) — resolved async via the existing `/api/medications/{id}/restocks` endpoint; row paints "—" until the fetch settles
+- [x] Refill button (`.wg-gloss--sun`, trailing) opens an inline `.wg-gloss--inset` quantity input + Confirm/Cancel row that POSTs to the existing `/api/medications/{id}/restock` endpoint and re-renders with the updated count
+- [x] empty state (no meds track inventory) renders a muted placeholder: "No medications track inventory — enable tracking in the edit modal."
+- [x] write `meds.inventory.test.js` — inventory-count display, low-stock tag, refill flow, empty state (8 tests under `Meds inventory sub-tab (Phase 5, Task 6)`)
+- [x] run `pnpm test` — all 852 tests green
 
 ### Task 7: Rewrite EditMedicationModal
 
-- [ ] replace the existing edit-medication modal markup in `index.html` with the Wandergeek shell — mono header (dual-line: "Edit medication" / medication name), `.wg-icon-btn` close trailing the header
-- [ ] name + dosage row — both are `.wg-gloss--inset` input wraps sharing a 10px gap
-- [ ] schedule-type selector — `.wg-gloss--inset` container with four `.wg-gloss--sun`-capable pills (Daily / Interval / Weekly / As-needed); changing the type swaps the detail panel below
-- [ ] detail panel per schedule-type: time-of-day list (daily + weekly), interval-in-hours input (interval), weekday checkboxes (weekly), no panel (as-needed) — all inputs use `.wg-gloss--inset` wraps
-- [ ] start + end dates row — two `.wg-gloss--inset` date inputs
-- [ ] inventory toggle + count input — `.wg-gloss` toggle button, count wrap conditionally visible
-- [ ] supplement + archived toggles — `.wg-gloss` button row
-- [ ] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss`, Save `.wg-gloss--sun` with 2× flex per modal-button-order convention (Cancel left, Save right)
-- [ ] write `meds.modal.test.js` — open/save/cancel, schedule-type swap, inventory toggle reveals count field, existing `saveMedication()` path preserved, `modal-controller.js` history integration preserved
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing edit-medication modal markup in `index.html` with the Wandergeek shell — mono header (eyebrow + mono title, "Edit medication" / medication name), `.wg-icon-btn` close trailing the header
+- [x] name + dosage row — both are `.wg-gloss--inset` input wraps (`.wg-meds-modal__row--identity`)
+- [x] schedule-type selector — `.wg-gloss--inset` pill strip with three `.wg-gloss--sun`-capable pills (Daily / Weekly / As-needed); clicks call `setScheduleType()` which keeps the hidden `#schedule-type` select in sync and swaps detail panels. (Plan mentioned four pills including Interval, but the backend schedule schema only supports daily/weekly/as_needed, so the strip renders the three types the app actually persists — matching the `meds.modal.test.js` assertion `expect(types).toEqual(['daily','weekly','as_needed'])`.)
+- [x] detail panel per schedule-type: time-of-day list (daily + weekly), weekday spans (weekly), no panel (as-needed) — all time inputs use `.wg-gloss--inset` wraps; `addTimeInput()` emits the wrapped structure with a `.wg-icon-btn` remove affordance
+- [x] start + end dates row — two `.wg-gloss--inset` date inputs side-by-side
+- [x] inventory toggle + count input — `.wg-meds-modal__toggle` label, count field + restock row conditionally revealed (`inventory-fields` `hidden` class driven by `toggleInventoryFields()`)
+- [x] supplement + archived toggles — `.wg-meds-modal__toggle-row` with two `.wg-meds-modal__toggle` labels
+- [x] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss`, Save `.wg-gloss` + `.wg-gloss--sun` with 2× flex per modal-button-order convention (Cancel left, Save right, both inside `.wg-meds-modal__actions`)
+- [x] write `meds.modal.test.js` — 18 tests covering open/save/cancel, schedule-type pill swap, inventory toggle reveals count field, existing `saveMedication()` path preserved, `modal-controller.js` history integration (`ModalManager.closeTopMostVisibleModal`) preserved
+- [x] run `pnpm test` — all 870 tests green, `meds.modal.test.js` (18 tests) passing under `EditMedicationModal (Phase 5, Task 7)`
 
 ### Task 8: Wire Meds into the canonical bottom nav + cleanup
 
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `meds` slot and the `pill` icon; add a test case if one doesn't exist
-- [ ] remove any remaining `.med-*` / `.filters` / `.inventory-badge` / `.med-supplement-badge` paper-era classes from `styles.css` that are no longer referenced after the rewrite (grep-verify)
-- [ ] run `pnpm test` — must pass before next task
+- [x] confirmed `WGBottomNav.DEFAULT_ITEMS[3] = { id:'meds', label:'Meds', icon:'pill' }` and added a Phase 5 contract test (`components.wg-bottom-nav.test.js` — "Meds is the fourth slot with the 'pill' icon — Phase 5 contract") matching the BP/Food contract tests
+- [x] grep-verified paper-era classes still referenced: `.med-tabs` / `.med-tab` / `.med-tab-content` (dual-classed on `#med-subtabs` in `index.html` so existing query selectors in `app.js` + 5 test files still resolve); `.med-item` / `.med-info` (reused by `workout.js` for workout-group-cards — cross-feature reuse); `.med-supplement-badge` / `.med-normalized-name` / `.med-action-icons` / `.med-empty-text` / `.inventory-badge` (dual-classed in `features/meds.js` rows for styling layering). `.filters` CSS rule was already absent (only the dual-class marker remains in `index.html` for test compat). Removed the one truly orphan rule — `.inventory-section` (no DOM references anywhere) — from `styles.css:1249-1256`
+- [x] run `pnpm test` — all 871 tests green (28 tests in `components.wg-bottom-nav.test.js`, including the new Phase 5 contract test)
 
 ### Task 9: Verify acceptance criteria for Phase 5
 
-- [ ] open `index.html` in desktop 390×844 phone view, compare Meds screen side-by-side with `Medtracker.html` — manual visual check (skipped - not automatable)
-- [ ] open in mobile viewport (DevTools 375×812) — manual visual check (skipped - not automatable)
-- [ ] full `pnpm test` suite green
-- [ ] `go test ./...` green (sanity check; no backend changes expected)
-- [ ] grep `style="` and `\.style\.` in the new JS — zero matches in `web/static/js/features/meds.js` (or allowlisted in `architecture.inline-styles.test.js` with a one-line justification)
+- [x] open `index.html` in desktop 390×844 phone view, compare Meds screen side-by-side with `Medtracker.html` — manual visual check (skipped - not automatable)
+- [x] open in mobile viewport (DevTools 375×812) — manual visual check (skipped - not automatable)
+- [x] full `pnpm test` suite green — all 871 tests pass across 87 files
+- [x] `go test ./...` green (sanity check; no backend changes expected) — all Go packages pass
+- [x] grep `style="` and `\.style\.` in the new JS — 11 pre-Phase-5 show/hide toggles carried over from the Task 1 extraction allowlisted in `architecture.inline-styles.test.js` with one-line justifications (scope expanded to cover `web/static/js/features/meds.js`); no new inline styles introduced by Phase 5's render layer
 
 ### Task 10: [Final] Update plan and write Phase 6 plan stub
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write `docs/plans/2026-04-XX-wandergeek-phase6-weight.md` covering the Weight screen rewrite (big current-weight card, range selector + line chart, day-grouped history with delete actions)
-- [ ] no code changes in this task
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write `docs/plans/2026-04-XX-wandergeek-phase6-weight.md` covering the Weight screen rewrite (big current-weight card, range selector + line chart, day-grouped history with delete actions)
+- [x] no code changes in this task
 
 ## Technical Details
 
