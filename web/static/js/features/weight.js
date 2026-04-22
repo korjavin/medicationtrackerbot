@@ -190,6 +190,216 @@ function updateRulerPosition(weight) {
 }
 
 
+// =================== Weight Current + Goal Cards (Wandergeek Phase 6) ===================
+
+// Trend arrow glyphs — decrease / increase / flat. Used by the current-weight
+// card. Delta is previous-to-latest (positive = gained).
+const WEIGHT_TREND_ARROWS = { down: '\u2193', up: '\u2191', flat: '\u2192' };
+
+// classifyWeightTrend — returns a token-group name ('good' | 'bad' | 'flat')
+// relative to the user's goal direction. The caller maps this to a CSS variant
+// via .wg-weight-trend--<variant>; styles.css owns the color aliases.
+//   • Any zero / non-finite delta, or a missing goal direction, returns 'flat'.
+//   • goal_direction === 'lose' (default): negative delta = good, positive = bad
+//   • goal_direction === 'gain'          : positive delta = good, negative = bad
+function classifyWeightTrend(delta, goalDirection) {
+    const d = Number(delta);
+    if (!Number.isFinite(d) || d === 0) return 'flat';
+    const dir = typeof goalDirection === 'string' ? goalDirection.toLowerCase() : '';
+    if (dir !== 'lose' && dir !== 'gain') return 'flat';
+    if (dir === 'lose') return d < 0 ? 'good' : 'bad';
+    return d > 0 ? 'good' : 'bad';
+}
+
+// Format helper — turns 2h / 5m / 3d into a short "... ago" phrase. Falls back
+// to the local ISO stamp when the log is older than a week.
+function formatWeightTimestamp(measuredAt) {
+    if (!measuredAt) return '';
+    const ts = new Date(measuredAt).getTime();
+    if (!Number.isFinite(ts)) return '';
+    const now = Date.now();
+    const diff = now - ts;
+    if (diff < 0) return 'just now';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return new Date(ts).toLocaleDateString('de-DE', {
+        day: '2-digit', month: '2-digit', year: 'numeric'
+    });
+}
+
+function renderWeightCurrentCard(logs, goalData) {
+    const container = document.getElementById('weight-current-card');
+    if (!container) return;
+    container.replaceChildren();
+    container.className = 'wg-card wg-weight-current-card';
+
+    const list = Array.isArray(logs) ? logs : [];
+    if (list.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'wg-weight-current-card__empty wg-muted';
+        empty.textContent = 'No weight logged yet — add your first entry.';
+        container.appendChild(empty);
+        return;
+    }
+
+    // Logs arrive newest-first from _renderWeightData (pending prepended + server DESC).
+    const latest = list[0];
+    const previous = list.length > 1 ? list[1] : null;
+    const latestWeight = Number(latest && latest.weight);
+    const previousWeight = previous && Number(previous.weight);
+    const hasPrevious = Number.isFinite(previousWeight);
+    const delta = hasPrevious ? (latestWeight - previousWeight) : 0;
+    const goalDirection = (goalData && typeof goalData.goal_direction === 'string')
+        ? goalData.goal_direction
+        : null;
+    const hasGoal = !!(goalData && Number.isFinite(Number(goalData.goal)));
+    const variant = hasPrevious && hasGoal
+        ? classifyWeightTrend(delta, goalDirection)
+        : 'flat';
+
+    const arrowGlyph = !hasPrevious || delta === 0
+        ? WEIGHT_TREND_ARROWS.flat
+        : (delta < 0 ? WEIGHT_TREND_ARROWS.down : WEIGHT_TREND_ARROWS.up);
+
+    const kicker = document.createElement('div');
+    kicker.className = 'wg-section-label wg-weight-current-card__kicker';
+    if (latest.isRejected) {
+        kicker.textContent = 'Latest · sync failed';
+    } else if (latest.isLocal) {
+        kicker.textContent = 'Latest · pending sync';
+    } else {
+        kicker.textContent = `Latest · ${formatWeightTimestamp(latest.measured_at)}`;
+    }
+    container.appendChild(kicker);
+
+    const value = document.createElement('div');
+    value.className = 'wg-mono-display wg-weight-current-card__value';
+    const weightSpan = document.createElement('span');
+    weightSpan.className = 'wg-weight-current-card__weight';
+    weightSpan.textContent = Number.isFinite(latestWeight) ? latestWeight.toFixed(1) : '—';
+    const unitSpan = document.createElement('span');
+    unitSpan.className = 'wg-weight-current-card__unit';
+    unitSpan.textContent = 'kg';
+    value.appendChild(weightSpan);
+    value.appendChild(unitSpan);
+    container.appendChild(value);
+
+    const meta = document.createElement('div');
+    meta.className = 'wg-weight-current-card__meta';
+
+    const trend = document.createElement('span');
+    trend.className = `wg-tag wg-weight-trend wg-weight-trend--${variant}`;
+    trend.setAttribute('data-trend-variant', variant);
+    const arrow = document.createElement('span');
+    arrow.className = 'wg-weight-trend__arrow';
+    arrow.textContent = arrowGlyph;
+    const deltaSpan = document.createElement('span');
+    deltaSpan.className = 'wg-weight-trend__delta';
+    if (!hasPrevious) {
+        deltaSpan.textContent = 'first entry';
+    } else if (delta === 0) {
+        deltaSpan.textContent = '0.0 kg';
+    } else {
+        const sign = delta > 0 ? '+' : '\u2212';
+        deltaSpan.textContent = `${sign}${Math.abs(delta).toFixed(1)} kg`;
+    }
+    trend.appendChild(arrow);
+    trend.appendChild(deltaSpan);
+    meta.appendChild(trend);
+
+    container.appendChild(meta);
+}
+
+function renderWeightGoalCard(logs, goalData) {
+    const container = document.getElementById('weight-goal-card');
+    if (!container) return;
+    container.replaceChildren();
+    container.className = 'wg-weight-goal-card';
+
+    const goalValue = goalData && Number(goalData.goal);
+    if (!Number.isFinite(goalValue)) {
+        container.hidden = true;
+        return;
+    }
+    container.hidden = false;
+    container.classList.add('wg-card', 'wg-card--inset');
+
+    const list = Array.isArray(logs) ? logs : [];
+    const latestWeight = list.length > 0 ? Number(list[0].weight) : null;
+    const hasLatest = Number.isFinite(latestWeight);
+    const goalDirection = (goalData && typeof goalData.goal_direction === 'string')
+        ? goalData.goal_direction.toLowerCase()
+        : 'lose';
+
+    const label = document.createElement('div');
+    label.className = 'wg-section-label wg-weight-goal-card__label';
+    label.textContent = 'GOAL';
+    container.appendChild(label);
+
+    const value = document.createElement('div');
+    value.className = 'wg-mono-display wg-weight-goal-card__value';
+    value.textContent = `${goalValue.toFixed(1)} kg`;
+    container.appendChild(value);
+
+    // Progress bar. Uses the gloss-inset track primitive and a neutral
+    // fill-pct custom property (same convention as WGMacroBar).
+    const track = document.createElement('div');
+    track.className = 'wg-gloss--inset wg-weight-goal-card__track';
+    const fill = document.createElement('div');
+    fill.className = 'wg-weight-goal-card__fill';
+
+    // Compute progress. For lose: start from goalData.highest_weight (fallback
+    // to latest + |delta| when absent). For gain: start from goalData.lowest_weight
+    // if present, else from 0 relative to goal. Clamp to [0, 100].
+    let pct = 0;
+    if (hasLatest) {
+        if (goalDirection === 'lose') {
+            const start = Number(goalData.highest_weight);
+            if (Number.isFinite(start) && start > goalValue) {
+                const total = start - goalValue;
+                const done = start - latestWeight;
+                pct = (done / total) * 100;
+            } else if (latestWeight <= goalValue) {
+                pct = 100;
+            }
+        } else {
+            const start = Number(goalData.lowest_weight);
+            if (Number.isFinite(start) && start < goalValue) {
+                const total = goalValue - start;
+                const done = latestWeight - start;
+                pct = (done / total) * 100;
+            } else if (latestWeight >= goalValue) {
+                pct = 100;
+            }
+        }
+    }
+    if (!Number.isFinite(pct)) pct = 0;
+    pct = Math.max(0, Math.min(100, pct));
+    fill.style.setProperty('--fill-pct', `${pct}%`);
+    track.appendChild(fill);
+    container.appendChild(track);
+
+    const delta = document.createElement('div');
+    delta.className = 'wg-weight-goal-card__delta wg-muted';
+    if (!hasLatest) {
+        delta.textContent = 'Log a weight to see progress';
+    } else {
+        const diff = latestWeight - goalValue;
+        if (Math.abs(diff) < 0.05) {
+            delta.textContent = 'At goal';
+        } else {
+            const sign = diff > 0 ? '+' : '\u2212';
+            delta.textContent = `${sign}${Math.abs(diff).toFixed(1)} kg to goal`;
+        }
+    }
+    container.appendChild(delta);
+}
+
 // =================== Helper Functions for Enhanced Weight Chart ===================
 
 // Linear regression for trend calculation
@@ -536,64 +746,6 @@ function renderWeightChart(logs, goalData) {
     svg.appendChild(lastDateLabel);
 
     container.appendChild(svg);
-
-    // Render statistics below the chart
-    const stats = calculateWeightStats(logs, goalData);
-    if (stats) {
-        renderWeightStats(stats);
-    }
-}
-
-// Render weight statistics below the chart
-function renderWeightStats(stats) {
-    const statsContainer = document.getElementById('weight-stats');
-    if (!statsContainer) return;
-
-    const root = document.createElement('div');
-    root.className = 'weight-stats-container';
-
-    const leftColumn = document.createElement('div');
-    leftColumn.className = 'weight-stats-column';
-    const rightColumn = document.createElement('div');
-    rightColumn.className = 'weight-stats-column';
-
-    const appendStatItem = (column, label, value) => {
-        column.appendChild(createStatItem(`${label}:`, value, {
-            className: 'weight-stat-item',
-            labelClass: 'weight-stat-label',
-            valueClass: 'weight-stat-value',
-            separator: ' '
-        }));
-    };
-
-    appendStatItem(leftColumn, 'Trend', `${stats.trendWeight.toFixed(1)} kg`);
-
-    if (stats.weeklyRate !== undefined) {
-        const rateStr = stats.weeklyRate >= 0
-            ? `+${stats.weeklyRate.toFixed(1)} kg/week`
-            : `${stats.weeklyRate.toFixed(1)} kg/week`;
-        appendStatItem(leftColumn, 'Rate', rateStr);
-    }
-
-    if (stats.forecastDate) {
-        const dateStr = stats.forecastDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        appendStatItem(leftColumn, 'Forecast', dateStr);
-    } else {
-        appendStatItem(leftColumn, 'Forecast', 'Unknown');
-    }
-
-    if (stats.goalWeight !== undefined) {
-        appendStatItem(rightColumn, 'Goal', `${stats.goalWeight.toFixed(1)} kg`);
-
-        const deltaStr = stats.deltaFromGoal >= 0
-            ? `+${stats.deltaFromGoal.toFixed(1)} kg`
-            : `${stats.deltaFromGoal.toFixed(1)} kg`;
-        appendStatItem(rightColumn, 'Δ from goal', deltaStr);
-    }
-
-    root.appendChild(leftColumn);
-    root.appendChild(rightColumn);
-    statsContainer.replaceChildren(root);
 }
 
 
@@ -669,8 +821,11 @@ async function _renderWeightData(logsRes, goalRes) {
     // Cache logs globally for ruler component
     cachedWeightLogs = allLogs;
 
+    const goalData = goalRes || {};
+    renderWeightCurrentCard(allLogs, goalData);
+    renderWeightGoalCard(allLogs, goalData);
     renderWeightLogs(allLogs);
-    renderWeightChart(allLogs, goalRes || {});
+    renderWeightChart(allLogs, goalData);
 }
 
 function renderWeightLogs(logs) {
