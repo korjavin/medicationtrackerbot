@@ -119,13 +119,13 @@ No backend changes. The existing `/api/medications`, `/api/intakes`, `/api/medic
 
 ### Task 4: Rewrite the schedule sub-tab (grouped by hour)
 
-- [ ] replace `renderMeds()` body to group scheduled meds by next-dose hour rather than flat bucketed list — `.wg-section-label` header per hour ("08:00 · in 1h 21m"), items within the hour rendered as `.wg-card` rows
-- [ ] preserve the existing bucket fallbacks — as-needed and archived meds collapse into separate `.wg-section-label` groups below the scheduled ones
-- [ ] each `.wg-card` row: med name (mono-display, 16px), dosage (section-label style), schedule summary (small muted), inventory tag if tracked (`.wg-tag--mono` or `.wg-tag--alert` for low), trailing `.wg-icon-btn` cluster (Log / Edit / Delete)
-- [ ] full-width `.wg-gloss--sun` "Add medication" CTA appended at the bottom of the sub-tab (replaces `#add-btn` FAB)
-- [ ] preserve the existing `med.archived` → archived-bucket collapse behavior
-- [ ] write `meds.schedule.test.js` — hour grouping, inventory tag rendering, low-stock alert state, archived collapse, Log/Edit/Delete callback dispatch
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace `renderMeds()` body to group scheduled meds by next-dose hour rather than flat bucketed list — `.wg-section-label` header per hour ("08:00 · in 1h 21m"), items within the hour rendered as `.wg-card` rows
+- [x] preserve the existing bucket fallbacks — as-needed and archived meds collapse into separate `.wg-section-label` groups below the scheduled ones
+- [x] each `.wg-card` row: med name (mono-display, 16px), dosage (section-label style), schedule summary (small muted), inventory tag if tracked (`.wg-tag--mono` or `.wg-tag--alert` for low), trailing `.wg-icon-btn` cluster (Log / Edit / Delete)
+- [x] full-width `.wg-gloss--sun` "Add medication" CTA appended at the bottom of the sub-tab (replaces `#add-btn` FAB)
+- [x] preserve the existing `med.archived` → archived-bucket collapse behavior
+- [x] write `meds.schedule.test.js` — hour grouping, inventory tag rendering, low-stock alert state, archived collapse, Log/Edit/Delete callback dispatch
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Rewrite the history sub-tab
 

@@ -258,16 +258,148 @@ async function mountNextActionCard() {
     }
 }
 
-// Render
+// Schedule sub-tab render (Phase 5, Task 4). Scheduled meds group by
+// hour-of-day under `.wg-section-label` headers, then fall back to
+// As-needed and Archived buckets rendered as separate sections. Each
+// row is a `.wg-card` with the med name (mono), dosage, schedule
+// summary, optional inventory tag, and a trailing icon cluster
+// (Log / Edit / Delete). Existing `.med-item` / `.icon-action-btn` /
+// `.btn-sm` classes are preserved on the new nodes so legacy tests
+// that walk the row with those selectors still pass.
+
+function _formatHourHeader(date, now) {
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const rel = _formatNextActionRelative(date.getTime() - now.getTime());
+    return `${hh}:${mm} · ${rel}`;
+}
+
+function _hourKey(date) {
+    // Calendar-day + hour-of-day key so doses that fall on the next
+    // day's 08:00 do not collapse into today's 08:00 group.
+    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`;
+}
+
+function _buildMedsSectionLabel(text) {
+    const el = document.createElement('div');
+    el.className = 'wg-section-label wg-meds-section-label';
+    const span = document.createElement('span');
+    span.textContent = text;
+    el.appendChild(span);
+    return el;
+}
+
+function _buildMedsLogButton(med) {
+    // `.btn-sm` is kept on the Log button so the existing UI tests that
+    // click `.btn-sm` on a row still find it (see
+    // tests/app.medication-history.test.js). Visually it reads as a
+    // mono-label `.wg-gloss` pill alongside the icon cluster.
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-sm wg-gloss wg-meds-row__log-btn';
+    btn.textContent = 'Log';
+    btn.addEventListener('click', () => {
+        logMedicationPast(med.id, med.name);
+    });
+    return btn;
+}
+
+function _buildMedsInventoryTag(med) {
+    // Renders both the OK and LOW state as a `.wg-tag--mono` pill; the
+    // low-stock variant also carries `.wg-tag--alert` so the alert color
+    // tokens apply. The emoji `⚠️` is kept inside the label because
+    // existing tests grep for it to confirm low-stock rendering.
+    const isLow = isLowOnStock(med);
+    const tag = document.createElement('span');
+    tag.className = 'wg-tag wg-tag--mono inventory-badge wg-meds-row__inventory';
+    if (isLow) {
+        tag.classList.add('wg-tag--alert');
+        tag.classList.add('low');
+        tag.textContent = `${med.inventory_count} left ⚠️`;
+    } else {
+        tag.classList.add('wg-tag--normal');
+        tag.textContent = `${med.inventory_count} left`;
+    }
+    return tag;
+}
+
+function _buildMedsRow(med, parsedSchedule) {
+    const row = document.createElement('div');
+    row.className = 'wg-card wg-meds-row med-item';
+    row.dataset.medId = String(med.id);
+    if (med.archived) row.classList.add('archived');
+
+    const info = document.createElement('div');
+    info.className = 'wg-meds-row__info med-info cursor-pointer';
+    info.addEventListener('click', () => showEditModal(med.id));
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'wg-meds-row__title';
+    const name = document.createElement('span');
+    name.className = 'wg-meds-row__name wg-mono-display';
+    name.textContent = med.name;
+    titleRow.appendChild(name);
+    if (med.dosage) {
+        const dosage = document.createElement('span');
+        dosage.className = 'wg-meds-row__dosage';
+        dosage.textContent = med.dosage;
+        titleRow.appendChild(dosage);
+    }
+    if (med.supplement) {
+        const supplementBadge = document.createElement('span');
+        supplementBadge.className = 'wg-tag wg-tag--mono wg-meds-row__supplement med-supplement-badge';
+        supplementBadge.textContent = 'Supplement';
+        titleRow.appendChild(supplementBadge);
+    }
+    info.appendChild(titleRow);
+
+    const scheduleLine = document.createElement('div');
+    scheduleLine.className = 'wg-meds-row__schedule';
+    scheduleLine.textContent = getMedicationScheduleText(med, parsedSchedule);
+    info.appendChild(scheduleLine);
+
+    if (med.normalized_name) {
+        const normalized = document.createElement('div');
+        normalized.className = 'wg-meds-row__rx med-normalized-name';
+        normalized.textContent = `Rx: ${med.normalized_name}`;
+        info.appendChild(normalized);
+    }
+
+    if (med.start_date || med.end_date) {
+        const start = med.start_date ? formatDate(med.start_date).split(' ')[0] : 'N/A';
+        const end = med.end_date ? formatDate(med.end_date).split(' ')[0] : 'N/A';
+        const dates = document.createElement('div');
+        dates.className = 'wg-meds-row__dates';
+        dates.textContent = `${start} – ${end}`;
+        info.appendChild(dates);
+    }
+
+    if (med.inventory_count !== null && med.inventory_count !== undefined) {
+        info.appendChild(_buildMedsInventoryTag(med));
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'wg-meds-row__actions med-actions';
+    actions.appendChild(_buildMedsLogButton(med));
+
+    const actionIcons = document.createElement('div');
+    actionIcons.className = 'wg-meds-row__action-icons med-action-icons';
+    actionIcons.appendChild(createEditButton(() => showEditModal(med.id)));
+    actionIcons.appendChild(createDeleteButton(() => deleteMed(med.id)));
+    actions.appendChild(actionIcons);
+
+    row.appendChild(info);
+    row.appendChild(actions);
+    return row;
+}
+
 function renderMeds() {
     const list = document.getElementById('med-list');
     list.replaceChildren();
     const now = new Date();
     void mountNextActionCard();
 
-    // Buckets
-    const scheduledSoon = [];
-    const recentTaken = []; // Recurring but not soon (taken today/yesterday)
+    const scheduledEntries = [];
     const asNeeded = [];
     const archived = [];
 
@@ -282,116 +414,76 @@ function renderMeds() {
 
         if (scheduleType === 'as_needed') {
             asNeeded.push({ med, schedule, next: null });
-        } else {
-            const next = getNextScheduledDate(schedule, now);
-            const hoursUntil = next ? (next - new Date()) / (1000 * 60 * 60) : 999;
-
-            if (hoursUntil < 14) {
-                scheduledSoon.push({ med, schedule, next });
-            } else {
-                recentTaken.push({ med, schedule, next });
-            }
+            return;
         }
+
+        const next = getNextScheduledDate(schedule, now);
+        scheduledEntries.push({ med, schedule, next });
     });
 
-    // Sort Buckets
-    scheduledSoon.sort((a, b) => (a.next || 0) - (b.next || 0));
+    // Bucket scheduled entries by hour of next dose. Entries with no
+    // computable next dose fall into a generic "Scheduled" bucket at
+    // the end of the scheduled section.
+    const hourBuckets = new Map(); // key -> { date, label, entries }
+    const scheduledNoNext = [];
 
-    // Recent Taken: Recent logs first
-    const sortByTaken = (a, b) => {
-        return getLastTakenTimeMs(b.med) - getLastTakenTimeMs(a.med);
-    };
-
-    recentTaken.sort(sortByTaken);
-    asNeeded.sort(sortByTaken);
-    archived.sort(sortByTaken);
-
-    // Combine
-    const sorted = [...scheduledSoon, ...recentTaken, ...asNeeded, ...archived];
-
-    sorted.forEach(({ med, schedule: parsedSchedule }) => {
-        const div = document.createElement('div');
-        div.className = 'med-item';
-        if (med.archived) div.classList.add('archived');
-
-        const scheduleText = getMedicationScheduleText(med, parsedSchedule);
-
-        const info = document.createElement('div');
-        info.className = 'med-info';
-        info.classList.add('cursor-pointer');
-        info.addEventListener('click', () => {
-            showEditModal(med.id);
-        });
-
-        const title = document.createElement('h4');
-        title.textContent = `${med.name} `;
-        const dosage = document.createElement('small');
-        dosage.textContent = `(${med.dosage})`;
-        title.appendChild(dosage);
-        if (med.supplement) {
-            const supplementBadge = document.createElement('small');
-            supplementBadge.className = 'med-supplement-badge';
-            supplementBadge.textContent = '[Supplement]';
-            title.appendChild(supplementBadge);
+    scheduledEntries.forEach((entry) => {
+        if (!entry.next) {
+            scheduledNoNext.push(entry);
+            return;
         }
-        info.appendChild(title);
-
-        if (med.normalized_name) {
-            const normalized = document.createElement('p');
-            normalized.className = 'med-normalized-name';
-            normalized.textContent = `Rx: ${med.normalized_name}`;
-            info.appendChild(normalized);
+        const key = _hourKey(entry.next);
+        if (!hourBuckets.has(key)) {
+            const hourStart = new Date(entry.next);
+            hourStart.setMinutes(0, 0, 0);
+            hourBuckets.set(key, {
+                hourStart,
+                earliest: entry.next,
+                entries: []
+            });
         }
-
-        const scheduleLine = document.createElement('p');
-        scheduleLine.textContent = `Schedule: ${scheduleText}`;
-        info.appendChild(scheduleLine);
-
-        if (med.start_date || med.end_date) {
-            const start = med.start_date ? formatDate(med.start_date).split(' ')[0] : 'N/A';
-            const end = med.end_date ? formatDate(med.end_date).split(' ')[0] : 'N/A';
-            const dates = document.createElement('p');
-            dates.textContent = `Dates: ${start} - ${end}`;
-            info.appendChild(dates);
-        }
-
-        if (med.inventory_count !== null && med.inventory_count !== undefined) {
-            const isLow = isLowOnStock(med);
-            const inventory = document.createElement('p');
-            inventory.className = `inventory-badge ${isLow ? 'low' : ''}`.trim();
-            inventory.textContent = `📦 ${med.inventory_count} doses${isLow ? ' ⚠️' : ''}`;
-            info.appendChild(inventory);
-        }
-
-        const actions = document.createElement('div');
-        actions.className = 'med-actions';
-        const logBtn = document.createElement('button');
-        logBtn.type = 'button';
-        logBtn.className = 'btn btn-sm btn-secondary';
-        logBtn.textContent = 'Log';
-        logBtn.addEventListener('click', () => {
-            logMedicationPast(med.id, med.name);
-        });
-
-        const editBtn = createEditButton(() => {
-            showEditModal(med.id);
-        });
-
-        const deleteBtn = createDeleteButton(() => {
-            deleteMed(med.id);
-        });
-
-        const actionIcons = document.createElement('div');
-        actionIcons.className = 'med-action-icons';
-        actionIcons.appendChild(editBtn);
-        actionIcons.appendChild(deleteBtn);
-
-        actions.appendChild(logBtn);
-        actions.appendChild(actionIcons);
-        div.appendChild(info);
-        div.appendChild(actions);
-        list.appendChild(div);
+        const bucket = hourBuckets.get(key);
+        if (entry.next < bucket.earliest) bucket.earliest = entry.next;
+        bucket.entries.push(entry);
     });
+
+    const sortedBuckets = Array.from(hourBuckets.values())
+        .sort((a, b) => a.earliest - b.earliest);
+
+    const sortByTaken = (a, b) => getLastTakenTimeMs(b.med) - getLastTakenTimeMs(a.med);
+
+    sortedBuckets.forEach((bucket) => {
+        bucket.entries.sort((a, b) => (a.next || 0) - (b.next || 0));
+        const headerText = _formatHourHeader(bucket.earliest, now);
+        list.appendChild(_buildMedsSectionLabel(headerText));
+        bucket.entries.forEach(({ med, schedule }) => {
+            list.appendChild(_buildMedsRow(med, schedule));
+        });
+    });
+
+    if (scheduledNoNext.length > 0) {
+        scheduledNoNext.sort(sortByTaken);
+        list.appendChild(_buildMedsSectionLabel('Scheduled'));
+        scheduledNoNext.forEach(({ med, schedule }) => {
+            list.appendChild(_buildMedsRow(med, schedule));
+        });
+    }
+
+    if (asNeeded.length > 0) {
+        asNeeded.sort(sortByTaken);
+        list.appendChild(_buildMedsSectionLabel('As needed'));
+        asNeeded.forEach(({ med, schedule }) => {
+            list.appendChild(_buildMedsRow(med, schedule));
+        });
+    }
+
+    if (archived.length > 0) {
+        archived.sort(sortByTaken);
+        list.appendChild(_buildMedsSectionLabel('Archived'));
+        archived.forEach(({ med, schedule }) => {
+            list.appendChild(_buildMedsRow(med, schedule));
+        });
+    }
 }
 
 function logMedicationPast(id, name) {

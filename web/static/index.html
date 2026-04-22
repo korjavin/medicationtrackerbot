@@ -63,7 +63,13 @@
                 <div id="med-list">
                     <!-- Meds injected here -->
                 </div>
-                <button id="add-btn" class="btn btn-primary btn-pill btn-fab btn-lg">+ Add Medication</button>
+                <!-- Add medication CTA (Phase 5, Task 4). Full-width sun-gloss
+                     button replacing the paper-era FAB. `#add-btn` id retained
+                     so bindClick('add-btn', showAddModal) and the offline UI
+                     wiring continue to work. -->
+                <button id="add-btn" type="button" class="wg-gloss wg-gloss--sun wg-meds-add-cta">
+                    <span class="wg-meds-add-cta__label">Add medication</span>
+                </button>
             </div>
 
             <div id="med-history-tab" class="med-tab-content">
