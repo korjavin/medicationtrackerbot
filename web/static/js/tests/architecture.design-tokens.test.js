@@ -503,6 +503,24 @@ const WANDERGEEK_TOKENS = [
     '--wg-weight-trend-flat-bg',
     '--wg-weight-trend-flat-fg',
     '--wg-weight-trend-flat-border',
+
+    // Edit-weight modal tokens (Phase 6, Task 6) — dual-line header, gloss
+    // input wraps, kg/lb unit-toggle pill pair, Cancel/Save action bar with
+    // 2× flex on Save per modal-button-order convention.
+    '--wg-weight-modal-eyebrow-size',
+    '--wg-weight-modal-title-size',
+    '--wg-weight-modal-section-gap',
+    '--wg-weight-modal-input-pad-y',
+    '--wg-weight-modal-input-pad-x',
+    '--wg-weight-modal-weight-row-gap',
+    '--wg-weight-modal-unit-toggle-pad',
+    '--wg-weight-modal-unit-toggle-gap',
+    '--wg-weight-modal-unit-btn-pad-y',
+    '--wg-weight-modal-unit-btn-pad-x',
+    '--wg-weight-modal-unit-btn-size',
+    '--wg-weight-modal-unit-btn-min-w',
+    '--wg-weight-modal-label-size',
+    '--wg-weight-modal-action-gap',
 ];
 
 describe('Architecture – design tokens', () => {

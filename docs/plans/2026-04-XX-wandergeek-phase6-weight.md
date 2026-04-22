@@ -125,12 +125,12 @@ No backend changes. The existing `/api/weight*` endpoints, Dexie offline queue (
 
 ### Task 6: Rewrite EditWeightModal
 
-- [ ] replace the existing edit-weight modal markup in `index.html` with the Wandergeek shell — mono header ("New weight" / "Edit weight"), `.wg-icon-btn` close trailing the header
-- [ ] weight input + unit toggle — `.wg-gloss--inset` input wrap + small unit-toggle strip (kg/lb) as a `.wg-gloss--inset` pill pair
-- [ ] date-time input — `.wg-gloss--inset` wrap carrying the existing ISO-local formatter
-- [ ] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss` left, Save `.wg-gloss--sun` right with 2× flex per modal-button-order convention
-- [ ] write `weight.modal.test.js` — open/save/cancel, unit-toggle round-trip, existing `saveWeight()` path preserved, `modal-controller.js` history integration preserved
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing edit-weight modal markup in `index.html` with the Wandergeek shell — mono header ("New weight" / "Edit weight"), `.wg-icon-btn` close trailing the header
+- [x] weight input + unit toggle — `.wg-gloss--inset` input wrap + small unit-toggle strip (kg/lb) as a `.wg-gloss--inset` pill pair
+- [x] date-time input — `.wg-gloss--inset` wrap carrying the existing ISO-local formatter
+- [x] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss` left, Save `.wg-gloss--sun` right with 2× flex per modal-button-order convention
+- [x] write `weight.modal.test.js` — open/save/cancel, unit-toggle round-trip, existing `saveWeight()` path preserved, `modal-controller.js` history integration preserved
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Wire Weight into the canonical bottom nav + cleanup
 

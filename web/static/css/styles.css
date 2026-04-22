@@ -523,6 +523,24 @@
     --wg-weight-history-time-size: 12px;
     --wg-weight-history-day-size: 11px;
 
+    /* Edit-weight modal tokens (Phase 6, Task 6) — dual-line header, gloss-inset
+       input wraps, kg/lb unit-toggle pill pair, and the Cancel / Save action bar
+       with 2× flex on Save per modal-button-order convention. */
+    --wg-weight-modal-eyebrow-size: 10.5px;
+    --wg-weight-modal-title-size: 18px;
+    --wg-weight-modal-section-gap: 14px;
+    --wg-weight-modal-input-pad-y: 10px;
+    --wg-weight-modal-input-pad-x: 12px;
+    --wg-weight-modal-weight-row-gap: 8px;
+    --wg-weight-modal-unit-toggle-pad: 4px;
+    --wg-weight-modal-unit-toggle-gap: 4px;
+    --wg-weight-modal-unit-btn-pad-y: 6px;
+    --wg-weight-modal-unit-btn-pad-x: 10px;
+    --wg-weight-modal-unit-btn-size: 12px;
+    --wg-weight-modal-unit-btn-min-w: 40px;
+    --wg-weight-modal-label-size: 10.5px;
+    --wg-weight-modal-action-gap: 8px;
+
     /* Weight trend aliases (Phase 6, Task 1) — wrap the shared sun / alert /
        mint tag triplets so the JS classifier can return a token-group name
        (good / bad / flat) relative to goal direction without duplicating
@@ -1342,129 +1360,9 @@ svg.chart-svg {
     margin: var(--space-xs) 0;
 }
 
-/* Weight Ruler Component */
-.weight-display-container {
-    margin: var(--space-xl) 0;
-    text-align: center;
-}
-
-.weight-display {
-    background: var(--text-color);
-    color: var(--bg-color);
-    border-radius: var(--radius-lg);
-    padding: var(--space-xl) var(--space-2xl);
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    min-width: 200px;
-}
-
-.weight-display-input {
-    font-size: 48px;
-    font-weight: 700;
-    line-height: 1;
-    background: transparent;
-    border: none;
-    color: var(--bg-color);
-    width: 120px;
-    text-align: right;
-    outline: none;
-    padding: 0;
-    margin: 0;
-    -moz-appearance: textfield;
-    appearance: textfield;
-    /* Remove spinner in Firefox */
-}
-
-.weight-display-input::-webkit-inner-spin-button,
-.weight-display-input::-webkit-outer-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-}
-
-.weight-display-unit {
-    font-size: var(--font-size-lg);
-    font-weight: var(--font-weight-normal);
-    opacity: 0.8;
-}
-
-.weight-ruler-container {
-    position: relative;
-    height: 120px;
-    margin: var(--space-xl) 0;
-    overflow: hidden;
-    background: linear-gradient(to bottom, var(--color-warning), var(--color-warning));
-    border-radius: var(--radius-md);
-    cursor: grab;
-    user-select: none;
-    -webkit-user-select: none;
-    touch-action: pan-x;
-}
-
-.weight-ruler-container:active {
-    cursor: grabbing;
-}
-
-.weight-ruler {
-    position: absolute;
-    height: 100%;
-    display: flex;
-    align-items: flex-end;
-    transition: transform 0.1s ease-out;
-    will-change: transform;
-}
-
-.weight-tick {
-    position: absolute;
-    bottom: 0;
-    width: 2px;
-    background: rgba(0, 0, 0, 0.6);
-}
-
-.weight-tick.major {
-    height: 45%;
-    width: 2px;
-    background: rgba(0, 0, 0, 0.8);
-}
-
-.weight-tick.minor {
-    height: 25%;
-}
-
-.weight-tick-label {
-    position: absolute;
-    bottom: 55%;
-    font-size: var(--font-size-md);
-    font-weight: var(--font-weight-bold);
-    color: rgba(0, 0, 0, 0.8);
-    transform: translateX(-50%);
-    white-space: nowrap;
-}
-
-.weight-ruler-indicator {
-    position: absolute;
-    left: 50%;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: rgba(0, 0, 0, 0.9);
-    transform: translateX(-50%);
-    pointer-events: none;
-    z-index: 10;
-}
-
-.weight-ruler-indicator::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 0;
-    height: 0;
-    border-left: 8px solid transparent;
-    border-right: 8px solid transparent;
-    border-top: 12px solid rgba(0, 0, 0, 0.9);
-}
+/* Weight ruler + paper-era weight-display classes removed in Phase 6 Task 6
+   (Wandergeek). The modal now uses `.wg-weight-modal__*` with a gloss-inset
+   number input and a kg/lb unit-toggle pill pair; the old drag-ruler is gone. */
 
 /* Exercise Log Entry */
 .exercise-log-entry {
@@ -5080,6 +4978,167 @@ textarea.wg-input {
 .wg-weight-add-cta__label {
     font-size: var(--font-size-md);
     letter-spacing: 0.02em;
+}
+
+/* Edit-weight modal (Phase 6, Task 6) — shares the generic `.wg-modal` shell
+   for positioning and chrome; overlays a dual-line mono header, gloss input
+   wraps, a kg/lb unit-toggle pill pair, and a Cancel/Save action bar where
+   Save carries 2× flex per modal-button-order convention. Every visual value
+   resolves to a `--wg-weight-modal-*` or shared `--wg-*` token. */
+.wg-weight-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-weight-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-weight-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-weight-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-weight-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-weight-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-weight-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-weight-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-weight-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-weight-modal-section-gap);
+}
+
+.wg-weight-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-weight-modal__label {
+    font-size: var(--wg-weight-modal-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-weight-modal__input-wrap {
+    padding: var(--wg-weight-modal-input-pad-y) var(--wg-weight-modal-input-pad-x);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-weight-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-weight-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-weight-modal__textarea {
+    resize: vertical;
+    font-family: var(--wg-font-ui);
+}
+
+.wg-weight-modal__weight-row {
+    display: flex;
+    align-items: stretch;
+    gap: var(--wg-weight-modal-weight-row-gap);
+}
+
+.wg-weight-modal__weight-wrap {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.wg-weight-modal__weight-input {
+    font-size: var(--font-size-lg);
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.wg-weight-modal__weight-input::-webkit-inner-spin-button,
+.wg-weight-modal__weight-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.wg-weight-modal__unit-toggle {
+    display: flex;
+    gap: var(--wg-weight-modal-unit-toggle-gap);
+    padding: var(--wg-weight-modal-unit-toggle-pad);
+    align-items: stretch;
+}
+
+.wg-weight-modal__unit-btn {
+    min-width: var(--wg-weight-modal-unit-btn-min-w);
+    padding: var(--wg-weight-modal-unit-btn-pad-y) var(--wg-weight-modal-unit-btn-pad-x);
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-weight-modal-unit-btn-size);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--wg-fg-2);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-weight-modal__unit-btn[aria-pressed="true"] {
+    color: var(--wg-ink);
+}
+
+.wg-weight-modal__actions {
+    display: flex;
+    gap: var(--wg-weight-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-weight-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-weight-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-weight-modal__action--save {
+    flex: 2 1 0;
 }
 
 /* BP screen — current-reading card, range selector, chart card (Phase 3, Task 3).

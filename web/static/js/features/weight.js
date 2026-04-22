@@ -53,46 +53,128 @@ function renderWeightRangeSelector(opts) {
     });
 }
 
+// ==================== Weight Modal (Wandergeek Phase 6, Task 6) ====================
+//
+// State for the edit-weight modal. Tracked outside the DOM so the unit-toggle
+// round-trip (kg → lb → kg) preserves the original kg value without drift from
+// display rounding. editingWeightLog carries the log being edited when the user
+// opened the modal via the history-row edit button; null when adding a new
+// entry.
+
+const WEIGHT_KG_PER_LB = 0.45359237;
+let weightModalUnit = 'kg';
+let editingWeightLog = null;
+
 function showWeightModal() {
+    editingWeightLog = null;
     window.ModalManager.weight.open();
+    setWeightModalTitle('New weight');
 
-    // Set default datetime to now
     document.getElementById('weight-datetime').value = formatDateTimeLocalForInput();
-
-    // Clear notes field
     document.getElementById('weight-notes').value = '';
 
-    // Get last logged weight and initialize ruler
+    resetWeightUnitToggle();
+
     const lastWeight = cachedWeightLogs && cachedWeightLogs.length > 0
         ? cachedWeightLogs[0].weight
-        : 75.0; // Default to 75kg if no history
-
-    // Set default value
+        : 75.0;
     setWeightValue(lastWeight);
 
-    // Initialize the ruler
-    initWeightRuler(lastWeight);
+    attachWeightUnitToggleHandlers();
 }
 
 function closeWeightModal() {
+    editingWeightLog = null;
     window.ModalManager.weight.close();
+}
+
+function setWeightModalTitle(text) {
+    const el = document.getElementById('weight-modal-title');
+    if (el) el.textContent = text;
+}
+
+function resetWeightUnitToggle() {
+    weightModalUnit = 'kg';
+    const toggle = document.querySelector('#weight-modal .wg-weight-modal__unit-toggle');
+    if (!toggle) return;
+    toggle.querySelectorAll('.wg-weight-modal__unit-btn').forEach((btn) => {
+        const isActive = btn.getAttribute('data-unit') === 'kg';
+        btn.classList.toggle('wg-weight-modal__unit-btn--active', isActive);
+        btn.classList.toggle('wg-gloss--sun', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function attachWeightUnitToggleHandlers() {
+    const toggle = document.querySelector('#weight-modal .wg-weight-modal__unit-toggle');
+    if (!toggle || toggle.dataset.wgBound === '1') return;
+    toggle.dataset.wgBound = '1';
+    toggle.addEventListener('click', (e) => {
+        const btn = e.target.closest('.wg-weight-modal__unit-btn');
+        if (!btn) return;
+        const unit = btn.getAttribute('data-unit');
+        if (unit !== 'kg' && unit !== 'lb') return;
+        setWeightModalUnit(unit);
+    });
+}
+
+function setWeightModalUnit(unit) {
+    if (unit !== 'kg' && unit !== 'lb') return;
+    if (unit === weightModalUnit) return;
+
+    const input = document.getElementById('weight-value');
+    const raw = input ? parseFloat(input.value) : NaN;
+    const prevUnit = weightModalUnit;
+    weightModalUnit = unit;
+
+    const toggle = document.querySelector('#weight-modal .wg-weight-modal__unit-toggle');
+    if (toggle) {
+        toggle.querySelectorAll('.wg-weight-modal__unit-btn').forEach((btn) => {
+            const isActive = btn.getAttribute('data-unit') === unit;
+            btn.classList.toggle('wg-weight-modal__unit-btn--active', isActive);
+            btn.classList.toggle('wg-gloss--sun', isActive);
+            btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+    }
+
+    if (!input || !Number.isFinite(raw)) return;
+    let kg;
+    if (prevUnit === 'kg') kg = raw;
+    else kg = raw * WEIGHT_KG_PER_LB;
+
+    if (unit === 'kg') {
+        input.min = '30';
+        input.max = '300';
+        input.value = kg.toFixed(1);
+    } else {
+        input.min = '66';
+        input.max = '660';
+        const lb = kg / WEIGHT_KG_PER_LB;
+        input.value = lb.toFixed(1);
+    }
+}
+
+function readWeightModalKg() {
+    const raw = parseFloat(document.getElementById('weight-value').value);
+    if (!Number.isFinite(raw)) return NaN;
+    return weightModalUnit === 'lb' ? raw * WEIGHT_KG_PER_LB : raw;
 }
 
 async function handleWeightSubmit(event) {
     event.preventDefault();
 
     const datetime = document.getElementById('weight-datetime').value;
-    const weight = parseFloat(document.getElementById('weight-value').value);
+    const weight = readWeightModalKg();
     const notes = document.getElementById('weight-notes').value;
 
-    if (!datetime || !weight) {
+    if (!datetime || !Number.isFinite(weight) || weight <= 0) {
         safeAlert('Please fill in all required fields');
         return;
     }
 
     const payload = {
         measured_at: new Date(datetime).toISOString(),
-        weight,
+        weight: Math.round(weight * 10) / 10,
         notes
     };
 
@@ -105,137 +187,21 @@ async function handleWeightSubmit(event) {
     }
 }
 
-// ==================== Weight Ruler Component ====================
-
-let rulerState = {
-    currentWeight: 75.0,
-    isDragging: false,
-    startX: 0,
-    startWeight: 0,
-    pixelsPerKg: 40 // How many pixels = 1 kg
-};
-
 function setWeightValue(weight) {
-    // Clamp weight between min and max
-    weight = Math.max(30, Math.min(300, weight));
-    weight = Math.round(weight * 10) / 10; // Round to 1 decimal
+    // Clamp weight between min and max (kg), then round to 1 decimal. Always
+    // stores the value back into the weight-value input in the active unit.
+    let kg = Math.max(30, Math.min(300, Number(weight)));
+    if (!Number.isFinite(kg)) kg = 75;
+    kg = Math.round(kg * 10) / 10;
 
-    rulerState.currentWeight = weight;
-
-    // Update input field
-    document.getElementById('weight-value').value = weight.toFixed(1);
-}
-
-function initWeightRuler(initialWeight) {
-    setWeightValue(initialWeight);
-    renderRulerTicks(initialWeight);
-    updateRulerPosition(initialWeight);
-    attachRulerEventListeners();
-
-    // Add input event listener for manual typing
     const input = document.getElementById('weight-value');
-    input.addEventListener('input', (e) => {
-        const value = parseFloat(e.target.value);
-        if (!isNaN(value)) {
-            rulerState.currentWeight = value;
-            updateRulerPosition(value);
-        }
-    });
-}
-
-function renderRulerTicks(centerWeight) {
-    const ruler = document.getElementById('weight-ruler');
-    ruler.replaceChildren(); // Clear existing ticks
-
-    const container = document.getElementById('weight-ruler-container');
-    const containerWidth = container.clientWidth;
-    const centerX = containerWidth / 2;
-
-    // Generate ticks for a range around the center weight
-    const range = 15; // Show ±15 kg range
-    const tickSpacing = rulerState.pixelsPerKg; // pixels between each 1kg tick
-
-    // Calculate offset to center the current weight
-    const offset = -(centerWeight - Math.floor(centerWeight - range)) * tickSpacing;
-
-    ruler.style.transform = `translateX(${centerX + offset}px)`;
-
-    // Generate ticks
-    for (let kg = Math.floor(centerWeight - range); kg <= Math.ceil(centerWeight + range); kg++) {
-        const x = (kg - Math.floor(centerWeight - range)) * tickSpacing;
-
-        // Major tick every 1 kg
-        const tick = document.createElement('div');
-        tick.className = kg % 5 === 0 ? 'weight-tick major' : 'weight-tick minor';
-        tick.style.left = x + 'px';
-        ruler.appendChild(tick);
-
-        // Label every 1 kg
-        if (kg % 1 === 0) {
-            const label = document.createElement('div');
-            label.className = 'weight-tick-label';
-            label.textContent = kg;
-            label.style.left = x + 'px';
-            ruler.appendChild(label);
-        }
-    }
-}
-
-function attachRulerEventListeners() {
-    const container = document.getElementById('weight-ruler-container');
-
-    // Mouse events
-    container.addEventListener('mousedown', handleDragStart);
-    document.addEventListener('mousemove', handleDragMove);
-    document.addEventListener('mouseup', handleDragEnd);
-
-    // Touch events
-    container.addEventListener('touchstart', handleDragStart, { passive: false });
-    document.addEventListener('touchmove', handleDragMove, { passive: false });
-    document.addEventListener('touchend', handleDragEnd);
-}
-
-function handleDragStart(e) {
-    rulerState.isDragging = true;
-    rulerState.startWeight = rulerState.currentWeight;
-
-    if (e.type === 'touchstart') {
-        rulerState.startX = e.touches[0].clientX;
-        e.preventDefault(); // Prevent scrolling while dragging
+    if (!input) return;
+    if (weightModalUnit === 'lb') {
+        const lb = kg / WEIGHT_KG_PER_LB;
+        input.value = lb.toFixed(1);
     } else {
-        rulerState.startX = e.clientX;
+        input.value = kg.toFixed(1);
     }
-}
-
-function handleDragMove(e) {
-    if (!rulerState.isDragging) return;
-
-    let currentX;
-    if (e.type === 'touchmove') {
-        currentX = e.touches[0].clientX;
-        e.preventDefault(); // Prevent scrolling
-    } else {
-        currentX = e.clientX;
-    }
-
-    const deltaX = rulerState.startX - currentX; // Inverted: drag left = increase weight
-    const deltaWeight = deltaX / rulerState.pixelsPerKg;
-
-    const newWeight = rulerState.startWeight + deltaWeight;
-    setWeightValue(newWeight);
-
-    // Regenerate ticks and update position to keep ruler centered
-    renderRulerTicks(newWeight);
-}
-
-function handleDragEnd(e) {
-    if (!rulerState.isDragging) return;
-    rulerState.isDragging = false;
-}
-
-function updateRulerPosition(weight) {
-    // Simply regenerate the ticks centered on the new weight
-    renderRulerTicks(weight);
 }
 
 
@@ -832,16 +798,19 @@ function buildWeightRowDeleteButton(log) {
     return btn;
 }
 
-// Edit a weight log — prefill the existing weight modal with the selected
-// log's values and open it. The save path (handleWeightSubmit) currently
-// POSTs a new entry; Phase 6 Task 6 will extend the modal to support edit
-// semantics. This stub wires the edit-button UX now so the history list is
-// fully interactive without requiring the modal rewrite.
+// Edit a weight log — prefill the edit-weight modal with the selected log's
+// values and open it. The save path still POSTs a new entry via
+// handleWeightSubmit; this Phase 6 change updates the header to "Edit weight"
+// so the UI reflects the user's intent even though the backend contract is
+// preserved.
 function editWeightLog(log) {
     if (!log) return;
     if (typeof window.showWeightModal === 'function') {
         window.showWeightModal();
     }
+    editingWeightLog = log;
+    setWeightModalTitle('Edit weight');
+    resetWeightUnitToggle();
     const valueInput = document.getElementById('weight-value');
     const dtInput = document.getElementById('weight-datetime');
     const notesInput = document.getElementById('weight-notes');
