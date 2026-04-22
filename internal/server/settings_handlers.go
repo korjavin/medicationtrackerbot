@@ -76,10 +76,13 @@ type weightGoalBootstrapResponse struct {
 }
 
 // computeNextIntakeData returns the nearest scheduled intake in the next 12h window.
-func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []string, error) {
+// IDs are returned alongside names so the frontend can resolve the upcoming cluster
+// without name-based lookups (two meds with the same name and different dosages
+// collapse to the first match when resolving by name alone).
+func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []string, error) {
 	meds, err := s.meds.ListMedications(false)
 	if err != nil {
-		return time.Time{}, nil, err
+		return time.Time{}, nil, nil, err
 	}
 
 	// Use the user's stored timezone so that schedule times are interpreted
@@ -155,15 +158,17 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []string, erro
 	}
 
 	if len(nextMeds) == 0 {
-		return time.Time{}, nil, nil
+		return time.Time{}, nil, nil, nil
 	}
 
+	ids := make([]int64, len(nextMeds))
 	names := make([]string, len(nextMeds))
 	for i, m := range nextMeds {
+		ids[i] = m.ID
 		names[i] = m.Name
 	}
 
-	return nextTime, names, nil
+	return nextTime, ids, names, nil
 }
 
 // handleBootstrap returns a broad initial snapshot to minimize first-load request fanout.
@@ -199,13 +204,14 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 
 	var nextIntake any
 	nextIntakeOK := true
-	nextTime, nextNames, err := s.computeNextIntakeData(now)
+	nextTime, nextIDs, nextNames, err := s.computeNextIntakeData(now)
 	if err != nil {
 		slog.Error("bootstrap next intake query failed", "error", err)
 		nextIntakeOK = false
 	} else if !nextTime.IsZero() {
 		nextIntake = map[string]any{
 			"scheduled_at":     nextTime.Format(time.RFC3339),
+			"medication_ids":   nextIDs,
 			"medication_names": nextNames,
 		}
 	}
