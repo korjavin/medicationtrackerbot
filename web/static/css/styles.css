@@ -5150,6 +5150,119 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
+/* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
+   bracket clusters of scheduled meds; each row is a `.wg-card` with a name
+   (mono-display), dosage, schedule summary, optional inventory tag, and a
+   trailing `.wg-icon-btn` cluster (Log / Edit / Delete). As-needed and
+   Archived groups reuse the same section-label header pattern. */
+.wg-meds-section-label {
+    font-size: var(--wg-meds-hour-header-size);
+}
+
+.wg-meds-row {
+    display: grid;
+    grid-template-columns: var(--wg-meds-row-cols);
+    column-gap: var(--wg-meds-row-gap);
+    padding: var(--wg-meds-row-pad);
+    margin-bottom: var(--space-sm);
+}
+
+.wg-meds-row.archived {
+    opacity: 0.65;
+}
+
+.wg-meds-row__info {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-meds-row__title {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+
+.wg-meds-row__name {
+    font-size: var(--wg-meds-name-size);
+    color: var(--wg-fg-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.wg-meds-row__dosage {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-meds-dosage-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
+}
+
+.wg-meds-row__supplement {
+    flex-shrink: 0;
+}
+
+.wg-meds-row__schedule {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+}
+
+.wg-meds-row__rx,
+.wg-meds-row__dates {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-4);
+    letter-spacing: 0.02em;
+}
+
+.wg-meds-row__inventory {
+    align-self: flex-start;
+}
+
+.wg-meds-row__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+.wg-meds-row__log-btn {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-md);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-meds-row__action-icons {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.wg-meds-add-cta {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    min-height: 44px;
+    padding: var(--space-md) var(--space-lg);
+    margin-top: var(--space-md);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-meds-add-cta__label {
+    letter-spacing: 0.04em;
+}
+
 /* Food day navigator (Phase 4, Task 3). Three-cell row — chevron button,
    center mono title + subtitle, chevron button. The hidden <input type="date">
    lets the mono title trigger the native picker via showPicker(); the
