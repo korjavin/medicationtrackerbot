@@ -242,6 +242,59 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             await window.handleWeightSubmit({ preventDefault() {} });
             expect(apiCallSpy).not.toHaveBeenCalled();
         });
+
+        it('editing a server-backed log DELETEs the original before POSTing the replacement', async () => {
+            const { window, document } = env;
+            const apiCallSpy = vi.fn().mockResolvedValue({ id: 2 });
+            window.apiCall = apiCallSpy;
+            window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+            window.loadWeightLogs = vi.fn();
+
+            window.editWeightLog({ id: 17, measured_at: '2026-04-20T08:00:00Z', weight: 81.2, notes: '' });
+            document.getElementById('weight-datetime').value = '2026-04-22T08:15';
+            document.getElementById('weight-value').value = '80.1';
+
+            await window.handleWeightSubmit({ preventDefault() {} });
+
+            expect(apiCallSpy).toHaveBeenCalledTimes(2);
+            const [delUrl, delMethod] = apiCallSpy.mock.calls[0];
+            expect(delUrl).toBe('/api/weight/17');
+            expect(delMethod).toBe('DELETE');
+            const [postUrl, postMethod, postPayload] = apiCallSpy.mock.calls[1];
+            expect(postUrl).toBe('/api/weight');
+            expect(postMethod).toBe('POST');
+            expect(postPayload.weight).toBeCloseTo(80.1, 2);
+        });
+
+        it('editing a local (pending) log purges IndexedDB instead of issuing a DELETE request', async () => {
+            const { window, document } = env;
+            const apiCallSpy = vi.fn().mockResolvedValue({ id: 3 });
+            window.apiCall = apiCallSpy;
+            window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+            window.loadWeightLogs = vi.fn();
+
+            const confirmDeleteSpy = vi.fn().mockResolvedValue(undefined);
+            window.MedTrackerDB = { WeightStore: { confirmDelete: confirmDeleteSpy } };
+            window.SyncManager = { updateStatus: vi.fn() };
+
+            window.editWeightLog({
+                id: 'local_42',
+                measured_at: '2026-04-20T08:00:00Z',
+                weight: 81.2,
+                notes: '',
+                isLocal: true,
+            });
+            document.getElementById('weight-datetime').value = '2026-04-22T08:15';
+            document.getElementById('weight-value').value = '80.1';
+
+            await window.handleWeightSubmit({ preventDefault() {} });
+
+            expect(confirmDeleteSpy).toHaveBeenCalledWith(42);
+            expect(apiCallSpy).toHaveBeenCalledTimes(1);
+            const [postUrl, postMethod] = apiCallSpy.mock.calls[0];
+            expect(postUrl).toBe('/api/weight');
+            expect(postMethod).toBe('POST');
+        });
     });
 
     describe('cancel + close wiring', () => {
