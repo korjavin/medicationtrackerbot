@@ -199,7 +199,7 @@ describe('app.js BP/weight data and export branch coverage', () => {
         weight_trend: 78
       }));
       window.renderWeightLogs(manyLogs);
-      expect(document.querySelectorAll('#weight-list .weight-item').length).toBe(30);
+      expect(document.querySelectorAll('#weight-list .wg-weight-history-row').length).toBe(30);
     } finally {
       cleanup();
     }

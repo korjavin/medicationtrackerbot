@@ -116,12 +116,12 @@ No backend changes. The existing `/api/weight*` endpoints, Dexie offline queue (
 
 ### Task 5: Rewrite the day-grouped history list
 
-- [ ] replace the existing `#weight-list` markup with a `.wg-weight-history` container — day groups use `.wg-section-label` headers ("22.04.2026 · Tue"), each entry a `.wg-card` row carrying mono weight, ISO-local time, and a trailing `.wg-icon-btn` cluster (edit + delete)
-- [ ] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` variants (normal = TAKEN/SYNCED, high = PENDING, alert = REJECTED)
-- [ ] delete + edit callbacks unchanged (reuse `editWeightLog`, existing delete path)
-- [ ] full-width `.wg-gloss--sun` "Add weight" CTA appended at the bottom (replaces `#add-weight-btn` FAB)
-- [ ] write `weight.history.test.js` — day grouping, edit-button click invokes existing handler, delete flow preserved, offline + rejected badge states, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing `#weight-list` markup with a `.wg-weight-history` container — day groups use `.wg-section-label` headers ("22.04.2026 · Tue"), each entry a `.wg-card` row carrying mono weight, ISO-local time, and a trailing `.wg-icon-btn` cluster (edit + delete)
+- [x] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` variants (normal = TAKEN/SYNCED, high = PENDING, alert = REJECTED)
+- [x] delete + edit callbacks unchanged (reuse `editWeightLog`, existing delete path)
+- [x] full-width `.wg-gloss--sun` "Add weight" CTA appended at the bottom (replaces `#add-weight-btn` FAB)
+- [x] write `weight.history.test.js` — day grouping, edit-button click invokes existing handler, delete flow preserved, offline + rejected badge states, empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Rewrite EditWeightModal
 
