@@ -116,6 +116,21 @@ describe('Weight current + goal cards (Phase 6, Task 3)', () => {
             expect(trend.querySelector('.wg-weight-trend__arrow').textContent).toBe('\u2191');
         });
 
+        it('colors the trend using the lose-weight default when a goal is set but direction is omitted', () => {
+            // Backend weight-goal endpoint does not yet expose goal_direction.
+            // The current-card must fall back to 'lose' so legacy users still
+            // see their downward trend as good/sun rather than a dishonest flat.
+            const { document, window } = env;
+            const logs = [
+                { measured_at: isoDaysAgo(0), weight: 80.9 },
+                { measured_at: isoDaysAgo(3), weight: 81.5 }
+            ];
+            window.renderWeightCurrentCard(logs, { goal: 75 });
+            const trend = document.querySelector('#weight-current-card .wg-weight-trend');
+            expect(trend.classList.contains('wg-weight-trend--good')).toBe(true);
+            expect(trend.querySelector('.wg-weight-trend__arrow').textContent).toBe('\u2193');
+        });
+
         it('uses flat styling when there is no goal, regardless of direction', () => {
             const { document, window } = env;
             const logs = [

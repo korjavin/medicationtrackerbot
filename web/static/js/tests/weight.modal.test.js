@@ -305,6 +305,37 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(loadWeightSpy).not.toHaveBeenCalled();
         });
 
+        it('clears editingWeightLog after a successful DELETE so a POST-failure retry skips the DELETE step', async () => {
+            const { window, document } = env;
+            // First attempt: DELETE resolves (200) → POST resolves → happy path.
+            // We assert that a synthetic retry via handleWeightSubmit() issues
+            // only a POST (no second DELETE against the now-gone row id).
+            const apiCallSpy = vi.fn()
+                .mockResolvedValueOnce({ ok: true })    // DELETE
+                .mockResolvedValueOnce({ id: 2 })       // POST
+                .mockResolvedValueOnce({ id: 3 });      // retry POST
+            window.apiCall = apiCallSpy;
+            window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+            window.loadWeightLogs = vi.fn();
+
+            window.editWeightLog({ id: 17, measured_at: '2026-04-20T08:00:00Z', weight: 81.2, notes: '' });
+            document.getElementById('weight-datetime').value = '2026-04-22T08:15';
+            document.getElementById('weight-value').value = '80.1';
+            await window.handleWeightSubmit({ preventDefault() {} });
+
+            // Simulate the modal still being open (e.g. test-harness closeWeightModal
+            // did close it — reopen + resubmit instead as the retry proxy).
+            document.getElementById('weight-datetime').value = '2026-04-22T08:20';
+            document.getElementById('weight-value').value = '80.2';
+            await window.handleWeightSubmit({ preventDefault() {} });
+
+            // Three calls total: DELETE, POST, then the retry POST — no second DELETE.
+            expect(apiCallSpy).toHaveBeenCalledTimes(3);
+            expect(apiCallSpy.mock.calls[0][1]).toBe('DELETE');
+            expect(apiCallSpy.mock.calls[1][1]).toBe('POST');
+            expect(apiCallSpy.mock.calls[2][1]).toBe('POST');
+        });
+
         it('editing a local (pending) log purges IndexedDB instead of issuing a DELETE request', async () => {
             const { window, document } = env;
             const apiCallSpy = vi.fn().mockResolvedValue({ id: 3 });

@@ -208,6 +208,10 @@ async function handleWeightSubmit(event) {
             const delRes = await apiCall(`/api/weight/${editing.id}`, 'DELETE');
             if (!delRes) return;
         }
+        // Clear edit state once the original is gone so a POST retry after a
+        // non-offline failure doesn't try to DELETE the now-404 row again
+        // (which would loop forever and strand the replacement unsaved).
+        editingWeightLog = null;
     }
 
     const res = await apiCall('/api/weight', 'POST', payload);
@@ -301,9 +305,13 @@ function renderWeightCurrentCard(logs, goalData) {
     const previousWeight = previous && Number(previous.weight);
     const hasPrevious = Number.isFinite(previousWeight);
     const delta = hasPrevious ? (latestWeight - previousWeight) : 0;
+    // Backend weight-goal endpoint does not yet expose goal_direction — default
+    // to 'lose' so trend coloring still works for the legacy lose-weight users
+    // (matches renderWeightGoalCard's fallback). When no goal is set at all,
+    // the hasGoal check below still forces a flat variant.
     const goalDirection = (goalData && typeof goalData.goal_direction === 'string')
         ? goalData.goal_direction
-        : null;
+        : 'lose';
     const hasGoal = !!(goalData && Number.isFinite(Number(goalData.goal)));
     const variant = hasPrevious && hasGoal
         ? classifyWeightTrend(delta, goalDirection)
