@@ -148,9 +148,9 @@ No backend changes. The existing `/api/weight*` endpoints, Dexie offline queue (
 
 ### Task 9: [Final] Update plan and write Phase 7 plan stub
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write `docs/plans/2026-04-XX-wandergeek-phase7-workouts.md` covering the Workouts screen rewrite (today's-workout card, session detail + log-set flow, rotation editor + history sub-views)
-- [ ] no code changes in this task
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write `docs/plans/2026-04-XX-wandergeek-phase7-workouts.md` covering the Workouts screen rewrite (today's-workout card, session detail + log-set flow, rotation editor + history sub-views)
+- [x] no code changes in this task
 
 ## Technical Details
 
