@@ -756,19 +756,33 @@ function _formatRestockedDate(iso) {
     });
 }
 
+// Dedupe in-flight restocks fetches per medication id. `loadInventory()`
+// renders twice — once eagerly from cache, once after `loadMeds()` — so
+// without this map each tab open would fire 2×N GETs. Cleared on resolve so
+// a subsequent render (e.g. after a refill mutation) re-fetches fresh data.
+const _lastRefilledInflight = new Map();
+
 async function _fetchLastRefilledAt(medId) {
-    try {
-        const restocks = await apiCall(`/api/medications/${medId}/restocks`);
-        if (!Array.isArray(restocks) || restocks.length === 0) return null;
-        // Restocks come back newest-first from the server; guard by sorting
-        // defensively in case a client mutates order.
-        const sorted = restocks.slice().sort((a, b) => {
-            return new Date(b.restocked_at).getTime() - new Date(a.restocked_at).getTime();
-        });
-        return sorted[0].restocked_at;
-    } catch (_) {
-        return null;
-    }
+    const inflight = _lastRefilledInflight.get(medId);
+    if (inflight) return inflight;
+    const promise = (async () => {
+        try {
+            const restocks = await apiCall(`/api/medications/${medId}/restocks`);
+            if (!Array.isArray(restocks) || restocks.length === 0) return null;
+            // Restocks come back newest-first from the server; guard by sorting
+            // defensively in case a client mutates order.
+            const sorted = restocks.slice().sort((a, b) => {
+                return new Date(b.restocked_at).getTime() - new Date(a.restocked_at).getTime();
+            });
+            return sorted[0].restocked_at;
+        } catch (_) {
+            return null;
+        } finally {
+            _lastRefilledInflight.delete(medId);
+        }
+    })();
+    _lastRefilledInflight.set(medId, promise);
+    return promise;
 }
 
 function _buildInventoryCard(med) {

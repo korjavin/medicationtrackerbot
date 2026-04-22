@@ -2491,6 +2491,11 @@ async function confirmLogPast() {
                 await window.DataStore.invalidateByTag('medications');
             }
             await loadMeds();
+            const activeMedTab = document.querySelector('.med-tab.active');
+            if (activeMedTab && activeMedTab.dataset.tab === 'inventory' &&
+                typeof renderInventory === 'function') {
+                renderInventory();
+            }
             const historyResult = await loadHistory();
             const newId = res && typeof res.id !== 'undefined' ? res.id : null;
             // Only run the visibility check when the history fetch actually

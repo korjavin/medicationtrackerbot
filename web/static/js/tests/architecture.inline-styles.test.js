@@ -65,27 +65,27 @@ const ALLOWED = new Map([
         "pre-Phase-5 show/hide toggle for the restock-section modal block — preserved as-is during the Task 1 extraction from app.js; inventory-fields sibling already uses .hidden class, this row slated for the same migration",
     ],
     [
-        'web/static/js/features/meds.js:1193',
+        'web/static/js/features/meds.js:1207',
         "pre-Phase-5 show/hide toggle in showMedicationConfirmModal (edit/log_past branch) — preserved as-is during the Task 1 extraction; modal is a paper-era structure not rewritten in Phase 5",
     ],
     [
-        'web/static/js/features/meds.js:1204',
+        'web/static/js/features/meds.js:1218',
         "pre-Phase-5 show/hide toggle for the snooze button in edit/log_past mode — preserved as-is during the Task 1 extraction; modal is a paper-era structure not rewritten in Phase 5",
     ],
     [
-        'web/static/js/features/meds.js:1210',
+        'web/static/js/features/meds.js:1224',
         "pre-Phase-5 show/hide toggle in showMedicationConfirmModal (confirm branch) — preserved as-is during the Task 1 extraction; modal is a paper-era structure not rewritten in Phase 5",
     ],
     [
-        'web/static/js/features/meds.js:1222',
+        'web/static/js/features/meds.js:1236',
         "pre-Phase-5 show/hide toggle for the snooze button in confirm mode — preserved as-is during the Task 1 extraction; modal is a paper-era structure not rewritten in Phase 5",
     ],
     [
-        'web/static/js/features/meds.js:1227',
+        'web/static/js/features/meds.js:1241',
         "pre-Phase-5 show/hide toggle for the skip button in confirm mode — preserved as-is during the Task 1 extraction; modal is a paper-era structure not rewritten in Phase 5",
     ],
     [
-        'web/static/js/features/meds.js:1235',
+        'web/static/js/features/meds.js:1249',
         "pre-Phase-5 show/hide toggle for the skip button in non-confirm mode — preserved as-is during the Task 1 extraction; modal is a paper-era structure not rewritten in Phase 5",
     ],
 ]);
