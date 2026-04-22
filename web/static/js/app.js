@@ -1441,6 +1441,7 @@ function bindMeasurementControls() {
     bindClick('bp-modal-cancel-btn', () => closeBPRecordModal());
     bindClick('add-weight-btn', () => showWeightModal());
     bindClick('weight-modal-cancel-btn', () => closeWeightModal());
+    bindClick('weight-modal-close-btn', () => closeWeightModal());
 
     const bpForm = document.getElementById('bp-form');
     if (bpForm) {
