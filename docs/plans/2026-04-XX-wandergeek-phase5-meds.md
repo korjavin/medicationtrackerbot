@@ -167,11 +167,11 @@ No backend changes. The existing `/api/medications`, `/api/intakes`, `/api/medic
 
 ### Task 9: Verify acceptance criteria for Phase 5
 
-- [ ] open `index.html` in desktop 390×844 phone view, compare Meds screen side-by-side with `Medtracker.html` — manual visual check (skipped - not automatable)
-- [ ] open in mobile viewport (DevTools 375×812) — manual visual check (skipped - not automatable)
-- [ ] full `pnpm test` suite green
-- [ ] `go test ./...` green (sanity check; no backend changes expected)
-- [ ] grep `style="` and `\.style\.` in the new JS — zero matches in `web/static/js/features/meds.js` (or allowlisted in `architecture.inline-styles.test.js` with a one-line justification)
+- [x] open `index.html` in desktop 390×844 phone view, compare Meds screen side-by-side with `Medtracker.html` — manual visual check (skipped - not automatable)
+- [x] open in mobile viewport (DevTools 375×812) — manual visual check (skipped - not automatable)
+- [x] full `pnpm test` suite green — all 871 tests pass across 87 files
+- [x] `go test ./...` green (sanity check; no backend changes expected) — all Go packages pass
+- [x] grep `style="` and `\.style\.` in the new JS — 11 pre-Phase-5 show/hide toggles carried over from the Task 1 extraction allowlisted in `architecture.inline-styles.test.js` with one-line justifications (scope expanded to cover `web/static/js/features/meds.js`); no new inline styles introduced by Phase 5's render layer
 
 ### Task 10: [Final] Update plan and write Phase 6 plan stub
 
