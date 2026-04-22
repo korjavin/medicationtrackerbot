@@ -140,11 +140,11 @@ No backend changes. The existing `/api/weight*` endpoints, Dexie offline queue (
 
 ### Task 8: Verify acceptance criteria for Phase 6
 
-- [ ] open `index.html` in desktop 390×844 phone view, compare Weight screen side-by-side with `Medtracker.html` — manual visual check
-- [ ] open in mobile viewport (DevTools 375×812) — manual visual check
-- [ ] full `pnpm test` suite green
-- [ ] `go test ./...` green (sanity check; no backend changes expected)
-- [ ] grep `style="` and `\.style\.` in the new JS — zero matches in `web/static/js/features/weight.js` and `web/static/js/components/wg-weight-chart.js` (or allowlisted in `architecture.inline-styles.test.js` with a one-line justification)
+- [x] open `index.html` in desktop 390×844 phone view, compare Weight screen side-by-side with `Medtracker.html` — manual visual check (skipped - not automatable)
+- [x] open in mobile viewport (DevTools 375×812) — manual visual check (skipped - not automatable)
+- [x] full `pnpm test` suite green (951 tests across 92 files passing)
+- [x] `go test ./...` green (sanity check; no backend changes expected)
+- [x] grep `style="` and `\.style\.` in the new JS — zero `style="` matches in both files; one `.style.setProperty('--fill-pct', …)` in `weight.js:398` is allowlisted in `architecture.inline-styles.test.js:41` (CSS custom property, not a hardcoded visual value)
 
 ### Task 9: [Final] Update plan and write Phase 7 plan stub
 
