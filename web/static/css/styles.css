@@ -4953,6 +4953,33 @@ textarea.wg-input {
     font-size: var(--wg-weight-goal-delta-size);
 }
 
+/* Weight range selector + chart panel (Phase 6, Task 4). A gloss-inset
+   strip with four 7d/30d/90d/All buttons drives WGWeightChart; the active
+   button picks up the sun modifier. Dimensions come entirely from tokens. */
+.wg-weight-range-selector {
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--wg-weight-range-selector-pad);
+    margin-bottom: var(--space-md);
+}
+
+.wg-weight-range-selector__btn {
+    flex: 1;
+    min-height: var(--wg-weight-range-selector-height);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-weight-chart-panel {
+    padding: var(--wg-card-pad);
+    margin-bottom: var(--space-md);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+}
+
 /* BP screen — current-reading card, range selector, chart card (Phase 3, Task 3).
    The current-reading card shows a 44px mono sys/dia display, a status tag via
    --wg-bp-status-* aliases, an optional pulse sparkline, and a kicker label.

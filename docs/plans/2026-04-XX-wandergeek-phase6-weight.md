@@ -108,11 +108,11 @@ No backend changes. The existing `/api/weight*` endpoints, Dexie offline queue (
 
 ### Task 4: Rewrite the range selector + chart panel
 
-- [ ] replace the existing chart container with a `.wg-weight-chart-panel` — a `.wg-gloss--inset` range selector (7d / 30d / 90d / All) above the `WGWeightChart` canvas
-- [ ] range state persists via `mt-weight-range` localStorage key (new; matches `mt-bp-range` / `mt-food-subtab` / `mt-meds-subtab` naming)
-- [ ] default range: 30d
-- [ ] write `weight.range.test.js` — active-state toggle, persistence across reload, default-range behavior, chart re-renders on range change
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing chart container with a `.wg-weight-chart-panel` — a `.wg-gloss--inset` range selector (7d / 30d / 90d / All) above the `WGWeightChart` canvas
+- [x] range state persists via `mt-weight-range` localStorage key (new; matches `mt-bp-range` / `mt-food-subtab` / `mt-meds-subtab` naming)
+- [x] default range: 30d
+- [x] write `weight.range.test.js` — active-state toggle, persistence across reload, default-range behavior, chart re-renders on range change
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Rewrite the day-grouped history list
 
