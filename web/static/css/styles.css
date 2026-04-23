@@ -6514,6 +6514,238 @@ textarea.wg-input {
     flex: 2 1 0;
 }
 
+/* Edit-exercise modal (Phase 7, Task 8). Shares the generic `.wg-modal` shell
+   for positioning/chrome; overlays a mono eyebrow + title header,
+   `.wg-gloss--inset` input wraps for name / sets / reps / weight / order,
+   and a Cancel/Save action bar (Save 2x flex per modal-button-order
+   convention). */
+.wg-workouts-exercise-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-workouts-exercise-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-exercise-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-workouts-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-workouts-exercise-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-workouts-exercise-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-workouts-exercise-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-workouts-exercise-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-workouts-modal-section-gap);
+}
+
+.wg-workouts-exercise-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.wg-workouts-exercise-modal__row {
+    display: flex;
+    gap: var(--wg-workouts-modal-row-gap);
+}
+
+.wg-workouts-exercise-modal__label {
+    font-size: var(--wg-workouts-modal-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-workouts-exercise-modal__input-wrap {
+    padding: var(--wg-workouts-modal-input-pad-y) var(--wg-workouts-modal-input-pad-x);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-workouts-exercise-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-workouts-exercise-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-workouts-exercise-modal__actions {
+    display: flex;
+    gap: var(--wg-workouts-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-workouts-exercise-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-workouts-exercise-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-workouts-exercise-modal__action--save {
+    flex: 2 1 0;
+}
+
+/* Log-set modal (Phase 7, Task 8). Shares the generic `.wg-modal` shell for
+   positioning/chrome; overlays a mono "Log set" eyebrow + dynamic-title
+   header ("Log set \u00b7 Bench"), `.wg-gloss--inset` input wraps for
+   name / sets / reps / weight / notes, and a Cancel/Save action bar
+   (Save 2x flex per modal-button-order convention). */
+.wg-workouts-log-set-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-workouts-log-set-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-log-set-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-workouts-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-workouts-log-set-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-workouts-log-set-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-workouts-log-set-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-workouts-log-set-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-workouts-modal-section-gap);
+}
+
+.wg-workouts-log-set-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.wg-workouts-log-set-modal__row {
+    display: flex;
+    gap: var(--wg-workouts-modal-row-gap);
+}
+
+.wg-workouts-log-set-modal__label {
+    font-size: var(--wg-workouts-modal-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-workouts-log-set-modal__input-wrap {
+    padding: var(--wg-workouts-modal-input-pad-y) var(--wg-workouts-modal-input-pad-x);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-workouts-log-set-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-workouts-log-set-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-workouts-log-set-modal__actions {
+    display: flex;
+    gap: var(--wg-workouts-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-workouts-log-set-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-workouts-log-set-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-workouts-log-set-modal__action--save {
+    flex: 2 1 0;
+}
+
 /* Workouts stats sub-tab (Phase 7, Task 7). A `.wg-gloss--inset` range
    selector (7d / 30d / 90d / All) drives WGWorkoutChart; the active button
    picks up the sun modifier. Below the chart, stat tiles render as a
