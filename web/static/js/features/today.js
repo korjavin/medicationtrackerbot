@@ -795,12 +795,6 @@
     function buildTodayHeader(titleText, onSettings) {
         const d = doc();
         const gear = buildSettingsGearButton(onSettings);
-        const factory = (typeof window !== 'undefined' && window.SectionHeader && typeof window.SectionHeader.create === 'function')
-            ? window.SectionHeader.create
-            : null;
-        if (factory) {
-            return factory({ title: titleText, onBack: null, rightSlot: gear });
-        }
         const header = d.createElement('header');
         header.className = 'section-header no-back';
         const titleEl = d.createElement('h2');
