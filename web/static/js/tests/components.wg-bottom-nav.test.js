@@ -96,6 +96,16 @@ describe('WGBottomNav — component', () => {
         } finally { cleanup(); }
     });
 
+    it('Health is the seventh slot with the "heart" icon — Phase 8 contract', () => {
+        const { window, cleanup } = loadEnv();
+        try {
+            const healthSlot = window.WGBottomNav.DEFAULT_ITEMS[6];
+            expect(healthSlot.id).toBe('health');
+            expect(healthSlot.icon).toBe('heart');
+            expect(healthSlot.label).toBe('Health');
+        } finally { cleanup(); }
+    });
+
     it('mount() with 5 items lays out a single row (cols=5)', () => {
         const { window, document, cleanup } = loadEnv();
         try {

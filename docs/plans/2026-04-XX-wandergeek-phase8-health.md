@@ -167,9 +167,9 @@ No backend changes. The existing `/api/health/overview` and `/api/notes*` endpoi
 
 ### Task 9: Wire Health into the canonical bottom nav + cleanup
 
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `health` slot with the heart (or equivalent) icon; add a Phase 8 contract test matching the BP/Food/Meds/Weight/Workouts contract tests
-- [ ] grep-verify remaining paper-era health + notes classes — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
-- [ ] run `pnpm test` — must pass before next task
+- [x] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `health` slot with the heart (or equivalent) icon; add a Phase 8 contract test matching the BP/Food/Meds/Weight/Workouts contract tests
+- [x] grep-verify remaining paper-era health + notes classes — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 10: Verify acceptance criteria for Phase 8
 
