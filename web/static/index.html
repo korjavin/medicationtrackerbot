@@ -348,33 +348,45 @@
                 </div>
             </section>
 
-            <mt-setting-toggle divider title="Feature: Blood Pressure"
-                description="Enable blood pressure section and commands" input-id="bp-feature-toggle">
-            </mt-setting-toggle>
+            <section class="wg-card wg-settings-section wg-settings-features">
+                <h3 class="wg-settings-section__title">Features</h3>
+                <p class="wg-settings-section__desc">Enable or disable sections</p>
+                <div class="wg-settings-row-list">
+                    <mt-setting-toggle title="Feature: Blood Pressure"
+                        description="Enable blood pressure section and commands" input-id="bp-feature-toggle">
+                    </mt-setting-toggle>
 
-            <mt-setting-toggle divider title="Feature: Weight" description="Enable weight section and commands"
-                input-id="weight-feature-toggle"></mt-setting-toggle>
+                    <mt-setting-toggle title="Feature: Weight" description="Enable weight section and commands"
+                        input-id="weight-feature-toggle"></mt-setting-toggle>
 
-            <mt-setting-toggle divider title="Feature: Workouts" description="Enable workouts section and commands"
-                input-id="workout-feature-toggle"></mt-setting-toggle>
+                    <mt-setting-toggle title="Feature: Workouts" description="Enable workouts section and commands"
+                        input-id="workout-feature-toggle"></mt-setting-toggle>
 
-            <mt-setting-toggle divider title="Feature: Medications"
-                description="Enable medications section and commands" input-id="medication-feature-toggle">
-            </mt-setting-toggle>
+                    <mt-setting-toggle title="Feature: Medications"
+                        description="Enable medications section and commands" input-id="medication-feature-toggle">
+                    </mt-setting-toggle>
 
-            <mt-setting-toggle divider title="Blood Pressure Reminders"
-                description="Smart reminders to measure blood pressure regularly" input-id="bp-reminders-toggle">
-            </mt-setting-toggle>
+                    <mt-setting-toggle title="Food Intake Tracking" description="Enable food logging feature"
+                        input-id="food-intake-toggle"></mt-setting-toggle>
 
-            <mt-setting-toggle divider title="Weight Reminders" description="Remind me to track my weight weekly"
-                input-id="weight-reminders-toggle"></mt-setting-toggle>
+                    <mt-setting-toggle title="Health Data"
+                        description="Enable health section to view sleep and vitals averages"
+                        input-id="health-feature-toggle"></mt-setting-toggle>
+                </div>
+            </section>
 
-            <mt-setting-toggle divider title="Food Intake Tracking" description="Enable food logging feature"
-                input-id="food-intake-toggle"></mt-setting-toggle>
+            <section class="wg-card wg-settings-section wg-settings-reminders">
+                <h3 class="wg-settings-section__title">Reminders</h3>
+                <p class="wg-settings-section__desc">Smart periodic reminders</p>
+                <div class="wg-settings-row-list">
+                    <mt-setting-toggle title="Blood Pressure Reminders"
+                        description="Smart reminders to measure blood pressure regularly" input-id="bp-reminders-toggle">
+                    </mt-setting-toggle>
 
-            <mt-setting-toggle divider title="Health Data"
-                description="Enable health section to view sleep and vitals averages"
-                input-id="health-feature-toggle"></mt-setting-toggle>
+                    <mt-setting-toggle title="Weight Reminders" description="Remind me to track my weight weekly"
+                        input-id="weight-reminders-toggle"></mt-setting-toggle>
+                </div>
+            </section>
 
             <div id="food-target-settings" class="setting-item"
                 style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
