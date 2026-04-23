@@ -144,10 +144,10 @@ No backend changes. The existing `/api/settings/*`, `/api/bp/reminder/*`, `/api/
 
 ### Task 8: Wire Settings into the canonical bottom nav + cleanup
 
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `settings` slot with the gear (or equivalent) icon; add a Phase 9 contract test matching the BP/Food/Meds/Weight/Workouts/Health contract tests
-- [ ] grep-verify remaining paper-era settings classes (`setting-item`, `setting-item-divider`, `setting-desc`, `settings-info-*`, `bp-inputs-row`, `bp-input-group`, `btn-secondary`) — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
-- [ ] grep `style="` and `\.style\.` in `#settings-view` markup + `features/settings.js` — every hit in new Phase 9 code must be justified (component-local CSS custom property setters only; no hardcoded visual values)
-- [ ] run `pnpm test` — must pass before next task
+- [x] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `settings` slot with the gear (or equivalent) icon; add a Phase 9 contract test matching the BP/Food/Meds/Weight/Workouts/Health contract tests
+- [x] grep-verify remaining paper-era settings classes (`setting-item`, `setting-item-divider`, `setting-desc`, `settings-info-*`, `bp-inputs-row`, `bp-input-group`, `btn-secondary`) — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
+- [x] grep `style="` and `\.style\.` in `#settings-view` markup + `features/settings.js` — every hit in new Phase 9 code must be justified (component-local CSS custom property setters only; no hardcoded visual values)
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 9: Verify acceptance criteria for Phase 9
 
