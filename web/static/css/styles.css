@@ -8576,3 +8576,72 @@ textarea.wg-input {
     align-items: center;
     justify-content: flex-end;
 }
+
+/* Sectioned card shell (Phase 9, Task 2) — groups titled settings rows into
+   a `.wg-card` with a mono header, optional uppercase eyebrow, and an
+   optional muted description. The `.wg-settings-row-list` child container
+   holds the caller-provided rows (toggles, inputs, buttons) and inherits
+   the token'd row hairline divider from `.wg-settings-row + .wg-settings-row`. */
+.wg-settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-settings-section-gap);
+    padding: var(--wg-settings-section-pad);
+}
+
+.wg-settings-section__eyebrow {
+    padding: 0;
+}
+
+.wg-settings-section__title {
+    margin: 0;
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-settings-title-size);
+    font-weight: var(--font-weight-medium);
+    color: var(--wg-fg-1);
+    letter-spacing: 0.02em;
+}
+
+.wg-settings-section__desc {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-desc-size);
+    color: var(--wg-fg-3);
+}
+
+.wg-settings-row-list {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Read-only info rows (Phase 9, Task 2) — used by the Timezone card. The
+   label is a short uppercase eyebrow; the value is a mono display string.
+   Layout is a max-content + 1fr grid driven by `--wg-settings-info-grid-*`
+   tokens so multiple info rows inside a `.wg-card--inset` container align
+   their label columns. */
+.wg-settings-info-row {
+    display: grid;
+    grid-template-columns: var(--wg-settings-info-grid-cols);
+    gap: var(--wg-settings-info-grid-gap);
+    align-items: baseline;
+    padding: var(--wg-settings-row-pad-y) 0;
+}
+
+.wg-settings-info-row + .wg-settings-info-row {
+    border-top: var(--wg-settings-row-divider);
+}
+
+.wg-settings-info-row__label {
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-info-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-4);
+}
+
+.wg-settings-info-row__value {
+    font-size: var(--wg-settings-info-value-size);
+    color: var(--wg-fg-1);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
