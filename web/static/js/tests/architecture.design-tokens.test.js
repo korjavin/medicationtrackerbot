@@ -1330,11 +1330,6 @@ describe('Architecture – design tokens', () => {
             '.pwa-update-toast', '.pwa-update-btn',
             // Sync debug panel
             '.sync-debug-panel',
-            // Health overview
-            '.health-chart-wrapper', '.health-chart-container', '.health-chart-container-tall',
-            '.health-chart-stat', '.health-chart-stat-spaced',
-            '.health-chart-legend', '.health-legend-item',
-            '.health-legend-badge', '.health-legend-badge-line',
             // Workout components (paper-era classes still used as dual-class alongside wg-* equivalents)
             '.workout-pending-msg',
             '.workout-variant-card', '.workout-variant-desc',

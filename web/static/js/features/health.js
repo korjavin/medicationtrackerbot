@@ -716,7 +716,7 @@ async function loadMoreNotes() {
         if (myGeneration !== _notesGeneration) return;
 
         // Remove existing load-more button before appending.
-        const existing = list.querySelector('.notes-load-more');
+        const existing = list.querySelector('.wg-health-notes__load-more');
         if (existing) existing.remove();
         if (notes.length === 0 && _notesPendingFresh && _notesPendingFresh.generation === myGeneration) {
             // Server returned an empty page 2 — the dataset no longer extends past
@@ -754,7 +754,7 @@ async function loadMoreNotes() {
             // would cause the next "load more" to re-fetch page-2.
             // renderNotes may have added a "Load more" button at the end of page-1;
             // remove it before appending the page-2 items below.
-            list.querySelector('.notes-load-more')?.remove();
+            list.querySelector('.wg-health-notes__load-more')?.remove();
         }
         _notesPendingFresh = null;
         appendNotes(list, notes);
@@ -942,7 +942,7 @@ function buildNoteRowDeleteButton(note) {
 
 function buildNotesLoadMore() {
     const li = document.createElement('li');
-    li.className = 'wg-health-notes__load-more notes-load-more';
+    li.className = 'wg-health-notes__load-more';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'wg-gloss wg-health-notes__load-more-btn';
