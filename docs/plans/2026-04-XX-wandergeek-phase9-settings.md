@@ -129,11 +129,11 @@ No backend changes. The existing `/api/settings/*`, `/api/bp/reminder/*`, `/api/
 
 ### Task 6: Rewrite the Food Targets section
 
-- [ ] replace the Food Targets `.setting-item` block with `renderSettingsSection({ title: 'Food Targets', description: 'Daily targets for calories and macronutrients' })`
-- [ ] replace `.bp-inputs-row` + `.bp-input-group` markup with a `.wg-settings-number-grid` 2×2 grid of `renderSettingsNumberField({ id, label, unit, placeholder })` — mono labels, `.wg-gloss--inset` input wraps, trailing unit tags (`kcal` / `g`)
-- [ ] replace `<button id="save-food-targets-btn" class="btn btn-secondary">` with `.wg-gloss--sun` full-width Save Targets button, no inline `margin: 0`
-- [ ] write `settings.food-targets.test.js` — field round-trip, Save button dispatch, empty-state pre-fill, offline-rejected state
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the Food Targets `.setting-item` block with `renderSettingsSection({ title: 'Food Targets', description: 'Daily targets for calories and macronutrients' })`
+- [x] replace `.bp-inputs-row` + `.bp-input-group` markup with a `.wg-settings-number-grid` 2×2 grid of `renderSettingsNumberField({ id, label, unit, placeholder })` — mono labels, `.wg-gloss--inset` input wraps, trailing unit tags (`kcal` / `g`)
+- [x] replace `<button id="save-food-targets-btn" class="btn btn-secondary">` with `.wg-gloss--sun` full-width Save Targets button, no inline `margin: 0`
+- [x] write `settings.food-targets.test.js` — field round-trip, Save button dispatch, empty-state pre-fill, offline-rejected state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Rewrite the version footer
 

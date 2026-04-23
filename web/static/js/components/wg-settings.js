@@ -20,6 +20,10 @@
 //       uppercase mono eyebrow; value is a mono display string. Both sides
 //       are rendered as plain text (no HTML injection).
 //
+//   WGSettings.numberField({ id, label, unit, placeholder, min }) -> HTMLElement
+//       Renders a stacked mono label + `.wg-gloss--inset` input wrap with
+//       a trailing unit tag. Used by the Food Targets 2×2 grid.
+//
 // The helpers are DOM factories, not templating strings — callers assemble
 // the screen by appending the returned elements. No inline styles, no
 // hardcoded colors: every visual value lives in styles.css under the
@@ -109,6 +113,47 @@
         return row;
     }
 
+    function renderNumberField({ id, label, unit, placeholder, min } = {}) {
+        const field = document.createElement('div');
+        field.className = 'wg-settings-number-field';
+
+        if (typeof label === 'string' && label.length > 0) {
+            const labelEl = document.createElement('label');
+            labelEl.className = 'wg-settings-number-field__label';
+            labelEl.textContent = label;
+            if (typeof id === 'string' && id.length > 0) {
+                labelEl.setAttribute('for', id);
+            }
+            field.appendChild(labelEl);
+        }
+
+        const wrap = document.createElement('div');
+        wrap.className = 'wg-gloss--inset wg-settings-number-field__wrap';
+
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.className = 'wg-settings-number-field__input';
+        if (typeof id === 'string' && id.length > 0) {
+            input.id = id;
+        }
+        if (typeof placeholder === 'string' && placeholder.length > 0) {
+            input.setAttribute('placeholder', placeholder);
+        }
+        const minValue = (min == null) ? 0 : min;
+        input.setAttribute('min', String(minValue));
+        wrap.appendChild(input);
+
+        if (typeof unit === 'string' && unit.length > 0) {
+            const unitEl = document.createElement('span');
+            unitEl.className = 'wg-settings-number-field__unit';
+            unitEl.textContent = unit;
+            wrap.appendChild(unitEl);
+        }
+
+        field.appendChild(wrap);
+        return field;
+    }
+
     function renderInfoRow({ label, value } = {}) {
         const row = document.createElement('div');
         row.className = 'wg-settings-info-row';
@@ -130,5 +175,6 @@
         section: renderSection,
         row: renderRow,
         infoRow: renderInfoRow,
+        numberField: renderNumberField,
     };
 })();
