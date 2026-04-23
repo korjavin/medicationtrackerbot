@@ -662,7 +662,10 @@ async function loadNotes() {
             if (loading) loading.style.display = 'none';
             if (!cached) {
                 const list = document.getElementById('notes-list');
-                if (list) list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+                if (list) {
+                    list.replaceChildren();
+                    list.appendChild(buildNotesEmptyCard('No cached data \u2014 will load when online'));
+                }
             }
         }
     });
@@ -765,49 +768,198 @@ async function loadMoreNotes() {
     }
 }
 
+// Day-grouped notes render (Phase 8, Task 7). Each day is a `<li>` with a
+// `.wg-section-label` header (e.g. "22.04.2026 · Tue") and a list of
+// `.wg-card` rows. Each row carries a mono timestamp eyebrow, the note body,
+// and a trailing `.wg-icon-btn` cluster (edit + delete). Offline-pending +
+// rejected states surface as `.wg-tag--mono` badges. Pagination is a
+// full-width `.wg-gloss` "Load more" footer button.
 function renderNotes(list, notes) {
     list.replaceChildren();
     if (!notes || notes.length === 0) {
-        const empty = document.createElement('li');
-        empty.className = 'notes-empty';
-        empty.textContent = 'No notes yet.';
-        list.appendChild(empty);
+        list.appendChild(buildNotesEmptyCard('No notes yet \u2014 write your first one.'));
         return;
     }
     appendNotes(list, notes);
 }
 
 function appendNotes(list, notes) {
-    notes.forEach(note => {
-        const li = document.createElement('li');
-        li.className = 'notes-item';
+    if (!notes || notes.length === 0) return;
 
-        const meta = document.createElement('div');
-        meta.className = 'notes-meta';
-        const d = new Date(note.created_at);
-        meta.textContent = d.toLocaleString();
-
-        const content = document.createElement('div');
-        content.className = 'notes-content';
-        content.textContent = note.content;
-
-        const delBtn = createDeleteButton(() => deleteNote(note.id));
-
-        li.appendChild(meta);
-        li.appendChild(content);
-        li.appendChild(delBtn);
-        list.appendChild(li);
+    const groups = groupNotesByDay(notes);
+    groups.forEach((group) => {
+        const groupItem = buildNotesDayGroup(group.label, group.notes);
+        if (groupItem) list.appendChild(groupItem);
     });
 
     if (notes.length === NOTES_PAGE_SIZE) {
-        const li = document.createElement('li');
-        li.className = 'notes-load-more';
-        const btn = document.createElement('button');
-        btn.textContent = 'Load more';
-        btn.addEventListener('click', loadMoreNotes);
-        li.appendChild(btn);
-        list.appendChild(li);
+        list.appendChild(buildNotesLoadMore());
     }
+}
+
+const NOTES_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function groupNotesByDay(notes) {
+    const buckets = new Map();
+    const order = [];
+
+    notes.forEach((note) => {
+        const d = new Date(note.created_at);
+        if (!Number.isFinite(d.getTime())) return;
+        const dayStart = new Date(d);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayMs = dayStart.getTime();
+        const key = String(dayMs);
+        if (!buckets.has(key)) {
+            const label = formatNotesDayLabel(dayStart);
+            buckets.set(key, { label, sortKey: dayMs, notes: [] });
+            order.push(key);
+        }
+        buckets.get(key).notes.push(note);
+    });
+
+    return order.map((k) => buckets.get(k));
+}
+
+function formatNotesDayLabel(dayStart) {
+    const datePart = dayStart.toLocaleDateString(undefined, {
+        day: '2-digit', month: '2-digit', year: 'numeric'
+    });
+    const dayName = NOTES_DAY_NAMES[dayStart.getDay()];
+    return `${datePart} \u00B7 ${dayName}`;
+}
+
+function buildNotesDayGroup(label, notes) {
+    if (!notes || notes.length === 0) return null;
+
+    const groupItem = document.createElement('li');
+    groupItem.className = 'wg-health-notes__group';
+
+    const header = document.createElement('div');
+    header.className = 'wg-section-label wg-health-notes__group-label';
+    const headerText = document.createElement('span');
+    headerText.textContent = label;
+    header.appendChild(headerText);
+    groupItem.appendChild(header);
+
+    const rowList = document.createElement('ul');
+    rowList.className = 'list-reset wg-health-notes__rows';
+    notes.forEach((note) => rowList.appendChild(buildNoteRow(note)));
+    groupItem.appendChild(rowList);
+
+    return groupItem;
+}
+
+function buildNoteRow(note) {
+    const item = document.createElement('li');
+    item.className = 'wg-card wg-health-notes-row';
+    if (note.isLocal) item.classList.add('wg-health-notes-row--pending');
+    if (note.isRejected) item.classList.add('wg-health-notes-row--rejected');
+    item.setAttribute('data-note-id', String(note.id));
+
+    const body = document.createElement('div');
+    body.className = 'wg-health-notes-row__body';
+
+    const meta = document.createElement('div');
+    meta.className = 'wg-health-notes-row__meta';
+    const time = document.createElement('span');
+    time.className = 'wg-mono-display wg-health-notes-row__time';
+    const d = new Date(note.created_at);
+    time.textContent = Number.isFinite(d.getTime())
+        ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+        : '';
+    meta.appendChild(time);
+
+    if (note.isRejected) {
+        meta.appendChild(buildNotesSyncTag('rejected', 'Failed', note.errorMessage));
+    } else if (note.isLocal) {
+        meta.appendChild(buildNotesSyncTag('pending', 'Pending'));
+    }
+
+    body.appendChild(meta);
+
+    const content = document.createElement('div');
+    content.className = 'wg-health-notes-row__content';
+    content.textContent = note.content;
+    body.appendChild(content);
+
+    item.appendChild(body);
+
+    const actions = document.createElement('div');
+    actions.className = 'wg-health-notes-row__actions';
+    actions.appendChild(buildNoteRowEditButton(note));
+    actions.appendChild(buildNoteRowDeleteButton(note));
+    item.appendChild(actions);
+
+    return item;
+}
+
+function buildNotesSyncTag(kind, label, tooltip) {
+    const tag = document.createElement('span');
+    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-health-notes-row__sync`;
+    tag.textContent = label;
+    if (tooltip) tag.title = tooltip;
+    return tag;
+}
+
+function buildNoteRowEditButton(note) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-icon-btn wg-health-notes-row__edit';
+    btn.setAttribute('aria-label', 'Edit note');
+
+    const gloss = document.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg('pencil', { size: 16 }));
+    }
+    btn.appendChild(gloss);
+
+    btn.addEventListener('click', () => {
+        if (typeof window.editNote === 'function') {
+            window.editNote(note);
+        }
+    });
+    return btn;
+}
+
+function buildNoteRowDeleteButton(note) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-icon-btn wg-health-notes-row__delete';
+    btn.setAttribute('aria-label', 'Delete note');
+
+    const gloss = document.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg('trash', { size: 16 }));
+    }
+    btn.appendChild(gloss);
+
+    btn.addEventListener('click', () => deleteNote(note.id));
+    return btn;
+}
+
+function buildNotesLoadMore() {
+    const li = document.createElement('li');
+    li.className = 'wg-health-notes__load-more notes-load-more';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-gloss wg-health-notes__load-more-btn';
+    btn.textContent = 'Load more';
+    btn.addEventListener('click', loadMoreNotes);
+    li.appendChild(btn);
+    return li;
+}
+
+function buildNotesEmptyCard(message) {
+    const li = document.createElement('li');
+    li.className = 'wg-card wg-health-notes__empty';
+    const text = document.createElement('span');
+    text.className = 'wg-health-notes__empty-msg';
+    text.textContent = message;
+    li.appendChild(text);
+    return li;
 }
 
 async function addNote() {

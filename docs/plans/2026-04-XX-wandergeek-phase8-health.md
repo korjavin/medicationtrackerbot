@@ -149,13 +149,13 @@ No backend changes. The existing `/api/health/overview` and `/api/notes*` endpoi
 
 ### Task 7: Rewrite the Notes sub-tab
 
-- [ ] replace `#notes-textarea` + `#notes-save-btn` with a `.wg-health-notes-compose` container — `.wg-gloss--inset` textarea wrap + full-width `.wg-gloss--sun` "Save note" CTA
-- [ ] replace `#notes-list` markup with a day-grouped `.wg-card` list — `.wg-section-label` day headers ("22.04.2026 · Tue"), each entry carrying mono timestamp eyebrow, note body, and a trailing `.wg-icon-btn` cluster (edit + delete)
-- [ ] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` variants
-- [ ] preserve pagination — "Load more" renders as a full-width `.wg-gloss` footer button
-- [ ] empty state: muted card with "No notes yet — write your first one."
-- [ ] write `health.notes.test.js` — day grouping, Save-button dispatch, pagination, edit + delete callbacks, offline + rejected badge states, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace `#notes-textarea` + `#notes-save-btn` with a `.wg-health-notes-compose` container — `.wg-gloss--inset` textarea wrap + full-width `.wg-gloss--sun` "Save note" CTA
+- [x] replace `#notes-list` markup with a day-grouped `.wg-card` list — `.wg-section-label` day headers ("22.04.2026 · Tue"), each entry carrying mono timestamp eyebrow, note body, and a trailing `.wg-icon-btn` cluster (edit + delete)
+- [x] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` variants
+- [x] preserve pagination — "Load more" renders as a full-width `.wg-gloss` footer button
+- [x] empty state: muted card with "No notes yet — write your first one."
+- [x] write `health.notes.test.js` — day grouping, Save-button dispatch, pagination, edit + delete callbacks, offline + rejected badge states, empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 8: Rewrite the edit-note modal
 
