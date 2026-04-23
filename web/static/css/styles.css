@@ -8645,3 +8645,36 @@ textarea.wg-input {
     min-width: 0;
     overflow-wrap: anywhere;
 }
+
+/* Info-grid frame (Phase 9, Task 3). Wraps the Timezone card's info rows
+   in a `.wg-gloss--inset` panel so each value reads against the same
+   inset-glass surface used for numeric input wraps. */
+.wg-settings-info-grid {
+    padding: var(--wg-settings-row-pad-y) var(--wg-settings-section-pad);
+}
+
+/* Muted footnote below an info-grid (e.g. timezone change warning). */
+.wg-settings-info-note {
+    margin: var(--wg-settings-section-gap) 0 0 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-desc-size);
+    color: var(--wg-fg-3);
+}
+
+.wg-settings-info-note:empty {
+    display: none;
+}
+
+/* Utility — hide a settings-view element without inline styles. Used by
+   `sync.js` to toggle the sync status bar off before the first update
+   tick and by any future empty-state gating. */
+.wg-settings-hidden {
+    display: none !important;
+}
+
+/* Hide the OIDC setup card when the flow is disabled (container stays in
+   the DOM so app.js can populate it, but nothing should render visually
+   when it's empty). */
+.wg-settings-oidc:empty {
+    display: none;
+}
