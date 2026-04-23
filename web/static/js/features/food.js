@@ -1,41 +1,11 @@
 let foodControlsBound = false;
 
-const FOOD_SUBTAB_STORAGE_KEY = 'mt-food-subtab';
-const FOOD_SUBTAB_OPTIONS = ['log', 'meals', 'fooddb'];
-const FOOD_SUBTAB_DEFAULT = 'log';
-
-function getActiveFoodSubTab() {
-    try {
-        const raw = window.localStorage.getItem(FOOD_SUBTAB_STORAGE_KEY);
-        if (FOOD_SUBTAB_OPTIONS.indexOf(raw) !== -1) return raw;
-    } catch (_) { /* ignore */ }
-    return FOOD_SUBTAB_DEFAULT;
-}
-
-function setActiveFoodSubTab(tab) {
-    if (FOOD_SUBTAB_OPTIONS.indexOf(tab) === -1) return;
-    try { window.localStorage.setItem(FOOD_SUBTAB_STORAGE_KEY, tab); } catch (_) { /* ignore */ }
-}
-
-function restoreFoodSubTab() {
-    const tab = getActiveFoodSubTab();
-    syncFoodSubTabActiveClass(tab);
-    if (tab !== FOOD_SUBTAB_DEFAULT) {
-        switchFoodTab(tab);
-    }
-}
-
-function syncFoodSubTabActiveClass(activeTab) {
-    const container = document.querySelector('.wg-food-subtabs');
-    if (!container) return;
-    const buttons = container.querySelectorAll('.food-tab');
-    buttons.forEach((btn) => {
-        const isActive = btn.dataset.tab === activeTab;
-        btn.classList.toggle('wg-gloss--sun', isActive);
-        btn.classList.toggle('wg-food-subtabs__btn--active', isActive);
-        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-    });
-}
+// Phase 5, Task 4 — outer Food tab strip was removed in favor of an inline
+// +Add button in the day-nav and a Daily/Weekly toggle inside the macros
+// card. The My Meals + Food DB sections live behind a collapsible library
+// entry below the meal list.
+const FOOD_MACROS_RANGES = ['day', 'week'];
+let foodMacrosRange = 'day';
 
 function renderFoodDayNavIcons() {
     const prev = document.getElementById('food-date-prev-btn');
@@ -60,6 +30,46 @@ function renderFoodModalIcons() {
         const icon = window.WGIcons.iconSvg('barcode', { size: 14 });
         scanBtn.insertBefore(icon, scanBtn.firstChild);
     }
+}
+
+function renderFoodInlineAddIcon() {
+    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
+    const btn = document.getElementById('add-food-inline-btn');
+    if (!btn || btn.querySelector('svg')) return;
+    btn.insertBefore(window.WGIcons.iconSvg('plus', { size: 14 }), btn.firstChild);
+}
+
+function toggleFoodLibraryView() {
+    const view = document.getElementById('food-library-view');
+    const btn = document.getElementById('food-library-toggle-btn');
+    if (!view || !btn) return;
+    const nowVisible = view.classList.toggle('hidden') === false;
+    btn.setAttribute('aria-expanded', nowVisible ? 'true' : 'false');
+    btn.classList.toggle('wg-food-library-entry__btn--open', nowVisible);
+    if (nowVisible) {
+        if (typeof loadMyMeals === 'function') loadMyMeals();
+        if (typeof loadFoodDB === 'function') loadFoodDB();
+    }
+}
+
+function setFoodMacrosRange(range) {
+    if (FOOD_MACROS_RANGES.indexOf(range) === -1) return;
+    foodMacrosRange = range;
+    syncFoodMacrosToggleActiveClass();
+    // Re-pull the weekly data when flipping to 'week' for the first time;
+    // loadFoodLogs() is the single source for fetching both daily groups
+    // and the weekly stats bundle.
+    loadFoodLogs();
+}
+
+function syncFoodMacrosToggleActiveClass() {
+    const container = document.getElementById('food-macros-toggle');
+    if (!container) return;
+    container.querySelectorAll('.wg-food-macros-card__toggle-btn').forEach((btn) => {
+        const isActive = btn.dataset.range === foodMacrosRange;
+        btn.classList.toggle('wg-food-macros-card__toggle-btn--active', isActive);
+        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
 }
 
 function bindFoodControls() {
@@ -126,8 +136,16 @@ function bindFoodControls() {
         }
     });
 
-    bindClick('food-period-day-link', () => setFoodStatsPeriod('day'));
-    bindClick('food-period-week-link', () => setFoodStatsPeriod('week'));
+    bindClick('add-food-inline-btn', () => showAddFoodModal());
+    bindClick('food-library-toggle-btn', () => toggleFoodLibraryView());
+
+    const macrosToggle = document.getElementById('food-macros-toggle');
+    if (macrosToggle) {
+        macrosToggle.querySelectorAll('.wg-food-macros-card__toggle-btn').forEach((btn) => {
+            btn.addEventListener('click', () => setFoodMacrosRange(btn.dataset.range));
+        });
+    }
+
     bindClick('food-date-prev-btn', () => shiftFoodDate(-1));
     bindClick('food-date-next-btn', () => shiftFoodDate(1));
     bindClick('food-date-label', () => {
@@ -162,18 +180,12 @@ function bindFoodControls() {
     bindClick('food-product-cancel-btn', () => closeFoodProductModal());
     bindClick('food-product-save-btn', () => saveFoodProduct());
 
-    bindTabGroup({
-        container: document.querySelector('.wg-food-subtabs'),
-        buttonSelector: '.food-tab',
-        onTabSelect: switchFoodTab
-    });
-
     bindClick('food-save-meal-cancel-btn', () => closeFoodSaveMealModal());
     bindClick('food-save-meal-confirm-btn', () => confirmSaveMeal());
 
     renderFoodDayNavIcons();
     renderFoodModalIcons();
-    restoreFoodSubTab();
+    renderFoodInlineAddIcon();
 }
 
 if (document.readyState === 'loading') {
@@ -1334,27 +1346,29 @@ async function navigateToFoodProduct(event, productId, isMeal) {
         await initFoodProductsCache();
     }
 
-    if (isMeal) {
-        switchFoodTab('meals');
-        setTimeout(() => {
-            if (foodProductsCache && foodProductsCache.length > 0) {
-                const meal = foodProductsCache.find(m => m.id === productId);
-                if (meal) {
-                    showEditFoodProductModal(meal);
-                }
-            }
-        }, 100);
-    } else {
-        switchFoodTab('fooddb');
-        setTimeout(() => {
-            if (foodProductsCache && foodProductsCache.length > 0) {
-                const product = foodProductsCache.find(p => p.id === productId);
-                if (product) {
-                    showEditFoodProductModal(product);
-                }
-            }
-        }, 100);
+    // The outer Food tab strip was removed in Phase 5, Task 4. Expose
+    // My Meals + Food DB via the collapsible library view and open the
+    // relevant edit modal once the lists have loaded.
+    const libView = document.getElementById('food-library-view');
+    const libBtn = document.getElementById('food-library-toggle-btn');
+    if (libView) libView.classList.remove('hidden');
+    if (libBtn) {
+        libBtn.setAttribute('aria-expanded', 'true');
+        libBtn.classList.add('wg-food-library-entry__btn--open');
     }
+    if (isMeal) {
+        if (typeof loadMyMeals === 'function') loadMyMeals();
+    } else {
+        if (typeof loadFoodDB === 'function') loadFoodDB();
+    }
+    setTimeout(() => {
+        if (foodProductsCache && foodProductsCache.length > 0) {
+            const item = foodProductsCache.find(p => p.id === productId);
+            if (item) {
+                showEditFoodProductModal(item);
+            }
+        }
+    }, 100);
 }
 
 function closeFoodModal() {
@@ -1408,48 +1422,34 @@ async function saveFoodLog() {
     });
 }
 
+// Phase 5, Task 4 — the meal list is always daily; only the macros card
+// flips between daily and weekly totals. `currentFoodStatsPeriod` is kept
+// for backward compatibility with callers that still expect a
+// day/week-style period getter (tests, older helpers), and mirrors
+// `foodMacrosRange` so the two stay in sync.
 let currentFoodStatsPeriod = 'day';
 
 function setFoodStatsPeriod(period) {
+    if (period !== 'day' && period !== 'week') return;
     currentFoodStatsPeriod = period;
-    document.querySelectorAll('#food-stats-period-container .period-link').forEach(el => {
-        if (el.dataset.period === period) {
-            el.classList.add('active');
-        } else {
-            el.classList.remove('active');
-        }
-    });
+    foodMacrosRange = period;
+    syncFoodMacrosToggleActiveClass();
     loadFoodLogs();
 }
 
 async function loadFoodLogs() {
     const list = document.getElementById('food-list');
 
-    const period = currentFoodStatsPeriod || 'day';
-    const isDailyPeriod = period !== 'week' && period !== '2weeks';
-
-    // Sync the sticky Add Food dock before the first await so the CTA
-    // state is correct across every async boundary:
-    //  - weekly summaries: clear+hide so a stale daily CTA never lingers
-    //    (e.g. day→week period switch);
-    //  - daily reloads: ensure a CTA is mounted and visible, covering
-    //    fresh Food-tab opens, week→day switches (where the dock was
-    //    emptied and hidden by the previous weekly render), and the
-    //    no-cache API-failure path (where the catch block renders only
-    //    an error message and never re-adds the CTA).
-    // `_renderFoodData()` rebuilds the CTA on every render, so any
-    // preseeded button here is replaced once data arrives.
+    // Phase 5, Task 4 — meal list is always daily; the macros card flips
+    // between daily and weekly totals via `foodMacrosRange`. The sticky
+    // Add Food CTA dock is therefore always visible; `_renderFoodData()`
+    // rebuilds its contents on every render.
     const ctaDock = document.getElementById('food-add-cta-dock');
     if (ctaDock) {
-        if (!isDailyPeriod) {
-            ctaDock.replaceChildren();
-            ctaDock.classList.add('hidden');
-        } else if (!ctaDock.querySelector('.wg-food-add-cta')) {
+        if (!ctaDock.querySelector('.wg-food-add-cta')) {
             ctaDock.replaceChildren(renderFoodAddCta());
-            ctaDock.classList.remove('hidden');
-        } else {
-            ctaDock.classList.remove('hidden');
         }
+        ctaDock.classList.remove('hidden');
     }
 
     // Ensure targets are available even if Settings tab hasn't been opened yet.
@@ -1462,23 +1462,8 @@ async function loadFoodLogs() {
         dateFilter.value = dateStr;
     }
 
-    if (typeof loadMyMeals === 'function') {
-        loadMyMeals();
-    }
-
     const weekDisplay = document.getElementById('food-week-display');
-    if (period === 'week') {
-        const dEnd = new Date(`${dateStr}T00:00:00`);
-        const dStart = new Date(dEnd);
-        dStart.setDate(dEnd.getDate() - 6);
-        const fmt = { month: 'short', day: 'numeric' };
-        if (weekDisplay) {
-            weekDisplay.innerText = `${dStart.toLocaleDateString(undefined, fmt)} - ${dEnd.toLocaleDateString(undefined, fmt)}`;
-            weekDisplay.classList.remove('hidden');
-        }
-    } else {
-        if (weekDisplay) weekDisplay.classList.add('hidden');
-    }
+    if (weekDisplay) weekDisplay.classList.add('hidden');
 
     // Highlight active sort button
     const sortButtons = document.querySelectorAll('.fooddb-sort-btn');
@@ -1489,11 +1474,13 @@ async function loadFoodLogs() {
         btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     });
 
-    // Show cached data immediately (stale-while-revalidate)
-    const cacheKey = `food_${dateStr}_${period}`;
+    // Show cached data immediately (stale-while-revalidate). Cache key
+    // mirrors the new always-fetch-both shape; the macros toggle reads
+    // from the same cache without invalidating it.
+    const cacheKey = `food_${dateStr}_v2`;
     const cached = await window.DataStore.getCached(cacheKey);
     if (cached) {
-        _renderFoodData(cached.groups, cached.weekStats, period, dateStr);
+        _renderFoodData(cached.groups, cached.weekStats, foodMacrosRange, dateStr);
     } else {
         const loadingStr = document.createTextNode('Loading...');
         list.replaceChildren(loadingStr);
@@ -1501,26 +1488,24 @@ async function loadFoodLogs() {
 
     updateFoodDateNav();
 
-    // Always fetch fresh data
+    // Always fetch fresh data for both the daily groups and the weekly
+    // stats totals; toggling Daily/Weekly in the macros card re-renders
+    // from the same payload without a second round-trip.
     try {
-        // Prefer IANA timezone name (DST-aware); fall back to numeric offset for older browsers
         const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const tzOffset = new Date(`${dateStr}T00:00:00`).getTimezoneOffset();
         const tzParams = tzName
             ? `&tz=${encodeURIComponent(tzName)}`
             : `&tz_offset=${tzOffset}`;
-        const daysParam = period === 'week' ? '&days=7' : '';
-        const groups = await apiCall(`/api/food/log?date=${dateStr}${tzParams}${daysParam}`, 'GET');
 
-        let weekStats = null;
-        if (period === 'week' || period === '2weeks') {
-            const daysCount = period === 'week' ? 7 : 14;
-            weekStats = await apiCall(`/api/food/stats?date=${dateStr}&days=${daysCount}${tzParams}`, 'GET');
-        }
+        const [groups, weekStats] = await Promise.all([
+            apiCall(`/api/food/log?date=${dateStr}${tzParams}`, 'GET'),
+            apiCall(`/api/food/stats?date=${dateStr}&days=7${tzParams}`, 'GET'),
+        ]);
 
-        await window.DataStore.setCached(cacheKey, { groups: groups || [], weekStats });
+        await window.DataStore.setCached(cacheKey, { groups: groups || [], weekStats: weekStats || null });
 
-        _renderFoodData(groups || [], weekStats, period, dateStr);
+        _renderFoodData(groups || [], weekStats || null, foodMacrosRange, dateStr);
     } catch (e) {
         console.error(e);
         if (!cached) {
@@ -1704,7 +1689,7 @@ function renderFoodAddCta() {
     return btn;
 }
 
-function _renderFoodData(groups, weekStats, period, dateStr) {
+function _renderFoodData(groups, weekStats, range, dateStr) {
     const list = document.getElementById('food-list');
     const summary = document.getElementById('food-summary');
     const ctaDock = document.getElementById('food-add-cta-dock');
@@ -1734,42 +1719,48 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
         });
     }
 
-    if (period !== 'week' && period !== '2weeks') {
-        const ctaParent = ctaDock || list;
-        ctaParent.appendChild(renderFoodAddCta());
-        if (ctaDock) ctaDock.classList.remove('hidden');
-    } else if (ctaDock) {
-        ctaDock.classList.add('hidden');
-    }
+    // Meal list is always daily; the Add Food CTA is always available.
+    (ctaDock || list).appendChild(renderFoodAddCta());
+    if (ctaDock) ctaDock.classList.remove('hidden');
 
-    const periodContainer = document.getElementById('food-stats-period-container');
-    if (periodContainer) {
-        periodContainer.classList.remove('hidden');
+    const progress = document.getElementById('food-target-progress');
+    if (progress) {
+        progress.classList.add('hidden');
+        progress.replaceChildren();
     }
+    summary.classList.add('hidden');
 
-    const macrosCard = document.getElementById('food-macros-card');
-    if (period === 'week' || period === '2weeks') {
-        if (macrosCard) macrosCard.classList.add('hidden');
-        const stats = weekStats;
-        summary.classList.remove('hidden');
-        const label = period === 'week' ? '7-Day Total' : '14-Day Total';
-        renderFoodSummary(summary, label, Math.round(stats?.calories || 0), Math.round(stats?.carbs || 0), Math.round(stats?.protein || 0), Math.round(stats?.fat || 0));
-        renderFoodTargetProgress(Math.round(stats?.calories || 0), Math.round(stats?.carbs || 0), Math.round(stats?.protein || 0), Math.round(stats?.fat || 0), period);
+    const isWeek = range === 'week';
+    const stats = weekStats || {};
+    const targets = foodTargets || {};
+    const weeklyTargets = {
+        calories: (Number(targets.calories) > 0) ? Number(targets.calories) * 7 : 0,
+        carbs:    (Number(targets.carbs) > 0)    ? Number(targets.carbs) * 7    : 0,
+        protein:  (Number(targets.protein) > 0)  ? Number(targets.protein) * 7  : 0,
+        fat:      (Number(targets.fat) > 0)      ? Number(targets.fat) * 7      : 0,
+    };
+
+    if (isWeek) {
+        renderFoodMacrosCard(
+            Math.round(Number(stats.calories) || 0),
+            Math.round(Number(stats.carbs) || 0),
+            Math.round(Number(stats.protein) || 0),
+            Math.round(Number(stats.fat) || 0),
+            weeklyTargets,
+            { range: 'week' }
+        );
     } else {
-        const progress = document.getElementById('food-target-progress');
-        if (progress) {
-            progress.classList.add('hidden');
-            progress.replaceChildren();
-        }
         renderFoodMacrosCard(
             Math.round(dayCals),
             Math.round(dayCarbs),
             Math.round(dayProt),
             Math.round(dayFat),
-            foodTargets
+            foodTargets,
+            { range: 'day' }
         );
-        renderFoodDaySelectControl(summary, groups && groups.length > 0);
     }
+
+    syncFoodMacrosToggleActiveClass();
 
     updateFoodSelectUI();
 }
@@ -1780,7 +1771,12 @@ function _renderFoodData(groups, weekStats, period, dateStr) {
 // #food-macros-card shell. Empty-state callers pass zeros; bars collapse
 // to 0% rather than being hidden. Missing targets fall back to "—" in the
 // bar's target suffix and to "—% of target" in the card header.
-function renderFoodMacrosCard(calories, carbs, protein, fat, targets) {
+//
+// Phase 5, Task 4 — opts { range: 'day' | 'week' } controls the avg-per-day
+// subtitle below the kcal total; values/targets for weekly mode are passed
+// pre-scaled by the caller so this function stays range-agnostic at the
+// bar-rendering level.
+function renderFoodMacrosCard(calories, carbs, protein, fat, targets, opts) {
     const card = document.getElementById('food-macros-card');
     if (!card) return;
 
@@ -1791,6 +1787,7 @@ function renderFoodMacrosCard(calories, carbs, protein, fat, targets) {
     const targetFat = Number(safeTargets.fat) > 0 ? Number(safeTargets.fat) : 0;
 
     const safeCalories = Number.isFinite(calories) && calories > 0 ? calories : 0;
+    const range = (opts && opts.range) || 'day';
 
     const kcalEl = document.getElementById('food-macros-card-kcal');
     if (kcalEl) kcalEl.textContent = String(Math.round(safeCalories));
@@ -1802,6 +1799,17 @@ function renderFoodMacrosCard(calories, carbs, protein, fat, targets) {
             percentEl.textContent = `${pct}%`;
         } else {
             percentEl.textContent = '—';
+        }
+    }
+
+    const avgEl = document.getElementById('food-macros-card-avg');
+    if (avgEl) {
+        if (range === 'week' && safeCalories > 0) {
+            avgEl.textContent = `avg ${Math.round(safeCalories / 7).toLocaleString()} kcal/day · 7d`;
+            avgEl.classList.remove('hidden');
+        } else {
+            avgEl.textContent = '';
+            avgEl.classList.add('hidden');
         }
     }
 
@@ -2185,36 +2193,6 @@ async function saveFoodTargets() {
     }
 }
 
-
-function switchFoodTab(tab) {
-    const activated = activateTabGroup(tab, {
-        buttonSelector: '.food-tab',
-        contentSelector: '.food-tab-content',
-        contentIdFromTab: (tabName) => `food-${tabName}-tab`
-    });
-    if (!activated) return;
-
-    syncFoodSubTabActiveClass(tab);
-    setActiveFoodSubTab(tab);
-    toggleFoodDayNavVisibility(tab);
-
-    if (tab === 'log') { loadFoodLogs(); }
-    else if (tab === 'meals') { loadMyMeals(); }
-    else if (tab === 'fooddb') { loadFoodDB(); }
-}
-
-function toggleFoodDayNavVisibility(tab) {
-    const nav = document.querySelector('.food-date-nav');
-    const ctaDock = document.getElementById('food-add-cta-dock');
-    const isLog = tab === 'log';
-    const period = currentFoodStatsPeriod || 'day';
-    const isDaily = period !== 'week' && period !== '2weeks';
-    if (nav) nav.classList.toggle('hidden', !isLog);
-    // CTA dock is only valid on the daily log view — weekly summaries have
-    // no Add Food action, so keep the dock hidden when switching back to
-    // the log tab while a weekly period is active.
-    if (ctaDock) ctaDock.classList.toggle('hidden', !isLog || !isDaily);
-}
 
 async function deleteFoodLog(id) {
     await safeConfirm("Delete this entry?", async (ok) => {

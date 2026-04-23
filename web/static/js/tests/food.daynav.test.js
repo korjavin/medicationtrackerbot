@@ -28,11 +28,12 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         env = null;
     });
 
-    it('renders the 3-cell grid with chevron icon buttons and mono title/subtitle', () => {
+    it('renders the 4-cell grid with chevron icon buttons, mono title/subtitle, and inline +Add', () => {
         const { document } = env;
 
         const nav = document.querySelector('.wg-food-day-nav');
         expect(nav).not.toBeNull();
+        expect(nav.classList.contains('wg-food-day-nav--with-action')).toBe(true);
 
         const prev = document.getElementById('food-date-prev-btn');
         const next = document.getElementById('food-date-next-btn');
@@ -58,6 +59,14 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         expect(title.classList.contains('wg-food-day-nav__title')).toBe(true);
         expect(subtitle.classList.contains('wg-section-label')).toBe(true);
         expect(subtitle.classList.contains('wg-food-day-nav__subtitle')).toBe(true);
+
+        // Phase 5, Task 4 — inline +Add sun-gloss button lives inside the
+        // day-nav row and opens the food modal directly.
+        const addBtn = document.getElementById('add-food-inline-btn');
+        expect(addBtn).not.toBeNull();
+        expect(addBtn.classList.contains('wg-gloss')).toBe(true);
+        expect(addBtn.classList.contains('wg-gloss--sun')).toBe(true);
+        expect(addBtn.classList.contains('wg-food-day-nav__add')).toBe(true);
     });
 
     it('updateFoodDateNav populates both title and DD.MM.YYYY subtitle', () => {
@@ -98,6 +107,52 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         expect(document.getElementById('food-today-btn')).toBeNull();
         expect(document.querySelector('.wg-food-day-nav__today-btn')).toBeNull();
         expect(document.querySelector('.food-today-chip')).toBeNull();
+    });
+
+    it('outer subtab strip and Day|Week pipe row are absent (Phase 5, Task 4)', () => {
+        const { document } = env;
+        expect(document.querySelector('.wg-food-subtabs')).toBeNull();
+        expect(document.getElementById('food-stats-period-container')).toBeNull();
+        expect(document.getElementById('food-period-day-link')).toBeNull();
+        expect(document.getElementById('food-period-week-link')).toBeNull();
+    });
+
+    it('macros card exposes a Daily/Weekly toggle', () => {
+        const { document } = env;
+        const toggle = document.getElementById('food-macros-toggle');
+        expect(toggle).not.toBeNull();
+        expect(toggle.classList.contains('wg-gloss--inset')).toBe(true);
+        const btns = toggle.querySelectorAll('.wg-food-macros-card__toggle-btn');
+        expect(btns).toHaveLength(2);
+        expect(btns[0].dataset.range).toBe('day');
+        expect(btns[1].dataset.range).toBe('week');
+    });
+
+    it('Meals · Food DB library entry toggles the library panel', () => {
+        const { document, window } = env;
+        const btn = document.getElementById('food-library-toggle-btn');
+        const view = document.getElementById('food-library-view');
+        expect(btn).not.toBeNull();
+        expect(view).not.toBeNull();
+        expect(view.classList.contains('hidden')).toBe(true);
+
+        // Stub loaders so the toggle click doesn't attempt network calls.
+        window.loadMyMeals = () => {};
+        window.loadFoodDB = () => {};
+
+        btn.click();
+        expect(view.classList.contains('hidden')).toBe(false);
+        btn.click();
+        expect(view.classList.contains('hidden')).toBe(true);
+    });
+
+    it('clicking the inline +Add button opens the food modal', () => {
+        const { document, window } = env;
+        let opened = 0;
+        window.showAddFoodModal = () => { opened += 1; };
+        const btn = document.getElementById('add-food-inline-btn');
+        btn.click();
+        expect(opened).toBe(1);
     });
 
     it('#food-view opts into the shared .wg-screen-stage backdrop', () => {

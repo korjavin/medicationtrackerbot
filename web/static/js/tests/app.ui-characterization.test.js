@@ -141,15 +141,26 @@ describe('app.js UI characterization', () => {
     try {
       const showFoodModalSpy = vi.spyOn(window, 'showAddFoodModal').mockImplementation(() => {});
       const closeFoodModalSpy = vi.spyOn(window, 'closeFoodModal').mockImplementation(() => {});
-      window.setFoodStatsPeriod = vi.fn();
+      window.loadFoodLogs = vi.fn();
 
       // Add-food CTA is rendered dynamically at the end of the meal list.
       window._renderFoodData([], null, 'day', '2026-04-20');
       document.getElementById('add-food-btn').click();
       expect(showFoodModalSpy).toHaveBeenCalled();
 
-      document.getElementById('food-period-week-link').click();
-      expect(window.setFoodStatsPeriod).toHaveBeenCalledWith('week');
+      // Phase 5, Task 4 — inline +Add in the day-nav opens the same
+      // modal; clicking the in-card Daily/Weekly toggle re-runs
+      // loadFoodLogs() and flips the active pill.
+      showFoodModalSpy.mockClear();
+      document.getElementById('add-food-inline-btn').click();
+      expect(showFoodModalSpy).toHaveBeenCalled();
+
+      const toggle = document.getElementById('food-macros-toggle');
+      toggle.querySelector('[data-range="week"]').click();
+      expect(window.loadFoodLogs).toHaveBeenCalled();
+      expect(
+          toggle.querySelector('[data-range="week"]').classList.contains('wg-food-macros-card__toggle-btn--active')
+      ).toBe(true);
 
       document.getElementById('food-modal-cancel-btn').click();
       expect(closeFoodModalSpy).toHaveBeenCalled();

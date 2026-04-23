@@ -182,7 +182,9 @@ describe('app.js food CRUD, targets and period helpers', () => {
       window.loadFoodLogs = vi.fn();
       window.setFoodStatsPeriod('week');
       expect(window.loadFoodLogs).toHaveBeenCalled();
-      expect(document.querySelector('#food-stats-period-container .period-link[data-period="week"]').classList.contains('active')).toBe(true);
+      const toggle = document.getElementById('food-macros-toggle');
+      const weekBtn = toggle.querySelector('[data-range="week"]');
+      expect(weekBtn.classList.contains('wg-food-macros-card__toggle-btn--active')).toBe(true);
 
       const dateFilter = document.getElementById('food-date-filter');
       dateFilter.value = '2026-03-01';
@@ -217,7 +219,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
 
       window._renderFoodData([], null, 'day', '2026-03-01');
       expect(document.getElementById('food-list').innerHTML).toContain('No food logs for this day');
-      expect(document.getElementById('food-stats-period-container').classList.contains('hidden')).toBe(false);
+      expect(document.getElementById('food-macros-card').classList.contains('hidden')).toBe(false);
 
       const groups = [
         {

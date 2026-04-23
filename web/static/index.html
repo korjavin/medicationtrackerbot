@@ -178,44 +178,48 @@
         </div>
 
         <div id="food-view" class="view wg-screen-stage">
-            <div id="food-stats-period-container" class="food-stats-period-container food-stats-period-row">
-                <span id="food-period-day-link" class="period-link active" data-period="day">Day</span>
-                <span class="period-divider">|</span>
-                <span id="food-period-week-link" class="period-link" data-period="week">Week</span>
-            </div>
-
-            <!-- Food Tabs (Phase 4 — .wg-gloss--inset strip, .wg-gloss--sun active pill) -->
-            <div class="wg-gloss--inset wg-food-subtabs" id="food-subtabs">
-                <button class="wg-gloss wg-food-subtabs__btn wg-gloss--sun wg-food-subtabs__btn--active food-tab active" data-tab="log" aria-pressed="true">Daily log</button>
-                <button class="wg-gloss wg-food-subtabs__btn food-tab" data-tab="meals" aria-pressed="false">My meals</button>
-                <button class="wg-gloss wg-food-subtabs__btn food-tab" data-tab="fooddb" aria-pressed="false">Food DB</button>
+            <!-- Day navigator + inline +Add (Phase 5, Task 4). Chevron buttons
+                 bracket the mono-display date title; trailing sun-gloss pill
+                 opens the food modal directly. -->
+            <div class="wg-food-day-nav wg-food-day-nav--with-action food-date-nav">
+                <button id="food-date-prev-btn" class="wg-gloss wg-icon-btn wg-food-day-nav__icon-btn"
+                    type="button" aria-label="Previous day"></button>
+                <div class="wg-food-day-nav__center">
+                    <input type="date" id="food-date-filter" class="wg-food-day-nav__input" aria-label="Select date">
+                    <div id="food-date-label" class="wg-mono-display wg-food-day-nav__title" role="button" tabindex="0"></div>
+                    <div id="food-date-subtitle" class="wg-section-label wg-food-day-nav__subtitle"></div>
+                    <div id="food-week-display" class="wg-food-day-nav__week hidden"></div>
+                </div>
+                <button id="food-date-next-btn" class="wg-gloss wg-icon-btn wg-food-day-nav__icon-btn" type="button" aria-label="Next day"></button>
+                <button id="add-food-inline-btn" class="wg-gloss wg-gloss--sun wg-food-day-nav__add" type="button" aria-label="Add food">
+                    <span class="wg-food-day-nav__add-label">Add</span>
+                </button>
             </div>
 
             <div id="food-log-tab" class="food-tab-content active">
-                <div class="wg-food-day-nav food-date-nav">
-                    <button id="food-date-prev-btn" class="wg-gloss wg-icon-btn wg-food-day-nav__icon-btn"
-                        type="button" aria-label="Previous day"></button>
-                    <div class="wg-food-day-nav__center">
-                        <input type="date" id="food-date-filter" class="wg-food-day-nav__input" aria-label="Select date">
-                        <div id="food-date-label" class="wg-mono-display wg-food-day-nav__title" role="button" tabindex="0"></div>
-                        <div id="food-date-subtitle" class="wg-section-label wg-food-day-nav__subtitle"></div>
-                        <div id="food-week-display" class="wg-food-day-nav__week hidden"></div>
-                    </div>
-                    <button id="food-date-next-btn" class="wg-gloss wg-icon-btn wg-food-day-nav__icon-btn" type="button" aria-label="Next day"></button>
-                </div>
-
                 <!-- Daily macros card (Phase 4, Task 4). Populated by
                      renderFoodMacrosCard() with kcal total, % of target, and
-                     four WGMacroBar rows. Hidden when period is week/2weeks. -->
+                     four WGMacroBar rows. Phase 5, Task 4: adds an in-card
+                     Daily/Weekly toggle that switches the macro bars between
+                     daily totals (from the meal list) and weekly totals
+                     (from /api/food/stats); the meal list below stays
+                     daily regardless of toggle state. -->
                 <div id="food-macros-card" class="wg-card wg-food-macros-card hidden">
                     <div class="wg-food-macros-card__header">
-                        <div class="wg-food-macros-card__total">
-                            <span id="food-macros-card-kcal" class="wg-mono-display wg-food-macros-card__kcal">0</span>
-                            <span class="wg-food-macros-card__unit">kcal</span>
+                        <div class="wg-food-macros-card__header-left">
+                            <div class="wg-gloss--inset wg-food-macros-card__toggle" id="food-macros-toggle" role="tablist" aria-label="Macros range">
+                                <button type="button" class="wg-food-macros-card__toggle-btn wg-food-macros-card__toggle-btn--active" data-range="day" role="tab" aria-selected="true">Daily total</button>
+                                <button type="button" class="wg-food-macros-card__toggle-btn" data-range="week" role="tab" aria-selected="false">Weekly total</button>
+                            </div>
+                            <div class="wg-food-macros-card__total">
+                                <span id="food-macros-card-kcal" class="wg-mono-display wg-food-macros-card__kcal">0</span>
+                                <span class="wg-food-macros-card__unit">kcal</span>
+                            </div>
+                            <div id="food-macros-card-avg" class="wg-food-macros-card__avg hidden"></div>
                         </div>
                         <div id="food-macros-card-percent" class="wg-food-macros-card__percent">
                             <span id="food-macros-card-percent-value" class="wg-food-macros-card__percent-value">0%</span>
-                            <span class="wg-food-macros-card__percent-label"> of target</span>
+                            <span class="wg-food-macros-card__percent-label">of target</span>
                         </div>
                     </div>
                     <div id="food-macros-card-bars" class="wg-food-macros-card__bars"></div>
@@ -226,34 +230,45 @@
                 <div id="food-summary" class="food-summary-block"></div>
                 <div id="food-list"></div>
                 <div id="food-add-cta-dock" class="wg-food-cta-dock"></div>
+
+                <!-- Food library entry (Phase 5, Task 4). Preserves access to
+                     My Meals + Food DB after the outer tab strip was removed. -->
+                <div class="wg-food-library-entry">
+                    <button id="food-library-toggle-btn" type="button" class="wg-food-library-entry__btn" aria-expanded="false" aria-controls="food-library-view">
+                        <span class="wg-food-library-entry__label">Meals · Food DB</span>
+                        <span class="wg-food-library-entry__chevron" aria-hidden="true">↓</span>
+                    </button>
+                </div>
             </div>
 
-            <div id="food-meals-tab" class="food-tab-content wg-food-db-panel">
-                <p class="wg-food-db-panel__hint">
-                    Select items from your log to create a meal template. Use the Select button on the daily total.
-                </p>
-                <div id="food-meals-list" class="wg-food-db-panel__list">
-                    <!-- Meals injected here -->
-                </div>
-            </div>
-
-            <div id="food-fooddb-tab" class="food-tab-content wg-food-db-panel">
-                <input type="text" id="fooddb-search" class="wg-input wg-food-db-panel__search" placeholder="Search products...">
-                <div class="wg-gloss--inset wg-food-db-panel__sort fooddb-sort-controls">
-                    <button class="wg-gloss wg-food-db-panel__sort-btn wg-gloss--sun fooddb-sort-btn active" data-sort="usage" aria-pressed="true">Most Used</button>
-                    <button class="wg-gloss wg-food-db-panel__sort-btn fooddb-sort-btn" data-sort="last_used" aria-pressed="false">Recently Used</button>
-                    <button class="wg-gloss wg-food-db-panel__sort-btn fooddb-sort-btn" data-sort="name" aria-pressed="false">A-Z</button>
-                </div>
-                <div id="fooddb-list" class="wg-food-db-panel__list">
-                    <!-- Products injected here -->
-                </div>
-                <div id="fooddb-pagination" class="wg-food-db-panel__pagination fooddb-pagination-controls hidden">
-                    <span id="fooddb-page-info" class="wg-food-db-panel__page-info">Showing 0-0 of 0</span>
-                    <div class="wg-food-db-panel__page-actions pagination-buttons">
-                        <button id="fooddb-prev-btn" class="wg-gloss wg-food-db-panel__page-btn">Prev</button>
-                        <button id="fooddb-next-btn" class="wg-gloss wg-food-db-panel__page-btn">Next</button>
+            <div id="food-library-view" class="wg-food-library-view hidden">
+                <section id="food-meals-tab" class="wg-food-db-panel">
+                    <p class="wg-food-db-panel__hint">
+                        Select items from your log to create a meal template. Use the Select button on the daily total.
+                    </p>
+                    <div id="food-meals-list" class="wg-food-db-panel__list">
+                        <!-- Meals injected here -->
                     </div>
-                </div>
+                </section>
+
+                <section id="food-fooddb-tab" class="wg-food-db-panel">
+                    <input type="text" id="fooddb-search" class="wg-input wg-food-db-panel__search" placeholder="Search products...">
+                    <div class="wg-gloss--inset wg-food-db-panel__sort fooddb-sort-controls">
+                        <button class="wg-gloss wg-food-db-panel__sort-btn wg-gloss--sun fooddb-sort-btn active" data-sort="usage" aria-pressed="true">Most Used</button>
+                        <button class="wg-gloss wg-food-db-panel__sort-btn fooddb-sort-btn" data-sort="last_used" aria-pressed="false">Recently Used</button>
+                        <button class="wg-gloss wg-food-db-panel__sort-btn fooddb-sort-btn" data-sort="name" aria-pressed="false">A-Z</button>
+                    </div>
+                    <div id="fooddb-list" class="wg-food-db-panel__list">
+                        <!-- Products injected here -->
+                    </div>
+                    <div id="fooddb-pagination" class="wg-food-db-panel__pagination fooddb-pagination-controls hidden">
+                        <span id="fooddb-page-info" class="wg-food-db-panel__page-info">Showing 0-0 of 0</span>
+                        <div class="wg-food-db-panel__page-actions pagination-buttons">
+                            <button id="fooddb-prev-btn" class="wg-gloss wg-food-db-panel__page-btn">Prev</button>
+                            <button id="fooddb-next-btn" class="wg-gloss wg-food-db-panel__page-btn">Next</button>
+                        </div>
+                    </div>
+                </section>
             </div>
         </div>
 

@@ -40,11 +40,16 @@ describe('Food → Meal DB panel (Phase 4 follow-up, Task 5)', () => {
     });
 
     it('panel root carries the Wandergeek .wg-food-db-panel shell class', () => {
+        // Phase 5, Task 4 — the outer food-tab-content wrapper was retired
+        // along with the subtab strip; the panel now lives inside the
+        // collapsible #food-library-view alongside `.wg-food-db-panel`.
         const { document } = env;
         const panel = document.getElementById('food-meals-tab');
         expect(panel).not.toBeNull();
         expect(panel.classList.contains('wg-food-db-panel')).toBe(true);
-        expect(panel.classList.contains('food-tab-content')).toBe(true);
+        const libraryView = document.getElementById('food-library-view');
+        expect(libraryView).not.toBeNull();
+        expect(libraryView.contains(panel)).toBe(true);
     });
 
     it('hint paragraph uses the .wg-food-db-panel__hint token class, no inline style', () => {
