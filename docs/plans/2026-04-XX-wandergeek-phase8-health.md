@@ -181,9 +181,9 @@ No backend changes. The existing `/api/health/overview` and `/api/notes*` endpoi
 
 ### Task 11: [Final] Update plan and write Phase 9 plan stub
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write `docs/plans/2026-04-XX-wandergeek-phase9-settings.md` covering the Settings screen rewrite (form-heavy — tokens for every input state, gloss-inset inputs, sectioned cards)
-- [ ] no code changes in this task
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write `docs/plans/2026-04-XX-wandergeek-phase9-settings.md` covering the Settings screen rewrite (form-heavy — tokens for every input state, gloss-inset inputs, sectioned cards)
+- [x] no code changes in this task
 
 ## Technical Details
 
