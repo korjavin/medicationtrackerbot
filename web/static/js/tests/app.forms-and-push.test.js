@@ -24,7 +24,7 @@ describe('app.js form submissions and push modal behavior', () => {
       expect(overlay.classList.contains('hidden')).toBe(false);
       expect(modal.classList.contains('hidden')).toBe(false);
       expect(document.getElementById('med-confirm-action-btn').innerText).toBe('Confirm Selected');
-      expect(document.getElementById('med-confirm-snooze-btn').style.display).toBe('inline-block');
+      expect(document.getElementById('med-confirm-snooze-btn').classList.contains('hidden')).toBe(false);
       expect(document.querySelectorAll('.med-confirm-check').length).toBe(2);
 
       document.getElementById('med-confirm-dismiss-btn').click();

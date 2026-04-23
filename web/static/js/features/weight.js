@@ -69,7 +69,7 @@ let editingWeightLog = null;
 function showWeightModal() {
     editingWeightLog = null;
     window.ModalManager.weight.open();
-    setWeightModalTitle('New weight');
+    setWeightModalEyebrow('New entry');
 
     document.getElementById('weight-datetime').value = formatDateTimeLocalForInput();
     document.getElementById('weight-notes').value = '';
@@ -89,8 +89,8 @@ function closeWeightModal() {
     window.ModalManager.weight.close();
 }
 
-function setWeightModalTitle(text) {
-    const el = document.getElementById('weight-modal-title');
+function setWeightModalEyebrow(text) {
+    const el = document.getElementById('weight-modal-eyebrow');
     if (el) el.textContent = text;
 }
 
@@ -810,7 +810,7 @@ function editWeightLog(log) {
         window.showWeightModal();
     }
     editingWeightLog = log;
-    setWeightModalTitle('Edit weight');
+    setWeightModalEyebrow('Edit entry');
     resetWeightUnitToggle();
     const valueInput = document.getElementById('weight-value');
     const dtInput = document.getElementById('weight-datetime');

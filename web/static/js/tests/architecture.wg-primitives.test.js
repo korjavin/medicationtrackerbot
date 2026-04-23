@@ -187,27 +187,31 @@ describe('Wandergeek material primitives', () => {
         expect(blocks[0]).toMatch(/color:\s*var\(--wg-fg-3\)/);
     });
 
-    it('#bp-modal markup uses the wg-modal + wg-field + wg-input/select utilities', () => {
+    it('#bp-modal markup uses the wg-modal shell + wg-bp-modal eyebrow/title/inset utilities', () => {
         const html = fs.readFileSync(
             path.join(REPO_ROOT, 'web/static/index.html'),
             'utf8'
         );
-        // Shell wears .wg-modal
+        // Shell wears .wg-modal + the .wg-bp-modal variant class.
         expect(html).toMatch(/<mt-modal[^>]*id="bp-modal"[^>]*class="[^"]*\bwg-modal\b/);
-        // Title wears .wg-modal__title
-        expect(html).toMatch(/<h3[^>]*id="bp-modal-title"[^>]*class="[^"]*\bwg-modal__title\b/);
+        expect(html).toMatch(/<mt-modal[^>]*id="bp-modal"[^>]*class="[^"]*\bwg-bp-modal\b/);
+        // Eyebrow is the runtime-toggleable section-label; title is the mono display.
+        expect(html).toMatch(/class="[^"]*\bwg-section-label\b[^"]*\bwg-bp-modal__eyebrow\b[^"]*"\s+id="bp-modal-eyebrow"/);
+        expect(html).toMatch(/class="[^"]*\bwg-mono-display\b[^"]*\bwg-bp-modal__title\b[^"]*"\s+id="bp-modal-title"/);
         // Cancel is a plain gloss; Save is sun gloss. Form= attr must survive
         // so handleBPSubmit's querySelector keeps working.
         expect(html).toMatch(/id="bp-modal-cancel-btn"[^>]*class="[^"]*\bwg-gloss\b/);
         expect(html).toMatch(/form="bp-form"[^>]*class="[^"]*\bwg-gloss--sun\b/);
-        // Fields carry .wg-input / .wg-select
-        expect(html).toMatch(/id="bp-systolic"[^>]*class="[^"]*\bwg-input\b/);
-        expect(html).toMatch(/id="bp-site"[^>]*class="[^"]*\bwg-select\b/);
-        // Paper-era button + form-row classes must not linger in the BP modal
+        // Fields carry .wg-bp-modal__input inside .wg-gloss--inset wraps.
+        expect(html).toMatch(/id="bp-systolic"[^>]*class="[^"]*\bwg-bp-modal__input\b/);
+        expect(html).toMatch(/id="bp-site"[^>]*class="[^"]*\bwg-bp-modal__input\b/);
+        // Paper-era button + form-row classes must not linger in the BP modal.
         const bpModalBlock = html.match(/<mt-modal[^>]*id="bp-modal"[\s\S]*?<\/mt-modal>/);
         expect(bpModalBlock, 'expected bp-modal block in index.html').not.toBeNull();
         expect(bpModalBlock[0]).not.toMatch(/\bbtn-primary\b/);
         expect(bpModalBlock[0]).not.toMatch(/\bbtn-secondary\b/);
+        // No un-wrapped h3 title — the dual-line eyebrow/title pattern replaces it.
+        expect(bpModalBlock[0]).not.toMatch(/<h3[^>]*\bwg-modal__title\b/);
     });
 
     it('#bp-view opts into the shared screen-stage utility in index.html', () => {

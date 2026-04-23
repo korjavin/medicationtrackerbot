@@ -517,6 +517,36 @@ const WANDERGEEK_TOKENS = [
     '--wg-weight-modal-unit-btn-min-w',
     '--wg-weight-modal-label-size',
     '--wg-weight-modal-action-gap',
+    '--wg-weight-modal-weight-input-size',
+
+    // Record-BP modal tokens (Task 4b audit) — dual-line header, gloss-inset
+    // input wraps, 3-up Systolic / Diastolic / Pulse reading row with 20px
+    // mono inputs, 2-up Site / Position row, Notes textarea, and the Cancel
+    // / Save action bar with 2× flex on Save.
+    '--wg-bp-modal-eyebrow-size',
+    '--wg-bp-modal-title-size',
+    '--wg-bp-modal-section-gap',
+    '--wg-bp-modal-row-gap',
+    '--wg-bp-modal-input-pad-y',
+    '--wg-bp-modal-input-pad-x',
+    '--wg-bp-modal-label-size',
+    '--wg-bp-modal-reading-size',
+    '--wg-bp-modal-action-gap',
+
+    // Take-meds (medication confirm) modal tokens (Task 4b audit) — dual-line
+    // sun-eyebrow header, subtitle, check-row geometry (selected = green tag
+    // highlight), secondary Snooze + Skip row, full-width primary button.
+    '--wg-med-confirm-modal-eyebrow-size',
+    '--wg-med-confirm-modal-title-size',
+    '--wg-med-confirm-modal-subtitle-size',
+    '--wg-med-confirm-modal-row-pad-y',
+    '--wg-med-confirm-modal-row-pad-x',
+    '--wg-med-confirm-modal-row-gap',
+    '--wg-med-confirm-modal-check-size',
+    '--wg-med-confirm-modal-check-radius',
+    '--wg-med-confirm-modal-name-size',
+    '--wg-med-confirm-modal-dose-size',
+    '--wg-med-confirm-modal-action-gap',
 
     // Workouts screen tokens (Phase 7, Task 1) — sub-tab strip, today's-
     // workout card, rotation-slot tag, day-grouped history rows, session-
