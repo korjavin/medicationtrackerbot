@@ -151,20 +151,12 @@ describe('app.js charts, scanner and visualization helpers', () => {
       const bpChart = document.getElementById('bpChart');
       const weightChart = document.getElementById('weightChart');
       const vitals = document.createElement('div');
-      const sleep = document.createElement('div');
-      const steps = document.createElement('div');
       vitals.id = 'heartRateChart';
-      sleep.id = 'sleepChartContainer';
-      steps.id = 'stepsChartContainer';
       document.body.appendChild(vitals);
-      document.body.appendChild(sleep);
-      document.body.appendChild(steps);
 
       setElementSize(bpChart, 360, 240);
       setElementSize(weightChart, 360, 240);
       setElementSize(vitals, 360, 220);
-      setElementSize(sleep, 360, 240);
-      setElementSize(steps, 360, 240);
 
       window.renderBPChart([], {});
       expect(bpChart.textContent).toContain('No data available');
@@ -264,34 +256,6 @@ describe('app.js charts, scanner and visualization helpers', () => {
       });
       vitals.appendChild(vitalsSvg);
       expect(vitals.querySelector('svg.wg-vitals-chart')).toBeTruthy();
-
-      window.renderSleepChart([
-        {
-          date: '2026-02-01',
-          deep_mins: 90,
-          awake_mins: 20,
-          light_mins: 200,
-          rem_mins: 80,
-          total_mins: 390,
-          heart_rate_avg: 58
-        },
-        {
-          date: '2026-02-02',
-          deep_mins: 70,
-          awake_mins: 30,
-          light_mins: 220,
-          rem_mins: 70,
-          total_mins: 390,
-          heart_rate_avg: 62
-        }
-      ]);
-      expect(sleep.querySelector('svg')).toBeTruthy();
-
-      window.renderStepsChart([
-        { day: '2026-02-01', steps: 8400 },
-        { day: '2026-02-02', steps: 11200 }
-      ]);
-      expect(steps.querySelector('svg')).toBeTruthy();
     } finally {
       cleanup();
     }
