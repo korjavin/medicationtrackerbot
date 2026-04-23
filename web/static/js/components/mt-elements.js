@@ -36,12 +36,16 @@ class MTSettingToggle extends HTMLElement {
         if (this.dataset.initialized === 'true') return;
         this.dataset.initialized = 'true';
 
-        // Dual-classed: legacy `.setting-item` (kept for grep-safety and any
-        // dual-class tests still landing during Phase 9) + new
-        // `.wg-settings-row` for the Wandergeek reskin. The `divider`
-        // attribute contract stays stable; its effect is removed in
-        // Phase 9 Task 5 once section cards provide the grouping.
-        this.classList.add('setting-item', 'wg-settings-row');
+        // `.wg-settings-row` is the sole layout class; the legacy
+        // `.setting-item` class was dropped because its residual visual
+        // styles (background, border, border-radius, margin-bottom) and
+        // the higher-specificity `.setting-item h3` rule bled through the
+        // new row styling, making each row render as a nested old card.
+        // The `divider` attribute contract stays stable (its visual
+        // effect was already removed in Phase 9 Task 5 once section
+        // cards provided the grouping); the class is retained purely so
+        // the backwards-compat assertion still passes.
+        this.classList.add('wg-settings-row');
         if (this.hasAttribute('divider')) {
             this.classList.add('setting-item-divider');
         }

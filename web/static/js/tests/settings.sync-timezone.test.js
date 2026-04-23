@@ -183,6 +183,57 @@ describe('Settings sync + timezone cards (Phase 9, Task 3)', () => {
         }
     });
 
+    it('initOIDCSetupBanner with OIDC enabled renders wg-settings markup (no paper-era .setting-item / .btn)', () => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.OIDC_CONFIG = { enabled: true };
+            window.initOIDCSetupBanner();
+
+            const container = document.getElementById('oidc-setup-container');
+            expect(container).not.toBeNull();
+
+            expect(container.querySelector('.setting-item')).toBeNull();
+            expect(container.querySelector('.setting-desc')).toBeNull();
+            expect(container.querySelector('.btn')).toBeNull();
+            expect(container.querySelector('.btn-secondary')).toBeNull();
+
+            const title = container.querySelector('.wg-settings-section__title');
+            expect(title).not.toBeNull();
+            expect(title.textContent.trim()).toBe('OIDC Setup');
+
+            const desc = container.querySelector('.wg-settings-section__desc');
+            expect(desc).not.toBeNull();
+
+            const row = container.querySelector('.wg-settings-row-list .wg-settings-row');
+            expect(row).not.toBeNull();
+            const rowTitle = row.querySelector('.wg-settings-row__title');
+            expect(rowTitle).not.toBeNull();
+            expect(rowTitle.classList.contains('wg-mono-display')).toBe(true);
+
+            const actionBtn = row.querySelector('.wg-settings-row__control button');
+            expect(actionBtn).not.toBeNull();
+            expect(actionBtn.classList.contains('wg-settings-action-btn')).toBe(true);
+            expect(actionBtn.classList.contains('btn')).toBe(false);
+            expect(actionBtn.classList.contains('btn-secondary')).toBe(false);
+            expect(actionBtn.textContent.trim()).toBe('Open');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('initOIDCSetupBanner with OIDC disabled leaves the container empty', () => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.OIDC_CONFIG = { enabled: false };
+            window.initOIDCSetupBanner();
+
+            const container = document.getElementById('oidc-setup-container');
+            expect(container.children.length).toBe(0);
+        } finally {
+            cleanup();
+        }
+    });
+
     it('renderSettingsTimeInfo with no saved timezone falls back to the "Not set" branch', () => {
         const { window, document, cleanup } = loadFrontendEnv();
         try {
