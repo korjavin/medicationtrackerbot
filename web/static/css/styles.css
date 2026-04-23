@@ -709,6 +709,47 @@
     --wg-health-vitals-hr-line: #ff3b30;
     --wg-health-vitals-spo2-line: #32ade6;
     --wg-health-vitals-stress-line: #ff9500;
+
+    /* Settings screen tokens (Phase 9, Task 1) — sectioned cards, canonical
+       setting-row grid (left column title+description, right column control),
+       token'd row hairline divider, read-only info grid used by the Timezone
+       card, number-field input height for Food Targets, action-row gap. */
+    --wg-settings-section-pad: 14px;
+    --wg-settings-section-gap: 12px;
+    --wg-settings-row-cols: 1fr auto;
+    --wg-settings-row-gap: 12px;
+    --wg-settings-row-pad-y: 12px;
+    --wg-settings-row-pad-x: 0px;
+    --wg-settings-row-divider: 1px solid var(--wg-border-hairline);
+    --wg-settings-title-size: 14px;
+    --wg-settings-desc-size: 12px;
+    --wg-settings-info-grid-cols: max-content 1fr;
+    --wg-settings-info-grid-gap: 8px;
+    --wg-settings-info-label-size: 10.5px;
+    --wg-settings-info-value-size: 13px;
+    --wg-settings-number-field-height: 44px;
+    --wg-settings-number-field-pad-x: 12px;
+    --wg-settings-number-field-label-size: 10.5px;
+    --wg-settings-action-row-gap: 8px;
+    --wg-settings-version-size: 10px;
+    --wg-settings-version-pad: 20px;
+
+    /* Toggle primitive tokens (Phase 9, Task 1) — the new WGToggle primitive
+       uses these for the off / on / focus / disabled visual states. `bg` is
+       the unchecked pill background, `bg-on` the checked gloss-sun
+       background; `knob` / `knob-on` are the circle fills; `border-*` cover
+       default / focus-visible / disabled outline variants. */
+    --wg-toggle-width: 46px;
+    --wg-toggle-height: 26px;
+    --wg-toggle-knob-size: 20px;
+    --wg-toggle-knob-pad: 3px;
+    --wg-toggle-bg: var(--wg-gloss-bg-inset);
+    --wg-toggle-bg-on: var(--wg-gloss-bg-sun);
+    --wg-toggle-knob: var(--wg-ink-70);
+    --wg-toggle-knob-on: var(--wg-ink);
+    --wg-toggle-border: rgba(0, 0, 0, 0.25);
+    --wg-toggle-border-focus: var(--wg-sun);
+    --wg-toggle-border-disabled: var(--wg-border-hairline);
 }
 
 body {
@@ -8416,4 +8457,122 @@ textarea.wg-input {
 
 .wg-meds-modal__action--save {
     flex: 2 1 0;
+}
+
+/* Wandergeek toggle primitive (Phase 9, Task 1). Renders a pill with a
+   knob driven by a hidden <input type="checkbox">. The unchecked state
+   uses --wg-toggle-bg (inset-gloss); the checked state flips to
+   --wg-toggle-bg-on (the sun gradient) so the toggle visually matches
+   the `.wg-gloss--sun` convention used for primary actions everywhere
+   else in the Wandergeek system. Focus-visible and disabled states are
+   tokenized via --wg-toggle-border-{focus,disabled}. */
+.wg-toggle {
+    position: relative;
+    display: inline-block;
+    width: var(--wg-toggle-width);
+    height: var(--wg-toggle-height);
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.wg-toggle__input {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    inset: 0;
+    cursor: pointer;
+}
+
+.wg-toggle__track {
+    position: absolute;
+    inset: 0;
+    background: var(--wg-toggle-bg);
+    border: 1px solid var(--wg-toggle-border);
+    border-radius: var(--wg-radius-pill);
+    box-shadow: var(--wg-gloss-shadow-inset);
+    transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+    pointer-events: none;
+}
+
+.wg-toggle__knob {
+    position: absolute;
+    top: var(--wg-toggle-knob-pad);
+    left: var(--wg-toggle-knob-pad);
+    width: var(--wg-toggle-knob-size);
+    height: var(--wg-toggle-knob-size);
+    background: var(--wg-toggle-knob);
+    border-radius: var(--radius-pill);
+    transition: transform 160ms ease, background 160ms ease;
+    pointer-events: none;
+}
+
+.wg-toggle__input:checked ~ .wg-toggle__track {
+    background: var(--wg-toggle-bg-on);
+    box-shadow: var(--wg-gloss-shadow-sun);
+}
+
+.wg-toggle__input:checked ~ .wg-toggle__knob {
+    background: var(--wg-toggle-knob-on);
+    transform: translateX(calc(var(--wg-toggle-width) - var(--wg-toggle-knob-size) - var(--wg-toggle-knob-pad) - var(--wg-toggle-knob-pad)));
+}
+
+.wg-toggle__input:focus-visible ~ .wg-toggle__track {
+    outline: 2px solid var(--wg-toggle-border-focus);
+    outline-offset: 2px;
+}
+
+.wg-toggle__input:disabled ~ .wg-toggle__track {
+    border-color: var(--wg-toggle-border-disabled);
+    opacity: 0.6;
+}
+
+.wg-toggle__input:disabled ~ .wg-toggle__knob {
+    opacity: 0.6;
+}
+
+.wg-toggle--disabled {
+    cursor: not-allowed;
+}
+
+/* Settings row shell used by <mt-setting-toggle> — full spec in Phase 9,
+   Task 2 (section cards + row list). Minimum viable layout lives here so
+   the Task 1 rewrite of MTSettingToggle renders meaningfully even before
+   the card shell lands. */
+.wg-settings-row {
+    display: grid;
+    grid-template-columns: var(--wg-settings-row-cols);
+    gap: var(--wg-settings-row-gap);
+    align-items: center;
+    padding: var(--wg-settings-row-pad-y) var(--wg-settings-row-pad-x);
+}
+
+.wg-settings-row + .wg-settings-row {
+    border-top: var(--wg-settings-row-divider);
+}
+
+.wg-settings-row__content {
+    min-width: 0;
+}
+
+.wg-settings-row__title {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-title-size);
+    font-weight: var(--font-weight-medium);
+    color: var(--wg-fg-1);
+}
+
+.wg-settings-row__desc {
+    margin: var(--space-xs) 0 0 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-desc-size);
+    color: var(--wg-fg-3);
+}
+
+.wg-settings-row__control {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
 }

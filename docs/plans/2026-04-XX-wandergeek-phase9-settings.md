@@ -85,15 +85,15 @@ No backend changes. The existing `/api/settings/*`, `/api/bp/reminder/*`, `/api/
 
 ### Task 1: Extend tokens + build the `WGToggle` primitive
 
-- [ ] add `--wg-settings-*` dimensional tokens to `:root` in `styles.css` (section-card padding, row grid-template-columns, row hairline divider, info-grid grid-template-columns, number-field input height, action-row gap)
-- [ ] add `--wg-toggle-{bg,bg-on,knob,knob-on,border,border-focus,border-disabled}` semantic tokens for the toggle on/off/focus/disabled states
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] create `web/static/js/components/wg-toggle.js` exposing `WGToggle.render({ id, checked, disabled, onToggle })` returning a DOM element with a hidden `<input type="checkbox" id="...">` (so existing `bindChange('...-toggle', …)` keeps working) + a visual `.wg-gloss--sun`-when-on pill + knob
-- [ ] register `window.WGToggle` in `architecture.globals.test.js` with a one-line justification
-- [ ] rewrite `MTSettingToggle.connectedCallback()` in `web/static/js/components/mt-elements.js` to emit `.wg-settings-row` markup + call `WGToggle.render({ id: inputId })` for the pill — keeps the `<mt-setting-toggle>` tag contract stable so `index.html` doesn't need to change yet
-- [ ] write `components.wg-toggle.test.js` — on/off state, disabled state, click dispatches `change` on hidden checkbox, focus-visible outline present
-- [ ] verify no behavior change — existing `app.unit.test.js` coverage against `<mt-setting-toggle>` stays green (update expected class names, not structure)
-- [ ] run `pnpm test` — design-tokens test + `WGToggle` test must be green before next task
+- [x] add `--wg-settings-*` dimensional tokens to `:root` in `styles.css` (section-card padding, row grid-template-columns, row hairline divider, info-grid grid-template-columns, number-field input height, action-row gap)
+- [x] add `--wg-toggle-{bg,bg-on,knob,knob-on,border,border-focus,border-disabled}` semantic tokens for the toggle on/off/focus/disabled states
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] create `web/static/js/components/wg-toggle.js` exposing `WGToggle.render({ id, checked, disabled, onToggle })` returning a DOM element with a hidden `<input type="checkbox" id="...">` (so existing `bindChange('...-toggle', …)` keeps working) + a visual `.wg-gloss--sun`-when-on pill + knob
+- [x] register `window.WGToggle` in `architecture.globals.test.js` with a one-line justification
+- [x] rewrite `MTSettingToggle.connectedCallback()` in `web/static/js/components/mt-elements.js` to emit `.wg-settings-row` markup + call `WGToggle.render({ id: inputId })` for the pill — keeps the `<mt-setting-toggle>` tag contract stable so `index.html` doesn't need to change yet
+- [x] write `components.wg-toggle.test.js` — on/off state, disabled state, click dispatches `change` on hidden checkbox, focus-visible outline present
+- [x] verify no behavior change — existing `app.unit.test.js` coverage against `<mt-setting-toggle>` stays green (update expected class names, not structure)
+- [x] run `pnpm test` — design-tokens test + `WGToggle` test must be green before next task
 
 ### Task 2: Build the sectioned-card shell + row primitive
 
