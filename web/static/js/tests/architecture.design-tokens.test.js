@@ -521,6 +521,86 @@ const WANDERGEEK_TOKENS = [
     '--wg-weight-modal-unit-btn-min-w',
     '--wg-weight-modal-label-size',
     '--wg-weight-modal-action-gap',
+
+    // Workouts screen tokens (Phase 7, Task 1) — sub-tab strip, today's-
+    // workout card, rotation-slot tag, day-grouped history rows, session-
+    // detail view with set-by-set rows, groups/exercises list rows, stat
+    // tiles + chart geometry.
+    '--wg-workouts-subtab-pad-y',
+    '--wg-workouts-subtab-pad-x',
+    '--wg-workouts-subtab-gap',
+    '--wg-workouts-today-card-pad',
+    '--wg-workouts-today-subtitle-size',
+    '--wg-workouts-today-names-size',
+    '--wg-workouts-today-duration-size',
+    '--wg-workouts-slot-tag-pad-y',
+    '--wg-workouts-slot-tag-pad-x',
+    '--wg-workouts-slot-tag-size',
+    '--wg-workouts-history-day-size',
+    '--wg-workouts-history-row-cols',
+    '--wg-workouts-history-row-gap',
+    '--wg-workouts-history-row-pad',
+    '--wg-workouts-history-duration-size',
+    '--wg-workouts-history-count-size',
+    '--wg-workouts-session-header-size',
+    '--wg-workouts-session-meta-size',
+    '--wg-workouts-session-set-row-min-h',
+    '--wg-workouts-session-set-row-gap',
+    '--wg-workouts-session-set-row-size',
+    '--wg-workouts-session-action-gap',
+    '--wg-workouts-groups-row-cols',
+    '--wg-workouts-groups-row-gap',
+    '--wg-workouts-groups-row-pad',
+    '--wg-workouts-groups-name-size',
+    '--wg-workouts-groups-count-size',
+    '--wg-workouts-exercises-row-cols',
+    '--wg-workouts-exercises-row-gap',
+    '--wg-workouts-exercises-row-pad',
+    '--wg-workouts-exercises-name-size',
+    '--wg-workouts-stats-tile-pad',
+    '--wg-workouts-stats-tile-gap',
+    '--wg-workouts-stats-tile-value-size',
+    '--wg-workouts-stats-tile-label-size',
+    '--wg-workouts-stats-range-height',
+    '--wg-workouts-stats-range-pad',
+    '--wg-workouts-chart-width',
+    '--wg-workouts-chart-height',
+    '--wg-workouts-chart-line-stroke-width',
+    '--wg-workouts-chart-last-point-radius',
+    '--wg-workouts-chart-last-stroke-width',
+
+    // Workouts modal tokens (Phase 7, Task 1) — log-set / edit-exercise /
+    // edit-group / edit-library modals share the same mono header, gloss
+    // inset input wraps, label sizes, and Cancel/Save action bar.
+    '--wg-workouts-modal-eyebrow-size',
+    '--wg-workouts-modal-title-size',
+    '--wg-workouts-modal-row-gap',
+    '--wg-workouts-modal-section-gap',
+    '--wg-workouts-modal-input-pad-y',
+    '--wg-workouts-modal-input-pad-x',
+    '--wg-workouts-modal-label-size',
+    '--wg-workouts-modal-action-gap',
+
+    // Workouts rotation-slot aliases (Phase 7, Task 1) — wrap the shared
+    // sun / normal / mint tag triplets so the rotation-slot classifier
+    // (PUSH / PULL / LEGS / REST / AD-HOC) can return a token-group name
+    // without duplicating tag styles. Mirrors the --wg-bp-status-* /
+    // --wg-meds-status-* / --wg-weight-trend-* pattern.
+    '--wg-workouts-slot-push-bg',
+    '--wg-workouts-slot-push-fg',
+    '--wg-workouts-slot-push-border',
+    '--wg-workouts-slot-pull-bg',
+    '--wg-workouts-slot-pull-fg',
+    '--wg-workouts-slot-pull-border',
+    '--wg-workouts-slot-legs-bg',
+    '--wg-workouts-slot-legs-fg',
+    '--wg-workouts-slot-legs-border',
+    '--wg-workouts-slot-rest-bg',
+    '--wg-workouts-slot-rest-fg',
+    '--wg-workouts-slot-rest-border',
+    '--wg-workouts-slot-adhoc-bg',
+    '--wg-workouts-slot-adhoc-fg',
+    '--wg-workouts-slot-adhoc-border',
 ];
 
 describe('Architecture – design tokens', () => {
@@ -1033,7 +1113,7 @@ describe('Architecture – design tokens', () => {
             'features/health.js': [
                 /\.style\.background\s*=/, // dynamic legend badge colors
             ],
-            'workout.js': [
+            'features/workout.js': [
                 /\.style\.background\s*=/,    // dynamic data-driven colors (heatmap squares, legend swatches)
                 /\.style\.width\s*=/,         // dynamic bar fill width
                 /\.style\.opacity\s*=/,       // save button loading state

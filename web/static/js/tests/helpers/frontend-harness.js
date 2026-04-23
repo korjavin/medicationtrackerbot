@@ -37,7 +37,7 @@ const MODAL_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/modal-hist
 const BACK_BUTTON_JS = path.join(REPO_ROOT, 'web/static/js/features/back-button.js');
 const DEEPLINK_ROUTER_JS = path.join(REPO_ROOT, 'web/static/js/features/deeplink-router.js');
 const HEALTH_JS = path.join(REPO_ROOT, 'web/static/js/features/health.js');
-const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/workout.js');
+const WORKOUT_JS = path.join(REPO_ROOT, 'web/static/js/features/workout.js');
 
 function evalWithSourceURL(window, source, scriptPath) {
   window.eval(`${source}\n//# sourceURL=file://${scriptPath}`);

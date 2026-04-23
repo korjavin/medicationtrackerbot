@@ -556,6 +556,91 @@
     --wg-weight-trend-flat-bg: var(--wg-tag-normal-bg);
     --wg-weight-trend-flat-fg: var(--wg-tag-normal-fg);
     --wg-weight-trend-flat-border: var(--wg-tag-normal-border);
+
+    /* Wandergeek — Workouts screen (Phase 7, Task 1). Dimensional tokens for
+       the sub-tab strip, today's-workout card, day-grouped history rows,
+       session-detail view with set-by-set rows, groups/exercises list rows,
+       stat tiles + chart geometry, and the log-set / edit-group / edit-
+       library modals. Everything visual in features/workout.js and
+       components/wg-workout-chart.js reads from here. */
+    --wg-workouts-subtab-pad-y: 6px;
+    --wg-workouts-subtab-pad-x: 10px;
+    --wg-workouts-subtab-gap: 4px;
+    --wg-workouts-today-card-pad: 16px;
+    --wg-workouts-today-subtitle-size: 11px;
+    --wg-workouts-today-names-size: 15px;
+    --wg-workouts-today-duration-size: 12px;
+    --wg-workouts-slot-tag-pad-y: 4px;
+    --wg-workouts-slot-tag-pad-x: 8px;
+    --wg-workouts-slot-tag-size: 11px;
+    --wg-workouts-history-day-size: 11px;
+    --wg-workouts-history-row-cols: 1fr auto;
+    --wg-workouts-history-row-gap: 10px;
+    --wg-workouts-history-row-pad: 12px;
+    --wg-workouts-history-duration-size: 14px;
+    --wg-workouts-history-count-size: 12px;
+    --wg-workouts-session-header-size: 15px;
+    --wg-workouts-session-meta-size: 11px;
+    --wg-workouts-session-set-row-min-h: 28px;
+    --wg-workouts-session-set-row-gap: 8px;
+    --wg-workouts-session-set-row-size: 13px;
+    --wg-workouts-session-action-gap: 8px;
+    --wg-workouts-groups-row-cols: 1fr auto;
+    --wg-workouts-groups-row-gap: 10px;
+    --wg-workouts-groups-row-pad: 12px;
+    --wg-workouts-groups-name-size: 15px;
+    --wg-workouts-groups-count-size: 11px;
+    --wg-workouts-exercises-row-cols: 1fr auto;
+    --wg-workouts-exercises-row-gap: 10px;
+    --wg-workouts-exercises-row-pad: 12px;
+    --wg-workouts-exercises-name-size: 15px;
+    --wg-workouts-stats-tile-pad: 14px;
+    --wg-workouts-stats-tile-gap: 10px;
+    --wg-workouts-stats-tile-value-size: 22px;
+    --wg-workouts-stats-tile-label-size: 10.5px;
+    --wg-workouts-stats-range-height: 36px;
+    --wg-workouts-stats-range-pad: 4px;
+    --wg-workouts-chart-width: 358px;
+    --wg-workouts-chart-height: 200px;
+    --wg-workouts-chart-line-stroke-width: 2px;
+    --wg-workouts-chart-last-point-radius: 4px;
+    --wg-workouts-chart-last-stroke-width: 2px;
+
+    /* Log-set / edit-exercise / edit-group / edit-library modal tokens
+       (Phase 7, Task 8) — mono header, gloss-inset input wraps for name /
+       reps / weight / duration, Cancel + Save bar with 2× flex on Save per
+       modal-button-order convention. */
+    --wg-workouts-modal-eyebrow-size: 10.5px;
+    --wg-workouts-modal-title-size: 18px;
+    --wg-workouts-modal-row-gap: 10px;
+    --wg-workouts-modal-section-gap: 14px;
+    --wg-workouts-modal-input-pad-y: 10px;
+    --wg-workouts-modal-input-pad-x: 12px;
+    --wg-workouts-modal-label-size: 10.5px;
+    --wg-workouts-modal-action-gap: 8px;
+
+    /* Rotation-slot semantic aliases (Phase 7, Task 1) — wrap the shared tag
+       triplets so the rotation-slot classifier (PUSH / PULL / LEGS / REST /
+       AD-HOC) can return a token-group name without duplicating tag styles.
+       PUSH/PULL/LEGS are the active-session variants (sun-adjacent); REST
+       is the muted/normal variant; AD-HOC is the mint variant so it reads
+       as a neutral "not-a-rotation-slot" tag. Mirrors the
+       --wg-bp-status-* / --wg-meds-status-* / --wg-weight-trend-* pattern. */
+    --wg-workouts-slot-push-bg: var(--wg-tag-high-bg);
+    --wg-workouts-slot-push-fg: var(--wg-tag-high-fg);
+    --wg-workouts-slot-push-border: var(--wg-tag-high-border);
+    --wg-workouts-slot-pull-bg: var(--wg-tag-high-bg);
+    --wg-workouts-slot-pull-fg: var(--wg-tag-high-fg);
+    --wg-workouts-slot-pull-border: var(--wg-tag-high-border);
+    --wg-workouts-slot-legs-bg: var(--wg-tag-high-bg);
+    --wg-workouts-slot-legs-fg: var(--wg-tag-high-fg);
+    --wg-workouts-slot-legs-border: var(--wg-tag-high-border);
+    --wg-workouts-slot-rest-bg: var(--wg-tag-normal-bg);
+    --wg-workouts-slot-rest-fg: var(--wg-tag-normal-fg);
+    --wg-workouts-slot-rest-border: var(--wg-tag-normal-border);
+    --wg-workouts-slot-adhoc-bg: var(--wg-tag-normal-bg);
+    --wg-workouts-slot-adhoc-fg: var(--wg-tag-normal-fg);
+    --wg-workouts-slot-adhoc-border: var(--wg-tag-normal-border);
 }
 
 body {
