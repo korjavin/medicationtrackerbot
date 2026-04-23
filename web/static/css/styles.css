@@ -703,6 +703,19 @@
     --wg-health-notes-body-size: 14px;
     --wg-health-notes-compose-pad-y: 10px;
     --wg-health-notes-compose-pad-x: 12px;
+    --wg-health-notes-compose-card-pad: 12px;
+    --wg-health-notes-compose-gap: 10px;
+    --wg-health-notes-compose-title-size: 13px;
+    --wg-health-notes-compose-tag-size: 10.5px;
+    --wg-health-notes-compose-tag-pad-y: 3px;
+    --wg-health-notes-compose-tag-pad-x: 8px;
+    --wg-health-notes-compose-textarea-min: 64px;
+    --wg-health-notes-compose-count-size: 10.5px;
+    --wg-health-notes-compose-save-min: 36px;
+    --wg-health-notes-compose-save-pad-y: 9px;
+    --wg-health-notes-compose-save-pad-x: 16px;
+    --wg-health-notes-compose-save-size: 12.5px;
+    --wg-health-notes-row-tag-size: 10px;
 
     /* Edit-note modal tokens (Phase 8, Task 1 / rewired Task 8) — mono header,
        gloss-inset textarea wrap, Cancel + Save action bar with 2× flex on
@@ -3476,6 +3489,17 @@ textarea.wg-input {
 .wg-tag--mono {
     font-family: var(--wg-font-mono);
     letter-spacing: 0;
+}
+
+/* Sun-yellow active-chip variant. Used by the notes-composer tag chips
+   (Phase 8 / Task 7) when the user picks SLEEP / STRESS / HR / SPO2 /
+   STEPS / NOTE. Visual value resolves to the shared `--wg-tag-high-*`
+   palette (same sun-yellow used by BP high-normal + weight trend-good)
+   so no new colors enter the token set. */
+.wg-tag--sun {
+    background: var(--wg-tag-high-bg);
+    color: var(--wg-tag-high-fg);
+    border-color: var(--wg-tag-high-border);
 }
 
 .wg-section-label {
@@ -7330,7 +7354,46 @@ textarea.wg-input {
 .wg-health-notes-compose {
     display: flex;
     flex-direction: column;
+    gap: var(--wg-health-notes-compose-gap);
+    padding: var(--wg-health-notes-compose-card-pad);
+}
+
+.wg-health-notes-compose__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: var(--space-sm);
+    min-width: 0;
+}
+
+.wg-health-notes-compose__title {
+    font-size: var(--wg-health-notes-compose-title-size);
+    color: var(--wg-fg-1);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+}
+
+.wg-health-notes-compose__tags {
+    display: flex;
+    gap: var(--space-xs);
+    overflow-x: auto;
+    min-width: 0;
+    scrollbar-width: none;
+}
+
+.wg-health-notes-compose__tags::-webkit-scrollbar {
+    display: none;
+}
+
+.wg-health-notes-compose__tag {
+    flex: 0 0 auto;
+    cursor: pointer;
+    background: var(--wg-tag-normal-bg);
+    color: var(--wg-tag-normal-fg);
+    border-color: var(--wg-tag-normal-border);
+    font-size: var(--wg-health-notes-compose-tag-size);
+    letter-spacing: 0.1em;
+    padding: var(--wg-health-notes-compose-tag-pad-y) var(--wg-health-notes-compose-tag-pad-x);
 }
 
 .wg-health-notes-compose__wrap {
@@ -7344,28 +7407,46 @@ textarea.wg-input {
     border: 0;
     outline: none;
     resize: vertical;
-    font-family: var(--wg-font-mono);
+    font-family: var(--wg-font-ui);
     font-size: var(--wg-health-notes-body-size);
     color: var(--wg-fg-1);
-    min-height: 64px;
+    min-height: var(--wg-health-notes-compose-textarea-min);
+    line-height: 1.45;
 }
 
 .wg-health-notes-compose__textarea::placeholder {
     color: var(--wg-fg-4);
 }
 
+.wg-health-notes-compose__footer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.wg-health-notes-compose__count {
+    font-size: var(--wg-health-notes-compose-count-size);
+    color: var(--wg-fg-4);
+    letter-spacing: 0.08em;
+}
+
 .wg-health-notes-compose__save {
-    width: 100%;
+    margin-left: auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: var(--space-sm);
-    min-height: 44px;
-    padding: var(--space-md) var(--space-lg);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
+    gap: var(--space-xs);
+    min-height: var(--wg-health-notes-compose-save-min);
+    padding: var(--wg-health-notes-compose-save-pad-y) var(--wg-health-notes-compose-save-pad-x);
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-health-notes-compose-save-size);
     border-radius: var(--wg-radius-gloss);
     cursor: pointer;
+}
+
+.wg-health-notes-compose__save[disabled] {
+    opacity: 0.55;
+    cursor: not-allowed;
 }
 
 .wg-health-notes__loading {
@@ -7432,6 +7513,11 @@ textarea.wg-input {
     font-size: var(--wg-health-notes-time-size);
     color: var(--wg-fg-3);
     letter-spacing: 0.02em;
+}
+
+.wg-health-notes-row__tag {
+    font-size: var(--wg-health-notes-row-tag-size);
+    letter-spacing: 0.1em;
 }
 
 .wg-health-notes-row__content {

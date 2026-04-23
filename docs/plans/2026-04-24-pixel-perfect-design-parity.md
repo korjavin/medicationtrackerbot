@@ -196,19 +196,21 @@ Rationale: New column in the notes table, new API contract. Do TDD here because 
 - [x] Run `go test ./...` — green before moving on. (All Go packages pass — `internal/store`, `internal/domain`, `internal/server`, `internal/bot`, `internal/mcp` all green. Frontend vitest: 1330 pass; only the 2 pre-existing date-dependent `wg-sleep-chart` / `wg-steps-chart` "Today"-label tests fail, reproducible on master and unrelated to this task.)
 
 ### Task 7: Notes tagging — frontend composer with tag chips
-- [ ] In `web/static/index.html` (`#health-notes-tab`, lines 280-291), replace the compose block with:
+- [x] In `web/static/index.html` (`#health-notes-tab`, lines 280-291), replace the compose block with:
   - Wrapper card (`.wg-card` + `.wg-health-notes-compose`) containing:
     - Header row: "New note" mono label (left) + horizontally-scrollable tag-chip strip (right) with 6 buttons SLEEP / STRESS / HR / SPO2 / STEPS / NOTE; active chip carries `.wg-tag--sun` (define in CSS using existing sun-yellow tokens).
     - Textarea (`#notes-textarea`) with placeholder "How are you feeling? What did you notice?".
     - Footer row: char-count span (`{N} chars` / `empty`) left + `#notes-save-btn` `wg-gloss--sun` "+ Add note" right.
-- [ ] In `web/static/js/features/health.js`:
+  (Composer card is `.wg-card .wg-health-notes-compose`. Header row holds the "New note" `.wg-mono-display` label and a `#notes-compose-tags` `role="radiogroup"` with 6 `.wg-tag .wg-health-notes-compose__tag` buttons (`data-tag` SLEEP/STRESS/HR/SPO2/STEPS/NOTE) that flip to `.wg-tag--sun` when active. Textarea placeholder swapped to the design copy. Footer row carries `#notes-compose-count` (empty → "{N} chars") + `#notes-save-btn` "+ Add note" starting `disabled`.)
+- [x] In `web/static/js/features/health.js`:
   - Track composer state (`text`, `selectedTag`) in a scoped object.
   - On chip click, update active class + state.
   - On submit, POST to the notes endpoint with `{text, tag}`; on success, clear composer, prepend to list.
   - In the notes list render, add a tag pill (from the current `.wg-tag` family, coloured by tag) above or beside the timestamp, matching `screens.jsx:1427-1434`.
-- [ ] Update CSS for `.wg-tag--sun` (active chip) + the new composer layout using only `--wg-*` tokens.
-- [ ] Add jsdom tests: chip selection state, submit payload includes tag, list row shows tag pill.
-- [ ] Run tests; manual check in browser.
+  (Module-scope `_notesCompose = { selectedTag }` + `VALID_NOTE_TAGS` enum. Delegated click on `#notes-compose-tags` toggles the active chip (second tap on the active chip clears). Textarea `input` updates char count + enables/disables `#notes-save-btn`. `addNote` sends `{content, tag}` only when a tag is picked (omits the key otherwise), then clears composer state. `buildNoteRow` renders a `.wg-tag .wg-tag--high .wg-health-notes-row__tag[data-tag]` pill in the row meta when `note.tag` is one of the 6 enum values.)
+- [x] Update CSS for `.wg-tag--sun` (active chip) + the new composer layout using only `--wg-*` tokens. (New `.wg-tag--sun` alongside existing `.wg-tag--normal/high/alert/mono` — reuses `--wg-tag-high-bg/fg/border` so no new colors enter the palette. New composer layout rules (`__header/__title/__tags/__tag/__footer/__count`) + `__save[disabled]` + `__tag` chip surface all resolve to `--wg-health-notes-compose-*` tokens added at `:root`. Row-tag pill sizing reads `--wg-health-notes-row-tag-size`. All 15 new tokens registered in `architecture.design-tokens.test.js`.)
+- [x] Add jsdom tests: chip selection state, submit payload includes tag, list row shows tag pill. (Extended `web/static/js/tests/health.notes.test.js` with three HTML markup guards (compose card is `.wg-card`, 6 tag chips in a `role=radiogroup`, footer has `#notes-compose-count` + "+ Add note" CTA), 4 composer behavior tests (chip toggle + single-select + deselect, textarea input updates count + disabled state, addNote POSTs `{content, tag}` when chip active + resets composer, addNote omits `tag` key when no chip picked), and a list-render test (sun-yellow `.wg-tag--high .wg-health-notes-row__tag` appears only for the 6 valid enum values; `null` and unknown values render no pill).)
+- [x] Run tests; manual check in browser. (Vitest: 1337 pass; only the 2 pre-existing date-dependent `wg-sleep-chart` / `wg-steps-chart` "Today"-label tests fail and reproduce on master under `git stash`. `go test ./...` green. Manual 390 px browser check skipped — not automatable from this environment.)
 
 ### Task 8: Typography & spacing pixel-match sweep
 Rationale: Several small discrepancies may still exist (font sizes, paddings, letter-spacings). Design uses JetBrains Mono for displays, Space Grotesk for UI, exact pixel sizes.

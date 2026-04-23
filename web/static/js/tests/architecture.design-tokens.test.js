@@ -660,6 +660,19 @@ const WANDERGEEK_TOKENS = [
     '--wg-health-notes-body-size',
     '--wg-health-notes-compose-pad-y',
     '--wg-health-notes-compose-pad-x',
+    '--wg-health-notes-compose-card-pad',
+    '--wg-health-notes-compose-gap',
+    '--wg-health-notes-compose-title-size',
+    '--wg-health-notes-compose-tag-size',
+    '--wg-health-notes-compose-tag-pad-y',
+    '--wg-health-notes-compose-tag-pad-x',
+    '--wg-health-notes-compose-textarea-min',
+    '--wg-health-notes-compose-count-size',
+    '--wg-health-notes-compose-save-min',
+    '--wg-health-notes-compose-save-pad-y',
+    '--wg-health-notes-compose-save-pad-x',
+    '--wg-health-notes-compose-save-size',
+    '--wg-health-notes-row-tag-size',
 
     // Edit-note modal tokens (Phase 8, Task 1 / rewired Task 8) — mono
     // header, gloss-inset textarea wrap, Cancel + Save bar with 2× flex
