@@ -125,7 +125,6 @@ function bindWorkoutControls() {
     bindClick('workout-session-delete-btn', () => deleteWorkoutSession());
     bindClick('workout-session-cancel-btn', () => closeWorkoutSessionModal());
     bindClick('workout-session-save-btn', () => saveWorkoutSessionDetails());
-    bindClick('workout-session-add-exercise-btn', () => showAddExerciseToSessionModal());
 
     bindClick('session-add-exercise-cancel-btn', () => closeAddExerciseToSessionModal());
     bindClick('session-add-exercise-close-btn', () => closeAddExerciseToSessionModal());
@@ -177,7 +176,7 @@ function getRotationSlot(variantName) {
     const v = variantName.toUpperCase();
     if (/\bPUSH\b/.test(v)) return 'PUSH';
     if (/\bPULL\b/.test(v)) return 'PULL';
-    if (/\bLEGS?\b/.test(v) || /\bLEG\b/.test(v)) return 'LEGS';
+    if (/\bLEGS?\b/.test(v)) return 'LEGS';
     if (/\bREST\b/.test(v) || /\bOFF\b/.test(v)) return 'REST';
     return 'AD-HOC';
 }
@@ -752,7 +751,12 @@ async function showEditWorkoutGroupModal(groupId) {
                 rotation_order: null,
                 description: ''
             });
-            variants = [newVariant];
+            variants = newVariant ? [newVariant] : [];
+        }
+
+        if (variants.length === 0) {
+            setFlatExercisesPendingSaveMessage();
+            return;
         }
 
         const defaultVariantId = variants[0].id;
@@ -790,7 +794,11 @@ async function toggleRotatingFields() {
                     rotation_order: null,
                     description: ''
                 });
-                variants = [newVariant];
+                variants = newVariant ? [newVariant] : [];
+            }
+            if (variants.length === 0) {
+                setFlatExercisesPendingSaveMessage();
+                return;
             }
             const defaultVariantId = variants[0].id;
             currentGroupForVariant = currentEditingGroupId;
@@ -2598,7 +2606,7 @@ function _renderWorkoutStats(container, stats) {
                 b.classList.toggle('wg-workouts-stats__range-btn--active', isActive);
                 b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
             });
-            replaceChart(range);
+            renderChartInto(range);
         });
         rangeButtons.set(range, btn);
         rangeStrip.appendChild(btn);
@@ -2628,7 +2636,6 @@ function _renderWorkoutStats(container, stats) {
             chartPanel.appendChild(empty);
         }
     };
-    const replaceChart = (range) => renderChartInto(range);
     renderChartInto(activeRange);
     root.appendChild(chartPanel);
 
@@ -2834,8 +2841,8 @@ async function showAddExerciseToSessionModal() {
                 const option = document.createElement('option');
                 option.value = ex.name;
                 option.dataset.id = ex.id;
-                option.dataset.sets = ex.default_sets;
-                option.dataset.reps = ex.default_reps_min;
+                option.dataset.sets = ex.default_sets || '';
+                option.dataset.reps = ex.default_reps_min || '';
                 option.dataset.weight = ex.default_weight_kg || '';
                 datalist.appendChild(option);
             });
