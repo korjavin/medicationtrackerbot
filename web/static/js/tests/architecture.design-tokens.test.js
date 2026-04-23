@@ -1271,39 +1271,18 @@ describe('Architecture – design tokens', () => {
             '.health-chart-stat', '.health-chart-stat-spaced',
             '.health-chart-legend', '.health-legend-item',
             '.health-legend-badge', '.health-legend-badge-line',
-            // Workout components
-            '.workout-empty-state', '.workout-pending-msg',
+            // Workout components (paper-era classes still used as dual-class alongside wg-* equivalents)
+            '.workout-pending-msg',
             '.workout-variant-card', '.workout-variant-desc',
             '.workout-exercise-card', '.workout-exercise-meta',
             '.workout-delete-btn-inline',
-            '.workout-history-card', '.workout-history-meta',
-            '.workout-volume-highlight', '.workout-history-status', '.workout-history-chevron',
-            '.workout-miband-card', '.workout-miband-date',
-            '.workout-miband-badge',
-            '.workout-stat-chips', '.workout-stat-chip',
             '.workout-btn-row', '.workout-btn-stop', '.workout-btn-skip',
             '.workout-btn-full', '.workout-btn-full-secondary',
-            '.workout-session-info-row', '.workout-session-status-group',
-            '.workout-session-status-label', '.workout-session-select',
             '.exercise-log-header', '.exercise-log-delete-btn',
-            '.workout-stats-grid-3', '.workout-stats-grid-2',
-            '.workout-hero-card', '.workout-hero-value', '.workout-hero-label',
-            '.workout-totals-card', '.workout-totals-value', '.workout-totals-label',
-            '.workout-section-heading',
-            '.workout-bar-track', '.workout-bar-fill',
-            '.workout-exercise-row', '.workout-exercise-labels',
-            '.workout-exercise-name', '.workout-exercise-volume',
-            '.workout-activity-grid', '.workout-activity-square',
-            '.workout-legend', '.workout-legend-swatch',
-            '.workout-history-list',
-            '.exercise-library-defaults', '.exercise-library-notes',
             // Food product link
             '.food-product-link',
             // Sync hint
             '.sync-hint-dim',
-            // Workout hero/totals modifier classes
-            '.workout-hero-card--weeks', '.workout-hero-card--sessions', '.workout-hero-card--completion',
-            '.workout-totals-card--success', '.workout-totals-card--warning',
         ];
 
         const missing = requiredClasses.filter(cls => {

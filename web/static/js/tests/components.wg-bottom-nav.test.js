@@ -86,6 +86,16 @@ describe('WGBottomNav — component', () => {
         } finally { cleanup(); }
     });
 
+    it('Workouts is the sixth slot with the "dumbbell" icon — Phase 7 contract', () => {
+        const { window, cleanup } = loadEnv();
+        try {
+            const workoutsSlot = window.WGBottomNav.DEFAULT_ITEMS[5];
+            expect(workoutsSlot.id).toBe('workouts');
+            expect(workoutsSlot.icon).toBe('dumbbell');
+            expect(workoutsSlot.label).toBe('Workouts');
+        } finally { cleanup(); }
+    });
+
     it('mount() with 5 items lays out a single row (cols=5)', () => {
         const { window, document, cleanup } = loadEnv();
         try {
