@@ -715,38 +715,52 @@ async function sendTestBPNotification() {
 }
 
 // Settings Toggle Handler
+const WEBPUSH_STATUS_VARIANT_CLASSES = [
+    'status-success', 'status-error', 'status-muted',
+    'wg-tag--mono--success', 'wg-tag--mono--alert', 'wg-tag--mono--muted',
+];
+const WEBPUSH_STATUS_VARIANT_MAP = {
+    success: ['status-success', 'wg-tag--mono--success'],
+    error: ['status-error', 'wg-tag--mono--alert'],
+    muted: ['status-muted', 'wg-tag--mono--muted'],
+};
+
+function applyWebpushStatus(status, text, variant) {
+    status.textContent = text;
+    status.classList.remove('wg-settings-hidden', ...WEBPUSH_STATUS_VARIANT_CLASSES);
+    const classes = WEBPUSH_STATUS_VARIANT_MAP[variant];
+    if (classes) status.classList.add(...classes);
+}
+
+function hideWebpushStatus(status) {
+    status.classList.add('wg-settings-hidden');
+    status.classList.remove(...WEBPUSH_STATUS_VARIANT_CLASSES);
+}
+
 document.getElementById('webpush-toggle').addEventListener('change', async function () {
     const status = document.getElementById('webpush-status');
-    status.style.display = 'block';
+    if (!status) return;
 
     if (this.checked) {
-        status.innerText = "Requesting permission...";
-        status.className = '';
+        applyWebpushStatus(status, 'Requesting permission...', null);
         const success = await window.MedTrackerPush.subscribe();
         if (success) {
-            status.innerText = "Notifications enabled";
-            status.className = 'status-success';
+            applyWebpushStatus(status, 'Notifications enabled', 'success');
         } else {
-            status.innerText = "Failed to enable notifications. Please check permissions.";
-            status.className = 'status-error';
+            applyWebpushStatus(status, 'Failed to enable notifications. Please check permissions.', 'error');
             this.checked = false;
         }
     } else {
         const success = await window.MedTrackerPush.unsubscribe();
         if (success) {
-            status.innerText = "Notifications disabled";
-            status.className = 'status-muted';
+            applyWebpushStatus(status, 'Notifications disabled', 'muted');
         } else {
-            status.innerText = "Failed to disable notifications";
-            status.className = 'status-error';
+            applyWebpushStatus(status, 'Failed to disable notifications', 'error');
             this.checked = true; // revert
         }
     }
 
-    // Hide status after delay
-    setTimeout(() => {
-        status.style.display = 'none';
-    }, 3000);
+    setTimeout(() => hideWebpushStatus(status), 3000);
 });
 
 // BP Reminders Toggle Handler
