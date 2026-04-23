@@ -305,11 +305,25 @@
 
             <div id="health-notes-tab" class="health-tab-content">
                 <div class="wg-health-notes">
-                    <div class="wg-health-notes-compose">
-                        <div class="wg-gloss--inset wg-health-notes-compose__wrap">
-                            <textarea id="notes-textarea" class="wg-health-notes-compose__textarea" placeholder="Write a note..." rows="3"></textarea>
+                    <div class="wg-card wg-health-notes-compose">
+                        <div class="wg-health-notes-compose__header">
+                            <span class="wg-mono-display wg-health-notes-compose__title">New note</span>
+                            <div class="wg-health-notes-compose__tags" id="notes-compose-tags" role="radiogroup" aria-label="Note tag">
+                                <button type="button" class="wg-tag wg-health-notes-compose__tag" data-tag="SLEEP" role="radio" aria-checked="false">SLEEP</button>
+                                <button type="button" class="wg-tag wg-health-notes-compose__tag" data-tag="STRESS" role="radio" aria-checked="false">STRESS</button>
+                                <button type="button" class="wg-tag wg-health-notes-compose__tag" data-tag="HR" role="radio" aria-checked="false">HR</button>
+                                <button type="button" class="wg-tag wg-health-notes-compose__tag" data-tag="SPO2" role="radio" aria-checked="false">SPO2</button>
+                                <button type="button" class="wg-tag wg-health-notes-compose__tag" data-tag="STEPS" role="radio" aria-checked="false">STEPS</button>
+                                <button type="button" class="wg-tag wg-health-notes-compose__tag" data-tag="NOTE" role="radio" aria-checked="false">NOTE</button>
+                            </div>
                         </div>
-                        <button id="notes-save-btn" class="wg-gloss wg-gloss--sun wg-health-notes-compose__save">Save note</button>
+                        <div class="wg-gloss--inset wg-health-notes-compose__wrap">
+                            <textarea id="notes-textarea" class="wg-health-notes-compose__textarea" placeholder="How are you feeling? What did you notice?" rows="3"></textarea>
+                        </div>
+                        <div class="wg-health-notes-compose__footer">
+                            <span id="notes-compose-count" class="wg-mono-display wg-health-notes-compose__count">empty</span>
+                            <button id="notes-save-btn" class="wg-gloss wg-gloss--sun wg-health-notes-compose__save" disabled>+ Add note</button>
+                        </div>
                     </div>
                     <div id="notes-loading" class="wg-health-notes__loading" style="display:none;">Loading notes...</div>
                     <ul id="notes-list" class="wg-health-notes__list list-reset"></ul>

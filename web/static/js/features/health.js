@@ -541,6 +541,72 @@ async function loadNotes() {
         saveBtn._noteHandlerAttached = true;
         saveBtn.addEventListener('click', addNote);
     }
+    bindNotesComposer();
+}
+
+// Note-tag composer (Phase 8 / Task 7). Backend enum is SLEEP | STRESS | HR |
+// SPO2 | STEPS | NOTE; unknown values are sanitized to NULL server-side, but
+// the composer only lets the user pick from this list. `null` means no tag.
+const VALID_NOTE_TAGS = ['SLEEP', 'STRESS', 'HR', 'SPO2', 'STEPS', 'NOTE'];
+const _notesCompose = { selectedTag: null };
+
+function setNotesComposerTag(tag) {
+    const next = VALID_NOTE_TAGS.indexOf(tag) !== -1 ? tag : null;
+    _notesCompose.selectedTag = next;
+    syncNotesComposerTagClasses();
+}
+
+function syncNotesComposerTagClasses() {
+    const container = document.getElementById('notes-compose-tags');
+    if (!container) return;
+    const active = _notesCompose.selectedTag;
+    container.querySelectorAll('.wg-health-notes-compose__tag').forEach((btn) => {
+        const on = btn.getAttribute('data-tag') === active;
+        btn.classList.toggle('wg-tag--sun', on);
+        btn.classList.toggle('wg-health-notes-compose__tag--active', on);
+        btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+}
+
+function syncNotesComposerCount() {
+    const textarea = document.getElementById('notes-textarea');
+    const count = document.getElementById('notes-compose-count');
+    const save = document.getElementById('notes-save-btn');
+    if (!textarea) return;
+    const len = textarea.value.length;
+    if (count) count.textContent = len > 0 ? `${len} chars` : 'empty';
+    if (save) {
+        const hasContent = textarea.value.trim().length > 0;
+        if (hasContent) {
+            save.removeAttribute('disabled');
+        } else {
+            save.setAttribute('disabled', 'disabled');
+        }
+    }
+}
+
+function bindNotesComposer() {
+    const container = document.getElementById('notes-compose-tags');
+    if (container && !container._wgBound) {
+        container._wgBound = true;
+        container.addEventListener('click', (ev) => {
+            const btn = ev.target.closest('.wg-health-notes-compose__tag');
+            if (!btn || !container.contains(btn)) return;
+            const tag = btn.getAttribute('data-tag');
+            if (_notesCompose.selectedTag === tag) {
+                setNotesComposerTag(null);
+            } else {
+                setNotesComposerTag(tag);
+            }
+        });
+    }
+    const textarea = document.getElementById('notes-textarea');
+    if (textarea && !textarea._wgBound) {
+        textarea._wgBound = true;
+        textarea.addEventListener('input', syncNotesComposerCount);
+    }
+    syncNotesComposerTagClasses();
+    syncNotesComposerCount();
 }
 
 async function loadMoreNotes() {
@@ -746,6 +812,15 @@ function buildNoteRow(note) {
 
     const meta = document.createElement('div');
     meta.className = 'wg-health-notes-row__meta';
+
+    if (typeof note.tag === 'string' && VALID_NOTE_TAGS.indexOf(note.tag) !== -1) {
+        const tagEl = document.createElement('span');
+        tagEl.className = 'wg-tag wg-tag--high wg-health-notes-row__tag';
+        tagEl.setAttribute('data-tag', note.tag);
+        tagEl.textContent = note.tag;
+        meta.appendChild(tagEl);
+    }
+
     const time = document.createElement('span');
     time.className = 'wg-mono-display wg-health-notes-row__time';
     const d = new Date(note.created_at);
@@ -856,9 +931,14 @@ async function addNote() {
         return;
     }
 
-    const res = await apiCall('/api/notes', 'POST', { content });
+    const body = { content };
+    if (_notesCompose.selectedTag) body.tag = _notesCompose.selectedTag;
+
+    const res = await apiCall('/api/notes', 'POST', body);
     if (res) {
         textarea.value = '';
+        setNotesComposerTag(null);
+        syncNotesComposerCount();
         await window.DataStore.invalidateTags(['notes']);
         loadNotes();
     }

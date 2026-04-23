@@ -244,10 +244,16 @@ describe('Health Notes render (Phase 8, Task 7)', () => {
 
     it('index.html replaces the paper-era compose markup with .wg-gloss--inset wrap + .wg-gloss--sun Save', () => {
         const html = fs.readFileSync(INDEX_PATH, 'utf8');
-        const composeMatch = html.match(/<div class="wg-health-notes-compose"[\s\S]*?<\/div>\s*<\/div>/);
+        // Phase 8 / Task 7 wraps the composer in a `.wg-card` card with a
+        // header row (title + tag chips) and a footer row (char count +
+        // Add-note CTA), so match any class-set that contains
+        // `wg-health-notes-compose` at the composer card's root.
+        const composeMatch = html.match(/<div class="[^"]*wg-health-notes-compose[^"]*"[\s\S]*?id="notes-save-btn"[^>]*>/);
         expect(composeMatch, 'expected #wg-health-notes-compose markup in index.html').not.toBeNull();
         expect(composeMatch[0]).toMatch(/wg-gloss--inset/);
         expect(composeMatch[0]).toMatch(/id="notes-textarea"/);
+        // The composer card itself carries `.wg-card` (Task 7 spec).
+        expect(composeMatch[0]).toMatch(/wg-card[^"]*wg-health-notes-compose/);
 
         const saveMatch = html.match(/<button[^>]*id="notes-save-btn"[^>]*>/);
         expect(saveMatch, 'expected #notes-save-btn declaration in index.html').not.toBeNull();
@@ -255,6 +261,36 @@ describe('Health Notes render (Phase 8, Task 7)', () => {
         expect(saveMatch[0]).toMatch(/wg-health-notes-compose__save/);
         // Paper-era classes are gone.
         expect(saveMatch[0]).not.toMatch(/btn-primary/);
+    });
+
+    it('index.html renders the 6 tag chips (SLEEP / STRESS / HR / SPO2 / STEPS / NOTE) inside the composer', () => {
+        const html = fs.readFileSync(INDEX_PATH, 'utf8');
+        const tagsMatch = html.match(/<div [^>]*id="notes-compose-tags"[\s\S]*?<\/div>/);
+        expect(tagsMatch, 'expected #notes-compose-tags container in index.html').not.toBeNull();
+        const block = tagsMatch[0];
+        ['SLEEP', 'STRESS', 'HR', 'SPO2', 'STEPS', 'NOTE'].forEach((tag) => {
+            const re = new RegExp(`data-tag="${tag}"`);
+            expect(block, `expected chip for ${tag}`).toMatch(re);
+        });
+        // Each chip is a `.wg-tag` + `.wg-health-notes-compose__tag` button.
+        // Require an explicit class-token boundary so the outer
+        // `.wg-health-notes-compose__tags` container doesn't leak into the
+        // match.
+        const chipCount = (block.match(/class="[^"]*\bwg-health-notes-compose__tag\b[^"]*"/g) || []).length;
+        expect(chipCount).toBe(6);
+        expect(block).toMatch(/role="radiogroup"/);
+    });
+
+    it('index.html renders the char-count span + "+ Add note" CTA label in the composer footer', () => {
+        const html = fs.readFileSync(INDEX_PATH, 'utf8');
+        const countMatch = html.match(/<span[^>]*id="notes-compose-count"[^>]*>[^<]*<\/span>/);
+        expect(countMatch, 'expected #notes-compose-count span in index.html').not.toBeNull();
+        expect(countMatch[0]).toMatch(/wg-health-notes-compose__count/);
+
+        const saveMatch = html.match(/<button[^>]*id="notes-save-btn"[^>]*>([^<]*)<\/button>/);
+        expect(saveMatch).not.toBeNull();
+        // Task 7 spec: CTA label is "+ Add note" (replaces paper-era "Save note").
+        expect(saveMatch[1]).toMatch(/\+\s*Add note/);
     });
 
     it('index.html notes-list ul carries .wg-health-notes__list and #notes-list keeps its id', () => {
@@ -268,13 +304,190 @@ describe('Health Notes render (Phase 8, Task 7)', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
         expect(css).toMatch(/\.wg-health-notes\s*\{/);
         expect(css).toMatch(/\.wg-health-notes-compose\s*\{/);
+        expect(css).toMatch(/\.wg-health-notes-compose__header\s*\{/);
+        expect(css).toMatch(/\.wg-health-notes-compose__tags\s*\{/);
+        expect(css).toMatch(/\.wg-health-notes-compose__tag\s*\{/);
         expect(css).toMatch(/\.wg-health-notes-compose__textarea\s*\{/);
+        expect(css).toMatch(/\.wg-health-notes-compose__footer\s*\{/);
+        expect(css).toMatch(/\.wg-health-notes-compose__count\s*\{/);
         expect(css).toMatch(/\.wg-health-notes-compose__save\s*\{/);
         expect(css).toMatch(/\.wg-health-notes__list\s*\{/);
         expect(css).toMatch(/\.wg-health-notes-row\s*\{/);
         expect(css).toMatch(/\.wg-health-notes-row--pending\s*\{/);
         expect(css).toMatch(/\.wg-health-notes-row--rejected\s*\{/);
+        expect(css).toMatch(/\.wg-health-notes-row__tag\s*\{/);
         expect(css).toMatch(/\.wg-health-notes__load-more-btn\s*\{/);
         expect(css).toMatch(/\.wg-health-notes__empty\s*\{/);
+        expect(css).toMatch(/\.wg-tag--sun\s*\{/);
+    });
+});
+
+describe('Health Notes composer tag chips (Phase 8, Task 7)', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadFrontendEnv();
+    });
+
+    afterEach(() => {
+        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        env.cleanup();
+        env = null;
+    });
+
+    it('chip click toggles .wg-tag--sun active state; second click on same chip clears it', () => {
+        const { document, window } = env;
+        // The composer binds on DOMContentLoaded via loadNotes(), but in this
+        // isolated env we just call loadNotes-adjacent wiring by triggering a
+        // click through the delegated listener — it self-binds on the first
+        // event because loadNotes runs after DOMContentLoaded in production.
+        // Force the bind by calling the exposed helper.
+        if (typeof window.bindNotesComposer === 'function') window.bindNotesComposer();
+
+        const container = document.getElementById('notes-compose-tags');
+        expect(container, 'expected #notes-compose-tags in harness DOM').not.toBeNull();
+
+        const sleepChip = container.querySelector('[data-tag="SLEEP"]');
+        const stressChip = container.querySelector('[data-tag="STRESS"]');
+        expect(sleepChip).not.toBeNull();
+        expect(stressChip).not.toBeNull();
+
+        // Initially none active.
+        expect(sleepChip.classList.contains('wg-tag--sun')).toBe(false);
+        expect(sleepChip.getAttribute('aria-checked')).toBe('false');
+
+        sleepChip.click();
+        expect(sleepChip.classList.contains('wg-tag--sun')).toBe(true);
+        expect(sleepChip.getAttribute('aria-checked')).toBe('true');
+        expect(stressChip.classList.contains('wg-tag--sun')).toBe(false);
+
+        // Picking STRESS deactivates SLEEP (single-select).
+        stressChip.click();
+        expect(sleepChip.classList.contains('wg-tag--sun')).toBe(false);
+        expect(sleepChip.getAttribute('aria-checked')).toBe('false');
+        expect(stressChip.classList.contains('wg-tag--sun')).toBe(true);
+
+        // Clicking the active chip again clears the selection.
+        stressChip.click();
+        expect(stressChip.classList.contains('wg-tag--sun')).toBe(false);
+        expect(stressChip.getAttribute('aria-checked')).toBe('false');
+    });
+
+    it('textarea input updates the char-count pill and toggles #notes-save-btn disabled', () => {
+        const { document, window } = env;
+        if (typeof window.bindNotesComposer === 'function') window.bindNotesComposer();
+
+        const textarea = document.getElementById('notes-textarea');
+        const count = document.getElementById('notes-compose-count');
+        const save = document.getElementById('notes-save-btn');
+
+        expect(count.textContent).toBe('empty');
+        expect(save.hasAttribute('disabled')).toBe(true);
+
+        textarea.value = 'hello';
+        textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+        expect(count.textContent).toBe('5 chars');
+        expect(save.hasAttribute('disabled')).toBe(false);
+
+        textarea.value = '   ';
+        textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+        // Non-empty length counts, but whitespace-only disables submit.
+        expect(count.textContent).toBe('3 chars');
+        expect(save.hasAttribute('disabled')).toBe(true);
+
+        textarea.value = '';
+        textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+        expect(count.textContent).toBe('empty');
+        expect(save.hasAttribute('disabled')).toBe(true);
+    });
+
+    it('addNote POSTs {content, tag} with selected chip and clears composer on success', async () => {
+        const { document, window } = env;
+        if (typeof window.bindNotesComposer === 'function') window.bindNotesComposer();
+
+        const calls = [];
+        window.apiCall = async (url, method, body) => {
+            calls.push({ url, method, body });
+            if (url === '/api/notes' && method === 'POST') {
+                return { id: 99, content: body.content, tag: body.tag || null, created_at: new Date().toISOString() };
+            }
+            return [];
+        };
+        window.DataStore = { invalidateTags: async () => {}, loadSWR: async () => {} };
+
+        const textarea = document.getElementById('notes-textarea');
+        textarea.value = 'slept 8h';
+        textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+        const sleepChip = document.getElementById('notes-compose-tags').querySelector('[data-tag="SLEEP"]');
+        sleepChip.click();
+
+        await window.addNote();
+
+        const post = calls.find((c) => c.url === '/api/notes' && c.method === 'POST');
+        expect(post, 'expected POST /api/notes').toBeDefined();
+        expect(post.body).toEqual({ content: 'slept 8h', tag: 'SLEEP' });
+
+        // Composer resets on success.
+        expect(textarea.value).toBe('');
+        expect(sleepChip.classList.contains('wg-tag--sun')).toBe(false);
+        expect(document.getElementById('notes-compose-count').textContent).toBe('empty');
+    });
+
+    it('addNote omits tag key when no chip is selected', async () => {
+        const { document, window } = env;
+        if (typeof window.bindNotesComposer === 'function') window.bindNotesComposer();
+
+        const calls = [];
+        window.apiCall = async (url, method, body) => {
+            calls.push({ url, method, body });
+            if (url === '/api/notes' && method === 'POST') {
+                return { id: 1, content: body.content, tag: null, created_at: new Date().toISOString() };
+            }
+            return [];
+        };
+        window.DataStore = { invalidateTags: async () => {}, loadSWR: async () => {} };
+
+        const textarea = document.getElementById('notes-textarea');
+        textarea.value = 'quick note';
+        textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+        await window.addNote();
+
+        const post = calls.find((c) => c.url === '/api/notes' && c.method === 'POST');
+        expect(post).toBeDefined();
+        expect(post.body).toEqual({ content: 'quick note' });
+        expect('tag' in post.body).toBe(false);
+    });
+
+    it('renders a sun tag pill on listed notes when note.tag is a valid enum value', () => {
+        const { document, window } = env;
+        const list = document.getElementById('notes-list');
+        const when = new Date();
+        when.setHours(12, 0, 0, 0);
+        window.renderNotes(list, [
+            { id: 7, created_at: when.toISOString(), content: 'feeling rested', tag: 'SLEEP' },
+            { id: 8, created_at: when.toISOString(), content: 'no tag row', tag: null },
+            { id: 9, created_at: when.toISOString(), content: 'bogus tag', tag: 'FROG' }
+        ]);
+
+        const rows = list.querySelectorAll('.wg-health-notes-row');
+        expect(rows.length).toBe(3);
+
+        const sleepRow = list.querySelector('[data-note-id="7"]');
+        const sleepTag = sleepRow.querySelector('.wg-health-notes-row__tag');
+        expect(sleepTag).not.toBeNull();
+        expect(sleepTag.classList.contains('wg-tag')).toBe(true);
+        expect(sleepTag.classList.contains('wg-tag--high')).toBe(true);
+        expect(sleepTag.getAttribute('data-tag')).toBe('SLEEP');
+        expect(sleepTag.textContent).toBe('SLEEP');
+
+        // No pill when note.tag is absent.
+        const nullRow = list.querySelector('[data-note-id="8"]');
+        expect(nullRow.querySelector('.wg-health-notes-row__tag')).toBeNull();
+
+        // No pill when note.tag is not one of the 6 valid enum values.
+        const bogusRow = list.querySelector('[data-note-id="9"]');
+        expect(bogusRow.querySelector('.wg-health-notes-row__tag')).toBeNull();
     });
 });
