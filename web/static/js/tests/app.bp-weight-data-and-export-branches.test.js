@@ -192,9 +192,8 @@ describe('app.js BP/weight data and export branch coverage', () => {
       await window._renderWeightData(null, {});
       expect(document.getElementById('weight-list').innerHTML).toContain('No cached data');
 
-      // DOM cap protects against runaway lists for long-term users on 'all'.
-      // 105 logs at 1-hour spacing all fall inside the 'all' window, so the
-      // 100-row cap is what trims the visible list.
+      // 'all' renders every entry the server returned (loadWeightLogs caps
+      // the fetch at 1000), so older rows stay editable from the history list.
       const manyLogs = Array.from({ length: 105 }, (_, i) => ({
         id: i + 1,
         measured_at: isoWithOffsetHours(-i),
@@ -202,7 +201,7 @@ describe('app.js BP/weight data and export branch coverage', () => {
         weight_trend: 78
       }));
       window.renderWeightLogs(manyLogs, 'all');
-      expect(document.querySelectorAll('#weight-list .wg-weight-history-row').length).toBe(100);
+      expect(document.querySelectorAll('#weight-list .wg-weight-history-row').length).toBe(105);
     } finally {
       cleanup();
     }

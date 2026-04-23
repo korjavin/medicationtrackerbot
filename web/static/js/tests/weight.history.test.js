@@ -211,13 +211,29 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         expect(document.getElementById('weight-list').classList.contains('wg-weight-history')).toBe(true);
     });
 
+    it('drops future-dated entries from ranged views so a mistyped log does not slip into "last N days"', () => {
+        const { document, window } = env;
+        const dayMs = 86400000;
+        const now = Date.now();
+        const logs = [
+            { id: 'future', measured_at: new Date(now + 2 * dayMs).toISOString(), weight: 81.0 },
+            { id: 'today', measured_at: new Date(now - 1000).toISOString(), weight: 80.0 },
+            { id: 'recent', measured_at: new Date(now - 3 * dayMs).toISOString(), weight: 80.4 }
+        ];
+        window.renderWeightLogs(logs, '7d');
+        const rows = document.querySelectorAll('#weight-list .wg-weight-history-row');
+        // Future-dated 'future' is dropped; 'today' and 'recent' remain.
+        expect(rows.length).toBe(2);
+    });
+
     it('filters to the active range (30d) so entries older than the window are dropped', () => {
         const { document, window } = env;
-        // 45 logs at 24h spacing from a fixed anchor (avoids DST drift that
-        // plain `new Date().setDate(-n)` would introduce). The 30d range
-        // should drop entries older than the 30-day cutoff.
-        const base = Date.now();
+        // 45 logs at 24h spacing. Offset the base by a few seconds so the
+        // boundary log (i=30) lands clearly older than the cutoff the filter
+        // computes from Date.now() — otherwise a sub-ms test runtime can
+        // leave the boundary log exactly at cutoff and pass the `>=` check.
         const dayMs = 86400000;
+        const base = Date.now() - 5000;
         const dailyLogs = [];
         for (let i = 0; i < 45; i += 1) {
             dailyLogs.push({ id: i, measured_at: new Date(base - i * dayMs).toISOString(), weight: 80 + (i % 5) * 0.1 });
@@ -227,15 +243,16 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         // i=0..29 fall inside the 30d cutoff; i=30..44 are dropped.
         expect(dailyRows.length).toBe(30);
 
-        // 105 logs at 1-hour spacing all fall inside any range; the 100-row
-        // DOM cap protects the list from running away on 'all'.
+        // 'all' renders every entry the server returned (loadWeightLogs
+        // already caps the fetch at 1000), so older rows stay editable
+        // from the history list.
         const denseLogs = [];
         for (let i = 0; i < 105; i += 1) {
             denseLogs.push({ id: `d${i}`, measured_at: new Date(base - i * 3600000).toISOString(), weight: 80.0 });
         }
         window.renderWeightLogs(denseLogs, 'all');
         const denseRows = document.querySelectorAll('#weight-list .wg-weight-history-row');
-        expect(denseRows.length).toBe(100);
+        expect(denseRows.length).toBe(105);
     });
 
     it('#weight-view opts into the shared .wg-screen-stage backdrop', () => {

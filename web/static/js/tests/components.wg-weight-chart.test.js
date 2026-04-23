@@ -33,7 +33,12 @@ function loadEnv() {
 }
 
 function makeLogs({ days = 30, startWeight = 80, step = -0.1 } = {}) {
-    const anchor = Date.UTC(2026, 3, 20, 12, 0, 0);
+    // Anchor a few seconds before Date.now() so the range filter (which also
+    // anchors on the current time) sees these logs as recent. The small
+    // offset keeps the oldest log clearly older than the `days`-day cutoff
+    // — otherwise sub-ms test runtime leaves the boundary log at cutoff and
+    // the `>=` comparison keeps an extra entry.
+    const anchor = Date.now() - 5000;
     const logs = [];
     for (let i = days - 1; i >= 0; i--) {
         const ts = new Date(anchor - i * 86400000).toISOString();
@@ -96,6 +101,21 @@ describe('WGWeightChart.render', () => {
         const pointCount = Number(svg.dataset.weightPointCount);
         expect(pointCount).toBeGreaterThan(0);
         expect(pointCount).toBeLessThanOrEqual(7);
+    });
+
+    it('drops future-dated entries from ranged views so a mistyped log does not stretch the window', () => {
+        const dayMs = 86400000;
+        const now = Date.now();
+        const logs = [
+            { measured_at: new Date(now + 5 * dayMs).toISOString(), weight: 90 },
+            { measured_at: new Date(now - 1000).toISOString(), weight: 80 },
+            { measured_at: new Date(now - 2 * dayMs).toISOString(), weight: 80.2 }
+        ];
+        const svg = env.api.render({ logs, range: '7d' });
+        expect(svg).not.toBeNull();
+        expect(svg.dataset.weightRange).toBe('7d');
+        // Future entry is filtered out; two in-range logs survive.
+        expect(Number(svg.dataset.weightPointCount)).toBe(2);
     });
 
     it('applies the 30d range filter', () => {

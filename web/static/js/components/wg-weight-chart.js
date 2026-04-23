@@ -64,9 +64,17 @@
         const days = RANGE_DAYS[range];
         if (!days) return data;
         if (data.length === 0) return data;
-        const last = data[data.length - 1].date.getTime();
-        const cutoff = last - days * 86400000;
-        return data.filter((d) => d.date.getTime() > cutoff);
+        // Anchor on Date.now() so "7d" means "last 7 days from today",
+        // matching WGBpChart's semantics and what the user reads off the
+        // range-selector label. Cap the upper bound at now so a mistyped
+        // future-dated entry does not stretch the window or slip into a
+        // "last N days" view it does not belong to.
+        const now = Date.now();
+        const cutoff = now - days * 86400000;
+        return data.filter((d) => {
+            const t = d.date.getTime();
+            return t >= cutoff && t <= now;
+        });
     }
 
     function extractGoal(goal) {

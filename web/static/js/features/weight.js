@@ -183,12 +183,25 @@ async function handleWeightSubmit(event) {
         notes
     };
 
-    // When editing an existing log, remove the original first so the POST
-    // replaces it instead of creating a duplicate row. Backend has no PATCH
-    // route; delete-then-post is the only way to surface "Edit weight" as
-    // in-place correction. Server-backed entries DELETE over the network;
-    // local (pending/rejected) entries are purged from IndexedDB directly.
+    // Edit path: POST the replacement first so a failed POST leaves the
+    // original row intact. Only after the replacement lands do we remove the
+    // original — a DELETE failure at that point leaves a duplicate (surfaced
+    // to the user and fixable from the history list) rather than data loss.
+    // Server-backed originals are removed over the network; local
+    // (pending/rejected) originals are purged from IndexedDB directly.
+    //
+    // When editing a server-backed log, pass ?replaces=<id> so the server's
+    // weight_trend EMA skips the soon-to-be-deleted row. Without this, the
+    // new trend is smoothed against a disappearing value and drifts on every
+    // latest-entry edit — a drift that leaks into CSV export and MCP output.
     const editing = editingWeightLog;
+    let postUrl = '/api/weight';
+    if (editing && editing.id != null && !(typeof editing.id === 'string' && editing.id.startsWith('local_'))) {
+        postUrl = `/api/weight?replaces=${encodeURIComponent(editing.id)}`;
+    }
+    const res = await apiCall(postUrl, 'POST', payload);
+    if (!res) return;
+
     if (editing && editing.id != null) {
         if (typeof editing.id === 'string' && editing.id.startsWith('local_')) {
             const localId = parseInt(editing.id.replace('local_', ''), 10);
@@ -201,26 +214,14 @@ async function handleWeightSubmit(event) {
                 }
             }
         } else {
-            // Bail out if DELETE failed (offline or network error). apiCall
-            // returns null on write failure and has already surfaced the
-            // error to the user — proceeding with POST would leave the
-            // original row on the server and create a duplicate pending row.
-            const delRes = await apiCall(`/api/weight/${editing.id}`, 'DELETE');
-            if (!delRes) return;
+            await apiCall(`/api/weight/${editing.id}`, 'DELETE');
         }
-        // Clear edit state once the original is gone so a POST retry after a
-        // non-offline failure doesn't try to DELETE the now-404 row again
-        // (which would loop forever and strand the replacement unsaved).
         editingWeightLog = null;
     }
 
-    const res = await apiCall('/api/weight', 'POST', payload);
-
-    if (res) {
-        await window.DataStore.invalidateTags(['weight']);
-        closeWeightModal();
-        loadWeightLogs();
-    }
+    await window.DataStore.invalidateTags(['weight']);
+    closeWeightModal();
+    loadWeightLogs();
 }
 
 function setWeightValue(weight) {
@@ -588,9 +589,10 @@ async function _renderWeightData(logsRes, goalRes) {
 }
 
 // Filter logs to entries inside the active range so the history list tracks
-// the same window the chart shows. The chart has its own filter; we mirror
-// the cutoff rule here (anchor on the newest entry so future-dated logs don't
-// collapse the window). 'all' returns unfiltered input.
+// the same window the chart shows. Anchor on Date.now() (not the newest
+// log) so "7d" means "last 7 days from today" — matching the BP range
+// selector's semantics and what a user expects from the label. 'all'
+// returns unfiltered input.
 const WEIGHT_RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90 };
 
 function filterWeightLogsByRange(logs, range) {
@@ -598,16 +600,14 @@ function filterWeightLogsByRange(logs, range) {
     if (!range || range === 'all') return logs;
     const days = WEIGHT_RANGE_DAYS[range];
     if (!days) return logs;
-    let newest = -Infinity;
-    for (const l of logs) {
-        const t = new Date(l && l.measured_at).getTime();
-        if (Number.isFinite(t) && t > newest) newest = t;
-    }
-    if (!Number.isFinite(newest)) return logs;
-    const cutoff = newest - days * 86400000;
+    // Cap upper bound at Date.now() so a mistyped future-dated entry does
+    // not slip into "last N days" views. The chart filter applies the same
+    // cap — keep the two in sync.
+    const now = Date.now();
+    const cutoff = now - days * 86400000;
     return logs.filter((l) => {
         const t = new Date(l && l.measured_at).getTime();
-        return Number.isFinite(t) && t > cutoff;
+        return Number.isFinite(t) && t >= cutoff && t <= now;
     });
 }
 
@@ -627,10 +627,10 @@ function renderWeightLogs(logs, range) {
         return;
     }
 
-    // Cap at 100 rows to keep DOM bounded even on 'all' for long-term users.
-    const capped = filtered.length > 100 ? filtered.slice(0, 100) : filtered;
-
-    const groups = groupWeightLogsByDay(capped);
+    // The server fetch (loadWeightLogs) caps at 1000 rows — that bound is the
+    // only truncation; the history list shows every fetched entry so "All"
+    // really means every fetched entry and older rows stay editable.
+    const groups = groupWeightLogsByDay(filtered);
     groups.forEach((group) => {
         const groupItem = buildWeightHistoryGroup(group.label, group.logs);
         if (groupItem) list.appendChild(groupItem);
