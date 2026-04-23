@@ -7280,6 +7280,121 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
 }
 
+/* Edit-note modal (Phase 8, Task 8). Shares the generic `.wg-modal` shell;
+   overlays a dual-line mono header, a gloss-inset textarea wrap, and a
+   Cancel + Save action bar where Save carries 2× flex per modal-button-order
+   convention. Every visual value resolves to `--wg-health-modal-*` or shared
+   `--wg-*` tokens. */
+.wg-health-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-health-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-health-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-health-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-health-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-health-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-health-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-health-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-health-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-health-modal-section-gap);
+}
+
+.wg-health-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-health-modal-row-gap);
+    min-width: 0;
+}
+
+.wg-health-modal__label {
+    font-size: var(--wg-health-modal-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-health-modal__input-wrap {
+    padding: var(--wg-health-modal-input-pad-y) var(--wg-health-modal-input-pad-x);
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+}
+
+.wg-health-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-health-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-health-modal__textarea {
+    resize: vertical;
+    min-height: 120px;
+}
+
+.wg-health-modal__actions {
+    display: flex;
+    gap: var(--wg-health-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-health-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-health-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-health-modal__action--save {
+    flex: 2 1 0;
+}
+
 /* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
    bracket clusters of scheduled meds; each row is a `.wg-card` with a name
    (mono-display), dosage, schedule summary, optional inventory tag, and a
