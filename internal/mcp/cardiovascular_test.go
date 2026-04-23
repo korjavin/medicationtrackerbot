@@ -89,7 +89,7 @@ func TestAnalyzeCardiovascular_AllDomains(t *testing.T) {
 	}
 
 	// Add diary note (created with current timestamp)
-	if _, err := st.CreateDiaryNote(ctx, userID, "started new medication today"); err != nil {
+	if _, err := st.CreateDiaryNote(ctx, userID, "started new medication today", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 

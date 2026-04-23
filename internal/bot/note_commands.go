@@ -2,17 +2,13 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"strings"
-	"unicode/utf8"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/korjavin/medicationtrackerbot/internal/store"
-)
 
-// NoteStore is the subset of store operations needed for note bot commands.
-type NoteStore interface {
-	CreateDiaryNote(ctx context.Context, userID int64, content string) (*store.DiaryNote, error)
-}
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
+)
 
 // handleNoteCommand handles the /note command.
 // Format: /note <text>
@@ -22,14 +18,17 @@ func (b *Bot) handleNoteCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.Messa
 		msgConfig.Text = "Usage: /note <text>\nExample: /note Feeling tired today"
 		return
 	}
-	if utf8.RuneCountInString(args) > 10000 {
-		msgConfig.Text = "❌ Note is too long (max 10,000 characters)."
-		return
-	}
 
-	_, err := b.notes.CreateDiaryNote(context.Background(), b.allowedUserID, args)
+	_, err := b.notesSvc.CreateNote(context.Background(), b.allowedUserID, args, nil)
 	if err != nil {
-		msgConfig.Text = "❌ Error saving note."
+		switch {
+		case errors.Is(err, domain.ErrContentTooLong):
+			msgConfig.Text = "❌ Note is too long (max 10,000 characters)."
+		case errors.Is(err, domain.ErrEmptyContent):
+			msgConfig.Text = "Usage: /note <text>\nExample: /note Feeling tired today"
+		default:
+			msgConfig.Text = "❌ Error saving note."
+		}
 		return
 	}
 

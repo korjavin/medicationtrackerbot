@@ -55,6 +55,7 @@ type Server struct {
 	push                PushStore
 	miband              MiBandStore
 	notes               DiaryNotesStore
+	notesSvc            domain.NotesService
 	workout             WorkoutInteractor
 	notifiers           []notifier.Notifier
 	rxnorm              *rxnorm.Client
@@ -218,6 +219,7 @@ func New(s *store.Store, botToken, sessionSecret string, allowedUserID int64, oi
 		push:            s,
 		miband:          s,
 		notes:           s,
+		notesSvc:        domain.NewNotesService(s),
 		tzPlanStore:     s,
 		rxnorm:          rxnorm.New(),
 		botToken:        botToken,
