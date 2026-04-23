@@ -27,7 +27,7 @@ describe('Meds sub-tab strip (Phase 5, Task 2)', () => {
         env = null;
     });
 
-    it('renders the strip as a .wg-gloss--inset container with three .med-tab buttons', () => {
+    it('renders the strip as a .wg-gloss--inset container with three .med-tab buttons in history-first order', () => {
         const { document } = env;
         const strip = document.querySelector('.wg-meds-subtabs');
         expect(strip).not.toBeNull();
@@ -36,7 +36,9 @@ describe('Meds sub-tab strip (Phase 5, Task 2)', () => {
         const buttons = strip.querySelectorAll('.med-tab');
         expect(buttons.length).toBe(3);
         const tabs = Array.from(buttons).map((btn) => btn.dataset.tab);
-        expect(tabs).toEqual(['schedule', 'history', 'inventory']);
+        // Phase 5, Task 5: History is the default landing tab per the
+        // Claude Design mockup, so it renders first in the pill strip.
+        expect(tabs).toEqual(['history', 'schedule', 'inventory']);
 
         buttons.forEach((btn) => {
             expect(btn.classList.contains('wg-gloss')).toBe(true);
@@ -44,36 +46,36 @@ describe('Meds sub-tab strip (Phase 5, Task 2)', () => {
         });
     });
 
-    it('defaults to the "schedule" sub-tab with .wg-gloss--sun active pill', () => {
+    it('defaults to the "history" sub-tab with .wg-gloss--sun active pill', () => {
         const { document } = env;
         const buttons = document.querySelectorAll('.wg-meds-subtabs .med-tab');
         const scheduleBtn = Array.from(buttons).find((b) => b.dataset.tab === 'schedule');
         const historyBtn = Array.from(buttons).find((b) => b.dataset.tab === 'history');
         const inventoryBtn = Array.from(buttons).find((b) => b.dataset.tab === 'inventory');
 
-        expect(scheduleBtn.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(scheduleBtn.classList.contains('wg-meds-subtabs__btn--active')).toBe(true);
-        expect(scheduleBtn.getAttribute('aria-pressed')).toBe('true');
+        expect(historyBtn.classList.contains('wg-gloss--sun')).toBe(true);
+        expect(historyBtn.classList.contains('wg-meds-subtabs__btn--active')).toBe(true);
+        expect(historyBtn.getAttribute('aria-pressed')).toBe('true');
 
-        expect(historyBtn.classList.contains('wg-gloss--sun')).toBe(false);
-        expect(historyBtn.getAttribute('aria-pressed')).toBe('false');
+        expect(scheduleBtn.classList.contains('wg-gloss--sun')).toBe(false);
+        expect(scheduleBtn.getAttribute('aria-pressed')).toBe('false');
         expect(inventoryBtn.classList.contains('wg-gloss--sun')).toBe(false);
         expect(inventoryBtn.getAttribute('aria-pressed')).toBe('false');
     });
 
     it('switchMedTab toggles .wg-gloss--sun across the strip without inline style', () => {
         const { document, window } = env;
-        window.switchMedTab('history');
+        window.switchMedTab('schedule');
 
         const buttons = document.querySelectorAll('.wg-meds-subtabs .med-tab');
         const scheduleBtn = Array.from(buttons).find((b) => b.dataset.tab === 'schedule');
         const historyBtn = Array.from(buttons).find((b) => b.dataset.tab === 'history');
 
-        expect(scheduleBtn.classList.contains('wg-gloss--sun')).toBe(false);
-        expect(scheduleBtn.getAttribute('aria-pressed')).toBe('false');
-        expect(historyBtn.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(historyBtn.classList.contains('wg-meds-subtabs__btn--active')).toBe(true);
-        expect(historyBtn.getAttribute('aria-pressed')).toBe('true');
+        expect(historyBtn.classList.contains('wg-gloss--sun')).toBe(false);
+        expect(historyBtn.getAttribute('aria-pressed')).toBe('false');
+        expect(scheduleBtn.classList.contains('wg-gloss--sun')).toBe(true);
+        expect(scheduleBtn.classList.contains('wg-meds-subtabs__btn--active')).toBe(true);
+        expect(scheduleBtn.getAttribute('aria-pressed')).toBe('true');
 
         // No inline style was used to express the active state.
         buttons.forEach((btn) => {
@@ -97,10 +99,10 @@ describe('Meds sub-tab strip (Phase 5, Task 2)', () => {
         expect(inventoryBtn.getAttribute('aria-pressed')).toBe('true');
     });
 
-    it('getActiveMedsSubTab defaults to "schedule" when no value is stored', () => {
+    it('getActiveMedsSubTab defaults to "history" when no value is stored', () => {
         const { window } = env;
         window.localStorage.removeItem('mt-meds-subtab');
-        expect(window.getActiveMedsSubTab()).toBe('schedule');
+        expect(window.getActiveMedsSubTab()).toBe('history');
     });
 
     it('setActiveMedsSubTab round-trips valid values through localStorage', () => {

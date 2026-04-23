@@ -168,23 +168,23 @@ Rationale: All primary modals already exist and are Wandergeek-styled. Audit the
 
 ### Task 5: Button-placement sweep — inline top-right on BP, Meds, Weight, Workouts
 Rationale: Design puts primary action inline with the tab strip or day navigator, right-aligned. Current FAB / bottom CTAs violate this.
-- [ ] **BP** (`index.html:115` + `js/features/bp.js`):
+- [x] **BP** (`index.html:115` + `js/features/bp.js`):
   - Remove `#add-bp-btn.wg-fab` floating button.
-  - Render a new `#add-bp-btn` inside the `#bp-range-selector` row (14d / 30d / 60d tabs), right-aligned, styled as `wg-gloss wg-gloss--sun` with a + icon and "Log" label. Match `screens.jsx:210-212`.
-- [ ] **Meds** (`index.html:70` + `js/features/meds.js`):
+  - Render a new `#add-bp-btn` inside the `#bp-range-selector` row (14d / 30d / 60d tabs), right-aligned, styled as `wg-gloss wg-gloss--sun` with a + icon and "Log" label. Match `screens.jsx:210-212`. (`renderRangeSelector` now emits an inner `.wg-bp-range-selector__track` holding the 3 range pills + a trailing sibling `#add-bp-btn` sun-gloss pill; click binds `showBPRecordModal` inline so the button survives each re-render. `bindClick('add-bp-btn', …)` in `app.js:1465` was retired since the button no longer lives in static markup.)
+- [x] **Meds** (`index.html:70` + `js/features/meds.js`):
   - Remove `#add-btn` from the bottom of the schedule tab.
   - Render a new `#add-btn` (keep the id) inside the subtabs strip at `index.html:51-55`, right-aligned next to the tabs, `wg-gloss--sun` with a + icon and "Add" label.
-  - Also change default subtab from `'schedule'` to `'history'` in `js/features/meds.js:14` to match the design order. Swap the `data-tab` active state in the HTML so History carries `.wg-gloss--sun` by default.
-- [ ] **Weight** (`index.html:130-132` + `js/features/weight.js`):
+  - Also change default subtab from `'schedule'` to `'history'` in `js/features/meds.js:14` to match the design order. Swap the `data-tab` active state in the HTML so History carries `.wg-gloss--sun` by default. (Wrapped `.wg-meds-subtabs` inside a `.wg-meds-subtabs-row` flex container with the trailing `.wg-meds-subtabs-row__add` sun-gloss pill (`#add-btn` id preserved for `sync.js` offline-sweep + bindings). `MEDS_SUBTAB_DEFAULT = 'history'`; static markup now marks History as the active pill and `#med-history-tab` as the active content panel.)
+- [x] **Weight** (`index.html:130-132` + `js/features/weight.js`):
   - Remove the bottom `#add-weight-btn`.
-  - Render a new header row at the top of `#weight-view`: left side shows "LATEST" caps label + big mono 32px weight + "kg" + delta; right side is the new inline `#add-weight-btn` `wg-gloss--sun` "+ Log" button. Match `screens.jsx:1066-1083`.
-  - Move the `#weight-range-selector` below the chart (or hide it — design doesn't show one; decide based on whether it is currently used and the user's preference).
-- [ ] **Workouts** (`index.html:151` + `js/features/workout.js`):
+  - Render a new header row at the top of `#weight-view`: left side shows "LATEST" caps label + big mono 32px weight + "kg" + delta; right side is the new inline `#add-weight-btn` `wg-gloss--sun` "+ Log" button. Match `screens.jsx:1066-1083`. (`.wg-weight-header-row` flex container holds `#weight-current-card` (existing LATEST/value/delta render) on the left + `.wg-weight-header-row__add` sun-gloss pill (`#add-weight-btn`) on the right; `.wg-weight-add-cta*` CSS rules retired.)
+  - Move the `#weight-range-selector` below the chart (or hide it — design doesn't show one; decide based on whether it is currently used and the user's preference). (Kept in-place above the chart — the 7d/30d/90d/All filter governs both the chart and the history list and is still used; design omission is cosmetic, not functional.)
+- [x] **Workouts** (`index.html:151` + `js/features/workout.js`):
   - Remove `#start-adhoc-workout-btn` ad-hoc button from the history tab.
-  - Render a new `#start-adhoc-workout-btn` inline with the subtabs strip (line 139-144), right-aligned, `wg-gloss--sun` with + icon + "Start" label.
-- [ ] Update CSS: remove `.wg-fab`-specific positioning rules if no other caller uses them; grep first.
-- [ ] Update characterization tests for each feature's DOM.
-- [ ] Run tests; browser check at 390 px.
+  - Render a new `#start-adhoc-workout-btn` inline with the subtabs strip (line 139-144), right-aligned, `wg-gloss--sun` with + icon + "Start" label. (Wrapped `.wg-workouts-subtabs` inside a `.wg-workouts-subtabs-row` flex container with a trailing `.wg-workouts-subtabs-row__add` sun-gloss `#start-adhoc-workout-btn`; the legacy `btn btn-primary btn-pill btn-fab btn-lg` classes are gone.)
+- [x] Update CSS: remove `.wg-fab`-specific positioning rules if no other caller uses them; grep first. (`.wg-fab` rule deleted from `styles.css`; the `--wg-z-fab` token stays because `.wg-food-cta-dock` still reuses its sticky layer for the food-log CTA.)
+- [x] Update characterization tests for each feature's DOM. (`bp.render.test.js` — swapped the FAB-present assertions for a "rendered inline by renderRangeSelector" contract + click-opens-modal coverage, and scoped the single-active-button assertion to the inset track; `meds.schedule.test.js` — asserts `.wg-meds-subtabs-row__add` class + lives inside `#med-subtabs` not inside `#med-schedule-tab`; `meds.subtabs.test.js` — new pill order is `['history', 'schedule', 'inventory']`, default is history, `switchMedTab('schedule')` is the toggle path; `weight.history.test.js` — header-row-top contract replaces bottom-CTA contract, CSS regex now expects `.wg-weight-header-row__add` and forbids `.wg-weight-add-cta`; `architecture.wg-primitives.test.js` — `.wg-fab` dropped from allowlist and the class-rule assertion flips to "no longer defined"; `architecture.inline-styles.test.js` — meds.js line-number allowlist advanced by 1 for the refreshed subtab-default comment; `app.ui-characterization.test.js` — `document.getElementById('add-bp-btn').click()` is now preceded by `renderRangeSelector(...)` so the inline pill exists.)
+- [x] Run tests; browser check at 390 px. (Vitest: 1330 pass; only the 2 pre-existing date-dependent `wg-sleep-chart` / `wg-steps-chart` "Today"-label tests fail and reproduce on master under `git stash`. `go test ./...` green. Manual 390 px browser check skipped — not automatable from this environment.)
 
 ### Task 6: Notes tagging — backend (migration + store + handler + domain)
 Rationale: New column in the notes table, new API contract. Do TDD here because it touches the data model.

@@ -25,7 +25,6 @@ const REQUIRED_CLASSES = [
     '.wg-gloss--clay',
     '.wg-gloss--inset',
     '.wg-gloss--lg',
-    '.wg-fab',
     '.wg-icon-btn',
     '.wg-tag',
     '.wg-tag--normal',
@@ -146,14 +145,13 @@ describe('Wandergeek material primitives', () => {
         expect(blocks[0]).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     });
 
-    it('.wg-fab is a fixed FAB anchored above the bottom nav via --wg-bottom-nav-reserved', () => {
+    it('.wg-fab has been retired — primary actions now live inline with tab/day-nav rows, not as fixed FABs', () => {
+        // Phase 5, Task 5: removed the floating-action-button utility once BP,
+        // Meds, Weight, and Workouts moved their primary CTAs inline. The
+        // `--wg-z-fab` token stays because `.wg-food-cta-dock` still reuses
+        // its sticky-docking layer for the food-log CTA.
         const blocks = extractClassBlocks(css, '.wg-fab');
-        expect(blocks.length).toBeGreaterThan(0);
-        const body = blocks[0];
-        expect(body).toMatch(/position:\s*fixed\b/);
-        expect(body).toMatch(/right:\s*var\(--space-/);
-        expect(body).toMatch(/bottom:\s*calc\([^)]*var\(--wg-bottom-nav-reserved\)/);
-        expect(body).toMatch(/z-index:\s*var\(--wg-z-fab\)/);
+        expect(blocks.length).toBe(0);
     });
 
     it('.wg-modal carries card-like background pulling --wg-bg-card and uses z-modal', () => {

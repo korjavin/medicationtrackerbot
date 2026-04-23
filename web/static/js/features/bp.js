@@ -320,7 +320,10 @@ function renderRangeSelector(opts) {
     const onChange = typeof options.onChange === 'function' ? options.onChange : null;
 
     container.replaceChildren();
-    container.className = 'wg-gloss--inset wg-bp-range-selector';
+    container.className = 'wg-bp-range-selector';
+
+    const track = document.createElement('div');
+    track.className = 'wg-gloss--inset wg-bp-range-selector__track';
 
     BP_RANGE_OPTIONS.forEach((days) => {
         const btn = document.createElement('button');
@@ -334,8 +337,40 @@ function renderRangeSelector(opts) {
             if (days === active) return;
             if (onChange) onChange(days);
         });
-        container.appendChild(btn);
+        track.appendChild(btn);
     });
+
+    container.appendChild(track);
+    container.appendChild(buildBPInlineAddButton());
+}
+
+// Build the inline +Log button that sits at the end of the range-selector
+// row (Phase 5, Task 5). Kept as `#add-bp-btn` so offline-ui's disabled-state
+// sweep still finds it, and so existing tests / bindings keep working.
+function buildBPInlineAddButton() {
+    const btn = document.createElement('button');
+    btn.id = 'add-bp-btn';
+    btn.type = 'button';
+    btn.className = 'wg-gloss wg-gloss--sun wg-bp-range-selector__add';
+    btn.setAttribute('aria-label', 'Log blood pressure');
+
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        const icon = window.WGIcons.iconSvg('plus', { size: 14 });
+        if (icon) btn.appendChild(icon);
+    }
+    const label = document.createElement('span');
+    label.className = 'wg-bp-range-selector__add-label';
+    label.textContent = 'Log';
+    btn.appendChild(label);
+
+    btn.addEventListener('click', () => {
+        if (typeof window.showBPRecordModal === 'function') {
+            window.showBPRecordModal();
+        } else if (typeof showBPRecordModal === 'function') {
+            showBPRecordModal();
+        }
+    });
+    return btn;
 }
 
 // Render BP Chart — delegates to WGBpChart for the Wandergeek SVG and filters

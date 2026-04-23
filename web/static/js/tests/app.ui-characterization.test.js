@@ -45,6 +45,8 @@ describe('app.js UI characterization', () => {
       const loadMedsSpy = vi.fn();
       window.loadMeds = loadMedsSpy;
 
+      // Phase 5, Task 5: default landing tab is now history. Click schedule
+      // to route through the loader and assert the active-state swap.
       const scheduleTab = document.querySelector('.med-tab[data-tab="schedule"]');
       scheduleTab.click();
 
@@ -67,6 +69,10 @@ describe('app.js UI characterization', () => {
       expect(bpModal.classList.contains('hidden')).toBe(true);
       expect(weightModal.classList.contains('hidden')).toBe(true);
 
+      // Phase 5, Task 5: the BP +Log pill is rendered inline with the range
+      // selector by renderRangeSelector(); invoke it so the button exists
+      // before clicking.
+      window.renderRangeSelector({ active: 60, onChange: () => {} });
       document.getElementById('add-bp-btn').click();
 
       expect(overlay.classList.contains('hidden')).toBe(false);

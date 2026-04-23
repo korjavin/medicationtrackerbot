@@ -3294,17 +3294,6 @@ input:checked+.toggle-slider:before {
     font-size: var(--font-size-md);
 }
 
-/* Floating action button utility — generic, reused by every section that
-   needs an "add new entry" pill above the bottom nav (BP, Food, Meds,
-   Weight, Workouts). Vertical offset comes from --wg-bottom-nav-reserved
-   so the FAB sits clear of the fixed nav at every viewport. */
-.wg-fab {
-    position: fixed;
-    right: var(--space-lg);
-    bottom: calc(var(--wg-bottom-nav-reserved) + var(--space-md));
-    z-index: var(--wg-z-fab);
-}
-
 .wg-icon-btn {
     width: var(--wg-icon-btn-size);
     height: var(--wg-icon-btn-size);
@@ -4587,25 +4576,41 @@ textarea.wg-input {
     gap: var(--space-xs);
 }
 
-/* Full-width Add-weight CTA (Phase 6, Task 5). Sits at the bottom of the
-   weight view in place of the paper-era FAB. Uses the shared .wg-gloss
-   primitive with the sun modifier; width + padding come from tokens. */
-.wg-weight-add-cta {
+/* Weight header row (Phase 5, Task 5). Flex row holding the latest-weight
+   card on the left and the inline sun-gloss add-weight button on the
+   right, replacing the paper-era full-width bottom CTA. align-items: stretch
+   lets the button match the card's visual height without hardcoding a size. */
+.wg-weight-header-row {
     display: flex;
+    gap: var(--space-sm);
+    align-items: stretch;
+    margin-bottom: var(--space-md);
+}
+
+.wg-weight-header-row > #weight-current-card {
+    flex: 1;
+    min-width: 0;
+    margin-bottom: 0;
+}
+
+.wg-weight-header-row__add {
+    flex-shrink: 0;
+    align-self: flex-start;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: var(--space-xs);
-    width: 100%;
-    min-height: 44px;
-    margin-top: var(--space-md);
+    min-height: 36px;
     padding: var(--space-sm) var(--space-md);
+    margin-top: var(--space-xs);
     font-family: var(--wg-font-ui);
     font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
 }
 
-.wg-weight-add-cta__label {
-    font-size: var(--font-size-md);
+.wg-weight-header-row__add-label {
     letter-spacing: 0.02em;
 }
 
@@ -4993,11 +4998,22 @@ textarea.wg-input {
     border-color: var(--wg-bp-status-grade2-border);
 }
 
+/* Range selector row (Phase 5, Task 5). Outer container is a plain flex
+   row holding the inset 14/30/60d track and the trailing inline +Log pill.
+   Keeping the inset limited to the track preserves the "tabs in a trough"
+   look while letting the sun-gloss action button sit on the stage. */
 .wg-bp-range-selector {
     display: flex;
     gap: var(--space-xs);
-    padding: var(--wg-bp-range-selector-pad);
+    align-items: stretch;
     margin-bottom: var(--space-md);
+}
+
+.wg-bp-range-selector__track {
+    flex: 1;
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--wg-bp-range-selector-pad);
 }
 
 .wg-bp-range-selector__btn {
@@ -5007,6 +5023,25 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
     padding: var(--space-xs) var(--space-sm);
     border-radius: var(--wg-radius-gloss);
+}
+
+.wg-bp-range-selector__add {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    min-height: var(--wg-bp-range-selector-height);
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-bp-range-selector__add-label {
+    letter-spacing: 0.02em;
 }
 
 .wg-bp-chart-card {
@@ -5436,15 +5471,24 @@ textarea.wg-input {
     cursor: pointer;
 }
 
-/* Meds sub-tab strip (Phase 5, Task 2). `.wg-gloss--inset` container wraps
-   three `.wg-gloss`-capable pills — Schedule / History / Inventory — the
-   active pill carries `.wg-gloss--sun` (plus `.wg-meds-subtabs__btn--active`
-   for tests). Mirrors the Phase 4 Food sub-tab strip. */
+/* Meds sub-tab strip (Phase 5, Task 2; revised Task 5). `.wg-gloss--inset`
+   container wraps three `.wg-gloss`-capable pills — History (default) /
+   Schedule / Inventory — the active pill carries `.wg-gloss--sun` (plus
+   `.wg-meds-subtabs__btn--active` for tests). The strip is wrapped by a
+   `.wg-meds-subtabs-row` flex container that also holds the inline sun-gloss
+   add-medication pill on the right, replacing the paper-era full-width bottom CTA. */
+.wg-meds-subtabs-row {
+    display: flex;
+    gap: var(--space-xs);
+    align-items: stretch;
+    margin-bottom: var(--space-md);
+}
+
 .wg-meds-subtabs {
+    flex: 1;
     display: flex;
     gap: var(--wg-meds-subtab-gap);
     padding: var(--wg-meds-subtab-pad-y) var(--wg-meds-subtab-pad-x);
-    margin-bottom: var(--space-md);
 }
 
 .wg-meds-subtabs__btn {
@@ -5456,16 +5500,43 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
-/* Workouts sub-tab strip (Phase 7, Task 2). `.wg-gloss--inset` container
-   wraps four `.wg-gloss`-capable pills — History / Groups / Exercises /
+.wg-meds-subtabs-row__add {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-meds-subtabs-row__add-label {
+    letter-spacing: 0.02em;
+}
+
+/* Workouts sub-tab strip (Phase 7, Task 2; revised Task 5). `.wg-gloss--inset`
+   container wraps four `.wg-gloss`-capable pills — History / Groups / Exercises /
    Stats — the active pill carries `.wg-gloss--sun` (plus
-   `.wg-workouts-subtabs__btn--active` for tests). Mirrors the Phase 4 Food
-   and Phase 5 Meds sub-tab strips. */
+   `.wg-workouts-subtabs__btn--active` for tests). The strip is wrapped by a
+   `.wg-workouts-subtabs-row` flex container that also holds the inline sun-gloss
+   `#start-adhoc-workout-btn` ad-hoc CTA on the right. */
+.wg-workouts-subtabs-row {
+    display: flex;
+    gap: var(--space-xs);
+    align-items: stretch;
+    margin-bottom: var(--space-md);
+}
+
 .wg-workouts-subtabs {
+    flex: 1;
     display: flex;
     gap: var(--wg-workouts-subtab-gap);
     padding: var(--wg-workouts-subtab-pad-y) var(--wg-workouts-subtab-pad-x);
-    margin-bottom: var(--space-md);
 }
 
 .wg-workouts-subtabs__btn {
@@ -5475,6 +5546,25 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
     padding: var(--space-xs) var(--space-sm);
     border-radius: var(--wg-radius-gloss);
+}
+
+.wg-workouts-subtabs-row__add {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-subtabs-row__add-label {
+    letter-spacing: 0.02em;
 }
 
 /* Health sub-tab strip (Phase 8, Task 2). `.wg-gloss--inset` container wraps
@@ -7594,25 +7684,6 @@ textarea.wg-input {
     display: inline-flex;
     align-items: center;
     gap: var(--space-xs);
-}
-
-.wg-meds-add-cta {
-    width: 100%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-sm);
-    min-height: 44px;
-    padding: var(--space-md) var(--space-lg);
-    margin-top: var(--space-md);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-meds-add-cta__label {
-    letter-spacing: 0.04em;
 }
 
 /* Meds history sub-tab (Phase 5, Task 5). Two `.wg-gloss--inset` select
