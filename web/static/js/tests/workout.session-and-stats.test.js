@@ -230,12 +230,15 @@ describe('workout.js session and stats flows', () => {
         ]
       });
 
+      // Phase 7, Task 7: stats layout is Wandergeek — range selector + chart
+      // + 2×2 stat-tile grid + optional Top Exercises list. The heatmap /
+      // legend from the paper era is gone.
+      expect(statsContainer.querySelector('.wg-workouts-stats')).not.toBeNull();
+      expect(statsContainer.querySelector('.wg-workouts-stats__range')).not.toBeNull();
+      expect(statsContainer.querySelector('.wg-workouts-stats__chart-panel')).not.toBeNull();
       expect(statsContainer.innerHTML).toContain('Top Exercises');
-      expect(statsContainer.innerHTML).toContain('12-Week Activity');
       expect(statsContainer.innerHTML).toContain('Active Weeks');
       expect(statsContainer.innerHTML).toContain('30-Day Sessions');
-      expect(statsContainer.innerHTML).toContain('Partial &lt;50%');
-      expect(statsContainer.innerHTML).toContain('Partial ≥50%');
     } finally {
       cleanup();
     }
