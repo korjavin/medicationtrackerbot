@@ -641,6 +641,74 @@
     --wg-workouts-slot-adhoc-bg: var(--wg-tag-normal-bg);
     --wg-workouts-slot-adhoc-fg: var(--wg-tag-normal-fg);
     --wg-workouts-slot-adhoc-border: var(--wg-tag-normal-border);
+
+    /* Wandergeek — Health screen (Phase 8, Task 1). Dimensional tokens for
+       the sub-tab strip, summary tile row, range selector, sleep + steps +
+       vitals charts, notes list row + edit modal. Everything visual in
+       features/health.js and the three chart components (wg-sleep-chart,
+       wg-steps-chart, wg-vitals-chart) reads from here. */
+    --wg-health-subtab-pad-y: 6px;
+    --wg-health-subtab-pad-x: 10px;
+    --wg-health-subtab-gap: 4px;
+    --wg-health-summary-tile-pad: 14px;
+    --wg-health-summary-tile-gap: 10px;
+    --wg-health-summary-tile-value-size: 22px;
+    --wg-health-summary-tile-label-size: 10.5px;
+    --wg-health-summary-tile-trend-size: 11px;
+    --wg-health-range-selector-height: 36px;
+    --wg-health-range-selector-pad: 4px;
+    --wg-health-chart-width: 358px;
+    --wg-health-chart-height: 200px;
+    --wg-health-chart-tall-height: 240px;
+    --wg-health-chart-line-stroke-width: 2px;
+    --wg-health-chart-last-point-radius: 4px;
+    --wg-health-chart-last-stroke-width: 2px;
+    --wg-health-card-pad: 16px;
+    --wg-health-card-header-size: 15px;
+    --wg-health-card-stat-size: 12px;
+    --wg-health-legend-badge-size: 10px;
+    --wg-health-legend-gap: 8px;
+    --wg-health-notes-row-cols: 1fr auto;
+    --wg-health-notes-row-gap: 10px;
+    --wg-health-notes-row-pad: 12px;
+    --wg-health-notes-day-size: 11px;
+    --wg-health-notes-time-size: 12px;
+    --wg-health-notes-body-size: 14px;
+    --wg-health-notes-compose-pad-y: 10px;
+    --wg-health-notes-compose-pad-x: 12px;
+
+    /* Edit-note modal tokens (Phase 8, Task 1 / rewired Task 8) — mono header,
+       gloss-inset textarea wrap, Cancel + Save action bar with 2× flex on
+       Save per modal-button-order convention. */
+    --wg-health-modal-eyebrow-size: 10.5px;
+    --wg-health-modal-title-size: 18px;
+    --wg-health-modal-row-gap: 10px;
+    --wg-health-modal-section-gap: 14px;
+    --wg-health-modal-input-pad-y: 10px;
+    --wg-health-modal-input-pad-x: 12px;
+    --wg-health-modal-label-size: 10.5px;
+    --wg-health-modal-action-gap: 8px;
+
+    /* Sleep-stage color tokens (Phase 8, Task 1) — replace hardcoded hex in
+       the sleep chart. deep / light / rem / awake drive stacked-bar fills;
+       hr drives the overlay line + dot + label. */
+    --wg-health-sleep-deep: #5a2d9c;
+    --wg-health-sleep-light: #2481cc;
+    --wg-health-sleep-rem: #c161d9;
+    --wg-health-sleep-awake: #e5b220;
+    --wg-health-sleep-hr: #ff3b30;
+
+    /* Steps chart color tokens (Phase 8, Task 1) — bar fill + rotated count
+       label contrast. */
+    --wg-health-steps-bar: #34c759;
+    --wg-health-steps-label-inside: #ffffff;
+
+    /* Vitals chart color tokens (Phase 8, Task 1) — one line color per
+       vital. Used by both the shared vitals line chart today and the
+       forthcoming WGVitalsChart component (Task 6) keyed by vital. */
+    --wg-health-vitals-hr-line: #ff3b30;
+    --wg-health-vitals-spo2-line: #32ade6;
+    --wg-health-vitals-stress-line: #ff9500;
 }
 
 body {
@@ -2313,100 +2381,6 @@ input:checked+.toggle-slider:before {
     cursor: not-allowed;
 }
 
-/* Diary Notes */
-.notes-section {
-    margin-top: var(--space-xl);
-    padding-top: var(--space-lg);
-    border-top: 1px solid var(--border-color);
-}
-
-.notes-section h4 {
-    margin: 0 0 var(--space-md) 0;
-    font-size: var(--font-size-md);
-    color: var(--text-color);
-}
-
-.notes-add {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-md);
-}
-
-.notes-add textarea {
-    width: 100%;
-    box-sizing: border-box;
-    padding: var(--space-sm);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border-color);
-    background: var(--secondary-bg-color);
-    color: var(--text-color);
-    font-size: var(--font-size-sm);
-    resize: vertical;
-}
-
-.notes-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-    max-height: 400px;
-    overflow-y: auto;
-}
-
-.notes-item {
-    background: var(--secondary-bg-color);
-    border-radius: var(--radius-sm);
-    padding: var(--space-lg);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.notes-meta {
-    font-size: var(--font-size-xs);
-    color: var(--hint-color);
-}
-
-.notes-content {
-    font-size: var(--font-size-sm);
-    color: var(--text-color);
-    white-space: pre-wrap;
-    word-break: break-word;
-}
-
-.notes-empty {
-    color: var(--hint-color);
-    font-size: var(--font-size-sm);
-    text-align: center;
-    padding: var(--space-lg) 0;
-}
-
-.notes-item .icon-action-btn.delete {
-    position: absolute;
-    top: var(--space-sm);
-    right: var(--space-sm);
-}
-
-.notes-load-more {
-    text-align: center;
-    padding: var(--space-sm) 0;
-}
-
-.notes-load-more button {
-    background: none;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
-    color: var(--link-color);
-    cursor: pointer;
-    font-size: var(--font-size-sm);
-    padding: var(--space-sm) var(--space-lg);
-}
-
 /* ========== Utility Classes ========== */
 
 .flex-row {
@@ -2872,69 +2846,6 @@ input:checked+.toggle-slider:before {
 
 .settings-status.visible {
     display: block;
-}
-
-/* ========== Health Overview ========== */
-
-.health-chart-wrapper {
-    margin-top: var(--space-xl);
-    padding: var(--space-md) 0;
-}
-
-.health-chart-wrapper h3 {
-    margin-bottom: var(--space-xs);
-}
-
-.health-chart-container {
-    height: 200px;
-    width: 100%;
-}
-
-.health-chart-container-tall {
-    height: 250px;
-    width: 100%;
-}
-
-.health-chart-stat {
-    font-size: var(--font-size-xs);
-    color: var(--hint-color);
-    text-align: center;
-    margin-top: var(--space-xs);
-}
-
-.health-chart-stat-spaced {
-    font-size: var(--font-size-xs);
-    color: var(--hint-color);
-    text-align: center;
-    margin-top: var(--space-md);
-}
-
-.health-chart-legend {
-    font-size: var(--font-size-xs);
-    display: flex;
-    justify-content: center;
-    gap: var(--space-md);
-    margin-top: var(--space-xs);
-    color: var(--hint-color);
-}
-
-.health-legend-item {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-}
-
-.health-legend-badge {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-}
-
-.health-legend-badge-line {
-    display: inline-block;
-    width: 10px;
-    height: 2px;
 }
 
 /* ========== Workout Components ========== */
@@ -5302,6 +5213,102 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
+/* Health sub-tab strip (Phase 8, Task 2). `.wg-gloss--inset` container wraps
+   two `.wg-gloss`-capable pills — Overview / Notes — the active pill carries
+   `.wg-gloss--sun` (plus `.wg-health-subtabs__btn--active` for tests).
+   Mirrors the Phase 4 Food / Phase 5 Meds / Phase 7 Workouts sub-tab strips. */
+.wg-health-subtabs {
+    display: flex;
+    gap: var(--wg-health-subtab-gap);
+    padding: var(--wg-health-subtab-pad-y) var(--wg-health-subtab-pad-x);
+    margin-bottom: var(--space-md);
+}
+
+.wg-health-subtabs__btn {
+    flex: 1;
+    min-height: 36px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+/* Health summary tile row (Phase 8, Task 3). Grid of mono stat tiles — one
+   per vital (sleep hours, steps, HR avg, SpO2 avg, stress avg) — on top of
+   the Overview sub-tab. Trend arrow per tile is colored by a per-vital
+   "good direction" classifier (sun / alert / neutral / empty). */
+.wg-health-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+    gap: var(--wg-health-summary-tile-gap);
+    padding: var(--wg-health-summary-tile-pad);
+    margin-bottom: var(--space-md);
+}
+
+.wg-health-summary__tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-health-summary__value {
+    font-size: var(--wg-health-summary-tile-value-size);
+    line-height: 1.1;
+}
+
+.wg-health-summary__tile--empty .wg-health-summary__value {
+    color: var(--wg-fg-3);
+}
+
+.wg-health-summary__label {
+    font-size: var(--wg-health-summary-tile-label-size);
+    padding: 0;
+}
+
+.wg-health-summary__trend {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-health-summary-tile-trend-size);
+    color: var(--wg-fg-3);
+    min-height: 1em;
+}
+
+.wg-health-summary__trend--sun {
+    color: var(--wg-sun);
+}
+
+.wg-health-summary__trend--alert {
+    color: var(--color-danger);
+}
+
+.wg-health-summary__trend--neutral {
+    color: var(--wg-fg-3);
+}
+
+.wg-health-summary__trend--empty {
+    color: var(--wg-fg-4);
+}
+
+/* Health range selector (Phase 8, Task 3). `.wg-gloss--inset` container
+   carrying 7d / 30d pills; the active pill flips to `.wg-gloss--sun`. The
+   selector is presentation-only — it picks which average pair (7d/30d) the
+   summary tiles use. */
+.wg-health-range-selector {
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--wg-health-range-selector-pad);
+    margin-bottom: var(--space-md);
+}
+
+.wg-health-range-selector__btn {
+    flex: 1;
+    min-height: var(--wg-health-range-selector-height);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
 /* Today's-workout card (Phase 7, Task 3). Sun-glossed card mirroring the
    Meds next-action pattern. `renderTodaysWorkoutCard` picks one of three
    variants: non-rest (sun gloss + Start button), rest (muted card + ad-hoc
@@ -6609,6 +6616,626 @@ textarea.wg-input {
     fill: var(--wg-sun);
     stroke: var(--wg-teal-stage);
     stroke-width: var(--wg-workouts-chart-last-stroke-width);
+}
+
+/* WGSleepChart base shell (Phase 8, Task 4). The SVG carries the shared
+   class; empty-state returns a <div> with the same class + --empty modifier.
+   Stacked-bar fills resolve via the per-stage variant classes (deep / light /
+   rem / awake); the HR overlay path, dots, and labels resolve via the
+   __hr-line / __hr-dot / __hr-dot-outer / __hr-label classes. */
+.wg-sleep-chart {
+    display: block;
+    width: 100%;
+    max-width: var(--wg-health-chart-width);
+    height: auto;
+    margin-inline: auto;
+}
+
+.wg-sleep-chart--empty {
+    min-height: var(--wg-health-chart-tall-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-fg-5);
+    font-size: var(--font-size-sm);
+}
+
+.wg-sleep-chart__stage {
+    stroke: none;
+}
+
+.wg-sleep-chart__stage--deep {
+    fill: var(--wg-health-sleep-deep);
+}
+
+.wg-sleep-chart__stage--light {
+    fill: var(--wg-health-sleep-light);
+}
+
+.wg-sleep-chart__stage--rem {
+    fill: var(--wg-health-sleep-rem);
+}
+
+.wg-sleep-chart__stage--awake {
+    fill: var(--wg-health-sleep-awake);
+}
+
+.wg-sleep-chart__guide {
+    stroke: var(--wg-fg-5);
+    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    fill: none;
+}
+
+.wg-sleep-chart__tick {
+    stroke: var(--wg-fg-5);
+    fill: none;
+}
+
+.wg-sleep-chart__axis-label {
+    fill: var(--wg-fg-5);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-sleep-chart__day-label {
+    fill: var(--wg-fg-5);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-sleep-chart__bar-label {
+    fill: var(--wg-fg-1);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-sleep-chart__hr-line {
+    fill: none;
+    stroke: var(--wg-health-sleep-hr);
+    stroke-width: var(--wg-health-chart-line-stroke-width);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.wg-sleep-chart__hr-dot-outer {
+    fill: var(--wg-bg-card);
+    stroke: none;
+}
+
+.wg-sleep-chart__hr-dot {
+    fill: var(--wg-health-sleep-hr);
+    stroke: none;
+}
+
+.wg-sleep-chart__hr-label {
+    fill: var(--wg-health-sleep-hr);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+    font-weight: var(--font-weight-bold);
+    paint-order: stroke fill;
+    stroke: var(--wg-bg-card);
+    stroke-width: 3;
+}
+
+/* Sleep card shell (Phase 8, Task 4). Wraps the WGSleepChart SVG under a
+   mono header, followed by a legend row and a section-label averages line.
+   The card itself uses the shared .wg-card surface. */
+.wg-sleep-card {
+    padding: var(--wg-health-card-pad);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-sleep-card__header {
+    font-size: var(--wg-health-card-header-size);
+}
+
+.wg-sleep-card__stat {
+    font-size: var(--wg-health-card-stat-size);
+    color: var(--wg-fg-4);
+}
+
+/* Sleep card legend (Phase 8, Task 4) — mono swatch + label pairs; swatch
+   colour resolves via the __badge--{variant} class, never an inline style. */
+.wg-health-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--wg-health-legend-gap);
+    align-items: center;
+}
+
+.wg-health-legend__item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-health-legend__badge {
+    display: inline-block;
+    width: var(--wg-health-legend-badge-size);
+    height: var(--wg-health-legend-badge-size);
+    border-radius: var(--radius-sm);
+}
+
+.wg-health-legend__badge--line {
+    height: 2px;
+    border-radius: var(--radius-pill);
+}
+
+.wg-health-legend__badge--deep {
+    background: var(--wg-health-sleep-deep);
+}
+
+.wg-health-legend__badge--light {
+    background: var(--wg-health-sleep-light);
+}
+
+.wg-health-legend__badge--rem {
+    background: var(--wg-health-sleep-rem);
+}
+
+.wg-health-legend__badge--awake {
+    background: var(--wg-health-sleep-awake);
+}
+
+.wg-health-legend__badge--hr {
+    background: var(--wg-health-sleep-hr);
+}
+
+/* Steps chart (Phase 8, Task 5). Single-series vertical bar chart with
+   rotated in-bar step-count labels. Bar fill + label contrast resolve via
+   the --wg-health-steps-* tokens; axis + day labels + guide lines match the
+   sleep chart's muted style. */
+.wg-steps-chart {
+    display: block;
+    width: 100%;
+    max-width: var(--wg-health-chart-width);
+    height: auto;
+    margin-inline: auto;
+}
+
+.wg-steps-chart--empty {
+    min-height: var(--wg-health-chart-tall-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-fg-5);
+    font-size: var(--font-size-sm);
+}
+
+.wg-steps-chart__bar {
+    fill: var(--wg-health-steps-bar);
+    stroke: none;
+}
+
+.wg-steps-chart__guide {
+    stroke: var(--wg-fg-5);
+    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    fill: none;
+}
+
+.wg-steps-chart__axis-label {
+    fill: var(--wg-fg-5);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-steps-chart__day-label {
+    fill: var(--wg-fg-5);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-steps-chart__count-label {
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+    font-weight: var(--font-weight-medium);
+}
+
+.wg-steps-chart__count-label--inside {
+    fill: var(--wg-health-steps-label-inside);
+}
+
+.wg-steps-chart__count-label--outside {
+    fill: var(--wg-fg-1);
+}
+
+/* Steps card shell (Phase 8, Task 5). Wraps the WGStepsChart SVG under a
+   mono header, followed by a section-label averages line. */
+.wg-steps-card {
+    padding: var(--wg-health-card-pad);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-steps-card__header {
+    font-size: var(--wg-health-card-header-size);
+}
+
+.wg-steps-card__stat {
+    font-size: var(--wg-health-card-stat-size);
+    color: var(--wg-fg-4);
+}
+
+/* Vitals chart (Phase 8, Task 6). Area + line chart parameterised by vital
+   ('hr' | 'spo2' | 'stress'); the variant modifier on the root svg selects
+   the --wg-health-vitals-<vital>-line token. Axis + day + guide styling
+   matches the sleep + steps charts. */
+.wg-vitals-chart {
+    display: block;
+    width: 100%;
+    max-width: var(--wg-health-chart-width);
+    height: auto;
+    margin-inline: auto;
+}
+
+.wg-vitals-chart--empty {
+    min-height: var(--wg-health-chart-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-fg-5);
+    font-size: var(--font-size-sm);
+}
+
+.wg-vitals-chart__guide {
+    stroke: var(--wg-fg-5);
+    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    fill: none;
+}
+
+.wg-vitals-chart__axis-label {
+    fill: var(--wg-fg-5);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-vitals-chart__day-label {
+    fill: var(--wg-fg-5);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-vitals-chart__area {
+    fill: currentColor;
+    fill-opacity: 0.18;
+    stroke: none;
+}
+
+.wg-vitals-chart__line {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: var(--wg-health-chart-line-stroke-width);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.wg-vitals-chart__last {
+    fill: currentColor;
+    stroke: none;
+}
+
+.wg-vitals-chart--hr {
+    color: var(--wg-health-vitals-hr-line);
+}
+
+.wg-vitals-chart--spo2 {
+    color: var(--wg-health-vitals-spo2-line);
+}
+
+.wg-vitals-chart--stress {
+    color: var(--wg-health-vitals-stress-line);
+}
+
+/* Vitals card shell (Phase 8, Task 6). Wraps the WGVitalsChart SVG under
+   a mono header, followed by a section-label averages line. Mirrors the
+   sleep + steps card shells. */
+.wg-vitals-card {
+    padding: var(--wg-health-card-pad);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-vitals-card__header {
+    font-size: var(--wg-health-card-header-size);
+}
+
+.wg-vitals-card__stat {
+    font-size: var(--wg-health-card-stat-size);
+    color: var(--wg-fg-4);
+}
+
+/* Health screen data-source disclaimer (Phase 8). Muted section-label
+   footer identifying the .nxk backup data source. */
+.wg-health-disclaimer {
+    text-align: center;
+    color: var(--wg-fg-5);
+    margin-top: var(--space-sm);
+}
+
+/* Health Notes sub-tab (Phase 8, Task 7). `.wg-gloss--inset` textarea wrap
+   on top with a full-width `.wg-gloss--sun` Save CTA, then a day-grouped
+   `.wg-card` list. Each row carries a mono timestamp, the note body, and a
+   trailing `.wg-icon-btn` cluster (edit + delete). Offline-pending +
+   rejected states surface as `.wg-tag--mono` variants. */
+.wg-health-notes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-health-notes-compose {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-health-notes-compose__wrap {
+    padding: var(--wg-health-notes-compose-pad-y) var(--wg-health-notes-compose-pad-x);
+}
+
+.wg-health-notes-compose__textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: transparent;
+    border: 0;
+    outline: none;
+    resize: vertical;
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-health-notes-body-size);
+    color: var(--wg-fg-1);
+    min-height: 64px;
+}
+
+.wg-health-notes-compose__textarea::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-health-notes-compose__save {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    min-height: 44px;
+    padding: var(--space-md) var(--space-lg);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-health-notes__loading {
+    color: var(--wg-fg-4);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    text-align: center;
+    padding: var(--space-md) 0;
+}
+
+.wg-health-notes__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-health-notes__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-health-notes__group-label {
+    font-size: var(--wg-health-notes-day-size);
+}
+
+.wg-health-notes__rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-health-notes-row {
+    display: grid;
+    grid-template-columns: var(--wg-health-notes-row-cols);
+    column-gap: var(--wg-health-notes-row-gap);
+    align-items: flex-start;
+    padding: var(--wg-health-notes-row-pad);
+}
+
+.wg-health-notes-row--pending {
+    opacity: 0.85;
+}
+
+.wg-health-notes-row--rejected {
+    border-color: var(--wg-tag-alert-border);
+}
+
+.wg-health-notes-row__body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-health-notes-row__meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.wg-health-notes-row__time {
+    font-size: var(--wg-health-notes-time-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
+}
+
+.wg-health-notes-row__content {
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-health-notes-body-size);
+    color: var(--wg-fg-1);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.wg-health-notes-row__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+.wg-health-notes__load-more {
+    list-style: none;
+}
+
+.wg-health-notes__load-more-btn {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--space-md) var(--space-lg);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-health-notes__empty {
+    text-align: center;
+    color: var(--wg-fg-4);
+    padding: var(--space-lg);
+}
+
+.wg-health-notes__empty-msg {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+}
+
+/* Edit-note modal (Phase 8, Task 8). Shares the generic `.wg-modal` shell;
+   overlays a dual-line mono header, a gloss-inset textarea wrap, and a
+   Cancel + Save action bar where Save carries 2× flex per modal-button-order
+   convention. Every visual value resolves to `--wg-health-modal-*` or shared
+   `--wg-*` tokens. */
+.wg-health-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-health-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-health-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-health-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-health-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-health-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-health-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-health-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-health-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-health-modal-section-gap);
+}
+
+.wg-health-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-health-modal-row-gap);
+    min-width: 0;
+}
+
+.wg-health-modal__label {
+    font-size: var(--wg-health-modal-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-health-modal__input-wrap {
+    padding: var(--wg-health-modal-input-pad-y) var(--wg-health-modal-input-pad-x);
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+}
+
+.wg-health-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-health-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-health-modal__textarea {
+    resize: vertical;
+    min-height: 120px;
+}
+
+.wg-health-modal__actions {
+    display: flex;
+    gap: var(--wg-health-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-health-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-health-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-health-modal__action--save {
+    flex: 2 1 0;
 }
 
 /* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
