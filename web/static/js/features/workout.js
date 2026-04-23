@@ -118,6 +118,7 @@ function bindWorkoutControls() {
     bindClick('exercise-save-btn', () => saveExercise());
 
     bindClick('exercise-library-cancel-btn', () => closeExerciseLibraryModal());
+    bindClick('exercise-library-close-btn', () => closeExerciseLibraryModal());
     bindClick('exercise-library-save-btn', () => saveExerciseLibraryItem());
 
     bindClick('workout-session-delete-btn', () => deleteWorkoutSession());
@@ -1321,64 +1322,123 @@ async function loadExerciseLibrary() {
 }
 
 function _renderExerciseLibrary(container, items) {
+    if (!container) return;
+    const doc = container.ownerDocument;
+    if (!doc || typeof doc.createElement !== 'function') return;
+
+    container.classList.add('wg-workouts-exercises');
+
     if (!items || items.length === 0) {
-        const empty = document.createElement('p');
-        empty.className = 'text-center text-hint';
-        empty.textContent = 'No exercises in library yet. Add your first exercise!';
+        const empty = doc.createElement('p');
+        empty.className = 'wg-workouts-exercises__empty';
+        empty.textContent = 'No exercises in library yet \u2014 tap Add to create one.';
         container.replaceChildren(empty);
         return;
     }
 
-    const root = document.createElement('div');
-    root.className = 'exercise-library-items';
+    const list = doc.createElement('ul');
+    list.className = 'list-reset wg-workouts-exercises__list';
 
-    for (const item of items) {
-        const repsStr = item.default_reps_max
-            ? `${item.default_reps_min}-${item.default_reps_max}`
-            : `${item.default_reps_min}`;
-        const weightStr = item.default_weight_kg ? ` @ ${item.default_weight_kg}kg` : '';
+    items.forEach((item) => {
+        list.appendChild(_buildExerciseLibraryRow(doc, item));
+    });
 
-        const card = document.createElement('div');
-        card.className = 'exercise-library-item';
-        card.addEventListener('click', () => {
-            showEditExerciseLibraryModal(item.id);
-        });
+    container.replaceChildren(list);
+}
 
-        const row = document.createElement('div');
-        row.className = 'flex-between';
+function _buildExerciseLibraryRow(doc, item) {
+    const slot = getRotationSlot(item.name || '');
+    const slotMod = _slotTagModifier(slot);
 
-        const details = document.createElement('div');
-        const title = document.createElement('strong');
-        title.textContent = item.name || '';
+    const card = doc.createElement('li');
+    card.className = 'wg-card wg-workouts-exercises-row';
+    card.dataset.exerciseId = String(item.id || '');
+    card.dataset.slot = slot;
 
-        const defaults = document.createElement('div');
-        defaults.className = 'exercise-library-defaults';
-        defaults.textContent = `${item.default_sets} sets x ${repsStr} reps${weightStr}`;
+    const body = doc.createElement('div');
+    body.className = 'wg-workouts-exercises-row__body';
 
-        details.appendChild(title);
-        details.appendChild(defaults);
+    const title = doc.createElement('div');
+    title.className = 'wg-workouts-exercises-row__title';
 
-        if (item.notes) {
-            const notes = document.createElement('div');
-            notes.className = 'exercise-library-notes';
-            notes.textContent = item.notes;
-            details.appendChild(notes);
-        }
+    const slotTag = doc.createElement('span');
+    slotTag.className = `wg-tag wg-tag--mono wg-workouts-slot-tag wg-workouts-slot-tag--${slotMod} wg-workouts-exercises-row__slot`;
+    slotTag.textContent = slot;
+    title.appendChild(slotTag);
 
-        const deleteButton = document.createElement('button');
-        deleteButton.className = 'btn btn-sm btn-secondary';
-        deleteButton.textContent = 'Delete';
-        deleteButton.addEventListener('click', (event) => {
-            deleteExerciseLibraryItem(item.id, event);
-        });
+    const name = doc.createElement('span');
+    name.className = 'wg-workouts-exercises-row__name';
+    name.textContent = item.name || 'Exercise';
+    title.appendChild(name);
 
-        row.appendChild(details);
-        row.appendChild(deleteButton);
-        card.appendChild(row);
-        root.appendChild(card);
+    body.appendChild(title);
+
+    const meta = doc.createElement('div');
+    meta.className = 'wg-workouts-exercises-row__meta';
+
+    const setsCount = Number(item.default_sets) || 0;
+    const repsMin = Number(item.default_reps_min) || 0;
+    const repsMax = Number(item.default_reps_max) || 0;
+    const repsStr = repsMax ? `${repsMin}-${repsMax}` : `${repsMin}`;
+    if (setsCount > 0 || repsMin > 0) {
+        const defaults = doc.createElement('span');
+        defaults.className = 'wg-workouts-exercises-row__defaults';
+        defaults.textContent = `${setsCount}×${repsStr}`;
+        meta.appendChild(defaults);
     }
 
-    container.replaceChildren(root);
+    if (Number.isFinite(Number(item.default_weight_kg)) && Number(item.default_weight_kg) > 0) {
+        const weight = doc.createElement('span');
+        weight.className = 'wg-workouts-exercises-row__weight';
+        weight.textContent = `${Number(item.default_weight_kg)}kg`;
+        meta.appendChild(weight);
+    }
+
+    if (item.notes) {
+        const notes = doc.createElement('span');
+        notes.className = 'wg-workouts-exercises-row__notes';
+        notes.textContent = item.notes;
+        meta.appendChild(notes);
+    }
+
+    if (meta.childNodes.length > 0) body.appendChild(meta);
+
+    card.appendChild(body);
+
+    const actions = doc.createElement('div');
+    actions.className = 'wg-workouts-exercises-row__actions';
+    actions.appendChild(_buildExercisesIconBtn(doc, 'edit', 'Edit exercise', 'pencil', () => {
+        showEditExerciseLibraryModal(item.id);
+    }));
+    actions.appendChild(_buildExercisesIconBtn(doc, 'delete', 'Delete exercise', 'trash', (event) => {
+        deleteExerciseLibraryItem(item.id, event);
+    }));
+    card.appendChild(actions);
+
+    card.addEventListener('click', (e) => {
+        if (e.target.closest('.wg-workouts-exercises-row__actions')) return;
+        showEditExerciseLibraryModal(item.id);
+    });
+
+    return card;
+}
+
+function _buildExercisesIconBtn(doc, kind, ariaLabel, iconName, handler) {
+    const btn = doc.createElement('button');
+    btn.type = 'button';
+    btn.className = `wg-icon-btn wg-workouts-exercises-row__${kind}`;
+    btn.setAttribute('aria-label', ariaLabel);
+    const gloss = doc.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (typeof window !== 'undefined' && window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg(iconName, { size: 16 }));
+    }
+    btn.appendChild(gloss);
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handler(e);
+    });
+    return btn;
 }
 
 function showExerciseLibraryModal(id) {

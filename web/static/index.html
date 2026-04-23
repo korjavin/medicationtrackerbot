@@ -166,10 +166,12 @@
 
             <!-- Exercises Library View -->
             <div id="workout-exercises-tab" class="workout-tab-content">
-                <button id="add-exercise-library-btn" class="btn btn-primary btn-pill btn-fab btn-lg">+ Add Exercise</button>
-                <div id="exercise-library-list">
+                <div id="exercise-library-list" class="wg-workouts-exercises">
                     Loading exercise library...
                 </div>
+                <button id="add-exercise-library-btn" type="button" class="wg-gloss wg-gloss--sun wg-workouts-exercises__add-cta">
+                    <span class="wg-workouts-exercises__add-cta-label">+ Add exercise</span>
+                </button>
             </div>
 
             <!-- Stats View -->
@@ -568,40 +570,69 @@
     </mt-modal>
 
     <!-- Modal for Exercise Library -->
-    <mt-modal id="exercise-library-modal" class="hidden">
-        <div class="modal-header">
-            <h3 id="exercise-library-modal-title">Add Exercise</h3>
-            <div class="actions">
-                <button id="exercise-library-cancel-btn" class="btn btn-secondary">Cancel</button>
-                <button id="exercise-library-save-btn" class="btn btn-primary">Save</button>
+    <mt-modal id="exercise-library-modal" class="hidden wg-modal wg-workouts-library-modal">
+        <div class="wg-workouts-library-modal__header">
+            <div class="wg-workouts-library-modal__heading">
+                <span class="wg-section-label wg-workouts-library-modal__eyebrow">Exercise library</span>
+                <span class="wg-mono-display wg-workouts-library-modal__title" id="exercise-library-modal-title">Add Exercise</span>
+            </div>
+            <button type="button" id="exercise-library-close-btn" class="wg-icon-btn wg-workouts-library-modal__close-btn"
+                aria-label="Close">
+                <span class="wg-gloss"></span>
+            </button>
+        </div>
+
+        <div class="wg-workouts-library-modal__body">
+            <div class="wg-workouts-library-modal__field">
+                <label for="exercise-library-name" class="wg-workouts-library-modal__label">Name</label>
+                <div class="wg-gloss--inset wg-workouts-library-modal__input-wrap">
+                    <input type="text" id="exercise-library-name" class="wg-workouts-library-modal__input" placeholder="Barbell Rows">
+                </div>
+            </div>
+
+            <div class="wg-workouts-library-modal__row">
+                <div class="wg-workouts-library-modal__field">
+                    <label for="exercise-library-sets" class="wg-workouts-library-modal__label">Default sets</label>
+                    <div class="wg-gloss--inset wg-workouts-library-modal__input-wrap">
+                        <input type="number" id="exercise-library-sets" class="wg-workouts-library-modal__input" min="1" max="10" placeholder="4">
+                    </div>
+                </div>
+
+                <div class="wg-workouts-library-modal__field">
+                    <label for="exercise-library-weight" class="wg-workouts-library-modal__label">Weight (kg)</label>
+                    <div class="wg-gloss--inset wg-workouts-library-modal__input-wrap">
+                        <input type="number" id="exercise-library-weight" class="wg-workouts-library-modal__input" step="0.5" min="0" placeholder="40">
+                    </div>
+                </div>
+            </div>
+
+            <div class="wg-workouts-library-modal__row">
+                <div class="wg-workouts-library-modal__field">
+                    <label for="exercise-library-reps-min" class="wg-workouts-library-modal__label">Reps (min)</label>
+                    <div class="wg-gloss--inset wg-workouts-library-modal__input-wrap">
+                        <input type="number" id="exercise-library-reps-min" class="wg-workouts-library-modal__input" min="1" max="100" placeholder="8">
+                    </div>
+                </div>
+
+                <div class="wg-workouts-library-modal__field">
+                    <label for="exercise-library-reps-max" class="wg-workouts-library-modal__label">Reps (max)</label>
+                    <div class="wg-gloss--inset wg-workouts-library-modal__input-wrap">
+                        <input type="number" id="exercise-library-reps-max" class="wg-workouts-library-modal__input" min="1" max="100" placeholder="10">
+                    </div>
+                </div>
+            </div>
+
+            <div class="wg-workouts-library-modal__field">
+                <label for="exercise-library-notes" class="wg-workouts-library-modal__label">Notes</label>
+                <div class="wg-gloss--inset wg-workouts-library-modal__input-wrap">
+                    <input type="text" id="exercise-library-notes" class="wg-workouts-library-modal__input" placeholder="Form cues, variations, etc.">
+                </div>
             </div>
         </div>
 
-        <input type="text" id="exercise-library-name" placeholder="Exercise Name (e.g., Barbell Rows)">
-
-        <div class="form-row">
-            <label for="exercise-library-sets">Default Sets:</label>
-            <input type="number" id="exercise-library-sets" min="1" max="10" placeholder="4">
-        </div>
-
-        <div class="form-row">
-            <label for="exercise-library-reps-min">Default Reps (Min):</label>
-            <input type="number" id="exercise-library-reps-min" min="1" max="100" placeholder="8">
-        </div>
-
-        <div class="form-row">
-            <label for="exercise-library-reps-max">Default Reps (Max, optional):</label>
-            <input type="number" id="exercise-library-reps-max" min="1" max="100" placeholder="10">
-        </div>
-
-        <div class="form-row">
-            <label for="exercise-library-weight">Default Weight (kg, optional):</label>
-            <input type="number" id="exercise-library-weight" step="0.5" min="0" placeholder="40">
-        </div>
-
-        <div class="form-row">
-            <label for="exercise-library-notes">Notes (optional):</label>
-            <input type="text" id="exercise-library-notes" placeholder="Form cues, variations, etc.">
+        <div class="wg-workouts-library-modal__actions">
+            <button type="button" id="exercise-library-cancel-btn" class="wg-gloss wg-workouts-library-modal__action wg-workouts-library-modal__action--cancel">Cancel</button>
+            <button type="button" id="exercise-library-save-btn" class="wg-gloss wg-gloss--sun wg-workouts-library-modal__action wg-workouts-library-modal__action--save">Save</button>
         </div>
     </mt-modal>
 
