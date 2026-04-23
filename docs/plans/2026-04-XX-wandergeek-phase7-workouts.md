@@ -90,14 +90,14 @@ No backend changes. The existing `/api/workouts*`, `/api/exercises*`, `/api/work
 
 ### Task 1: Extend tokens + extract workouts into a feature module
 
-- [ ] add `--wg-workouts-*` dimensional tokens to `:root` in `styles.css` (today-card padding, rotation-slot tag size, history-row grid-template-columns, session-detail set-row height, stats-tile grid, chart height, sub-tab padding) — everything the Workouts view needs that isn't already covered by the shared `--wg-*` set
-- [ ] add `--wg-workouts-slot-*` semantic aliases wrapping the existing tag-variant tokens so the rotation-slot classifier (PUSH / PULL / LEGS / REST / AD-HOC) can return a token-group name without duplicating tag styles
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] create `web/static/js/features/workout.js` and move render + modal + action-dispatch flow out of `web/static/js/workout.js` into it; script-tag load order + hoisted function declarations keep them accessible as globals (matches bp.js / food.js / meds.js / today.js / weight.js / health.js)
-- [ ] update `index.html` script load order to include `features/workout.js`; update `sw.js` precache list + `tests/helpers/frontend-harness.js`
-- [ ] keep all existing helpers (`getWorkoutDurationText`, `getExerciseSetSummary`, `getMuscleGroupLabel`, `getRotationSlot`) wherever they currently live; only the render + modal flow moves
-- [ ] verify no behavior change — `app.weight-ruler-and-workout-start.test.js` and related existing tests stay green
-- [ ] run `pnpm test` — design-tokens test + extraction smoke test must be green before next task
+- [x] add `--wg-workouts-*` dimensional tokens to `:root` in `styles.css` (today-card padding, rotation-slot tag size, history-row grid-template-columns, session-detail set-row height, stats-tile grid, chart height, sub-tab padding) — everything the Workouts view needs that isn't already covered by the shared `--wg-*` set
+- [x] add `--wg-workouts-slot-*` semantic aliases wrapping the existing tag-variant tokens so the rotation-slot classifier (PUSH / PULL / LEGS / REST / AD-HOC) can return a token-group name without duplicating tag styles
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] create `web/static/js/features/workout.js` and move render + modal + action-dispatch flow out of `web/static/js/workout.js` into it; script-tag load order + hoisted function declarations keep them accessible as globals (matches bp.js / food.js / meds.js / today.js / weight.js / health.js)
+- [x] update `index.html` script load order to include `features/workout.js`; update `sw.js` precache list + `tests/helpers/frontend-harness.js`
+- [x] keep all existing helpers (`getWorkoutDurationText`, `getExerciseSetSummary`, `getMuscleGroupLabel`, `getRotationSlot`) wherever they currently live; only the render + modal flow moves
+- [x] verify no behavior change — `app.weight-ruler-and-workout-start.test.js` and related existing tests stay green
+- [x] run `pnpm test` — design-tokens test + extraction smoke test must be green before next task
 
 ### Task 2: Build the sub-tab strip + subtab state plumbing
 
