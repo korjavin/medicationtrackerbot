@@ -123,8 +123,10 @@ function classifyHealthTrend(vital, active, other) {
             return 'neutral';
         }
         case 'hr':
-            if (active >= 50 && active <= 90) return 'sun';
-            return 'alert';
+            // Lower resting HR is better (fitness goal); delta-based like steps/spo2
+            if (delta < 0) return 'sun';
+            if (delta > 0) return 'alert';
+            return 'neutral';
         default:
             return 'neutral';
     }
@@ -421,6 +423,8 @@ async function loadHealthOverview() {
             key: hoKey,
             tags: ['health'],
             fetcher: async () => {
+                const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                const tzOffset = new Date().getTimezoneOffset();
                 const tzParams = tzName
                     ? `?tz=${encodeURIComponent(tzName)}`
                     : `?tz_offset=${tzOffset}`;
@@ -448,6 +452,9 @@ async function loadHealthOverview() {
                 if (!cached) renderHealthOverviewError(content);
             }
         });
+    } else {
+        loading.style.display = 'none';
+        renderHealthOverviewError(content);
     }
 }
 
@@ -995,6 +1002,9 @@ function bindEditNoteModalControls() {
         form.addEventListener('submit', handleEditNoteSubmit);
     }
 }
+
+// Called from dynamically-built edit buttons in notes rows
+window.editNote = editNote;
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bindEditNoteModalControls, { once: true });

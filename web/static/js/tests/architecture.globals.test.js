@@ -70,6 +70,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.WGVitalsChart',             // components/wg-vitals-chart.js — Wandergeek area+line vitals chart (HR / SpO2 / Stress) for the Health Overview sub-tab; parameterised by vital, line + area fill colour resolve via --wg-health-vitals-{vital}-* tokens on CSS classes, never inline
     'window.WGMacroBar',                // components/wg-macro-bar.js — Wandergeek Food-screen macro row (label + inset track + mono value/target); fill colour comes from .wg-macro-bar__fill--<variant> classes, fill width from a neutral --fill-pct custom property
     'window.AppBackButton',             // features/back-button.js — wires Telegram WebApp BackButton to section → Today navigation
+    'window.editNote',                  // features/health.js — called from dynamically-built edit buttons in notes rows
 
     // features/settings.js — feature toggles, food targets, reminder settings
     'window.applyFeatureSettings',      // features/settings.js — applies feature toggles to DOM and state
