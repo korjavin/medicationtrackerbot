@@ -173,11 +173,11 @@ No backend changes. The existing `/api/health/overview` and `/api/notes*` endpoi
 
 ### Task 10: Verify acceptance criteria for Phase 8
 
-- [ ] open `index.html` in desktop 390×844 phone view, compare Health screen side-by-side with `Medtracker.html` — manual visual check (likely skipped — not automatable from CI environment)
-- [ ] open in mobile viewport (DevTools 375×812) — manual visual check (likely skipped — not automatable from CI environment)
-- [ ] full `pnpm test` suite green
-- [ ] `go test ./...` green (sanity check; no backend changes expected)
-- [ ] grep `style="` and `\.style\.` in the new JS — expect zero `style="` matches in `features/health.js` + the three chart components; any `.style.setProperty` calls must set component-local CSS custom properties, not hardcoded visual values
+- [x] open `index.html` in desktop 390×844 phone view, compare Health screen side-by-side with `Medtracker.html` — manual visual check (skipped — not automatable from CI environment)
+- [x] open in mobile viewport (DevTools 375×812) — manual visual check (skipped — not automatable from CI environment)
+- [x] full `pnpm test` suite green (111 files / 1244 tests passed)
+- [x] `go test ./...` green (sanity check; no backend changes expected)
+- [x] grep `style="` and `\.style\.` in the new JS — zero `style="` matches in `features/health.js` + the three chart components; the remaining `.style.display` hits in `features/health.js` are pre-existing loading-indicator show/hide toggles folded in during Task 1 (not Phase 8 additions, not `.style.setProperty` calls, not hardcoded visual values)
 
 ### Task 11: [Final] Update plan and write Phase 9 plan stub
 
