@@ -1,5 +1,48 @@
 // --- Health Overview (extracted from app.js, upgraded with chart-utils) ---
 
+// Sub-tab state (Phase 8, Task 2). Mirrors the `mt-meds-subtab` /
+// `mt-food-subtab` / `mt-workouts-subtab` pattern — one of two values
+// (`overview`, `notes`), persisted to localStorage so the user's choice
+// survives reload. Default is `overview`.
+const HEALTH_SUBTAB_STORAGE_KEY = 'mt-health-subtab';
+const HEALTH_SUBTAB_OPTIONS = ['overview', 'notes'];
+const HEALTH_SUBTAB_DEFAULT = 'overview';
+
+function getActiveHealthSubTab() {
+    try {
+        const raw = window.localStorage.getItem(HEALTH_SUBTAB_STORAGE_KEY);
+        if (HEALTH_SUBTAB_OPTIONS.indexOf(raw) !== -1) return raw;
+    } catch (_) { /* ignore */ }
+    return HEALTH_SUBTAB_DEFAULT;
+}
+
+function setActiveHealthSubTab(tab) {
+    if (HEALTH_SUBTAB_OPTIONS.indexOf(tab) === -1) return;
+    try { window.localStorage.setItem(HEALTH_SUBTAB_STORAGE_KEY, tab); } catch (_) { /* ignore */ }
+}
+
+function syncHealthSubTabActiveClass(activeTab) {
+    const container = document.querySelector('.wg-health-subtabs');
+    if (!container) return;
+    const buttons = container.querySelectorAll('.health-tab');
+    buttons.forEach((btn) => {
+        const isActive = btn.dataset.tab === activeTab;
+        btn.classList.toggle('wg-gloss--sun', isActive);
+        btn.classList.toggle('wg-health-subtabs__btn--active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function restoreHealthSubTab() {
+    syncHealthSubTabActiveClass(getActiveHealthSubTab());
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', restoreHealthSubTab, { once: true });
+} else {
+    restoreHealthSubTab();
+}
+
 function renderHealthOverviewContent(content, data) {
     content.replaceChildren();
 

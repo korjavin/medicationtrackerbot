@@ -5370,6 +5370,26 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
+/* Health sub-tab strip (Phase 8, Task 2). `.wg-gloss--inset` container wraps
+   two `.wg-gloss`-capable pills — Overview / Notes — the active pill carries
+   `.wg-gloss--sun` (plus `.wg-health-subtabs__btn--active` for tests).
+   Mirrors the Phase 4 Food / Phase 5 Meds / Phase 7 Workouts sub-tab strips. */
+.wg-health-subtabs {
+    display: flex;
+    gap: var(--wg-health-subtab-gap);
+    padding: var(--wg-health-subtab-pad-y) var(--wg-health-subtab-pad-x);
+    margin-bottom: var(--space-md);
+}
+
+.wg-health-subtabs__btn {
+    flex: 1;
+    min-height: 36px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
 /* Today's-workout card (Phase 7, Task 3). Sun-glossed card mirroring the
    Meds next-action pattern. `renderTodaysWorkoutCard` picks one of three
    variants: non-rest (sun gloss + Start button), rest (muted card + ad-hoc
