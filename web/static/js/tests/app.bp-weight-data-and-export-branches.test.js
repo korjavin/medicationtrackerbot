@@ -144,7 +144,7 @@ describe('app.js BP/weight data and export branch coverage', () => {
 
     try {
       window.apiCall = vi.fn(async (endpoint) => {
-        if (endpoint === '/api/weight?days=35') return null;
+        if (endpoint === '/api/weight?days=0&limit=1000') return null;
         if (endpoint === '/api/weight/goal') return {};
         return null;
       });
@@ -159,7 +159,7 @@ describe('app.js BP/weight data and export branch coverage', () => {
 
       const renderWeightSpy = vi.spyOn(window, '_renderWeightData').mockResolvedValue(undefined);
       window.apiCall = vi.fn(async (endpoint) => {
-        if (endpoint === '/api/weight?days=35') return [{ id: 1, measured_at: isoWithOffsetHours(-1), weight: 80.1, weight_trend: 80 }];
+        if (endpoint === '/api/weight?days=0&limit=1000') return [{ id: 1, measured_at: isoWithOffsetHours(-1), weight: 80.1, weight_trend: 80 }];
         if (endpoint === '/api/weight/goal') return { goal: 75 };
         return null;
       });
@@ -192,14 +192,16 @@ describe('app.js BP/weight data and export branch coverage', () => {
       await window._renderWeightData(null, {});
       expect(document.getElementById('weight-list').innerHTML).toContain('No cached data');
 
-      const manyLogs = Array.from({ length: 31 }, (_, i) => ({
+      // 'all' renders every entry the server returned (loadWeightLogs caps
+      // the fetch at 1000), so older rows stay editable from the history list.
+      const manyLogs = Array.from({ length: 105 }, (_, i) => ({
         id: i + 1,
         measured_at: isoWithOffsetHours(-i),
         weight: 78 + (i * 0.1),
         weight_trend: 78
       }));
-      window.renderWeightLogs(manyLogs);
-      expect(document.querySelectorAll('#weight-list .weight-item').length).toBe(30);
+      window.renderWeightLogs(manyLogs, 'all');
+      expect(document.querySelectorAll('#weight-list .wg-weight-history-row').length).toBe(105);
     } finally {
       cleanup();
     }

@@ -82,6 +82,68 @@ func TestHandleCreateWeight(t *testing.T) {
 	}
 }
 
+// The edit flow POSTs the replacement first, then DELETEs the original. When
+// the client signals the replacement via `?replaces=<id>` the server must
+// exclude that row from the EMA baseline — otherwise the new row's trend is
+// smoothed against a soon-to-be-deleted value and drifts on every edit.
+func TestHandleCreateWeightReplacesExcludesOriginalFromTrend(t *testing.T) {
+	srv, db := createWeightTestServer(t)
+	defer db.Close()
+
+	ctx := weightCtxWithUser(123456)
+	baseTrend := 80.0
+	_, err := db.CreateWeightLog(ctx, &store.WeightLog{
+		UserID:      123456,
+		MeasuredAt:  time.Now().Add(-48 * time.Hour),
+		Weight:      80.0,
+		WeightTrend: &baseTrend,
+	})
+	if err != nil {
+		t.Fatalf("seed base log: %v", err)
+	}
+
+	// Original "latest" log with a trend already smoothed from the base.
+	origTrend := 79.95
+	origID, err := db.CreateWeightLog(ctx, &store.WeightLog{
+		UserID:      123456,
+		MeasuredAt:  time.Now().Add(-24 * time.Hour),
+		Weight:      79.5,
+		WeightTrend: &origTrend,
+	})
+	if err != nil {
+		t.Fatalf("seed original log: %v", err)
+	}
+
+	reqBody := map[string]interface{}{
+		"measured_at": time.Now(),
+		"weight":      79.5,
+	}
+	body, _ := json.Marshal(reqBody)
+
+	url := fmt.Sprintf("/api/weight?replaces=%d", origID)
+	req := httptest.NewRequest("POST", url, bytes.NewReader(body))
+	req = weightReqWithUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateWeight(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp store.WeightLog
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// Baseline = base log (trend 80.0), NOT the original (trend 79.95).
+	// Expected: 0.1 * 79.5 + 0.9 * 80.0 = 79.95.
+	expected := 79.95
+	if resp.WeightTrend == nil || *resp.WeightTrend != expected {
+		t.Errorf("Expected trend %f (baseline excludes replaced row), got %v", expected, resp.WeightTrend)
+	}
+}
+
 func TestHandleListWeight(t *testing.T) {
 	srv, db := createWeightTestServer(t)
 	defer db.Close()

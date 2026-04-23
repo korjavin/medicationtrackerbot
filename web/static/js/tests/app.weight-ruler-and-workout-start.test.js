@@ -2,42 +2,27 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 
-describe('app.js weight ruler and workout start modal flows', () => {
+describe('app.js weight modal helpers and workout start modal flows', () => {
   beforeEach(() => {
     allowConsoleNoise();
   });
 
-  it('weight ruler supports mouse/touch dragging and updates value', () => {
+  it('setWeightValue clamps weight input within [30, 300] kg bounds', () => {
+    // The Wandergeek Phase 6 edit-weight modal replaced the paper-era drag
+    // ruler with a simple number input plus kg/lb unit toggle. The clamp
+    // helper is still used for the initial default value; verify bounds.
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
-      const container = document.getElementById('weight-ruler-container');
-      Object.defineProperty(container, 'clientWidth', { configurable: true, value: 320 });
-
       window.showWeightModal();
       const weightInput = document.getElementById('weight-value');
-      const initial = parseFloat(weightInput.value);
-
-      window.handleDragStart({ type: 'mousedown', clientX: 200 });
-      window.handleDragMove({ type: 'mousemove', clientX: 160 });
-      window.handleDragEnd({});
-      const afterMouse = parseFloat(weightInput.value);
-      expect(afterMouse).toBeGreaterThan(initial);
-
-      const preventStart = vi.fn();
-      const preventMove = vi.fn();
-      window.handleDragStart({ type: 'touchstart', touches: [{ clientX: 200 }], preventDefault: preventStart });
-      window.handleDragMove({ type: 'touchmove', touches: [{ clientX: 240 }], preventDefault: preventMove });
-      window.handleDragEnd({});
-      const afterTouch = parseFloat(weightInput.value);
-      expect(afterTouch).toBeLessThan(afterMouse);
-      expect(preventStart).toHaveBeenCalled();
-      expect(preventMove).toHaveBeenCalled();
 
       window.setWeightValue(999);
       expect(parseFloat(weightInput.value)).toBe(300);
       window.setWeightValue(1);
       expect(parseFloat(weightInput.value)).toBe(30);
+      window.setWeightValue(82.5);
+      expect(parseFloat(weightInput.value)).toBe(82.5);
     } finally {
       cleanup();
     }

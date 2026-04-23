@@ -462,6 +462,65 @@ const WANDERGEEK_TOKENS = [
     '--wg-meds-modal-day-size',
     '--wg-meds-modal-time-row-gap',
     '--wg-meds-modal-toggle-gap',
+
+    // Weight screen tokens (Phase 6, Task 1) — current-weight card, trend
+    // arrow + delta, optional goal card + progress bar, range selector,
+    // single-series chart geometry, day-grouped history rows.
+    '--wg-weight-current-value-size',
+    '--wg-weight-current-unit-size',
+    '--wg-weight-current-card-pad',
+    '--wg-weight-trend-size',
+    '--wg-weight-trend-icon-size',
+    '--wg-weight-goal-card-pad',
+    '--wg-weight-goal-value-size',
+    '--wg-weight-goal-bar-height',
+    '--wg-weight-goal-delta-size',
+    '--wg-weight-range-selector-height',
+    '--wg-weight-range-selector-pad',
+    '--wg-weight-chart-width',
+    '--wg-weight-chart-height',
+    '--wg-weight-chart-line-stroke-width',
+    '--wg-weight-chart-goal-stroke-width',
+    '--wg-weight-chart-goal-dasharray',
+    '--wg-weight-chart-last-point-radius',
+    '--wg-weight-chart-last-stroke-width',
+    '--wg-weight-history-row-cols',
+    '--wg-weight-history-row-gap',
+    '--wg-weight-history-row-pad',
+    '--wg-weight-history-weight-size',
+    '--wg-weight-history-time-size',
+    '--wg-weight-history-day-size',
+
+    // Weight trend aliases (Phase 6, Task 1) — wrap the shared sun / alert /
+    // mint tag triplets so the JS classifier can return good / bad / flat
+    // relative to goal direction. Mirrors the --wg-bp-status-* pattern.
+    '--wg-weight-trend-good-bg',
+    '--wg-weight-trend-good-fg',
+    '--wg-weight-trend-good-border',
+    '--wg-weight-trend-bad-bg',
+    '--wg-weight-trend-bad-fg',
+    '--wg-weight-trend-bad-border',
+    '--wg-weight-trend-flat-bg',
+    '--wg-weight-trend-flat-fg',
+    '--wg-weight-trend-flat-border',
+
+    // Edit-weight modal tokens (Phase 6, Task 6) — dual-line header, gloss
+    // input wraps, kg/lb unit-toggle pill pair, Cancel/Save action bar with
+    // 2× flex on Save per modal-button-order convention.
+    '--wg-weight-modal-eyebrow-size',
+    '--wg-weight-modal-title-size',
+    '--wg-weight-modal-section-gap',
+    '--wg-weight-modal-input-pad-y',
+    '--wg-weight-modal-input-pad-x',
+    '--wg-weight-modal-weight-row-gap',
+    '--wg-weight-modal-unit-toggle-pad',
+    '--wg-weight-modal-unit-toggle-gap',
+    '--wg-weight-modal-unit-btn-pad-y',
+    '--wg-weight-modal-unit-btn-pad-x',
+    '--wg-weight-modal-unit-btn-size',
+    '--wg-weight-modal-unit-btn-min-w',
+    '--wg-weight-modal-label-size',
+    '--wg-weight-modal-action-gap',
 ];
 
 describe('Architecture – design tokens', () => {

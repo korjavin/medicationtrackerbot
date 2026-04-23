@@ -1,600 +1,491 @@
 
 // ==================== Weight Tracking Functions ====================
 
-// Global variable to store weight logs for ruler component
+// Cached server logs (plus pending/rejected locals) — used by showWeightModal
+// to seed the input with the most recent weight.
 let cachedWeightLogs = [];
 
+// Range selector constants (Phase 6, Task 4). The active range persists
+// across reloads via mt-weight-range. Default is 30d, matching the
+// discovery layout. Keep the array in visual (asc) order so the selector
+// renders 7d/30d/90d/All from left to right.
+const WEIGHT_RANGE_STORAGE_KEY = 'mt-weight-range';
+const WEIGHT_RANGE_OPTIONS = ['7d', '30d', '90d', 'all'];
+const WEIGHT_RANGE_DEFAULT = '30d';
+
+function getActiveWeightRange() {
+    try {
+        const raw = window.localStorage.getItem(WEIGHT_RANGE_STORAGE_KEY);
+        if (WEIGHT_RANGE_OPTIONS.indexOf(raw) !== -1) return raw;
+    } catch (_) { /* ignore */ }
+    return WEIGHT_RANGE_DEFAULT;
+}
+
+function setActiveWeightRange(range) {
+    if (WEIGHT_RANGE_OPTIONS.indexOf(range) === -1) return;
+    try { window.localStorage.setItem(WEIGHT_RANGE_STORAGE_KEY, String(range)); } catch (_) { /* ignore */ }
+}
+
+function renderWeightRangeSelector(opts) {
+    const container = document.getElementById('weight-range-selector');
+    if (!container) return;
+    const options = opts || {};
+    const active = WEIGHT_RANGE_OPTIONS.indexOf(options.active) !== -1
+        ? options.active
+        : WEIGHT_RANGE_DEFAULT;
+    const onChange = typeof options.onChange === 'function' ? options.onChange : null;
+
+    container.replaceChildren();
+    container.className = 'wg-gloss--inset wg-weight-range-selector';
+
+    WEIGHT_RANGE_OPTIONS.forEach((range) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'wg-gloss wg-weight-range-selector__btn';
+        if (range === active) btn.classList.add('wg-gloss--sun', 'wg-weight-range-selector__btn--active');
+        btn.setAttribute('data-range', range);
+        btn.setAttribute('aria-pressed', range === active ? 'true' : 'false');
+        btn.textContent = range === 'all' ? 'All' : range;
+        btn.addEventListener('click', () => {
+            if (range === active) return;
+            if (onChange) onChange(range);
+        });
+        container.appendChild(btn);
+    });
+}
+
+// ==================== Weight Modal (Wandergeek Phase 6, Task 6) ====================
+//
+// State for the edit-weight modal. Tracked outside the DOM so the unit-toggle
+// round-trip (kg → lb → kg) preserves the original kg value without drift from
+// display rounding. editingWeightLog carries the log being edited when the user
+// opened the modal via the history-row edit button; null when adding a new
+// entry.
+
+const WEIGHT_KG_PER_LB = 0.45359237;
+let weightModalUnit = 'kg';
+let editingWeightLog = null;
+
 function showWeightModal() {
+    editingWeightLog = null;
     window.ModalManager.weight.open();
+    setWeightModalTitle('New weight');
 
-    // Set default datetime to now
     document.getElementById('weight-datetime').value = formatDateTimeLocalForInput();
-
-    // Clear notes field
     document.getElementById('weight-notes').value = '';
 
-    // Get last logged weight and initialize ruler
+    resetWeightUnitToggle();
+
     const lastWeight = cachedWeightLogs && cachedWeightLogs.length > 0
         ? cachedWeightLogs[0].weight
-        : 75.0; // Default to 75kg if no history
-
-    // Set default value
+        : 75.0;
     setWeightValue(lastWeight);
 
-    // Initialize the ruler
-    initWeightRuler(lastWeight);
+    attachWeightUnitToggleHandlers();
 }
 
 function closeWeightModal() {
+    editingWeightLog = null;
     window.ModalManager.weight.close();
+}
+
+function setWeightModalTitle(text) {
+    const el = document.getElementById('weight-modal-title');
+    if (el) el.textContent = text;
+}
+
+function resetWeightUnitToggle() {
+    weightModalUnit = 'kg';
+    // Restore the kg input bounds so a previous lb toggle doesn't leak stale
+    // min/max across modal close/reopen — setWeightModalUnit('kg') would
+    // no-op because weightModalUnit is already kg.
+    const input = document.getElementById('weight-value');
+    if (input) {
+        input.min = '30';
+        input.max = '300';
+    }
+    const toggle = document.querySelector('#weight-modal .wg-weight-modal__unit-toggle');
+    if (!toggle) return;
+    toggle.querySelectorAll('.wg-weight-modal__unit-btn').forEach((btn) => {
+        const isActive = btn.getAttribute('data-unit') === 'kg';
+        btn.classList.toggle('wg-weight-modal__unit-btn--active', isActive);
+        btn.classList.toggle('wg-gloss--sun', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function attachWeightUnitToggleHandlers() {
+    const toggle = document.querySelector('#weight-modal .wg-weight-modal__unit-toggle');
+    if (!toggle || toggle.dataset.wgBound === '1') return;
+    toggle.dataset.wgBound = '1';
+    toggle.addEventListener('click', (e) => {
+        const btn = e.target.closest('.wg-weight-modal__unit-btn');
+        if (!btn) return;
+        const unit = btn.getAttribute('data-unit');
+        if (unit !== 'kg' && unit !== 'lb') return;
+        setWeightModalUnit(unit);
+    });
+}
+
+function setWeightModalUnit(unit) {
+    if (unit !== 'kg' && unit !== 'lb') return;
+    if (unit === weightModalUnit) return;
+
+    const input = document.getElementById('weight-value');
+    const raw = input ? parseFloat(input.value) : NaN;
+    const prevUnit = weightModalUnit;
+    weightModalUnit = unit;
+
+    const toggle = document.querySelector('#weight-modal .wg-weight-modal__unit-toggle');
+    if (toggle) {
+        toggle.querySelectorAll('.wg-weight-modal__unit-btn').forEach((btn) => {
+            const isActive = btn.getAttribute('data-unit') === unit;
+            btn.classList.toggle('wg-weight-modal__unit-btn--active', isActive);
+            btn.classList.toggle('wg-gloss--sun', isActive);
+            btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+    }
+
+    if (!input) return;
+    if (unit === 'kg') {
+        input.min = '30';
+        input.max = '300';
+    } else {
+        input.min = '66';
+        input.max = '660';
+    }
+    if (!Number.isFinite(raw)) return;
+    const kg = prevUnit === 'kg' ? raw : raw * WEIGHT_KG_PER_LB;
+    input.value = unit === 'kg' ? kg.toFixed(1) : (kg / WEIGHT_KG_PER_LB).toFixed(1);
+}
+
+function readWeightModalKg() {
+    const raw = parseFloat(document.getElementById('weight-value').value);
+    if (!Number.isFinite(raw)) return NaN;
+    return weightModalUnit === 'lb' ? raw * WEIGHT_KG_PER_LB : raw;
 }
 
 async function handleWeightSubmit(event) {
     event.preventDefault();
 
     const datetime = document.getElementById('weight-datetime').value;
-    const weight = parseFloat(document.getElementById('weight-value').value);
+    const weight = readWeightModalKg();
     const notes = document.getElementById('weight-notes').value;
 
-    if (!datetime || !weight) {
+    if (!datetime || !Number.isFinite(weight) || weight <= 0) {
         safeAlert('Please fill in all required fields');
         return;
     }
 
     const payload = {
         measured_at: new Date(datetime).toISOString(),
-        weight,
+        weight: Math.round(weight * 10) / 10,
         notes
     };
 
-    const res = await apiCall('/api/weight', 'POST', payload);
-
-    if (res) {
-        await window.DataStore.invalidateTags(['weight']);
-        closeWeightModal();
-        loadWeightLogs();
+    // Edit path: POST the replacement first so a failed POST leaves the
+    // original row intact. Only after the replacement lands do we remove the
+    // original — a DELETE failure at that point leaves a duplicate (surfaced
+    // to the user and fixable from the history list) rather than data loss.
+    // Server-backed originals are removed over the network; local
+    // (pending/rejected) originals are purged from IndexedDB directly.
+    //
+    // When editing a server-backed log, pass ?replaces=<id> so the server's
+    // weight_trend EMA skips the soon-to-be-deleted row. Without this, the
+    // new trend is smoothed against a disappearing value and drifts on every
+    // latest-entry edit — a drift that leaks into CSV export and MCP output.
+    const editing = editingWeightLog;
+    let postUrl = '/api/weight';
+    if (editing && editing.id != null && !(typeof editing.id === 'string' && editing.id.startsWith('local_'))) {
+        postUrl = `/api/weight?replaces=${encodeURIComponent(editing.id)}`;
     }
+    const res = await apiCall(postUrl, 'POST', payload);
+    if (!res) return;
+
+    if (editing && editing.id != null) {
+        if (typeof editing.id === 'string' && editing.id.startsWith('local_')) {
+            const localId = parseInt(editing.id.replace('local_', ''), 10);
+            if (window.MedTrackerDB && Number.isFinite(localId)) {
+                try {
+                    await window.MedTrackerDB.WeightStore.confirmDelete(localId);
+                    if (window.SyncManager) window.SyncManager.updateStatus();
+                } catch (e) {
+                    console.error('Failed to purge local edit:', e);
+                }
+            }
+        } else {
+            await apiCall(`/api/weight/${editing.id}`, 'DELETE');
+        }
+        editingWeightLog = null;
+    }
+
+    await window.DataStore.invalidateTags(['weight']);
+    closeWeightModal();
+    loadWeightLogs();
 }
-
-// ==================== Weight Ruler Component ====================
-
-let rulerState = {
-    currentWeight: 75.0,
-    isDragging: false,
-    startX: 0,
-    startWeight: 0,
-    pixelsPerKg: 40 // How many pixels = 1 kg
-};
 
 function setWeightValue(weight) {
-    // Clamp weight between min and max
-    weight = Math.max(30, Math.min(300, weight));
-    weight = Math.round(weight * 10) / 10; // Round to 1 decimal
+    // Clamp weight between min and max (kg), then round to 1 decimal. Always
+    // stores the value back into the weight-value input in the active unit.
+    let kg = Math.max(30, Math.min(300, Number(weight)));
+    if (!Number.isFinite(kg)) kg = 75;
+    kg = Math.round(kg * 10) / 10;
 
-    rulerState.currentWeight = weight;
-
-    // Update input field
-    document.getElementById('weight-value').value = weight.toFixed(1);
-}
-
-function initWeightRuler(initialWeight) {
-    setWeightValue(initialWeight);
-    renderRulerTicks(initialWeight);
-    updateRulerPosition(initialWeight);
-    attachRulerEventListeners();
-
-    // Add input event listener for manual typing
     const input = document.getElementById('weight-value');
-    input.addEventListener('input', (e) => {
-        const value = parseFloat(e.target.value);
-        if (!isNaN(value)) {
-            rulerState.currentWeight = value;
-            updateRulerPosition(value);
-        }
+    if (!input) return;
+    if (weightModalUnit === 'lb') {
+        const lb = kg / WEIGHT_KG_PER_LB;
+        input.value = lb.toFixed(1);
+    } else {
+        input.value = kg.toFixed(1);
+    }
+}
+
+
+// =================== Weight Current + Goal Cards (Wandergeek Phase 6) ===================
+
+// Trend arrow glyphs — decrease / increase / flat. Used by the current-weight
+// card. Delta is previous-to-latest (positive = gained).
+const WEIGHT_TREND_ARROWS = { down: '\u2193', up: '\u2191', flat: '\u2192' };
+
+// classifyWeightTrend — returns a token-group name ('good' | 'bad' | 'flat')
+// relative to the user's goal direction. The caller maps this to a CSS variant
+// via .wg-weight-trend--<variant>; styles.css owns the color aliases.
+//   • Any zero / non-finite delta, or a missing goal direction, returns 'flat'.
+//   • goal_direction === 'lose' (default): negative delta = good, positive = bad
+//   • goal_direction === 'gain'          : positive delta = good, negative = bad
+function classifyWeightTrend(delta, goalDirection) {
+    const d = Number(delta);
+    if (!Number.isFinite(d) || d === 0) return 'flat';
+    const dir = typeof goalDirection === 'string' ? goalDirection.toLowerCase() : '';
+    if (dir !== 'lose' && dir !== 'gain') return 'flat';
+    if (dir === 'lose') return d < 0 ? 'good' : 'bad';
+    return d > 0 ? 'good' : 'bad';
+}
+
+// Format helper — turns 2h / 5m / 3d into a short "... ago" phrase. Falls back
+// to the local ISO stamp when the log is older than a week.
+function formatWeightTimestamp(measuredAt) {
+    if (!measuredAt) return '';
+    const ts = new Date(measuredAt).getTime();
+    if (!Number.isFinite(ts)) return '';
+    const now = Date.now();
+    const diff = now - ts;
+    if (diff < 0) return 'just now';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return new Date(ts).toLocaleDateString(undefined, {
+        day: '2-digit', month: '2-digit', year: 'numeric'
     });
 }
 
-function renderRulerTicks(centerWeight) {
-    const ruler = document.getElementById('weight-ruler');
-    ruler.replaceChildren(); // Clear existing ticks
+function renderWeightCurrentCard(logs, goalData) {
+    const container = document.getElementById('weight-current-card');
+    if (!container) return;
+    container.replaceChildren();
+    container.className = 'wg-card wg-weight-current-card';
 
-    const container = document.getElementById('weight-ruler-container');
-    const containerWidth = container.clientWidth;
-    const centerX = containerWidth / 2;
-
-    // Generate ticks for a range around the center weight
-    const range = 15; // Show ±15 kg range
-    const tickSpacing = rulerState.pixelsPerKg; // pixels between each 1kg tick
-
-    // Calculate offset to center the current weight
-    const offset = -(centerWeight - Math.floor(centerWeight - range)) * tickSpacing;
-
-    ruler.style.transform = `translateX(${centerX + offset}px)`;
-
-    // Generate ticks
-    for (let kg = Math.floor(centerWeight - range); kg <= Math.ceil(centerWeight + range); kg++) {
-        const x = (kg - Math.floor(centerWeight - range)) * tickSpacing;
-
-        // Major tick every 1 kg
-        const tick = document.createElement('div');
-        tick.className = kg % 5 === 0 ? 'weight-tick major' : 'weight-tick minor';
-        tick.style.left = x + 'px';
-        ruler.appendChild(tick);
-
-        // Label every 1 kg
-        if (kg % 1 === 0) {
-            const label = document.createElement('div');
-            label.className = 'weight-tick-label';
-            label.textContent = kg;
-            label.style.left = x + 'px';
-            ruler.appendChild(label);
-        }
+    const list = Array.isArray(logs) ? logs : [];
+    if (list.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'wg-weight-current-card__empty wg-muted';
+        empty.textContent = 'No weight logged yet — add your first entry.';
+        container.appendChild(empty);
+        return;
     }
-}
 
-function attachRulerEventListeners() {
-    const container = document.getElementById('weight-ruler-container');
+    // Logs arrive newest-first from _renderWeightData (pending prepended + server DESC).
+    const latest = list[0];
+    const previous = list.length > 1 ? list[1] : null;
+    const latestWeight = Number(latest && latest.weight);
+    const previousWeight = previous && Number(previous.weight);
+    const hasPrevious = Number.isFinite(previousWeight);
+    const delta = hasPrevious ? (latestWeight - previousWeight) : 0;
+    // Backend weight-goal endpoint does not yet expose goal_direction — default
+    // to 'lose' so trend coloring still works for the legacy lose-weight users
+    // (matches renderWeightGoalCard's fallback). When no goal is set at all,
+    // the hasGoal check below still forces a flat variant.
+    const goalDirection = (goalData && typeof goalData.goal_direction === 'string')
+        ? goalData.goal_direction
+        : 'lose';
+    const hasGoal = !!(goalData && Number.isFinite(Number(goalData.goal)));
+    const variant = hasPrevious && hasGoal
+        ? classifyWeightTrend(delta, goalDirection)
+        : 'flat';
 
-    // Mouse events
-    container.addEventListener('mousedown', handleDragStart);
-    document.addEventListener('mousemove', handleDragMove);
-    document.addEventListener('mouseup', handleDragEnd);
+    const arrowGlyph = !hasPrevious || delta === 0
+        ? WEIGHT_TREND_ARROWS.flat
+        : (delta < 0 ? WEIGHT_TREND_ARROWS.down : WEIGHT_TREND_ARROWS.up);
 
-    // Touch events
-    container.addEventListener('touchstart', handleDragStart, { passive: false });
-    document.addEventListener('touchmove', handleDragMove, { passive: false });
-    document.addEventListener('touchend', handleDragEnd);
-}
-
-function handleDragStart(e) {
-    rulerState.isDragging = true;
-    rulerState.startWeight = rulerState.currentWeight;
-
-    if (e.type === 'touchstart') {
-        rulerState.startX = e.touches[0].clientX;
-        e.preventDefault(); // Prevent scrolling while dragging
+    const kicker = document.createElement('div');
+    kicker.className = 'wg-section-label wg-weight-current-card__kicker';
+    if (latest.isRejected) {
+        kicker.textContent = 'Latest · sync failed';
+    } else if (latest.isLocal) {
+        kicker.textContent = 'Latest · pending sync';
     } else {
-        rulerState.startX = e.clientX;
+        kicker.textContent = `Latest · ${formatWeightTimestamp(latest.measured_at)}`;
     }
-}
+    container.appendChild(kicker);
 
-function handleDragMove(e) {
-    if (!rulerState.isDragging) return;
+    const value = document.createElement('div');
+    value.className = 'wg-mono-display wg-weight-current-card__value';
+    const weightSpan = document.createElement('span');
+    weightSpan.className = 'wg-weight-current-card__weight';
+    weightSpan.textContent = Number.isFinite(latestWeight) ? latestWeight.toFixed(1) : '—';
+    const unitSpan = document.createElement('span');
+    unitSpan.className = 'wg-weight-current-card__unit';
+    unitSpan.textContent = 'kg';
+    value.appendChild(weightSpan);
+    value.appendChild(unitSpan);
+    container.appendChild(value);
 
-    let currentX;
-    if (e.type === 'touchmove') {
-        currentX = e.touches[0].clientX;
-        e.preventDefault(); // Prevent scrolling
+    const meta = document.createElement('div');
+    meta.className = 'wg-weight-current-card__meta';
+
+    const trend = document.createElement('span');
+    trend.className = `wg-tag wg-weight-trend wg-weight-trend--${variant}`;
+    trend.setAttribute('data-trend-variant', variant);
+    const arrow = document.createElement('span');
+    arrow.className = 'wg-weight-trend__arrow';
+    arrow.textContent = arrowGlyph;
+    const deltaSpan = document.createElement('span');
+    deltaSpan.className = 'wg-weight-trend__delta';
+    if (!hasPrevious) {
+        deltaSpan.textContent = 'first entry';
+    } else if (delta === 0) {
+        deltaSpan.textContent = '0.0 kg';
     } else {
-        currentX = e.clientX;
+        const sign = delta > 0 ? '+' : '\u2212';
+        deltaSpan.textContent = `${sign}${Math.abs(delta).toFixed(1)} kg`;
     }
+    trend.appendChild(arrow);
+    trend.appendChild(deltaSpan);
+    meta.appendChild(trend);
 
-    const deltaX = rulerState.startX - currentX; // Inverted: drag left = increase weight
-    const deltaWeight = deltaX / rulerState.pixelsPerKg;
-
-    const newWeight = rulerState.startWeight + deltaWeight;
-    setWeightValue(newWeight);
-
-    // Regenerate ticks and update position to keep ruler centered
-    renderRulerTicks(newWeight);
+    container.appendChild(meta);
 }
 
-function handleDragEnd(e) {
-    if (!rulerState.isDragging) return;
-    rulerState.isDragging = false;
-}
+function renderWeightGoalCard(logs, goalData) {
+    const container = document.getElementById('weight-goal-card');
+    if (!container) return;
+    container.replaceChildren();
+    container.className = 'wg-weight-goal-card';
 
-function updateRulerPosition(weight) {
-    // Simply regenerate the ticks centered on the new weight
-    renderRulerTicks(weight);
-}
-
-
-// =================== Helper Functions for Enhanced Weight Chart ===================
-
-// Linear regression for trend calculation
-function linearRegression(dataPoints) {
-    if (dataPoints.length < 2) return null;
-
-    const n = dataPoints.length;
-    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-
-    dataPoints.forEach(point => {
-        const x = point.x; // Time in days
-        const y = point.y; // Weight
-        sumX += x;
-        sumY += y;
-        sumXY += x * y;
-        sumX2 += x * x;
-    });
-
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-    const intercept = (sumY - slope * sumX) / n;
-
-    return { slope, intercept };
-}
-
-// catmullRomSpline and calculateYAxisTicks moved to core/chart-utils.js
-
-// Calculate weight statistics
-function calculateWeightStats(logs, goalData) {
-    if (!logs || logs.length === 0) {
-        return null;
+    const goalValue = goalData && Number(goalData.goal);
+    if (!Number.isFinite(goalValue)) {
+        container.hidden = true;
+        return;
     }
+    container.hidden = false;
+    container.classList.add('wg-card', 'wg-card--inset');
 
-    const stats = {};
+    const list = Array.isArray(logs) ? logs : [];
+    const latestWeight = list.length > 0 ? Number(list[0].weight) : null;
+    const hasLatest = Number.isFinite(latestWeight);
+    const goalDirection = (goalData && typeof goalData.goal_direction === 'string')
+        ? goalData.goal_direction.toLowerCase()
+        : 'lose';
 
-    // Trend weight from most recent entry
-    const mostRecent = logs[0]; // Already sorted DESC by API
-    stats.trendWeight = mostRecent.weight_trend || mostRecent.weight;
-    stats.currentWeight = mostRecent.weight;
+    const label = document.createElement('div');
+    label.className = 'wg-section-label wg-weight-goal-card__label';
+    label.textContent = 'GOAL';
+    container.appendChild(label);
 
-    // Calculate weekly rate using linear regression on last 4 weeks
-    const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
-    const recentLogs = logs
-        .filter(l => new Date(l.measured_at) >= fourWeeksAgo)
-        .reverse(); // Oldest first for regression
+    const value = document.createElement('div');
+    value.className = 'wg-mono-display wg-weight-goal-card__value';
+    value.textContent = `${goalValue.toFixed(1)} kg`;
+    container.appendChild(value);
 
-    if (recentLogs.length >= 2) {
-        const now = new Date();
-        const regressionData = recentLogs.map(l => {
-            const date = new Date(l.measured_at);
-            const daysAgo = (now - date) / (1000 * 60 * 60 * 24);
-            return { x: -daysAgo, y: l.weight }; // Negative days ago (so slope is positive for weight loss)
-        });
+    // Progress bar. Uses the gloss-inset track primitive and a neutral
+    // fill-pct custom property (same convention as WGMacroBar).
+    const track = document.createElement('div');
+    track.className = 'wg-gloss--inset wg-weight-goal-card__track';
+    const fill = document.createElement('div');
+    fill.className = 'wg-weight-goal-card__fill';
 
-        const regression = linearRegression(regressionData);
-        if (regression) {
-            stats.weeklyRate = regression.slope * 7; // Convert daily rate to weekly
+    // Compute progress. For lose: start from goalData.highest_weight (fallback
+    // to latest + |delta| when absent). For gain: start from goalData.lowest_weight
+    // if present, else from 0 relative to goal. Clamp to [0, 100].
+    let pct = 0;
+    if (hasLatest) {
+        if (goalDirection === 'lose') {
+            const start = Number(goalData.highest_weight);
+            if (Number.isFinite(start) && start > goalValue) {
+                const total = start - goalValue;
+                const done = start - latestWeight;
+                pct = (done / total) * 100;
+            } else if (latestWeight <= goalValue) {
+                pct = 100;
+            }
+        } else {
+            const start = Number(goalData.lowest_weight);
+            if (Number.isFinite(start) && start < goalValue) {
+                const total = goalValue - start;
+                const done = latestWeight - start;
+                pct = (done / total) * 100;
+            } else if (latestWeight >= goalValue) {
+                pct = 100;
+            }
         }
     }
+    if (!Number.isFinite(pct)) pct = 0;
+    pct = Math.max(0, Math.min(100, pct));
+    fill.style.setProperty('--fill-pct', `${pct}%`);
+    track.appendChild(fill);
+    container.appendChild(track);
 
-    // Calculate forecasted goal date
-    if (goalData && goalData.goal && stats.weeklyRate && stats.weeklyRate < 0) {
-        const weightToLose = stats.currentWeight - goalData.goal;
-        const weeksNeeded = weightToLose / Math.abs(stats.weeklyRate);
-        if (weeksNeeded > 0 && weeksNeeded < 520) { // Max 10 years
-            const forecastDate = new Date(Date.now() + weeksNeeded * 7 * 24 * 60 * 60 * 1000);
-            stats.forecastDate = forecastDate;
+    const delta = document.createElement('div');
+    delta.className = 'wg-weight-goal-card__delta wg-muted';
+    if (!hasLatest) {
+        delta.textContent = 'Log a weight to see progress';
+    } else {
+        const diff = latestWeight - goalValue;
+        if (Math.abs(diff) < 0.05) {
+            delta.textContent = 'At goal';
+        } else {
+            const sign = diff > 0 ? '+' : '\u2212';
+            delta.textContent = `${sign}${Math.abs(diff).toFixed(1)} kg to goal`;
         }
     }
-
-    // Current diff from goal
-    if (goalData && goalData.goal) {
-        stats.goalWeight = goalData.goal;
-        stats.deltaFromGoal = stats.currentWeight - goalData.goal;
-    }
-
-    return stats;
+    container.appendChild(delta);
 }
 
-// Render weight chart
-// Enhanced version with smoothing, proper axes, diet plan line, and statistics
+// Render weight chart — delegates to WGWeightChart for the Wandergeek SVG,
+// honours the active range (7d / 30d / 90d / all) from localStorage, and
+// renders the goal overlay when a goal is set. Empty input or no match in
+// the active window falls back to the component's empty-state card.
 function renderWeightChart(logs, goalData) {
     const container = document.getElementById('weightChart');
     if (!container) return;
 
-    container.replaceChildren(); // Clear previous
+    container.replaceChildren();
+    container.classList.add('wg-weight-chart-panel');
 
-    if (!logs || logs.length === 0) {
+    const activeRange = getActiveWeightRange();
+    container.setAttribute('data-weight-range', activeRange);
+
+    if (!window.WGWeightChart || typeof window.WGWeightChart.render !== 'function') {
         const noDataSpan = document.createElement('span');
         noDataSpan.className = 'no-data-msg';
-        noDataSpan.textContent = "No data available";
+        noDataSpan.textContent = 'Chart unavailable';
         container.appendChild(noDataSpan);
         return;
     }
 
-    // Chart period: -30 days to +2 days from now
-    const now = new Date();
-    const chartStartDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const chartEndDate = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
-
-    // Filter and sort logs within period (sort oldest first for chart)
-    const periodLogs = logs
-        .filter(l => {
-            const d = new Date(l.measured_at);
-            return d >= chartStartDate && d <= chartEndDate;
-        })
-        .sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
-
-    if (periodLogs.length === 0) {
-        const noPeriodSpan = document.createElement('span');
-        noPeriodSpan.className = 'no-data-msg';
-        noPeriodSpan.textContent = "No data in current period";
-        container.replaceChildren(noPeriodSpan);
-        return;
-    }
-
-    const data = periodLogs.map(w => ({
-        date: new Date(w.measured_at),
-        weight: w.weight
-    }));
-
-    // Dimensions with left padding for Y-axis
-    const leftPadding = 50;
-    const rightPadding = 45;
-    const totalWidth = container.clientWidth;
-    const chartWidth = totalWidth - leftPadding - rightPadding;
-    const chartHeight = container.clientHeight - 50;
-
-    // Y-axis range calculation
-    const weightsInPeriod = data.map(d => d.weight);
-    const maxInPeriod = Math.max(...weightsInPeriod);
-    const minInPeriod = Math.min(...weightsInPeriod);
-
-    let yMax = maxInPeriod + 5; // +5kg padding
-    let yMin = minInPeriod;
-
-    if (goalData && goalData.goal) {
-        yMin = Math.min(goalData.goal - 3, minInPeriod);
-    }
-
-    // Calculate Y-axis ticks
-    const yTicks = window.ChartUtils.calculateYAxisTicks(yMin, yMax);
-
-    // Date range
-    const dateRange = chartEndDate - chartStartDate;
-
-    // Scaling functions
-    const xScaleByDate = (date) => leftPadding + ((date - chartStartDate) / dateRange) * chartWidth;
-    const yScale = (weight) => chartHeight - ((weight - yMin) / (yMax - yMin)) * chartHeight;
-
-    // SVG Construction
-    const svgNs = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(svgNs, "svg");
-    svg.setAttribute("class", "chart-svg");
-    svg.setAttribute("width", "100%");
-    svg.setAttribute("height", "100%");
-    svg.setAttribute("viewBox", `0 0 ${totalWidth} ${chartHeight + 30}`);
-
-    // Y-Axis grid lines and labels
-    yTicks.forEach((val, idx) => {
-        const y = yScale(val);
-
-        // Label
-        const text = document.createElementNS(svgNs, "text");
-        text.setAttribute("x", leftPadding - 5);
-        text.setAttribute("y", y + 4);
-        text.setAttribute("class", "chart-label");
-        text.setAttribute("style", "text-anchor: end; fill: var(--hint-color); font-size: 12px;");
-        text.textContent = val.toFixed(0);
-        svg.appendChild(text);
-
-        // Skip outermost grid lines to avoid box feel
-        if (idx === 0 || idx === yTicks.length - 1) return;
-        const gridLine = document.createElementNS(svgNs, "line");
-        gridLine.setAttribute("x1", leftPadding);
-        gridLine.setAttribute("y1", y);
-        gridLine.setAttribute("x2", totalWidth - rightPadding);
-        gridLine.setAttribute("y2", y);
-        gridLine.setAttribute("class", "chart-grid-refined");
-        svg.appendChild(gridLine);
+    const node = window.WGWeightChart.render({
+        logs: Array.isArray(logs) ? logs : [],
+        range: activeRange,
+        goal: goalData || null,
     });
-
-    // Goal line (horizontal green line with label)
-    if (goalData && goalData.goal) {
-        const goalY = yScale(goalData.goal);
-        const goalLine = document.createElementNS(svgNs, "line");
-        goalLine.setAttribute("x1", leftPadding);
-        goalLine.setAttribute("y1", goalY);
-        goalLine.setAttribute("x2", totalWidth - rightPadding);
-        goalLine.setAttribute("y2", goalY);
-        goalLine.setAttribute("class", "chart-goal-line");
-        goalLine.setAttribute("stroke", "#22c55e");
-        goalLine.setAttribute("stroke-width", "2");
-        svg.appendChild(goalLine);
-
-        // Goal label on right
-        const goalLabel = document.createElementNS(svgNs, "text");
-        goalLabel.setAttribute("x", totalWidth - rightPadding + 5);
-        goalLabel.setAttribute("y", goalY + 4);
-        goalLabel.setAttribute("class", "chart-label");
-        goalLabel.setAttribute("style", "text-anchor: start; fill: #22c55e; font-weight: bold; font-size: 11px;");
-        goalLabel.textContent = "Goal";
-        svg.appendChild(goalLabel);
-    }
-
-    // Diet plan line from highest weight (all time) to goal
-    if (goalData && goalData.goal && goalData.goal_date && goalData.highest_weight && goalData.highest_date) {
-        const highestDate = new Date(goalData.highest_date);
-        const highestWeight = goalData.highest_weight;
-        const goalDate = new Date(goalData.goal_date);
-        const goalWeight = goalData.goal;
-
-        // Calculate line equation
-        const totalTimeSpan = goalDate - highestDate;
-        const weightDiff = goalWeight - highestWeight;
-
-        if (totalTimeSpan > 0) {
-            const getWeightAtDate = (date) => {
-                const elapsed = date - highestDate;
-                return highestWeight + (weightDiff * elapsed / totalTimeSpan);
-            };
-
-            // Clip to chart boundaries
-            let startDate = highestDate < chartStartDate ? chartStartDate : highestDate;
-            let endDate = goalDate > chartEndDate ? chartEndDate : goalDate;
-
-            const startWeight = getWeightAtDate(startDate);
-            const endWeight = getWeightAtDate(endDate);
-
-            const startX = xScaleByDate(startDate);
-            const startY = yScale(startWeight);
-            const endX = xScaleByDate(endDate);
-            const endY = yScale(endWeight);
-
-            const planLine = document.createElementNS(svgNs, "line");
-            planLine.setAttribute("x1", startX);
-            planLine.setAttribute("y1", startY);
-            planLine.setAttribute("x2", endX);
-            planLine.setAttribute("y2", endY);
-            planLine.setAttribute("stroke", "#06b6d4"); // Cyan
-            planLine.setAttribute("stroke-width", "2");
-            planLine.setAttribute("stroke-dasharray", "5,5");
-            planLine.setAttribute("opacity", "0.6");
-            svg.appendChild(planLine);
-
-            // Add label for today's diet plan weight
-            // Only show if today is within the diet plan period
-            if (now >= highestDate && now <= goalDate) {
-                const todayPlanWeight = getWeightAtDate(now);
-                const todayX = xScaleByDate(now);
-                const todayY = yScale(todayPlanWeight);
-
-                // Add a small circle marker on the diet line for today
-                const todayMarker = document.createElementNS(svgNs, "circle");
-                todayMarker.setAttribute("cx", todayX);
-                todayMarker.setAttribute("cy", todayY);
-                todayMarker.setAttribute("r", 4);
-                todayMarker.setAttribute("fill", "#06b6d4");
-                todayMarker.setAttribute("stroke", "var(--bg-color)");
-                todayMarker.setAttribute("stroke-width", "2");
-                svg.appendChild(todayMarker);
-
-                // Add label showing today's plan weight
-                const todayLabel = document.createElementNS(svgNs, "text");
-                todayLabel.setAttribute("x", todayX);
-                todayLabel.setAttribute("y", todayY - 12);
-                todayLabel.setAttribute("class", "chart-label");
-                todayLabel.setAttribute("style", "text-anchor: middle; fill: #06b6d4; font-weight: bold; font-size: 12px;");
-                todayLabel.textContent = todayPlanWeight.toFixed(1) + " kg";
-                svg.appendChild(todayLabel);
-            }
-        }
-    }
-
-    // Generate points for weight data
-    const points = data.map(d => [xScaleByDate(d.date), yScale(d.weight)]);
-
-    // Smoothed weight curve using Catmull-Rom splines
-    const smoothPath = window.ChartUtils.catmullRomSpline(points, 15);
-
-    // Area under curve with gradient fill
-    const firstPoint = points[0];
-    const lastPoint = points[points.length - 1];
-    const areaPath = `${smoothPath} L ${lastPoint[0]},${chartHeight} L ${firstPoint[0]},${chartHeight} Z`;
-
-    window.ChartUtils.createGradient(svgNs, svg, 'grad-weight', '#3b82f6', 0.25);
-    const pathArea = document.createElementNS(svgNs, "path");
-    pathArea.setAttribute("d", areaPath);
-    pathArea.setAttribute("class", "chart-area");
-    pathArea.setAttribute("fill", "url(#grad-weight)");
-    svg.appendChild(pathArea);
-
-    // Weight line
-    const pathLine = document.createElementNS(svgNs, "path");
-    pathLine.setAttribute("d", smoothPath);
-    pathLine.setAttribute("class", "chart-line");
-    pathLine.setAttribute("stroke", "#3b82f6");
-    pathLine.setAttribute("stroke-width", "3");
-    pathLine.setAttribute("fill", "none");
-    svg.appendChild(pathLine);
-    window.ChartUtils.animateLine(pathLine);
-
-    // Data points (all except last)
-    points.forEach((p, i) => {
-        if (i === points.length - 1) return; // last point handled below
-        const circle = document.createElementNS(svgNs, "circle");
-        circle.setAttribute("cx", p[0]);
-        circle.setAttribute("cy", p[1]);
-        circle.setAttribute("r", 4);
-        circle.setAttribute("fill", "#3b82f6");
-        circle.setAttribute("stroke", "var(--bg-color)");
-        circle.setAttribute("stroke-width", "2");
-        svg.appendChild(circle);
-    });
-
-    // Last-value emphasis with pulse ring
-    const lastDataPoint = points[points.length - 1];
-    const lastDotGroup = window.ChartUtils.createLastValueDot(svgNs, lastDataPoint[0], lastDataPoint[1], '#3b82f6');
-    svg.appendChild(lastDotGroup);
-
-    // Current weight label (on most recent point)
-    const currentLabel = document.createElementNS(svgNs, "text");
-    currentLabel.setAttribute("x", lastDataPoint[0]);
-    currentLabel.setAttribute("y", lastDataPoint[1] - 12);
-    currentLabel.setAttribute("class", "chart-label");
-    currentLabel.setAttribute("style", "text-anchor: middle; fill: #3b82f6; font-weight: bold; font-size: 12px;");
-    currentLabel.textContent = data[data.length - 1].weight.toFixed(1) + " kg";
-    svg.appendChild(currentLabel);
-
-    // Date labels (bottom)
-    const firstDateLabel = document.createElementNS(svgNs, "text");
-    firstDateLabel.setAttribute("x", leftPadding);
-    firstDateLabel.setAttribute("y", chartHeight + 20);
-    firstDateLabel.setAttribute("class", "chart-label");
-    firstDateLabel.setAttribute("style", "text-anchor: start; fill: var(--hint-color); font-size: 11px;");
-    firstDateLabel.textContent = chartStartDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
-    svg.appendChild(firstDateLabel);
-
-    const lastDateLabel = document.createElementNS(svgNs, "text");
-    lastDateLabel.setAttribute("x", totalWidth - rightPadding);
-    lastDateLabel.setAttribute("y", chartHeight + 20);
-    lastDateLabel.setAttribute("class", "chart-label");
-    lastDateLabel.setAttribute("style", "text-anchor: end; fill: var(--hint-color); font-size: 11px;");
-    lastDateLabel.textContent = chartEndDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
-    svg.appendChild(lastDateLabel);
-
-    container.appendChild(svg);
-
-    // Render statistics below the chart
-    const stats = calculateWeightStats(logs, goalData);
-    if (stats) {
-        renderWeightStats(stats);
-    }
+    if (node) container.appendChild(node);
 }
 
-// Render weight statistics below the chart
-function renderWeightStats(stats) {
-    const statsContainer = document.getElementById('weight-stats');
-    if (!statsContainer) return;
-
-    const root = document.createElement('div');
-    root.className = 'weight-stats-container';
-
-    const leftColumn = document.createElement('div');
-    leftColumn.className = 'weight-stats-column';
-    const rightColumn = document.createElement('div');
-    rightColumn.className = 'weight-stats-column';
-
-    const appendStatItem = (column, label, value) => {
-        column.appendChild(createStatItem(`${label}:`, value, {
-            className: 'weight-stat-item',
-            labelClass: 'weight-stat-label',
-            valueClass: 'weight-stat-value',
-            separator: ' '
-        }));
-    };
-
-    appendStatItem(leftColumn, 'Trend', `${stats.trendWeight.toFixed(1)} kg`);
-
-    if (stats.weeklyRate !== undefined) {
-        const rateStr = stats.weeklyRate >= 0
-            ? `+${stats.weeklyRate.toFixed(1)} kg/week`
-            : `${stats.weeklyRate.toFixed(1)} kg/week`;
-        appendStatItem(leftColumn, 'Rate', rateStr);
-    }
-
-    if (stats.forecastDate) {
-        const dateStr = stats.forecastDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        appendStatItem(leftColumn, 'Forecast', dateStr);
-    } else {
-        appendStatItem(leftColumn, 'Forecast', 'Unknown');
-    }
-
-    if (stats.goalWeight !== undefined) {
-        appendStatItem(rightColumn, 'Goal', `${stats.goalWeight.toFixed(1)} kg`);
-
-        const deltaStr = stats.deltaFromGoal >= 0
-            ? `+${stats.deltaFromGoal.toFixed(1)} kg`
-            : `${stats.deltaFromGoal.toFixed(1)} kg`;
-        appendStatItem(rightColumn, 'Δ from goal', deltaStr);
-    }
-
-    root.appendChild(leftColumn);
-    root.appendChild(rightColumn);
-    statsContainer.replaceChildren(root);
-}
 
 
 async function loadWeightLogs() {
@@ -603,8 +494,11 @@ async function loadWeightLogs() {
         key: 'weight',
         tags: ['weight'],
         fetcher: async () => {
+            // days=0 disables the server's since filter; limit=1000 overrides
+            // the 100-row default so the 90d / All range-selector options can
+            // actually plot older history for long-term users.
             const [logsResult, goalResult] = await Promise.allSettled([
-                apiCall('/api/weight?days=35'),
+                apiCall('/api/weight?days=0&limit=1000'),
                 apiCall('/api/weight/goal')
             ]);
             const logsRes = logsResult.status === 'fulfilled' ? logsResult.value : null;
@@ -660,68 +554,281 @@ async function _renderWeightData(logsRes, goalRes) {
         }
     }
 
-    if (allLogs.length === 0 && logsRes === null) {
-        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+    // Sort by measured_at DESC so downstream renderers (current card, seed
+    // for new-entry modal) see a true newest-first order even when the user
+    // backdates an offline entry. The history grouping re-sorts within days,
+    // and the chart has its own filter, so their output is unaffected.
+    allLogs.sort((a, b) => {
+        const ta = new Date(a && a.measured_at).getTime();
+        const tb = new Date(b && b.measured_at).getTime();
+        const va = Number.isFinite(ta) ? ta : 0;
+        const vb = Number.isFinite(tb) ? tb : 0;
+        return vb - va;
+    });
 
-        return;
-    }
-
-    // Cache logs globally for ruler component
     cachedWeightLogs = allLogs;
 
-    renderWeightLogs(allLogs);
-    renderWeightChart(allLogs, goalRes || {});
-}
+    const goalData = goalRes || {};
+    renderWeightCurrentCard(allLogs, goalData);
+    renderWeightGoalCard(allLogs, goalData);
+    renderWeightRangeSelector({
+        active: getActiveWeightRange(),
+        onChange: (range) => {
+            setActiveWeightRange(range);
+            _renderWeightData(logsRes, goalRes);
+        }
+    });
+    renderWeightChart(allLogs, goalData);
 
-function renderWeightLogs(logs) {
-    const list = document.getElementById('weight-list');
-    list.replaceChildren();
-
-    if (!logs || logs.length === 0) {
+    if (allLogs.length === 0 && logsRes === null) {
+        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
         return;
     }
 
-    // Limit to 30 most recent
-    if (logs.length > 30) {
-        logs = logs.slice(0, 30);
+    renderWeightLogs(allLogs, getActiveWeightRange());
+}
+
+// Filter logs to entries inside the active range so the history list tracks
+// the same window the chart shows. Anchor on Date.now() (not the newest
+// log) so "7d" means "last 7 days from today" — matching the BP range
+// selector's semantics and what a user expects from the label. 'all'
+// returns unfiltered input.
+const WEIGHT_RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90 };
+
+function filterWeightLogsByRange(logs, range) {
+    if (!logs || logs.length === 0) return logs || [];
+    if (!range || range === 'all') return logs;
+    const days = WEIGHT_RANGE_DAYS[range];
+    if (!days) return logs;
+    // Cap upper bound at Date.now() so a mistyped future-dated entry does
+    // not slip into "last N days" views. The chart filter applies the same
+    // cap — keep the two in sync.
+    const now = Date.now();
+    const cutoff = now - days * 86400000;
+    return logs.filter((l) => {
+        const t = new Date(l && l.measured_at).getTime();
+        return Number.isFinite(t) && t >= cutoff && t <= now;
+    });
+}
+
+// Render weight logs grouped by day as Wandergeek gloss cards (Phase 6, Task 5).
+// Mirrors renderBPReadings: each group is a .wg-weight-history__group <li>
+// with a .wg-section-label header and a list of .wg-card rows. Offline +
+// rejected states surface as .wg-tag--mono variants. Each row carries a
+// trailing .wg-icon-btn cluster (edit + delete).
+function renderWeightLogs(logs, range) {
+    const list = document.getElementById('weight-list');
+    if (!list) return;
+    list.replaceChildren();
+    list.classList.add('wg-weight-history');
+
+    const filtered = filterWeightLogsByRange(logs || [], range);
+    if (filtered.length === 0) {
+        return;
     }
 
-    logs.forEach(w => {
-        const dateStr = formatDate(w.measured_at);
-        const trendDiff = w.weight_trend ? (w.weight - w.weight_trend).toFixed(1) : '0.0';
-        const trendIcon = trendDiff > 0 ? '📈' : (trendDiff < 0 ? '📉' : '➡️');
-        const pendingClass = w.isLocal ? ' pending-sync' : '';
-        const listItem = document.createElement('li');
-        listItem.className = `weight-item${pendingClass}`;
-
-        const data = document.createElement('div');
-        data.className = 'weight-data';
-
-        const value = document.createElement('div');
-        value.className = 'weight-value';
-        value.appendChild(document.createTextNode(`${w.weight.toFixed(1)} kg `));
-        if (w.isRejected) {
-            value.appendChild(createSyncRejectedBadge(w.errorMessage));
-        } else if (w.isLocal) {
-            value.appendChild(createSyncBadge());
-        }
-
-        const trend = document.createElement('div');
-        trend.className = 'weight-trend';
-        trend.textContent = `${trendIcon} Trend: ${w.weight_trend ? w.weight_trend.toFixed(1) : w.weight.toFixed(1)} kg`;
-
-        const meta = document.createElement('div');
-        meta.className = 'weight-meta';
-        meta.textContent = dateStr;
-
-        data.appendChild(value);
-        data.appendChild(trend);
-        data.appendChild(meta);
-
-        listItem.appendChild(data);
-        listItem.appendChild(createDeleteButton(() => deleteWeightLog(String(w.id))));
-        list.appendChild(listItem);
+    // The server fetch (loadWeightLogs) caps at 1000 rows — that bound is the
+    // only truncation; the history list shows every fetched entry so "All"
+    // really means every fetched entry and older rows stay editable.
+    const groups = groupWeightLogsByDay(filtered);
+    groups.forEach((group) => {
+        const groupItem = buildWeightHistoryGroup(group.label, group.logs);
+        if (groupItem) list.appendChild(groupItem);
     });
+}
+
+function groupWeightLogsByDay(logs) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const buckets = new Map();
+    const ensureBucket = (key, label, sortKey) => {
+        if (!buckets.has(key)) buckets.set(key, { label, sortKey, logs: [] });
+        return buckets.get(key);
+    };
+
+    logs.forEach((w) => {
+        const d = new Date(w.measured_at);
+        if (!Number.isFinite(d.getTime())) return;
+        const dayStart = new Date(d);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayMs = dayStart.getTime();
+
+        let key;
+        let label;
+        if (dayMs === today.getTime()) {
+            key = 'today';
+            label = 'Today';
+        } else if (dayMs === yesterday.getTime()) {
+            key = 'yesterday';
+            label = 'Yesterday';
+        } else {
+            key = String(dayMs);
+            label = dayStart.toLocaleDateString(undefined, {
+                day: '2-digit', month: '2-digit', year: 'numeric'
+            });
+        }
+        ensureBucket(key, label, dayMs).logs.push(w);
+    });
+
+    return Array.from(buckets.values()).sort((a, b) => b.sortKey - a.sortKey);
+}
+
+function buildWeightHistoryGroup(label, logs) {
+    if (!logs || logs.length === 0) return null;
+
+    const sorted = [...logs].sort(
+        (a, b) => new Date(b.measured_at) - new Date(a.measured_at)
+    );
+
+    const groupItem = document.createElement('li');
+    groupItem.className = 'wg-weight-history__group';
+
+    const header = document.createElement('div');
+    header.className = 'wg-section-label wg-weight-history__group-label';
+    const headerText = document.createElement('span');
+    headerText.textContent = label;
+    header.appendChild(headerText);
+    groupItem.appendChild(header);
+
+    const rowList = document.createElement('ul');
+    rowList.className = 'list-reset wg-weight-history__rows';
+    sorted.forEach((w) => rowList.appendChild(buildWeightHistoryRow(w)));
+    groupItem.appendChild(rowList);
+
+    return groupItem;
+}
+
+function buildWeightHistoryRow(log) {
+    const item = document.createElement('li');
+    item.className = 'wg-card wg-weight-history-row';
+    if (log.isLocal) item.classList.add('wg-weight-history-row--pending');
+    if (log.isRejected) item.classList.add('wg-weight-history-row--rejected');
+    item.setAttribute('data-weight-id', String(log.id));
+
+    const body = document.createElement('div');
+    body.className = 'wg-weight-history-row__body';
+
+    const value = document.createElement('div');
+    value.className = 'wg-mono-display wg-weight-history-row__value';
+    const weightSpan = document.createElement('span');
+    weightSpan.className = 'wg-weight-history-row__weight';
+    const weightNum = Number(log.weight);
+    weightSpan.textContent = Number.isFinite(weightNum) ? weightNum.toFixed(1) : '—';
+    const unitSpan = document.createElement('span');
+    unitSpan.className = 'wg-weight-history-row__unit';
+    unitSpan.textContent = 'kg';
+    value.appendChild(weightSpan);
+    value.appendChild(unitSpan);
+    body.appendChild(value);
+
+    const meta = document.createElement('div');
+    meta.className = 'wg-weight-history-row__meta';
+
+    const [, timeStr = ''] = formatDate(log.measured_at).split(' ');
+    if (timeStr) {
+        const time = document.createElement('span');
+        time.className = 'wg-weight-history-row__time';
+        time.textContent = timeStr;
+        meta.appendChild(time);
+    }
+
+    if (log.isRejected) {
+        meta.appendChild(buildWeightSyncTag('rejected', 'Failed', log.errorMessage));
+    } else if (log.isLocal) {
+        meta.appendChild(buildWeightSyncTag('pending', 'Pending'));
+    }
+
+    body.appendChild(meta);
+    item.appendChild(body);
+
+    const actions = document.createElement('div');
+    actions.className = 'wg-weight-history-row__actions';
+    actions.appendChild(buildWeightRowEditButton(log));
+    actions.appendChild(buildWeightRowDeleteButton(log));
+    item.appendChild(actions);
+
+    return item;
+}
+
+function buildWeightSyncTag(kind, label, tooltip) {
+    const tag = document.createElement('span');
+    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-weight-history-row__sync`;
+    tag.textContent = label;
+    if (tooltip) tag.title = tooltip;
+    return tag;
+}
+
+function buildWeightRowEditButton(log) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-icon-btn wg-weight-history-row__edit';
+    btn.setAttribute('aria-label', 'Edit weight');
+
+    const gloss = document.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg('pencil', { size: 16 }));
+    }
+    btn.appendChild(gloss);
+
+    btn.addEventListener('click', () => {
+        if (typeof window.editWeightLog === 'function') {
+            window.editWeightLog(log);
+        }
+    });
+    return btn;
+}
+
+function buildWeightRowDeleteButton(log) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-icon-btn wg-weight-history-row__delete';
+    btn.setAttribute('aria-label', 'Delete weight');
+
+    const gloss = document.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg('trash', { size: 16 }));
+    }
+    btn.appendChild(gloss);
+
+    btn.addEventListener('click', () => deleteWeightLog(String(log.id)));
+    return btn;
+}
+
+// Edit a weight log — prefill the edit-weight modal with the selected log's
+// values and open it. The save path still POSTs a new entry via
+// handleWeightSubmit; this Phase 6 change updates the header to "Edit weight"
+// so the UI reflects the user's intent even though the backend contract is
+// preserved.
+function editWeightLog(log) {
+    if (!log) return;
+    if (typeof window.showWeightModal === 'function') {
+        window.showWeightModal();
+    }
+    editingWeightLog = log;
+    setWeightModalTitle('Edit weight');
+    resetWeightUnitToggle();
+    const valueInput = document.getElementById('weight-value');
+    const dtInput = document.getElementById('weight-datetime');
+    const notesInput = document.getElementById('weight-notes');
+    const weightNum = Number(log.weight);
+    if (valueInput && Number.isFinite(weightNum)) {
+        valueInput.value = weightNum.toFixed(1);
+    }
+    if (dtInput && log.measured_at) {
+        const d = new Date(log.measured_at);
+        if (Number.isFinite(d.getTime())) {
+            const pad = (n) => String(n).padStart(2, '0');
+            dtInput.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+    }
+    if (notesInput) {
+        notesInput.value = typeof log.notes === 'string' ? log.notes : '';
+    }
 }
 
 async function deleteWeightLog(id) {
@@ -735,7 +842,7 @@ async function deleteWeightLog(id) {
 async function _deleteWeightApi(id) {
     // Check if this is a local-only log
     if (typeof id === 'string' && id.startsWith('local_')) {
-        const localId = parseInt(id.replace('local_', ''));
+        const localId = parseInt(id.replace('local_', ''), 10);
         if (window.MedTrackerDB) {
             await window.MedTrackerDB.WeightStore.confirmDelete(localId);
             if (window.SyncManager) window.SyncManager.updateStatus();
@@ -752,7 +859,7 @@ async function _deleteWeightApi(id) {
             try {
                 // Find and delete the local record with this serverId
                 const allLogs = await window.MedTrackerDB.WeightStore.getAll();
-                const localRecord = allLogs.find(l => l.serverId === parseInt(id));
+                const localRecord = allLogs.find(l => l.serverId === parseInt(id, 10));
                 if (localRecord && localRecord.localId) {
                     await window.MedTrackerDB.WeightStore.confirmDelete(localRecord.localId);
                     if (window.SyncManager) window.SyncManager.updateStatus();
