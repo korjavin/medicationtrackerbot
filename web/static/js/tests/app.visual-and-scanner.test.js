@@ -248,13 +248,22 @@ describe('app.js charts, scanner and visualization helpers', () => {
       window.renderWeightGoalCard(logs, goalData);
       expect(document.querySelector('#weight-goal-card.wg-weight-goal-card')).toBeTruthy();
 
+      // Phase 8, Task 6: vitals chart renders via WGVitalsChart parameterised
+      // by vital ('hr'|'spo2'|'stress') under the .wg-vitals-chart--<vital>
+      // class — colour comes from --wg-health-vitals-*-line tokens, not a
+      // JS color argument.
       const tsBase = Date.now() - (24 * 60 * 60 * 1000);
-      window.renderVitalsLineChart('heartRateChart', [
-        { timestamp: tsBase, min: 58, max: 84, avg: 71 },
-        { timestamp: tsBase + (2 * 60 * 60 * 1000), min: 60, max: 86, avg: 73 },
-        { timestamp: tsBase + (8 * 60 * 60 * 1000), min: 59, max: 82, avg: 70 }
-      ], '#ff3b30', 40, 160);
-      expect(vitals.querySelector('svg')).toBeTruthy();
+      const vitalsSvg = window.WGVitalsChart.render({
+        history: [
+          { timestamp: tsBase, min: 58, max: 84, avg: 71 },
+          { timestamp: tsBase + (2 * 60 * 60 * 1000), min: 60, max: 86, avg: 73 },
+          { timestamp: tsBase + (8 * 60 * 60 * 1000), min: 59, max: 82, avg: 70 }
+        ],
+        vital: 'hr',
+        range: 'all'
+      });
+      vitals.appendChild(vitalsSvg);
+      expect(vitals.querySelector('svg.wg-vitals-chart')).toBeTruthy();
 
       window.renderSleepChart([
         {
@@ -322,7 +331,6 @@ describe('app.js charts, scanner and visualization helpers', () => {
         });
 
       window.DataStore.loadSWR = loadSWRSpy;
-      const vitalsSpy = vi.spyOn(window, 'renderVitalsLineChart').mockImplementation(() => {});
 
       await window.loadHealthOverview();
       expect(document.getElementById('health-overview-content').innerHTML).toContain('No cached data');
@@ -337,7 +345,6 @@ describe('app.js charts, scanner and visualization helpers', () => {
       expect(html).toContain('Heart Rate');
       expect(html).toContain('SpO2');
       expect(html).toContain('Stress Level');
-      expect(vitalsSpy).toHaveBeenCalledTimes(3);
       // Phase 8, Task 4: sleep card now renders via WGSleepChart inside a
       // .wg-sleep-card shell, not the legacy renderSleepChart helper.
       expect(content.querySelector('.wg-sleep-card')).toBeTruthy();
@@ -346,6 +353,12 @@ describe('app.js charts, scanner and visualization helpers', () => {
       // .wg-steps-card shell, not the legacy renderStepsChart helper.
       expect(content.querySelector('.wg-steps-card')).toBeTruthy();
       expect(content.querySelector('.wg-steps-card svg.wg-steps-chart')).toBeTruthy();
+      // Phase 8, Task 6: vitals cards now render via WGVitalsChart inside
+      // .wg-vitals-card shells — one per vital (hr / spo2 / stress).
+      expect(content.querySelectorAll('.wg-vitals-card').length).toBe(3);
+      expect(content.querySelector('.wg-vitals-card--hr svg.wg-vitals-chart')).toBeTruthy();
+      expect(content.querySelector('.wg-vitals-card--spo2 svg.wg-vitals-chart')).toBeTruthy();
+      expect(content.querySelector('.wg-vitals-card--stress svg.wg-vitals-chart')).toBeTruthy();
       expect(loadSWRSpy).toHaveBeenCalledWith(expect.objectContaining({
         key: 'health_overview',
         tags: ['health'],

@@ -316,6 +316,61 @@ function renderStepsCard(data, activeRange) {
     return card;
 }
 
+const HEALTH_VITAL_SPECS = {
+    hr:     { title: 'Heart Rate',   historyKey: 'heart_rate_history_7d', avg7Key: 'average_heart_rate_7d', avg30Key: 'average_heart_rate_30d', unit: 'bpm',   emptyLabel: 'heart rate' },
+    spo2:   { title: 'SpO2',         historyKey: 'spo2_history_7d',       avg7Key: 'average_spo2_7d',       avg30Key: 'average_spo2_30d',       unit: '%',     emptyLabel: 'SpO2' },
+    stress: { title: 'Stress Level', historyKey: 'stress_history_7d',     avg7Key: 'average_stress_7d',     avg30Key: 'average_stress_30d',     unit: '/ 100', emptyLabel: 'stress' }
+};
+
+function formatVitalAvg(value) {
+    if (value == null || !Number.isFinite(Number(value)) || Number(value) === 0) return '\u2014';
+    return String(Math.round(Number(value)));
+}
+
+function renderVitalCard(vital, data, activeRange) {
+    const spec = HEALTH_VITAL_SPECS[vital];
+    if (!spec) return null;
+    const range = HEALTH_RANGE_OPTIONS.indexOf(activeRange) !== -1 ? activeRange : HEALTH_RANGE_DEFAULT;
+    const card = document.createElement('div');
+    card.className = `wg-card wg-vitals-card wg-vitals-card--${vital}`;
+    card.setAttribute('data-range', range);
+    card.setAttribute('data-vital', vital);
+
+    const header = document.createElement('div');
+    header.className = 'wg-vitals-card__header wg-mono-display';
+    header.textContent = spec.title;
+    card.appendChild(header);
+
+    const history = Array.isArray(data?.[spec.historyKey]) ? data[spec.historyKey] : [];
+    const chartEl = window.WGVitalsChart
+        ? window.WGVitalsChart.render({ history, range, vital })
+        : null;
+
+    if (chartEl && !chartEl.classList.contains('wg-vitals-chart--empty')) {
+        card.appendChild(chartEl);
+
+        const avg7Text = formatVitalAvg(data?.[spec.avg7Key]);
+        const avg30Text = formatVitalAvg(data?.[spec.avg30Key]);
+        const statDiv = document.createElement('div');
+        statDiv.className = 'wg-section-label wg-vitals-card__stat';
+        statDiv.textContent = `${avg7Text} ${spec.unit} (7d avg) \u00B7 ${avg30Text} ${spec.unit} (30d avg)`;
+        card.appendChild(statDiv);
+    } else {
+        const empty = chartEl || (() => {
+            const el = document.createElement('div');
+            el.className = `wg-vitals-chart wg-vitals-chart--empty wg-vitals-chart--${vital}`;
+            const msg = document.createElement('span');
+            msg.className = 'wg-vitals-chart__empty-msg';
+            msg.textContent = `No ${spec.emptyLabel} data yet`;
+            el.appendChild(msg);
+            return el;
+        })();
+        card.appendChild(empty);
+    }
+
+    return card;
+}
+
 function renderHealthOverviewContent(content, data) {
     content.replaceChildren();
 
@@ -332,36 +387,16 @@ function renderHealthOverviewContent(content, data) {
     });
     content.appendChild(rangeSelector);
 
-    const renderVitalGroup = (id, title, history, color, min, max, stat7d, stat30d, unit) => {
-        if (history && history.length > 0) {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'health-chart-wrapper';
-            const h3 = document.createElement('h3');
-            h3.textContent = title;
-            const chartContainer = document.createElement('div');
-            chartContainer.id = id + 'ChartContainer';
-            chartContainer.className = 'health-chart-container';
-            const statDiv = document.createElement('div');
-            statDiv.className = 'health-chart-stat';
-            statDiv.textContent = `${stat7d} ${unit} (7d avg) | ${stat30d} ${unit} (30d avg)`;
-            wrapper.appendChild(h3);
-            wrapper.appendChild(chartContainer);
-            wrapper.appendChild(statDiv);
-            content.appendChild(wrapper);
-            setTimeout(() => renderVitalsLineChart(id + 'ChartContainer', history, color, min, max), 0);
-        }
-    };
-
     content.appendChild(renderSleepCard(data, activeRange));
     content.appendChild(renderStepsCard(data, activeRange));
 
-    renderVitalGroup('heartRate', 'Heart Rate', data.heart_rate_history_7d, '#ff3b30', 40, 160, data.average_heart_rate_7d, data.average_heart_rate_30d, 'bpm');
-    renderVitalGroup('spo2', 'SpO2', data.spo2_history_7d, '#32ade6', 85, 100, data.average_spo2_7d, data.average_spo2_30d, '%');
-    renderVitalGroup('stress', 'Stress Level', data.stress_history_7d, '#ff9500', 0, 100, data.average_stress_7d, data.average_stress_30d, '/ 100');
+    content.appendChild(renderVitalCard('hr', data, activeRange));
+    content.appendChild(renderVitalCard('spo2', data, activeRange));
+    content.appendChild(renderVitalCard('stress', data, activeRange));
 
     const disclaimer = document.createElement('p');
-    disclaimer.className = 'chart-disclaimer';
-    disclaimer.textContent = 'This data is gathered from your synced .nxk backups.';
+    disclaimer.className = 'wg-section-label wg-health-disclaimer';
+    disclaimer.textContent = 'DATA SOURCE \u00B7 .nxk backups';
     content.appendChild(disclaimer);
 }
 
@@ -407,88 +442,6 @@ async function loadHealthOverview() {
             }
         });
     }
-}
-
-function renderVitalsLineChart(containerId, data, color, yMin, yMax) {
-    const container = document.getElementById(containerId);
-    if (!container || !data || data.length === 0) return;
-    const totalWidth = container.clientWidth;
-    const leftPadding = 35, rightPadding = 10, topPadding = 20, bottomPadding = 30;
-    const chartWidth = totalWidth - leftPadding - rightPadding;
-    const chartHeight = container.clientHeight - topPadding - bottomPadding;
-    if (chartWidth <= 0 || chartHeight <= 0) return;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("width", "100%"); svg.setAttribute("height", "100%");
-    svg.setAttribute("viewBox", `0 0 ${totalWidth} ${container.clientHeight}`);
-    svg.classList.add('svg-chart');
-    const minTime = data[0].timestamp, maxTime = data[data.length - 1].timestamp;
-    const timeRange = Math.max(maxTime - minTime, 1), valRange = Math.max(yMax - yMin, 1);
-    const ySteps = 4;
-    for (let i = 0; i <= ySteps; i++) {
-        const val = Math.round(yMin + (i / ySteps) * valRange);
-        const y = topPadding + chartHeight - (i / ySteps) * chartHeight;
-        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        text.setAttribute("x", leftPadding - 8); text.setAttribute("y", y + 4);
-        text.setAttribute("text-anchor", "end"); text.setAttribute("fill", "var(--hint-color)");
-        text.setAttribute("font-size", "10px"); text.textContent = val;
-        svg.appendChild(text);
-        // Skip outermost grid lines to avoid box feel
-        if (i > 0 && i < ySteps) {
-            const gridLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-            gridLine.setAttribute("x1", leftPadding); gridLine.setAttribute("y1", y);
-            gridLine.setAttribute("x2", leftPadding + chartWidth); gridLine.setAttribute("y2", y);
-            gridLine.setAttribute("class", "chart-grid-refined");
-            svg.appendChild(gridLine);
-        }
-    }
-    const getX = (ts) => leftPadding + ((ts - minTime) / timeRange) * chartWidth;
-    const getY = (val) => {
-        const clamped = Math.max(yMin, Math.min(yMax, val));
-        return topPadding + chartHeight - ((clamped - yMin) / valRange) * chartHeight;
-    };
-    const svgNs = "http://www.w3.org/2000/svg";
-    const gradId = 'grad-vitals-' + containerId.replace(/[^a-zA-Z0-9]/g, '');
-    window.ChartUtils.createGradient(svgNs, svg, gradId, color, 0.25);
-    const areaPath = document.createElementNS(svgNs, "path");
-    let dArea = "";
-    data.forEach((pt, i) => { const cx = getX(pt.timestamp), cy = getY(pt.max); dArea += (i === 0 ? `M ${cx},${cy}` : ` L ${cx},${cy}`); });
-    for (let i = data.length - 1; i >= 0; i--) { const cx = getX(data[i].timestamp), cy = getY(data[i].min); dArea += ` L ${cx},${cy}`; }
-    dArea += " Z";
-    areaPath.setAttribute("d", dArea); areaPath.setAttribute("fill", `url(#${gradId})`);
-    svg.appendChild(areaPath);
-    let currentPath = "", paths = [], lastTs = null;
-    data.forEach((pt, i) => {
-        const cx = getX(pt.timestamp), cy = getY(pt.avg);
-        if (lastTs !== null && (pt.timestamp - lastTs) > 3 * 3600 * 1000) { paths.push(currentPath); currentPath = `M ${cx},${cy}`; }
-        else { currentPath += (currentPath === "" ? `M ${cx},${cy}` : ` L ${cx},${cy}`); }
-        lastTs = pt.timestamp;
-    });
-    if (currentPath !== "") paths.push(currentPath);
-    paths.forEach(p => {
-        const pathObj = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        pathObj.setAttribute("d", p); pathObj.setAttribute("fill", "none"); pathObj.setAttribute("stroke", color);
-        pathObj.setAttribute("stroke-width", "2"); pathObj.setAttribute("stroke-linecap", "round"); pathObj.setAttribute("stroke-linejoin", "round");
-        svg.appendChild(pathObj);
-        window.ChartUtils.animateLine(pathObj);
-    });
-    // Last-value emphasis on rightmost data point
-    if (data.length > 0) {
-        const lastPt = data[data.length - 1];
-        const lastX = getX(lastPt.timestamp);
-        const lastY = getY(lastPt.avg);
-        svg.appendChild(window.ChartUtils.createLastValueDot(svgNs, lastX, lastY, color));
-    }
-
-    const labelCount = 4;
-    for (let i = 0; i <= labelCount; i++) {
-        const ts = minTime + (timeRange * (i / labelCount)), dt = new Date(ts), txt = `${dt.getMonth() + 1}/${dt.getDate()}`;
-        const x = getX(ts), y = topPadding + chartHeight + 15;
-        const xLbl = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        xLbl.setAttribute("x", x); xLbl.setAttribute("y", y); xLbl.setAttribute("text-anchor", "middle");
-        xLbl.setAttribute("fill", "var(--hint-color)"); xLbl.setAttribute("font-size", "10px"); xLbl.textContent = txt;
-        svg.appendChild(xLbl);
-    }
-    container.appendChild(svg);
 }
 
 function renderSleepChart(stats) {

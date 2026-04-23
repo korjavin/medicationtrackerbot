@@ -138,14 +138,14 @@ No backend changes. The existing `/api/health/overview` and `/api/notes*` endpoi
 
 ### Task 6: Build the `WGVitalsChart` component + rewrite HR / SpO2 / Stress cards
 
-- [ ] create `web/static/js/components/wg-vitals-chart.js` exposing `WGVitalsChart.render({ history, range, vital })` returning a DOM element, where `vital` is one of `hr` / `spo2` / `stress` and drives the color token + y-range defaults
-- [ ] mirror the existing `renderVitalsLineChart` structure — area gradient + line + last-value dot — but replace hardcoded color with a token per vital (`--wg-health-vitals-hr-*` / `--wg-health-vitals-spo2-*` / `--wg-health-vitals-stress-*`)
-- [ ] register `window.WGVitalsChart` in `architecture.globals.test.js` with a one-line justification
-- [ ] replace the three `renderVitalGroup` calls with a `.wg-card` shell per vital, each rendering `WGVitalsChart({ vital: 'hr' | 'spo2' | 'stress' })` + mono 7d / 30d subtitle
-- [ ] empty state per vital: muted "No {vital} data yet" tile
-- [ ] write `components.wg-vitals-chart.test.js` — line + area render, color token switches per vital, axis tick count sane, empty-state card
-- [ ] write `health.vitals.test.js` — vital cards render, each uses the correct token, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-vitals-chart.js` exposing `WGVitalsChart.render({ history, range, vital })` returning a DOM element, where `vital` is one of `hr` / `spo2` / `stress` and drives the color token + y-range defaults
+- [x] mirror the existing `renderVitalsLineChart` structure — area gradient + line + last-value dot — but replace hardcoded color with a token per vital (`--wg-health-vitals-hr-*` / `--wg-health-vitals-spo2-*` / `--wg-health-vitals-stress-*`)
+- [x] register `window.WGVitalsChart` in `architecture.globals.test.js` with a one-line justification
+- [x] replace the three `renderVitalGroup` calls with a `.wg-card` shell per vital, each rendering `WGVitalsChart({ vital: 'hr' | 'spo2' | 'stress' })` + mono 7d / 30d subtitle
+- [x] empty state per vital: muted "No {vital} data yet" tile
+- [x] write `components.wg-vitals-chart.test.js` — line + area render, color token switches per vital, axis tick count sane, empty-state card
+- [x] write `health.vitals.test.js` — vital cards render, each uses the correct token, empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Rewrite the Notes sub-tab
 
