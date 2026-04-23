@@ -2512,14 +2512,23 @@ function closeWorkoutSessionModal() {
 }
 
 async function saveWorkoutSessionDetails() {
-    const saveButton = document.querySelector('#workout-session-modal .actions .btn-primary');
-    const originalText = saveButton.textContent;
+    // Either the paper-era "Save Changes" button or the Wandergeek bottom
+    // "Finish" button can trigger this flow (finishWorkoutSession re-enters
+    // here after flipping the status select). Disable both so the unclicked
+    // one can't be tapped a second time while the first request is in-flight.
+    const topSaveBtn = document.querySelector('#workout-session-modal .actions .btn-primary');
+    const finishBtn = document.getElementById('workout-session-finish-btn');
+    const busyTargets = [topSaveBtn, finishBtn].filter(Boolean);
+    const feedbackBtn = topSaveBtn || finishBtn;
+    if (!feedbackBtn) return;
+    const originalText = feedbackBtn.textContent;
 
     try {
-        // Disable button and show loading state
-        saveButton.disabled = true;
-        saveButton.textContent = 'Saving...';
-        saveButton.style.opacity = '0.6';
+        busyTargets.forEach((btn) => {
+            btn.disabled = true;
+            btn.classList.add('wg-btn-saving');
+        });
+        feedbackBtn.textContent = 'Saving...';
 
         // Check if status has changed
         const statusSelect = document.getElementById('session-status-select');
@@ -2580,12 +2589,13 @@ async function saveWorkoutSessionDetails() {
         const message = error.message || 'Error saving workout details. Please try again.';
         safeAlert('❌ ' + message);
     } finally {
-        // Re-enable button (unless offline mode disabled it)
-        if (!saveButton.hasAttribute('data-offline-disabled')) {
-            saveButton.disabled = false;
-        }
-        saveButton.textContent = originalText;
-        saveButton.style.opacity = '1';
+        busyTargets.forEach((btn) => {
+            btn.classList.remove('wg-btn-saving');
+            if (!btn.hasAttribute('data-offline-disabled')) {
+                btn.disabled = false;
+            }
+        });
+        feedbackBtn.textContent = originalText;
     }
 }
 

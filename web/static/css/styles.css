@@ -1553,6 +1553,15 @@ svg.chart-svg {
     position: relative;
 }
 
+/* In-flight save state applied by saveWorkoutSessionDetails to every button
+   that could re-trigger the same request (paper-era Save + Wandergeek
+   Finish). Disables interaction and dims the button to match the prior
+   inline opacity behavior without violating rule 3 (no inline .style.). */
+.wg-btn-saving {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
 .offline-disabled-tooltip {
     display: block;
     font-size: var(--font-size-xs);
