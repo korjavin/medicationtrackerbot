@@ -44,6 +44,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.requestTabRefresh',         // app.js — called by data-store.js on change event
     'window.reloadCurrentTab',          // app.js — called by data-store.js + sync.js
     'window.renderSettingsTimeInfo',    // app.js — renders read-only timezone/server clock info in settings
+    'window.initOIDCSetupBanner',       // app.js — renders the OIDC setup banner inside the Settings card; exposed for test coverage of the enabled path
     'window.healthOverviewCacheKey',    // app.js — timezone-qualified IndexedDB key for health overview; shared with health.js to avoid formula divergence
 
     // Core modules
@@ -69,6 +70,8 @@ const ALLOWED_GLOBALS = new Set([
     'window.WGStepsChart',              // components/wg-steps-chart.js — Wandergeek single-series steps bar chart for the Health Overview sub-tab; bar fill + rotated in-bar count label colour resolve via CSS classes on SVG children, never inline
     'window.WGVitalsChart',             // components/wg-vitals-chart.js — Wandergeek area+line vitals chart (HR / SpO2 / Stress) for the Health Overview sub-tab; parameterised by vital, line + area fill colour resolve via --wg-health-vitals-{vital}-* tokens on CSS classes, never inline
     'window.WGMacroBar',                // components/wg-macro-bar.js — Wandergeek Food-screen macro row (label + inset track + mono value/target); fill colour comes from .wg-macro-bar__fill--<variant> classes, fill width from a neutral --fill-pct custom property
+    'window.WGToggle',                  // components/wg-toggle.js — Wandergeek toggle primitive for the Settings screen (Phase 9); renders a pill + knob driven by a hidden <input type="checkbox"> so the existing id-based change-event wiring in features/settings.js keeps binding unchanged
+    'window.WGSettings',                // components/wg-settings.js — Wandergeek Settings-screen render helpers (Phase 9, Task 2): section() + row() + infoRow() DOM factories consumed by the Settings reskin to build sectioned cards, canonical left-title/right-control rows, and read-only timezone info rows
     'window.AppBackButton',             // features/back-button.js — wires Telegram WebApp BackButton to section → Today navigation
     'window.editNote',                  // features/health.js — called from dynamically-built edit buttons in notes rows
 

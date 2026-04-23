@@ -680,30 +680,50 @@ function initOIDCSetupBanner() {
         return;
     }
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'setting-item';
-    wrapper.classList.add('mb-lg');
-
-    const textWrap = document.createElement('div');
     const title = document.createElement('h3');
-    title.innerText = 'OIDC Setup';
+    title.className = 'wg-settings-section__title';
+    title.textContent = 'OIDC Setup';
+
     const desc = document.createElement('p');
-    desc.className = 'setting-desc';
-    desc.innerText = 'Copy redirect URIs for Pocket-ID / OIDC clients.';
-    textWrap.appendChild(title);
-    textWrap.appendChild(desc);
+    desc.className = 'wg-settings-section__desc';
+    desc.textContent = 'Copy redirect URIs for Pocket-ID / OIDC clients.';
 
+    const rowList = document.createElement('div');
+    rowList.className = 'wg-settings-row-list';
+
+    const row = document.createElement('div');
+    row.className = 'wg-settings-row';
+
+    const rowContent = document.createElement('div');
+    rowContent.className = 'wg-settings-row__content';
+    const rowTitle = document.createElement('div');
+    rowTitle.className = 'wg-settings-row__title wg-mono-display';
+    rowTitle.textContent = 'Redirect URIs';
+    const rowDesc = document.createElement('div');
+    rowDesc.className = 'wg-settings-row__desc';
+    rowDesc.textContent = 'Open the setup page to copy values into your OIDC client.';
+    rowContent.appendChild(rowTitle);
+    rowContent.appendChild(rowDesc);
+
+    const rowControl = document.createElement('div');
+    rowControl.className = 'wg-settings-row__control';
     const actionBtn = document.createElement('button');
-    actionBtn.className = 'btn btn-secondary';
-    actionBtn.classList.add('m-0');
-    actionBtn.innerText = 'Open';
+    actionBtn.className = 'wg-gloss wg-settings-action-btn';
+    actionBtn.textContent = 'Open';
     actionBtn.onclick = () => window.location.href = '/oidc-setup';
+    rowControl.appendChild(actionBtn);
 
-    wrapper.appendChild(textWrap);
-    wrapper.appendChild(actionBtn);
+    row.appendChild(rowContent);
+    row.appendChild(rowControl);
+    rowList.appendChild(row);
+
     container.replaceChildren();
-    container.appendChild(wrapper);
+    container.appendChild(title);
+    container.appendChild(desc);
+    container.appendChild(rowList);
 }
+
+window.initOIDCSetupBanner = initOIDCSetupBanner;
 
 // Bootstrap orchestration lives in features/bootstrap.js (loaded after all feature scripts).
 
@@ -715,38 +735,52 @@ async function sendTestBPNotification() {
 }
 
 // Settings Toggle Handler
+const WEBPUSH_STATUS_VARIANT_CLASSES = [
+    'status-success', 'status-error', 'status-muted',
+    'wg-tag--mono--success', 'wg-tag--mono--alert', 'wg-tag--mono--muted',
+];
+const WEBPUSH_STATUS_VARIANT_MAP = {
+    success: ['status-success', 'wg-tag--mono--success'],
+    error: ['status-error', 'wg-tag--mono--alert'],
+    muted: ['status-muted', 'wg-tag--mono--muted'],
+};
+
+function applyWebpushStatus(status, text, variant) {
+    status.textContent = text;
+    status.classList.remove('wg-settings-hidden', ...WEBPUSH_STATUS_VARIANT_CLASSES);
+    const classes = WEBPUSH_STATUS_VARIANT_MAP[variant];
+    if (classes) status.classList.add(...classes);
+}
+
+function hideWebpushStatus(status) {
+    status.classList.add('wg-settings-hidden');
+    status.classList.remove(...WEBPUSH_STATUS_VARIANT_CLASSES);
+}
+
 document.getElementById('webpush-toggle').addEventListener('change', async function () {
     const status = document.getElementById('webpush-status');
-    status.style.display = 'block';
+    if (!status) return;
 
     if (this.checked) {
-        status.innerText = "Requesting permission...";
-        status.className = '';
+        applyWebpushStatus(status, 'Requesting permission...', null);
         const success = await window.MedTrackerPush.subscribe();
         if (success) {
-            status.innerText = "Notifications enabled";
-            status.className = 'status-success';
+            applyWebpushStatus(status, 'Notifications enabled', 'success');
         } else {
-            status.innerText = "Failed to enable notifications. Please check permissions.";
-            status.className = 'status-error';
+            applyWebpushStatus(status, 'Failed to enable notifications. Please check permissions.', 'error');
             this.checked = false;
         }
     } else {
         const success = await window.MedTrackerPush.unsubscribe();
         if (success) {
-            status.innerText = "Notifications disabled";
-            status.className = 'status-muted';
+            applyWebpushStatus(status, 'Notifications disabled', 'muted');
         } else {
-            status.innerText = "Failed to disable notifications";
-            status.className = 'status-error';
+            applyWebpushStatus(status, 'Failed to disable notifications', 'error');
             this.checked = true; // revert
         }
     }
 
-    // Hide status after delay
-    setTimeout(() => {
-        status.style.display = 'none';
-    }, 3000);
+    setTimeout(() => hideWebpushStatus(status), 3000);
 });
 
 // BP Reminders Toggle Handler

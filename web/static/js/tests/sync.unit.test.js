@@ -56,7 +56,7 @@ describe('sync.js SyncManager unit tests', () => {
 
       window.SyncManager.updateStatusBar({ isOnline: true, isSyncing: false, pendingCount: 0, rejectedCount: 0 });
       expect(bar.className).toContain('synced');
-      expect(bar.style.display).toBe('flex');
+      expect(bar.classList.contains('wg-settings-hidden')).toBe(false);
 
       // Rejected-only state
       window.SyncManager.updateStatusBar({ isOnline: true, isSyncing: false, pendingCount: 0, rejectedCount: 1 });

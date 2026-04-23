@@ -24,6 +24,8 @@ const WG_SLEEP_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-slee
 const WG_STEPS_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-steps-chart.js');
 const WG_VITALS_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-vitals-chart.js');
 const WG_MACRO_BAR_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-macro-bar.js');
+const WG_TOGGLE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-toggle.js');
+const WG_SETTINGS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-settings.js');
 const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
 const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
 const APP_KERNEL_JS = path.join(REPO_ROOT, 'web/static/js/core/app-kernel.js');
@@ -140,6 +142,9 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   // Core infrastructure files (loaded before data-store.js and app.js)
   evalWithSourceURL(window, fs.readFileSync(UTILS_JS, 'utf8'), UTILS_JS);
+  // wg-toggle.js must load before mt-elements.js so <mt-setting-toggle>
+  // upgrades can pick up window.WGToggle in its connectedCallback.
+  evalWithSourceURL(window, fs.readFileSync(WG_TOGGLE_JS, 'utf8'), WG_TOGGLE_JS);
   evalWithSourceURL(window, fs.readFileSync(MT_ELEMENTS_JS, 'utf8'), MT_ELEMENTS_JS);
   evalWithSourceURL(window, fs.readFileSync(EMPTY_STATE_JS, 'utf8'), EMPTY_STATE_JS);
   evalWithSourceURL(window, fs.readFileSync(STAT_CARD_JS, 'utf8'), STAT_CARD_JS);
@@ -155,6 +160,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalWithSourceURL(window, fs.readFileSync(WG_STEPS_CHART_JS, 'utf8'), WG_STEPS_CHART_JS);
   evalWithSourceURL(window, fs.readFileSync(WG_VITALS_CHART_JS, 'utf8'), WG_VITALS_CHART_JS);
   evalWithSourceURL(window, fs.readFileSync(WG_MACRO_BAR_JS, 'utf8'), WG_MACRO_BAR_JS);
+  evalWithSourceURL(window, fs.readFileSync(WG_SETTINGS_JS, 'utf8'), WG_SETTINGS_JS);
   evalWithSourceURL(window, fs.readFileSync(MODAL_MANAGER_JS, 'utf8'), MODAL_MANAGER_JS);
   evalWithSourceURL(window, fs.readFileSync(CORE_API_JS, 'utf8'), CORE_API_JS);
   evalWithSourceURL(window, fs.readFileSync(APP_KERNEL_JS, 'utf8'), APP_KERNEL_JS);
