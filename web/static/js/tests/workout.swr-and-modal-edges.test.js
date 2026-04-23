@@ -203,13 +203,14 @@ describe('workout.js SWR and modal edge branches', () => {
       await window.loadExerciseLibrary();
 
       const container = document.getElementById('exercise-library-list');
-      const card = container.querySelector('.exercise-library-item');
-      const deleteButton = container.querySelector('.exercise-library-item .btn-secondary');
+      const card = container.querySelector('.wg-workouts-exercises-row');
+      const deleteButton = container.querySelector('.wg-workouts-exercises-row__delete');
 
       expect(card).toBeTruthy();
       expect(deleteButton).toBeTruthy();
       expect(container.textContent).toContain('Bench <press>');
-      expect(container.textContent).toContain('4 sets x 8-10 reps @ 90kg');
+      expect(container.textContent).toContain('4\u00d78-10');
+      expect(container.textContent).toContain('90kg');
 
       deleteButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
       expect(deleteSpy).toHaveBeenCalledWith(111, expect.any(Object));

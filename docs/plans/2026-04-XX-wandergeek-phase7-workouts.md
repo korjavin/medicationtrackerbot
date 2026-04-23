@@ -138,12 +138,12 @@ No backend changes. The existing `/api/workouts*`, `/api/exercises*`, `/api/work
 
 ### Task 6: Rewrite the exercises sub-tab
 
-- [ ] replace `#exercise-library-list` markup with a `.wg-workouts-exercises` container — each exercise a `.wg-card` row carrying mono name, muscle-group tag (`.wg-tag--mono`), and edit/delete icon cluster
-- [ ] full-width `.wg-gloss--sun` "Add exercise" CTA appended at the bottom (replaces `#add-exercise-library-btn` FAB)
-- [ ] edit modal (`showEditLibraryExerciseModal`) restyled with Wandergeek shell — mono header, `.wg-gloss--inset` input wraps for name + muscle group, Cancel + Save buttons
-- [ ] empty state: muted card with "No exercises in library yet — tap Add to create one."
-- [ ] write `workout.exercises.test.js` — exercise row render, edit/delete callbacks, add-exercise flow, empty state, modal open/save/cancel
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace `#exercise-library-list` markup with a `.wg-workouts-exercises` container — each exercise a `.wg-card` row carrying mono name, muscle-group tag (`.wg-tag--mono`), and edit/delete icon cluster
+- [x] full-width `.wg-gloss--sun` "Add exercise" CTA appended at the bottom (replaces `#add-exercise-library-btn` FAB)
+- [x] edit modal (`showEditLibraryExerciseModal`) restyled with Wandergeek shell — mono header, `.wg-gloss--inset` input wraps for name + muscle group, Cancel + Save buttons
+- [x] empty state: muted card with "No exercises in library yet — tap Add to create one."
+- [x] write `workout.exercises.test.js` — exercise row render, edit/delete callbacks, add-exercise flow, empty state, modal open/save/cancel
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Rewrite the stats sub-tab + build `WGWorkoutChart`
 
