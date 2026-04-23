@@ -21,6 +21,7 @@ const WG_BP_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-bp-char
 const WG_WEIGHT_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-weight-chart.js');
 const WG_WORKOUT_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-workout-chart.js');
 const WG_SLEEP_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sleep-chart.js');
+const WG_STEPS_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-steps-chart.js');
 const WG_MACRO_BAR_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-macro-bar.js');
 const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
 const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
@@ -150,6 +151,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalWithSourceURL(window, fs.readFileSync(WG_WEIGHT_CHART_JS, 'utf8'), WG_WEIGHT_CHART_JS);
   evalWithSourceURL(window, fs.readFileSync(WG_WORKOUT_CHART_JS, 'utf8'), WG_WORKOUT_CHART_JS);
   evalWithSourceURL(window, fs.readFileSync(WG_SLEEP_CHART_JS, 'utf8'), WG_SLEEP_CHART_JS);
+  evalWithSourceURL(window, fs.readFileSync(WG_STEPS_CHART_JS, 'utf8'), WG_STEPS_CHART_JS);
   evalWithSourceURL(window, fs.readFileSync(WG_MACRO_BAR_JS, 'utf8'), WG_MACRO_BAR_JS);
   evalWithSourceURL(window, fs.readFileSync(MODAL_MANAGER_JS, 'utf8'), MODAL_MANAGER_JS);
   evalWithSourceURL(window, fs.readFileSync(CORE_API_JS, 'utf8'), CORE_API_JS);

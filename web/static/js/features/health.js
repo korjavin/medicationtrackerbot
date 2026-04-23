@@ -272,6 +272,50 @@ function renderSleepCard(data, activeRange) {
     return card;
 }
 
+function renderStepsCard(data, activeRange) {
+    const range = HEALTH_RANGE_OPTIONS.indexOf(activeRange) !== -1 ? activeRange : HEALTH_RANGE_DEFAULT;
+    const card = document.createElement('div');
+    card.className = 'wg-card wg-steps-card';
+    card.setAttribute('data-range', range);
+
+    const header = document.createElement('div');
+    header.className = 'wg-steps-card__header wg-mono-display';
+    header.textContent = 'Steps';
+    card.appendChild(header);
+
+    const stats = Array.isArray(data?.step_stats_7d) ? data.step_stats_7d : [];
+    const chartOpts = { stats, range };
+    const chartEl = window.WGStepsChart
+        ? window.WGStepsChart.render(chartOpts)
+        : null;
+
+    if (chartEl && !chartEl.classList.contains('wg-steps-chart--empty')) {
+        card.appendChild(chartEl);
+
+        const avg7 = Number(data?.average_steps_7d);
+        const avg30 = Number(data?.average_steps_30d);
+        const avg7Text = Number.isFinite(avg7) && avg7 > 0 ? Math.round(avg7).toLocaleString() : '\u2014';
+        const avg30Text = Number.isFinite(avg30) && avg30 > 0 ? Math.round(avg30).toLocaleString() : '\u2014';
+        const statDiv = document.createElement('div');
+        statDiv.className = 'wg-section-label wg-steps-card__stat';
+        statDiv.textContent = `${avg7Text} steps (7d avg) \u00B7 ${avg30Text} steps (30d avg)`;
+        card.appendChild(statDiv);
+    } else {
+        const empty = chartEl || (() => {
+            const el = document.createElement('div');
+            el.className = 'wg-steps-chart wg-steps-chart--empty';
+            const msg = document.createElement('span');
+            msg.className = 'wg-steps-chart__empty-msg';
+            msg.textContent = 'No step data yet';
+            el.appendChild(msg);
+            return el;
+        })();
+        card.appendChild(empty);
+    }
+
+    return card;
+}
+
 function renderHealthOverviewContent(content, data) {
     content.replaceChildren();
 
@@ -309,24 +353,7 @@ function renderHealthOverviewContent(content, data) {
     };
 
     content.appendChild(renderSleepCard(data, activeRange));
-
-    if (data.step_stats_7d && data.step_stats_7d.length > 0) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'health-chart-wrapper';
-        const h3 = document.createElement('h3');
-        h3.textContent = 'Steps';
-        const chartContainer = document.createElement('div');
-        chartContainer.id = 'stepsChartContainer';
-        chartContainer.className = 'health-chart-container-tall';
-        const statDiv = document.createElement('div');
-        statDiv.className = 'health-chart-stat-spaced';
-        statDiv.textContent = `${data.average_steps_7d.toLocaleString()} steps (7d avg) | ${data.average_steps_30d.toLocaleString()} steps (30d avg)`;
-        wrapper.appendChild(h3);
-        wrapper.appendChild(chartContainer);
-        wrapper.appendChild(statDiv);
-        content.appendChild(wrapper);
-        setTimeout(() => renderStepsChart(data.step_stats_7d), 0);
-    }
+    content.appendChild(renderStepsCard(data, activeRange));
 
     renderVitalGroup('heartRate', 'Heart Rate', data.heart_rate_history_7d, '#ff3b30', 40, 160, data.average_heart_rate_7d, data.average_heart_rate_30d, 'bpm');
     renderVitalGroup('spo2', 'SpO2', data.spo2_history_7d, '#32ade6', 85, 100, data.average_spo2_7d, data.average_spo2_30d, '%');

@@ -127,14 +127,14 @@ No backend changes. The existing `/api/health/overview` and `/api/notes*` endpoi
 
 ### Task 5: Build the `WGStepsChart` component + rewrite steps card
 
-- [ ] create `web/static/js/components/wg-steps-chart.js` exposing `WGStepsChart.render({ stats, range })` returning a DOM element
-- [ ] mirror the existing `renderStepsChart` structure — vertical bars with rotated step-count labels — but replace hardcoded fill + text colors with `--wg-health-steps-*` tokens
-- [ ] register `window.WGStepsChart` in `architecture.globals.test.js` with a one-line justification
-- [ ] replace the steps block in `renderHealthOverviewContent` with a `.wg-card` shell rendering `WGStepsChart` + mono 7d / 30d average subtitle
-- [ ] empty state: muted "No step data yet" card
-- [ ] write `components.wg-steps-chart.test.js` — bars render, axis tick count sane, empty-state card
-- [ ] write `health.steps.test.js` — steps card render, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-steps-chart.js` exposing `WGStepsChart.render({ stats, range })` returning a DOM element
+- [x] mirror the existing `renderStepsChart` structure — vertical bars with rotated step-count labels — but replace hardcoded fill + text colors with `--wg-health-steps-*` tokens
+- [x] register `window.WGStepsChart` in `architecture.globals.test.js` with a one-line justification
+- [x] replace the steps block in `renderHealthOverviewContent` with a `.wg-card` shell rendering `WGStepsChart` + mono 7d / 30d average subtitle
+- [x] empty state: muted "No step data yet" card
+- [x] write `components.wg-steps-chart.test.js` — bars render, axis tick count sane, empty-state card
+- [x] write `health.steps.test.js` — steps card render, empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Build the `WGVitalsChart` component + rewrite HR / SpO2 / Stress cards
 
