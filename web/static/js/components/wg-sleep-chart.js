@@ -232,9 +232,9 @@
                 currentY -= h;
             };
             drawSegment(dayStat.deep_mins, 'deep');
-            drawSegment(dayStat.awake_mins, 'awake');
             drawSegment(dayStat.light_mins, 'light');
             drawSegment(dayStat.rem_mins, 'rem');
+            drawSegment(dayStat.awake_mins, 'awake');
 
             if (dayStat.total_mins > 0) {
                 const hrs = Math.floor(dayStat.total_mins / 60);
