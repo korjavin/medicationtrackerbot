@@ -121,11 +121,11 @@ No backend changes. The existing `/api/settings/*`, `/api/bp/reminder/*`, `/api/
 
 ### Task 5: Rewrite the feature + reminder toggle sections
 
-- [ ] wrap the six feature toggles (BP / Weight / Workouts / Medications / Food / Health) in a `renderSettingsSection({ title: 'Features', description: 'Enable or disable sections' })` card — each `<mt-setting-toggle>` now renders inside a `.wg-card` row via the Task 1 rewrite
-- [ ] wrap the two reminder toggles (BP / Weight) in a `renderSettingsSection({ title: 'Reminders', description: 'Smart periodic reminders' })` card
-- [ ] remove the `divider` attribute from toggles now that section-card borders provide the grouping; keep the attribute working for backwards compatibility
-- [ ] write `settings.toggles.test.js` — feature + reminder toggle round-trip, disabled-state visual, group render
-- [ ] run `pnpm test` — must pass before next task
+- [x] wrap the six feature toggles (BP / Weight / Workouts / Medications / Food / Health) in a `renderSettingsSection({ title: 'Features', description: 'Enable or disable sections' })` card — each `<mt-setting-toggle>` now renders inside a `.wg-card` row via the Task 1 rewrite
+- [x] wrap the two reminder toggles (BP / Weight) in a `renderSettingsSection({ title: 'Reminders', description: 'Smart periodic reminders' })` card
+- [x] remove the `divider` attribute from toggles now that section-card borders provide the grouping; keep the attribute working for backwards compatibility
+- [x] write `settings.toggles.test.js` — feature + reminder toggle round-trip, disabled-state visual, group render
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Rewrite the Food Targets section
 

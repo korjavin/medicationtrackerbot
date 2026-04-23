@@ -208,7 +208,11 @@ describe('app.js unit tests', () => {
       const webpushSetting = webpushToggle.closest('mt-setting-toggle');
       const bpFeatureSetting = bpFeatureToggle.closest('mt-setting-toggle');
       expect(webpushSetting).toBeTruthy();
-      expect(bpFeatureSetting.classList.contains('setting-item-divider')).toBe(true);
+      // Phase 9 Task 5 removed the `divider` attribute from the markup (section
+      // cards now provide the grouping). The BP toggle is grouped inside the
+      // Features section card, so it no longer carries the divider class.
+      expect(bpFeatureSetting.classList.contains('setting-item-divider')).toBe(false);
+      expect(bpFeatureSetting.closest('.wg-settings-features')).toBeTruthy();
       expect(webpushSetting.querySelector('h3').textContent).toBe('Web Push Notifications');
     } finally {
       cleanup();
