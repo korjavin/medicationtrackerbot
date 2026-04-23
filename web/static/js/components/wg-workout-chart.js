@@ -67,15 +67,22 @@
 
     function normalize(raw, metric) {
         if (!raw) return null;
-        const dateSrc = raw.date != null
-            ? raw.date
-            : (raw.week != null ? raw.week : raw.measured_at);
+        let dateSrc;
+        let spanDays = 1;
+        if (raw.date != null) {
+            dateSrc = raw.date;
+        } else if (raw.week != null) {
+            dateSrc = raw.week;
+            spanDays = 7;
+        } else {
+            dateSrc = raw.measured_at;
+        }
         if (dateSrc == null) return null;
         const date = dateSrc instanceof Date ? dateSrc : new Date(dateSrc);
         if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
         const value = pickMetric(raw, metric);
         if (value == null || !Number.isFinite(value)) return null;
-        return { date, value };
+        return { date, value, spanDays };
     }
 
     function filterByRange(data, range) {
@@ -86,11 +93,18 @@
         // Anchor on Date.now() so '7d' means 'last 7 days from today',
         // matching WGWeightChart / WGBpChart semantics. Cap upper bound at
         // now so a future-dated entry can't stretch the window.
+        //
+        // Weekly buckets (raw.week) carry the Monday of a 7-day span. A bucket
+        // overlaps the range whenever (bucketStart + span - 1) >= cutoff, so
+        // pad the cutoff backwards by (spanDays - 1) to include any week that
+        // still intersects the requested window.
         const now = Date.now();
         const cutoff = now - days * 86400000;
         return data.filter((d) => {
+            const span = Number.isFinite(d.spanDays) && d.spanDays > 0 ? d.spanDays : 1;
             const t = d.date.getTime();
-            return t >= cutoff && t <= now;
+            const paddedCutoff = cutoff - (span - 1) * 86400000;
+            return t >= paddedCutoff && t <= now;
         });
     }
 

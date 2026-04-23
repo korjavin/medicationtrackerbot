@@ -153,6 +153,28 @@ function bindWorkoutControls() {
             onSessionExerciseSelect();
         });
     }
+
+    renderWorkoutModalCloseIcons();
+}
+
+// Hydrate the `.wg-gloss` span inside every workout modal's close button with
+// the shared close SVG. Mirrors the food.js `renderFoodModalIcons` pattern so
+// the Wandergeek close affordance isn't rendered as a blank pill.
+function renderWorkoutModalCloseIcons() {
+    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
+    const closeBtnIds = [
+        'workout-group-close-btn',
+        'exercise-close-btn',
+        'exercise-library-close-btn',
+        'session-add-exercise-close-btn',
+    ];
+    closeBtnIds.forEach((id) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        const gloss = btn.querySelector('.wg-gloss');
+        if (!gloss || gloss.querySelector('svg')) return;
+        gloss.replaceChildren(window.WGIcons.iconSvg('close', { size: 14 }));
+    });
 }
 
 if (document.readyState === 'loading') {
@@ -1652,8 +1674,9 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts, userTz) {
     }
 
     // Group by local day for section-labeled clusters (mirrors Phase 6 weight
-    // history pattern).
-    const groups = _groupWorkoutHistoryByDay(items);
+    // history pattern). Use the user's stored timezone so day boundaries line
+    // up with the backend-interpreted scheduled times of skipped sessions.
+    const groups = _groupWorkoutHistoryByDay(items, userTz);
     const list = document.createElement('ul');
     list.className = 'list-reset wg-workouts-history__list';
     groups.forEach((group) => {
@@ -1662,31 +1685,58 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts, userTz) {
     container.appendChild(list);
 }
 
-function _groupWorkoutHistoryByDay(items) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
+function _groupWorkoutHistoryByDay(items, userTz) {
+    // Compute day keys in the user's stored timezone so section headers agree
+    // with the backend-scheduled day for skipped sessions (see
+    // _naiveDatetimeToUTCMs above). Falls back to browser local when tzName is
+    // empty/unrecognised.
+    const tzName = userTz || undefined;
+    let keyFmt;
+    let labelFmt;
+    try {
+        keyFmt = new Intl.DateTimeFormat('en-CA', {
+            timeZone: tzName,
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        });
+        labelFmt = new Intl.DateTimeFormat(undefined, {
+            timeZone: tzName,
+            day: '2-digit', month: '2-digit', year: 'numeric'
+        });
+    } catch (_) {
+        keyFmt = new Intl.DateTimeFormat('en-CA', {
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        });
+        labelFmt = new Intl.DateTimeFormat(undefined, {
+            day: '2-digit', month: '2-digit', year: 'numeric'
+        });
+    }
+
+    const now = new Date();
+    const todayKey = keyFmt.format(now);
+    // Decrement via UTC calendar arithmetic so DST transitions (23h/25h
+    // local days) don't shift yesterdayKey to the wrong calendar date.
+    const [ty, tm, td] = todayKey.split('-').map(Number);
+    const yUTC = new Date(Date.UTC(ty, tm - 1, td) - 86400000);
+    const yesterdayKey = `${yUTC.getUTCFullYear()}-${String(yUTC.getUTCMonth() + 1).padStart(2, '0')}-${String(yUTC.getUTCDate()).padStart(2, '0')}`;
 
     const buckets = new Map();
     items.forEach((item) => {
         const d = new Date(item.ts);
         if (!Number.isFinite(d.getTime())) return;
-        const dayStart = new Date(d);
-        dayStart.setHours(0, 0, 0, 0);
-        const dayMs = dayStart.getTime();
+        const dayKey = keyFmt.format(d);
 
         let key;
         let label;
-        if (dayMs === today.getTime()) { key = 'today'; label = 'Today'; }
-        else if (dayMs === yesterday.getTime()) { key = 'yesterday'; label = 'Yesterday'; }
+        if (dayKey === todayKey) { key = 'today'; label = 'Today'; }
+        else if (dayKey === yesterdayKey) { key = 'yesterday'; label = 'Yesterday'; }
         else {
-            key = String(dayMs);
-            label = dayStart.toLocaleDateString(undefined, {
-                day: '2-digit', month: '2-digit', year: 'numeric'
-            });
+            key = dayKey;
+            label = labelFmt.format(d);
         }
-        if (!buckets.has(key)) buckets.set(key, { label, sortKey: dayMs, items: [] });
+        // Sort-key uses the ISO-like key so chronological ordering stays
+        // correct even when the browser's timezone differs from userTz.
+        const sortKey = Date.parse(dayKey + 'T00:00:00Z');
+        if (!buckets.has(key)) buckets.set(key, { label, sortKey, items: [] });
         buckets.get(key).items.push(item);
     });
     return Array.from(buckets.values()).sort((a, b) => b.sortKey - a.sortKey);
@@ -1816,7 +1866,7 @@ function _buildSessionCard(s) {
     }));
     actions.appendChild(_buildHistoryIconBtn('delete', 'Delete session', 'trash', () => {
         deleteWorkoutSessionById(session.id);
-    }));
+    }, { isWrite: true }));
     card.appendChild(actions);
 
     card.addEventListener('click', (e) => {
@@ -1859,10 +1909,18 @@ function _buildHistorySyncTag(kind, label, tooltip) {
     return tag;
 }
 
-function _buildHistoryIconBtn(kind, ariaLabel, iconName, handler) {
+function _buildHistoryIconBtn(kind, ariaLabel, iconName, handler, opts) {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = `wg-icon-btn wg-workouts-history-row__${kind}`;
+    let className = `wg-icon-btn wg-workouts-history-row__${kind}`;
+    const isWrite = !!(opts && opts.isWrite);
+    if (isWrite) {
+        // Share the sync.js offline-toggling pathway used by modal-level
+        // workout action buttons so DELETE-only controls stay disabled when
+        // offline.
+        className += ' workout-action-btn';
+    }
+    btn.className = className;
     btn.setAttribute('aria-label', ariaLabel);
     const gloss = document.createElement('span');
     gloss.className = 'wg-gloss';
@@ -1874,6 +1932,11 @@ function _buildHistoryIconBtn(kind, ariaLabel, iconName, handler) {
         e.stopPropagation();
         handler();
     });
+    if (isWrite && typeof window !== 'undefined' && window.SyncManager && window.SyncManager.isOnline === false) {
+        btn.classList.add('offline-disabled');
+        btn.setAttribute('data-offline-disabled', 'true');
+        btn.disabled = true;
+    }
     return btn;
 }
 
@@ -2402,30 +2465,42 @@ function renderSessionDetailActions(container, opts) {
     const onFinish = (opts && typeof opts.onFinish === 'function') ? opts.onFinish : () => {};
     const onDelete = (opts && typeof opts.onDelete === 'function') ? opts.onDelete : () => {};
 
+    // `.workout-action-btn` hooks these into sync.js's offline toggling
+    // sweep so the buttons stay disabled/enabled as connectivity changes
+    // while the modal is open. Static offline state at creation time is
+    // applied below (SyncManager.isOnline === false case).
     const logSetBtn = document.createElement('button');
     logSetBtn.type = 'button';
     logSetBtn.id = 'workout-session-add-exercise-btn';
-    logSetBtn.className = 'wg-gloss--sun wg-workouts-session-actions__btn wg-workouts-session-actions__log-set';
+    logSetBtn.className = 'wg-gloss--sun wg-workouts-session-actions__btn wg-workouts-session-actions__log-set workout-action-btn';
     logSetBtn.textContent = 'Log set';
     logSetBtn.addEventListener('click', () => onLogSet());
 
     const finishBtn = document.createElement('button');
     finishBtn.type = 'button';
     finishBtn.id = 'workout-session-finish-btn';
-    finishBtn.className = 'wg-gloss wg-workouts-session-actions__btn wg-workouts-session-actions__finish';
+    finishBtn.className = 'wg-gloss wg-workouts-session-actions__btn wg-workouts-session-actions__finish workout-action-btn';
     finishBtn.textContent = 'Finish';
     finishBtn.addEventListener('click', () => onFinish());
 
     const deleteBtn = document.createElement('button');
     deleteBtn.type = 'button';
     deleteBtn.id = 'workout-session-bottom-delete-btn';
-    deleteBtn.className = 'wg-gloss wg-workouts-session-actions__btn wg-workouts-session-actions__delete';
+    deleteBtn.className = 'wg-gloss wg-workouts-session-actions__btn wg-workouts-session-actions__delete workout-action-btn';
     deleteBtn.textContent = 'Delete';
     deleteBtn.addEventListener('click', () => onDelete());
 
     container.appendChild(logSetBtn);
     container.appendChild(finishBtn);
     container.appendChild(deleteBtn);
+
+    if (typeof window !== 'undefined' && window.SyncManager && window.SyncManager.isOnline === false) {
+        [logSetBtn, finishBtn, deleteBtn].forEach((btn) => {
+            btn.classList.add('offline-disabled');
+            btn.setAttribute('data-offline-disabled', 'true');
+            btn.disabled = true;
+        });
+    }
 }
 
 function closeWorkoutSessionModal() {

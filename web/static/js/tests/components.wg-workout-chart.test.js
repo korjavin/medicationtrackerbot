@@ -123,9 +123,11 @@ describe('WGWorkoutChart.render', () => {
         expect(svg).not.toBeNull();
         expect(svg.dataset.workoutRange).toBe('30d');
         const pointCount = Number(svg.dataset.workoutPointCount);
-        // 30 days ≈ 4-5 weekly entries.
+        // 30 days ≈ 4-5 weekly entries; weekly buckets (7-day span) that
+        // still overlap the 30-day window are also kept, so up to 6 entries
+        // may make it through.
         expect(pointCount).toBeGreaterThan(0);
-        expect(pointCount).toBeLessThanOrEqual(5);
+        expect(pointCount).toBeLessThanOrEqual(6);
     });
 
     it('treats range "all" (and undefined) as no filter', () => {
