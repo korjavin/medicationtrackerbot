@@ -730,6 +730,11 @@
     --wg-settings-number-field-height: 44px;
     --wg-settings-number-field-pad-x: 12px;
     --wg-settings-number-field-label-size: 10.5px;
+    --wg-settings-number-grid-cols: 1fr 1fr;
+    --wg-settings-number-grid-gap: 12px;
+    --wg-settings-number-field-gap: 6px;
+    --wg-settings-number-field-unit-size: 11px;
+    --wg-settings-save-btn-min-height: 44px;
     --wg-settings-action-row-gap: 8px;
     --wg-settings-version-size: 10px;
     --wg-settings-version-pad: 20px;
@@ -8731,6 +8736,90 @@ textarea.wg-input {
     font-size: var(--wg-settings-desc-size);
     padding: var(--space-xs) var(--space-md);
     border: none;
+    color: var(--wg-fg-1);
+    cursor: pointer;
+}
+
+/* Food Targets number-field grid (Phase 9, Task 6). A 2×2 grid of
+   number fields for calories / carbs / protein / fat. Each field is a
+   stacked mono uppercase label + a `.wg-gloss--inset` input wrap with a
+   trailing unit tag. No inline styles, no hardcoded spacing — every
+   value comes from a `--wg-settings-number-*` token. */
+.wg-settings-number-grid {
+    display: grid;
+    grid-template-columns: var(--wg-settings-number-grid-cols);
+    gap: var(--wg-settings-number-grid-gap);
+}
+
+.wg-settings-number-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-settings-number-field-gap);
+    min-width: 0;
+}
+
+.wg-settings-number-field__label {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-settings-number-field-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-settings-number-field__wrap {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-height: var(--wg-settings-number-field-height);
+    padding: 0 var(--wg-settings-number-field-pad-x);
+    min-width: 0;
+}
+
+.wg-settings-number-field__input {
+    flex: 1 1 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-settings-number-field__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-settings-number-field__unit {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-settings-number-field-unit-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    flex-shrink: 0;
+}
+
+/* Full-width primary Save button inside the Food Targets section —
+   `.wg-gloss--sun` carries the glossy gradient; this class adds the
+   full-width layout + min-height so the button matches the other
+   Wandergeek save actions. */
+.wg-settings-save-btn {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    min-height: var(--wg-settings-save-btn-min-height);
+    padding: var(--space-md) var(--space-lg);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    border: none;
+    border-radius: var(--wg-radius-gloss);
     color: var(--wg-fg-1);
     cursor: pointer;
 }
