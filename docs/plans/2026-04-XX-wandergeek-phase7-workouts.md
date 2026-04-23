@@ -109,13 +109,13 @@ No backend changes. The existing `/api/workouts*`, `/api/exercises*`, `/api/work
 
 ### Task 3: Build today's-workout card
 
-- [ ] create a `renderTodaysWorkoutCard(rotation, todaySessions)` helper that picks the current rotation slot (PUSH / PULL / LEGS / REST)
-- [ ] non-rest state: `.wg-gloss--sun` container, small uppercase "Today · SLOT" subtitle, mono exercise-cluster list ("Bench · Overhead · Triceps · +2" when > 3), and a `.wg-gloss--sun` Start button
-- [ ] rest state: muted `.wg-card` with "Rest day" mono header + "Start ad-hoc?" CTA
-- [ ] already-completed state: `.wg-card` with "Completed · 45m" eyebrow + Finish-indicator tag
-- [ ] Start button click invokes `startRotatedWorkout()`; ad-hoc CTA invokes `startAdhocWorkout()`
-- [ ] write `workout.today.test.js` — rotation-slot variant, rest state, completed state, Start button dispatch, ad-hoc fallback
-- [ ] run `pnpm test` — must pass before next task
+- [x] create a `renderTodaysWorkoutCard(rotation, todaySessions)` helper that picks the current rotation slot (PUSH / PULL / LEGS / REST)
+- [x] non-rest state: `.wg-gloss--sun` container, small uppercase "Today · SLOT" subtitle, mono exercise-cluster list ("Bench · Overhead · Triceps · +2" when > 3), and a `.wg-gloss--sun` Start button
+- [x] rest state: muted `.wg-card` with "Rest day" mono header + "Start ad-hoc?" CTA
+- [x] already-completed state: `.wg-card` with "Completed · 45m" eyebrow + Finish-indicator tag
+- [x] Start button click invokes `startRotatedWorkout()`; ad-hoc CTA invokes `startAdhocWorkout()`
+- [x] write `workout.today.test.js` — rotation-slot variant, rest state, completed state, Start button dispatch, ad-hoc fallback
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Rewrite the history sub-tab + session detail view
 

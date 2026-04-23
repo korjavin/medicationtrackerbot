@@ -5613,6 +5613,120 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
+/* Today's-workout card (Phase 7, Task 3). Sun-glossed card mirroring the
+   Meds next-action pattern. `renderTodaysWorkoutCard` picks one of three
+   variants: non-rest (sun gloss + Start button), rest (muted card + ad-hoc
+   CTA), already-completed (muted card + completed eyebrow). The
+   rotation-slot tag uses the --wg-workouts-slot-* semantic aliases so the
+   same element styling can render PUSH / PULL / LEGS / REST / AD-HOC. */
+.wg-workouts-today-card {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--wg-workouts-today-card-pad);
+    border-radius: var(--wg-radius-card);
+    color: inherit;
+    text-align: left;
+    width: 100%;
+    margin-bottom: var(--space-md);
+}
+
+.wg-workouts-today-card__text {
+    flex: 1;
+    min-width: 0;
+}
+
+.wg-workouts-today-card__subtitle {
+    font-size: var(--wg-workouts-today-subtitle-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-sun-soft);
+    font-weight: 600;
+}
+
+.wg-workouts-today-card--rest .wg-workouts-today-card__subtitle,
+.wg-workouts-today-card--completed .wg-workouts-today-card__subtitle {
+    color: var(--wg-fg-2);
+}
+
+.wg-workouts-today-card__value {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-today-names-size);
+    color: var(--wg-fg-1);
+    margin-top: var(--space-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wg-workouts-today-card__duration {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-today-duration-size);
+    color: var(--wg-fg-2);
+    margin-top: var(--space-xs);
+}
+
+.wg-workouts-today-card__start {
+    flex-shrink: 0;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-sm);
+    font-family: var(--wg-font-mono);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-today-card__adhoc {
+    flex-shrink: 0;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-sm);
+    font-family: var(--wg-font-mono);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-slot-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--wg-workouts-slot-tag-pad-y) var(--wg-workouts-slot-tag-pad-x);
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-slot-tag-size);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border-radius: var(--wg-radius-gloss);
+    border: 1px solid transparent;
+    margin-right: var(--space-xs);
+}
+
+.wg-workouts-slot-tag--push {
+    background: var(--wg-workouts-slot-push-bg);
+    color: var(--wg-workouts-slot-push-fg);
+    border-color: var(--wg-workouts-slot-push-border);
+}
+
+.wg-workouts-slot-tag--pull {
+    background: var(--wg-workouts-slot-pull-bg);
+    color: var(--wg-workouts-slot-pull-fg);
+    border-color: var(--wg-workouts-slot-pull-border);
+}
+
+.wg-workouts-slot-tag--legs {
+    background: var(--wg-workouts-slot-legs-bg);
+    color: var(--wg-workouts-slot-legs-fg);
+    border-color: var(--wg-workouts-slot-legs-border);
+}
+
+.wg-workouts-slot-tag--rest {
+    background: var(--wg-workouts-slot-rest-bg);
+    color: var(--wg-workouts-slot-rest-fg);
+    border-color: var(--wg-workouts-slot-rest-border);
+}
+
+.wg-workouts-slot-tag--adhoc {
+    background: var(--wg-workouts-slot-adhoc-bg);
+    color: var(--wg-workouts-slot-adhoc-fg);
+    border-color: var(--wg-workouts-slot-adhoc-border);
+}
+
 /* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
    bracket clusters of scheduled meds; each row is a `.wg-card` with a name
    (mono-display), dosage, schedule summary, optional inventory tag, and a
