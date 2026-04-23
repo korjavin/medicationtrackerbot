@@ -627,16 +627,13 @@
                 <button id="workout-session-save-btn" class="btn btn-primary">Save Changes</button>
             </div>
         </div>
-        <div id="workout-session-info"
-            style="margin-bottom: 15px; font-size: 0.9em; color: #666; background: #f0f0f0; padding: 10px; border-radius: 8px;">
-        </div>
-        <div id="workout-session-logs" style="display: flex; flex-direction: column; gap: 15px;">
+        <div id="workout-session-info"></div>
+        <div id="workout-session-logs">
             <!-- Exercise logs injected here -->
         </div>
 
-        <div style="margin-top: 15px; text-align: center;">
-            <button id="workout-session-add-exercise-btn" class="btn btn-secondary"
-                style="width: 100%; border: 1px dashed var(--color-chart-primary); color: var(--color-chart-primary);">+ Add Exercise</button>
+        <div id="workout-session-actions" class="wg-workouts-session-actions">
+            <!-- Log-set / Finish / Delete action cluster injected here -->
         </div>
 
     </mt-modal>

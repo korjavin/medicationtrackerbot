@@ -1490,152 +1490,318 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts, userTz) {
     // Sort newest first
     items.sort((a, b) => b.ts - a.ts);
 
+    container.replaceChildren();
+    container.classList.add('wg-workouts-history');
+
     if (items.length === 0) {
         const empty = document.createElement('p');
-        empty.className = 'workout-empty-state';
+        empty.className = 'wg-workouts-history__empty';
         empty.textContent = 'No workout history yet';
-        container.replaceChildren(empty);
+        container.appendChild(empty);
         return;
     }
 
-    const root = document.createElement('div');
-    root.className = 'workout-history-list';
-
-    items.forEach(item => {
-        if (item.type === 'session') {
-            root.appendChild(_buildSessionCard(item.data));
-        } else {
-            root.appendChild(_buildMiBandCard(item.data));
-        }
+    // Group by local day for section-labeled clusters (mirrors Phase 6 weight
+    // history pattern).
+    const groups = _groupWorkoutHistoryByDay(items);
+    const list = document.createElement('ul');
+    list.className = 'list-reset wg-workouts-history__list';
+    groups.forEach((group) => {
+        list.appendChild(_buildWorkoutHistoryGroup(group));
     });
+    container.appendChild(list);
+}
 
-    container.replaceChildren(root);
+function _groupWorkoutHistoryByDay(items) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const buckets = new Map();
+    items.forEach((item) => {
+        const d = new Date(item.ts);
+        if (!Number.isFinite(d.getTime())) return;
+        const dayStart = new Date(d);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayMs = dayStart.getTime();
+
+        let key;
+        let label;
+        if (dayMs === today.getTime()) { key = 'today'; label = 'Today'; }
+        else if (dayMs === yesterday.getTime()) { key = 'yesterday'; label = 'Yesterday'; }
+        else {
+            key = String(dayMs);
+            label = dayStart.toLocaleDateString(undefined, {
+                day: '2-digit', month: '2-digit', year: 'numeric'
+            });
+        }
+        if (!buckets.has(key)) buckets.set(key, { label, sortKey: dayMs, items: [] });
+        buckets.get(key).items.push(item);
+    });
+    return Array.from(buckets.values()).sort((a, b) => b.sortKey - a.sortKey);
+}
+
+function _buildWorkoutHistoryGroup(group) {
+    const groupItem = document.createElement('li');
+    groupItem.className = 'wg-workouts-history__group';
+
+    const header = document.createElement('div');
+    header.className = 'wg-section-label wg-workouts-history__group-label';
+    const headerText = document.createElement('span');
+    headerText.textContent = group.label;
+    header.appendChild(headerText);
+    groupItem.appendChild(header);
+
+    const rowList = document.createElement('ul');
+    rowList.className = 'list-reset wg-workouts-history__rows';
+    group.items.forEach((entry) => {
+        const row = entry.type === 'session'
+            ? _buildSessionCard(entry.data)
+            : _buildMiBandCard(entry.data);
+        rowList.appendChild(row);
+    });
+    groupItem.appendChild(rowList);
+    return groupItem;
+}
+
+function _formatHistoryDuration(minutes) {
+    const m = Math.max(0, Math.round(Number(minutes) || 0));
+    if (m <= 0) return '—';
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    const rem = m % 60;
+    return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
 }
 
 function _buildSessionCard(s) {
-    const statusEmoji = {
-        'completed': '✅',
-        'skipped': '⏭'
-    }[s.session.status] || '⏰';
+    const session = s.session || {};
+    const slot = getRotationSlot(s.variant_name || '');
+    const slotMod = _slotTagModifier(slot);
 
-    // Parse only the date part (YYYY-MM-DD) as local midnight to avoid UTC-to-local
-    // offset shifting the displayed date by one day for users west of UTC.
-    const [sYear, sMonth, sDay] = s.session.scheduled_date.split('T')[0].split('-').map(Number);
-    const date = new Date(sYear, sMonth - 1, sDay).toLocaleDateString('en-US', {
-        month: 'short', day: 'numeric', year: 'numeric'
+    const card = document.createElement('li');
+    card.className = 'wg-card wg-workouts-history-row';
+    card.classList.add(`wg-workouts-history-row--${session.status || 'unknown'}`);
+    if (s.isLocal) card.classList.add('wg-workouts-history-row--pending');
+    if (s.isRejected) card.classList.add('wg-workouts-history-row--rejected');
+    card.dataset.sessionId = String(session.id || '');
+    card.dataset.slot = slot;
+
+    const body = document.createElement('div');
+    body.className = 'wg-workouts-history-row__body';
+
+    const title = document.createElement('div');
+    title.className = 'wg-workouts-history-row__title';
+
+    const slotTag = document.createElement('span');
+    slotTag.className = `wg-workouts-slot-tag wg-workouts-slot-tag--${slotMod} wg-workouts-history-row__slot`;
+    slotTag.textContent = slot;
+    title.appendChild(slotTag);
+
+    const name = document.createElement('span');
+    name.className = 'wg-workouts-history-row__name';
+    name.textContent = s.group_name || 'Workout';
+    title.appendChild(name);
+
+    body.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'wg-workouts-history-row__meta';
+
+    const timeText = session.started_at
+        ? new Date(session.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : (session.scheduled_time || '');
+    if (timeText) {
+        const time = document.createElement('span');
+        time.className = 'wg-workouts-history-row__time';
+        time.textContent = timeText;
+        meta.appendChild(time);
+    }
+
+    if (session.status === 'completed') {
+        const count = document.createElement('span');
+        count.className = 'wg-workouts-history-row__count';
+        const done = s.exercises_completed || 0;
+        const total = s.exercises_count || done;
+        count.textContent = `${done}/${total} exercises`;
+        meta.appendChild(count);
+    } else if (session.status === 'skipped') {
+        const skipped = document.createElement('span');
+        skipped.className = 'wg-tag wg-tag--mono wg-tag--skipped wg-workouts-history-row__status';
+        skipped.textContent = 'Skipped';
+        meta.appendChild(skipped);
+    }
+
+    const durationMinutes = _computeSessionDurationMinutes(session);
+    if (durationMinutes > 0) {
+        const duration = document.createElement('span');
+        duration.className = 'wg-workouts-history-row__duration';
+        duration.textContent = _formatHistoryDuration(durationMinutes);
+        meta.appendChild(duration);
+    }
+
+    if (s.total_volume > 0) {
+        const volume = document.createElement('span');
+        volume.className = 'wg-workouts-history-row__volume';
+        volume.textContent = `${Math.round(s.total_volume).toLocaleString()} kg`;
+        meta.appendChild(volume);
+    }
+
+    if (s.isRejected) {
+        meta.appendChild(_buildHistorySyncTag('rejected', 'Failed', s.errorMessage));
+    } else if (s.isLocal) {
+        meta.appendChild(_buildHistorySyncTag('pending', 'Pending'));
+    }
+
+    body.appendChild(meta);
+    card.appendChild(body);
+
+    const actions = document.createElement('div');
+    actions.className = 'wg-workouts-history-row__actions';
+    actions.appendChild(_buildHistoryIconBtn('view', 'View session', 'chevronRight', () => {
+        showWorkoutSessionModal(session.id);
+    }));
+    actions.appendChild(_buildHistoryIconBtn('edit', 'Edit session', 'pencil', () => {
+        showWorkoutSessionModal(session.id);
+    }));
+    actions.appendChild(_buildHistoryIconBtn('delete', 'Delete session', 'trash', () => {
+        deleteWorkoutSessionById(session.id);
+    }));
+    card.appendChild(actions);
+
+    card.addEventListener('click', (e) => {
+        // Ignore clicks originating from icon-btns — they dispatch their own
+        // action and shouldn't also fall through to the detail view.
+        if (e.target.closest('.wg-workouts-history-row__actions')) return;
+        showWorkoutSessionModal(session.id);
     });
-
-    const volumeText = s.total_volume > 0
-        ? `${Math.round(s.total_volume).toLocaleString()} kg total`
-        : '';
-
-    const card = document.createElement('div');
-    card.className = 'workout-history-card';
-    card.addEventListener('click', () => showWorkoutSessionModal(s.session.id));
-
-    const row = document.createElement('div');
-    row.className = 'flex-between items-start';
-
-    const left = document.createElement('div');
-    const title = document.createElement('strong');
-    title.textContent = `${statusEmoji} ${s.group_name}`;
-    left.appendChild(title);
-    if (s.variant_name) {
-        left.appendChild(document.createTextNode(` - ${s.variant_name}`));
-    }
-
-    const details = document.createElement('div');
-    details.className = 'workout-history-meta';
-
-    const timeText = s.session.started_at
-        ? new Date(s.session.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        : s.session.scheduled_time;
-    let detailLine = `${date} at ${timeText}`;
-    if (s.session.status === 'completed') {
-        detailLine += ` • ${s.exercises_completed}/${s.exercises_count} exercises`;
-    }
-    details.appendChild(document.createTextNode(detailLine));
-    if (volumeText) {
-        details.appendChild(document.createElement('br'));
-        const volume = document.createElement('strong');
-        volume.className = 'workout-volume-highlight';
-        volume.textContent = volumeText;
-        details.appendChild(volume);
-    }
-    left.appendChild(details);
-
-    const right = document.createElement('div');
-    right.className = 'workout-history-status';
-    right.appendChild(document.createTextNode(s.session.status));
-    const chevron = document.createElement('span');
-    chevron.className = 'workout-history-chevron';
-    chevron.textContent = '›';
-    right.appendChild(chevron);
-
-    row.appendChild(left);
-    row.appendChild(right);
-    card.appendChild(row);
     return card;
+}
+
+async function deleteWorkoutSessionById(sessionId) {
+    if (!sessionId) return;
+    await safeConfirm('Delete this workout session?', async (ok) => {
+        if (!ok) return;
+        const result = await apiCall(`/api/workout/sessions/delete?id=${sessionId}`, 'DELETE');
+        if (result || result === true) {
+            loadWorkoutHistoryTab();
+        }
+    });
+}
+
+function _computeSessionDurationMinutes(session) {
+    if (!session) return 0;
+    if (Number.isFinite(Number(session.duration_minutes))) {
+        return Math.max(0, Math.round(Number(session.duration_minutes)));
+    }
+    if (session.started_at && session.completed_at) {
+        const diff = new Date(session.completed_at).getTime() - new Date(session.started_at).getTime();
+        if (Number.isFinite(diff) && diff > 0) return Math.round(diff / 60000);
+    }
+    return 0;
+}
+
+function _buildHistorySyncTag(kind, label, tooltip) {
+    const tag = document.createElement('span');
+    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-workouts-history-row__sync`;
+    tag.textContent = label;
+    if (tooltip) tag.title = tooltip;
+    return tag;
+}
+
+function _buildHistoryIconBtn(kind, ariaLabel, iconName, handler) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `wg-icon-btn wg-workouts-history-row__${kind}`;
+    btn.setAttribute('aria-label', ariaLabel);
+    const gloss = document.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg(iconName, { size: 16 }));
+    }
+    btn.appendChild(gloss);
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handler();
+    });
+    return btn;
 }
 
 function _buildMiBandCard(w) {
     const meta = MIBAND_ACTIVITY_META[w.activity_name] || { label: w.activity_name, icon: '🏅' };
     const startDate = new Date(w.start_time);
-    const dateStr = startDate.toLocaleDateString('en-US', {
-        month: 'short', day: 'numeric', year: 'numeric'
-    });
     const timeStr = startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const distKm = w.distance_m >= 1000
         ? `${(w.distance_m / 1000).toFixed(1)} km`
         : `${Math.round(w.distance_m)} m`;
     const duration = _formatDuration(w.duration_sec);
 
-    // Stats chips
-    const chips = [];
-    chips.push(`📏 ${distKm}`);
-    chips.push(`⏱ ${duration}`);
-    if (w.steps > 0) chips.push(`👣 ${w.steps.toLocaleString()}`);
-    if (w.heart_rate_avg > 0) chips.push(`❤️ ${w.heart_rate_avg} bpm`);
-    if (w.calories > 0) chips.push(`🔥 ${w.calories} kcal`);
+    const card = document.createElement('li');
+    card.className = 'wg-card wg-workouts-history-row wg-workouts-history-row--miband';
+    card.dataset.mibandId = String(w.id || '');
+    card.dataset.slot = 'AD-HOC';
 
-    const card = document.createElement('div');
-    card.className = 'workout-miband-card';
+    const body = document.createElement('div');
+    body.className = 'wg-workouts-history-row__body';
 
-    // Title row
-    const titleRow = document.createElement('div');
-    titleRow.className = 'flex-between';
+    const title = document.createElement('div');
+    title.className = 'wg-workouts-history-row__title';
 
-    const titleLeft = document.createElement('strong');
-    titleLeft.textContent = `${meta.icon} ${meta.label}`;
+    const slotTag = document.createElement('span');
+    slotTag.className = 'wg-workouts-slot-tag wg-workouts-slot-tag--adhoc wg-workouts-history-row__slot';
+    slotTag.textContent = meta.label.toUpperCase();
+    title.appendChild(slotTag);
 
-    const isManual = w.source === 'manual';
-    const badge = document.createElement('span');
-    badge.textContent = isManual ? 'Manual' : 'Mi Band';
-    badge.className = isManual ? 'workout-miband-badge workout-miband-badge--manual' : 'workout-miband-badge';
+    const name = document.createElement('span');
+    name.className = 'wg-workouts-history-row__name';
+    name.textContent = w.source === 'manual' ? 'Manual entry' : 'Mi Band';
+    title.appendChild(name);
 
-    titleRow.appendChild(titleLeft);
-    titleRow.appendChild(badge);
-    card.appendChild(titleRow);
+    body.appendChild(title);
 
-    // Date line
-    const dateEl = document.createElement('div');
-    dateEl.className = 'workout-miband-date';
-    dateEl.textContent = `${dateStr} at ${timeStr}`;
-    card.appendChild(dateEl);
+    const metaRow = document.createElement('div');
+    metaRow.className = 'wg-workouts-history-row__meta';
 
-    // Stats chips
-    const chipsEl = document.createElement('div');
-    chipsEl.className = 'workout-stat-chips';
-    chips.forEach(text => {
-        const chip = document.createElement('span');
-        chip.textContent = text;
-        chip.className = 'workout-stat-chip';
-        chipsEl.appendChild(chip);
+    if (timeStr) {
+        const t = document.createElement('span');
+        t.className = 'wg-workouts-history-row__time';
+        t.textContent = timeStr;
+        metaRow.appendChild(t);
+    }
+
+    const dist = document.createElement('span');
+    dist.className = 'wg-workouts-history-row__count';
+    dist.textContent = distKm;
+    metaRow.appendChild(dist);
+
+    if (w.duration_sec > 0) {
+        const dur = document.createElement('span');
+        dur.className = 'wg-workouts-history-row__duration';
+        dur.textContent = duration;
+        metaRow.appendChild(dur);
+    }
+
+    if (w.heart_rate_avg > 0) {
+        const hr = document.createElement('span');
+        hr.className = 'wg-workouts-history-row__volume';
+        hr.textContent = `${w.heart_rate_avg} bpm`;
+        metaRow.appendChild(hr);
+    }
+
+    body.appendChild(metaRow);
+    card.appendChild(body);
+
+    const actions = document.createElement('div');
+    actions.className = 'wg-workouts-history-row__actions';
+    actions.appendChild(_buildHistoryIconBtn('view', 'View workout', 'chevronRight', () => {
+        showMiBandWorkoutModal(w);
+    }));
+    card.appendChild(actions);
+
+    card.addEventListener('click', (e) => {
+        if (e.target.closest('.wg-workouts-history-row__actions')) return;
+        showMiBandWorkoutModal(w);
     });
-    card.appendChild(chipsEl);
-
-    card.addEventListener('click', () => showMiBandWorkoutModal(w));
-
     return card;
 }
 
@@ -1731,35 +1897,73 @@ let currentSessionData = null;
 let originalSessionStatus = null;
 
 function renderWorkoutSessionInfo(infoContainer, session) {
-    const root = document.createElement('div');
-    root.className = 'workout-session-info-row';
+    infoContainer.classList.add('wg-workouts-session-info');
 
-    const left = document.createElement('div');
-    const time = document.createElement('strong');
-    time.textContent = session.started_at
+    const root = document.createElement('div');
+    root.className = 'wg-workouts-session-info__row';
+
+    const header = document.createElement('div');
+    header.className = 'wg-workouts-session-info__header';
+
+    const slot = getRotationSlot(session.variant_name || '');
+    const slotTag = document.createElement('span');
+    slotTag.className = `wg-workouts-slot-tag wg-workouts-slot-tag--${_slotTagModifier(slot)} wg-workouts-session-info__slot`;
+    slotTag.textContent = slot;
+    header.appendChild(slotTag);
+
+    const dateParts = (session.scheduled_date || '').split('T')[0].split('-').map(Number);
+    const dateObj = dateParts.length === 3
+        ? new Date(dateParts[0], dateParts[1] - 1, dateParts[2])
+        : new Date();
+    const title = document.createElement('span');
+    title.className = 'wg-mono-display wg-workouts-session-info__title';
+    const weekday = dateObj.toLocaleDateString(undefined, { weekday: 'short' });
+    const dateStr = dateObj.toLocaleDateString(undefined, {
+        day: '2-digit', month: '2-digit', year: 'numeric'
+    });
+    title.textContent = `${dateStr} · ${weekday}`;
+    header.appendChild(title);
+    root.appendChild(header);
+
+    const meta = document.createElement('div');
+    meta.className = 'wg-workouts-session-info__meta';
+
+    const timeText = session.started_at
         ? new Date(session.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         : (session.scheduled_time || '');
-    left.appendChild(time);
-    left.appendChild(document.createTextNode(' • '));
-    left.appendChild(document.createTextNode(new Date(session.scheduled_date).toLocaleDateString()));
+    if (timeText) {
+        const time = document.createElement('span');
+        time.className = 'wg-workouts-session-info__time';
+        time.textContent = timeText;
+        meta.appendChild(time);
+    }
 
-    const right = document.createElement('div');
-    right.className = 'workout-session-status-group';
+    const durationMin = _computeSessionDurationMinutes(session);
+    if (durationMin > 0) {
+        const dur = document.createElement('span');
+        dur.className = 'wg-workouts-session-info__duration';
+        dur.textContent = _formatHistoryDuration(durationMin);
+        meta.appendChild(dur);
+    }
+    root.appendChild(meta);
+
+    const statusRow = document.createElement('div');
+    statusRow.className = 'wg-workouts-session-info__status wg-gloss--inset';
 
     const label = document.createElement('label');
-    label.className = 'workout-session-status-label';
-    label.textContent = 'Status:';
+    label.className = 'wg-workouts-session-info__status-label';
+    label.textContent = 'Status';
+    label.setAttribute('for', 'session-status-select');
 
     const select = document.createElement('select');
     select.id = 'session-status-select';
-    select.className = 'workout-session-select';
+    select.className = 'wg-workouts-session-info__status-select';
 
     const statusOptions = [
-        { value: 'in_progress', label: '🏋️ In Progress' },
-        { value: 'completed', label: '✅ Completed' },
-        { value: 'skipped', label: '⏭ Skipped' }
+        { value: 'in_progress', label: 'In Progress' },
+        { value: 'completed', label: 'Completed' },
+        { value: 'skipped', label: 'Skipped' }
     ];
-
     statusOptions.forEach((opt) => {
         const option = document.createElement('option');
         option.value = opt.value;
@@ -1768,18 +1972,19 @@ function renderWorkoutSessionInfo(infoContainer, session) {
         select.appendChild(option);
     });
 
-    right.appendChild(label);
-    right.appendChild(select);
+    statusRow.appendChild(label);
+    statusRow.appendChild(select);
+    root.appendChild(statusRow);
 
-    root.appendChild(left);
-    root.appendChild(right);
     infoContainer.replaceChildren(root);
 }
 
 function renderWorkoutSessionLogs(logsContainer) {
+    logsContainer.classList.add('wg-workouts-session-logs');
+
     if (!Array.isArray(currentSessionLogs) || currentSessionLogs.length === 0) {
         const empty = document.createElement('p');
-        empty.className = 'text-center text-hint';
+        empty.className = 'wg-workouts-session-logs__empty';
         empty.textContent = 'No exercises logged';
         logsContainer.replaceChildren(empty);
         return;
@@ -1787,95 +1992,119 @@ function renderWorkoutSessionLogs(logsContainer) {
 
     const fragment = document.createDocumentFragment();
     currentSessionLogs.forEach((log, index) => {
-        const isUnsaved = !log.id || log.id === 0;
-
-        const entry = document.createElement('div');
-        entry.className = 'exercise-log-entry';
-        entry.id = `exercise-log-${index}`;
-        if (isUnsaved && !log._dirty) {
-            entry.classList.add('unsaved');
-        }
-
-        const headerRow = document.createElement('div');
-        headerRow.className = 'exercise-log-header';
-
-        const title = document.createElement('h4');
-        title.className = 'm-0';
-        title.textContent = log.exercise_name || '';
-
-        const deleteButton = document.createElement('button');
-        deleteButton.title = 'Remove exercise';
-        deleteButton.className = 'exercise-log-delete-btn';
-        deleteButton.textContent = '🗑️';
-        deleteButton.addEventListener('click', () => {
-            deleteExerciseLog(index);
-        });
-
-        headerRow.appendChild(title);
-        headerRow.appendChild(deleteButton);
-        entry.appendChild(headerRow);
-
-        if (isUnsaved && !log._dirty) {
-            const hint = document.createElement('div');
-            hint.className = 'exercise-log-unsaved-hint';
-            hint.textContent = 'Not yet logged — edit to include';
-            entry.appendChild(hint);
-        }
-
-        const inputRow = document.createElement('div');
-        inputRow.className = 'log-input-row';
-
-        const createNumberInputGroup = (labelText, value, field, min, max, step, inputmode) => {
-            const group = document.createElement('div');
-            group.className = 'log-input-group';
-
-            const label = document.createElement('label');
-            label.textContent = labelText;
-
-            const input = document.createElement('input');
-            input.type = 'number';
-            input.min = String(min);
-            input.max = String(max);
-            input.step = String(step);
-            input.value = String(value);
-            input.setAttribute('inputmode', inputmode);
-            input.addEventListener('change', () => {
-                updateLocalLog(index, field, input.value);
-            });
-
-            group.appendChild(label);
-            group.appendChild(input);
-            return group;
-        };
-
-        inputRow.appendChild(createNumberInputGroup('Sets', log.sets_completed || 0, 'sets_completed', 0, 20, 1, 'numeric'));
-        inputRow.appendChild(createNumberInputGroup('Reps', log.reps_completed || 0, 'reps_completed', 0, 100, 1, 'numeric'));
-        inputRow.appendChild(createNumberInputGroup('Weight (kg)', log.weight_kg || 0, 'weight_kg', 0, 500, 0.5, 'decimal'));
-        entry.appendChild(inputRow);
-
-        const notesGroup = document.createElement('div');
-        notesGroup.className = 'log-input-group';
-
-        const notesLabel = document.createElement('label');
-        notesLabel.textContent = 'Notes';
-
-        const notesInput = document.createElement('input');
-        notesInput.type = 'text';
-        notesInput.value = log.notes || '';
-        notesInput.placeholder = 'Add notes...';
-        notesInput.maxLength = 200;
-        notesInput.addEventListener('change', () => {
-            updateLocalLog(index, 'notes', notesInput.value);
-        });
-
-        notesGroup.appendChild(notesLabel);
-        notesGroup.appendChild(notesInput);
-        entry.appendChild(notesGroup);
-
-        fragment.appendChild(entry);
+        fragment.appendChild(_buildSessionExerciseCard(log, index));
     });
 
     logsContainer.replaceChildren(fragment);
+}
+
+function _buildSessionExerciseCard(log, index) {
+    const isUnsaved = !log.id || log.id === 0;
+
+    const entry = document.createElement('div');
+    entry.className = 'wg-card wg-workouts-session-exercise exercise-log-entry';
+    entry.id = `exercise-log-${index}`;
+    if (isUnsaved && !log._dirty) {
+        entry.classList.add('unsaved');
+    }
+
+    const headerRow = document.createElement('div');
+    headerRow.className = 'wg-workouts-session-exercise__header exercise-log-header';
+
+    const title = document.createElement('span');
+    title.className = 'wg-mono-display wg-workouts-session-exercise__name';
+    title.textContent = log.exercise_name || '';
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.title = 'Remove exercise';
+    deleteButton.className = 'wg-icon-btn wg-workouts-session-exercise__delete exercise-log-delete-btn';
+    deleteButton.setAttribute('aria-label', 'Remove exercise');
+    const deleteGloss = document.createElement('span');
+    deleteGloss.className = 'wg-gloss';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        deleteGloss.appendChild(window.WGIcons.iconSvg('trash', { size: 16 }));
+    }
+    deleteButton.appendChild(deleteGloss);
+    deleteButton.addEventListener('click', () => {
+        deleteExerciseLog(index);
+    });
+
+    headerRow.appendChild(title);
+    headerRow.appendChild(deleteButton);
+    entry.appendChild(headerRow);
+
+    const sets = Math.max(0, Math.round(Number(log.sets_completed) || 0));
+    const reps = Math.max(0, Math.round(Number(log.reps_completed) || 0));
+    const weight = Math.max(0, Number(log.weight_kg) || 0);
+    const weightLabel = weight > 0 ? `${weight % 1 === 0 ? weight : weight.toFixed(1)} kg` : 'bodyweight';
+    const monoRow = document.createElement('div');
+    monoRow.className = 'wg-workouts-session-exercise__mono';
+    monoRow.textContent = `${sets} × ${reps} · ${weightLabel}`;
+    entry.appendChild(monoRow);
+
+    if (isUnsaved && !log._dirty) {
+        const hint = document.createElement('div');
+        hint.className = 'wg-workouts-session-exercise__hint exercise-log-unsaved-hint';
+        hint.textContent = 'Not yet logged — edit to include';
+        entry.appendChild(hint);
+    }
+
+    const inputRow = document.createElement('div');
+    inputRow.className = 'wg-workouts-session-exercise__inputs log-input-row';
+
+    const createNumberInputGroup = (labelText, value, field, min, max, step, inputmode) => {
+        const group = document.createElement('label');
+        group.className = 'wg-gloss--inset wg-workouts-session-exercise__field log-input-group';
+
+        const labelEl = document.createElement('span');
+        labelEl.className = 'wg-workouts-session-exercise__field-label';
+        labelEl.textContent = labelText;
+
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.className = 'wg-workouts-session-exercise__field-input';
+        input.min = String(min);
+        input.max = String(max);
+        input.step = String(step);
+        input.value = String(value);
+        input.setAttribute('inputmode', inputmode);
+        input.addEventListener('change', () => {
+            updateLocalLog(index, field, input.value);
+        });
+
+        group.appendChild(labelEl);
+        group.appendChild(input);
+        return group;
+    };
+
+    inputRow.appendChild(createNumberInputGroup('Sets', log.sets_completed || 0, 'sets_completed', 0, 20, 1, 'numeric'));
+    inputRow.appendChild(createNumberInputGroup('Reps', log.reps_completed || 0, 'reps_completed', 0, 100, 1, 'numeric'));
+    inputRow.appendChild(createNumberInputGroup('Weight (kg)', log.weight_kg || 0, 'weight_kg', 0, 500, 0.5, 'decimal'));
+    entry.appendChild(inputRow);
+
+    const notesGroup = document.createElement('label');
+    notesGroup.className = 'wg-gloss--inset wg-workouts-session-exercise__field wg-workouts-session-exercise__field--notes log-input-group';
+
+    const notesLabel = document.createElement('span');
+    notesLabel.className = 'wg-workouts-session-exercise__field-label';
+    notesLabel.textContent = 'Notes';
+
+    const notesInput = document.createElement('input');
+    notesInput.type = 'text';
+    notesInput.className = 'wg-workouts-session-exercise__field-input';
+    notesInput.value = log.notes || '';
+    notesInput.placeholder = 'Add notes...';
+    notesInput.maxLength = 200;
+    notesInput.addEventListener('change', () => {
+        updateLocalLog(index, 'notes', notesInput.value);
+    });
+
+    notesGroup.appendChild(notesLabel);
+    notesGroup.appendChild(notesInput);
+    entry.appendChild(notesGroup);
+
+    return entry;
 }
 
 async function showWorkoutSessionModal(sessionId) {
@@ -1925,6 +2154,14 @@ async function showWorkoutSessionModal(sessionId) {
 
         renderWorkoutSessionInfo(infoContainer, data.session);
         renderWorkoutSessionLogs(logsContainer);
+        const actionsContainer = document.getElementById('workout-session-actions');
+        if (actionsContainer) {
+            renderSessionDetailActions(actionsContainer, {
+                onLogSet: () => showAddExerciseToSessionModal(),
+                onFinish: () => finishWorkoutSession(),
+                onDelete: () => deleteWorkoutSession()
+            });
+        }
 
         window.ModalManager.workoutSession.open();
 
@@ -1998,6 +2235,47 @@ async function deleteWorkoutSession() {
             }
         }
     });
+}
+
+async function finishWorkoutSession() {
+    if (!currentSessionData) return;
+    const select = document.getElementById('session-status-select');
+    if (select) select.value = 'completed';
+    await saveWorkoutSessionDetails();
+}
+
+function renderSessionDetailActions(container, opts) {
+    container.classList.add('wg-workouts-session-actions');
+    container.replaceChildren();
+
+    const onLogSet = (opts && typeof opts.onLogSet === 'function') ? opts.onLogSet : () => {};
+    const onFinish = (opts && typeof opts.onFinish === 'function') ? opts.onFinish : () => {};
+    const onDelete = (opts && typeof opts.onDelete === 'function') ? opts.onDelete : () => {};
+
+    const logSetBtn = document.createElement('button');
+    logSetBtn.type = 'button';
+    logSetBtn.id = 'workout-session-add-exercise-btn';
+    logSetBtn.className = 'wg-gloss--sun wg-workouts-session-actions__btn wg-workouts-session-actions__log-set';
+    logSetBtn.textContent = 'Log set';
+    logSetBtn.addEventListener('click', () => onLogSet());
+
+    const finishBtn = document.createElement('button');
+    finishBtn.type = 'button';
+    finishBtn.id = 'workout-session-finish-btn';
+    finishBtn.className = 'wg-gloss wg-workouts-session-actions__btn wg-workouts-session-actions__finish';
+    finishBtn.textContent = 'Finish';
+    finishBtn.addEventListener('click', () => onFinish());
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.id = 'workout-session-bottom-delete-btn';
+    deleteBtn.className = 'wg-gloss wg-workouts-session-actions__btn wg-workouts-session-actions__delete';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', () => onDelete());
+
+    container.appendChild(logSetBtn);
+    container.appendChild(finishBtn);
+    container.appendChild(deleteBtn);
 }
 
 function closeWorkoutSessionModal() {

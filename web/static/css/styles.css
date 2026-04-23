@@ -5727,6 +5727,302 @@ textarea.wg-input {
     border-color: var(--wg-workouts-slot-adhoc-border);
 }
 
+/* Workouts history sub-tab (Phase 7, Task 4). Day-grouped `.wg-card` rows
+   mirror the Meds + Weight history patterns: each row carries a rotation-slot
+   tag, mono duration, optional volume, and a trailing icon-button cluster
+   (view / edit / delete). Offline-pending + rejected states surface as
+   `.wg-tag--mono` variants. */
+.wg-workouts-history {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-workouts-history__empty {
+    color: var(--wg-fg-4);
+    text-align: center;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    margin: var(--space-lg) 0;
+}
+
+.wg-workouts-history__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-workouts-history__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-history__group-label {
+    font-size: var(--wg-workouts-history-day-size);
+}
+
+.wg-workouts-history__rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-history-row {
+    display: grid;
+    grid-template-columns: var(--wg-workouts-history-row-cols);
+    column-gap: var(--wg-workouts-history-row-gap);
+    align-items: center;
+    padding: var(--wg-workouts-history-row-pad);
+    cursor: pointer;
+}
+
+.wg-workouts-history-row__body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-history-row__title {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-history-row__name {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.wg-workouts-history-row__meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-history-row__time,
+.wg-workouts-history-row__duration,
+.wg-workouts-history-row__count,
+.wg-workouts-history-row__volume {
+    font-family: var(--wg-font-mono);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
+}
+
+.wg-workouts-history-row__time,
+.wg-workouts-history-row__count {
+    font-size: var(--wg-workouts-history-count-size);
+}
+
+.wg-workouts-history-row__duration {
+    font-size: var(--wg-workouts-history-duration-size);
+    color: var(--wg-fg-2);
+}
+
+.wg-workouts-history-row__volume {
+    font-size: var(--wg-workouts-history-count-size);
+}
+
+.wg-workouts-history-row__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+/* Workouts session-detail view (Phase 7, Task 4). Mono header sits above the
+   per-exercise `.wg-card` list. Each exercise card shows a mono name, a
+   set-by-set mono summary ("{sets} × {reps} · {weight}kg"), and gloss-inset
+   wrapped number inputs for sets / reps / weight plus a notes field. A
+   three-button action cluster (Log set / Finish / Delete) anchors the
+   bottom of the session detail. */
+.wg-workouts-session-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.wg-workouts-session-info__row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-session-info__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.wg-workouts-session-info__title {
+    font-size: var(--wg-workouts-session-header-size);
+}
+
+.wg-workouts-session-info__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-session-meta-size);
+    color: var(--wg-fg-3);
+}
+
+.wg-workouts-session-info__status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+}
+
+.wg-workouts-session-info__status-label {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    color: var(--wg-fg-4);
+    letter-spacing: 0.12em;
+}
+
+.wg-workouts-session-info__status-select {
+    appearance: none;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+}
+
+.wg-workouts-session-logs {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-session-logs__empty {
+    color: var(--wg-fg-4);
+    text-align: center;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    margin: var(--space-md) 0;
+}
+
+.wg-workouts-session-exercise {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-md);
+}
+
+.wg-workouts-session-exercise.unsaved {
+    opacity: 0.6;
+}
+
+.wg-workouts-session-exercise__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-session-exercise__name {
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wg-workouts-session-exercise__mono {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-session-set-row-size);
+    color: var(--wg-fg-2);
+    min-height: var(--wg-workouts-session-set-row-min-h);
+    display: flex;
+    align-items: center;
+    gap: var(--wg-workouts-session-set-row-gap);
+    letter-spacing: 0.04em;
+}
+
+.wg-workouts-session-exercise__hint {
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-4);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-workouts-session-exercise__inputs {
+    display: flex;
+    gap: var(--space-sm);
+    align-items: center;
+}
+
+.wg-workouts-session-exercise__field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-xs) var(--space-sm);
+    min-width: 0;
+}
+
+.wg-workouts-session-exercise__field--notes {
+    margin-top: var(--space-xs);
+}
+
+.wg-workouts-session-exercise__field-label {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--wg-fg-4);
+}
+
+.wg-workouts-session-exercise__field-input {
+    appearance: none;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    width: 100%;
+}
+
+.wg-workouts-session-exercise__field-input:focus {
+    outline: none;
+}
+
+.wg-workouts-session-actions {
+    display: flex;
+    gap: var(--wg-workouts-session-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-workouts-session-actions__btn {
+    flex: 1;
+    min-height: 44px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-session-actions__log-set {
+    flex: 2;
+}
+
 /* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
    bracket clusters of scheduled meds; each row is a `.wg-card` with a name
    (mono-display), dosage, schedule summary, optional inventory tag, and a
