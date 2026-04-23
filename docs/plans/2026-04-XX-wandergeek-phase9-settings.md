@@ -137,10 +137,10 @@ No backend changes. The existing `/api/settings/*`, `/api/bp/reminder/*`, `/api/
 
 ### Task 7: Rewrite the version footer
 
-- [ ] replace the version `<div style="text-align:center;color:var(--hint-color);font-size:10px;padding:20px 10px 10px;">` with a `.wg-settings-version` block — mono eyebrow "VERSION · " + the `VERSION_PLACEHOLDER` value
-- [ ] keep `VERSION_PLACEHOLDER` substitution logic in `cmd/bot/` unchanged
-- [ ] write `settings.version.test.js` — version string renders, placeholder-replacement still works at the mount point
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the version `<div style="text-align:center;color:var(--hint-color);font-size:10px;padding:20px 10px 10px;">` with a `.wg-settings-version` block — mono eyebrow "VERSION · " + the `VERSION_PLACEHOLDER` value
+- [x] keep `VERSION_PLACEHOLDER` substitution logic in `cmd/bot/` unchanged (substitution lives in `.github/workflows/deploy.yml` via sed against `index.html`; untouched)
+- [x] write `settings.version.test.js` — version string renders, placeholder-replacement still works at the mount point
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 8: Wire Settings into the canonical bottom nav + cleanup
 

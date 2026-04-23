@@ -8823,3 +8823,27 @@ textarea.wg-input {
     color: var(--wg-fg-1);
     cursor: pointer;
 }
+
+/* Version footer (Phase 9, Task 7) — mono eyebrow + short-hash value
+   centered below the last settings section. Sits outside any card so it
+   reads as metadata, not content. Value text is the `VERSION_PLACEHOLDER`
+   string swapped at deploy time. */
+.wg-settings-version {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    padding: var(--wg-settings-version-pad) var(--space-md) var(--space-md);
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-settings-version-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-settings-version__label {
+    color: var(--wg-fg-4);
+}
+
+.wg-settings-version__value {
+    color: var(--wg-fg-3);
+}
