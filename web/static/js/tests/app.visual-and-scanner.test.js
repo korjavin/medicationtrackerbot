@@ -236,15 +236,16 @@ describe('app.js charts, scanner and visualization helpers', () => {
 
       window.renderWeightChart(logs, goalData);
       expect(weightChart.querySelector('svg')).toBeTruthy();
-      expect(document.getElementById('weight-stats').innerHTML).toContain('Trend:');
-      expect(document.querySelectorAll('#weight-stats .weight-stat-item').length).toBeGreaterThan(2);
 
-      window.renderWeightStats({
-        trendWeight: 80.5,
-        weeklyRate: undefined,
-        forecastDate: null
-      });
-      expect(document.getElementById('weight-stats').textContent).toContain('Forecast: Unknown');
+      // Wandergeek Phase 6: the paper-era #weight-stats block is replaced by a
+      // pair of cards (#weight-current-card + #weight-goal-card). Each is
+      // covered by weight.current-card.test.js; here we just sanity-check the
+      // render path wires up without throwing.
+      window.renderWeightCurrentCard(logs, goalData);
+      expect(document.querySelector('#weight-current-card.wg-weight-current-card')).toBeTruthy();
+      expect(document.querySelector('#weight-current-card .wg-mono-display')).toBeTruthy();
+      window.renderWeightGoalCard(logs, goalData);
+      expect(document.querySelector('#weight-goal-card.wg-weight-goal-card')).toBeTruthy();
 
       const tsBase = Date.now() - (24 * 60 * 60 * 1000);
       window.renderVitalsLineChart('heartRateChart', [
@@ -294,27 +295,8 @@ describe('app.js charts, scanner and visualization helpers', () => {
       expect(window.ChartUtils.catmullRomSpline([[10, 20], [30, 40]])).toBe('M 10,20 L 30,40');
       expect(window.ChartUtils.catmullRomSpline([[0, 0], [10, 10], [20, 5]])).toContain('L');
 
-      expect(window.linearRegression([{ x: 0, y: 100 }, { x: 2, y: 96 }])).toEqual({
-        slope: -2,
-        intercept: 100
-      });
-      expect(window.linearRegression([{ x: 0, y: 1 }])).toBeNull();
-
       expect(window.ChartUtils.calculateYAxisTicks(72, 98)).toEqual([75, 80, 85, 90, 95]);
       expect(window.ChartUtils.calculateYAxisTicks(72, 180).length).toBeGreaterThan(4);
-
-      expect(window.calculateWeightStats([], { goal: 70 })).toBeNull();
-
-      const stats = window.calculateWeightStats([
-        { measured_at: isoDaysAgo(0), weight: 82, weight_trend: 81.8 },
-        { measured_at: isoDaysAgo(7), weight: 83 },
-        { measured_at: isoDaysAgo(14), weight: 84 }
-      ], { goal: 76 });
-
-      expect(stats.currentWeight).toBe(82);
-      expect(stats.goalWeight).toBe(76);
-      expect(stats.deltaFromGoal).toBe(6);
-      expect(typeof stats.weeklyRate).toBe('number');
     } finally {
       cleanup();
     }

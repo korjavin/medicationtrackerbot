@@ -76,6 +76,16 @@ describe('WGBottomNav — component', () => {
         } finally { cleanup(); }
     });
 
+    it('Weight is the fifth slot with the "scale" icon — Phase 6 contract', () => {
+        const { window, cleanup } = loadEnv();
+        try {
+            const weightSlot = window.WGBottomNav.DEFAULT_ITEMS[4];
+            expect(weightSlot.id).toBe('weight');
+            expect(weightSlot.icon).toBe('scale');
+            expect(weightSlot.label).toBe('Weight');
+        } finally { cleanup(); }
+    });
+
     it('mount() with 5 items lays out a single row (cols=5)', () => {
         const { window, document, cleanup } = loadEnv();
         try {

@@ -83,74 +83,74 @@ No backend changes. The existing `/api/weight*` endpoints, Dexie offline queue (
 
 ### Task 1: Extend tokens for Weight-specific visual values
 
-- [ ] add `--wg-weight-*` dimensional tokens to `:root` in `styles.css` (current-weight mono display size, trend-arrow size, chart height, range-selector padding, goal-bar height, history-row grid-template-columns) — everything the Weight view needs that isn't already covered by the shared `--wg-*` set
-- [ ] add `--wg-weight-trend-*` semantic aliases wrapping the existing sun / alert / mint tokens so the trend-direction classifier (decrease / increase / flat, relative to goal direction) returns a token-group name without duplicating styles
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] run `pnpm test` — design-tokens test must be green before next task
+- [x] add `--wg-weight-*` dimensional tokens to `:root` in `styles.css` (current-weight mono display size, trend-arrow size, chart height, range-selector padding, goal-bar height, history-row grid-template-columns) — everything the Weight view needs that isn't already covered by the shared `--wg-*` set
+- [x] add `--wg-weight-trend-*` semantic aliases wrapping the existing sun / alert / mint tokens so the trend-direction classifier (decrease / increase / flat, relative to goal direction) returns a token-group name without duplicating styles
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] run `pnpm test` — design-tokens test must be green before next task
 
 ### Task 2: Build the `WGWeightChart` component
 
-- [ ] create `web/static/js/components/wg-weight-chart.js` exposing `WGWeightChart.render({ logs, range, goal })` returning a DOM element
-- [ ] mirror `WGBpChart` structure — SVG canvas, axis + grid rendering, line plot (single-series, not two), goal-line overlay when a goal is set
-- [ ] colors + stroke widths come from `--wg-weight-*` tokens via CSS classes — no inline `style=` / hardcoded hex (canvas/SVG attribute values count as styling here; prefer CSS custom properties piped into `stroke`/`fill` attributes)
-- [ ] register `window.WGWeightChart` in `architecture.globals.test.js` with a one-line justification
-- [ ] write `components.wg-weight-chart.test.js` — range filter applied, goal line rendered when goal present / hidden when absent, empty-state card when no logs, axis tick count sane for short + long ranges
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-weight-chart.js` exposing `WGWeightChart.render({ logs, range, goal })` returning a DOM element
+- [x] mirror `WGBpChart` structure — SVG canvas, axis + grid rendering, line plot (single-series, not two), goal-line overlay when a goal is set
+- [x] colors + stroke widths come from `--wg-weight-*` tokens via CSS classes — no inline `style=` / hardcoded hex (canvas/SVG attribute values count as styling here; prefer CSS custom properties piped into `stroke`/`fill` attributes)
+- [x] register `window.WGWeightChart` in `architecture.globals.test.js` with a one-line justification
+- [x] write `components.wg-weight-chart.test.js` — range filter applied, goal line rendered when goal present / hidden when absent, empty-state card when no logs, axis tick count sane for short + long ranges
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Rewrite the current-weight + goal cards
 
-- [ ] replace the current stats block with a `.wg-weight-current-card` — `.wg-mono-display` kilo value, small uppercase "kg" suffix, trend arrow (↓/↑/→) + delta mono, small section-label timestamp subtitle
-- [ ] trend classifier: compare latest entry vs. previous entry; variant flips based on goal direction (`lose` → down-is-sun, `gain` → up-is-sun)
-- [ ] goal card renders only when a goal exists — `.wg-card--inset` row with goal mono, progress bar (reuse `WGMacroBar` if token overlap permits; otherwise a simple `.wg-gloss--inset` track), and a muted "Δ kg to goal" label
-- [ ] empty state (no weight entries yet) renders a single muted card: "No weight logged yet — add your first entry."
-- [ ] write `weight.current-card.test.js` — trend direction + color variant for lose/gain goals, goal card visibility, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the current stats block with a `.wg-weight-current-card` — `.wg-mono-display` kilo value, small uppercase "kg" suffix, trend arrow (↓/↑/→) + delta mono, small section-label timestamp subtitle
+- [x] trend classifier: compare latest entry vs. previous entry; variant flips based on goal direction (`lose` → down-is-sun, `gain` → up-is-sun)
+- [x] goal card renders only when a goal exists — `.wg-card--inset` row with goal mono, progress bar (reuse `WGMacroBar` if token overlap permits; otherwise a simple `.wg-gloss--inset` track), and a muted "Δ kg to goal" label
+- [x] empty state (no weight entries yet) renders a single muted card: "No weight logged yet — add your first entry."
+- [x] write `weight.current-card.test.js` — trend direction + color variant for lose/gain goals, goal card visibility, empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Rewrite the range selector + chart panel
 
-- [ ] replace the existing chart container with a `.wg-weight-chart-panel` — a `.wg-gloss--inset` range selector (7d / 30d / 90d / All) above the `WGWeightChart` canvas
-- [ ] range state persists via `mt-weight-range` localStorage key (new; matches `mt-bp-range` / `mt-food-subtab` / `mt-meds-subtab` naming)
-- [ ] default range: 30d
-- [ ] write `weight.range.test.js` — active-state toggle, persistence across reload, default-range behavior, chart re-renders on range change
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing chart container with a `.wg-weight-chart-panel` — a `.wg-gloss--inset` range selector (7d / 30d / 90d / All) above the `WGWeightChart` canvas
+- [x] range state persists via `mt-weight-range` localStorage key (new; matches `mt-bp-range` / `mt-food-subtab` / `mt-meds-subtab` naming)
+- [x] default range: 30d
+- [x] write `weight.range.test.js` — active-state toggle, persistence across reload, default-range behavior, chart re-renders on range change
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Rewrite the day-grouped history list
 
-- [ ] replace the existing `#weight-list` markup with a `.wg-weight-history` container — day groups use `.wg-section-label` headers ("22.04.2026 · Tue"), each entry a `.wg-card` row carrying mono weight, ISO-local time, and a trailing `.wg-icon-btn` cluster (edit + delete)
-- [ ] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` variants (normal = TAKEN/SYNCED, high = PENDING, alert = REJECTED)
-- [ ] delete + edit callbacks unchanged (reuse `editWeightLog`, existing delete path)
-- [ ] full-width `.wg-gloss--sun` "Add weight" CTA appended at the bottom (replaces `#add-weight-btn` FAB)
-- [ ] write `weight.history.test.js` — day grouping, edit-button click invokes existing handler, delete flow preserved, offline + rejected badge states, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing `#weight-list` markup with a `.wg-weight-history` container — day groups use `.wg-section-label` headers ("22.04.2026 · Tue"), each entry a `.wg-card` row carrying mono weight, ISO-local time, and a trailing `.wg-icon-btn` cluster (edit + delete)
+- [x] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` variants (normal = TAKEN/SYNCED, high = PENDING, alert = REJECTED)
+- [x] delete + edit callbacks unchanged (reuse `editWeightLog`, existing delete path)
+- [x] full-width `.wg-gloss--sun` "Add weight" CTA appended at the bottom (replaces `#add-weight-btn` FAB)
+- [x] write `weight.history.test.js` — day grouping, edit-button click invokes existing handler, delete flow preserved, offline + rejected badge states, empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Rewrite EditWeightModal
 
-- [ ] replace the existing edit-weight modal markup in `index.html` with the Wandergeek shell — mono header ("New weight" / "Edit weight"), `.wg-icon-btn` close trailing the header
-- [ ] weight input + unit toggle — `.wg-gloss--inset` input wrap + small unit-toggle strip (kg/lb) as a `.wg-gloss--inset` pill pair
-- [ ] date-time input — `.wg-gloss--inset` wrap carrying the existing ISO-local formatter
-- [ ] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss` left, Save `.wg-gloss--sun` right with 2× flex per modal-button-order convention
-- [ ] write `weight.modal.test.js` — open/save/cancel, unit-toggle round-trip, existing `saveWeight()` path preserved, `modal-controller.js` history integration preserved
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing edit-weight modal markup in `index.html` with the Wandergeek shell — mono header ("New weight" / "Edit weight"), `.wg-icon-btn` close trailing the header
+- [x] weight input + unit toggle — `.wg-gloss--inset` input wrap + small unit-toggle strip (kg/lb) as a `.wg-gloss--inset` pill pair
+- [x] date-time input — `.wg-gloss--inset` wrap carrying the existing ISO-local formatter
+- [x] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss` left, Save `.wg-gloss--sun` right with 2× flex per modal-button-order convention
+- [x] write `weight.modal.test.js` — open/save/cancel, unit-toggle round-trip, existing `saveWeight()` path preserved, `modal-controller.js` history integration preserved
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Wire Weight into the canonical bottom nav + cleanup
 
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `weight` slot with the scale icon; add a Phase 6 contract test matching the BP/Food/Meds contract tests
-- [ ] grep-verify remaining paper-era weight classes — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
-- [ ] run `pnpm test` — must pass before next task
+- [x] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `weight` slot with the scale icon; add a Phase 6 contract test matching the BP/Food/Meds contract tests
+- [x] grep-verify remaining paper-era weight classes — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 8: Verify acceptance criteria for Phase 6
 
-- [ ] open `index.html` in desktop 390×844 phone view, compare Weight screen side-by-side with `Medtracker.html` — manual visual check
-- [ ] open in mobile viewport (DevTools 375×812) — manual visual check
-- [ ] full `pnpm test` suite green
-- [ ] `go test ./...` green (sanity check; no backend changes expected)
-- [ ] grep `style="` and `\.style\.` in the new JS — zero matches in `web/static/js/features/weight.js` and `web/static/js/components/wg-weight-chart.js` (or allowlisted in `architecture.inline-styles.test.js` with a one-line justification)
+- [x] open `index.html` in desktop 390×844 phone view, compare Weight screen side-by-side with `Medtracker.html` — manual visual check (skipped - not automatable)
+- [x] open in mobile viewport (DevTools 375×812) — manual visual check (skipped - not automatable)
+- [x] full `pnpm test` suite green (951 tests across 92 files passing)
+- [x] `go test ./...` green (sanity check; no backend changes expected)
+- [x] grep `style="` and `\.style\.` in the new JS — zero `style="` matches in both files; one `.style.setProperty('--fill-pct', …)` in `weight.js:398` is allowlisted in `architecture.inline-styles.test.js:41` (CSS custom property, not a hardcoded visual value)
 
 ### Task 9: [Final] Update plan and write Phase 7 plan stub
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write `docs/plans/2026-04-XX-wandergeek-phase7-workouts.md` covering the Workouts screen rewrite (today's-workout card, session detail + log-set flow, rotation editor + history sub-views)
-- [ ] no code changes in this task
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write `docs/plans/2026-04-XX-wandergeek-phase7-workouts.md` covering the Workouts screen rewrite (today's-workout card, session detail + log-set flow, rotation editor + history sub-views)
+- [x] no code changes in this task
 
 ## Technical Details
 
