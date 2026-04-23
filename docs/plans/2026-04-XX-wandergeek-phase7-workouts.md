@@ -119,13 +119,13 @@ No backend changes. The existing `/api/workouts*`, `/api/exercises*`, `/api/work
 
 ### Task 4: Rewrite the history sub-tab + session detail view
 
-- [ ] replace `renderWorkoutHistory()` body to render day-grouped `.wg-card` rows — `.wg-section-label` day headers ("22.04.2026 · Tue"), each entry carrying mono duration, session-type tag (PUSH/PULL/LEGS/AD-HOC as `.wg-tag--mono` variants), exercise-count eyebrow, and a trailing `.wg-icon-btn` cluster (view / edit / delete)
-- [ ] row click opens the session-detail view (expanded inline card or full-screen overlay — pick whichever preserves modal-history semantics cleanest)
-- [ ] session-detail: mono header ("PUSH · 22.04.2026 · Tue"), duration + timestamp eyebrow, per-exercise `.wg-card` list with set-by-set mono rows (weight × reps), Log-set / Finish / Delete actions at the bottom
-- [ ] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` variants
-- [ ] write `workout.history.test.js` — day grouping, row click opens detail, edit/delete callbacks, offline + rejected states, empty state
-- [ ] write `workout.session-detail.test.js` — exercise list render, set-by-set rows, Log-set / Finish / Delete dispatch
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace `renderWorkoutHistory()` body to render day-grouped `.wg-card` rows — `.wg-section-label` day headers ("22.04.2026 · Tue"), each entry carrying mono duration, session-type tag (PUSH/PULL/LEGS/AD-HOC as `.wg-tag--mono` variants), exercise-count eyebrow, and a trailing `.wg-icon-btn` cluster (view / edit / delete)
+- [x] row click opens the session-detail view (expanded inline card or full-screen overlay — pick whichever preserves modal-history semantics cleanest)
+- [x] session-detail: mono header ("PUSH · 22.04.2026 · Tue"), duration + timestamp eyebrow, per-exercise `.wg-card` list with set-by-set mono rows (weight × reps), Log-set / Finish / Delete actions at the bottom
+- [x] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` variants
+- [x] write `workout.history.test.js` — day grouping, row click opens detail, edit/delete callbacks, offline + rejected states, empty state
+- [x] write `workout.session-detail.test.js` — exercise list render, set-by-set rows, Log-set / Finish / Delete dispatch
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Rewrite the groups sub-tab
 

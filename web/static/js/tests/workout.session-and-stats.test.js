@@ -210,7 +210,7 @@ describe('workout.js session and stats flows', () => {
         }
       ]);
       expect(historyContainer.innerHTML).toContain('Leg Day');
-      expect(historyContainer.innerHTML).toContain('kg total');
+      expect(historyContainer.innerHTML).toMatch(/5,400\s*kg/);
 
       window._renderWorkoutStats(statsContainer, null);
       expect(statsContainer.textContent).toContain('No statistics available yet');
@@ -290,10 +290,13 @@ describe('workout.js session and stats flows', () => {
 
       window._renderWorkoutHistory(historyContainer, sessions, miband, 'UTC');
 
-      const items = Array.from(historyContainer.firstElementChild.children);
+      // History rewrite groups rows by day inside a .wg-workouts-history__list;
+      // flatten back out in render order to assert the sort.
+      const items = Array.from(historyContainer.querySelectorAll('.wg-workouts-history-row'));
 
       expect(items[0].textContent).toContain('Evening Main');
-      expect(items[1].textContent).toContain('Cycling');
+      // Mi Band card renders the activity label in the slot tag (uppercase).
+      expect(items[1].textContent).toContain('CYCLING');
       expect(items[2].textContent).toContain('Morning Workouts');
 
     } finally {
