@@ -7021,6 +7021,104 @@ textarea.wg-input {
     color: var(--wg-fg-4);
 }
 
+/* Vitals chart (Phase 8, Task 6). Area + line chart parameterised by vital
+   ('hr' | 'spo2' | 'stress'); the variant modifier on the root svg selects
+   the --wg-health-vitals-<vital>-line token. Axis + day + guide styling
+   matches the sleep + steps charts. */
+.wg-vitals-chart {
+    display: block;
+    width: 100%;
+    max-width: var(--wg-health-chart-width);
+    height: auto;
+    margin-inline: auto;
+}
+
+.wg-vitals-chart--empty {
+    min-height: var(--wg-health-chart-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-fg-5);
+    font-size: var(--font-size-sm);
+}
+
+.wg-vitals-chart__guide {
+    stroke: var(--wg-fg-5);
+    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    fill: none;
+}
+
+.wg-vitals-chart__axis-label {
+    fill: var(--wg-fg-5);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-vitals-chart__day-label {
+    fill: var(--wg-fg-5);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-vitals-chart__area {
+    fill: currentColor;
+    fill-opacity: 0.18;
+    stroke: none;
+}
+
+.wg-vitals-chart__line {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: var(--wg-health-chart-line-stroke-width);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.wg-vitals-chart__last {
+    fill: currentColor;
+    stroke: none;
+}
+
+.wg-vitals-chart--hr {
+    color: var(--wg-health-vitals-hr-line);
+}
+
+.wg-vitals-chart--spo2 {
+    color: var(--wg-health-vitals-spo2-line);
+}
+
+.wg-vitals-chart--stress {
+    color: var(--wg-health-vitals-stress-line);
+}
+
+/* Vitals card shell (Phase 8, Task 6). Wraps the WGVitalsChart SVG under
+   a mono header, followed by a section-label averages line. Mirrors the
+   sleep + steps card shells. */
+.wg-vitals-card {
+    padding: var(--wg-health-card-pad);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-vitals-card__header {
+    font-size: var(--wg-health-card-header-size);
+}
+
+.wg-vitals-card__stat {
+    font-size: var(--wg-health-card-stat-size);
+    color: var(--wg-fg-4);
+}
+
+/* Health screen data-source disclaimer (Phase 8). Muted section-label
+   footer identifying the .nxk backup data source. */
+.wg-health-disclaimer {
+    text-align: center;
+    color: var(--wg-fg-5);
+    margin-top: var(--space-sm);
+}
+
 /* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
    bracket clusters of scheduled meds; each row is a `.wg-card` with a name
    (mono-display), dosage, schedule summary, optional inventory tag, and a
