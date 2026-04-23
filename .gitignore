@@ -21,3 +21,7 @@ coverage/
 # ralphex progress logs
 .ralphex/worktrees/
 .claude/
+
+# Local-only design reference (mockups, chat transcripts, screenshots with personal data)
+# Referenced read-only by docs/plans/ — never commit.
+.local/
