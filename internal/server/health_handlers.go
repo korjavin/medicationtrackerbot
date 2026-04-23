@@ -27,61 +27,72 @@ type VitalStat struct {
 }
 
 type HealthOverviewResponse struct {
-	AverageHeartRate7d  int `json:"average_heart_rate_7d"`
-	AverageHeartRate30d int `json:"average_heart_rate_30d"`
+	AverageHeartRate7d  *int `json:"average_heart_rate_7d"`
+	AverageHeartRate30d *int `json:"average_heart_rate_30d"`
 
-	AverageSpO27d  int `json:"average_spo2_7d"`
-	AverageSpO230d int `json:"average_spo2_30d"`
+	AverageSpO27d  *int `json:"average_spo2_7d"`
+	AverageSpO230d *int `json:"average_spo2_30d"`
 
-	AverageStress7d  int `json:"average_stress_7d"`
-	AverageStress30d int `json:"average_stress_30d"`
+	AverageStress7d  *int `json:"average_stress_7d"`
+	AverageStress30d *int `json:"average_stress_30d"`
 
-	AverageSleepHours7d  float64 `json:"average_sleep_hours_7d"`
-	AverageSleepHours30d float64 `json:"average_sleep_hours_30d"`
+	AverageSleepHours7d  *float64 `json:"average_sleep_hours_7d"`
+	AverageSleepHours30d *float64 `json:"average_sleep_hours_30d"`
 
-	AverageSteps7d  int `json:"average_steps_7d"`
-	AverageSteps30d int `json:"average_steps_30d"`
+	AverageSteps7d  *int `json:"average_steps_7d"`
+	AverageSteps30d *int `json:"average_steps_30d"`
 
-	SleepStats7d       []DailySleepStat `json:"sleep_stats_7d"`
-	HeartRateHistory7d []VitalStat      `json:"heart_rate_history_7d"`
-	SpO2History7d      []VitalStat      `json:"spo2_history_7d"`
-	StressHistory7d    []VitalStat      `json:"stress_history_7d"`
-	StepStats7d        []store.DayStat  `json:"step_stats_7d"`
+	SleepStats7d        []DailySleepStat `json:"sleep_stats_7d"`
+	SleepStats30d       []DailySleepStat `json:"sleep_stats_30d"`
+	HeartRateHistory7d  []VitalStat      `json:"heart_rate_history_7d"`
+	HeartRateHistory30d []VitalStat      `json:"heart_rate_history_30d"`
+	SpO2History7d       []VitalStat      `json:"spo2_history_7d"`
+	SpO2History30d      []VitalStat      `json:"spo2_history_30d"`
+	StressHistory7d     []VitalStat      `json:"stress_history_7d"`
+	StressHistory30d    []VitalStat      `json:"stress_history_30d"`
+	StepStats7d         []store.DayStat  `json:"step_stats_7d"`
+	StepStats30d        []store.DayStat  `json:"step_stats_30d"`
 }
 
 func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request) {
 	userId := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	ctx := r.Context()
-	now := time.Now().UTC()
-	start7d := now.AddDate(0, 0, -7)
-	start30d := now.AddDate(0, 0, -30)
+	clientLoc := parseClientLocation(r.URL.Query().Get("tz"), r.URL.Query().Get("tz_offset"))
+	now := time.Now().In(clientLoc)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, clientLoc)
+	start7d := todayStart.AddDate(0, 0, -6)
+	start30d := todayStart.AddDate(0, 0, -29)
+	start7dDay := start7d.Format("2006-01-02")
+	start30dDay := start30d.Format("2006-01-02")
 
 	resp := HealthOverviewResponse{}
 
-	// Helper to calculate averages correctly
-	calcAvg := func(values []int) int {
+	// Helper to calculate averages; returns nil when the input is empty so callers
+	// can distinguish "no data" (null in JSON) from an actual zero average.
+	calcAvg := func(values []int) *int {
 		if len(values) == 0 {
-			return 0
+			return nil
 		}
 		sum := 0
 		for _, v := range values {
 			sum += v
 		}
-		return sum / len(values)
+		avg := sum / len(values)
+		return &avg
 	}
 
 	bucketVitals := func(logs []struct {
 		DateTime time.Time
 		Value    int
-	}) []VitalStat {
+	}, cutoff time.Time) []VitalStat {
 		type acc struct {
 			sum, count, min, max int
 		}
 		buckets := make(map[int64]*acc)
 
 		for _, l := range logs {
-			if l.DateTime.Before(start7d) {
+			if l.DateTime.Before(cutoff) {
 				continue
 			}
 			// Truncate to hour block
@@ -128,17 +139,18 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 
 	for _, l := range hrLogs {
 		hr30d = append(hr30d, l.Value)
-		if l.DateTime.After(start7d) {
+		hrBucketInput = append(hrBucketInput, struct {
+			DateTime time.Time
+			Value    int
+		}{l.DateTime, l.Value})
+		if !l.DateTime.Before(start7d) {
 			hr7d = append(hr7d, l.Value)
-			hrBucketInput = append(hrBucketInput, struct {
-				DateTime time.Time
-				Value    int
-			}{l.DateTime, l.Value})
 		}
 	}
 	resp.AverageHeartRate7d = calcAvg(hr7d)
 	resp.AverageHeartRate30d = calcAvg(hr30d)
-	resp.HeartRateHistory7d = bucketVitals(hrBucketInput)
+	resp.HeartRateHistory7d = bucketVitals(hrBucketInput, start7d)
+	resp.HeartRateHistory30d = bucketVitals(hrBucketInput, start30d)
 
 	// Fetch SpO2
 	spo2Logs, _ := s.health.GetVitalsSpO2(ctx, userId, start30d, now)
@@ -149,17 +161,18 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	}
 	for _, l := range spo2Logs {
 		spo230d = append(spo230d, l.Value)
-		if l.DateTime.After(start7d) {
+		spo2BucketInput = append(spo2BucketInput, struct {
+			DateTime time.Time
+			Value    int
+		}{l.DateTime, l.Value})
+		if !l.DateTime.Before(start7d) {
 			spo27d = append(spo27d, l.Value)
-			spo2BucketInput = append(spo2BucketInput, struct {
-				DateTime time.Time
-				Value    int
-			}{l.DateTime, l.Value})
 		}
 	}
 	resp.AverageSpO27d = calcAvg(spo27d)
 	resp.AverageSpO230d = calcAvg(spo230d)
-	resp.SpO2History7d = bucketVitals(spo2BucketInput)
+	resp.SpO2History7d = bucketVitals(spo2BucketInput, start7d)
+	resp.SpO2History30d = bucketVitals(spo2BucketInput, start30d)
 
 	// Fetch Stress
 	stressLogs, _ := s.health.GetVitalsStress(ctx, userId, start30d, now)
@@ -170,86 +183,116 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	}
 	for _, l := range stressLogs {
 		stress30d = append(stress30d, l.Value)
-		if l.DateTime.After(start7d) {
+		stressBucketInput = append(stressBucketInput, struct {
+			DateTime time.Time
+			Value    int
+		}{l.DateTime, l.Value})
+		if !l.DateTime.Before(start7d) {
 			stress7d = append(stress7d, l.Value)
-			stressBucketInput = append(stressBucketInput, struct {
-				DateTime time.Time
-				Value    int
-			}{l.DateTime, l.Value})
 		}
 	}
 	resp.AverageStress7d = calcAvg(stress7d)
 	resp.AverageStress30d = calcAvg(stress30d)
-	resp.StressHistory7d = bucketVitals(stressBucketInput)
+	resp.StressHistory7d = bucketVitals(stressBucketInput, start7d)
+	resp.StressHistory30d = bucketVitals(stressBucketInput, start30d)
 
-	// Fetch Sleep Logs
-	sleepLogs, _ := s.health.GetSleepLogs(ctx, userId, start30d)
+	// Fetch Sleep Logs — extend window by 1 day so sessions whose start_time falls
+	// before UTC midnight on the boundary day (but whose local Day label is in range)
+	// are not excluded by the start_time >= since SQL filter.
+	sleepLogs, _ := s.health.GetSleepLogs(ctx, userId, start30d.AddDate(0, 0, -1))
 	var sleep7dMins, sleep30dMins []int
-	dailyStatsMap := make(map[string]DailySleepStat)
+	dailyStatsMap30d := make(map[string]DailySleepStat)
+	type hrAcc struct{ weightedSum, totalMins int }
+	dailyHRAcc := make(map[string]hrAcc)
 
 	for _, l := range sleepLogs {
 		if l.TotalMinutes != nil {
-			sleep30dMins = append(sleep30dMins, *l.TotalMinutes)
-			if l.StartTime.After(start7d) {
-				sleep7dMins = append(sleep7dMins, *l.TotalMinutes)
+			dayStr := l.Day
+			if dayStr == "" {
+				dayStr = l.StartTime.Format("2006-01-02")
+			}
 
-				dayStr := l.Day
-				if dayStr == "" {
-					dayStr = l.StartTime.Format("2006-01-02")
+			stat := dailyStatsMap30d[dayStr]
+			stat.Date = dayStr
+			stat.TotalMins += *l.TotalMinutes
+			if l.LightMinutes != nil {
+				stat.LightMins += *l.LightMinutes
+			}
+			if l.DeepMinutes != nil {
+				stat.DeepMins += *l.DeepMinutes
+			}
+			if l.REMMinutes != nil {
+				stat.RemMins += *l.REMMinutes
+			}
+			if l.AwakeMinutes != nil {
+				stat.AwakeMins += *l.AwakeMinutes
+			}
+			if l.HeartRateAvg != nil && *l.HeartRateAvg > 0 {
+				mins := *l.TotalMinutes
+				if mins == 0 {
+					mins = 1
 				}
-
-				stat := dailyStatsMap[dayStr]
-				stat.Date = dayStr
-				stat.TotalMins += *l.TotalMinutes
-				if l.LightMinutes != nil {
-					stat.LightMins += *l.LightMinutes
-				}
-				if l.DeepMinutes != nil {
-					stat.DeepMins += *l.DeepMinutes
-				}
-				if l.REMMinutes != nil {
-					stat.RemMins += *l.REMMinutes
-				}
-				if l.AwakeMinutes != nil {
-					stat.AwakeMins += *l.AwakeMinutes
-				}
-				if l.HeartRateAvg != nil && *l.HeartRateAvg > 0 {
-					if stat.HeartRateAvg == 0 {
-						stat.HeartRateAvg = *l.HeartRateAvg
-					} else {
-						stat.HeartRateAvg = (stat.HeartRateAvg + *l.HeartRateAvg) / 2
-					}
-				}
-				dailyStatsMap[dayStr] = stat
+				acc := dailyHRAcc[dayStr]
+				acc.weightedSum += *l.HeartRateAvg * mins
+				acc.totalMins += mins
+				dailyHRAcc[dayStr] = acc
+			}
+			dailyStatsMap30d[dayStr] = stat
+		}
+	}
+	for dayStr, acc := range dailyHRAcc {
+		if acc.totalMins > 0 {
+			if stat, ok := dailyStatsMap30d[dayStr]; ok {
+				stat.HeartRateAvg = acc.weightedSum / acc.totalMins
+				dailyStatsMap30d[dayStr] = stat
 			}
 		}
 	}
 
-	var sleepStats7d []DailySleepStat
-	for _, stat := range dailyStatsMap {
-		sleepStats7d = append(sleepStats7d, stat)
+	var sleepStats7d, sleepStats30d []DailySleepStat
+	for _, stat := range dailyStatsMap30d {
+		if stat.Date < start30dDay {
+			// Exclude the extra buffered day fetched to handle UTC boundary sessions.
+			continue
+		}
+		sleepStats30d = append(sleepStats30d, stat)
+		sleep30dMins = append(sleep30dMins, stat.TotalMins)
+		if stat.Date >= start7dDay {
+			sleepStats7d = append(sleepStats7d, stat)
+			sleep7dMins = append(sleep7dMins, stat.TotalMins)
+		}
 	}
 	sort.Slice(sleepStats7d, func(i, j int) bool {
 		return sleepStats7d[i].Date < sleepStats7d[j].Date
 	})
+	sort.Slice(sleepStats30d, func(i, j int) bool {
+		return sleepStats30d[i].Date < sleepStats30d[j].Date
+	})
 	resp.SleepStats7d = sleepStats7d
+	resp.SleepStats30d = sleepStats30d
 
 	avgMins7d := calcAvg(sleep7dMins)
 	avgMins30d := calcAvg(sleep30dMins)
 
-	resp.AverageSleepHours7d = float64(avgMins7d) / 60.0
-	resp.AverageSleepHours30d = float64(avgMins30d) / 60.0
+	if avgMins7d != nil {
+		h := float64(*avgMins7d) / 60.0
+		resp.AverageSleepHours7d = &h
+	}
+	if avgMins30d != nil {
+		h := float64(*avgMins30d) / 60.0
+		resp.AverageSleepHours30d = &h
+	}
 
 	// Fetch Day Stats for Steps
 	dayStats, _ := s.health.GetDayStats(ctx, userId, start30d)
 	var steps7d, steps30d []int
-	var stepStats7d []store.DayStat
+	var stepStats7d, stepStats30d []store.DayStat
 
 	for _, stat := range dayStats {
 		steps30d = append(steps30d, stat.Steps)
+		stepStats30d = append(stepStats30d, stat)
 
-		t, err := time.Parse("2006-01-02", stat.Day)
-		if err == nil && t.After(start7d) {
+		if stat.Day >= start7dDay {
 			steps7d = append(steps7d, stat.Steps)
 			stepStats7d = append(stepStats7d, stat)
 		}
@@ -259,8 +302,12 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	for i, j := 0, len(stepStats7d)-1; i < j; i, j = i+1, j-1 {
 		stepStats7d[i], stepStats7d[j] = stepStats7d[j], stepStats7d[i]
 	}
+	for i, j := 0, len(stepStats30d)-1; i < j; i, j = i+1, j-1 {
+		stepStats30d[i], stepStats30d[j] = stepStats30d[j], stepStats30d[i]
+	}
 
 	resp.StepStats7d = stepStats7d
+	resp.StepStats30d = stepStats30d
 	resp.AverageSteps7d = calcAvg(steps7d)
 	resp.AverageSteps30d = calcAvg(steps30d)
 

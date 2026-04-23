@@ -146,7 +146,7 @@ const HEALTH_SUMMARY_VITALS = [
 ];
 
 function formatSummaryValue(vital, value) {
-    if (value == null || Number.isNaN(value) || value === 0) return '\u2014';
+    if (value == null || Number.isNaN(value)) return '\u2014';
     if (vital === 'sleep') return Number(value).toFixed(1);
     if (vital === 'steps') return Number(value).toLocaleString();
     return String(Math.round(value));
@@ -165,8 +165,8 @@ function renderHealthSummaryTiles(data, range) {
 
         const activeRaw = safeRange === '7d' ? data?.[spec.activeKey7] : data?.[spec.activeKey30];
         const otherRaw = safeRange === '7d' ? data?.[spec.activeKey30] : data?.[spec.activeKey7];
-        const hasActive = typeof activeRaw === 'number' && !Number.isNaN(activeRaw) && activeRaw !== 0;
-        const hasOther = typeof otherRaw === 'number' && !Number.isNaN(otherRaw) && otherRaw !== 0;
+        const hasActive = activeRaw != null && typeof activeRaw === 'number' && !Number.isNaN(activeRaw);
+        const hasOther = otherRaw != null && typeof otherRaw === 'number' && !Number.isNaN(otherRaw);
 
         const valueEl = document.createElement('div');
         valueEl.className = 'wg-mono-display wg-health-summary__value';
@@ -238,20 +238,21 @@ function renderSleepCard(data, activeRange) {
     header.textContent = 'Sleep';
     card.appendChild(header);
 
-    const stats = Array.isArray(data?.sleep_stats_7d) ? data.sleep_stats_7d : [];
+    const statsKey = range === '30d' ? 'sleep_stats_30d' : 'sleep_stats_7d';
+    const stats = Array.isArray(data?.[statsKey]) ? data[statsKey] : [];
     const chartOpts = { stats, range };
     const chartEl = window.WGSleepChart
-        ? window.WGSleepChart.render(chartOpts)
+        ? window.WGSleepChart.render({ stats, range, prefiltered: true })
         : null;
 
     if (chartEl && !chartEl.classList.contains('wg-sleep-chart--empty')) {
         card.appendChild(chartEl);
         card.appendChild(buildSleepLegend());
 
-        const avg7 = Number(data?.average_sleep_hours_7d);
-        const avg30 = Number(data?.average_sleep_hours_30d);
-        const avg7Text = Number.isFinite(avg7) ? avg7.toFixed(1) : '\u2014';
-        const avg30Text = Number.isFinite(avg30) ? avg30.toFixed(1) : '\u2014';
+        const avg7Raw = data?.average_sleep_hours_7d;
+        const avg30Raw = data?.average_sleep_hours_30d;
+        const avg7Text = avg7Raw != null && Number.isFinite(Number(avg7Raw)) ? Number(avg7Raw).toFixed(1) : '\u2014';
+        const avg30Text = avg30Raw != null && Number.isFinite(Number(avg30Raw)) ? Number(avg30Raw).toFixed(1) : '\u2014';
         const statDiv = document.createElement('div');
         statDiv.className = 'wg-section-label wg-sleep-card__stat';
         statDiv.textContent = `${avg7Text} hrs (7d avg) \u00B7 ${avg30Text} hrs (30d avg)`;
@@ -283,19 +284,20 @@ function renderStepsCard(data, activeRange) {
     header.textContent = 'Steps';
     card.appendChild(header);
 
-    const stats = Array.isArray(data?.step_stats_7d) ? data.step_stats_7d : [];
+    const statsKey = range === '30d' ? 'step_stats_30d' : 'step_stats_7d';
+    const stats = Array.isArray(data?.[statsKey]) ? data[statsKey] : [];
     const chartOpts = { stats, range };
     const chartEl = window.WGStepsChart
-        ? window.WGStepsChart.render(chartOpts)
+        ? window.WGStepsChart.render({ stats, range, prefiltered: true })
         : null;
 
     if (chartEl && !chartEl.classList.contains('wg-steps-chart--empty')) {
         card.appendChild(chartEl);
 
-        const avg7 = Number(data?.average_steps_7d);
-        const avg30 = Number(data?.average_steps_30d);
-        const avg7Text = Number.isFinite(avg7) && avg7 > 0 ? Math.round(avg7).toLocaleString() : '\u2014';
-        const avg30Text = Number.isFinite(avg30) && avg30 > 0 ? Math.round(avg30).toLocaleString() : '\u2014';
+        const avg7Raw = data?.average_steps_7d;
+        const avg30Raw = data?.average_steps_30d;
+        const avg7Text = avg7Raw != null && Number.isFinite(Number(avg7Raw)) ? Math.round(avg7Raw).toLocaleString() : '\u2014';
+        const avg30Text = avg30Raw != null && Number.isFinite(Number(avg30Raw)) ? Math.round(avg30Raw).toLocaleString() : '\u2014';
         const statDiv = document.createElement('div');
         statDiv.className = 'wg-section-label wg-steps-card__stat';
         statDiv.textContent = `${avg7Text} steps (7d avg) \u00B7 ${avg30Text} steps (30d avg)`;
@@ -317,13 +319,13 @@ function renderStepsCard(data, activeRange) {
 }
 
 const HEALTH_VITAL_SPECS = {
-    hr:     { title: 'Heart Rate',   historyKey: 'heart_rate_history_7d', avg7Key: 'average_heart_rate_7d', avg30Key: 'average_heart_rate_30d', unit: 'bpm',   emptyLabel: 'heart rate' },
-    spo2:   { title: 'SpO2',         historyKey: 'spo2_history_7d',       avg7Key: 'average_spo2_7d',       avg30Key: 'average_spo2_30d',       unit: '%',     emptyLabel: 'SpO2' },
-    stress: { title: 'Stress Level', historyKey: 'stress_history_7d',     avg7Key: 'average_stress_7d',     avg30Key: 'average_stress_30d',     unit: '/ 100', emptyLabel: 'stress' }
+    hr:     { title: 'Heart Rate',   historyKey7: 'heart_rate_history_7d', historyKey30: 'heart_rate_history_30d', avg7Key: 'average_heart_rate_7d', avg30Key: 'average_heart_rate_30d', unit: 'bpm',   emptyLabel: 'heart rate' },
+    spo2:   { title: 'SpO2',         historyKey7: 'spo2_history_7d',       historyKey30: 'spo2_history_30d',       avg7Key: 'average_spo2_7d',       avg30Key: 'average_spo2_30d',       unit: '%',     emptyLabel: 'SpO2' },
+    stress: { title: 'Stress Level', historyKey7: 'stress_history_7d',     historyKey30: 'stress_history_30d',     avg7Key: 'average_stress_7d',     avg30Key: 'average_stress_30d',     unit: '/ 100', emptyLabel: 'stress' }
 };
 
 function formatVitalAvg(value) {
-    if (value == null || !Number.isFinite(Number(value)) || Number(value) === 0) return '\u2014';
+    if (value == null || !Number.isFinite(Number(value))) return '\u2014';
     return String(Math.round(Number(value)));
 }
 
@@ -341,9 +343,10 @@ function renderVitalCard(vital, data, activeRange) {
     header.textContent = spec.title;
     card.appendChild(header);
 
-    const history = Array.isArray(data?.[spec.historyKey]) ? data[spec.historyKey] : [];
+    const historyKey = range === '30d' ? spec.historyKey30 : spec.historyKey7;
+    const history = Array.isArray(data?.[historyKey]) ? data[historyKey] : [];
     const chartEl = window.WGVitalsChart
-        ? window.WGVitalsChart.render({ history, range, vital })
+        ? window.WGVitalsChart.render({ history, range, vital, prefiltered: true })
         : null;
 
     if (chartEl && !chartEl.classList.contains('wg-vitals-chart--empty')) {
@@ -415,10 +418,18 @@ async function loadHealthOverview() {
     loading.style.display = 'block';
 
     if (window.DataStore) {
+        const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const tzOffset = new Date().getTimezoneOffset();
+        const hoKey = tzName ? `health_overview_${tzName}` : `health_overview_offset_${tzOffset}`;
         await window.DataStore.loadSWR({
-            key: 'health_overview',
+            key: hoKey,
             tags: ['health'],
-            fetcher: async () => await window.apiCall('/api/health/overview', 'GET'),
+            fetcher: async () => {
+                const tzParams = tzName
+                    ? `?tz=${encodeURIComponent(tzName)}`
+                    : `?tz_offset=${tzOffset}`;
+                return await window.apiCall(`/api/health/overview${tzParams}`, 'GET');
+            },
             allowNullFresh: true,
             onCached: async (cached) => {
                 if (!cached) return;
@@ -639,9 +650,27 @@ function appendNotes(list, notes) {
     if (!notes || notes.length === 0) return;
 
     const groups = groupNotesByDay(notes);
-    groups.forEach((group) => {
+    groups.forEach((group, idx) => {
+        // If the first group of an appended page shares its calendar day with
+        // the last existing group (e.g. a busy day straddled a 50-row server
+        // page boundary), merge the new rows into the existing group instead
+        // of rendering a duplicate header.
+        if (idx === 0) {
+            const existingGroups = list.querySelectorAll('.wg-health-notes__group');
+            const lastGroup = existingGroups[existingGroups.length - 1];
+            if (lastGroup && lastGroup.dataset.notesDayKey === String(group.sortKey)) {
+                const rowList = lastGroup.querySelector('.wg-health-notes__rows');
+                if (rowList) {
+                    group.notes.forEach((note) => rowList.appendChild(buildNoteRow(note)));
+                    return;
+                }
+            }
+        }
         const groupItem = buildNotesDayGroup(group.label, group.notes);
-        if (groupItem) list.appendChild(groupItem);
+        if (groupItem) {
+            groupItem.dataset.notesDayKey = String(group.sortKey);
+            list.appendChild(groupItem);
+        }
     });
 
     if (notes.length === NOTES_PAGE_SIZE) {
@@ -834,12 +863,36 @@ async function addNote() {
 
 async function deleteNote(id) {
     await safeConfirm('Delete this note?', async (ok) => {
-        if (ok) {
-            const res = await apiCall(`/api/notes/${id}`, 'DELETE');
-            if (res !== null) {
-                await window.DataStore.invalidateTags(['notes']);
-                loadNotes();
+        if (!ok) return;
+
+        // Local/rejected rows carry `local_<n>` ids synthesized by the
+        // offline read path. The server DELETE handler only accepts numeric
+        // ids (400 otherwise), so purge via IndexedDB — mirrors the edit
+        // path below.
+        const isLocalId = typeof id === 'string' && id.startsWith('local_');
+        if (isLocalId) {
+            const localId = parseInt(id.replace('local_', ''), 10);
+            if (window.MedTrackerDB && window.MedTrackerDB.NotesStore
+                && typeof window.MedTrackerDB.NotesStore.confirmDelete === 'function'
+                && Number.isFinite(localId)) {
+                try {
+                    await window.MedTrackerDB.NotesStore.confirmDelete(localId);
+                    if (window.SyncManager && typeof window.SyncManager.updateStatus === 'function') {
+                        window.SyncManager.updateStatus();
+                    }
+                } catch (e) {
+                    console.error('Failed to purge local note delete:', e);
+                }
             }
+            await window.DataStore.invalidateTags(['notes']);
+            loadNotes();
+            return;
+        }
+
+        const res = await apiCall(`/api/notes/${id}`, 'DELETE');
+        if (res !== null) {
+            await window.DataStore.invalidateTags(['notes']);
+            loadNotes();
         }
     });
 }
@@ -920,7 +973,16 @@ async function handleEditNoteSubmit(event) {
     loadNotes();
 }
 
+function renderEditNoteModalIcons() {
+    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
+    const closeGloss = document.querySelector('#note-modal-close-btn .wg-gloss');
+    if (closeGloss && !closeGloss.querySelector('svg')) {
+        closeGloss.replaceChildren(window.WGIcons.iconSvg('close', { size: 14 }));
+    }
+}
+
 function bindEditNoteModalControls() {
+    renderEditNoteModalIcons();
     const cancel = document.getElementById('note-modal-cancel-btn');
     if (cancel && !cancel._wgBound) {
         cancel._wgBound = true;

@@ -1012,6 +1012,15 @@ async function fetchNextIntakePayload() {
     return res && typeof res === 'object' ? res : null;
 }
 
+// Returns a timezone-qualified DataStore key for health overview so that a
+// cached response from a prior timezone is never served as though it were
+// current. The in-memory swrCaches object always uses the fixed property name
+// 'health_overview'; only the IndexedDB key is qualified.
+function healthOverviewCacheKey() {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return tz ? `health_overview_${tz}` : `health_overview_offset_${new Date().getTimezoneOffset()}`;
+}
+
 // Fetchers for every key Today reads from IndexedDB. Calling fetchFresh with
 // these tags both populates the cache and registers the key→tag mapping, so
 // future applyChangesPayload invalidations can evict the entry.
@@ -1075,10 +1084,17 @@ function todayFetchSpecs(foodKey) {
                 }
             }
         },
-        health_overview: {
+        [healthOverviewCacheKey()]: {
             feature: 'health',
             tags: ['health'],
-            fetch: () => apiCall('/api/health/overview', 'GET')
+            fetch: () => {
+                const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                const tzOffset = new Date().getTimezoneOffset();
+                const tzParams = tzName
+                    ? `?tz=${encodeURIComponent(tzName)}`
+                    : `?tz_offset=${tzOffset}`;
+                return apiCall(`/api/health/overview${tzParams}`, 'GET');
+            }
         },
         [foodKey]: {
             feature: 'food',
@@ -1164,8 +1180,9 @@ async function _todayReadCaches(foodKey) {
         const readMeta = cacheStore && typeof cacheStore.getWithMeta === 'function'
             ? (key) => cacheStore.getWithMeta(key).catch(() => null)
             : null;
+        const hoKey = healthOverviewCacheKey();
         if (readMeta) {
-            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', 'health_overview', foodKey];
+            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', hoKey, foodKey];
             const metas = await Promise.all(keys.map(readMeta));
             const [bundleM, nextIntakeM, bpM, weightM, workoutM, healthM, foodM] = metas;
             if (bundleM?.data) {
@@ -1197,7 +1214,7 @@ async function _todayReadCaches(foodKey) {
                 if (m) trackTs(m.timestamp);
             }
         } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
-            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', 'health_overview', foodKey];
+            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', hoKey, foodKey];
             const [bundle, nextIntake, bp, weight, workout, health, food] = await Promise.all(
                 keys.map((k) => window.DataStore.getCached(k).catch(() => null))
             );
@@ -1329,12 +1346,13 @@ async function loadToday() {
         // dose that started >12h away can drift into the window with no change
         // event firing — relying on cached sentinel presence alone would keep
         // the card hidden indefinitely until some unrelated invalidation ran.
+        const hoKey = healthOverviewCacheKey();
         const presence = {
             next_intake: !!(bootstrap.next_intake && bootstrap.next_intake.scheduled_at),
             bp: !!bootstrap.bp,
             weight: !!bootstrap.weight,
             workout_next: !!swrCaches.workout_next,
-            health_overview: !!swrCaches.health_overview,
+            [hoKey]: !!swrCaches.health_overview,
             [foodKey]: !!swrCaches.food_today
         };
         const missing = Object.keys(presence).filter((k) => {

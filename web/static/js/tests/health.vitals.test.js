@@ -34,18 +34,23 @@ function makeHistory({ points = 5, avg = 70 } = {}) {
 function makeData(overrides) {
     const base = {
         sleep_stats_7d: [],
+        sleep_stats_30d: [],
         average_sleep_hours_7d: 0,
         average_sleep_hours_30d: 0,
         step_stats_7d: [],
+        step_stats_30d: [],
         average_steps_7d: 0,
         average_steps_30d: 0,
         heart_rate_history_7d: makeHistory({ points: 5, avg: 70 }),
+        heart_rate_history_30d: makeHistory({ points: 5, avg: 70 }),
         average_heart_rate_7d: 71,
         average_heart_rate_30d: 73,
         spo2_history_7d: makeHistory({ points: 5, avg: 97 }),
+        spo2_history_30d: makeHistory({ points: 5, avg: 97 }),
         average_spo2_7d: 97,
         average_spo2_30d: 96,
         stress_history_7d: makeHistory({ points: 5, avg: 40 }),
+        stress_history_30d: makeHistory({ points: 5, avg: 40 }),
         average_stress_7d: 41,
         average_stress_30d: 45,
     };
@@ -223,10 +228,10 @@ describe('Health vitals cards (Phase 8, Task 6)', () => {
         expect(disclaimerIdx).toBeGreaterThan(stressIdx);
     });
 
-    it('formats a dash when the per-vital average is zero or missing', () => {
+    it('formats a dash when the per-vital average is missing (null)', () => {
         const { window } = env;
         const card = window.renderVitalCard('hr', makeData({
-            average_heart_rate_7d: 0,
+            average_heart_rate_7d: null,
             average_heart_rate_30d: null,
         }), '7d');
         const stat = card.querySelector('.wg-vitals-card__stat');
