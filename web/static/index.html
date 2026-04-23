@@ -1183,53 +1183,87 @@
     </mt-modal>
 
     <!-- Modal for BP Recording -->
-    <mt-modal id="bp-modal" class="hidden wg-modal">
-        <div class="wg-modal__header">
-            <h3 id="bp-modal-title" class="wg-modal__title">Record Blood Pressure</h3>
-            <div class="wg-modal__actions">
-                <button type="button" id="bp-modal-cancel-btn" class="wg-gloss">Cancel</button>
-                <button type="submit" form="bp-form" class="wg-gloss wg-gloss--sun">Save</button>
+    <mt-modal id="bp-modal" class="hidden wg-modal wg-bp-modal">
+        <div class="wg-bp-modal__header">
+            <div class="wg-bp-modal__heading">
+                <span class="wg-section-label wg-bp-modal__eyebrow" id="bp-modal-eyebrow">New entry</span>
+                <span class="wg-mono-display wg-bp-modal__title" id="bp-modal-title">Blood pressure</span>
             </div>
+            <button type="button" id="bp-modal-close-btn" class="wg-icon-btn wg-bp-modal__close-btn"
+                aria-label="Close">
+                <span class="wg-gloss"></span>
+            </button>
         </div>
-        <form id="bp-form" class="wg-modal__body">
-            <div class="wg-field">
-                <label for="bp-datetime" class="wg-label">Time</label>
-                <input type="datetime-local" id="bp-datetime" class="wg-input" required>
-            </div>
-            <div class="wg-field--row">
-                <div class="wg-field">
-                    <label for="bp-systolic" class="wg-label">Systolic</label>
-                    <input type="number" id="bp-systolic" class="wg-input" min="60" max="250" placeholder="120"
-                        required inputmode="numeric">
-                </div>
-                <div class="wg-field">
-                    <label for="bp-diastolic" class="wg-label">Diastolic</label>
-                    <input type="number" id="bp-diastolic" class="wg-input" min="40" max="150" placeholder="80"
-                        required inputmode="numeric">
+
+        <form id="bp-form" class="wg-bp-modal__body">
+            <div class="wg-bp-modal__field">
+                <label for="bp-datetime" class="wg-bp-modal__label">Date &amp; time</label>
+                <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                    <input type="datetime-local" id="bp-datetime" class="wg-bp-modal__input" required>
                 </div>
             </div>
-            <div class="wg-field">
-                <label for="bp-pulse" class="wg-label">Pulse (optional)</label>
-                <input type="number" id="bp-pulse" class="wg-input" min="30" max="250" placeholder="70"
-                    inputmode="numeric">
+
+            <div class="wg-bp-modal__row wg-bp-modal__row--readings">
+                <div class="wg-bp-modal__field">
+                    <label for="bp-systolic" class="wg-bp-modal__label">Systolic</label>
+                    <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                        <input type="number" id="bp-systolic"
+                            class="wg-bp-modal__input wg-bp-modal__input--reading"
+                            min="60" max="250" placeholder="120" required inputmode="numeric">
+                    </div>
+                </div>
+                <div class="wg-bp-modal__field">
+                    <label for="bp-diastolic" class="wg-bp-modal__label">Diastolic</label>
+                    <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                        <input type="number" id="bp-diastolic"
+                            class="wg-bp-modal__input wg-bp-modal__input--reading"
+                            min="40" max="150" placeholder="80" required inputmode="numeric">
+                    </div>
+                </div>
+                <div class="wg-bp-modal__field">
+                    <label for="bp-pulse" class="wg-bp-modal__label">Pulse</label>
+                    <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                        <input type="number" id="bp-pulse"
+                            class="wg-bp-modal__input wg-bp-modal__input--reading"
+                            min="30" max="250" placeholder="70" inputmode="numeric">
+                    </div>
+                </div>
             </div>
-            <div class="wg-field">
-                <label for="bp-site" class="wg-label">Site</label>
-                <select id="bp-site" class="wg-select">
-                    <option value="right_arm">Right Arm</option>
-                    <option value="left_arm">Left Arm</option>
-                </select>
+
+            <div class="wg-bp-modal__row wg-bp-modal__row--meta">
+                <div class="wg-bp-modal__field">
+                    <label for="bp-site" class="wg-bp-modal__label">Site</label>
+                    <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                        <select id="bp-site" class="wg-bp-modal__input wg-bp-modal__select">
+                            <option value="right_arm">Right arm</option>
+                            <option value="left_arm">Left arm</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="wg-bp-modal__field">
+                    <label for="bp-position" class="wg-bp-modal__label">Position</label>
+                    <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                        <select id="bp-position" class="wg-bp-modal__input wg-bp-modal__select">
+                            <option value="seated">Seated</option>
+                            <option value="horizontal">Horizontal</option>
+                        </select>
+                    </div>
+                </div>
             </div>
-            <div class="wg-field">
-                <label for="bp-position" class="wg-label">Position</label>
-                <select id="bp-position" class="wg-select">
-                    <option value="seated">Seated</option>
-                    <option value="horizontal">Horizontal</option>
-                </select>
+
+            <div class="wg-bp-modal__field">
+                <label for="bp-notes" class="wg-bp-modal__label">Notes</label>
+                <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                    <textarea id="bp-notes" class="wg-bp-modal__input wg-bp-modal__textarea"
+                        placeholder="e.g. after coffee" rows="2"></textarea>
+                </div>
             </div>
-            <div class="wg-field">
-                <label for="bp-notes" class="wg-label">Notes</label>
-                <textarea id="bp-notes" class="wg-input" placeholder="Any notes..." rows="3"></textarea>
+
+            <div class="wg-bp-modal__actions">
+                <button type="button" id="bp-modal-cancel-btn"
+                    class="wg-gloss wg-bp-modal__action wg-bp-modal__action--cancel">Cancel</button>
+                <button type="submit" form="bp-form"
+                    class="wg-gloss wg-gloss--sun wg-bp-modal__action wg-bp-modal__action--save">Save entry</button>
             </div>
         </form>
     </mt-modal>
@@ -1238,8 +1272,8 @@
     <mt-modal id="weight-modal" class="hidden wg-modal wg-weight-modal">
         <div class="wg-weight-modal__header">
             <div class="wg-weight-modal__heading">
-                <span class="wg-section-label wg-weight-modal__eyebrow">Log</span>
-                <span class="wg-mono-display wg-weight-modal__title" id="weight-modal-title">New weight</span>
+                <span class="wg-section-label wg-weight-modal__eyebrow" id="weight-modal-eyebrow">New entry</span>
+                <span class="wg-mono-display wg-weight-modal__title" id="weight-modal-title">Weight</span>
             </div>
             <button type="button" id="weight-modal-close-btn" class="wg-icon-btn wg-weight-modal__close-btn"
                 aria-label="Close">
@@ -1321,30 +1355,38 @@
     </mt-modal>
 
     <!-- Modal for Medication Confirmation (from Push) -->
-    <mt-modal id="med-confirm-modal" class="hidden">
-        <div class="modal-header">
-            <h3 id="med-confirm-title">Time for Meds!</h3>
-            <div class="actions">
-                <button id="med-confirm-dismiss-btn" class="btn btn-secondary">Dismiss</button>
-                <button id="med-confirm-action-btn" class="btn btn-primary">Confirm
-                    Selected</button>
+    <mt-modal id="med-confirm-modal" class="hidden wg-modal wg-med-confirm-modal">
+        <div class="wg-med-confirm-modal__header">
+            <div class="wg-med-confirm-modal__heading">
+                <span class="wg-section-label wg-med-confirm-modal__eyebrow"
+                    id="med-confirm-eyebrow">Time for meds</span>
+                <span class="wg-mono-display wg-med-confirm-modal__title" id="med-confirm-title">Time for Meds!</span>
+                <span class="wg-med-confirm-modal__subtitle" id="med-confirm-subtitle"></span>
+            </div>
+            <button type="button" id="med-confirm-dismiss-btn"
+                class="wg-icon-btn wg-med-confirm-modal__close-btn" aria-label="Close">
+                <span class="wg-gloss"></span>
+            </button>
+        </div>
+
+        <div id="med-confirm-time-edit" class="wg-med-confirm-modal__time-edit hidden">
+            <label for="med-confirm-datetime" class="wg-med-confirm-modal__label">Time taken</label>
+            <div class="wg-gloss--inset wg-med-confirm-modal__input-wrap">
+                <input type="datetime-local" id="med-confirm-datetime" class="wg-med-confirm-modal__input">
             </div>
         </div>
-        <p id="med-confirm-subtitle" style="color: #666; margin-bottom: 15px;"></p>
 
-        <!-- Editable Time Input (Initially Hidden) -->
-        <div id="med-confirm-time-edit" style="display: none; margin-bottom: 15px;">
-            <label for="med-confirm-datetime">Time Taken:</label>
-            <input type="datetime-local" id="med-confirm-datetime">
+        <div id="med-confirm-list" class="wg-med-confirm-modal__list"></div>
+
+        <div class="wg-med-confirm-modal__secondary-actions">
+            <button type="button" id="med-confirm-snooze-btn"
+                class="wg-gloss wg-med-confirm-modal__secondary wg-med-confirm-modal__secondary--snooze">Snooze 10m</button>
+            <button type="button" id="med-confirm-skip-btn"
+                class="wg-gloss wg-med-confirm-modal__secondary wg-med-confirm-modal__secondary--skip">Skip</button>
         </div>
 
-        <div id="med-confirm-list" style="margin-bottom: 20px;">
-            <!-- Checkboxes injected here -->
-        </div>
-        <div class="actions" style="display: flex; gap: 10px; justify-content: space-between;">
-            <button id="med-confirm-snooze-btn" class="btn btn-secondary" style="flex: 1;">Snooze 10m</button>
-            <button id="med-confirm-skip-btn" class="btn btn-danger-outline" style="flex: 1;">Skip</button>
-        </div>
+        <button type="button" id="med-confirm-action-btn"
+            class="wg-gloss wg-gloss--sun wg-med-confirm-modal__primary">Confirm selected</button>
     </mt-modal>
 
     <!-- Modal for Workout Start (from Push) -->
