@@ -167,9 +167,9 @@ No backend changes. The existing `/api/workouts*`, `/api/exercises*`, `/api/work
 
 ### Task 9: Wire Workouts into the canonical bottom nav + cleanup
 
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `workouts` slot with the `dumbbell` (or equivalent) icon; add a Phase 7 contract test matching the BP/Food/Meds/Weight contract tests
-- [ ] grep-verify remaining paper-era workout classes — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
-- [ ] run `pnpm test` — must pass before next task
+- [x] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `workouts` slot with the `dumbbell` (or equivalent) icon; add a Phase 7 contract test matching the BP/Food/Meds/Weight contract tests
+- [x] grep-verify remaining paper-era workout classes — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 10: Verify acceptance criteria for Phase 7
 

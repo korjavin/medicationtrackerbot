@@ -726,16 +726,6 @@ h3 {
     display: block;
 }
 
-/* Exercise Library Items */
-.exercise-library-item {
-    background-color: var(--secondary-bg-color);
-    padding: var(--space-lg);
-    border-radius: var(--radius-md);
-    margin-bottom: var(--space-sm);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    cursor: pointer;
-}
-
 /* List Items */
 .med-item,
 .history-item {
@@ -2940,24 +2930,9 @@ input:checked+.toggle-slider:before {
 
 /* ========== Workout Components ========== */
 
-.workout-empty-state {
-    text-align: center;
-    color: var(--hint-color);
-    padding: var(--space-2xl) var(--space-lg);
-}
-
 .workout-pending-msg {
     color: var(--hint-color);
     font-size: 0.9em;
-}
-
-.workout-group-card {
-    margin-bottom: var(--space-lg);
-}
-
-.workout-group-schedule {
-    font-size: 0.9em;
-    color: var(--hint-color);
 }
 
 .workout-variant-card {
@@ -2997,100 +2972,6 @@ input:checked+.toggle-slider:before {
     margin-left: var(--space-md);
 }
 
-.workout-history-card {
-    background: var(--secondary-bg-color, #f8f9fa);
-    padding: var(--space-lg);
-    border-radius: var(--radius-sm);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-}
-
-.workout-history-card:hover,
-.workout-history-card:active {
-    background: var(--secondary-bg-color, #f0f0f0);
-    filter: brightness(0.97);
-}
-
-.workout-history-meta {
-    font-size: 0.85em;
-    color: var(--hint-color);
-    margin-top: var(--space-xs);
-}
-
-.workout-volume-highlight {
-    color: var(--color-chart-primary, #667eea);
-    font-weight: var(--font-weight-bold);
-}
-
-.workout-history-status {
-    text-align: right;
-    font-size: 0.85em;
-    color: var(--color-chart-primary, #667eea);
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-}
-
-.workout-history-chevron {
-    font-size: 1.2em;
-}
-
-.workout-miband-card {
-    background: var(--secondary-bg-color, #f0f7f0);
-    padding: var(--space-lg);
-    border-radius: var(--radius-sm);
-    border-left: 3px solid var(--color-success);
-    border-top: 1px solid rgba(0, 0, 0, 0.06);
-    border-right: 1px solid rgba(0, 0, 0, 0.06);
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-}
-
-.workout-miband-card:hover,
-.workout-miband-card:active {
-    filter: brightness(0.97);
-}
-
-.workout-miband-date {
-    font-size: 0.82em;
-    color: var(--hint-color);
-    margin-top: 2px;
-}
-
-.workout-miband-badge {
-    font-size: 0.7em;
-    padding: 2px 7px;
-    border-radius: var(--radius-md);
-    background: var(--color-miband-badge-bg);
-    color: var(--color-miband-badge-text);
-    border: 1px solid var(--color-miband-badge-border);
-    font-weight: var(--font-weight-bold);
-    letter-spacing: 0.03em;
-}
-
-.workout-miband-badge--manual {
-    background: var(--color-workout-skip-bg);
-    color: var(--color-workout-skip-text);
-    border-color: var(--color-workout-skip-border);
-}
-
-.workout-stat-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-    margin-top: var(--space-sm);
-}
-
-.workout-stat-chip {
-    font-size: 0.82em;
-    padding: 2px var(--space-sm);
-    border-radius: var(--radius-md);
-    background: var(--color-miband-chip-bg);
-    color: var(--color-miband-chip-text);
-}
-
 .workout-btn-row {
     display: flex;
     gap: var(--space-md);
@@ -3124,32 +3005,6 @@ input:checked+.toggle-slider:before {
     box-shadow: none;
 }
 
-/* Workout session info */
-.workout-session-info-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-md);
-}
-
-.workout-session-status-group {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-}
-
-.workout-session-status-label {
-    font-size: 0.9em;
-    color: var(--hint-color);
-    margin: 0;
-}
-
-.workout-session-select {
-    padding: var(--space-xs) var(--space-sm);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--color-border-divider, #ddd);
-}
-
 /* Workout exercise log entry */
 .exercise-log-entry.unsaved {
     opacity: 0.6;
@@ -3179,181 +3034,6 @@ input:checked+.toggle-slider:before {
     font-size: 0.75em;
     color: var(--hint-color);
     margin-bottom: var(--space-xs);
-}
-
-/* Workout stats */
-.workout-stats-grid-3 {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--space-md);
-    margin-bottom: var(--space-md);
-}
-
-.workout-stats-grid-2 {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: var(--space-md);
-}
-
-.workout-hero-card {
-    color: white;
-    padding: var(--space-lg) var(--space-sm);
-    border-radius: var(--radius-md);
-    text-align: center;
-}
-
-.workout-hero-card--weeks {
-    background: linear-gradient(135deg, var(--color-chart-primary) 0%, var(--color-chart-secondary) 100%);
-}
-
-.workout-hero-card--sessions {
-    background: linear-gradient(135deg, var(--color-hero-pink-start) 0%, var(--color-hero-pink-end) 100%);
-}
-
-.workout-hero-card--completion {
-    background: linear-gradient(135deg, var(--color-hero-blue-start) 0%, var(--color-hero-blue-end) 100%);
-}
-
-.workout-hero-value {
-    font-size: 2.4em;
-    font-weight: var(--font-weight-bold);
-    line-height: 1.1;
-}
-
-.workout-hero-label {
-    font-size: 0.78em;
-    opacity: 0.92;
-    margin-top: var(--space-xs);
-}
-
-.workout-totals-card {
-    padding: var(--space-lg) var(--space-sm);
-    border-radius: var(--radius-sm);
-    text-align: center;
-    background: var(--secondary-bg-color);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.workout-totals-card--success {
-    background: color-mix(in srgb, var(--color-success) 8%, var(--secondary-bg-color));
-    border-color: var(--color-success);
-}
-
-.workout-totals-card--success .workout-totals-value {
-    color: var(--color-success);
-}
-
-.workout-totals-card--warning {
-    background: color-mix(in srgb, var(--color-warning) 10%, var(--secondary-bg-color));
-    border-color: var(--color-warning);
-}
-
-.workout-totals-card--warning .workout-totals-value {
-    color: var(--color-warning);
-}
-
-.workout-totals-value {
-    font-size: 1.7em;
-    font-weight: var(--font-weight-bold);
-}
-
-.workout-totals-label {
-    font-size: 0.78em;
-    color: var(--hint-color);
-    margin-top: 2px;
-}
-
-.workout-section-heading {
-    font-size: 0.75em;
-    font-weight: var(--font-weight-bold);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--hint-color);
-    margin-bottom: var(--space-md);
-}
-
-.workout-bar-track {
-    background: var(--secondary-bg-color, rgba(0, 0, 0, 0.07));
-    border-radius: var(--radius-sm);
-    height: 5px;
-    overflow: hidden;
-}
-
-.workout-bar-fill {
-    background: linear-gradient(90deg, var(--color-chart-primary), var(--color-chart-secondary));
-    height: 100%;
-    border-radius: var(--radius-sm);
-    transition: width 0.4s;
-}
-
-.workout-exercise-row {
-    margin-bottom: var(--space-md);
-}
-
-.workout-exercise-labels {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: var(--space-xs);
-}
-
-.workout-exercise-name {
-    font-size: 0.9em;
-    font-weight: var(--font-weight-medium);
-}
-
-.workout-exercise-volume {
-    font-size: 0.8em;
-    color: var(--hint-color);
-}
-
-.workout-activity-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-xs);
-}
-
-.workout-activity-square {
-    width: 26px;
-    height: 26px;
-    border-radius: var(--radius-sm);
-    flex-shrink: 0;
-}
-
-.workout-legend {
-    display: flex;
-    gap: var(--space-md);
-    margin-top: var(--space-sm);
-    font-size: 0.72em;
-    color: var(--hint-color);
-}
-
-.workout-legend-swatch {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-    vertical-align: middle;
-    margin-right: 3px;
-}
-
-.workout-history-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-md);
-}
-
-/* Exercise library item (cursor) */
-
-.exercise-library-defaults {
-    font-size: 0.9em;
-    color: var(--hint-color);
-}
-
-.exercise-library-notes {
-    font-size: 0.85em;
-    color: var(--hint-color);
-    margin-top: 2px;
 }
 
 /* Today dashboard */
