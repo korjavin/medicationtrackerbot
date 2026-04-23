@@ -209,10 +209,13 @@ type TZPlanStore interface {
 }
 
 // DiaryNotesStore is the subset of store operations needed for diary note handlers.
+// Legacy store interface kept for MCP and non-domain callers; the HTTP handler
+// itself now goes through domain.NotesService.
 type DiaryNotesStore interface {
-	CreateDiaryNote(ctx context.Context, userID int64, content string) (*store.DiaryNote, error)
+	CreateDiaryNote(ctx context.Context, userID int64, content string, tag *string) (*store.DiaryNote, error)
 	ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error)
 	DeleteDiaryNote(ctx context.Context, userID, noteID int64) error
+	UpdateDiaryNoteTag(ctx context.Context, userID, noteID int64, tag *string) error
 }
 
 // NonceStore is the subset of store operations needed for login replay prevention.
