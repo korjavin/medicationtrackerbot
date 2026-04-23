@@ -997,7 +997,7 @@ async function showEditVariantModal(variantId) {
     currentEditingVariantId = variantId;
 
     const variants = await apiCall(`/api/workout/variants?group_id=${currentGroupForVariant}`);
-    const variant = variants.find(v => v.id === variantId);
+    const variant = variants && variants.find(v => v.id === variantId);
     if (!variant) return;
 
     document.getElementById('workout-variant-modal-title').textContent = 'Edit Variant';
@@ -1250,7 +1250,7 @@ async function showEditExerciseModal(exerciseId) {
     currentEditingExerciseId = exerciseId;
 
     const exercises = await apiCall(`/api/workout/exercises?variant_id=${currentVariantForExercise}`);
-    const exercise = exercises.find(e => e.id === exerciseId);
+    const exercise = exercises && exercises.find(e => e.id === exerciseId);
     if (!exercise) return;
 
     document.getElementById('workout-exercise-modal-title').textContent = 'Edit Exercise';
@@ -1941,7 +1941,7 @@ function _buildHistoryIconBtn(kind, ariaLabel, iconName, handler, opts) {
 }
 
 function _buildMiBandCard(w) {
-    const meta = MIBAND_ACTIVITY_META[w.activity_name] || { label: w.activity_name, icon: '🏅' };
+    const meta = MIBAND_ACTIVITY_META[w.activity_name] || { label: w.activity_name || 'Activity', icon: '🏅' };
     const startDate = new Date(w.start_time);
     const timeStr = startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const distKm = w.distance_m >= 1000
