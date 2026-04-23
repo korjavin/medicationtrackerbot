@@ -5390,6 +5390,82 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
+/* Health summary tile row (Phase 8, Task 3). Grid of mono stat tiles — one
+   per vital (sleep hours, steps, HR avg, SpO2 avg, stress avg) — on top of
+   the Overview sub-tab. Trend arrow per tile is colored by a per-vital
+   "good direction" classifier (sun / alert / neutral / empty). */
+.wg-health-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+    gap: var(--wg-health-summary-tile-gap);
+    padding: var(--wg-health-summary-tile-pad);
+    margin-bottom: var(--space-md);
+}
+
+.wg-health-summary__tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-health-summary__value {
+    font-size: var(--wg-health-summary-tile-value-size);
+    line-height: 1.1;
+}
+
+.wg-health-summary__tile--empty .wg-health-summary__value {
+    color: var(--wg-fg-3);
+}
+
+.wg-health-summary__label {
+    font-size: var(--wg-health-summary-tile-label-size);
+    padding: 0;
+}
+
+.wg-health-summary__trend {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-health-summary-tile-trend-size);
+    color: var(--wg-fg-3);
+    min-height: 1em;
+}
+
+.wg-health-summary__trend--sun {
+    color: var(--wg-sun);
+}
+
+.wg-health-summary__trend--alert {
+    color: var(--color-danger);
+}
+
+.wg-health-summary__trend--neutral {
+    color: var(--wg-fg-3);
+}
+
+.wg-health-summary__trend--empty {
+    color: var(--wg-fg-4);
+}
+
+/* Health range selector (Phase 8, Task 3). `.wg-gloss--inset` container
+   carrying 7d / 30d pills; the active pill flips to `.wg-gloss--sun`. The
+   selector is presentation-only — it picks which average pair (7d/30d) the
+   summary tiles use. */
+.wg-health-range-selector {
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--wg-health-range-selector-pad);
+    margin-bottom: var(--space-md);
+}
+
+.wg-health-range-selector__btn {
+    flex: 1;
+    min-height: var(--wg-health-range-selector-height);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
 /* Today's-workout card (Phase 7, Task 3). Sun-glossed card mirroring the
    Meds next-action pattern. `renderTodaysWorkoutCard` picks one of three
    variants: non-rest (sun gloss + Start button), rest (muted card + ad-hoc
