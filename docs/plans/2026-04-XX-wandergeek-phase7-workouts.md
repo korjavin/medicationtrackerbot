@@ -101,11 +101,11 @@ No backend changes. The existing `/api/workouts*`, `/api/exercises*`, `/api/work
 
 ### Task 2: Build the sub-tab strip + subtab state plumbing
 
-- [ ] replace the current `.workout-tabs` buttons with a `.wg-gloss--inset` container carrying four `.wg-gloss--sun`-capable pills (History / Groups / Exercises / Stats) — active state via class, not inline style
-- [ ] state: which sub-tab is active persists via a new `mt-workouts-subtab` localStorage key matching the `mt-bp-range` / `mt-food-subtab` / `mt-meds-subtab` / `mt-weight-range` naming pattern
-- [ ] default sub-tab: History
-- [ ] write `workout.subtabs.test.js` — active-state toggle, persistence across reload, default-tab behavior
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the current `.workout-tabs` buttons with a `.wg-gloss--inset` container carrying four `.wg-gloss--sun`-capable pills (History / Groups / Exercises / Stats) — active state via class, not inline style
+- [x] state: which sub-tab is active persists via a new `mt-workouts-subtab` localStorage key matching the `mt-bp-range` / `mt-food-subtab` / `mt-meds-subtab` / `mt-weight-range` naming pattern
+- [x] default sub-tab: History
+- [x] write `workout.subtabs.test.js` — active-state toggle, persistence across reload, default-tab behavior
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Build today's-workout card
 

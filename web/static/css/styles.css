@@ -5592,6 +5592,27 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
+/* Workouts sub-tab strip (Phase 7, Task 2). `.wg-gloss--inset` container
+   wraps four `.wg-gloss`-capable pills — History / Groups / Exercises /
+   Stats — the active pill carries `.wg-gloss--sun` (plus
+   `.wg-workouts-subtabs__btn--active` for tests). Mirrors the Phase 4 Food
+   and Phase 5 Meds sub-tab strips. */
+.wg-workouts-subtabs {
+    display: flex;
+    gap: var(--wg-workouts-subtab-gap);
+    padding: var(--wg-workouts-subtab-pad-y) var(--wg-workouts-subtab-pad-x);
+    margin-bottom: var(--space-md);
+}
+
+.wg-workouts-subtabs__btn {
+    flex: 1;
+    min-height: 36px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
 /* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
    bracket clusters of scheduled meds; each row is a `.wg-card` with a name
    (mono-display), dosage, schedule summary, optional inventory tag, and a
