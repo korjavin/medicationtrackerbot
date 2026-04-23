@@ -129,12 +129,12 @@ No backend changes. The existing `/api/workouts*`, `/api/exercises*`, `/api/work
 
 ### Task 5: Rewrite the groups sub-tab
 
-- [ ] replace `#workout-groups-list` markup with a `.wg-workouts-groups` container — each group a `.wg-card` row carrying mono group name, exercise-count eyebrow, rotation-slot tag, and a trailing `.wg-icon-btn` cluster (edit / delete)
-- [ ] full-width `.wg-gloss--sun` "Add workout group" CTA appended at the bottom (replaces `#add-workout-group-btn` FAB)
-- [ ] edit modal (`showEditWorkoutGroupModal`) restyled with Wandergeek shell — mono header, `.wg-gloss--inset` input wraps for name + rotation slot + exercise list, Cancel + Save buttons (`.wg-gloss` + `.wg-gloss--sun`, 2× flex on Save)
-- [ ] empty state: muted card with "No workout groups yet — tap Add to create one."
-- [ ] write `workout.groups.test.js` — group row render, edit/delete callbacks, add-group flow, empty state, modal open/save/cancel
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace `#workout-groups-list` markup with a `.wg-workouts-groups` container — each group a `.wg-card` row carrying mono group name, exercise-count eyebrow, rotation-slot tag, and a trailing `.wg-icon-btn` cluster (edit / delete)
+- [x] full-width `.wg-gloss--sun` "Add workout group" CTA appended at the bottom (replaces `#add-workout-group-btn` FAB)
+- [x] edit modal (`showEditWorkoutGroupModal`) restyled with Wandergeek shell — mono header, `.wg-gloss--inset` input wraps for name + rotation slot + exercise list, Cancel + Save buttons (`.wg-gloss` + `.wg-gloss--sun`, 2× flex on Save)
+- [x] empty state: muted card with "No workout groups yet — tap Add to create one."
+- [x] write `workout.groups.test.js` — group row render, edit/delete callbacks, add-group flow, empty state, modal open/save/cancel
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Rewrite the exercises sub-tab
 

@@ -92,16 +92,14 @@ describe('workout.js SWR and modal edge branches', () => {
       expect(document.getElementById('workout-groups-list').innerHTML).toContain('Strength');
       expect(saveCacheSpy).toHaveBeenCalledWith('groups', groups);
 
-      // Verify malformed days_of_week is handled gracefully
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      // Verify malformed days_of_week is handled gracefully (silent catch;
+      // the row still renders with an empty days cluster).
       window._renderWorkoutGroups(document.getElementById('workout-groups-list'), [{
         id: 2,
         name: 'Broken Days',
         days_of_week: 'invalid-json',
       }]);
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error parsing days_of_week:', expect.anything());
       expect(document.getElementById('workout-groups-list').innerHTML).toContain('Broken Days');
-      consoleErrorSpy.mockRestore();
 
       window._renderWorkoutGroups(document.getElementById('workout-groups-list'), []);
       expect(document.getElementById('workout-groups-list').innerHTML).toContain('No workout groups yet');
