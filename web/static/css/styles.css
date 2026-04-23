@@ -1838,46 +1838,6 @@ svg.chart-svg {
     color: var(--hint-color);
 }
 
-.setting-info-block {
-    align-items: flex-start;
-}
-
-.settings-info-grid {
-    margin-top: var(--space-lg);
-    display: grid;
-    gap: var(--space-md);
-}
-
-.settings-info-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: var(--space-md);
-    padding-bottom: var(--space-md);
-    border-bottom: 1px solid color-mix(in srgb, var(--hint-color) 25%, transparent);
-}
-
-.settings-info-row:last-child {
-    padding-bottom: 0;
-    border-bottom: 0;
-}
-
-.settings-info-label {
-    color: var(--hint-color);
-    font-size: var(--font-size-sm);
-}
-
-.settings-info-value {
-    text-align: right;
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    word-break: break-word;
-}
-
-.settings-info-note {
-    margin-top: var(--space-md);
-}
-
 .food-date-nav {
     display: flex;
     gap: var(--space-sm);
