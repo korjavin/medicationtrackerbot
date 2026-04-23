@@ -107,12 +107,12 @@ No backend changes. The existing `/api/health/overview` and `/api/notes*` endpoi
 
 ### Task 3: Build the summary tile row + range selector
 
-- [ ] create `renderHealthSummaryTiles(data, range)` helper that renders a grid of mono stat tiles (one per vital: sleep hours, steps, HR avg, SpO2 avg, stress avg)
-- [ ] trend arrow classifier: compare active-range average vs. the opposite-range average (7d vs. 30d); variant flips per vital direction (sleep/steps/SpO2 up=sun, stress down=sun, HR in-range=sun)
-- [ ] empty tile state when a vital has no data: muted mono dash + "—" placeholder (no trend arrow)
-- [ ] range selector: `.wg-gloss--inset` container with 7d / 30d pills; persists via `mt-health-range` localStorage key; default 7d
-- [ ] write `health.summary.test.js` — tile render for each vital, trend arrow direction for each direction, empty-tile fallback, range-selector persistence
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `renderHealthSummaryTiles(data, range)` helper that renders a grid of mono stat tiles (one per vital: sleep hours, steps, HR avg, SpO2 avg, stress avg)
+- [x] trend arrow classifier: compare active-range average vs. the opposite-range average (7d vs. 30d); variant flips per vital direction (sleep/steps/SpO2 up=sun, stress down=sun, HR in-range=sun)
+- [x] empty tile state when a vital has no data: muted mono dash + "—" placeholder (no trend arrow)
+- [x] range selector: `.wg-gloss--inset` container with 7d / 30d pills; persists via `mt-health-range` localStorage key; default 7d
+- [x] write `health.summary.test.js` — tile render for each vital, trend arrow direction for each direction, empty-tile fallback, range-selector persistence
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Build the `WGSleepChart` component + rewrite sleep card
 

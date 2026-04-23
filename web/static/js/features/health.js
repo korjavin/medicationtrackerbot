@@ -43,8 +43,180 @@ if (document.readyState === 'loading') {
     restoreHealthSubTab();
 }
 
+// Range selector state (Phase 8, Task 3). Presentation-only toggle between
+// the 7d and 30d averages the backend already returns from
+// /api/health/overview — persists via mt-health-range, default 7d.
+const HEALTH_RANGE_STORAGE_KEY = 'mt-health-range';
+const HEALTH_RANGE_OPTIONS = ['7d', '30d'];
+const HEALTH_RANGE_DEFAULT = '7d';
+
+function getActiveHealthRange() {
+    try {
+        const raw = window.localStorage.getItem(HEALTH_RANGE_STORAGE_KEY);
+        if (HEALTH_RANGE_OPTIONS.indexOf(raw) !== -1) return raw;
+    } catch (_) { /* ignore */ }
+    return HEALTH_RANGE_DEFAULT;
+}
+
+function setActiveHealthRange(range) {
+    if (HEALTH_RANGE_OPTIONS.indexOf(range) === -1) return;
+    try { window.localStorage.setItem(HEALTH_RANGE_STORAGE_KEY, String(range)); } catch (_) { /* ignore */ }
+}
+
+function renderHealthRangeSelector(opts) {
+    const options = opts || {};
+    const active = HEALTH_RANGE_OPTIONS.indexOf(options.active) !== -1
+        ? options.active
+        : HEALTH_RANGE_DEFAULT;
+    const onChange = typeof options.onChange === 'function' ? options.onChange : null;
+
+    const container = document.createElement('div');
+    container.id = 'health-range-selector';
+    container.className = 'wg-gloss--inset wg-health-range-selector';
+
+    HEALTH_RANGE_OPTIONS.forEach((range) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'wg-gloss wg-health-range-selector__btn';
+        if (range === active) btn.classList.add('wg-gloss--sun', 'wg-health-range-selector__btn--active');
+        btn.setAttribute('data-range', range);
+        btn.setAttribute('aria-pressed', range === active ? 'true' : 'false');
+        btn.textContent = range;
+        btn.addEventListener('click', () => {
+            if (range === active) return;
+            if (onChange) onChange(range);
+        });
+        container.appendChild(btn);
+    });
+    return container;
+}
+
+// Per-vital "good direction" classifier (Phase 8, Task 3). Given the active
+// and opposite range averages for a vital, returns one of:
+//   • 'sun'     — movement is in the vital's good direction
+//   • 'alert'   — movement is in the vital's bad direction
+//   • 'neutral' — no meaningful change (equal averages) or unknown
+// Direction arrow (↑/↓/·) is independent of variant; it reflects the sign of
+// (active - other). The variant flips per vital:
+//   steps/spo2: up = sun, down = alert
+//   stress:     down = sun, up   = alert
+//   sleep:      toward 8h = sun, away from 8h = alert
+//   hr:         active avg inside [50,90] = sun, else = alert
+function classifyHealthTrend(vital, active, other) {
+    if (active == null || other == null) return 'neutral';
+    const delta = active - other;
+    switch (vital) {
+        case 'steps':
+        case 'spo2':
+            if (delta > 0) return 'sun';
+            if (delta < 0) return 'alert';
+            return 'neutral';
+        case 'stress':
+            if (delta < 0) return 'sun';
+            if (delta > 0) return 'alert';
+            return 'neutral';
+        case 'sleep': {
+            const distActive = Math.abs(active - 8);
+            const distOther = Math.abs(other - 8);
+            if (distActive < distOther) return 'sun';
+            if (distActive > distOther) return 'alert';
+            return 'neutral';
+        }
+        case 'hr':
+            if (active >= 50 && active <= 90) return 'sun';
+            return 'alert';
+        default:
+            return 'neutral';
+    }
+}
+
+function trendArrowGlyph(active, other) {
+    if (active == null || other == null) return '';
+    if (active > other) return '\u2191'; // ↑
+    if (active < other) return '\u2193'; // ↓
+    return '\u00B7'; // ·
+}
+
+const HEALTH_SUMMARY_VITALS = [
+    { vital: 'sleep',  label: 'SLEEP',  unit: 'h',     activeKey7: 'average_sleep_hours_7d', activeKey30: 'average_sleep_hours_30d' },
+    { vital: 'steps',  label: 'STEPS',  unit: '',      activeKey7: 'average_steps_7d',       activeKey30: 'average_steps_30d' },
+    { vital: 'hr',     label: 'HR',     unit: 'bpm',   activeKey7: 'average_heart_rate_7d',  activeKey30: 'average_heart_rate_30d' },
+    { vital: 'spo2',   label: 'SPO2',   unit: '%',     activeKey7: 'average_spo2_7d',        activeKey30: 'average_spo2_30d' },
+    { vital: 'stress', label: 'STRESS', unit: '/100',  activeKey7: 'average_stress_7d',      activeKey30: 'average_stress_30d' }
+];
+
+function formatSummaryValue(vital, value) {
+    if (value == null || Number.isNaN(value) || value === 0) return '\u2014';
+    if (vital === 'sleep') return Number(value).toFixed(1);
+    if (vital === 'steps') return Number(value).toLocaleString();
+    return String(Math.round(value));
+}
+
+function renderHealthSummaryTiles(data, range) {
+    const safeRange = HEALTH_RANGE_OPTIONS.indexOf(range) !== -1 ? range : HEALTH_RANGE_DEFAULT;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'wg-card wg-health-summary';
+    wrapper.setAttribute('data-range', safeRange);
+
+    HEALTH_SUMMARY_VITALS.forEach((spec) => {
+        const tile = document.createElement('div');
+        tile.className = 'wg-health-summary__tile';
+        tile.setAttribute('data-vital', spec.vital);
+
+        const activeRaw = safeRange === '7d' ? data?.[spec.activeKey7] : data?.[spec.activeKey30];
+        const otherRaw = safeRange === '7d' ? data?.[spec.activeKey30] : data?.[spec.activeKey7];
+        const hasActive = typeof activeRaw === 'number' && !Number.isNaN(activeRaw) && activeRaw !== 0;
+        const hasOther = typeof otherRaw === 'number' && !Number.isNaN(otherRaw) && otherRaw !== 0;
+
+        const valueEl = document.createElement('div');
+        valueEl.className = 'wg-mono-display wg-health-summary__value';
+        if (!hasActive) tile.classList.add('wg-health-summary__tile--empty');
+        const valueText = hasActive ? formatSummaryValue(spec.vital, activeRaw) : '\u2014';
+        const unitSuffix = hasActive && spec.unit ? ` ${spec.unit}` : '';
+        valueEl.textContent = valueText + unitSuffix;
+        tile.appendChild(valueEl);
+
+        const labelEl = document.createElement('div');
+        labelEl.className = 'wg-section-label wg-health-summary__label';
+        labelEl.textContent = spec.label;
+        tile.appendChild(labelEl);
+
+        const trendEl = document.createElement('div');
+        trendEl.className = 'wg-health-summary__trend';
+        if (hasActive && hasOther) {
+            const variant = classifyHealthTrend(spec.vital, activeRaw, otherRaw);
+            const glyph = trendArrowGlyph(activeRaw, otherRaw);
+            trendEl.classList.add(`wg-health-summary__trend--${variant}`);
+            trendEl.setAttribute('data-variant', variant);
+            trendEl.textContent = glyph;
+        } else {
+            trendEl.classList.add('wg-health-summary__trend--empty');
+            trendEl.setAttribute('data-variant', 'empty');
+            trendEl.textContent = '';
+        }
+        tile.appendChild(trendEl);
+
+        wrapper.appendChild(tile);
+    });
+
+    return wrapper;
+}
+
 function renderHealthOverviewContent(content, data) {
     content.replaceChildren();
+
+    const activeRange = getActiveHealthRange();
+
+    content.appendChild(renderHealthSummaryTiles(data, activeRange));
+
+    const rangeSelector = renderHealthRangeSelector({
+        active: activeRange,
+        onChange: (r) => {
+            setActiveHealthRange(r);
+            renderHealthOverviewContent(content, data);
+        }
+    });
+    content.appendChild(rangeSelector);
 
     const renderVitalGroup = (id, title, history, color, min, max, stat7d, stat30d, unit) => {
         if (history && history.length > 0) {
