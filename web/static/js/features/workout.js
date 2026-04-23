@@ -15,6 +15,49 @@ let currentVariantForExercise = null;
 // TAB SWITCHING
 // ====================================
 
+// Sub-tab state (Phase 7, Task 2). Mirrors the `mt-meds-subtab` /
+// `mt-food-subtab` pattern — one of four values (`history`, `groups`,
+// `exercises`, `stats`), persisted to localStorage so the user's choice
+// survives reload. Default is `history`.
+const WORKOUTS_SUBTAB_STORAGE_KEY = 'mt-workouts-subtab';
+const WORKOUTS_SUBTAB_OPTIONS = ['history', 'groups', 'exercises', 'stats'];
+const WORKOUTS_SUBTAB_DEFAULT = 'history';
+
+function getActiveWorkoutsSubTab() {
+    try {
+        const raw = window.localStorage.getItem(WORKOUTS_SUBTAB_STORAGE_KEY);
+        if (WORKOUTS_SUBTAB_OPTIONS.indexOf(raw) !== -1) return raw;
+    } catch (_) { /* ignore */ }
+    return WORKOUTS_SUBTAB_DEFAULT;
+}
+
+function setActiveWorkoutsSubTab(tab) {
+    if (WORKOUTS_SUBTAB_OPTIONS.indexOf(tab) === -1) return;
+    try { window.localStorage.setItem(WORKOUTS_SUBTAB_STORAGE_KEY, tab); } catch (_) { /* ignore */ }
+}
+
+function syncWorkoutsSubTabActiveClass(activeTab) {
+    const container = document.querySelector('.wg-workouts-subtabs');
+    if (!container) return;
+    const buttons = container.querySelectorAll('.workout-tab');
+    buttons.forEach((btn) => {
+        const isActive = btn.dataset.tab === activeTab;
+        btn.classList.toggle('wg-gloss--sun', isActive);
+        btn.classList.toggle('wg-workouts-subtabs__btn--active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function restoreWorkoutsSubTab() {
+    syncWorkoutsSubTabActiveClass(getActiveWorkoutsSubTab());
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', restoreWorkoutsSubTab, { once: true });
+} else {
+    restoreWorkoutsSubTab();
+}
+
 function switchWorkoutTab(tab) {
     const activated = activateTabGroup(tab, {
         buttonSelector: '.workout-tab',
@@ -22,6 +65,9 @@ function switchWorkoutTab(tab) {
         contentIdFromTab: (tabName) => `workout-${tabName}-tab`
     });
     if (!activated) return;
+
+    if (typeof syncWorkoutsSubTabActiveClass === 'function') syncWorkoutsSubTabActiveClass(tab);
+    if (typeof setActiveWorkoutsSubTab === 'function') setActiveWorkoutsSubTab(tab);
 
     if (tab === 'groups') { loadWorkoutGroups(); }
     else if (tab === 'history') { loadNextWorkout(); loadWorkoutHistoryTab(); }
@@ -35,9 +81,12 @@ bindTabGroup({
     onTabSelect: switchWorkoutTab
 });
 
-// Main load function called when switching to workouts tab
+// Main load function called when switching to workouts tab. Honors the
+// persisted sub-tab so a user who left the screen on Groups or Stats
+// returns to that view.
 function loadWorkouts() {
-    switchWorkoutTab('history');
+    const stored = typeof getActiveWorkoutsSubTab === 'function' ? getActiveWorkoutsSubTab() : WORKOUTS_SUBTAB_DEFAULT;
+    switchWorkoutTab(stored);
 }
 
 let workoutControlsBound = false;

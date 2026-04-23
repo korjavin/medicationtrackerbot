@@ -135,12 +135,12 @@
         <div id="workouts-view" class="view">
             <div class="section-header-mount" data-title="Workouts"></div>
 
-            <!-- Tab Navigation for Workouts -->
-            <div class="workout-tabs">
-                <button class="workout-tab active" data-tab="history">History</button>
-                <button class="workout-tab" data-tab="groups">Groups</button>
-                <button class="workout-tab" data-tab="exercises">Exercises</button>
-                <button class="workout-tab" data-tab="stats">Statistics</button>
+            <!-- Workout Tabs (Phase 7 — .wg-gloss--inset strip, .wg-gloss--sun active pill) -->
+            <div class="wg-gloss--inset wg-workouts-subtabs workout-tabs" id="workouts-subtabs">
+                <button class="wg-gloss wg-workouts-subtabs__btn wg-gloss--sun wg-workouts-subtabs__btn--active workout-tab active" data-tab="history" aria-pressed="true">History</button>
+                <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="groups" aria-pressed="false">Groups</button>
+                <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="exercises" aria-pressed="false">Exercises</button>
+                <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="stats" aria-pressed="false">Stats</button>
             </div>
 
             <!-- History View -->
