@@ -978,9 +978,8 @@ function switchTab(tab) {
     } else if (tab === 'bp') { loadBPReadings(); }
     else if (tab === 'weight') { loadWeightLogs(); }
     else if (tab === 'health') {
-        const activeHealthTab = document.querySelector('.health-tab.active');
-        const currentSubTab = activeHealthTab ? activeHealthTab.dataset.tab : 'overview';
-        switchHealthTab(currentSubTab);
+        const stored = typeof getActiveHealthSubTab === 'function' ? getActiveHealthSubTab() : 'overview';
+        switchHealthTab(stored);
     }
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
@@ -1012,6 +1011,16 @@ async function fetchNextIntakePayload() {
     if (res === true) return { scheduled_at: null, medication_names: [] };
     return res && typeof res === 'object' ? res : null;
 }
+
+// Returns a timezone-qualified DataStore key for health overview so that a
+// cached response from a prior timezone is never served as though it were
+// current. The in-memory swrCaches object always uses the fixed property name
+// 'health_overview'; only the IndexedDB key is qualified.
+function healthOverviewCacheKey() {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return tz ? `health_overview_${tz}` : `health_overview_offset_${new Date().getTimezoneOffset()}`;
+}
+window.healthOverviewCacheKey = healthOverviewCacheKey;
 
 // Fetchers for every key Today reads from IndexedDB. Calling fetchFresh with
 // these tags both populates the cache and registers the key→tag mapping, so
@@ -1076,10 +1085,17 @@ function todayFetchSpecs(foodKey) {
                 }
             }
         },
-        health_overview: {
+        [healthOverviewCacheKey()]: {
             feature: 'health',
             tags: ['health'],
-            fetch: () => apiCall('/api/health/overview', 'GET')
+            fetch: () => {
+                const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                const tzOffset = new Date().getTimezoneOffset();
+                const tzParams = tzName
+                    ? `?tz=${encodeURIComponent(tzName)}`
+                    : `?tz_offset=${tzOffset}`;
+                return apiCall(`/api/health/overview${tzParams}`, 'GET');
+            }
         },
         [foodKey]: {
             feature: 'food',
@@ -1165,8 +1181,9 @@ async function _todayReadCaches(foodKey) {
         const readMeta = cacheStore && typeof cacheStore.getWithMeta === 'function'
             ? (key) => cacheStore.getWithMeta(key).catch(() => null)
             : null;
+        const hoKey = healthOverviewCacheKey();
         if (readMeta) {
-            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', 'health_overview', foodKey];
+            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', hoKey, foodKey];
             const metas = await Promise.all(keys.map(readMeta));
             const [bundleM, nextIntakeM, bpM, weightM, workoutM, healthM, foodM] = metas;
             if (bundleM?.data) {
@@ -1198,7 +1215,7 @@ async function _todayReadCaches(foodKey) {
                 if (m) trackTs(m.timestamp);
             }
         } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
-            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', 'health_overview', foodKey];
+            const keys = ['settings_bundle', 'next_intake', 'bp', 'weight', 'workout_next', hoKey, foodKey];
             const [bundle, nextIntake, bp, weight, workout, health, food] = await Promise.all(
                 keys.map((k) => window.DataStore.getCached(k).catch(() => null))
             );
@@ -1330,12 +1347,13 @@ async function loadToday() {
         // dose that started >12h away can drift into the window with no change
         // event firing — relying on cached sentinel presence alone would keep
         // the card hidden indefinitely until some unrelated invalidation ran.
+        const hoKey = healthOverviewCacheKey();
         const presence = {
             next_intake: !!(bootstrap.next_intake && bootstrap.next_intake.scheduled_at),
             bp: !!bootstrap.bp,
             weight: !!bootstrap.weight,
             workout_next: !!swrCaches.workout_next,
-            health_overview: !!swrCaches.health_overview,
+            [hoKey]: !!swrCaches.health_overview,
             [foodKey]: !!swrCaches.food_today
         };
         const missing = Object.keys(presence).filter((k) => {
@@ -1366,6 +1384,10 @@ function switchHealthTab(tab) {
         contentIdFromTab: (t) => `health-${t}-tab`
     });
     if (!activated) return;
+
+    if (typeof syncHealthSubTabActiveClass === 'function') syncHealthSubTabActiveClass(tab);
+    if (typeof setActiveHealthSubTab === 'function') setActiveHealthSubTab(tab);
+
     if (tab === 'overview') { loadHealthOverview(); }
     else if (tab === 'notes') { loadNotes(); }
 }
@@ -1768,9 +1790,8 @@ function reloadCurrentTab() {
     else if (tab === 'food') { loadFoodLogs(); }
     else if (tab === 'today') { loadToday(); }
     else if (tab === 'health') {
-        const activeHealthTab = document.querySelector('.health-tab.active');
-        const currentSubTab = activeHealthTab ? activeHealthTab.dataset.tab : 'overview';
-        switchHealthTab(currentSubTab);
+        const stored = typeof getActiveHealthSubTab === 'function' ? getActiveHealthSubTab() : 'overview';
+        switchHealthTab(stored);
     }
     else if (tab === 'settings') { loadSettings(); }
 }
@@ -2605,249 +2626,4 @@ window.saveTabOrder = async function(order) {
 
 // Modal back-gesture integration lives in features/modal-history.js.
 
-// Health Overview functions live in features/health.js.
-// ---- Diary Notes ----
-
-const NOTES_PAGE_SIZE = 50;
-// Keyset cursor: ID of the last note currently shown. 0 means page 1 not yet loaded.
-let _notesCursor = 0;
-// In-flight guard to prevent concurrent load-more requests.
-let _notesLoadingMore = false;
-// True once the user has clicked "Load more" at least once in the current view.
-let _notesHasLoadedMore = false;
-// Incremented each time loadNotes() starts a fresh load; lets stale loadMoreNotes() calls self-cancel.
-let _notesGeneration = 0;
-// Fresh page-1 data parked while _notesHasLoadedMore is true. Applied if load-more fails so the
-// page-1 view stays consistent with the latest server state.
-let _notesPendingFresh = null;
-
-async function loadNotes() {
-    const list = document.getElementById('notes-list');
-    const loading = document.getElementById('notes-loading');
-    if (!list) return;
-
-    _notesCursor = 0;
-    _notesLoadingMore = false;
-    _notesHasLoadedMore = false;
-    _notesPendingFresh = null;
-    _notesGeneration++;
-    // Capture the generation at call time. The onFresh callback closes over this
-    // value so that a stale in-flight response (from before a write invalidated
-    // the cache) cannot repaint the list after a newer loadNotes() has started.
-    const myGeneration = _notesGeneration;
-
-    if (loading) loading.style.display = 'block';
-
-    await window.DataStore.loadSWR({
-        key: 'diary_notes',
-        tags: ['notes'],
-        fetcher: async () => await apiCall(`/api/notes?limit=${NOTES_PAGE_SIZE}`, 'GET'),
-        allowNullFresh: true,
-        onCached: async (cached) => {
-            if (!cached) return;
-            renderNotes(list, cached);
-            if (cached.length > 0) _notesCursor = cached[cached.length - 1].id;
-            if (loading) loading.style.display = 'none';
-        },
-        onFresh: async (fresh) => {
-            if (loading) loading.style.display = 'none';
-            // Discard the result if a newer loadNotes() call has already taken
-            // over (e.g. the user added/deleted a note while this fetch was in
-            // flight and the post-write refresh incremented _notesGeneration).
-            if (myGeneration !== _notesGeneration) return;
-            if (!fresh) return;
-            // Only replace page 1 if the user has not yet clicked "Load more".
-            // When _notesHasLoadedMore is true, the list contains pages 2+ that we
-            // must not wipe; a full reload requires an explicit loadNotes() call anyway.
-            if (!_notesHasLoadedMore) {
-                const page1LastID = fresh.length > 0 ? fresh[fresh.length - 1].id : 0;
-                renderNotes(list, fresh);
-                _notesCursor = page1LastID;
-            } else {
-                // Page-2 fetch is in flight. Stash the fresh page-1 data so we can
-                // apply it if that fetch fails and no page was actually appended.
-                _notesPendingFresh = { data: fresh, generation: _notesGeneration };
-            }
-        },
-        onError: async (e, cached) => {
-            console.error('Failed to load notes:', e);
-            if (loading) loading.style.display = 'none';
-            if (!cached) {
-                const list = document.getElementById('notes-list');
-                if (list) list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
-            }
-        }
-    });
-
-    const saveBtn = document.getElementById('notes-save-btn');
-    if (saveBtn && !saveBtn._noteHandlerAttached) {
-        saveBtn._noteHandlerAttached = true;
-        saveBtn.addEventListener('click', addNote);
-    }
-}
-
-async function loadMoreNotes() {
-    if (_notesLoadingMore) return;
-    const list = document.getElementById('notes-list');
-    if (!list) return;
-
-    const myGeneration = _notesGeneration;
-    _notesLoadingMore = true;
-    // Set immediately so that any in-flight onFresh callback from the initial
-    // loadNotes() SWR call does not replace page 1 while we are fetching page 2.
-    _notesHasLoadedMore = true;
-    // Snapshot the page-1 end cursor so we can later tell whether fresh page-1
-    // data represents a real change or is just an identical revalidation response.
-    const page1EndCursor = _notesCursor;
-    try {
-        const url = _notesCursor > 0
-            ? `/api/notes?limit=${NOTES_PAGE_SIZE}&before_id=${_notesCursor}`
-            : `/api/notes?limit=${NOTES_PAGE_SIZE}`;
-        const notes = await apiCall(url, 'GET');
-        if (!notes) {
-            // Fetch failed — no page 2 was actually appended. Only roll back for
-            // the current generation to avoid clobbering a newer loadMoreNotes().
-            if (myGeneration === _notesGeneration) {
-                _notesHasLoadedMore = false;
-                // Apply the deferred fresh page-1 data that onFresh skipped while
-                // the flag was set, so the UI shows the latest server state.
-                if (_notesPendingFresh && _notesPendingFresh.generation === myGeneration) {
-                    const pending = _notesPendingFresh.data;
-                    _notesPendingFresh = null;
-                    renderNotes(list, pending);
-                    _notesCursor = pending && pending.length > 0 ? pending[pending.length - 1].id : 0;
-                }
-            }
-            return;
-        }
-
-        // Bail out if loadNotes() started a fresh load while this fetch was in-flight.
-        if (myGeneration !== _notesGeneration) return;
-
-        // Remove existing load-more button before appending.
-        const existing = list.querySelector('.notes-load-more');
-        if (existing) existing.remove();
-        if (notes.length === 0 && _notesPendingFresh && _notesPendingFresh.generation === myGeneration) {
-            // Server returned an empty page 2 — the dataset no longer extends past
-            // page 1 (e.g. notes were deleted since caching). Apply the deferred
-            // fresh page-1 data to show the correct current state.
-            _notesHasLoadedMore = false;
-            const pending = _notesPendingFresh.data;
-            _notesPendingFresh = null;
-            renderNotes(list, pending);
-            _notesCursor = pending && pending.length > 0 ? pending[pending.length - 1].id : 0;
-            return;
-        }
-        if (notes.length > 0) _notesCursor = notes[notes.length - 1].id;
-        // Page 2 was appended successfully.
-        if (_notesPendingFresh && _notesPendingFresh.generation === myGeneration) {
-            const freshData = _notesPendingFresh.data;
-            const freshLastID = freshData && freshData.length > 0 ? freshData[freshData.length - 1].id : 0;
-            _notesPendingFresh = null;
-            if (freshLastID !== page1EndCursor) {
-                // Page-1 actually changed on the server (e.g. a new note was added
-                // that shifted the cursor boundary). The page-2 we just fetched may
-                // now overlap or have a gap, so trigger a full reload for a
-                // contiguous, accurate list.
-                loadNotes();
-                return;
-            }
-            // The page-1 boundary (last ID) is unchanged, so page-2 is still
-            // contiguous. However, page-1 content may have changed in the middle
-            // (e.g. a note was deleted and a new one added with the same resulting
-            // boundary). Re-render page-1 from the fresh server data, then fall
-            // through to append page-2 so both pages are up-to-date.
-            renderNotes(list, freshData);
-            // Do not update _notesCursor here — it was already advanced to the last
-            // page-2 ID at line 3170. Overwriting with freshLastID (page-1 boundary)
-            // would cause the next "load more" to re-fetch page-2.
-            // renderNotes may have added a "Load more" button at the end of page-1;
-            // remove it before appending the page-2 items below.
-            list.querySelector('.notes-load-more')?.remove();
-        }
-        _notesPendingFresh = null;
-        appendNotes(list, notes);
-    } finally {
-        // Only clear the guard for the current generation. An old-generation
-        // request finishing after loadNotes() reset and a new loadMoreNotes()
-        // set the guard must not clobber the new generation's in-flight state.
-        if (myGeneration === _notesGeneration) {
-            _notesLoadingMore = false;
-        }
-    }
-}
-
-function renderNotes(list, notes) {
-    list.replaceChildren();
-    if (!notes || notes.length === 0) {
-        const empty = document.createElement('li');
-        empty.className = 'notes-empty';
-        empty.textContent = 'No notes yet.';
-        list.appendChild(empty);
-        return;
-    }
-    appendNotes(list, notes);
-}
-
-function appendNotes(list, notes) {
-    notes.forEach(note => {
-        const li = document.createElement('li');
-        li.className = 'notes-item';
-
-        const meta = document.createElement('div');
-        meta.className = 'notes-meta';
-        const d = new Date(note.created_at);
-        meta.textContent = d.toLocaleString();
-
-        const content = document.createElement('div');
-        content.className = 'notes-content';
-        content.textContent = note.content;
-
-        const delBtn = createDeleteButton(() => deleteNote(note.id));
-
-        li.appendChild(meta);
-        li.appendChild(content);
-        li.appendChild(delBtn);
-        list.appendChild(li);
-    });
-
-    if (notes.length === NOTES_PAGE_SIZE) {
-        const li = document.createElement('li');
-        li.className = 'notes-load-more';
-        const btn = document.createElement('button');
-        btn.textContent = 'Load more';
-        btn.addEventListener('click', loadMoreNotes);
-        li.appendChild(btn);
-        list.appendChild(li);
-    }
-}
-
-async function addNote() {
-    const textarea = document.getElementById('notes-textarea');
-    if (!textarea) return;
-    const content = textarea.value.trim();
-    if (!content) return;
-    if (content.length > 10000) {
-        safeAlert('Note is too long (max 10,000 characters).');
-        return;
-    }
-
-    const res = await apiCall('/api/notes', 'POST', { content });
-    if (res) {
-        textarea.value = '';
-        await window.DataStore.invalidateTags(['notes']);
-        loadNotes();
-    }
-}
-
-async function deleteNote(id) {
-    await safeConfirm('Delete this note?', async (ok) => {
-        if (ok) {
-            const res = await apiCall(`/api/notes/${id}`, 'DELETE');
-            if (res !== null) {
-                await window.DataStore.invalidateTags(['notes']);
-                loadNotes();
-            }
-        }
-    });
-}
+// Health Overview + Diary Notes flow live in features/health.js.

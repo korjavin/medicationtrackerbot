@@ -89,101 +89,101 @@ No backend changes. The existing `/api/health/overview` and `/api/notes*` endpoi
 
 ### Task 1: Extend tokens + fold notes into the health feature module
 
-- [ ] add `--wg-health-*` dimensional tokens to `:root` in `styles.css` (summary-tile grid, chart heights, sub-tab padding, notes-row grid-template-columns)
-- [ ] add `--wg-health-sleep-{deep,light,rem,awake,hr}`, `--wg-health-steps-*`, `--wg-health-vitals-{hr,spo2,stress}-*` semantic tokens replacing every hardcoded hex currently in `features/health.js`
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] fold the notes render + pagination + edit-modal flow out of `app.js` into `features/health.js` (or a sibling `features/health-notes.js`); script-tag load order + hoisted function declarations keep them accessible as globals (matches bp.js / food.js / meds.js / today.js / weight.js / workout.js / health.js)
-- [ ] update `index.html` script load order if a new feature file is added; update `sw.js` precache list + `tests/helpers/frontend-harness.js`
-- [ ] verify no behavior change — existing health + notes tests stay green
-- [ ] run `pnpm test` — design-tokens test + extraction smoke test must be green before next task
+- [x] add `--wg-health-*` dimensional tokens to `:root` in `styles.css` (summary-tile grid, chart heights, sub-tab padding, notes-row grid-template-columns)
+- [x] add `--wg-health-sleep-{deep,light,rem,awake,hr}`, `--wg-health-steps-*`, `--wg-health-vitals-{hr,spo2,stress}-*` semantic tokens replacing every hardcoded hex currently in `features/health.js`
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] fold the notes render + pagination + edit-modal flow out of `app.js` into `features/health.js` (or a sibling `features/health-notes.js`); script-tag load order + hoisted function declarations keep them accessible as globals (matches bp.js / food.js / meds.js / today.js / weight.js / workout.js / health.js)
+- [x] update `index.html` script load order if a new feature file is added; update `sw.js` precache list + `tests/helpers/frontend-harness.js` (not applicable — notes folded into existing `features/health.js`, no new script)
+- [x] verify no behavior change — existing health + notes tests stay green
+- [x] run `pnpm test` — design-tokens test + extraction smoke test must be green before next task
 
 ### Task 2: Build the sub-tab strip + subtab state plumbing
 
-- [ ] replace the current `.health-tabs` buttons with a `.wg-gloss--inset` container carrying two `.wg-gloss--sun`-capable pills (Overview / Notes) — active state via class, not inline style
-- [ ] state: which sub-tab is active persists via a new `mt-health-subtab` localStorage key matching the naming pattern
-- [ ] default sub-tab: Overview
-- [ ] write `health.subtabs.test.js` — active-state toggle, persistence across reload, default-tab behavior
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the current `.health-tabs` buttons with a `.wg-gloss--inset` container carrying two `.wg-gloss--sun`-capable pills (Overview / Notes) — active state via class, not inline style
+- [x] state: which sub-tab is active persists via a new `mt-health-subtab` localStorage key matching the naming pattern
+- [x] default sub-tab: Overview
+- [x] write `health.subtabs.test.js` — active-state toggle, persistence across reload, default-tab behavior
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Build the summary tile row + range selector
 
-- [ ] create `renderHealthSummaryTiles(data, range)` helper that renders a grid of mono stat tiles (one per vital: sleep hours, steps, HR avg, SpO2 avg, stress avg)
-- [ ] trend arrow classifier: compare active-range average vs. the opposite-range average (7d vs. 30d); variant flips per vital direction (sleep/steps/SpO2 up=sun, stress down=sun, HR in-range=sun)
-- [ ] empty tile state when a vital has no data: muted mono dash + "—" placeholder (no trend arrow)
-- [ ] range selector: `.wg-gloss--inset` container with 7d / 30d pills; persists via `mt-health-range` localStorage key; default 7d
-- [ ] write `health.summary.test.js` — tile render for each vital, trend arrow direction for each direction, empty-tile fallback, range-selector persistence
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `renderHealthSummaryTiles(data, range)` helper that renders a grid of mono stat tiles (one per vital: sleep hours, steps, HR avg, SpO2 avg, stress avg)
+- [x] trend arrow classifier: compare active-range average vs. the opposite-range average (7d vs. 30d); variant flips per vital direction (sleep/steps/SpO2 up=sun, stress down=sun, HR in-range=sun)
+- [x] empty tile state when a vital has no data: muted mono dash + "—" placeholder (no trend arrow)
+- [x] range selector: `.wg-gloss--inset` container with 7d / 30d pills; persists via `mt-health-range` localStorage key; default 7d
+- [x] write `health.summary.test.js` — tile render for each vital, trend arrow direction for each direction, empty-tile fallback, range-selector persistence
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Build the `WGSleepChart` component + rewrite sleep card
 
-- [ ] create `web/static/js/components/wg-sleep-chart.js` exposing `WGSleepChart.render({ stats, range })` returning a DOM element
-- [ ] mirror the existing `renderSleepChart` structure — stacked bars (deep/light/REM/awake) + HR line overlay — but replace every hardcoded hex with `--wg-health-sleep-*` CSS custom properties via CSS classes
-- [ ] register `window.WGSleepChart` in `architecture.globals.test.js` with a one-line justification
-- [ ] replace the sleep block in `renderHealthOverviewContent` with a `.wg-card` shell rendering `WGSleepChart` + mono 7d / 30d average subtitle + legend
-- [ ] empty state: muted "No sleep data yet" card
-- [ ] write `components.wg-sleep-chart.test.js` — stacked bars render, HR overlay renders when HR data present, empty-state card when no data, axis tick count sane
-- [ ] write `health.sleep.test.js` — sleep card render, legend render, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-sleep-chart.js` exposing `WGSleepChart.render({ stats, range })` returning a DOM element
+- [x] mirror the existing `renderSleepChart` structure — stacked bars (deep/light/REM/awake) + HR line overlay — but replace every hardcoded hex with `--wg-health-sleep-*` CSS custom properties via CSS classes
+- [x] register `window.WGSleepChart` in `architecture.globals.test.js` with a one-line justification
+- [x] replace the sleep block in `renderHealthOverviewContent` with a `.wg-card` shell rendering `WGSleepChart` + mono 7d / 30d average subtitle + legend
+- [x] empty state: muted "No sleep data yet" card
+- [x] write `components.wg-sleep-chart.test.js` — stacked bars render, HR overlay renders when HR data present, empty-state card when no data, axis tick count sane
+- [x] write `health.sleep.test.js` — sleep card render, legend render, empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Build the `WGStepsChart` component + rewrite steps card
 
-- [ ] create `web/static/js/components/wg-steps-chart.js` exposing `WGStepsChart.render({ stats, range })` returning a DOM element
-- [ ] mirror the existing `renderStepsChart` structure — vertical bars with rotated step-count labels — but replace hardcoded fill + text colors with `--wg-health-steps-*` tokens
-- [ ] register `window.WGStepsChart` in `architecture.globals.test.js` with a one-line justification
-- [ ] replace the steps block in `renderHealthOverviewContent` with a `.wg-card` shell rendering `WGStepsChart` + mono 7d / 30d average subtitle
-- [ ] empty state: muted "No step data yet" card
-- [ ] write `components.wg-steps-chart.test.js` — bars render, axis tick count sane, empty-state card
-- [ ] write `health.steps.test.js` — steps card render, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-steps-chart.js` exposing `WGStepsChart.render({ stats, range })` returning a DOM element
+- [x] mirror the existing `renderStepsChart` structure — vertical bars with rotated step-count labels — but replace hardcoded fill + text colors with `--wg-health-steps-*` tokens
+- [x] register `window.WGStepsChart` in `architecture.globals.test.js` with a one-line justification
+- [x] replace the steps block in `renderHealthOverviewContent` with a `.wg-card` shell rendering `WGStepsChart` + mono 7d / 30d average subtitle
+- [x] empty state: muted "No step data yet" card
+- [x] write `components.wg-steps-chart.test.js` — bars render, axis tick count sane, empty-state card
+- [x] write `health.steps.test.js` — steps card render, empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Build the `WGVitalsChart` component + rewrite HR / SpO2 / Stress cards
 
-- [ ] create `web/static/js/components/wg-vitals-chart.js` exposing `WGVitalsChart.render({ history, range, vital })` returning a DOM element, where `vital` is one of `hr` / `spo2` / `stress` and drives the color token + y-range defaults
-- [ ] mirror the existing `renderVitalsLineChart` structure — area gradient + line + last-value dot — but replace hardcoded color with a token per vital (`--wg-health-vitals-hr-*` / `--wg-health-vitals-spo2-*` / `--wg-health-vitals-stress-*`)
-- [ ] register `window.WGVitalsChart` in `architecture.globals.test.js` with a one-line justification
-- [ ] replace the three `renderVitalGroup` calls with a `.wg-card` shell per vital, each rendering `WGVitalsChart({ vital: 'hr' | 'spo2' | 'stress' })` + mono 7d / 30d subtitle
-- [ ] empty state per vital: muted "No {vital} data yet" tile
-- [ ] write `components.wg-vitals-chart.test.js` — line + area render, color token switches per vital, axis tick count sane, empty-state card
-- [ ] write `health.vitals.test.js` — vital cards render, each uses the correct token, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-vitals-chart.js` exposing `WGVitalsChart.render({ history, range, vital })` returning a DOM element, where `vital` is one of `hr` / `spo2` / `stress` and drives the color token + y-range defaults
+- [x] mirror the existing `renderVitalsLineChart` structure — area gradient + line + last-value dot — but replace hardcoded color with a token per vital (`--wg-health-vitals-hr-*` / `--wg-health-vitals-spo2-*` / `--wg-health-vitals-stress-*`)
+- [x] register `window.WGVitalsChart` in `architecture.globals.test.js` with a one-line justification
+- [x] replace the three `renderVitalGroup` calls with a `.wg-card` shell per vital, each rendering `WGVitalsChart({ vital: 'hr' | 'spo2' | 'stress' })` + mono 7d / 30d subtitle
+- [x] empty state per vital: muted "No {vital} data yet" tile
+- [x] write `components.wg-vitals-chart.test.js` — line + area render, color token switches per vital, axis tick count sane, empty-state card
+- [x] write `health.vitals.test.js` — vital cards render, each uses the correct token, empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Rewrite the Notes sub-tab
 
-- [ ] replace `#notes-textarea` + `#notes-save-btn` with a `.wg-health-notes-compose` container — `.wg-gloss--inset` textarea wrap + full-width `.wg-gloss--sun` "Save note" CTA
-- [ ] replace `#notes-list` markup with a day-grouped `.wg-card` list — `.wg-section-label` day headers ("22.04.2026 · Tue"), each entry carrying mono timestamp eyebrow, note body, and a trailing `.wg-icon-btn` cluster (edit + delete)
-- [ ] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` variants
-- [ ] preserve pagination — "Load more" renders as a full-width `.wg-gloss` footer button
-- [ ] empty state: muted card with "No notes yet — write your first one."
-- [ ] write `health.notes.test.js` — day grouping, Save-button dispatch, pagination, edit + delete callbacks, offline + rejected badge states, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace `#notes-textarea` + `#notes-save-btn` with a `.wg-health-notes-compose` container — `.wg-gloss--inset` textarea wrap + full-width `.wg-gloss--sun` "Save note" CTA
+- [x] replace `#notes-list` markup with a day-grouped `.wg-card` list — `.wg-section-label` day headers ("22.04.2026 · Tue"), each entry carrying mono timestamp eyebrow, note body, and a trailing `.wg-icon-btn` cluster (edit + delete)
+- [x] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` variants
+- [x] preserve pagination — "Load more" renders as a full-width `.wg-gloss` footer button
+- [x] empty state: muted card with "No notes yet — write your first one."
+- [x] write `health.notes.test.js` — day grouping, Save-button dispatch, pagination, edit + delete callbacks, offline + rejected badge states, empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 8: Rewrite the edit-note modal
 
-- [ ] replace the existing edit-note modal markup in `index.html` with the Wandergeek shell — mono header ("Edit note"), `.wg-icon-btn` close trailing the header
-- [ ] note body — `.wg-gloss--inset` textarea wrap with mono labels
-- [ ] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss` left, Save `.wg-gloss--sun` right with 2× flex per modal-button-order convention
-- [ ] write `health.modal.test.js` — open/save/cancel, input round-trip, `modal-controller.js` history integration preserved
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing edit-note modal markup in `index.html` with the Wandergeek shell — mono header ("Edit note"), `.wg-icon-btn` close trailing the header
+- [x] note body — `.wg-gloss--inset` textarea wrap with mono labels
+- [x] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss` left, Save `.wg-gloss--sun` right with 2× flex per modal-button-order convention
+- [x] write `health.modal.test.js` — open/save/cancel, input round-trip, `modal-controller.js` history integration preserved
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 9: Wire Health into the canonical bottom nav + cleanup
 
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `health` slot with the heart (or equivalent) icon; add a Phase 8 contract test matching the BP/Food/Meds/Weight/Workouts contract tests
-- [ ] grep-verify remaining paper-era health + notes classes — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
-- [ ] run `pnpm test` — must pass before next task
+- [x] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `health` slot with the heart (or equivalent) icon; add a Phase 8 contract test matching the BP/Food/Meds/Weight/Workouts contract tests
+- [x] grep-verify remaining paper-era health + notes classes — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 10: Verify acceptance criteria for Phase 8
 
-- [ ] open `index.html` in desktop 390×844 phone view, compare Health screen side-by-side with `Medtracker.html` — manual visual check (likely skipped — not automatable from CI environment)
-- [ ] open in mobile viewport (DevTools 375×812) — manual visual check (likely skipped — not automatable from CI environment)
-- [ ] full `pnpm test` suite green
-- [ ] `go test ./...` green (sanity check; no backend changes expected)
-- [ ] grep `style="` and `\.style\.` in the new JS — expect zero `style="` matches in `features/health.js` + the three chart components; any `.style.setProperty` calls must set component-local CSS custom properties, not hardcoded visual values
+- [x] open `index.html` in desktop 390×844 phone view, compare Health screen side-by-side with `Medtracker.html` — manual visual check (skipped — not automatable from CI environment)
+- [x] open in mobile viewport (DevTools 375×812) — manual visual check (skipped — not automatable from CI environment)
+- [x] full `pnpm test` suite green (111 files / 1244 tests passed)
+- [x] `go test ./...` green (sanity check; no backend changes expected)
+- [x] grep `style="` and `\.style\.` in the new JS — zero `style="` matches in `features/health.js` + the three chart components; the remaining `.style.display` hits in `features/health.js` are pre-existing loading-indicator show/hide toggles folded in during Task 1 (not Phase 8 additions, not `.style.setProperty` calls, not hardcoded visual values)
 
 ### Task 11: [Final] Update plan and write Phase 9 plan stub
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write `docs/plans/2026-04-XX-wandergeek-phase9-settings.md` covering the Settings screen rewrite (form-heavy — tokens for every input state, gloss-inset inputs, sectioned cards)
-- [ ] no code changes in this task
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write `docs/plans/2026-04-XX-wandergeek-phase9-settings.md` covering the Settings screen rewrite (form-heavy — tokens for every input state, gloss-inset inputs, sectioned cards)
+- [x] no code changes in this task
 
 ## Technical Details
 

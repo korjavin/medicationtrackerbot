@@ -265,9 +265,9 @@
 
         <div id="health-view" class="view">
             <div class="section-header-mount" data-title="Health"></div>
-            <div class="health-tabs">
-                <button class="health-tab active" data-tab="overview">Overview</button>
-                <button class="health-tab" data-tab="notes">Notes</button>
+            <div class="wg-gloss--inset wg-health-subtabs health-tabs" id="health-subtabs">
+                <button class="wg-gloss wg-health-subtabs__btn wg-gloss--sun wg-health-subtabs__btn--active health-tab active" data-tab="overview" aria-pressed="true">Overview</button>
+                <button class="wg-gloss wg-health-subtabs__btn health-tab" data-tab="notes" aria-pressed="false">Notes</button>
             </div>
 
             <div id="health-overview-tab" class="health-tab-content active">
@@ -278,14 +278,15 @@
             </div>
 
             <div id="health-notes-tab" class="health-tab-content">
-                <div class="notes-section">
-                    <h4>My Notes</h4>
-                    <div class="notes-add">
-                        <textarea id="notes-textarea" placeholder="Write a note..." rows="3"></textarea>
-                        <button id="notes-save-btn" class="btn btn-primary">Save Note</button>
+                <div class="wg-health-notes">
+                    <div class="wg-health-notes-compose">
+                        <div class="wg-gloss--inset wg-health-notes-compose__wrap">
+                            <textarea id="notes-textarea" class="wg-health-notes-compose__textarea" placeholder="Write a note..." rows="3"></textarea>
+                        </div>
+                        <button id="notes-save-btn" class="wg-gloss wg-gloss--sun wg-health-notes-compose__save">Save note</button>
                     </div>
-                    <div id="notes-loading" style="display:none;">Loading notes...</div>
-                    <ul id="notes-list" class="notes-list"></ul>
+                    <div id="notes-loading" class="wg-health-notes__loading" style="display:none;">Loading notes...</div>
+                    <ul id="notes-list" class="wg-health-notes__list list-reset"></ul>
                 </div>
             </div>
         </div>
@@ -1253,6 +1254,37 @@
         </form>
     </mt-modal>
 
+    <!-- Modal for Editing a Diary Note (Phase 8, Task 8) -->
+    <mt-modal id="note-modal" class="hidden wg-modal wg-health-modal">
+        <div class="wg-health-modal__header">
+            <div class="wg-health-modal__heading">
+                <span class="wg-section-label wg-health-modal__eyebrow" id="note-modal-eyebrow">Note</span>
+                <span class="wg-mono-display wg-health-modal__title" id="note-modal-title">Edit note</span>
+            </div>
+            <button type="button" id="note-modal-close-btn" class="wg-icon-btn wg-health-modal__close-btn"
+                aria-label="Close">
+                <span class="wg-gloss"></span>
+            </button>
+        </div>
+
+        <form id="note-form" class="wg-health-modal__body">
+            <div class="wg-health-modal__field">
+                <label for="note-modal-textarea" class="wg-health-modal__label">Body</label>
+                <div class="wg-gloss--inset wg-health-modal__input-wrap">
+                    <textarea id="note-modal-textarea" class="wg-health-modal__input wg-health-modal__textarea"
+                        rows="6" maxlength="10000" placeholder="Note body..."></textarea>
+                </div>
+            </div>
+
+            <div class="wg-health-modal__actions">
+                <button type="button" id="note-modal-cancel-btn"
+                    class="wg-gloss wg-health-modal__action wg-health-modal__action--cancel">Cancel</button>
+                <button type="submit" id="note-modal-save-btn" form="note-form"
+                    class="wg-gloss wg-gloss--sun wg-health-modal__action wg-health-modal__action--save">Save</button>
+            </div>
+        </form>
+    </mt-modal>
+
     <!-- Modal for Medication Confirmation (from Push) -->
     <mt-modal id="med-confirm-modal" class="hidden">
         <div class="modal-header">
@@ -1310,6 +1342,9 @@
     <script src="/static/js/components/wg-bp-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-weight-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-workout-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/components/wg-sleep-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/components/wg-steps-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/components/wg-vitals-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-macro-bar.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/core/modal-manager.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/core/api.js?v=TIMESTAMP_PLACEHOLDER"></script>

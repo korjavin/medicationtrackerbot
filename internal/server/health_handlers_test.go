@@ -39,14 +39,14 @@ func TestHandleGetHealthOverview_Empty(t *testing.T) {
 		t.Fatalf("Decode error: %v", err)
 	}
 
-	if resp.AverageHeartRate7d != 0 {
-		t.Errorf("Expected 0 avg heart rate, got %d", resp.AverageHeartRate7d)
+	if resp.AverageHeartRate7d != nil {
+		t.Errorf("Expected nil avg heart rate, got %d", *resp.AverageHeartRate7d)
 	}
-	if resp.AverageSleepHours7d != 0 {
-		t.Errorf("Expected 0 avg sleep hours, got %f", resp.AverageSleepHours7d)
+	if resp.AverageSleepHours7d != nil {
+		t.Errorf("Expected nil avg sleep hours, got %f", *resp.AverageSleepHours7d)
 	}
-	if resp.AverageSteps7d != 0 {
-		t.Errorf("Expected 0 avg steps, got %d", resp.AverageSteps7d)
+	if resp.AverageSteps7d != nil {
+		t.Errorf("Expected nil avg steps, got %d", *resp.AverageSteps7d)
 	}
 }
 
@@ -120,23 +120,23 @@ func TestHandleGetHealthOverview_WithData(t *testing.T) {
 	}
 
 	// Heart rate average: (70+80+90)/3 = 80
-	if resp.AverageHeartRate7d != 80 {
-		t.Errorf("Expected avg heart rate 80, got %d", resp.AverageHeartRate7d)
+	if resp.AverageHeartRate7d == nil || *resp.AverageHeartRate7d != 80 {
+		t.Errorf("Expected avg heart rate 80, got %v", resp.AverageHeartRate7d)
 	}
 
 	// SpO2 average: (98+97)/2 = 97 (integer division)
-	if resp.AverageSpO27d != 97 {
-		t.Errorf("Expected avg SpO2 97, got %d", resp.AverageSpO27d)
+	if resp.AverageSpO27d == nil || *resp.AverageSpO27d != 97 {
+		t.Errorf("Expected avg SpO2 97, got %v", resp.AverageSpO27d)
 	}
 
 	// Sleep hours: 480 min / 60 = 8.0
-	if resp.AverageSleepHours7d != 8.0 {
-		t.Errorf("Expected avg sleep hours 8.0, got %f", resp.AverageSleepHours7d)
+	if resp.AverageSleepHours7d == nil || *resp.AverageSleepHours7d != 8.0 {
+		t.Errorf("Expected avg sleep hours 8.0, got %v", resp.AverageSleepHours7d)
 	}
 
 	// Steps
-	if resp.AverageSteps7d != 10000 {
-		t.Errorf("Expected avg steps 10000, got %d", resp.AverageSteps7d)
+	if resp.AverageSteps7d == nil || *resp.AverageSteps7d != 10000 {
+		t.Errorf("Expected avg steps 10000, got %v", resp.AverageSteps7d)
 	}
 
 	// Heart rate history should have bucketed entries
@@ -178,12 +178,12 @@ func TestHandleGetHealthOverview_30dVs7dAverages(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 
 	// 7d: (70+80)/2 = 75
-	if resp.AverageHeartRate7d != 75 {
-		t.Errorf("Expected 7d avg 75, got %d", resp.AverageHeartRate7d)
+	if resp.AverageHeartRate7d == nil || *resp.AverageHeartRate7d != 75 {
+		t.Errorf("Expected 7d avg 75, got %v", resp.AverageHeartRate7d)
 	}
 
 	// 30d: (70+80+60)/3 = 70
-	if resp.AverageHeartRate30d != 70 {
-		t.Errorf("Expected 30d avg 70, got %d", resp.AverageHeartRate30d)
+	if resp.AverageHeartRate30d == nil || *resp.AverageHeartRate30d != 70 {
+		t.Errorf("Expected 30d avg 70, got %v", resp.AverageHeartRate30d)
 	}
 }

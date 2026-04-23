@@ -14,10 +14,11 @@ function isoDaysAgo(days) {
 }
 
 function buildHealthOverviewPayload() {
+  const today = new Date().toISOString().slice(0, 10);
   return {
     sleep_stats_7d: [
       {
-        date: '2026-02-20',
+        date: today,
         deep_mins: 80,
         awake_mins: 20,
         light_mins: 220,
@@ -28,7 +29,7 @@ function buildHealthOverviewPayload() {
     ],
     average_sleep_hours_7d: 6.5,
     average_sleep_hours_30d: 6.9,
-    step_stats_7d: [{ day: '2026-02-20', steps: 9200 }],
+    step_stats_7d: [{ day: today, steps: 9200 }],
     average_steps_7d: 9200,
     average_steps_30d: 8800,
     heart_rate_history_7d: [{ timestamp: Date.now(), min: 58, max: 84, avg: 70 }],
@@ -150,20 +151,12 @@ describe('app.js charts, scanner and visualization helpers', () => {
       const bpChart = document.getElementById('bpChart');
       const weightChart = document.getElementById('weightChart');
       const vitals = document.createElement('div');
-      const sleep = document.createElement('div');
-      const steps = document.createElement('div');
       vitals.id = 'heartRateChart';
-      sleep.id = 'sleepChartContainer';
-      steps.id = 'stepsChartContainer';
       document.body.appendChild(vitals);
-      document.body.appendChild(sleep);
-      document.body.appendChild(steps);
 
       setElementSize(bpChart, 360, 240);
       setElementSize(weightChart, 360, 240);
       setElementSize(vitals, 360, 220);
-      setElementSize(sleep, 360, 240);
-      setElementSize(steps, 360, 240);
 
       window.renderBPChart([], {});
       expect(bpChart.textContent).toContain('No data available');
@@ -247,41 +240,22 @@ describe('app.js charts, scanner and visualization helpers', () => {
       window.renderWeightGoalCard(logs, goalData);
       expect(document.querySelector('#weight-goal-card.wg-weight-goal-card')).toBeTruthy();
 
+      // Phase 8, Task 6: vitals chart renders via WGVitalsChart parameterised
+      // by vital ('hr'|'spo2'|'stress') under the .wg-vitals-chart--<vital>
+      // class — colour comes from --wg-health-vitals-*-line tokens, not a
+      // JS color argument.
       const tsBase = Date.now() - (24 * 60 * 60 * 1000);
-      window.renderVitalsLineChart('heartRateChart', [
-        { timestamp: tsBase, min: 58, max: 84, avg: 71 },
-        { timestamp: tsBase + (2 * 60 * 60 * 1000), min: 60, max: 86, avg: 73 },
-        { timestamp: tsBase + (8 * 60 * 60 * 1000), min: 59, max: 82, avg: 70 }
-      ], '#ff3b30', 40, 160);
-      expect(vitals.querySelector('svg')).toBeTruthy();
-
-      window.renderSleepChart([
-        {
-          date: '2026-02-01',
-          deep_mins: 90,
-          awake_mins: 20,
-          light_mins: 200,
-          rem_mins: 80,
-          total_mins: 390,
-          heart_rate_avg: 58
-        },
-        {
-          date: '2026-02-02',
-          deep_mins: 70,
-          awake_mins: 30,
-          light_mins: 220,
-          rem_mins: 70,
-          total_mins: 390,
-          heart_rate_avg: 62
-        }
-      ]);
-      expect(sleep.querySelector('svg')).toBeTruthy();
-
-      window.renderStepsChart([
-        { day: '2026-02-01', steps: 8400 },
-        { day: '2026-02-02', steps: 11200 }
-      ]);
-      expect(steps.querySelector('svg')).toBeTruthy();
+      const vitalsSvg = window.WGVitalsChart.render({
+        history: [
+          { timestamp: tsBase, min: 58, max: 84, avg: 71 },
+          { timestamp: tsBase + (2 * 60 * 60 * 1000), min: 60, max: 86, avg: 73 },
+          { timestamp: tsBase + (8 * 60 * 60 * 1000), min: 59, max: 82, avg: 70 }
+        ],
+        vital: 'hr',
+        range: 'all'
+      });
+      vitals.appendChild(vitalsSvg);
+      expect(vitals.querySelector('svg.wg-vitals-chart')).toBeTruthy();
     } finally {
       cleanup();
     }
@@ -321,9 +295,6 @@ describe('app.js charts, scanner and visualization helpers', () => {
         });
 
       window.DataStore.loadSWR = loadSWRSpy;
-      const vitalsSpy = vi.spyOn(window, 'renderVitalsLineChart').mockImplementation(() => {});
-      const sleepSpy = vi.spyOn(window, 'renderSleepChart').mockImplementation(() => {});
-      const stepsSpy = vi.spyOn(window, 'renderStepsChart').mockImplementation(() => {});
 
       await window.loadHealthOverview();
       expect(document.getElementById('health-overview-content').innerHTML).toContain('No cached data');
@@ -331,17 +302,29 @@ describe('app.js charts, scanner and visualization helpers', () => {
       await window.loadHealthOverview();
       await vi.runAllTimersAsync();
 
-      const html = document.getElementById('health-overview-content').innerHTML;
+      const content = document.getElementById('health-overview-content');
+      const html = content.innerHTML;
       expect(html).toContain('Sleep');
       expect(html).toContain('Steps');
       expect(html).toContain('Heart Rate');
       expect(html).toContain('SpO2');
       expect(html).toContain('Stress Level');
-      expect(vitalsSpy).toHaveBeenCalledTimes(3);
-      expect(sleepSpy).toHaveBeenCalledTimes(1);
-      expect(stepsSpy).toHaveBeenCalledTimes(1);
+      // Phase 8, Task 4: sleep card now renders via WGSleepChart inside a
+      // .wg-sleep-card shell, not the legacy renderSleepChart helper.
+      expect(content.querySelector('.wg-sleep-card')).toBeTruthy();
+      expect(content.querySelector('.wg-sleep-card svg.wg-sleep-chart')).toBeTruthy();
+      // Phase 8, Task 5: steps card now renders via WGStepsChart inside a
+      // .wg-steps-card shell, not the legacy renderStepsChart helper.
+      expect(content.querySelector('.wg-steps-card')).toBeTruthy();
+      expect(content.querySelector('.wg-steps-card svg.wg-steps-chart')).toBeTruthy();
+      // Phase 8, Task 6: vitals cards now render via WGVitalsChart inside
+      // .wg-vitals-card shells — one per vital (hr / spo2 / stress).
+      expect(content.querySelectorAll('.wg-vitals-card').length).toBe(3);
+      expect(content.querySelector('.wg-vitals-card--hr svg.wg-vitals-chart')).toBeTruthy();
+      expect(content.querySelector('.wg-vitals-card--spo2 svg.wg-vitals-chart')).toBeTruthy();
+      expect(content.querySelector('.wg-vitals-card--stress svg.wg-vitals-chart')).toBeTruthy();
       expect(loadSWRSpy).toHaveBeenCalledWith(expect.objectContaining({
-        key: 'health_overview',
+        key: expect.stringMatching(/^health_overview/),
         tags: ['health'],
         allowNullFresh: true,
         fetcher: expect.any(Function)
@@ -358,10 +341,11 @@ describe('app.js charts, scanner and visualization helpers', () => {
 
     try {
       const cachedPayload = buildHealthOverviewPayload();
+      const today = new Date().toISOString().slice(0, 10);
       const freshPayload = {
         ...buildHealthOverviewPayload(),
         average_steps_7d: 10000,
-        step_stats_7d: [{ day: '2026-02-20', steps: 10000 }]
+        step_stats_7d: [{ day: today, steps: 10000 }]
       };
 
       let resolveFresh;
@@ -388,7 +372,7 @@ describe('app.js charts, scanner and visualization helpers', () => {
       const htmlAfterFresh = document.getElementById('health-overview-content').innerHTML;
       expect(htmlAfterFresh).toContain('10,000 steps (7d avg)');
       expect(window.DataStore.fetchFresh).toHaveBeenCalledWith(
-        'health_overview',
+        expect.stringMatching(/^health_overview/),
         expect.any(Function),
         ['health']
       );

@@ -601,6 +601,70 @@ const WANDERGEEK_TOKENS = [
     '--wg-workouts-slot-adhoc-bg',
     '--wg-workouts-slot-adhoc-fg',
     '--wg-workouts-slot-adhoc-border',
+
+    // Health screen tokens (Phase 8, Task 1) — sub-tab strip, summary tile
+    // row, range selector, sleep / steps / vitals card shells + chart
+    // geometry, notes row + compose-wrap + edit modal.
+    '--wg-health-subtab-pad-y',
+    '--wg-health-subtab-pad-x',
+    '--wg-health-subtab-gap',
+    '--wg-health-summary-tile-pad',
+    '--wg-health-summary-tile-gap',
+    '--wg-health-summary-tile-value-size',
+    '--wg-health-summary-tile-label-size',
+    '--wg-health-summary-tile-trend-size',
+    '--wg-health-range-selector-height',
+    '--wg-health-range-selector-pad',
+    '--wg-health-chart-width',
+    '--wg-health-chart-height',
+    '--wg-health-chart-tall-height',
+    '--wg-health-chart-line-stroke-width',
+    '--wg-health-chart-last-point-radius',
+    '--wg-health-chart-last-stroke-width',
+    '--wg-health-card-pad',
+    '--wg-health-card-header-size',
+    '--wg-health-card-stat-size',
+    '--wg-health-legend-badge-size',
+    '--wg-health-legend-gap',
+    '--wg-health-notes-row-cols',
+    '--wg-health-notes-row-gap',
+    '--wg-health-notes-row-pad',
+    '--wg-health-notes-day-size',
+    '--wg-health-notes-time-size',
+    '--wg-health-notes-body-size',
+    '--wg-health-notes-compose-pad-y',
+    '--wg-health-notes-compose-pad-x',
+
+    // Edit-note modal tokens (Phase 8, Task 1 / rewired Task 8) — mono
+    // header, gloss-inset textarea wrap, Cancel + Save bar with 2× flex
+    // on Save per modal-button-order convention.
+    '--wg-health-modal-eyebrow-size',
+    '--wg-health-modal-title-size',
+    '--wg-health-modal-row-gap',
+    '--wg-health-modal-section-gap',
+    '--wg-health-modal-input-pad-y',
+    '--wg-health-modal-input-pad-x',
+    '--wg-health-modal-label-size',
+    '--wg-health-modal-action-gap',
+
+    // Sleep-stage color tokens (Phase 8, Task 1) — stacked-bar fills for
+    // deep / light / rem / awake plus the HR overlay line + dot + label.
+    '--wg-health-sleep-deep',
+    '--wg-health-sleep-light',
+    '--wg-health-sleep-rem',
+    '--wg-health-sleep-awake',
+    '--wg-health-sleep-hr',
+
+    // Steps chart color tokens (Phase 8, Task 1) — bar fill + rotated
+    // in-bar count label contrast.
+    '--wg-health-steps-bar',
+    '--wg-health-steps-label-inside',
+
+    // Vitals chart color tokens (Phase 8, Task 1) — one line color per
+    // vital; the WGVitalsChart component (Task 6) keys off these.
+    '--wg-health-vitals-hr-line',
+    '--wg-health-vitals-spo2-line',
+    '--wg-health-vitals-stress-line',
 ];
 
 describe('Architecture – design tokens', () => {
@@ -1266,11 +1330,6 @@ describe('Architecture – design tokens', () => {
             '.pwa-update-toast', '.pwa-update-btn',
             // Sync debug panel
             '.sync-debug-panel',
-            // Health overview
-            '.health-chart-wrapper', '.health-chart-container', '.health-chart-container-tall',
-            '.health-chart-stat', '.health-chart-stat-spaced',
-            '.health-chart-legend', '.health-legend-item',
-            '.health-legend-badge', '.health-legend-badge-line',
             // Workout components (paper-era classes still used as dual-class alongside wg-* equivalents)
             '.workout-pending-msg',
             '.workout-variant-card', '.workout-variant-desc',
