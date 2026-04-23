@@ -3177,20 +3177,6 @@ input:checked+.toggle-slider:before {
     min-width: 44px;
 }
 
-.food-stats-period-row {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: var(--space-xs);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-normal);
-    margin-bottom: var(--space-sm);
-}
-
-.food-stats-period-row .period-divider {
-    color: var(--hint-color);
-}
-
 /* ==========================================================================
    Wandergeek primitives — gloss material classes for the deep-teal stage.
    All values come from --wg-* tokens; no hardcoded hex in this block.
@@ -5115,24 +5101,122 @@ textarea.wg-input {
     gap: var(--space-sm);
 }
 
-/* Food sub-tab strip (Phase 4, Task 3). `.wg-gloss--inset` container wraps
-   three `.wg-gloss`-capable pills; the active pill also carries
-   `.wg-gloss--sun` (plus `.wg-food-subtabs__btn--active` for tests). Mirrors
-   the BP range-selector pattern from Phase 3. */
-.wg-food-subtabs {
+/* Phase 5, Task 4 — outer `.wg-food-subtabs` strip was retired in favor of
+   an inline +Add button in the day navigator and a Daily/Weekly segmented
+   toggle inside the macros card. Rules for `.wg-food-subtabs` and
+   `.wg-food-subtabs__btn` were removed alongside the markup. */
+
+/* In-card Daily/Weekly toggle (Phase 5, Task 4). Inset pill strip that sits
+   above the kcal total inside `.wg-food-macros-card`; the active pill uses
+   the sun-gloss gradient vocabulary. All values resolve through existing
+   `--wg-*` tokens — no hardcoded colors. */
+.wg-food-macros-card__header-left {
     display: flex;
-    gap: var(--wg-food-subtab-gap);
-    padding: var(--wg-food-subtab-pad-y) var(--wg-food-subtab-pad-x);
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-food-macros-card__toggle {
+    display: inline-flex;
+    gap: var(--space-xs);
+    padding: var(--space-xs);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-food-macros-card__toggle-btn {
+    padding: var(--space-xs) var(--space-sm);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: var(--font-weight-bold);
+    color: var(--wg-fg-4);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-food-macros-card__toggle-btn--active {
+    color: var(--wg-sun);
+    background: var(--wg-gloss-bg-sun);
+    border-color: var(--wg-border-strong);
+    box-shadow: var(--wg-gloss-shadow-sun);
+}
+
+.wg-food-macros-card__avg {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-4);
+    margin-top: var(--space-xs);
+}
+
+/* Inline +Add inside the food day navigator (Phase 5, Task 4). */
+.wg-food-day-nav--with-action {
+    grid-template-columns:
+        var(--wg-food-day-nav-icon-size) 1fr var(--wg-food-day-nav-icon-size) auto;
+}
+
+.wg-food-day-nav__add {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    min-height: var(--wg-food-day-nav-icon-size);
+    padding: var(--space-xs) var(--space-sm);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.08em;
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-food-day-nav__add-label {
+    white-space: nowrap;
+}
+
+/* Food library entry (Phase 5, Task 4). Ghost-link row below the meal list
+   that reveals the collapsed My Meals + Food DB panels. Keeps the sections
+   reachable after the outer tab strip was removed. */
+.wg-food-library-entry {
+    display: flex;
+    justify-content: center;
+    margin-top: var(--space-lg);
     margin-bottom: var(--space-md);
 }
 
-.wg-food-subtabs__btn {
-    flex: 1;
-    min-height: 36px;
+.wg-food-library-entry__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-md);
     font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    background: transparent;
+    border: 1px solid var(--wg-border-hairline);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-food-library-entry__btn--open .wg-food-library-entry__chevron {
+    transform: rotate(180deg);
+}
+
+.wg-food-library-entry__chevron {
+    display: inline-block;
+    transition: transform 160ms ease;
+}
+
+.wg-food-library-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+    margin-top: var(--space-md);
+    margin-bottom: var(--space-md);
 }
 
 /* Meds next-action card (Phase 5, Task 3). Sun-glossed card mirroring the

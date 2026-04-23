@@ -137,22 +137,22 @@ Rationale: Biggest visual change. Design `screens.jsx:6-112` is the exact spec.
 
 ### Task 4: Food screen refactor — drop outer tabs, move Daily/Weekly into macros card, move +Add inline
 Rationale: Design `screens.jsx:262-382` and the user's explicit requests. Outer tabs hide features — propose path below.
-- [ ] Decide scope with user (implemented as default: hide outer tabs, keep My Meals & Food DB accessible via a new small entry point on the food screen, e.g. a "Meals · Food DB" ghost-link row under the day navigator). ⚠️ This deviates slightly from the mockup (the mockup doesn't show meals/fooddb at all) — confirm before shipping.
-- [ ] In `web/static/index.html`:
+- [x] Decide scope with user (implemented as default: hide outer tabs, keep My Meals & Food DB accessible via a new small entry point on the food screen, e.g. a "Meals · Food DB" ghost-link row under the day navigator). ⚠️ This deviates slightly from the mockup (the mockup doesn't show meals/fooddb at all) — confirm before shipping. (Autonomous loop — default path taken: outer tabs removed, meals+fooddb re-homed behind a collapsible `#food-library-view` with a single `Meals · Food DB` ghost link below the meal list.)
+- [x] In `web/static/index.html`:
   - Remove the `#food-stats-period-container` "Day | Week" pipe row (lines 187-191).
   - Remove the `.wg-food-subtabs` outer tabs (lines 194-198).
   - Move the day-navigator row to the top of `#food-view` (lines 201-211) and append an inline "+Add" gloss-sun button inside it (right of the next-day chevron).
   - Inside the macros card (`#food-macros-card`, lines 216-228), add a Daily/Weekly segmented pill toggle (match the in-card design in `screens.jsx:313-329`): inset track, 2 pill buttons, sun-gradient active state.
-  - Move `#food-meals-tab` and `#food-fooddb-tab` contents to a separate secondary route (reachable via the new entry point) OR hide them entirely if the user agrees.
-- [ ] In `web/static/js/features/food.js`:
+  - Move `#food-meals-tab` and `#food-fooddb-tab` contents to a separate secondary route (reachable via the new entry point) OR hide them entirely if the user agrees. (Wrapped in `#food-library-view`, hidden by default; toggled by `#food-library-toggle-btn`.)
+- [x] In `web/static/js/features/food.js`:
   - Remove `FOOD_SUBTAB_*` constants + `switchFoodTab` + the tab-group bind at lines 165-169.
   - Add Daily/Weekly toggle logic: recompute totals and targets (×7 for Weekly), re-render the macro bars; show "avg N kcal/day · 7d" subtitle only in weekly mode.
-  - Keep the per-meal "Snack · HH:MM" section label using the **daily** (not weekly) total.
-  - Keep `renderFoodDayNavIcons()` working with the new inline +Add button.
-- [ ] Update CSS: remove rules for `.wg-food-subtabs*` and `.food-stats-period-*` (or keep the base class and change only the markup). Add in-card toggle styles under `.wg-food-macros-card` using tokens.
-- [ ] **Barcode-scan regression guard**: confirm `#food-modal` markup (line 845+ of `index.html`) and all barcode IDs (`#food-barcode`, `#food-scan-btn`, `#food-scanner-modal`, `#food-scanner-video`, `#food-scanner-use-photo-btn`, `#food-scanner-close-btn`) are untouched. Open the food modal, type a barcode → should trigger auto-lookup; press Scan → scanner modal opens with camera; "Use Photo" still decodes a picked image.
-- [ ] Update Vitest characterization tests for food DOM.
-- [ ] Run tests; manual browser check.
+  - Keep the per-meal "Snack · HH:MM" section label using the **daily** (not weekly) total. (Meal list is always rendered from daily groups; the `range='week'` branch in `_renderFoodData` only swaps the numbers inside the macros card.)
+  - Keep `renderFoodDayNavIcons()` working with the new inline +Add button. (Added `renderFoodInlineAddIcon()` for the + icon; day-nav chevron rendering unchanged.)
+- [x] Update CSS: remove rules for `.wg-food-subtabs*` and `.food-stats-period-*` (or keep the base class and change only the markup). Add in-card toggle styles under `.wg-food-macros-card` using tokens. (`.wg-food-subtabs*` and `.food-stats-period-*` blocks removed; `.wg-food-macros-card__toggle*`, `.wg-food-macros-card__avg`, `.wg-food-day-nav--with-action`, `.wg-food-day-nav__add*`, `.wg-food-library-entry*`, `.wg-food-library-view` added. All values flow through existing `--wg-*` / `--space-*` tokens; architecture guards stay green.)
+- [x] **Barcode-scan regression guard**: confirm `#food-modal` markup (line 845+ of `index.html`) and all barcode IDs (`#food-barcode`, `#food-scan-btn`, `#food-scanner-modal`, `#food-scanner-video`, `#food-scanner-use-photo-btn`, `#food-scanner-close-btn`) are untouched. Open the food modal, type a barcode → should trigger auto-lookup; press Scan → scanner modal opens with camera; "Use Photo" still decodes a picked image. (Edits scoped to `#food-view` above the `#food-log-tab` contents; all `#food-modal*`, `#food-scan-btn`, `#food-barcode`, `#food-scanner-*` IDs + their bindings in `food.js` are untouched. `food.modal.test.js` 19 tests still green.)
+- [x] Update Vitest characterization tests for food DOM. (Deleted `food.subtabs.test.js`; rewrote `food.daynav.test.js` for the 4-cell day-nav + inline +Add + library toggle + in-card macros toggle; rewrote `food.macros.test.js` "hides card on week" → "keeps card visible with weekly totals + avg subtitle"; rewrote `food.meallist.test.js` weekly-leak guards around the always-visible CTA; updated `food.fooddb.test.js` / `food.mealdb.test.js` to assert the new `#food-library-view` parent; updated `app.food-crud-and-targets.test.js` + `app.ui-characterization.test.js` to flip the in-card toggle instead of clicking the retired period pipe row.)
+- [x] Run tests; manual browser check. (Vitest: 1319 pass, only the 2 pre-existing date-dependent `wg-sleep-chart` / `wg-steps-chart` failures remain — reproduced on master. `go test ./...` green. Manual 390 px check skipped — not automatable from this environment.)
 
 ### Task 4b: Modal visual audit against mockup
 Rationale: All primary modals already exist and are Wandergeek-styled. Audit them side-by-side with the mockup and patch small visual deltas only; do not rebuild.
