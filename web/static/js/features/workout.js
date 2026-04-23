@@ -161,6 +161,162 @@ bindWorkoutControls();
 // NEXT WORKOUT CARD
 // ====================================
 
+// Today's-workout card (Phase 7, Task 3). Sun-glossed card that mirrors the
+// Meds next-action pattern and surfaces the current rotation slot.
+//
+// The classifier `getRotationSlot(variantName)` maps a variant name into one
+// of five token-group names (PUSH / PULL / LEGS / REST / AD-HOC). It drives
+// both the slot-tag CSS variant and the card variant (sun for PUSH/PULL/LEGS,
+// muted for REST / AD-HOC).
+function getRotationSlot(variantName) {
+    if (typeof variantName !== 'string' || variantName.trim() === '') return 'AD-HOC';
+    const v = variantName.toUpperCase();
+    if (/\bPUSH\b/.test(v)) return 'PUSH';
+    if (/\bPULL\b/.test(v)) return 'PULL';
+    if (/\bLEGS?\b/.test(v) || /\bLEG\b/.test(v)) return 'LEGS';
+    if (/\bREST\b/.test(v) || /\bOFF\b/.test(v)) return 'REST';
+    return 'AD-HOC';
+}
+
+function _slotTagModifier(slot) {
+    switch (slot) {
+        case 'PUSH': return 'push';
+        case 'PULL': return 'pull';
+        case 'LEGS': return 'legs';
+        case 'REST': return 'rest';
+        default: return 'adhoc';
+    }
+}
+
+function _formatTodayNames(names, fallback) {
+    if (!Array.isArray(names) || names.length === 0) {
+        return typeof fallback === 'string' ? fallback : '';
+    }
+    if (names.length <= 3) return names.join(' · ');
+    const first = names.slice(0, 3).join(' · ');
+    return `${first} · +${names.length - 3}`;
+}
+
+function _formatTodayDuration(minutes) {
+    const m = Math.max(0, Math.round(minutes || 0));
+    if (m < 60) return `${m}m`;
+    const hh = Math.floor(m / 60);
+    const mm = m % 60;
+    return mm === 0 ? `${hh}h` : `${hh}h ${mm}m`;
+}
+
+// renderTodaysWorkoutCard(rotation, todaySessions, opts) — pure DOM helper.
+//
+// rotation:     `/api/workout/sessions/next` response ({ session, group_name,
+//               variant_name, exercises_count, exercises?, is_rotating, ... })
+//               or null when no upcoming session is scheduled.
+// todaySessions: array of completed session objects carrying a
+//               `duration_minutes` field (used to drive the already-completed
+//               state). Empty array is the common non-completed case.
+// opts.onStart(sessionId): invoked when the Start button is clicked on a
+//               non-rest card.
+// opts.onAdhoc(): invoked when the ad-hoc CTA is clicked on a rest card (or
+//               when no rotation is available).
+function renderTodaysWorkoutCard(rotation, todaySessions, opts) {
+    const d = (typeof document !== 'undefined') ? document : null;
+    if (!d) return null;
+    const options = opts || {};
+    const onStart = typeof options.onStart === 'function'
+        ? options.onStart
+        : (typeof window !== 'undefined' && typeof window.startWorkoutSession === 'function'
+            ? window.startWorkoutSession
+            : () => {});
+    const onAdhoc = typeof options.onAdhoc === 'function'
+        ? options.onAdhoc
+        : (typeof window !== 'undefined' && typeof window.startAdHocWorkout === 'function'
+            ? window.startAdHocWorkout
+            : () => {});
+
+    const sessions = Array.isArray(todaySessions) ? todaySessions : [];
+    const completedSession = sessions.find((s) => s && (s.status === 'completed' || s.completed));
+    const session = rotation && rotation.session ? rotation.session : null;
+    const slot = getRotationSlot(rotation && rotation.variant_name);
+
+    const card = d.createElement('div');
+    card.setAttribute('data-section', 'todays-workout');
+    card.dataset.slot = slot;
+
+    const text = d.createElement('div');
+    text.className = 'wg-workouts-today-card__text';
+    const subtitle = d.createElement('div');
+    subtitle.className = 'wg-workouts-today-card__subtitle';
+    const value = d.createElement('div');
+    value.className = 'wg-workouts-today-card__value';
+    text.appendChild(subtitle);
+    text.appendChild(value);
+
+    const slotTag = d.createElement('span');
+    slotTag.className = `wg-workouts-slot-tag wg-workouts-slot-tag--${_slotTagModifier(slot)}`;
+    slotTag.textContent = slot;
+
+    // Already-completed state. Muted `.wg-card` carrying a "Completed · 45m"
+    // eyebrow + rotation-slot tag.
+    if (completedSession) {
+        card.className = 'wg-card wg-workouts-today-card wg-workouts-today-card--completed';
+        card.dataset.state = 'completed';
+        const minutes = completedSession.duration_minutes != null
+            ? completedSession.duration_minutes
+            : 0;
+        subtitle.textContent = `Completed · ${_formatTodayDuration(minutes)}`;
+        value.textContent = rotation && rotation.group_name
+            ? rotation.group_name
+            : 'Workout logged';
+        text.insertBefore(slotTag, subtitle);
+        card.appendChild(text);
+        return card;
+    }
+
+    // Rest state. Triggered when no rotation session is available or when the
+    // variant name classifier resolves to REST. Muted `.wg-card` with a
+    // "Rest day" eyebrow and a Start ad-hoc CTA.
+    if (!session || slot === 'REST') {
+        card.className = 'wg-card wg-workouts-today-card wg-workouts-today-card--rest';
+        card.dataset.state = 'rest';
+        subtitle.textContent = 'Rest day';
+        value.textContent = 'Start ad-hoc?';
+        text.insertBefore(slotTag, subtitle);
+        card.appendChild(text);
+        const adhocBtn = d.createElement('button');
+        adhocBtn.type = 'button';
+        adhocBtn.className = 'wg-workouts-today-card__adhoc wg-gloss';
+        adhocBtn.textContent = 'Start ad-hoc';
+        adhocBtn.addEventListener('click', () => { onAdhoc(); });
+        card.appendChild(adhocBtn);
+        return card;
+    }
+
+    // Non-rest (PUSH / PULL / LEGS / AD-HOC rotated) state. Sun-glossed
+    // `.wg-gloss--sun` card with "Today · SLOT" subtitle, mono names cluster,
+    // rotation-slot tag, and a sun-glossed Start button.
+    card.className = 'wg-workouts-today-card wg-gloss wg-gloss--sun';
+    card.dataset.state = 'today';
+    subtitle.textContent = `Today · ${slot}`;
+    const exerciseNames = Array.isArray(rotation.exercises)
+        ? rotation.exercises.map((e) => (e && e.name) || '').filter(Boolean)
+        : [];
+    const fallback = rotation.variant_name
+        ? `${rotation.variant_name} · ${rotation.exercises_count || 0} exercises`
+        : `${rotation.exercises_count || 0} exercises`;
+    value.textContent = _formatTodayNames(exerciseNames, fallback);
+    text.insertBefore(slotTag, subtitle);
+    card.appendChild(text);
+
+    const startBtn = d.createElement('button');
+    startBtn.type = 'button';
+    startBtn.className = 'wg-workouts-today-card__start wg-gloss wg-gloss--sun';
+    startBtn.textContent = 'Start';
+    const sessionId = session.id;
+    startBtn.addEventListener('click', () => { onStart(sessionId); });
+    card.appendChild(startBtn);
+
+    return card;
+}
+
 async function loadNextWorkout() {
     const container = document.getElementById('next-workout-card');
     await window.DataStore.loadSWR({
