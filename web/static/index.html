@@ -328,9 +328,25 @@
                 <p id="settings-timezone-note" class="wg-settings-info-note"></p>
             </section>
 
-            <mt-setting-toggle title="Web Push Notifications" description="Browser notifications for medications"
-                input-id="webpush-toggle"></mt-setting-toggle>
-            <div id="webpush-status" style="display:none; padding: 8px; margin-top: 8px; border-radius: 4px;"></div>
+            <section class="wg-card wg-settings-section wg-settings-notifications">
+                <h3 class="wg-settings-section__title">Notifications</h3>
+                <p class="wg-settings-section__desc">Push alerts and test notifications</p>
+                <div class="wg-settings-row-list">
+                    <mt-setting-toggle title="Web Push Notifications"
+                        description="Browser notifications for medications" input-id="webpush-toggle"></mt-setting-toggle>
+                    <div id="webpush-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Test Notifications</div>
+                            <div class="wg-settings-row__desc">Simulate upcoming notifications</div>
+                        </div>
+                        <div class="wg-settings-row__control wg-settings-action-row">
+                            <button id="test-med-notification-btn" class="wg-gloss wg-settings-action-btn">Test Meds</button>
+                            <button id="test-bp-notification-btn" class="wg-gloss wg-settings-action-btn">Test BP</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
             <mt-setting-toggle divider title="Feature: Blood Pressure"
                 description="Enable blood pressure section and commands" input-id="bp-feature-toggle">
@@ -389,16 +405,6 @@
                 </div>
             </div>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Test Notifications</h3>
-                    <p class="setting-desc">Simulate upcoming notifications</p>
-                </div>
-                <button id="test-med-notification-btn" class="btn btn-secondary" style="margin: 0;">Test
-                    Meds</button>
-                <button id="test-bp-notification-btn" class="btn btn-secondary" style="margin: 0; margin-left: 10px;">Test
-                    BP</button>
-            </div>
             <div style="text-align:center;color:var(--hint-color);font-size:10px;padding:20px 10px 10px;">
                 v: VERSION_PLACEHOLDER
             </div>

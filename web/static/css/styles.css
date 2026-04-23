@@ -8678,3 +8678,59 @@ textarea.wg-input {
 .wg-settings-oidc:empty {
     display: none;
 }
+
+/* Notifications card (Phase 9, Task 4) — webpush status pill + action-row
+   buttons share this section. The status pill uses the Wandergeek tag
+   triplets (`--wg-tag-normal-*` / `--wg-tag-alert-*` / neutral hairline)
+   via the `.wg-tag--mono--success` / `--alert` / `--muted` variants. The
+   legacy `.status-success` / `.status-error` / `.status-muted` class
+   names survive as aliases so any code that still sets them resolves to
+   the same token'd styling. */
+.wg-settings-webpush-status {
+    margin: 0;
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--wg-radius-gloss);
+    border: 1px solid transparent;
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-settings-desc-size);
+    letter-spacing: 0;
+}
+
+.wg-tag--mono--success,
+.wg-settings-webpush-status.status-success {
+    background: var(--wg-tag-normal-bg);
+    color: var(--wg-tag-normal-fg);
+    border-color: var(--wg-tag-normal-border);
+}
+
+.wg-tag--mono--alert,
+.wg-settings-webpush-status.status-error {
+    background: var(--wg-tag-alert-bg);
+    color: var(--wg-tag-alert-fg);
+    border-color: var(--wg-tag-alert-border);
+}
+
+.wg-tag--mono--muted,
+.wg-settings-webpush-status.status-muted {
+    background: transparent;
+    color: var(--wg-fg-3);
+    border-color: var(--wg-border-hairline);
+}
+
+/* Action-row inside a settings row — lays out two inline action buttons
+   (Test Meds / Test BP) with a token'd gap instead of `margin-left`. */
+.wg-settings-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--wg-settings-action-row-gap);
+    justify-content: flex-end;
+}
+
+.wg-settings-action-btn {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-settings-desc-size);
+    padding: var(--space-xs) var(--space-md);
+    border: none;
+    color: var(--wg-fg-1);
+    cursor: pointer;
+}

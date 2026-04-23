@@ -113,11 +113,11 @@ No backend changes. The existing `/api/settings/*`, `/api/bp/reminder/*`, `/api/
 
 ### Task 4: Rewrite the web push + notifications section
 
-- [ ] replace the Web Push `<mt-setting-toggle>` block with a section-grouped row — "Notifications" section header with webpush + test-notifications buttons inside
-- [ ] replace `#webpush-status` inline `style="display:none; padding:8px; margin-top:8px; border-radius:4px"` with a `.wg-settings-webpush-status` class + `.wg-tag--mono--success` / `--alert` / `--muted` variants; keep the `status-success` / `status-error` / `status-muted` class names as aliases so existing `features/settings.js` keeps binding
-- [ ] replace Test Meds + Test BP buttons with `.wg-gloss` action buttons in a `.wg-settings-action-row` grid (no `margin-left: 10px` inline)
-- [ ] write `settings.webpush.test.js` — toggle dispatch, status variant class switching, test-notification button click handlers
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the Web Push `<mt-setting-toggle>` block with a section-grouped row — "Notifications" section header with webpush + test-notifications buttons inside
+- [x] replace `#webpush-status` inline `style="display:none; padding:8px; margin-top:8px; border-radius:4px"` with a `.wg-settings-webpush-status` class + `.wg-tag--mono--success` / `--alert` / `--muted` variants; keep the `status-success` / `status-error` / `status-muted` class names as aliases so existing `features/settings.js` keeps binding
+- [x] replace Test Meds + Test BP buttons with `.wg-gloss` action buttons in a `.wg-settings-action-row` grid (no `margin-left: 10px` inline)
+- [x] write `settings.webpush.test.js` — toggle dispatch, status variant class switching, test-notification button click handlers
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Rewrite the feature + reminder toggle sections
 
