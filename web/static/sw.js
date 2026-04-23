@@ -28,13 +28,13 @@ const STATIC_ASSETS = [
     '/static/js/components/wg-phone-chrome.js',
     '/static/js/components/wg-bp-chart.js',
     '/static/js/components/wg-weight-chart.js',
+    '/static/js/components/wg-workout-chart.js',
     '/static/js/components/wg-macro-bar.js',
     // Infrastructure
     '/static/js/db.js',
     '/static/js/sync.js',
     '/static/js/data-store.js',
     '/static/js/app.js',
-    '/static/js/workout.js',
     '/static/js/push.js',
     '/static/js/app-shell.js',
     // Features
@@ -49,6 +49,7 @@ const STATIC_ASSETS = [
     '/static/js/features/back-button.js',
     '/static/js/features/deeplink-router.js',
     '/static/js/features/today.js',
+    '/static/js/features/workout.js',
     '/static/js/features/bootstrap.js',
     // Config
     '/static/config.js',

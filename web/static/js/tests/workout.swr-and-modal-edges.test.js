@@ -92,16 +92,14 @@ describe('workout.js SWR and modal edge branches', () => {
       expect(document.getElementById('workout-groups-list').innerHTML).toContain('Strength');
       expect(saveCacheSpy).toHaveBeenCalledWith('groups', groups);
 
-      // Verify malformed days_of_week is handled gracefully
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      // Verify malformed days_of_week is handled gracefully (silent catch;
+      // the row still renders with an empty days cluster).
       window._renderWorkoutGroups(document.getElementById('workout-groups-list'), [{
         id: 2,
         name: 'Broken Days',
         days_of_week: 'invalid-json',
       }]);
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error parsing days_of_week:', expect.anything());
       expect(document.getElementById('workout-groups-list').innerHTML).toContain('Broken Days');
-      consoleErrorSpy.mockRestore();
 
       window._renderWorkoutGroups(document.getElementById('workout-groups-list'), []);
       expect(document.getElementById('workout-groups-list').innerHTML).toContain('No workout groups yet');
@@ -205,13 +203,14 @@ describe('workout.js SWR and modal edge branches', () => {
       await window.loadExerciseLibrary();
 
       const container = document.getElementById('exercise-library-list');
-      const card = container.querySelector('.exercise-library-item');
-      const deleteButton = container.querySelector('.exercise-library-item .btn-secondary');
+      const card = container.querySelector('.wg-workouts-exercises-row');
+      const deleteButton = container.querySelector('.wg-workouts-exercises-row__delete');
 
       expect(card).toBeTruthy();
       expect(deleteButton).toBeTruthy();
       expect(container.textContent).toContain('Bench <press>');
-      expect(container.textContent).toContain('4 sets x 8-10 reps @ 90kg');
+      expect(container.textContent).toContain('4\u00d78-10');
+      expect(container.textContent).toContain('90kg');
 
       deleteButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
       expect(deleteSpy).toHaveBeenCalledWith(111, expect.any(Object));

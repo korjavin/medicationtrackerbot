@@ -90,100 +90,100 @@ No backend changes. The existing `/api/workouts*`, `/api/exercises*`, `/api/work
 
 ### Task 1: Extend tokens + extract workouts into a feature module
 
-- [ ] add `--wg-workouts-*` dimensional tokens to `:root` in `styles.css` (today-card padding, rotation-slot tag size, history-row grid-template-columns, session-detail set-row height, stats-tile grid, chart height, sub-tab padding) — everything the Workouts view needs that isn't already covered by the shared `--wg-*` set
-- [ ] add `--wg-workouts-slot-*` semantic aliases wrapping the existing tag-variant tokens so the rotation-slot classifier (PUSH / PULL / LEGS / REST / AD-HOC) can return a token-group name without duplicating tag styles
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] create `web/static/js/features/workout.js` and move render + modal + action-dispatch flow out of `web/static/js/workout.js` into it; script-tag load order + hoisted function declarations keep them accessible as globals (matches bp.js / food.js / meds.js / today.js / weight.js / health.js)
-- [ ] update `index.html` script load order to include `features/workout.js`; update `sw.js` precache list + `tests/helpers/frontend-harness.js`
-- [ ] keep all existing helpers (`getWorkoutDurationText`, `getExerciseSetSummary`, `getMuscleGroupLabel`, `getRotationSlot`) wherever they currently live; only the render + modal flow moves
-- [ ] verify no behavior change — `app.weight-ruler-and-workout-start.test.js` and related existing tests stay green
-- [ ] run `pnpm test` — design-tokens test + extraction smoke test must be green before next task
+- [x] add `--wg-workouts-*` dimensional tokens to `:root` in `styles.css` (today-card padding, rotation-slot tag size, history-row grid-template-columns, session-detail set-row height, stats-tile grid, chart height, sub-tab padding) — everything the Workouts view needs that isn't already covered by the shared `--wg-*` set
+- [x] add `--wg-workouts-slot-*` semantic aliases wrapping the existing tag-variant tokens so the rotation-slot classifier (PUSH / PULL / LEGS / REST / AD-HOC) can return a token-group name without duplicating tag styles
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] create `web/static/js/features/workout.js` and move render + modal + action-dispatch flow out of `web/static/js/workout.js` into it; script-tag load order + hoisted function declarations keep them accessible as globals (matches bp.js / food.js / meds.js / today.js / weight.js / health.js)
+- [x] update `index.html` script load order to include `features/workout.js`; update `sw.js` precache list + `tests/helpers/frontend-harness.js`
+- [x] keep all existing helpers (`getWorkoutDurationText`, `getExerciseSetSummary`, `getMuscleGroupLabel`, `getRotationSlot`) wherever they currently live; only the render + modal flow moves
+- [x] verify no behavior change — `app.weight-ruler-and-workout-start.test.js` and related existing tests stay green
+- [x] run `pnpm test` — design-tokens test + extraction smoke test must be green before next task
 
 ### Task 2: Build the sub-tab strip + subtab state plumbing
 
-- [ ] replace the current `.workout-tabs` buttons with a `.wg-gloss--inset` container carrying four `.wg-gloss--sun`-capable pills (History / Groups / Exercises / Stats) — active state via class, not inline style
-- [ ] state: which sub-tab is active persists via a new `mt-workouts-subtab` localStorage key matching the `mt-bp-range` / `mt-food-subtab` / `mt-meds-subtab` / `mt-weight-range` naming pattern
-- [ ] default sub-tab: History
-- [ ] write `workout.subtabs.test.js` — active-state toggle, persistence across reload, default-tab behavior
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the current `.workout-tabs` buttons with a `.wg-gloss--inset` container carrying four `.wg-gloss--sun`-capable pills (History / Groups / Exercises / Stats) — active state via class, not inline style
+- [x] state: which sub-tab is active persists via a new `mt-workouts-subtab` localStorage key matching the `mt-bp-range` / `mt-food-subtab` / `mt-meds-subtab` / `mt-weight-range` naming pattern
+- [x] default sub-tab: History
+- [x] write `workout.subtabs.test.js` — active-state toggle, persistence across reload, default-tab behavior
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Build today's-workout card
 
-- [ ] create a `renderTodaysWorkoutCard(rotation, todaySessions)` helper that picks the current rotation slot (PUSH / PULL / LEGS / REST)
-- [ ] non-rest state: `.wg-gloss--sun` container, small uppercase "Today · SLOT" subtitle, mono exercise-cluster list ("Bench · Overhead · Triceps · +2" when > 3), and a `.wg-gloss--sun` Start button
-- [ ] rest state: muted `.wg-card` with "Rest day" mono header + "Start ad-hoc?" CTA
-- [ ] already-completed state: `.wg-card` with "Completed · 45m" eyebrow + Finish-indicator tag
-- [ ] Start button click invokes `startRotatedWorkout()`; ad-hoc CTA invokes `startAdhocWorkout()`
-- [ ] write `workout.today.test.js` — rotation-slot variant, rest state, completed state, Start button dispatch, ad-hoc fallback
-- [ ] run `pnpm test` — must pass before next task
+- [x] create a `renderTodaysWorkoutCard(rotation, todaySessions)` helper that picks the current rotation slot (PUSH / PULL / LEGS / REST)
+- [x] non-rest state: `.wg-gloss--sun` container, small uppercase "Today · SLOT" subtitle, mono exercise-cluster list ("Bench · Overhead · Triceps · +2" when > 3), and a `.wg-gloss--sun` Start button
+- [x] rest state: muted `.wg-card` with "Rest day" mono header + "Start ad-hoc?" CTA
+- [x] already-completed state: `.wg-card` with "Completed · 45m" eyebrow + Finish-indicator tag
+- [x] Start button click invokes `startRotatedWorkout()`; ad-hoc CTA invokes `startAdhocWorkout()`
+- [x] write `workout.today.test.js` — rotation-slot variant, rest state, completed state, Start button dispatch, ad-hoc fallback
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Rewrite the history sub-tab + session detail view
 
-- [ ] replace `renderWorkoutHistory()` body to render day-grouped `.wg-card` rows — `.wg-section-label` day headers ("22.04.2026 · Tue"), each entry carrying mono duration, session-type tag (PUSH/PULL/LEGS/AD-HOC as `.wg-tag--mono` variants), exercise-count eyebrow, and a trailing `.wg-icon-btn` cluster (view / edit / delete)
-- [ ] row click opens the session-detail view (expanded inline card or full-screen overlay — pick whichever preserves modal-history semantics cleanest)
-- [ ] session-detail: mono header ("PUSH · 22.04.2026 · Tue"), duration + timestamp eyebrow, per-exercise `.wg-card` list with set-by-set mono rows (weight × reps), Log-set / Finish / Delete actions at the bottom
-- [ ] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` variants
-- [ ] write `workout.history.test.js` — day grouping, row click opens detail, edit/delete callbacks, offline + rejected states, empty state
-- [ ] write `workout.session-detail.test.js` — exercise list render, set-by-set rows, Log-set / Finish / Delete dispatch
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace `renderWorkoutHistory()` body to render day-grouped `.wg-card` rows — `.wg-section-label` day headers ("22.04.2026 · Tue"), each entry carrying mono duration, session-type tag (PUSH/PULL/LEGS/AD-HOC as `.wg-tag--mono` variants), exercise-count eyebrow, and a trailing `.wg-icon-btn` cluster (view / edit / delete)
+- [x] row click opens the session-detail view (expanded inline card or full-screen overlay — pick whichever preserves modal-history semantics cleanest)
+- [x] session-detail: mono header ("PUSH · 22.04.2026 · Tue"), duration + timestamp eyebrow, per-exercise `.wg-card` list with set-by-set mono rows (weight × reps), Log-set / Finish / Delete actions at the bottom
+- [x] preserve offline-pending + rejected badge logic — status pills render as `.wg-tag--mono` variants
+- [x] write `workout.history.test.js` — day grouping, row click opens detail, edit/delete callbacks, offline + rejected states, empty state
+- [x] write `workout.session-detail.test.js` — exercise list render, set-by-set rows, Log-set / Finish / Delete dispatch
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Rewrite the groups sub-tab
 
-- [ ] replace `#workout-groups-list` markup with a `.wg-workouts-groups` container — each group a `.wg-card` row carrying mono group name, exercise-count eyebrow, rotation-slot tag, and a trailing `.wg-icon-btn` cluster (edit / delete)
-- [ ] full-width `.wg-gloss--sun` "Add workout group" CTA appended at the bottom (replaces `#add-workout-group-btn` FAB)
-- [ ] edit modal (`showEditWorkoutGroupModal`) restyled with Wandergeek shell — mono header, `.wg-gloss--inset` input wraps for name + rotation slot + exercise list, Cancel + Save buttons (`.wg-gloss` + `.wg-gloss--sun`, 2× flex on Save)
-- [ ] empty state: muted card with "No workout groups yet — tap Add to create one."
-- [ ] write `workout.groups.test.js` — group row render, edit/delete callbacks, add-group flow, empty state, modal open/save/cancel
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace `#workout-groups-list` markup with a `.wg-workouts-groups` container — each group a `.wg-card` row carrying mono group name, exercise-count eyebrow, rotation-slot tag, and a trailing `.wg-icon-btn` cluster (edit / delete)
+- [x] full-width `.wg-gloss--sun` "Add workout group" CTA appended at the bottom (replaces `#add-workout-group-btn` FAB)
+- [x] edit modal (`showEditWorkoutGroupModal`) restyled with Wandergeek shell — mono header, `.wg-gloss--inset` input wraps for name + rotation slot + exercise list, Cancel + Save buttons (`.wg-gloss` + `.wg-gloss--sun`, 2× flex on Save)
+- [x] empty state: muted card with "No workout groups yet — tap Add to create one."
+- [x] write `workout.groups.test.js` — group row render, edit/delete callbacks, add-group flow, empty state, modal open/save/cancel
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Rewrite the exercises sub-tab
 
-- [ ] replace `#exercise-library-list` markup with a `.wg-workouts-exercises` container — each exercise a `.wg-card` row carrying mono name, muscle-group tag (`.wg-tag--mono`), and edit/delete icon cluster
-- [ ] full-width `.wg-gloss--sun` "Add exercise" CTA appended at the bottom (replaces `#add-exercise-library-btn` FAB)
-- [ ] edit modal (`showEditLibraryExerciseModal`) restyled with Wandergeek shell — mono header, `.wg-gloss--inset` input wraps for name + muscle group, Cancel + Save buttons
-- [ ] empty state: muted card with "No exercises in library yet — tap Add to create one."
-- [ ] write `workout.exercises.test.js` — exercise row render, edit/delete callbacks, add-exercise flow, empty state, modal open/save/cancel
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace `#exercise-library-list` markup with a `.wg-workouts-exercises` container — each exercise a `.wg-card` row carrying mono name, muscle-group tag (`.wg-tag--mono`), and edit/delete icon cluster
+- [x] full-width `.wg-gloss--sun` "Add exercise" CTA appended at the bottom (replaces `#add-exercise-library-btn` FAB)
+- [x] edit modal (`showEditLibraryExerciseModal`) restyled with Wandergeek shell — mono header, `.wg-gloss--inset` input wraps for name + muscle group, Cancel + Save buttons
+- [x] empty state: muted card with "No exercises in library yet — tap Add to create one."
+- [x] write `workout.exercises.test.js` — exercise row render, edit/delete callbacks, add-exercise flow, empty state, modal open/save/cancel
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Rewrite the stats sub-tab + build `WGWorkoutChart`
 
-- [ ] create `web/static/js/components/wg-workout-chart.js` exposing `WGWorkoutChart.render({ sessions, range, metric })` returning a DOM element
-- [ ] mirror `WGBpChart` / `WGWeightChart` structure — SVG canvas, axis + grid rendering, line plot (single-series for volume or duration trend)
-- [ ] colors + stroke widths come from `--wg-workouts-*` tokens via CSS classes — no inline `style=` / hardcoded hex
-- [ ] register `window.WGWorkoutChart` in `architecture.globals.test.js` with a one-line justification
-- [ ] replace `#workout-stats-display` markup with a `.wg-workouts-stats` container — `.wg-gloss--inset` range selector (7d / 30d / 90d / All) above the chart; range persists via `mt-workouts-stats-range` localStorage key; stat tiles below (total sessions / total volume / most-used exercise / longest streak) as `.wg-card` grid
-- [ ] write `components.wg-workout-chart.test.js` — range filter applied, empty-state card when no sessions, axis tick count sane
-- [ ] write `workout.stats.test.js` — stat-tile render, range-selector persistence, chart re-renders on range change
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-workout-chart.js` exposing `WGWorkoutChart.render({ sessions, range, metric })` returning a DOM element
+- [x] mirror `WGBpChart` / `WGWeightChart` structure — SVG canvas, axis + grid rendering, line plot (single-series for volume or duration trend)
+- [x] colors + stroke widths come from `--wg-workouts-*` tokens via CSS classes — no inline `style=` / hardcoded hex
+- [x] register `window.WGWorkoutChart` in `architecture.globals.test.js` with a one-line justification
+- [x] replace `#workout-stats-display` markup with a `.wg-workouts-stats` container — `.wg-gloss--inset` range selector (7d / 30d / 90d / All) above the chart; range persists via `mt-workouts-stats-range` localStorage key; stat tiles below (total sessions / total volume / most-used exercise / longest streak) as `.wg-card` grid
+- [x] write `components.wg-workout-chart.test.js` — range filter applied, empty-state card when no sessions, axis tick count sane
+- [x] write `workout.stats.test.js` — stat-tile render, range-selector persistence, chart re-renders on range change
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 8: Rewrite the log-set modal + edit-exercise modal
 
-- [ ] replace the log-set modal markup in `index.html` with the Wandergeek shell — mono header ("Log set · Bench"), `.wg-icon-btn` close trailing the header
-- [ ] weight + reps inputs — `.wg-gloss--inset` wraps with mono labels
-- [ ] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss` left, Save `.wg-gloss--sun` right with 2× flex per modal-button-order convention
-- [ ] edit-exercise modal (per-session exercise edit) restyled with the same shell
-- [ ] write `workout.modal.test.js` — open/save/cancel, input round-trip, `modal-controller.js` history integration preserved
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the log-set modal markup in `index.html` with the Wandergeek shell — mono header ("Log set · Bench"), `.wg-icon-btn` close trailing the header
+- [x] weight + reps inputs — `.wg-gloss--inset` wraps with mono labels
+- [x] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss` left, Save `.wg-gloss--sun` right with 2× flex per modal-button-order convention
+- [x] edit-exercise modal (per-session exercise edit) restyled with the same shell
+- [x] write `workout.modal.test.js` — open/save/cancel, input round-trip, `modal-controller.js` history integration preserved
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 9: Wire Workouts into the canonical bottom nav + cleanup
 
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `workouts` slot with the `dumbbell` (or equivalent) icon; add a Phase 7 contract test matching the BP/Food/Meds/Weight contract tests
-- [ ] grep-verify remaining paper-era workout classes — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
-- [ ] run `pnpm test` — must pass before next task
+- [x] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `workouts` slot with the `dumbbell` (or equivalent) icon; add a Phase 7 contract test matching the BP/Food/Meds/Weight contract tests
+- [x] grep-verify remaining paper-era workout classes — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 10: Verify acceptance criteria for Phase 7
 
-- [ ] open `index.html` in desktop 390×844 phone view, compare Workouts screen side-by-side with `Medtracker.html` — manual visual check
-- [ ] open in mobile viewport (DevTools 375×812) — manual visual check
-- [ ] full `pnpm test` suite green
-- [ ] `go test ./...` green (sanity check; no backend changes expected)
-- [ ] grep `style="` and `\.style\.` in the new JS — zero `style="` matches; any `.style.setProperty('--wg-*', …)` additions allowlisted in `architecture.inline-styles.test.js` (CSS custom property, not a hardcoded visual value)
+- [x] open `index.html` in desktop 390×844 phone view, compare Workouts screen side-by-side with `Medtracker.html` — manual visual check (skipped — not automatable from CI environment)
+- [x] open in mobile viewport (DevTools 375×812) — manual visual check (skipped — not automatable from CI environment)
+- [x] full `pnpm test` suite green (1091 tests across 101 files pass)
+- [x] `go test ./...` green (sanity check; no backend changes expected)
+- [x] grep `style="` and `\.style\.` in the new JS — zero `style="` matches in both `features/workout.js` and `components/wg-workout-chart.js`; the only `.style.setProperty` call sets `--fill-pct` (component-local CSS custom property consumed via `width: var(--fill-pct)` in a CSS class, matches the allowlisted `wg-macro-bar.js` pattern) — no `--wg-*` token setters introduced, so no new allowlist entry required
 
 ### Task 11: [Final] Update plan and write Phase 8 plan stub
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write `docs/plans/2026-04-XX-wandergeek-phase8-health.md` covering the Health screen rewrite (SpO2 + sleep + diary — vitals tiles, sleep history by week, notes/diary list)
-- [ ] no code changes in this task
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write `docs/plans/2026-04-XX-wandergeek-phase8-health.md` covering the Health screen rewrite (SpO2 + sleep + diary — vitals tiles, sleep history by week, notes/diary list)
+- [x] no code changes in this task
 
 ## Technical Details
 

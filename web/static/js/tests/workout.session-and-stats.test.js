@@ -210,7 +210,7 @@ describe('workout.js session and stats flows', () => {
         }
       ]);
       expect(historyContainer.innerHTML).toContain('Leg Day');
-      expect(historyContainer.innerHTML).toContain('kg total');
+      expect(historyContainer.innerHTML).toMatch(/5,400\s*kg/);
 
       window._renderWorkoutStats(statsContainer, null);
       expect(statsContainer.textContent).toContain('No statistics available yet');
@@ -230,12 +230,15 @@ describe('workout.js session and stats flows', () => {
         ]
       });
 
+      // Phase 7, Task 7: stats layout is Wandergeek — range selector + chart
+      // + 2×2 stat-tile grid + optional Top Exercises list. The heatmap /
+      // legend from the paper era is gone.
+      expect(statsContainer.querySelector('.wg-workouts-stats')).not.toBeNull();
+      expect(statsContainer.querySelector('.wg-workouts-stats__range')).not.toBeNull();
+      expect(statsContainer.querySelector('.wg-workouts-stats__chart-panel')).not.toBeNull();
       expect(statsContainer.innerHTML).toContain('Top Exercises');
-      expect(statsContainer.innerHTML).toContain('12-Week Activity');
       expect(statsContainer.innerHTML).toContain('Active Weeks');
       expect(statsContainer.innerHTML).toContain('30-Day Sessions');
-      expect(statsContainer.innerHTML).toContain('Partial &lt;50%');
-      expect(statsContainer.innerHTML).toContain('Partial ≥50%');
     } finally {
       cleanup();
     }
@@ -290,10 +293,13 @@ describe('workout.js session and stats flows', () => {
 
       window._renderWorkoutHistory(historyContainer, sessions, miband, 'UTC');
 
-      const items = Array.from(historyContainer.firstElementChild.children);
+      // History rewrite groups rows by day inside a .wg-workouts-history__list;
+      // flatten back out in render order to assert the sort.
+      const items = Array.from(historyContainer.querySelectorAll('.wg-workouts-history-row'));
 
       expect(items[0].textContent).toContain('Evening Main');
-      expect(items[1].textContent).toContain('Cycling');
+      // Mi Band card renders the activity label in the slot tag (uppercase).
+      expect(items[1].textContent).toContain('CYCLING');
       expect(items[2].textContent).toContain('Morning Workouts');
 
     } finally {
