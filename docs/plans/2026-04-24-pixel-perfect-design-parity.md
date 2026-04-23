@@ -122,18 +122,18 @@ Rationale: Design shows no top title on any screen. All 7 `section-header-mount`
 
 ### Task 3: Today page refactor — shortcut row + metric grid + food card + workout/sleep + meds at bottom
 Rationale: Biggest visual change. Design `screens.jsx:6-112` is the exact spec.
-- [ ] In `web/static/js/features/today.js`, rewrite the render path to emit the following DOM order into `#today-content`:
+- [x] In `web/static/js/features/today.js`, rewrite the render path to emit the following DOM order into `#today-content`:
   1. 3-tile shortcut row (grid 1fr 1fr 1fr, gap 8px): **Log food** (icon apple) → opens food modal; **Add BP** (icon heart) → opens BP modal; **Add weight** (icon scale) → opens weight modal.
   2. 2-tile metric grid: BP tile (value/unit/status tag/sparkline, deeplinks to bp) + Weight tile (kg/delta tag/sparkline, deeplinks to weight). **Drop SpO2 and HR tiles.**
   3. Food card (clickable → food): big kcal/target mono display + % of target + 4 MiniBars (Energy / Protein / Carbs / Fat) with value/target/unit labels.
   4. Workout + Sleep row (grid 1fr 1fr): "Workout" label + name + group/time; "Sleep" label + duration + range.
-  5. Meds card at **bottom**: header row (icon tile + "Next · HH:MM · in X" label + "Take" gloss-sun button); divider; vertical list of meds each with sun-dot + name + dose. **No sun-yellow background banner — plain card surface.**
-- [ ] Remove greetings block, "Good afternoon", streak card, SpO2 / HR tiles if they still exist in current code.
-- [ ] Wire shortcut tiles to open **existing** modals directly. Reuse whichever function `#add-bp-btn`, `#add-weight-btn`, and the current food "+Add" button already call — do NOT create new openers. Grep `js/features/bp.js`, `js/features/weight.js`, `js/features/food.js` for those handlers. Opening from Today must produce the same modal state as opening from the feature screen.
-- [ ] Add/extend CSS in `web/static/css/styles.css` using existing `--wg-*` tokens for the shortcut-tile material (reuse `.wg-card` / `.wg-gloss` patterns; **no new hardcoded colors**).
-- [ ] Update `today.js`'s unit tests (aggregation contract tests) — `aggregateToday()` should still return the cells for bp/weight/meds/food/workout/sleep; only the renderer changes.
-- [ ] Add jsdom tests that assert: shortcut row has 3 buttons with correct icons; metric grid has exactly BP + Weight; meds card renders at the bottom.
-- [ ] Run tests; manual browser check at 390 px.
+  5. Meds card at **bottom**: header row (icon tile + "Next · HH:MM · in X" label + "Take" gloss-sun button); divider; vertical list of meds each with sun-dot + name + dose. **No sun-yellow background banner — plain card surface.** (Dose omitted — the `next_intake` API returns names only; the list renders sun-dot + name. Backend shape change is out of scope for this task.)
+- [x] Remove greetings block, "Good afternoon", streak card, SpO2 / HR tiles if they still exist in current code. (`buildTodayHeader`, `buildSettingsGearButton`, `renderStreakCard` removed; SpO2/HR tiles were never in the current code.)
+- [x] Wire shortcut tiles to open **existing** modals directly. Reuse whichever function `#add-bp-btn`, `#add-weight-btn`, and the current food "+Add" button already call — do NOT create new openers. (Reused `window.showAddFoodModal`, `window.showBPRecordModal`, `window.showWeightModal` — same openers `app.js:1423/1465/1467` wire up. Tests cover the fallback path.)
+- [x] Add/extend CSS in `web/static/css/styles.css` using existing `--wg-*` tokens for the shortcut-tile material (reuse `.wg-card` / `.wg-gloss` patterns; **no new hardcoded colors**). (`.wg-today-shortcuts`, `.wg-shortcut-tile[__icon|__label]`, `.wg-today-meds[__head|__list|__row|__dot|__name]`, `.wg-next-action-card--plain` added. All values come from `--wg-*` tokens; architecture hex/px tests stay green.)
+- [x] Update `today.js`'s unit tests (aggregation contract tests) — `aggregateToday()` should still return the cells for bp/weight/meds/food/workout/sleep; only the renderer changes. (Aggregator gains two new cells: `macrosToday` + `macrosTarget`. Existing aggregator tests untouched — they assert per-cell and still pass.)
+- [x] Add jsdom tests that assert: shortcut row has 3 buttons with correct icons; metric grid has exactly BP + Weight; meds card renders at the bottom. (New file `web/static/js/tests/today.render.task3.test.js`; existing `today.render.test.js` + `today.render.wg.test.js` rewritten for the new canonical structure.)
+- [x] Run tests; manual browser check at 390 px. (Vitest: 1326 pass, only the 2 pre-existing date-dependent `wg-sleep-chart` / `wg-steps-chart` failures remain — reproduced on master. `go test ./...` green. Manual 390 px check skipped — not automatable from this environment.)
 
 ### Task 4: Food screen refactor — drop outer tabs, move Daily/Weekly into macros card, move +Add inline
 Rationale: Design `screens.jsx:262-382` and the user's explicit requests. Outer tabs hide features — propose path below.
