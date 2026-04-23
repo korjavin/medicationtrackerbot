@@ -6775,6 +6775,175 @@ textarea.wg-input {
     stroke-width: var(--wg-workouts-chart-last-stroke-width);
 }
 
+/* WGSleepChart base shell (Phase 8, Task 4). The SVG carries the shared
+   class; empty-state returns a <div> with the same class + --empty modifier.
+   Stacked-bar fills resolve via the per-stage variant classes (deep / light /
+   rem / awake); the HR overlay path, dots, and labels resolve via the
+   __hr-line / __hr-dot / __hr-dot-outer / __hr-label classes. */
+.wg-sleep-chart {
+    display: block;
+    width: 100%;
+    max-width: var(--wg-health-chart-width);
+    height: auto;
+    margin-inline: auto;
+}
+
+.wg-sleep-chart--empty {
+    min-height: var(--wg-health-chart-tall-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-fg-5);
+    font-size: var(--font-size-sm);
+}
+
+.wg-sleep-chart__stage {
+    stroke: none;
+}
+
+.wg-sleep-chart__stage--deep {
+    fill: var(--wg-health-sleep-deep);
+}
+
+.wg-sleep-chart__stage--light {
+    fill: var(--wg-health-sleep-light);
+}
+
+.wg-sleep-chart__stage--rem {
+    fill: var(--wg-health-sleep-rem);
+}
+
+.wg-sleep-chart__stage--awake {
+    fill: var(--wg-health-sleep-awake);
+}
+
+.wg-sleep-chart__guide {
+    stroke: var(--wg-fg-5);
+    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    fill: none;
+}
+
+.wg-sleep-chart__tick {
+    stroke: var(--wg-fg-5);
+    fill: none;
+}
+
+.wg-sleep-chart__axis-label {
+    fill: var(--wg-fg-5);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-sleep-chart__day-label {
+    fill: var(--wg-fg-5);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-sleep-chart__bar-label {
+    fill: var(--wg-fg-1);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-sleep-chart__hr-line {
+    fill: none;
+    stroke: var(--wg-health-sleep-hr);
+    stroke-width: var(--wg-health-chart-line-stroke-width);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.wg-sleep-chart__hr-dot-outer {
+    fill: var(--wg-bg-card);
+    stroke: none;
+}
+
+.wg-sleep-chart__hr-dot {
+    fill: var(--wg-health-sleep-hr);
+    stroke: none;
+}
+
+.wg-sleep-chart__hr-label {
+    fill: var(--wg-health-sleep-hr);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+    font-weight: var(--font-weight-bold);
+    paint-order: stroke fill;
+    stroke: var(--wg-bg-card);
+    stroke-width: 3;
+}
+
+/* Sleep card shell (Phase 8, Task 4). Wraps the WGSleepChart SVG under a
+   mono header, followed by a legend row and a section-label averages line.
+   The card itself uses the shared .wg-card surface. */
+.wg-sleep-card {
+    padding: var(--wg-health-card-pad);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-sleep-card__header {
+    font-size: var(--wg-health-card-header-size);
+}
+
+.wg-sleep-card__stat {
+    font-size: var(--wg-health-card-stat-size);
+    color: var(--wg-fg-4);
+}
+
+/* Sleep card legend (Phase 8, Task 4) — mono swatch + label pairs; swatch
+   colour resolves via the __badge--{variant} class, never an inline style. */
+.wg-health-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--wg-health-legend-gap);
+    align-items: center;
+}
+
+.wg-health-legend__item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-health-legend__badge {
+    display: inline-block;
+    width: var(--wg-health-legend-badge-size);
+    height: var(--wg-health-legend-badge-size);
+    border-radius: var(--radius-sm);
+}
+
+.wg-health-legend__badge--line {
+    height: 2px;
+    border-radius: var(--radius-pill);
+}
+
+.wg-health-legend__badge--deep {
+    background: var(--wg-health-sleep-deep);
+}
+
+.wg-health-legend__badge--light {
+    background: var(--wg-health-sleep-light);
+}
+
+.wg-health-legend__badge--rem {
+    background: var(--wg-health-sleep-rem);
+}
+
+.wg-health-legend__badge--awake {
+    background: var(--wg-health-sleep-awake);
+}
+
+.wg-health-legend__badge--hr {
+    background: var(--wg-health-sleep-hr);
+}
+
 /* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
    bracket clusters of scheduled meds; each row is a `.wg-card` with a name
    (mono-display), dosage, schedule summary, optional inventory tag, and a

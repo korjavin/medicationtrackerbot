@@ -14,10 +14,11 @@ function isoDaysAgo(days) {
 }
 
 function buildHealthOverviewPayload() {
+  const today = new Date().toISOString().slice(0, 10);
   return {
     sleep_stats_7d: [
       {
-        date: '2026-02-20',
+        date: today,
         deep_mins: 80,
         awake_mins: 20,
         light_mins: 220,
@@ -28,7 +29,7 @@ function buildHealthOverviewPayload() {
     ],
     average_sleep_hours_7d: 6.5,
     average_sleep_hours_30d: 6.9,
-    step_stats_7d: [{ day: '2026-02-20', steps: 9200 }],
+    step_stats_7d: [{ day: today, steps: 9200 }],
     average_steps_7d: 9200,
     average_steps_30d: 8800,
     heart_rate_history_7d: [{ timestamp: Date.now(), min: 58, max: 84, avg: 70 }],
@@ -322,7 +323,6 @@ describe('app.js charts, scanner and visualization helpers', () => {
 
       window.DataStore.loadSWR = loadSWRSpy;
       const vitalsSpy = vi.spyOn(window, 'renderVitalsLineChart').mockImplementation(() => {});
-      const sleepSpy = vi.spyOn(window, 'renderSleepChart').mockImplementation(() => {});
       const stepsSpy = vi.spyOn(window, 'renderStepsChart').mockImplementation(() => {});
 
       await window.loadHealthOverview();
@@ -331,14 +331,18 @@ describe('app.js charts, scanner and visualization helpers', () => {
       await window.loadHealthOverview();
       await vi.runAllTimersAsync();
 
-      const html = document.getElementById('health-overview-content').innerHTML;
+      const content = document.getElementById('health-overview-content');
+      const html = content.innerHTML;
       expect(html).toContain('Sleep');
       expect(html).toContain('Steps');
       expect(html).toContain('Heart Rate');
       expect(html).toContain('SpO2');
       expect(html).toContain('Stress Level');
       expect(vitalsSpy).toHaveBeenCalledTimes(3);
-      expect(sleepSpy).toHaveBeenCalledTimes(1);
+      // Phase 8, Task 4: sleep card now renders via WGSleepChart inside a
+      // .wg-sleep-card shell, not the legacy renderSleepChart helper.
+      expect(content.querySelector('.wg-sleep-card')).toBeTruthy();
+      expect(content.querySelector('.wg-sleep-card svg.wg-sleep-chart')).toBeTruthy();
       expect(stepsSpy).toHaveBeenCalledTimes(1);
       expect(loadSWRSpy).toHaveBeenCalledWith(expect.objectContaining({
         key: 'health_overview',
@@ -358,10 +362,11 @@ describe('app.js charts, scanner and visualization helpers', () => {
 
     try {
       const cachedPayload = buildHealthOverviewPayload();
+      const today = new Date().toISOString().slice(0, 10);
       const freshPayload = {
         ...buildHealthOverviewPayload(),
         average_steps_7d: 10000,
-        step_stats_7d: [{ day: '2026-02-20', steps: 10000 }]
+        step_stats_7d: [{ day: today, steps: 10000 }]
       };
 
       let resolveFresh;

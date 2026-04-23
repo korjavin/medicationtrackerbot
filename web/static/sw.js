@@ -29,6 +29,7 @@ const STATIC_ASSETS = [
     '/static/js/components/wg-bp-chart.js',
     '/static/js/components/wg-weight-chart.js',
     '/static/js/components/wg-workout-chart.js',
+    '/static/js/components/wg-sleep-chart.js',
     '/static/js/components/wg-macro-bar.js',
     // Infrastructure
     '/static/js/db.js',
