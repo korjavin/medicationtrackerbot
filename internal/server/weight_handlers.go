@@ -31,8 +31,18 @@ func (s *Server) handleCreateWeight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get last weight log to calculate trend
-	lastLog, _ := s.weight.GetLastWeightLog(r.Context(), userID)
+	// Get last weight log to calculate trend. When the client is replacing an
+	// existing log (edit path: POST the replacement, then DELETE the original),
+	// it passes `?replaces=<id>` so we skip that row. Otherwise the EMA would
+	// smooth against a row that is about to disappear, leaving a slightly drifted
+	// weight_trend on the new row that leaks into CSV export and MCP output.
+	var excludeID int64
+	if raw := r.URL.Query().Get("replaces"); raw != "" {
+		if id, err := strconv.ParseInt(raw, 10, 64); err == nil && id > 0 {
+			excludeID = id
+		}
+	}
+	lastLog, _ := s.weight.GetLastWeightLogExcluding(r.Context(), userID, excludeID)
 
 	var previousTrend *float64
 	if lastLog != nil && lastLog.WeightTrend != nil {

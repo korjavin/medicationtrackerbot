@@ -1413,13 +1413,29 @@ func (s *Store) DeleteWeightLog(ctx context.Context, id, userID int64) error {
 }
 
 func (s *Store) GetLastWeightLog(ctx context.Context, userID int64) (*WeightLog, error) {
+	return s.GetLastWeightLogExcluding(ctx, userID, 0)
+}
+
+// GetLastWeightLogExcluding returns the most recent weight log for the user,
+// optionally excluding a row by ID. Pass excludeID = 0 to disable exclusion.
+// Used by the POST /api/weight edit path so the EMA trend baseline skips the
+// soon-to-be-deleted original log.
+func (s *Store) GetLastWeightLogExcluding(ctx context.Context, userID, excludeID int64) (*WeightLog, error) {
 	var w WeightLog
 	var weightTrend, bodyFat, bodyFatTrend, muscleMass, muscleMassTrend sql.NullFloat64
 	var notes sql.NullString
 
-	err := s.db.QueryRowContext(ctx,
-		"SELECT id, user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes FROM weight_logs WHERE user_id = ? ORDER BY measured_at DESC LIMIT 1",
-		userID).Scan(&w.ID, &w.UserID, &w.MeasuredAt, &w.Weight, &weightTrend, &bodyFat, &bodyFatTrend, &muscleMass, &muscleMassTrend, &notes)
+	query := "SELECT id, user_id, measured_at, weight, weight_trend, body_fat, body_fat_trend, muscle_mass, muscle_mass_trend, notes FROM weight_logs WHERE user_id = ?"
+	args := []interface{}{userID}
+	if excludeID > 0 {
+		query += " AND id != ?"
+		args = append(args, excludeID)
+	}
+	query += " ORDER BY measured_at DESC LIMIT 1"
+
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(
+		&w.ID, &w.UserID, &w.MeasuredAt, &w.Weight,
+		&weightTrend, &bodyFat, &bodyFatTrend, &muscleMass, &muscleMassTrend, &notes)
 
 	if err == sql.ErrNoRows {
 		return nil, nil

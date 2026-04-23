@@ -259,7 +259,7 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(apiCallSpy).not.toHaveBeenCalled();
         });
 
-        it('editing a server-backed log DELETEs the original before POSTing the replacement', async () => {
+        it('editing a server-backed log POSTs the replacement before DELETEing the original', async () => {
             const { window, document } = env;
             const apiCallSpy = vi.fn().mockResolvedValue({ id: 2 });
             window.apiCall = apiCallSpy;
@@ -273,19 +273,22 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             await window.handleWeightSubmit({ preventDefault() {} });
 
             expect(apiCallSpy).toHaveBeenCalledTimes(2);
-            const [delUrl, delMethod] = apiCallSpy.mock.calls[0];
-            expect(delUrl).toBe('/api/weight/17');
-            expect(delMethod).toBe('DELETE');
-            const [postUrl, postMethod, postPayload] = apiCallSpy.mock.calls[1];
-            expect(postUrl).toBe('/api/weight');
+            const [postUrl, postMethod, postPayload] = apiCallSpy.mock.calls[0];
+            // The edit path tags the POST with ?replaces=<id> so the server
+            // excludes the about-to-be-deleted row from the EMA baseline.
+            expect(postUrl).toBe('/api/weight?replaces=17');
             expect(postMethod).toBe('POST');
             expect(postPayload.weight).toBeCloseTo(80.1, 2);
+            const [delUrl, delMethod] = apiCallSpy.mock.calls[1];
+            expect(delUrl).toBe('/api/weight/17');
+            expect(delMethod).toBe('DELETE');
         });
 
-        it('aborts the POST when DELETE fails (offline) so the edit does not duplicate', async () => {
+        it('skips the DELETE when POST fails so the original row is not lost', async () => {
             const { window, document } = env;
-            // First call (DELETE) returns null (offline / write failure contract
-            // in core/api.js). POST must NOT be issued.
+            // First call (POST) returns null (write failure contract in
+            // core/api.js). DELETE must NOT be issued — otherwise a failed
+            // edit would remove the original without a replacement.
             const apiCallSpy = vi.fn().mockResolvedValueOnce(null);
             window.apiCall = apiCallSpy;
             window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
@@ -299,21 +302,47 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             await window.handleWeightSubmit({ preventDefault() {} });
 
             expect(apiCallSpy).toHaveBeenCalledTimes(1);
-            const [delUrl, delMethod] = apiCallSpy.mock.calls[0];
-            expect(delUrl).toBe('/api/weight/99');
-            expect(delMethod).toBe('DELETE');
+            const [postUrl, postMethod] = apiCallSpy.mock.calls[0];
+            expect(postUrl).toBe('/api/weight?replaces=99');
+            expect(postMethod).toBe('POST');
             expect(loadWeightSpy).not.toHaveBeenCalled();
         });
 
-        it('clears editingWeightLog after a successful DELETE so a POST-failure retry skips the DELETE step', async () => {
+        it('still completes the edit when DELETE fails after a successful POST (duplicate preferred to data loss)', async () => {
             const { window, document } = env;
-            // First attempt: DELETE resolves (200) → POST resolves → happy path.
-            // We assert that a synthetic retry via handleWeightSubmit() issues
-            // only a POST (no second DELETE against the now-gone row id).
+            // POST succeeds; DELETE returns null (e.g. network hiccup after
+            // the replacement landed). The modal still closes and
+            // loadWeightLogs runs so the user sees the new row; the stale
+            // original remains and can be deleted from the history list.
             const apiCallSpy = vi.fn()
-                .mockResolvedValueOnce({ ok: true })    // DELETE
+                .mockResolvedValueOnce({ id: 2 })  // POST
+                .mockResolvedValueOnce(null);      // DELETE
+            window.apiCall = apiCallSpy;
+            window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+            const loadWeightSpy = vi.fn();
+            window.loadWeightLogs = loadWeightSpy;
+
+            window.editWeightLog({ id: 17, measured_at: '2026-04-20T08:00:00Z', weight: 81.2, notes: '' });
+            document.getElementById('weight-datetime').value = '2026-04-22T08:15';
+            document.getElementById('weight-value').value = '80.1';
+
+            await window.handleWeightSubmit({ preventDefault() {} });
+
+            expect(apiCallSpy).toHaveBeenCalledTimes(2);
+            expect(apiCallSpy.mock.calls[0][1]).toBe('POST');
+            expect(apiCallSpy.mock.calls[1][1]).toBe('DELETE');
+            expect(loadWeightSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('clears editingWeightLog after a successful edit so a later Save does not DELETE the old row again', async () => {
+            const { window, document } = env;
+            // First attempt: POST resolves → DELETE resolves → happy path.
+            // A synthetic follow-up handleWeightSubmit() (no re-open) should
+            // issue only a POST — the previous DELETE already ran.
+            const apiCallSpy = vi.fn()
                 .mockResolvedValueOnce({ id: 2 })       // POST
-                .mockResolvedValueOnce({ id: 3 });      // retry POST
+                .mockResolvedValueOnce({ ok: true })    // DELETE
+                .mockResolvedValueOnce({ id: 3 });      // follow-up POST
             window.apiCall = apiCallSpy;
             window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
             window.loadWeightLogs = vi.fn();
@@ -323,16 +352,14 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             document.getElementById('weight-value').value = '80.1';
             await window.handleWeightSubmit({ preventDefault() {} });
 
-            // Simulate the modal still being open (e.g. test-harness closeWeightModal
-            // did close it — reopen + resubmit instead as the retry proxy).
             document.getElementById('weight-datetime').value = '2026-04-22T08:20';
             document.getElementById('weight-value').value = '80.2';
             await window.handleWeightSubmit({ preventDefault() {} });
 
-            // Three calls total: DELETE, POST, then the retry POST — no second DELETE.
+            // Three calls total: POST, DELETE, then the follow-up POST only.
             expect(apiCallSpy).toHaveBeenCalledTimes(3);
-            expect(apiCallSpy.mock.calls[0][1]).toBe('DELETE');
-            expect(apiCallSpy.mock.calls[1][1]).toBe('POST');
+            expect(apiCallSpy.mock.calls[0][1]).toBe('POST');
+            expect(apiCallSpy.mock.calls[1][1]).toBe('DELETE');
             expect(apiCallSpy.mock.calls[2][1]).toBe('POST');
         });
 
