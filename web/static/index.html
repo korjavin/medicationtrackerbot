@@ -294,41 +294,39 @@
         <div id="settings-view" class="view">
             <div class="section-header-mount" data-title="Settings"></div>
 
-            <div class="setting-item sync-status-item">
-                <div>
-                    <h3>Sync Status</h3>
-                    <p class="setting-desc">Connectivity and background sync</p>
+            <section class="wg-card wg-settings-section">
+                <h3 class="wg-settings-section__title">Sync</h3>
+                <p class="wg-settings-section__desc">Connectivity and background sync</p>
+                <div class="wg-settings-row-list">
+                    <div id="sync-status-bar" class="sync-status-bar wg-settings-hidden"></div>
                 </div>
-                <div id="sync-status-bar" class="sync-status-bar" style="display: none;"></div>
-            </div>
+            </section>
 
-            <div id="oidc-setup-container"></div>
+            <section id="oidc-setup-container" class="wg-card wg-settings-section wg-settings-oidc"></section>
 
-            <div class="setting-item setting-info-block">
-                <div style="width: 100%;">
-                    <h3>Time &amp; Timezone</h3>
-                    <p class="setting-desc">Read-only info to verify the detected timezone and compare clocks</p>
-                    <div class="settings-info-grid">
-                        <div class="settings-info-row">
-                            <span class="settings-info-label">Saved Timezone</span>
-                            <span id="settings-timezone-value" class="settings-info-value">Loading...</span>
-                        </div>
-                        <div class="settings-info-row">
-                            <span class="settings-info-label">Time In Saved Timezone</span>
-                            <span id="settings-saved-time-value" class="settings-info-value">Loading...</span>
-                        </div>
-                        <div class="settings-info-row">
-                            <span class="settings-info-label">Browser Local Time</span>
-                            <span id="settings-local-time-value" class="settings-info-value">Loading...</span>
-                        </div>
-                        <div class="settings-info-row">
-                            <span class="settings-info-label">Server Time</span>
-                            <span id="settings-server-time-value" class="settings-info-value">Loading...</span>
-                        </div>
+            <section class="wg-card wg-settings-section">
+                <h3 class="wg-settings-section__title">Time &amp; Timezone</h3>
+                <p class="wg-settings-section__desc">Read-only info to verify the detected timezone and compare clocks</p>
+                <div class="wg-gloss--inset wg-settings-info-grid">
+                    <div class="wg-settings-info-row">
+                        <span class="wg-settings-info-row__label">Saved Timezone</span>
+                        <span id="settings-timezone-value" class="wg-settings-info-row__value wg-mono-display">Loading...</span>
                     </div>
-                    <p id="settings-timezone-note" class="setting-desc settings-info-note"></p>
+                    <div class="wg-settings-info-row">
+                        <span class="wg-settings-info-row__label">Time In Saved Timezone</span>
+                        <span id="settings-saved-time-value" class="wg-settings-info-row__value wg-mono-display">Loading...</span>
+                    </div>
+                    <div class="wg-settings-info-row">
+                        <span class="wg-settings-info-row__label">Browser Local Time</span>
+                        <span id="settings-local-time-value" class="wg-settings-info-row__value wg-mono-display">Loading...</span>
+                    </div>
+                    <div class="wg-settings-info-row">
+                        <span class="wg-settings-info-row__label">Server Time</span>
+                        <span id="settings-server-time-value" class="wg-settings-info-row__value wg-mono-display">Loading...</span>
+                    </div>
                 </div>
-            </div>
+                <p id="settings-timezone-note" class="wg-settings-info-note"></p>
+            </section>
 
             <mt-setting-toggle title="Web Push Notifications" description="Browser notifications for medications"
                 input-id="webpush-toggle"></mt-setting-toggle>

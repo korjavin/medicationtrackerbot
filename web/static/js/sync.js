@@ -366,11 +366,9 @@ const SyncManager = {
         if (!status.isOnline) {
             statusBar.className = 'sync-status-bar offline cursor-pointer';
             statusBar.innerHTML = '<span class="sync-icon">&#x1F4F4;</span> Offline - changes saved locally <span class="sync-hint">(tap for logs)</span>';
-            statusBar.style.display = 'flex';
         } else if (status.isSyncing) {
             statusBar.className = 'sync-status-bar syncing cursor-pointer';
             statusBar.innerHTML = '<span class="sync-icon spinning">&#x21BB;</span> Syncing... <span class="sync-hint">(tap for logs)</span>';
-            statusBar.style.display = 'flex';
         } else if (status.pendingCount > 0 && status.rejectedCount > 0) {
             statusBar.className = 'sync-status-bar error cursor-pointer';
             let retryInfo = '';
@@ -379,7 +377,6 @@ const SyncManager = {
                 retryInfo = ` · retry in ${secsLeft}s`;
             }
             statusBar.innerHTML = `<span class="sync-icon">&#x26A0;</span> ${status.rejectedCount} failed, ${status.pendingCount} pending${retryInfo} <span class="sync-hint">(tap for details)</span>`;
-            statusBar.style.display = 'flex';
         } else if (status.pendingCount > 0) {
             statusBar.className = 'sync-status-bar pending cursor-pointer';
             let retryInfo = '';
@@ -388,17 +385,15 @@ const SyncManager = {
                 retryInfo = ` · retry in ${secsLeft}s`;
             }
             statusBar.innerHTML = `<span class="sync-icon">&#x23F3;</span> ${status.pendingCount} item${status.pendingCount > 1 ? 's' : ''} pending sync${retryInfo} <span class="sync-hint">(tap for logs)</span>`;
-            statusBar.style.display = 'flex';
         } else if (status.rejectedCount > 0) {
             statusBar.className = 'sync-status-bar error cursor-pointer';
             statusBar.innerHTML = `<span class="sync-icon">&#x26A0;</span> ${status.rejectedCount} item${status.rejectedCount > 1 ? 's' : ''} failed to sync <span class="sync-hint">(tap for details)</span>`;
-            statusBar.style.display = 'flex';
         } else {
             // Show a minimal "synced" indicator that can still be tapped for debug
             statusBar.className = 'sync-status-bar synced cursor-pointer';
             statusBar.innerHTML = '<span class="sync-hint-dim">&#x2705; Synced (tap for debug)</span>';
-            statusBar.style.display = 'flex';
         }
+        statusBar.classList.remove('wg-settings-hidden');
     },
 
     // Sync all pending data

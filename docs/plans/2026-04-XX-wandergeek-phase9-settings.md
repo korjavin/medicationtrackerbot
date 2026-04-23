@@ -105,11 +105,11 @@ No backend changes. The existing `/api/settings/*`, `/api/bp/reminder/*`, `/api/
 
 ### Task 3: Rewrite sync status + OIDC setup + timezone cards
 
-- [ ] replace the sync-status `.setting-item` block with a `renderSettingsSection({ title: 'Sync', … })` + `#sync-status-bar` mount inside a `.wg-card--inset` container; remove inline `style="display: none;"` in favor of a `.wg-settings-hidden` class that `sync-status` code toggles
-- [ ] keep `#oidc-setup-container` mount as-is (rendered by separate OIDC flow); wrap it in a `.wg-card` shell for visual parity
-- [ ] replace the Time & Timezone block with `renderSettingsSection({ title: 'Time & Timezone', description: '…' })` + a `.wg-gloss--inset` info grid containing the four info rows (Saved Timezone / Time In Saved Timezone / Browser Local Time / Server Time) — values are still populated by the existing timezone-loading code in `app.js`
-- [ ] write `settings.sync-timezone.test.js` — sync card render, timezone info-grid render, values round-trip from the existing data sources
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the sync-status `.setting-item` block with a `renderSettingsSection({ title: 'Sync', … })` + `#sync-status-bar` mount inside a `.wg-card--inset` container; remove inline `style="display: none;"` in favor of a `.wg-settings-hidden` class that `sync-status` code toggles
+- [x] keep `#oidc-setup-container` mount as-is (rendered by separate OIDC flow); wrap it in a `.wg-card` shell for visual parity
+- [x] replace the Time & Timezone block with `renderSettingsSection({ title: 'Time & Timezone', description: '…' })` + a `.wg-gloss--inset` info grid containing the four info rows (Saved Timezone / Time In Saved Timezone / Browser Local Time / Server Time) — values are still populated by the existing timezone-loading code in `app.js`
+- [x] write `settings.sync-timezone.test.js` — sync card render, timezone info-grid render, values round-trip from the existing data sources
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Rewrite the web push + notifications section
 
