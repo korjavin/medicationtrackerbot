@@ -556,6 +556,91 @@
     --wg-weight-trend-flat-bg: var(--wg-tag-normal-bg);
     --wg-weight-trend-flat-fg: var(--wg-tag-normal-fg);
     --wg-weight-trend-flat-border: var(--wg-tag-normal-border);
+
+    /* Wandergeek — Workouts screen (Phase 7, Task 1). Dimensional tokens for
+       the sub-tab strip, today's-workout card, day-grouped history rows,
+       session-detail view with set-by-set rows, groups/exercises list rows,
+       stat tiles + chart geometry, and the log-set / edit-group / edit-
+       library modals. Everything visual in features/workout.js and
+       components/wg-workout-chart.js reads from here. */
+    --wg-workouts-subtab-pad-y: 6px;
+    --wg-workouts-subtab-pad-x: 10px;
+    --wg-workouts-subtab-gap: 4px;
+    --wg-workouts-today-card-pad: 16px;
+    --wg-workouts-today-subtitle-size: 11px;
+    --wg-workouts-today-names-size: 15px;
+    --wg-workouts-today-duration-size: 12px;
+    --wg-workouts-slot-tag-pad-y: 4px;
+    --wg-workouts-slot-tag-pad-x: 8px;
+    --wg-workouts-slot-tag-size: 11px;
+    --wg-workouts-history-day-size: 11px;
+    --wg-workouts-history-row-cols: 1fr auto;
+    --wg-workouts-history-row-gap: 10px;
+    --wg-workouts-history-row-pad: 12px;
+    --wg-workouts-history-duration-size: 14px;
+    --wg-workouts-history-count-size: 12px;
+    --wg-workouts-session-header-size: 15px;
+    --wg-workouts-session-meta-size: 11px;
+    --wg-workouts-session-set-row-min-h: 28px;
+    --wg-workouts-session-set-row-gap: 8px;
+    --wg-workouts-session-set-row-size: 13px;
+    --wg-workouts-session-action-gap: 8px;
+    --wg-workouts-groups-row-cols: 1fr auto;
+    --wg-workouts-groups-row-gap: 10px;
+    --wg-workouts-groups-row-pad: 12px;
+    --wg-workouts-groups-name-size: 15px;
+    --wg-workouts-groups-count-size: 11px;
+    --wg-workouts-exercises-row-cols: 1fr auto;
+    --wg-workouts-exercises-row-gap: 10px;
+    --wg-workouts-exercises-row-pad: 12px;
+    --wg-workouts-exercises-name-size: 15px;
+    --wg-workouts-stats-tile-pad: 14px;
+    --wg-workouts-stats-tile-gap: 10px;
+    --wg-workouts-stats-tile-value-size: 22px;
+    --wg-workouts-stats-tile-label-size: 10.5px;
+    --wg-workouts-stats-range-height: 36px;
+    --wg-workouts-stats-range-pad: 4px;
+    --wg-workouts-chart-width: 358px;
+    --wg-workouts-chart-height: 200px;
+    --wg-workouts-chart-line-stroke-width: 2px;
+    --wg-workouts-chart-last-point-radius: 4px;
+    --wg-workouts-chart-last-stroke-width: 2px;
+
+    /* Log-set / edit-exercise / edit-group / edit-library modal tokens
+       (Phase 7, Task 8) — mono header, gloss-inset input wraps for name /
+       reps / weight / duration, Cancel + Save bar with 2× flex on Save per
+       modal-button-order convention. */
+    --wg-workouts-modal-eyebrow-size: 10.5px;
+    --wg-workouts-modal-title-size: 18px;
+    --wg-workouts-modal-row-gap: 10px;
+    --wg-workouts-modal-section-gap: 14px;
+    --wg-workouts-modal-input-pad-y: 10px;
+    --wg-workouts-modal-input-pad-x: 12px;
+    --wg-workouts-modal-label-size: 10.5px;
+    --wg-workouts-modal-action-gap: 8px;
+
+    /* Rotation-slot semantic aliases (Phase 7, Task 1) — wrap the shared tag
+       triplets so the rotation-slot classifier (PUSH / PULL / LEGS / REST /
+       AD-HOC) can return a token-group name without duplicating tag styles.
+       PUSH/PULL/LEGS are the active-session variants (sun-adjacent); REST
+       is the muted/normal variant; AD-HOC is the mint variant so it reads
+       as a neutral "not-a-rotation-slot" tag. Mirrors the
+       --wg-bp-status-* / --wg-meds-status-* / --wg-weight-trend-* pattern. */
+    --wg-workouts-slot-push-bg: var(--wg-tag-high-bg);
+    --wg-workouts-slot-push-fg: var(--wg-tag-high-fg);
+    --wg-workouts-slot-push-border: var(--wg-tag-high-border);
+    --wg-workouts-slot-pull-bg: var(--wg-tag-high-bg);
+    --wg-workouts-slot-pull-fg: var(--wg-tag-high-fg);
+    --wg-workouts-slot-pull-border: var(--wg-tag-high-border);
+    --wg-workouts-slot-legs-bg: var(--wg-tag-high-bg);
+    --wg-workouts-slot-legs-fg: var(--wg-tag-high-fg);
+    --wg-workouts-slot-legs-border: var(--wg-tag-high-border);
+    --wg-workouts-slot-rest-bg: var(--wg-tag-normal-bg);
+    --wg-workouts-slot-rest-fg: var(--wg-tag-normal-fg);
+    --wg-workouts-slot-rest-border: var(--wg-tag-normal-border);
+    --wg-workouts-slot-adhoc-bg: var(--wg-tag-normal-bg);
+    --wg-workouts-slot-adhoc-fg: var(--wg-tag-normal-fg);
+    --wg-workouts-slot-adhoc-border: var(--wg-tag-normal-border);
 }
 
 body {
@@ -639,16 +724,6 @@ h3 {
 .food-tab-content.active,
 .health-tab-content.active {
     display: block;
-}
-
-/* Exercise Library Items */
-.exercise-library-item {
-    background-color: var(--secondary-bg-color);
-    padding: var(--space-lg);
-    border-radius: var(--radius-md);
-    margin-bottom: var(--space-sm);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    cursor: pointer;
 }
 
 /* List Items */
@@ -1476,6 +1551,15 @@ svg.chart-svg {
     opacity: 0.5;
     pointer-events: none;
     position: relative;
+}
+
+/* In-flight save state applied by saveWorkoutSessionDetails to every button
+   that could re-trigger the same request (paper-era Save + Wandergeek
+   Finish). Disables interaction and dims the button to match the prior
+   inline opacity behavior without violating rule 3 (no inline .style.). */
+.wg-btn-saving {
+    opacity: 0.6;
+    pointer-events: none;
 }
 
 .offline-disabled-tooltip {
@@ -2855,24 +2939,9 @@ input:checked+.toggle-slider:before {
 
 /* ========== Workout Components ========== */
 
-.workout-empty-state {
-    text-align: center;
-    color: var(--hint-color);
-    padding: var(--space-2xl) var(--space-lg);
-}
-
 .workout-pending-msg {
     color: var(--hint-color);
     font-size: 0.9em;
-}
-
-.workout-group-card {
-    margin-bottom: var(--space-lg);
-}
-
-.workout-group-schedule {
-    font-size: 0.9em;
-    color: var(--hint-color);
 }
 
 .workout-variant-card {
@@ -2912,100 +2981,6 @@ input:checked+.toggle-slider:before {
     margin-left: var(--space-md);
 }
 
-.workout-history-card {
-    background: var(--secondary-bg-color, #f8f9fa);
-    padding: var(--space-lg);
-    border-radius: var(--radius-sm);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-}
-
-.workout-history-card:hover,
-.workout-history-card:active {
-    background: var(--secondary-bg-color, #f0f0f0);
-    filter: brightness(0.97);
-}
-
-.workout-history-meta {
-    font-size: 0.85em;
-    color: var(--hint-color);
-    margin-top: var(--space-xs);
-}
-
-.workout-volume-highlight {
-    color: var(--color-chart-primary, #667eea);
-    font-weight: var(--font-weight-bold);
-}
-
-.workout-history-status {
-    text-align: right;
-    font-size: 0.85em;
-    color: var(--color-chart-primary, #667eea);
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-}
-
-.workout-history-chevron {
-    font-size: 1.2em;
-}
-
-.workout-miband-card {
-    background: var(--secondary-bg-color, #f0f7f0);
-    padding: var(--space-lg);
-    border-radius: var(--radius-sm);
-    border-left: 3px solid var(--color-success);
-    border-top: 1px solid rgba(0, 0, 0, 0.06);
-    border-right: 1px solid rgba(0, 0, 0, 0.06);
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-}
-
-.workout-miband-card:hover,
-.workout-miband-card:active {
-    filter: brightness(0.97);
-}
-
-.workout-miband-date {
-    font-size: 0.82em;
-    color: var(--hint-color);
-    margin-top: 2px;
-}
-
-.workout-miband-badge {
-    font-size: 0.7em;
-    padding: 2px 7px;
-    border-radius: var(--radius-md);
-    background: var(--color-miband-badge-bg);
-    color: var(--color-miband-badge-text);
-    border: 1px solid var(--color-miband-badge-border);
-    font-weight: var(--font-weight-bold);
-    letter-spacing: 0.03em;
-}
-
-.workout-miband-badge--manual {
-    background: var(--color-workout-skip-bg);
-    color: var(--color-workout-skip-text);
-    border-color: var(--color-workout-skip-border);
-}
-
-.workout-stat-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-    margin-top: var(--space-sm);
-}
-
-.workout-stat-chip {
-    font-size: 0.82em;
-    padding: 2px var(--space-sm);
-    border-radius: var(--radius-md);
-    background: var(--color-miband-chip-bg);
-    color: var(--color-miband-chip-text);
-}
-
 .workout-btn-row {
     display: flex;
     gap: var(--space-md);
@@ -3039,32 +3014,6 @@ input:checked+.toggle-slider:before {
     box-shadow: none;
 }
 
-/* Workout session info */
-.workout-session-info-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-md);
-}
-
-.workout-session-status-group {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-}
-
-.workout-session-status-label {
-    font-size: 0.9em;
-    color: var(--hint-color);
-    margin: 0;
-}
-
-.workout-session-select {
-    padding: var(--space-xs) var(--space-sm);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--color-border-divider, #ddd);
-}
-
 /* Workout exercise log entry */
 .exercise-log-entry.unsaved {
     opacity: 0.6;
@@ -3094,181 +3043,6 @@ input:checked+.toggle-slider:before {
     font-size: 0.75em;
     color: var(--hint-color);
     margin-bottom: var(--space-xs);
-}
-
-/* Workout stats */
-.workout-stats-grid-3 {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--space-md);
-    margin-bottom: var(--space-md);
-}
-
-.workout-stats-grid-2 {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: var(--space-md);
-}
-
-.workout-hero-card {
-    color: white;
-    padding: var(--space-lg) var(--space-sm);
-    border-radius: var(--radius-md);
-    text-align: center;
-}
-
-.workout-hero-card--weeks {
-    background: linear-gradient(135deg, var(--color-chart-primary) 0%, var(--color-chart-secondary) 100%);
-}
-
-.workout-hero-card--sessions {
-    background: linear-gradient(135deg, var(--color-hero-pink-start) 0%, var(--color-hero-pink-end) 100%);
-}
-
-.workout-hero-card--completion {
-    background: linear-gradient(135deg, var(--color-hero-blue-start) 0%, var(--color-hero-blue-end) 100%);
-}
-
-.workout-hero-value {
-    font-size: 2.4em;
-    font-weight: var(--font-weight-bold);
-    line-height: 1.1;
-}
-
-.workout-hero-label {
-    font-size: 0.78em;
-    opacity: 0.92;
-    margin-top: var(--space-xs);
-}
-
-.workout-totals-card {
-    padding: var(--space-lg) var(--space-sm);
-    border-radius: var(--radius-sm);
-    text-align: center;
-    background: var(--secondary-bg-color);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.workout-totals-card--success {
-    background: color-mix(in srgb, var(--color-success) 8%, var(--secondary-bg-color));
-    border-color: var(--color-success);
-}
-
-.workout-totals-card--success .workout-totals-value {
-    color: var(--color-success);
-}
-
-.workout-totals-card--warning {
-    background: color-mix(in srgb, var(--color-warning) 10%, var(--secondary-bg-color));
-    border-color: var(--color-warning);
-}
-
-.workout-totals-card--warning .workout-totals-value {
-    color: var(--color-warning);
-}
-
-.workout-totals-value {
-    font-size: 1.7em;
-    font-weight: var(--font-weight-bold);
-}
-
-.workout-totals-label {
-    font-size: 0.78em;
-    color: var(--hint-color);
-    margin-top: 2px;
-}
-
-.workout-section-heading {
-    font-size: 0.75em;
-    font-weight: var(--font-weight-bold);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--hint-color);
-    margin-bottom: var(--space-md);
-}
-
-.workout-bar-track {
-    background: var(--secondary-bg-color, rgba(0, 0, 0, 0.07));
-    border-radius: var(--radius-sm);
-    height: 5px;
-    overflow: hidden;
-}
-
-.workout-bar-fill {
-    background: linear-gradient(90deg, var(--color-chart-primary), var(--color-chart-secondary));
-    height: 100%;
-    border-radius: var(--radius-sm);
-    transition: width 0.4s;
-}
-
-.workout-exercise-row {
-    margin-bottom: var(--space-md);
-}
-
-.workout-exercise-labels {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: var(--space-xs);
-}
-
-.workout-exercise-name {
-    font-size: 0.9em;
-    font-weight: var(--font-weight-medium);
-}
-
-.workout-exercise-volume {
-    font-size: 0.8em;
-    color: var(--hint-color);
-}
-
-.workout-activity-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-xs);
-}
-
-.workout-activity-square {
-    width: 26px;
-    height: 26px;
-    border-radius: var(--radius-sm);
-    flex-shrink: 0;
-}
-
-.workout-legend {
-    display: flex;
-    gap: var(--space-md);
-    margin-top: var(--space-sm);
-    font-size: 0.72em;
-    color: var(--hint-color);
-}
-
-.workout-legend-swatch {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-    vertical-align: middle;
-    margin-right: 3px;
-}
-
-.workout-history-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-md);
-}
-
-/* Exercise library item (cursor) */
-
-.exercise-library-defaults {
-    font-size: 0.9em;
-    color: var(--hint-color);
-}
-
-.exercise-library-notes {
-    font-size: 0.85em;
-    color: var(--hint-color);
-    margin-top: 2px;
 }
 
 /* Today dashboard */
@@ -5505,6 +5279,1336 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
     padding: var(--space-xs) var(--space-sm);
     border-radius: var(--wg-radius-gloss);
+}
+
+/* Workouts sub-tab strip (Phase 7, Task 2). `.wg-gloss--inset` container
+   wraps four `.wg-gloss`-capable pills — History / Groups / Exercises /
+   Stats — the active pill carries `.wg-gloss--sun` (plus
+   `.wg-workouts-subtabs__btn--active` for tests). Mirrors the Phase 4 Food
+   and Phase 5 Meds sub-tab strips. */
+.wg-workouts-subtabs {
+    display: flex;
+    gap: var(--wg-workouts-subtab-gap);
+    padding: var(--wg-workouts-subtab-pad-y) var(--wg-workouts-subtab-pad-x);
+    margin-bottom: var(--space-md);
+}
+
+.wg-workouts-subtabs__btn {
+    flex: 1;
+    min-height: 36px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+/* Today's-workout card (Phase 7, Task 3). Sun-glossed card mirroring the
+   Meds next-action pattern. `renderTodaysWorkoutCard` picks one of three
+   variants: non-rest (sun gloss + Start button), rest (muted card + ad-hoc
+   CTA), already-completed (muted card + completed eyebrow). The
+   rotation-slot tag uses the --wg-workouts-slot-* semantic aliases so the
+   same element styling can render PUSH / PULL / LEGS / REST / AD-HOC. */
+.wg-workouts-today-card {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--wg-workouts-today-card-pad);
+    border-radius: var(--wg-radius-card);
+    color: inherit;
+    text-align: left;
+    width: 100%;
+    margin-bottom: var(--space-md);
+}
+
+.wg-workouts-today-card__text {
+    flex: 1;
+    min-width: 0;
+}
+
+.wg-workouts-today-card__subtitle {
+    font-size: var(--wg-workouts-today-subtitle-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-sun-soft);
+    font-weight: 600;
+}
+
+.wg-workouts-today-card--rest .wg-workouts-today-card__subtitle,
+.wg-workouts-today-card--completed .wg-workouts-today-card__subtitle {
+    color: var(--wg-fg-2);
+}
+
+.wg-workouts-today-card__value {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-today-names-size);
+    color: var(--wg-fg-1);
+    margin-top: var(--space-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wg-workouts-today-card__duration {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-today-duration-size);
+    color: var(--wg-fg-2);
+    margin-top: var(--space-xs);
+}
+
+.wg-workouts-today-card__start {
+    flex-shrink: 0;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-sm);
+    font-family: var(--wg-font-mono);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-today-card__adhoc {
+    flex-shrink: 0;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-sm);
+    font-family: var(--wg-font-mono);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-slot-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--wg-workouts-slot-tag-pad-y) var(--wg-workouts-slot-tag-pad-x);
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-slot-tag-size);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border-radius: var(--wg-radius-gloss);
+    border: 1px solid transparent;
+    margin-right: var(--space-xs);
+}
+
+.wg-workouts-slot-tag--push {
+    background: var(--wg-workouts-slot-push-bg);
+    color: var(--wg-workouts-slot-push-fg);
+    border-color: var(--wg-workouts-slot-push-border);
+}
+
+.wg-workouts-slot-tag--pull {
+    background: var(--wg-workouts-slot-pull-bg);
+    color: var(--wg-workouts-slot-pull-fg);
+    border-color: var(--wg-workouts-slot-pull-border);
+}
+
+.wg-workouts-slot-tag--legs {
+    background: var(--wg-workouts-slot-legs-bg);
+    color: var(--wg-workouts-slot-legs-fg);
+    border-color: var(--wg-workouts-slot-legs-border);
+}
+
+.wg-workouts-slot-tag--rest {
+    background: var(--wg-workouts-slot-rest-bg);
+    color: var(--wg-workouts-slot-rest-fg);
+    border-color: var(--wg-workouts-slot-rest-border);
+}
+
+.wg-workouts-slot-tag--adhoc {
+    background: var(--wg-workouts-slot-adhoc-bg);
+    color: var(--wg-workouts-slot-adhoc-fg);
+    border-color: var(--wg-workouts-slot-adhoc-border);
+}
+
+/* Workouts history sub-tab (Phase 7, Task 4). Day-grouped `.wg-card` rows
+   mirror the Meds + Weight history patterns: each row carries a rotation-slot
+   tag, mono duration, optional volume, and a trailing icon-button cluster
+   (view / edit / delete). Offline-pending + rejected states surface as
+   `.wg-tag--mono` variants. */
+.wg-workouts-history {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-workouts-history__empty {
+    color: var(--wg-fg-4);
+    text-align: center;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    margin: var(--space-lg) 0;
+}
+
+.wg-workouts-history__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-workouts-history__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-history__group-label {
+    font-size: var(--wg-workouts-history-day-size);
+}
+
+.wg-workouts-history__rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-history-row {
+    display: grid;
+    grid-template-columns: var(--wg-workouts-history-row-cols);
+    column-gap: var(--wg-workouts-history-row-gap);
+    align-items: center;
+    padding: var(--wg-workouts-history-row-pad);
+    cursor: pointer;
+}
+
+.wg-workouts-history-row__body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-history-row__title {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-history-row__name {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.wg-workouts-history-row__meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-history-row__time,
+.wg-workouts-history-row__duration,
+.wg-workouts-history-row__count,
+.wg-workouts-history-row__volume {
+    font-family: var(--wg-font-mono);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
+}
+
+.wg-workouts-history-row__time,
+.wg-workouts-history-row__count {
+    font-size: var(--wg-workouts-history-count-size);
+}
+
+.wg-workouts-history-row__duration {
+    font-size: var(--wg-workouts-history-duration-size);
+    color: var(--wg-fg-2);
+}
+
+.wg-workouts-history-row__volume {
+    font-size: var(--wg-workouts-history-count-size);
+}
+
+.wg-workouts-history-row__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+/* Workouts session-detail view (Phase 7, Task 4). Mono header sits above the
+   per-exercise `.wg-card` list. Each exercise card shows a mono name, a
+   set-by-set mono summary ("{sets} × {reps} · {weight}kg"), and gloss-inset
+   wrapped number inputs for sets / reps / weight plus a notes field. A
+   three-button action cluster (Log set / Finish / Delete) anchors the
+   bottom of the session detail. */
+.wg-workouts-session-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.wg-workouts-session-info__row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-session-info__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.wg-workouts-session-info__title {
+    font-size: var(--wg-workouts-session-header-size);
+}
+
+.wg-workouts-session-info__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-session-meta-size);
+    color: var(--wg-fg-3);
+}
+
+.wg-workouts-session-info__status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+}
+
+.wg-workouts-session-info__status-label {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    color: var(--wg-fg-4);
+    letter-spacing: 0.12em;
+}
+
+.wg-workouts-session-info__status-select {
+    appearance: none;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+}
+
+.wg-workouts-session-logs {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-session-logs__empty {
+    color: var(--wg-fg-4);
+    text-align: center;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    margin: var(--space-md) 0;
+}
+
+.wg-workouts-session-exercise {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-md);
+}
+
+.wg-workouts-session-exercise.unsaved {
+    opacity: 0.6;
+}
+
+.wg-workouts-session-exercise__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-session-exercise__name {
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wg-workouts-session-exercise__mono {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-session-set-row-size);
+    color: var(--wg-fg-2);
+    min-height: var(--wg-workouts-session-set-row-min-h);
+    display: flex;
+    align-items: center;
+    gap: var(--wg-workouts-session-set-row-gap);
+    letter-spacing: 0.04em;
+}
+
+.wg-workouts-session-exercise__hint {
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-4);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-workouts-session-exercise__inputs {
+    display: flex;
+    gap: var(--space-sm);
+    align-items: center;
+}
+
+.wg-workouts-session-exercise__field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-xs) var(--space-sm);
+    min-width: 0;
+}
+
+.wg-workouts-session-exercise__field--notes {
+    margin-top: var(--space-xs);
+}
+
+.wg-workouts-session-exercise__field-label {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--wg-fg-4);
+}
+
+.wg-workouts-session-exercise__field-input {
+    appearance: none;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    width: 100%;
+}
+
+.wg-workouts-session-exercise__field-input:focus {
+    outline: none;
+}
+
+.wg-workouts-session-actions {
+    display: flex;
+    gap: var(--wg-workouts-session-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-workouts-session-actions__btn {
+    flex: 1;
+    min-height: 44px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-session-actions__log-set {
+    flex: 2;
+}
+
+/* Workouts groups sub-tab (Phase 7, Task 5). Each group renders as a
+   `.wg-card` row carrying a rotation-slot tag, mono group name, days +
+   scheduled-time meta, an optional rotating/inactive mono tag, and a
+   trailing `.wg-icon-btn` cluster (edit / delete). A full-width
+   `.wg-gloss--sun` "Add workout group" CTA sits below the list. */
+.wg-workouts-groups {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-workouts-groups__empty {
+    color: var(--wg-fg-4);
+    text-align: center;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    margin: var(--space-lg) 0;
+}
+
+.wg-workouts-groups__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-groups-row {
+    display: grid;
+    grid-template-columns: var(--wg-workouts-groups-row-cols);
+    column-gap: var(--wg-workouts-groups-row-gap);
+    align-items: center;
+    padding: var(--wg-workouts-groups-row-pad);
+    cursor: pointer;
+}
+
+.wg-workouts-groups-row--inactive {
+    opacity: 0.65;
+}
+
+.wg-workouts-groups-row__body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-groups-row__title {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-groups-row__name {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-groups-name-size);
+    color: var(--wg-fg-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.wg-workouts-groups-row__meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-groups-row__days,
+.wg-workouts-groups-row__time,
+.wg-workouts-groups-row__count {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-groups-count-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
+}
+
+.wg-workouts-groups-row__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+.wg-workouts-groups__add-cta {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    min-height: 44px;
+    padding: var(--space-md) var(--space-lg);
+    margin-top: var(--space-md);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-groups__add-cta-label {
+    letter-spacing: 0.04em;
+}
+
+/* Edit-workout-group modal (Phase 7, Task 5). Shares the generic `.wg-modal`
+   shell for positioning/chrome; overlays a mono eyebrow + title header,
+   `.wg-gloss--inset` input wraps for name / description / time /
+   notification, a days-select chip row, toggle checkboxes, variant +
+   exercise sub-sections, and a Cancel/Save action bar (Save 2× flex per
+   modal-button-order convention). */
+.wg-workouts-group-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-workouts-group-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-group-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-workouts-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-workouts-group-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-workouts-group-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-workouts-group-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-workouts-group-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-workouts-modal-section-gap);
+}
+
+.wg-workouts-group-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.wg-workouts-group-modal__row {
+    display: flex;
+    gap: var(--wg-workouts-modal-row-gap);
+}
+
+.wg-workouts-group-modal__label {
+    font-size: var(--wg-workouts-modal-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-workouts-group-modal__input-wrap {
+    padding: var(--wg-workouts-modal-input-pad-y) var(--wg-workouts-modal-input-pad-x);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-workouts-group-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-workouts-group-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-workouts-group-modal__textarea {
+    resize: vertical;
+    font-family: var(--wg-font-ui);
+}
+
+.wg-workouts-group-modal__days-wrap {
+    flex-wrap: wrap;
+}
+
+.wg-workouts-group-modal__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+    cursor: pointer;
+}
+
+.wg-workouts-group-modal__toggle-label {
+    letter-spacing: 0.02em;
+}
+
+.wg-workouts-group-modal__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+}
+
+.wg-workouts-group-modal__section-label {
+    padding: 0;
+}
+
+.wg-workouts-group-modal__section-add {
+    align-self: flex-start;
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-group-modal__actions {
+    display: flex;
+    gap: var(--wg-workouts-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-workouts-group-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-workouts-group-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-workouts-group-modal__action--save {
+    flex: 2 1 0;
+}
+
+/* Workouts exercises sub-tab (Phase 7, Task 6). Each exercise renders as
+   a `.wg-card` row carrying a rotation-slot mono tag, the exercise mono
+   name, a defaults eyebrow (sets×reps + weight + notes), and a trailing
+   `.wg-icon-btn` cluster (edit / delete). A full-width `.wg-gloss--sun`
+   "Add exercise" CTA sits below the list. */
+.wg-workouts-exercises {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-workouts-exercises__empty {
+    color: var(--wg-fg-4);
+    text-align: center;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    margin: var(--space-lg) 0;
+}
+
+.wg-workouts-exercises__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-exercises-row {
+    display: grid;
+    grid-template-columns: var(--wg-workouts-exercises-row-cols);
+    column-gap: var(--wg-workouts-exercises-row-gap);
+    align-items: center;
+    padding: var(--wg-workouts-exercises-row-pad);
+    cursor: pointer;
+}
+
+.wg-workouts-exercises-row__body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-exercises-row__title {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-exercises-row__name {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-exercises-name-size);
+    color: var(--wg-fg-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.wg-workouts-exercises-row__meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-exercises-row__defaults,
+.wg-workouts-exercises-row__weight,
+.wg-workouts-exercises-row__notes {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-groups-count-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
+}
+
+.wg-workouts-exercises-row__notes {
+    font-family: var(--wg-font-ui);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.wg-workouts-exercises-row__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+.wg-workouts-exercises__add-cta {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    min-height: 44px;
+    padding: var(--space-md) var(--space-lg);
+    margin-top: var(--space-md);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-exercises__add-cta-label {
+    letter-spacing: 0.04em;
+}
+
+/* Edit-library-exercise modal (Phase 7, Task 6). Shares the generic `.wg-modal`
+   shell for positioning/chrome; overlays a mono eyebrow + title header,
+   `.wg-gloss--inset` input wraps for name / sets / reps / weight / notes,
+   and a Cancel/Save action bar (Save 2× flex per modal-button-order
+   convention). */
+.wg-workouts-library-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-workouts-library-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-library-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-workouts-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-workouts-library-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-workouts-library-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-workouts-library-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-workouts-library-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-workouts-modal-section-gap);
+}
+
+.wg-workouts-library-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.wg-workouts-library-modal__row {
+    display: flex;
+    gap: var(--wg-workouts-modal-row-gap);
+}
+
+.wg-workouts-library-modal__label {
+    font-size: var(--wg-workouts-modal-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-workouts-library-modal__input-wrap {
+    padding: var(--wg-workouts-modal-input-pad-y) var(--wg-workouts-modal-input-pad-x);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-workouts-library-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-workouts-library-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-workouts-library-modal__actions {
+    display: flex;
+    gap: var(--wg-workouts-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-workouts-library-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-workouts-library-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-workouts-library-modal__action--save {
+    flex: 2 1 0;
+}
+
+/* Edit-exercise modal (Phase 7, Task 8). Shares the generic `.wg-modal` shell
+   for positioning/chrome; overlays a mono eyebrow + title header,
+   `.wg-gloss--inset` input wraps for name / sets / reps / weight / order,
+   and a Cancel/Save action bar (Save 2x flex per modal-button-order
+   convention). */
+.wg-workouts-exercise-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-workouts-exercise-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-exercise-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-workouts-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-workouts-exercise-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-workouts-exercise-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-workouts-exercise-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-workouts-exercise-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-workouts-modal-section-gap);
+}
+
+.wg-workouts-exercise-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.wg-workouts-exercise-modal__row {
+    display: flex;
+    gap: var(--wg-workouts-modal-row-gap);
+}
+
+.wg-workouts-exercise-modal__label {
+    font-size: var(--wg-workouts-modal-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-workouts-exercise-modal__input-wrap {
+    padding: var(--wg-workouts-modal-input-pad-y) var(--wg-workouts-modal-input-pad-x);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-workouts-exercise-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-workouts-exercise-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-workouts-exercise-modal__actions {
+    display: flex;
+    gap: var(--wg-workouts-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-workouts-exercise-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-workouts-exercise-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-workouts-exercise-modal__action--save {
+    flex: 2 1 0;
+}
+
+/* Log-set modal (Phase 7, Task 8). Shares the generic `.wg-modal` shell for
+   positioning/chrome; overlays a mono "Log set" eyebrow + dynamic-title
+   header ("Log set \u00b7 Bench"), `.wg-gloss--inset` input wraps for
+   name / sets / reps / weight / notes, and a Cancel/Save action bar
+   (Save 2x flex per modal-button-order convention). */
+.wg-workouts-log-set-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-workouts-log-set-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-log-set-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-workouts-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-workouts-log-set-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-workouts-log-set-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-workouts-log-set-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-workouts-log-set-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-workouts-modal-section-gap);
+}
+
+.wg-workouts-log-set-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.wg-workouts-log-set-modal__row {
+    display: flex;
+    gap: var(--wg-workouts-modal-row-gap);
+}
+
+.wg-workouts-log-set-modal__label {
+    font-size: var(--wg-workouts-modal-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-workouts-log-set-modal__input-wrap {
+    padding: var(--wg-workouts-modal-input-pad-y) var(--wg-workouts-modal-input-pad-x);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-workouts-log-set-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-workouts-log-set-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-workouts-log-set-modal__actions {
+    display: flex;
+    gap: var(--wg-workouts-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-workouts-log-set-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-workouts-log-set-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-workouts-log-set-modal__action--save {
+    flex: 2 1 0;
+}
+
+/* Workouts stats sub-tab (Phase 7, Task 7). A `.wg-gloss--inset` range
+   selector (7d / 30d / 90d / All) drives WGWorkoutChart; the active button
+   picks up the sun modifier. Below the chart, stat tiles render as a
+   two-column `.wg-card` grid (sessions / completion / active weeks /
+   skipped). Persisted range key: `mt-workouts-stats-range`. */
+.wg-workouts-stats {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-workouts-stats__range {
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--wg-workouts-stats-range-pad);
+}
+
+.wg-workouts-stats__range-btn {
+    flex: 1;
+    min-height: var(--wg-workouts-stats-range-height);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-workouts-stats__chart-panel {
+    padding: var(--wg-card-pad);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+}
+
+.wg-workouts-stats__tiles {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--wg-workouts-stats-tile-gap);
+}
+
+.wg-workouts-stats__tile {
+    padding: var(--wg-workouts-stats-tile-pad);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-stats__tile-value {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-stats-tile-value-size);
+    line-height: 1;
+    color: var(--wg-fg-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wg-workouts-stats__tile-label {
+    font-size: var(--wg-workouts-stats-tile-label-size);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--wg-fg-4);
+}
+
+.wg-workouts-stats__section-label {
+    padding-top: var(--wg-section-label-pad-top);
+    padding-bottom: var(--space-sm);
+}
+
+.wg-workouts-stats__top-exercises {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-stats__top-row {
+    padding: var(--wg-workouts-stats-tile-pad);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-stats__top-row-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+
+.wg-workouts-stats__top-row-name {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.wg-workouts-stats__top-row-volume {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+    flex-shrink: 0;
+}
+
+.wg-workouts-stats__top-row-bar {
+    position: relative;
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: var(--wg-ink-08);
+    overflow: hidden;
+}
+
+.wg-workouts-stats__top-row-bar-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: var(--wg-sun);
+    width: var(--fill-pct, 0%);
+    border-radius: inherit;
+}
+
+.wg-workouts-stats__empty {
+    padding: var(--wg-card-pad);
+    text-align: center;
+    color: var(--wg-fg-4);
+    font-size: var(--font-size-md);
+}
+
+/* WGWorkoutChart base shell (Phase 7, Task 7). The SVG carries the shared
+   class; empty-state returns a <div> with the same class + --empty modifier
+   so callers can append either return shape without conditional styling. */
+.wg-workout-chart {
+    display: block;
+    width: 100%;
+    max-width: var(--wg-workouts-chart-width);
+    height: auto;
+    margin-inline: auto;
+}
+
+.wg-workout-chart--empty {
+    min-height: var(--wg-workouts-chart-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-fg-5);
+    font-size: var(--font-size-sm);
+}
+
+.wg-workout-chart__guide {
+    stroke: var(--wg-fg-5);
+    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    fill: none;
+}
+
+.wg-workout-chart__line {
+    fill: none;
+    stroke: var(--wg-sun);
+    stroke-width: var(--wg-workouts-chart-line-stroke-width);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.wg-workout-chart__last {
+    fill: var(--wg-sun);
+    stroke: var(--wg-teal-stage);
+    stroke-width: var(--wg-workouts-chart-last-stroke-width);
 }
 
 /* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers

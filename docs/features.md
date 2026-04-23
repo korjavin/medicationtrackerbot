@@ -66,6 +66,7 @@ Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashb
 
 ## Workout Tracking
 
+- **UI layout** (Wandergeek Phase 7): four sub-tabs (History / Groups / Exercises / Stats) persisted via `mt-workouts-subtab` (default `history`); History surfaces a day-grouped session list with per-row view/edit/delete actions, Groups and Exercises sub-tabs render as `.wg-card` lists with full-width `.wg-gloss--sun` "Add" CTAs, and Stats renders a 7d/30d/90d/All range selector (persisted via `mt-workouts-stats-range`) driving a single-series `WGWorkoutChart` sessions-per-week trend plus a 2×2 stat-tile grid (Active Weeks / 30-Day Sessions / Done / Skipped) and a Top Exercises list.
 - **Hierarchy**: Groups → Variants → Exercises
 - **Rotation**: automatic A/B/C/D progression (e.g., PPL, PHUL splits)
 - **Scheduling**: configurable days of week, notification advance time (default 15 min)
