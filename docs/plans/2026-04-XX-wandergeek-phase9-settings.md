@@ -97,11 +97,11 @@ No backend changes. The existing `/api/settings/*`, `/api/bp/reminder/*`, `/api/
 
 ### Task 2: Build the sectioned-card shell + row primitive
 
-- [ ] create `renderSettingsSection({ eyebrow, title, description, children })` helper returning a `.wg-card` with mono header, optional `.wg-section-label` eyebrow, optional muted description, and a `.wg-settings-row-list` child container
-- [ ] create `renderSettingsRow({ title, description, control })` helper returning a `.wg-settings-row` with left-column mono title + muted description and right-column control slot
-- [ ] create `renderSettingsInfoRow({ label, value })` helper for read-only info rows (used by Timezone card)
-- [ ] write `settings.render.test.js` — section render (with/without eyebrow + description), row render (with toggle / input / button control), info-row render
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `renderSettingsSection({ eyebrow, title, description, children })` helper returning a `.wg-card` with mono header, optional `.wg-section-label` eyebrow, optional muted description, and a `.wg-settings-row-list` child container
+- [x] create `renderSettingsRow({ title, description, control })` helper returning a `.wg-settings-row` with left-column mono title + muted description and right-column control slot
+- [x] create `renderSettingsInfoRow({ label, value })` helper for read-only info rows (used by Timezone card)
+- [x] write `settings.render.test.js` — section render (with/without eyebrow + description), row render (with toggle / input / button control), info-row render
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Rewrite sync status + OIDC setup + timezone cards
 

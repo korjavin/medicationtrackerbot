@@ -34,6 +34,7 @@ const STATIC_ASSETS = [
     '/static/js/components/wg-vitals-chart.js',
     '/static/js/components/wg-macro-bar.js',
     '/static/js/components/wg-toggle.js',
+    '/static/js/components/wg-settings.js',
     // Infrastructure
     '/static/js/db.js',
     '/static/js/sync.js',
