@@ -2504,6 +2504,27 @@ async function saveWorkoutSessionDetails() {
     }
 }
 
+// Stats sub-tab range selector state (Phase 7, Task 7). Persists the active
+// range the same way `mt-bp-range` / `mt-weight-range` do, with the Workouts-
+// specific storage key. Keeps the range CONSISTENT across tab switches and
+// reloads.
+const WORKOUTS_STATS_RANGE_KEY = 'mt-workouts-stats-range';
+const WORKOUTS_STATS_RANGE_OPTIONS = ['7d', '30d', '90d', 'all'];
+const WORKOUTS_STATS_RANGE_DEFAULT = 'all';
+
+function getActiveWorkoutsStatsRange() {
+    try {
+        const raw = window.localStorage.getItem(WORKOUTS_STATS_RANGE_KEY);
+        if (WORKOUTS_STATS_RANGE_OPTIONS.indexOf(raw) !== -1) return raw;
+    } catch (_) { /* ignore */ }
+    return WORKOUTS_STATS_RANGE_DEFAULT;
+}
+
+function setActiveWorkoutsStatsRange(range) {
+    if (WORKOUTS_STATS_RANGE_OPTIONS.indexOf(range) === -1) return;
+    try { window.localStorage.setItem(WORKOUTS_STATS_RANGE_KEY, range); } catch (_) { /* ignore */ }
+}
+
 async function loadWorkoutStatsTab() {
     const container = document.getElementById('workout-stats-display');
     await window.DataStore.loadSWR({
@@ -2531,7 +2552,7 @@ async function loadWorkoutStatsTab() {
 function _renderWorkoutStats(container, stats) {
     if (!stats) {
         const empty = document.createElement('p');
-        empty.className = 'text-center text-hint';
+        empty.className = 'text-center text-hint wg-workouts-stats__empty';
         empty.textContent = 'No statistics available yet';
         container.replaceChildren(empty);
         return;
@@ -2544,20 +2565,85 @@ function _renderWorkoutStats(container, stats) {
     };
 
     const root = document.createElement('div');
+    root.className = 'wg-workouts-stats';
 
-    const topGrid = document.createElement('div');
-    topGrid.className = 'workout-stats-grid-3';
+    // Range selector — gloss-inset strip with four pills; active state via
+    // `.wg-gloss--sun`. Clicking a button persists the range and re-renders
+    // the chart in place without re-fetching.
+    const activeRange = getActiveWorkoutsStatsRange();
+    const rangeStrip = document.createElement('div');
+    rangeStrip.className = 'wg-gloss--inset wg-workouts-stats__range';
+    rangeStrip.setAttribute('role', 'tablist');
+    const rangeLabels = { '7d': '7d', '30d': '30d', '90d': '90d', 'all': 'All' };
+    const rangeButtons = new Map();
+    WORKOUTS_STATS_RANGE_OPTIONS.forEach((range) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'wg-gloss wg-workouts-stats__range-btn';
+        btn.dataset.range = range;
+        btn.textContent = rangeLabels[range];
+        if (range === activeRange) {
+            btn.classList.add('wg-gloss--sun', 'wg-workouts-stats__range-btn--active');
+            btn.setAttribute('aria-pressed', 'true');
+        } else {
+            btn.setAttribute('aria-pressed', 'false');
+        }
+        btn.addEventListener('click', () => {
+            setActiveWorkoutsStatsRange(range);
+            rangeButtons.forEach((b, key) => {
+                const isActive = key === range;
+                b.classList.toggle('wg-gloss--sun', isActive);
+                b.classList.toggle('wg-workouts-stats__range-btn--active', isActive);
+                b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            });
+            replaceChart(range);
+        });
+        rangeButtons.set(range, btn);
+        rangeStrip.appendChild(btn);
+    });
+    root.appendChild(rangeStrip);
 
-    const buildHeroCard = (variantClass, valueText, labelText) => {
+    // Chart panel — WGWorkoutChart renders either an <svg> or an empty-state
+    // <div>; either way it carries `.wg-workout-chart` so the panel styles
+    // itself consistently.
+    const chartPanel = document.createElement('div');
+    chartPanel.className = 'wg-workouts-stats__chart-panel';
+    const renderChartInto = (range) => {
+        chartPanel.replaceChildren();
+        const sessions = Array.isArray(stats.weekly_activity) ? stats.weekly_activity : [];
+        const node = window.WGWorkoutChart && typeof window.WGWorkoutChart.render === 'function'
+            ? window.WGWorkoutChart.render({ sessions, range })
+            : null;
+        if (node) {
+            chartPanel.appendChild(node);
+        } else {
+            const empty = document.createElement('div');
+            empty.className = 'wg-workout-chart wg-workout-chart--empty';
+            const msg = document.createElement('span');
+            msg.className = 'wg-workout-chart__empty-msg';
+            msg.textContent = 'No workout sessions yet';
+            empty.appendChild(msg);
+            chartPanel.appendChild(empty);
+        }
+    };
+    const replaceChart = (range) => renderChartInto(range);
+    renderChartInto(activeRange);
+    root.appendChild(chartPanel);
+
+    // Stat tiles — 2×2 `.wg-card` grid. Labels mirror the existing API
+    // semantics: Active Weeks / 30-Day Sessions / Done / Skipped.
+    const tiles = document.createElement('div');
+    tiles.className = 'wg-workouts-stats__tiles';
+    const buildTile = (valueText, labelText) => {
         const card = document.createElement('div');
-        card.className = `workout-hero-card ${variantClass}`;
+        card.className = 'wg-card wg-workouts-stats__tile';
 
         const value = document.createElement('div');
-        value.className = 'workout-hero-value';
+        value.className = 'wg-workouts-stats__tile-value wg-mono-display';
         value.textContent = valueText;
 
         const label = document.createElement('div');
-        label.className = 'workout-hero-label';
+        label.className = 'wg-workouts-stats__tile-label';
         label.textContent = labelText;
 
         card.appendChild(value);
@@ -2565,136 +2651,59 @@ function _renderWorkoutStats(container, stats) {
         return card;
     };
 
-    topGrid.appendChild(buildHeroCard('workout-hero-card--weeks', String(stats.active_weeks || 0), '🔥 Active Weeks'));
-    topGrid.appendChild(buildHeroCard('workout-hero-card--sessions', String(stats.total_sessions || 0), '🏆 30-Day Sessions'));
-    topGrid.appendChild(buildHeroCard('workout-hero-card--completion', `${Math.round(stats.completion_rate || 0)}%`, '💪 30-Day'));
-    root.appendChild(topGrid);
+    tiles.appendChild(buildTile(String(stats.active_weeks || 0), 'Active Weeks'));
+    tiles.appendChild(buildTile(String(stats.total_sessions || 0), '30-Day Sessions'));
+    tiles.appendChild(buildTile(String(stats.completed_sessions || 0), 'Done'));
+    tiles.appendChild(buildTile(String(stats.skipped_sessions || 0), 'Skipped'));
+    root.appendChild(tiles);
 
-    const totalsGrid = document.createElement('div');
-    totalsGrid.className = 'workout-stats-grid-2';
-
-    const buildTotalsCard = (variantClass, valueText, labelText) => {
-        const card = document.createElement('div');
-        card.className = `workout-totals-card ${variantClass}`;
-
-        const value = document.createElement('div');
-        value.className = 'workout-totals-value';
-        value.textContent = valueText;
-
-        const label = document.createElement('div');
-        label.className = 'workout-totals-label';
-        label.textContent = labelText;
-
-        card.appendChild(value);
-        card.appendChild(label);
-        return card;
-    };
-
-    totalsGrid.appendChild(buildTotalsCard('workout-totals-card--success', String(stats.completed_sessions || 0), 'Done'));
-    totalsGrid.appendChild(buildTotalsCard('workout-totals-card--warning', String(stats.skipped_sessions || 0), 'Skipped'));
-    root.appendChild(totalsGrid);
-
+    // Top Exercises — optional. `.wg-section-label` heading, then a list of
+    // `.wg-card` rows each carrying a mono name, volume summary, and a
+    // sun-coloured fill bar.
     if (stats.top_exercises && stats.top_exercises.length > 0) {
-        const maxVol = stats.top_exercises[0].total_volume_kg || 1;
-        const medals = ['🥇', '🥈', '🥉'];
-        const section = document.createElement('div');
-        section.className = 'mt-lg';
-
         const heading = document.createElement('div');
-        heading.className = 'workout-section-heading';
+        heading.className = 'wg-section-label wg-workouts-stats__section-label';
         heading.textContent = 'Top Exercises · Volume';
-        section.appendChild(heading);
+        root.appendChild(heading);
 
-        stats.top_exercises.forEach((ex, i) => {
+        const maxVol = stats.top_exercises[0].total_volume_kg || 1;
+        const list = document.createElement('ul');
+        list.className = 'wg-workouts-stats__top-exercises';
+
+        stats.top_exercises.forEach((ex) => {
             const pct = maxVol > 0 ? (ex.total_volume_kg / maxVol * 100).toFixed(1) : 0;
-            const medal = medals[i] || `${i + 1}.`;
             const maxW = ex.max_weight_kg > 0 ? `${ex.max_weight_kg} kg max` : '';
 
-            const row = document.createElement('div');
-            row.className = 'workout-exercise-row';
+            const row = document.createElement('li');
+            row.className = 'wg-card wg-workouts-stats__top-row';
 
-            const labels = document.createElement('div');
-            labels.className = 'workout-exercise-labels';
+            const head = document.createElement('div');
+            head.className = 'wg-workouts-stats__top-row-head';
 
             const name = document.createElement('span');
-            name.className = 'workout-exercise-name';
-            name.textContent = `${medal} ${ex.exercise_name}`;
+            name.className = 'wg-workouts-stats__top-row-name';
+            name.textContent = ex.exercise_name;
 
-            const meta = document.createElement('span');
-            meta.className = 'workout-exercise-volume';
-            meta.textContent = `${formatVolume(ex.total_volume_kg)}${maxW ? ` · ${maxW}` : ''}`;
+            const volume = document.createElement('span');
+            volume.className = 'wg-workouts-stats__top-row-volume';
+            volume.textContent = `${formatVolume(ex.total_volume_kg)}${maxW ? ` · ${maxW}` : ''}`;
 
-            labels.appendChild(name);
-            labels.appendChild(meta);
+            head.appendChild(name);
+            head.appendChild(volume);
 
-            const barTrack = document.createElement('div');
-            barTrack.className = 'workout-bar-track';
+            const bar = document.createElement('div');
+            bar.className = 'wg-workouts-stats__top-row-bar';
+            const fill = document.createElement('div');
+            fill.className = 'wg-workouts-stats__top-row-bar-fill';
+            fill.style.setProperty('--fill-pct', `${pct}%`);
+            bar.appendChild(fill);
 
-            const barFill = document.createElement('div');
-            barFill.className = 'workout-bar-fill';
-            barFill.style.width = `${pct}%`;
-
-            barTrack.appendChild(barFill);
-            row.appendChild(labels);
-            row.appendChild(barTrack);
-            section.appendChild(row);
+            row.appendChild(head);
+            row.appendChild(bar);
+            list.appendChild(row);
         });
 
-        root.appendChild(section);
-    }
-
-    if (stats.weekly_activity && stats.weekly_activity.length > 0) {
-        const section = document.createElement('div');
-        section.className = 'mt-lg';
-
-        const heading = document.createElement('div');
-        heading.className = 'workout-section-heading';
-        heading.textContent = '12-Week Activity';
-        section.appendChild(heading);
-
-        const squares = document.createElement('div');
-        squares.className = 'workout-activity-grid';
-
-        stats.weekly_activity.forEach((w) => {
-            const total = w.completed + w.skipped;
-            let bg;
-            if (total === 0) bg = 'var(--secondary-bg-color, #e8e8e8)';
-            else if (w.completed === 0) bg = '#e05c5c';
-            else if (w.completed >= total) bg = '#28a745';
-            else if (w.completed / total >= 0.5) bg = '#85c17e';
-            else bg = '#ffc107';
-
-            const d = new Date(w.week + 'T00:00:00');
-            const label = d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
-
-            const square = document.createElement('div');
-            square.title = `${label}: ${w.completed} done, ${w.skipped} skipped`;
-            square.className = 'workout-activity-square';
-            square.style.background = bg;
-            squares.appendChild(square);
-        });
-
-        const legend = document.createElement('div');
-        legend.className = 'workout-legend';
-
-        const createLegendItem = (color, text) => {
-            const item = document.createElement('span');
-            const swatch = document.createElement('span');
-            swatch.className = 'workout-legend-swatch';
-            swatch.style.background = color;
-            item.appendChild(swatch);
-            item.appendChild(document.createTextNode(text));
-            return item;
-        };
-
-        legend.appendChild(createLegendItem('#28a745', 'All done'));
-        legend.appendChild(createLegendItem('#85c17e', 'Partial \u226550%'));
-        legend.appendChild(createLegendItem('#ffc107', 'Partial <50%'));
-        legend.appendChild(createLegendItem('#e05c5c', 'Skipped'));
-
-        section.appendChild(squares);
-        section.appendChild(legend);
-        root.appendChild(section);
+        root.appendChild(list);
     }
 
     container.replaceChildren(root);

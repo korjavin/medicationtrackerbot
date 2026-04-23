@@ -63,6 +63,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.WGSparkline',               // components/wg-sparkline.js — Wandergeek SVG sparkline for Today metric tiles; stroke colour is driven by CSS variant class, not a JS colour
     'window.WGBpChart',                 // components/wg-bp-chart.js — Wandergeek BP sys/dia chart (band + lines + dotted guides + last-point markers); colours resolve via CSS classes on SVG children, never inline
     'window.WGWeightChart',             // components/wg-weight-chart.js — Wandergeek single-series weight chart with optional goal-line overlay; colours resolve via CSS classes on SVG children, never inline
+    'window.WGWorkoutChart',            // components/wg-workout-chart.js — Wandergeek single-series workout activity chart for the Stats sub-tab (sessions-per-week or volume); colours resolve via CSS classes on SVG children, never inline
     'window.WGMacroBar',                // components/wg-macro-bar.js — Wandergeek Food-screen macro row (label + inset track + mono value/target); fill colour comes from .wg-macro-bar__fill--<variant> classes, fill width from a neutral --fill-pct custom property
     'window.AppBackButton',             // features/back-button.js — wires Telegram WebApp BackButton to section → Today navigation
 

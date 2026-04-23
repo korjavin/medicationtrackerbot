@@ -147,14 +147,14 @@ No backend changes. The existing `/api/workouts*`, `/api/exercises*`, `/api/work
 
 ### Task 7: Rewrite the stats sub-tab + build `WGWorkoutChart`
 
-- [ ] create `web/static/js/components/wg-workout-chart.js` exposing `WGWorkoutChart.render({ sessions, range, metric })` returning a DOM element
-- [ ] mirror `WGBpChart` / `WGWeightChart` structure — SVG canvas, axis + grid rendering, line plot (single-series for volume or duration trend)
-- [ ] colors + stroke widths come from `--wg-workouts-*` tokens via CSS classes — no inline `style=` / hardcoded hex
-- [ ] register `window.WGWorkoutChart` in `architecture.globals.test.js` with a one-line justification
-- [ ] replace `#workout-stats-display` markup with a `.wg-workouts-stats` container — `.wg-gloss--inset` range selector (7d / 30d / 90d / All) above the chart; range persists via `mt-workouts-stats-range` localStorage key; stat tiles below (total sessions / total volume / most-used exercise / longest streak) as `.wg-card` grid
-- [ ] write `components.wg-workout-chart.test.js` — range filter applied, empty-state card when no sessions, axis tick count sane
-- [ ] write `workout.stats.test.js` — stat-tile render, range-selector persistence, chart re-renders on range change
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-workout-chart.js` exposing `WGWorkoutChart.render({ sessions, range, metric })` returning a DOM element
+- [x] mirror `WGBpChart` / `WGWeightChart` structure — SVG canvas, axis + grid rendering, line plot (single-series for volume or duration trend)
+- [x] colors + stroke widths come from `--wg-workouts-*` tokens via CSS classes — no inline `style=` / hardcoded hex
+- [x] register `window.WGWorkoutChart` in `architecture.globals.test.js` with a one-line justification
+- [x] replace `#workout-stats-display` markup with a `.wg-workouts-stats` container — `.wg-gloss--inset` range selector (7d / 30d / 90d / All) above the chart; range persists via `mt-workouts-stats-range` localStorage key; stat tiles below (total sessions / total volume / most-used exercise / longest streak) as `.wg-card` grid
+- [x] write `components.wg-workout-chart.test.js` — range filter applied, empty-state card when no sessions, axis tick count sane
+- [x] write `workout.stats.test.js` — stat-tile render, range-selector persistence, chart re-renders on range change
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 8: Rewrite the log-set modal + edit-exercise modal
 

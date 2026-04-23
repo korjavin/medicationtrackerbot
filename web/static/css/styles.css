@@ -6514,6 +6514,182 @@ textarea.wg-input {
     flex: 2 1 0;
 }
 
+/* Workouts stats sub-tab (Phase 7, Task 7). A `.wg-gloss--inset` range
+   selector (7d / 30d / 90d / All) drives WGWorkoutChart; the active button
+   picks up the sun modifier. Below the chart, stat tiles render as a
+   two-column `.wg-card` grid (sessions / completion / active weeks /
+   skipped). Persisted range key: `mt-workouts-stats-range`. */
+.wg-workouts-stats {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-workouts-stats__range {
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--wg-workouts-stats-range-pad);
+}
+
+.wg-workouts-stats__range-btn {
+    flex: 1;
+    min-height: var(--wg-workouts-stats-range-height);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-workouts-stats__chart-panel {
+    padding: var(--wg-card-pad);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+}
+
+.wg-workouts-stats__tiles {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--wg-workouts-stats-tile-gap);
+}
+
+.wg-workouts-stats__tile {
+    padding: var(--wg-workouts-stats-tile-pad);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-stats__tile-value {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-stats-tile-value-size);
+    line-height: 1;
+    color: var(--wg-fg-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wg-workouts-stats__tile-label {
+    font-size: var(--wg-workouts-stats-tile-label-size);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--wg-fg-4);
+}
+
+.wg-workouts-stats__section-label {
+    padding-top: var(--wg-section-label-pad-top);
+    padding-bottom: var(--space-sm);
+}
+
+.wg-workouts-stats__top-exercises {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-stats__top-row {
+    padding: var(--wg-workouts-stats-tile-pad);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-stats__top-row-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+
+.wg-workouts-stats__top-row-name {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.wg-workouts-stats__top-row-volume {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+    flex-shrink: 0;
+}
+
+.wg-workouts-stats__top-row-bar {
+    position: relative;
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: var(--wg-ink-08);
+    overflow: hidden;
+}
+
+.wg-workouts-stats__top-row-bar-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: var(--wg-sun);
+    width: var(--fill-pct, 0%);
+    border-radius: inherit;
+}
+
+.wg-workouts-stats__empty {
+    padding: var(--wg-card-pad);
+    text-align: center;
+    color: var(--wg-fg-4);
+    font-size: var(--font-size-md);
+}
+
+/* WGWorkoutChart base shell (Phase 7, Task 7). The SVG carries the shared
+   class; empty-state returns a <div> with the same class + --empty modifier
+   so callers can append either return shape without conditional styling. */
+.wg-workout-chart {
+    display: block;
+    width: 100%;
+    max-width: var(--wg-workouts-chart-width);
+    height: auto;
+    margin-inline: auto;
+}
+
+.wg-workout-chart--empty {
+    min-height: var(--wg-workouts-chart-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-fg-5);
+    font-size: var(--font-size-sm);
+}
+
+.wg-workout-chart__guide {
+    stroke: var(--wg-fg-5);
+    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    fill: none;
+}
+
+.wg-workout-chart__line {
+    fill: none;
+    stroke: var(--wg-sun);
+    stroke-width: var(--wg-workouts-chart-line-stroke-width);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.wg-workout-chart__last {
+    fill: var(--wg-sun);
+    stroke: var(--wg-teal-stage);
+    stroke-width: var(--wg-workouts-chart-last-stroke-width);
+}
+
 /* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
    bracket clusters of scheduled meds; each row is a `.wg-card` with a name
    (mono-display), dosage, schedule summary, optional inventory tag, and a
