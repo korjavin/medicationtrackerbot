@@ -1,5 +1,5 @@
 // Wandergeek bottom nav — canonical lateral navigation.
-// One slot per real section (Today, BP, Food, Meds, Weight, Workouts, Health,
+// One slot per real section (Today, BP, Food, Meds, Vitals, Workouts, Weight,
 // Settings). No "More" aggregator; every section is a first-class destination.
 // Wraps into two rows when item count exceeds what fits comfortably in one
 // row (5 per row at the 390px phone width).
@@ -19,14 +19,19 @@
 // Allowlisted in architecture.no-inline-styles.test.js (when that test lands).
 
 (function () {
+    // Canonical order per the design mockup:
+    //   row 1: today / bp / food / meds
+    //   row 2: health("Vitals") / workouts / weight / settings
+    // The 'health' id is kept as the internal slug for route + storage
+    // stability; only the user-facing label is "Vitals".
     const DEFAULT_ITEMS = Object.freeze([
         { id: 'today', label: 'Today', icon: 'home' },
         { id: 'bp', label: 'BP', icon: 'activity' },
         { id: 'food', label: 'Food', icon: 'apple' },
         { id: 'meds', label: 'Meds', icon: 'pill' },
-        { id: 'weight', label: 'Weight', icon: 'scale' },
+        { id: 'health', label: 'Vitals', icon: 'heart' },
         { id: 'workouts', label: 'Workouts', icon: 'dumbbell' },
-        { id: 'health', label: 'Health', icon: 'heart' },
+        { id: 'weight', label: 'Weight', icon: 'scale' },
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ]);
 

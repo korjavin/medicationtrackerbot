@@ -113,12 +113,12 @@ Rationale: Design shows no top title on any screen. All 7 `section-header-mount`
 - [x] Run `pnpm test` and `go test ./...` — all green before next task. (Go: all packages pass. Frontend: 1319 pass; the 2 failing `wg-sleep-chart` / `wg-steps-chart` tests are pre-existing date-dependent failures unrelated to this task — they reproduce on master.)
 
 ### Task 2: Reorder & relabel bottom nav (row 1: Today/BP/Food/Meds — row 2: Vitals/Workouts/Weight/Settings)
-- [ ] In `web/static/js/components/wg-bottom-nav.js`, reorder `DEFAULT_ITEMS` at lines 22-31 to: today, bp, food, meds, **health (label:"Vitals")**, workouts, weight, settings.
-- [ ] Keep the internal id as `'health'` (route + storage key stability); only change the `label` to `'Vitals'`.
-- [ ] Verify `colsFor(8)` still yields 4 (two rows of 4). No code change expected.
-- [ ] Update any feature-flag filter callers that build a subset of `DEFAULT_ITEMS` to preserve the new ordering.
-- [ ] Update the Vitest test for wg-bottom-nav (look under `web/static/js/tests/`) to expect the new order & the "Vitals" label.
-- [ ] Run tests.
+- [x] In `web/static/js/components/wg-bottom-nav.js`, reorder `DEFAULT_ITEMS` at lines 22-31 to: today, bp, food, meds, **health (label:"Vitals")**, workouts, weight, settings.
+- [x] Keep the internal id as `'health'` (route + storage key stability); only change the `label` to `'Vitals'`.
+- [x] Verify `colsFor(8)` still yields 4 (two rows of 4). No code change expected. (`components.wg-bottom-nav.test.js` "mount() with 8 items lays out two rows of 4 cols" still passes; `app.tab-single-source.test.js` "2 rows of 4 cols" still passes.)
+- [x] Update any feature-flag filter callers that build a subset of `DEFAULT_ITEMS` to preserve the new ordering. (`filterNavItemsByFeatures` in `bootstrap.js` uses `.filter()` which is order-preserving — no change needed; `NAV_ID_TO_FEATURE` keys remain valid.)
+- [x] Update the Vitest test for wg-bottom-nav (look under `web/static/js/tests/`) to expect the new order & the "Vitals" label. (Updated slot 4/5/6 contract tests; added a canonical-order test that pins the full row 1 / row 2 sequence and labels.)
+- [x] Run tests. (All 33 wg-bottom-nav tests pass; full Vitest 1320 pass, 2 pre-existing sleep/steps "Today" failures reproduce on master. `go test ./...` green.)
 
 ### Task 3: Today page refactor — shortcut row + metric grid + food card + workout/sleep + meds at bottom
 Rationale: Biggest visual change. Design `screens.jsx:6-112` is the exact spec.
