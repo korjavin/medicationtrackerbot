@@ -199,37 +199,47 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
     });
 
     describe('renderRangeSelector', () => {
-        it('renders three 14d/30d/60d buttons inside .wg-gloss--inset', () => {
+        it('renders three 14d/30d/60d buttons inside the inset track', () => {
             const { document, window } = env;
             window.renderRangeSelector({ active: 30, onChange: () => {} });
 
             const container = document.getElementById('bp-range-selector');
             expect(container.classList.contains('wg-bp-range-selector')).toBe(true);
-            expect(container.classList.contains('wg-gloss--inset')).toBe(true);
+            // Phase 5, Task 5: the inset track is an inner child of the row
+            // so the trailing +Log pill can sit on the stage, not in the trough.
+            const track = container.querySelector('.wg-bp-range-selector__track');
+            expect(track).not.toBeNull();
+            expect(track.classList.contains('wg-gloss--inset')).toBe(true);
 
-            const btns = container.querySelectorAll('button[data-range]');
+            const btns = track.querySelectorAll('button[data-range]');
             expect(btns.length).toBe(3);
             expect(Array.from(btns).map((b) => b.getAttribute('data-range'))).toEqual(['14', '30', '60']);
             expect(Array.from(btns).map((b) => b.textContent)).toEqual(['14d', '30d', '60d']);
         });
 
-        it('marks exactly one button as active via .wg-gloss--sun and aria-pressed', () => {
+        it('marks exactly one range button as active via .wg-gloss--sun and aria-pressed', () => {
             const { document, window } = env;
             window.renderRangeSelector({ active: 30, onChange: () => {} });
 
-            const active = document.querySelectorAll('#bp-range-selector .wg-gloss--sun');
+            // Scope to the inset track; the trailing #add-bp-btn pill also
+            // carries `.wg-gloss--sun` by design (Phase 5, Task 5).
+            const active = document.querySelectorAll('#bp-range-selector .wg-bp-range-selector__track .wg-gloss--sun');
             expect(active.length).toBe(1);
             expect(active[0].getAttribute('data-range')).toBe('30');
             expect(active[0].getAttribute('aria-pressed')).toBe('true');
 
-            const inactive = document.querySelectorAll('#bp-range-selector button:not(.wg-gloss--sun)');
+            const inactive = document.querySelectorAll(
+                '#bp-range-selector .wg-bp-range-selector__track button:not(.wg-gloss--sun)'
+            );
             inactive.forEach((b) => expect(b.getAttribute('aria-pressed')).toBe('false'));
         });
 
         it('falls back to the default (60d) range when active is invalid', () => {
             const { document, window } = env;
             window.renderRangeSelector({ active: 999, onChange: () => {} });
-            const active = document.querySelector('#bp-range-selector .wg-gloss--sun');
+            const active = document.querySelector(
+                '#bp-range-selector .wg-bp-range-selector__track .wg-gloss--sun'
+            );
             expect(active.getAttribute('data-range')).toBe('60');
         });
 
@@ -323,29 +333,55 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
         });
     });
 
-    describe('#add-bp-btn is a Wandergeek sun-gloss pill', () => {
-        it('carries wg-fab + wg-gloss + wg-gloss--sun and no paper-era btn classes', () => {
+    describe('#add-bp-btn is rendered inline with the range selector (Phase 5, Task 5)', () => {
+        it('is NOT present in the static index.html markup — it is rendered by renderRangeSelector', () => {
             const { document } = env;
-            const btn = document.getElementById('add-bp-btn');
-            expect(btn).not.toBeNull();
-            expect(btn.classList.contains('wg-fab')).toBe(true);
-            expect(btn.classList.contains('wg-gloss')).toBe(true);
-            expect(btn.classList.contains('wg-gloss--sun')).toBe(true);
-            expect(btn.classList.contains('wg-gloss--lg')).toBe(true);
-            expect(btn.classList.contains('btn-primary')).toBe(false);
-            expect(btn.classList.contains('btn-fab')).toBe(false);
-            expect(btn.classList.contains('btn-pill')).toBe(false);
-            expect(btn.classList.contains('btn-lg')).toBe(false);
-            expect(btn.classList.contains('btn')).toBe(false);
-            expect(btn.textContent.trim()).toBe('+ Record BP');
+            // Before renderRangeSelector runs, the button should not exist —
+            // the paper-era FAB was removed in Phase 5, Task 5.
+            expect(document.getElementById('add-bp-btn')).toBeNull();
         });
 
-        it('has no orphan btn-primary or btn-fab inside #bp-view', () => {
-            const { document } = env;
+        it('renderRangeSelector injects a sun-gloss pill with id="add-bp-btn" as the row\'s trailing child', () => {
+            const { document, window } = env;
+            window.renderRangeSelector({ active: 60, onChange: () => {} });
+
+            const btn = document.getElementById('add-bp-btn');
+            expect(btn).not.toBeNull();
+            expect(btn.classList.contains('wg-gloss')).toBe(true);
+            expect(btn.classList.contains('wg-gloss--sun')).toBe(true);
+            expect(btn.classList.contains('wg-bp-range-selector__add')).toBe(true);
+            expect(btn.classList.contains('wg-fab')).toBe(false);
+            expect(btn.classList.contains('btn-primary')).toBe(false);
+            expect(btn.classList.contains('btn-fab')).toBe(false);
+
+            const row = document.getElementById('bp-range-selector');
+            // The +Log pill is the last child of the row (after the inset track).
+            expect(row.lastElementChild).toBe(btn);
+
+            const label = btn.querySelector('.wg-bp-range-selector__add-label');
+            expect(label).not.toBeNull();
+            expect(label.textContent.trim()).toBe('Log');
+        });
+
+        it('clicking the inline +Log pill opens the BP modal via showBPRecordModal', () => {
+            const { document, window } = env;
+            const spy = vi.fn();
+            window.showBPRecordModal = spy;
+            window.renderRangeSelector({ active: 60, onChange: () => {} });
+
+            const btn = document.getElementById('add-bp-btn');
+            btn.click();
+            expect(spy).toHaveBeenCalledTimes(1);
+        });
+
+        it('has no orphan btn-primary or btn-fab (or .wg-fab) inside #bp-view', () => {
+            const { document, window } = env;
+            window.renderRangeSelector({ active: 60, onChange: () => {} });
             const view = document.getElementById('bp-view');
             expect(view).not.toBeNull();
             expect(view.querySelectorAll('.btn-primary').length).toBe(0);
             expect(view.querySelectorAll('.btn-fab').length).toBe(0);
+            expect(view.querySelectorAll('.wg-fab').length).toBe(0);
         });
     });
 });

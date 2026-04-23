@@ -6,13 +6,14 @@
 // _archiveMedApi, editingMedId, medications, initialAuthLoad, etc.) that
 // remain in app.js.
 
-// Sub-tab state (Phase 5, Task 2). Mirrors the `mt-food-subtab` pattern —
-// one of three values (`schedule`, `history`, `inventory`), persisted to
-// localStorage so the user's choice survives reload. The default is
-// `schedule` (distinct from the paper-era default of `history`).
+// Sub-tab state (Phase 5, Task 2, revised Task 5). Mirrors the
+// `mt-food-subtab` pattern — one of three values (`schedule`, `history`,
+// `inventory`), persisted to localStorage so the user's choice survives
+// reload. Default is `history` to match the Claude Design mockup's Meds
+// screen, which lists the recent intakes first.
 const MEDS_SUBTAB_STORAGE_KEY = 'mt-meds-subtab';
 const MEDS_SUBTAB_OPTIONS = ['schedule', 'history', 'inventory'];
-const MEDS_SUBTAB_DEFAULT = 'schedule';
+const MEDS_SUBTAB_DEFAULT = 'history';
 
 function getActiveMedsSubTab() {
     try {

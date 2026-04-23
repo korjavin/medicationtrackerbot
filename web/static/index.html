@@ -42,18 +42,28 @@
 
 
         <div id="meds-view" class="view">
-            <!-- Med Sub-tabs (Phase 5, Task 2). Dual-classed `.med-tabs` +
-                 `.wg-meds-subtabs` so legacy selectors in existing tests keep
-                 working while the Wandergeek strip primitives take over the
-                 visuals. Three pills — Schedule (default) / History /
-                 Inventory — active pill carries `.wg-gloss--sun`. -->
-            <div class="wg-gloss--inset wg-meds-subtabs med-tabs" id="med-subtabs">
-                <button class="wg-gloss wg-meds-subtabs__btn wg-gloss--sun wg-meds-subtabs__btn--active med-tab active" data-tab="schedule" aria-pressed="true">Schedule</button>
-                <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="history" aria-pressed="false">History</button>
-                <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="inventory" aria-pressed="false">Inventory</button>
+            <!-- Med Sub-tabs + inline +Add (Phase 5, Task 5 rework). Outer
+                 container is a plain flex row holding the inset 3-pill track
+                 (History / Schedule / Inventory — default "history" matches
+                 the mockup) and the trailing sun-gloss `#add-btn`. Dual-classed
+                 `.med-tabs` + `.wg-meds-subtabs` so legacy selectors in
+                 existing tests keep working. -->
+            <div class="wg-meds-subtabs-row" id="med-subtabs">
+                <div class="wg-gloss--inset wg-meds-subtabs med-tabs">
+                    <button class="wg-gloss wg-meds-subtabs__btn wg-gloss--sun wg-meds-subtabs__btn--active med-tab active" data-tab="history" aria-pressed="true">History</button>
+                    <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="schedule" aria-pressed="false">Schedule</button>
+                    <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="inventory" aria-pressed="false">Inventory</button>
+                </div>
+                <!-- Add medication CTA (Phase 5, Task 5). Inline sun-gloss pill
+                     replacing the old full-width bottom CTA. `#add-btn` id
+                     retained so bindClick('add-btn', showAddModal) and the
+                     offline UI wiring continue to work. -->
+                <button id="add-btn" type="button" class="wg-gloss wg-gloss--sun wg-meds-subtabs-row__add" aria-label="Add medication">
+                    <span class="wg-meds-subtabs-row__add-label">Add</span>
+                </button>
             </div>
 
-            <div id="med-schedule-tab" class="med-tab-content active">
+            <div id="med-schedule-tab" class="med-tab-content">
                 <!-- Next-action card (Phase 5, Task 3). Sun-glossed card mounted
                      atop the Schedule sub-tab; mirrors the Today next-action
                      pattern. Populated by mountNextActionCard() from cached
@@ -62,16 +72,9 @@
                 <div id="med-list">
                     <!-- Meds injected here -->
                 </div>
-                <!-- Add medication CTA (Phase 5, Task 4). Full-width sun-gloss
-                     button replacing the paper-era FAB. `#add-btn` id retained
-                     so bindClick('add-btn', showAddModal) and the offline UI
-                     wiring continue to work. -->
-                <button id="add-btn" type="button" class="wg-gloss wg-gloss--sun wg-meds-add-cta">
-                    <span class="wg-meds-add-cta__label">Add medication</span>
-                </button>
             </div>
 
-            <div id="med-history-tab" class="med-tab-content">
+            <div id="med-history-tab" class="med-tab-content active">
                 <!-- Intake history filter strip (Phase 5, Task 5). Two select
                      wraps styled as `.wg-gloss--inset` — the medication filter
                      keeps its `history-filter-med` id (populateMedFilter fills
@@ -110,8 +113,11 @@
         </div>
 
         <div id="bp-view" class="view wg-screen-stage">
-            <button id="add-bp-btn" class="wg-fab wg-gloss wg-gloss--sun wg-gloss--lg">+ Record BP</button>
             <div id="bp-current-card"></div>
+            <!-- Range selector row (Phase 5, Task 5). Renders the 14/30/60d
+                 pills and an inline `#add-bp-btn` (sun gloss) trailing pill in
+                 a single flex row — `renderRangeSelector()` owns the layout so
+                 the button is regenerated each time and stays bound. -->
             <div id="bp-range-selector"></div>
             <div id="bpChart" class="wg-bp-chart-card"></div>
             <div id="bp-averages"></div>
@@ -119,23 +125,36 @@
         </div>
 
         <div id="weight-view" class="view wg-screen-stage">
-            <div id="weight-current-card"></div>
+            <!-- Header row (Phase 5, Task 5). Latest-weight card sits on the
+                 left; inline sun-gloss `#add-weight-btn` pill sits on the right,
+                 replacing the paper-era full-width bottom CTA. -->
+            <div class="wg-weight-header-row">
+                <div id="weight-current-card"></div>
+                <button id="add-weight-btn" type="button" class="wg-gloss wg-gloss--sun wg-weight-header-row__add" aria-label="Log weight">
+                    <span class="wg-weight-header-row__add-label">+ Log</span>
+                </button>
+            </div>
             <div id="weight-goal-card"></div>
             <div id="weight-range-selector"></div>
             <div id="weightChart" class="wg-weight-chart-panel"></div>
             <ul id="weight-list" class="wg-weight-history"></ul>
-            <button id="add-weight-btn" type="button" class="wg-gloss wg-gloss--sun wg-weight-add-cta">
-                <span class="wg-weight-add-cta__label">+ Log weight</span>
-            </button>
         </div>
 
         <div id="workouts-view" class="view">
-            <!-- Workout Tabs (Phase 7 — .wg-gloss--inset strip, .wg-gloss--sun active pill) -->
-            <div class="wg-gloss--inset wg-workouts-subtabs workout-tabs" id="workouts-subtabs">
-                <button class="wg-gloss wg-workouts-subtabs__btn wg-gloss--sun wg-workouts-subtabs__btn--active workout-tab active" data-tab="history" aria-pressed="true">History</button>
-                <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="groups" aria-pressed="false">Groups</button>
-                <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="exercises" aria-pressed="false">Exercises</button>
-                <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="stats" aria-pressed="false">Stats</button>
+            <!-- Workout Tabs + inline +Start (Phase 7 / Phase 5 Task 5 rework).
+                 Outer `.wg-workouts-subtabs-row` flex container wraps the inset
+                 4-pill track and the trailing sun-gloss `#start-adhoc-workout-btn`
+                 ad-hoc CTA. -->
+            <div class="wg-workouts-subtabs-row" id="workouts-subtabs">
+                <div class="wg-gloss--inset wg-workouts-subtabs workout-tabs">
+                    <button class="wg-gloss wg-workouts-subtabs__btn wg-gloss--sun wg-workouts-subtabs__btn--active workout-tab active" data-tab="history" aria-pressed="true">History</button>
+                    <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="groups" aria-pressed="false">Groups</button>
+                    <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="exercises" aria-pressed="false">Exercises</button>
+                    <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="stats" aria-pressed="false">Stats</button>
+                </div>
+                <button id="start-adhoc-workout-btn" type="button" class="wg-gloss wg-gloss--sun wg-workouts-subtabs-row__add" aria-label="Start ad-hoc workout">
+                    <span class="wg-workouts-subtabs-row__add-label">Start</span>
+                </button>
             </div>
 
             <!-- History View -->
@@ -143,7 +162,6 @@
                 <!-- Next Workout Card -->
                 <div id="next-workout-card"></div>
 
-                <button id="start-adhoc-workout-btn" class="btn btn-primary btn-pill btn-fab btn-lg">💪 Start Ad-hoc Workout</button>
                 <div id="workout-history-display">
                     Loading...
                 </div>
