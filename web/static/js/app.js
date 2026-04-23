@@ -1020,6 +1020,7 @@ function healthOverviewCacheKey() {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     return tz ? `health_overview_${tz}` : `health_overview_offset_${new Date().getTimezoneOffset()}`;
 }
+window.healthOverviewCacheKey = healthOverviewCacheKey;
 
 // Fetchers for every key Today reads from IndexedDB. Calling fetchFresh with
 // these tags both populates the cache and registers the key→tag mapping, so

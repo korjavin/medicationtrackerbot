@@ -240,7 +240,6 @@ function renderSleepCard(data, activeRange) {
 
     const statsKey = range === '30d' ? 'sleep_stats_30d' : 'sleep_stats_7d';
     const stats = Array.isArray(data?.[statsKey]) ? data[statsKey] : [];
-    const chartOpts = { stats, range };
     const chartEl = window.WGSleepChart
         ? window.WGSleepChart.render({ stats, range, prefiltered: true })
         : null;
@@ -286,7 +285,6 @@ function renderStepsCard(data, activeRange) {
 
     const statsKey = range === '30d' ? 'step_stats_30d' : 'step_stats_7d';
     const stats = Array.isArray(data?.[statsKey]) ? data[statsKey] : [];
-    const chartOpts = { stats, range };
     const chartEl = window.WGStepsChart
         ? window.WGStepsChart.render({ stats, range, prefiltered: true })
         : null;
@@ -418,9 +416,7 @@ async function loadHealthOverview() {
     loading.style.display = 'block';
 
     if (window.DataStore) {
-        const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const tzOffset = new Date().getTimezoneOffset();
-        const hoKey = tzName ? `health_overview_${tzName}` : `health_overview_offset_${tzOffset}`;
+        const hoKey = window.healthOverviewCacheKey();
         await window.DataStore.loadSWR({
             key: hoKey,
             tags: ['health'],
