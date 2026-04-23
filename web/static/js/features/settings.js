@@ -190,33 +190,58 @@
 
         bindClick('save-food-targets-btn', async () => { await window.saveFoodTargets(); });
 
+        const WEBPUSH_VARIANTS = {
+            success: ['status-success', 'wg-tag--mono--success'],
+            error: ['status-error', 'wg-tag--mono--alert'],
+            muted: ['status-muted', 'wg-tag--mono--muted'],
+        };
+        const WEBPUSH_VARIANT_CLASSES = [
+            'status-success', 'status-error', 'status-muted',
+            'wg-tag--mono--success', 'wg-tag--mono--alert', 'wg-tag--mono--muted',
+        ];
+
+        function applyStatus(status, text, variant) {
+            status.textContent = text;
+            status.classList.remove('wg-settings-hidden', ...WEBPUSH_VARIANT_CLASSES);
+            const classes = WEBPUSH_VARIANTS[variant];
+            if (classes) status.classList.add(...classes);
+        }
+
+        function hideStatus(status) {
+            status.classList.add('wg-settings-hidden');
+            status.classList.remove(...WEBPUSH_VARIANT_CLASSES);
+        }
+
         bindChange('webpush-toggle', async function () {
             const status = document.getElementById('webpush-status');
             if (!status) return;
 
-            status.style.display = 'block';
             if (!window.MedTrackerPush) {
-                status.textContent = 'Push is unavailable';
-                status.className = 'status-error';
+                applyStatus(status, 'Push is unavailable', 'error');
                 this.checked = false;
                 return;
             }
 
             if (this.checked) {
-                status.textContent = 'Requesting permission...';
-                status.className = '';
+                applyStatus(status, 'Requesting permission...', null);
                 const success = await window.MedTrackerPush.subscribe();
-                status.textContent = success ? 'Notifications enabled' : 'Failed to enable notifications';
-                status.className = success ? 'status-success' : 'status-error';
+                applyStatus(
+                    status,
+                    success ? 'Notifications enabled' : 'Failed to enable notifications',
+                    success ? 'success' : 'error'
+                );
                 if (!success) this.checked = false;
             } else {
                 const success = await window.MedTrackerPush.unsubscribe();
-                status.textContent = success ? 'Notifications disabled' : 'Failed to disable notifications';
-                status.className = success ? 'status-muted' : 'status-error';
+                applyStatus(
+                    status,
+                    success ? 'Notifications disabled' : 'Failed to disable notifications',
+                    success ? 'muted' : 'error'
+                );
                 if (!success) this.checked = true;
             }
 
-            setTimeout(() => { status.style.display = 'none'; }, 3000);
+            setTimeout(() => hideStatus(status), 3000);
         });
     }
 

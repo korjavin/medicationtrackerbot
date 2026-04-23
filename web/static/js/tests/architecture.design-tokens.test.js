@@ -665,6 +665,51 @@ const WANDERGEEK_TOKENS = [
     '--wg-health-vitals-hr-line',
     '--wg-health-vitals-spo2-line',
     '--wg-health-vitals-stress-line',
+
+    // Settings screen tokens (Phase 9, Task 1) — sectioned cards, canonical
+    // row grid (left column title+description, right column control),
+    // token'd row hairline divider, info-grid for the Timezone card,
+    // number-field input geometry for Food Targets, action-row gap.
+    '--wg-settings-section-pad',
+    '--wg-settings-section-gap',
+    '--wg-settings-row-cols',
+    '--wg-settings-row-gap',
+    '--wg-settings-row-pad-y',
+    '--wg-settings-row-pad-x',
+    '--wg-settings-row-divider',
+    '--wg-settings-title-size',
+    '--wg-settings-desc-size',
+    '--wg-settings-info-grid-cols',
+    '--wg-settings-info-grid-gap',
+    '--wg-settings-info-label-size',
+    '--wg-settings-info-value-size',
+    '--wg-settings-number-field-height',
+    '--wg-settings-number-field-pad-x',
+    '--wg-settings-number-field-label-size',
+    '--wg-settings-number-grid-cols',
+    '--wg-settings-number-grid-gap',
+    '--wg-settings-number-field-gap',
+    '--wg-settings-number-field-unit-size',
+    '--wg-settings-save-btn-min-height',
+    '--wg-settings-action-row-gap',
+    '--wg-settings-version-size',
+    '--wg-settings-version-pad',
+
+    // Toggle primitive tokens (Phase 9, Task 1) — the new WGToggle
+    // primitive draws an unchecked pill (--wg-toggle-bg) that flips to
+    // --wg-toggle-bg-on (sun gradient) when checked; knob / border /
+    // focus / disabled states are all tokenized.
+    '--wg-toggle-width',
+    '--wg-toggle-height',
+    '--wg-toggle-knob-size',
+    '--wg-toggle-knob-pad',
+    '--wg-toggle-bg',
+    '--wg-toggle-bg-on',
+    '--wg-toggle-knob',
+    '--wg-toggle-knob-on',
+    '--wg-toggle-border',
+    '--wg-toggle-border-focus',
+    '--wg-toggle-border-disabled',
 ];
 
 describe('Architecture – design tokens', () => {

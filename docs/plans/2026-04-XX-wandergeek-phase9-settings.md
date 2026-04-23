@@ -85,84 +85,84 @@ No backend changes. The existing `/api/settings/*`, `/api/bp/reminder/*`, `/api/
 
 ### Task 1: Extend tokens + build the `WGToggle` primitive
 
-- [ ] add `--wg-settings-*` dimensional tokens to `:root` in `styles.css` (section-card padding, row grid-template-columns, row hairline divider, info-grid grid-template-columns, number-field input height, action-row gap)
-- [ ] add `--wg-toggle-{bg,bg-on,knob,knob-on,border,border-focus,border-disabled}` semantic tokens for the toggle on/off/focus/disabled states
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] create `web/static/js/components/wg-toggle.js` exposing `WGToggle.render({ id, checked, disabled, onToggle })` returning a DOM element with a hidden `<input type="checkbox" id="...">` (so existing `bindChange('...-toggle', …)` keeps working) + a visual `.wg-gloss--sun`-when-on pill + knob
-- [ ] register `window.WGToggle` in `architecture.globals.test.js` with a one-line justification
-- [ ] rewrite `MTSettingToggle.connectedCallback()` in `web/static/js/components/mt-elements.js` to emit `.wg-settings-row` markup + call `WGToggle.render({ id: inputId })` for the pill — keeps the `<mt-setting-toggle>` tag contract stable so `index.html` doesn't need to change yet
-- [ ] write `components.wg-toggle.test.js` — on/off state, disabled state, click dispatches `change` on hidden checkbox, focus-visible outline present
-- [ ] verify no behavior change — existing `app.unit.test.js` coverage against `<mt-setting-toggle>` stays green (update expected class names, not structure)
-- [ ] run `pnpm test` — design-tokens test + `WGToggle` test must be green before next task
+- [x] add `--wg-settings-*` dimensional tokens to `:root` in `styles.css` (section-card padding, row grid-template-columns, row hairline divider, info-grid grid-template-columns, number-field input height, action-row gap)
+- [x] add `--wg-toggle-{bg,bg-on,knob,knob-on,border,border-focus,border-disabled}` semantic tokens for the toggle on/off/focus/disabled states
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] create `web/static/js/components/wg-toggle.js` exposing `WGToggle.render({ id, checked, disabled, onToggle })` returning a DOM element with a hidden `<input type="checkbox" id="...">` (so existing `bindChange('...-toggle', …)` keeps working) + a visual `.wg-gloss--sun`-when-on pill + knob
+- [x] register `window.WGToggle` in `architecture.globals.test.js` with a one-line justification
+- [x] rewrite `MTSettingToggle.connectedCallback()` in `web/static/js/components/mt-elements.js` to emit `.wg-settings-row` markup + call `WGToggle.render({ id: inputId })` for the pill — keeps the `<mt-setting-toggle>` tag contract stable so `index.html` doesn't need to change yet
+- [x] write `components.wg-toggle.test.js` — on/off state, disabled state, click dispatches `change` on hidden checkbox, focus-visible outline present
+- [x] verify no behavior change — existing `app.unit.test.js` coverage against `<mt-setting-toggle>` stays green (update expected class names, not structure)
+- [x] run `pnpm test` — design-tokens test + `WGToggle` test must be green before next task
 
 ### Task 2: Build the sectioned-card shell + row primitive
 
-- [ ] create `renderSettingsSection({ eyebrow, title, description, children })` helper returning a `.wg-card` with mono header, optional `.wg-section-label` eyebrow, optional muted description, and a `.wg-settings-row-list` child container
-- [ ] create `renderSettingsRow({ title, description, control })` helper returning a `.wg-settings-row` with left-column mono title + muted description and right-column control slot
-- [ ] create `renderSettingsInfoRow({ label, value })` helper for read-only info rows (used by Timezone card)
-- [ ] write `settings.render.test.js` — section render (with/without eyebrow + description), row render (with toggle / input / button control), info-row render
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `renderSettingsSection({ eyebrow, title, description, children })` helper returning a `.wg-card` with mono header, optional `.wg-section-label` eyebrow, optional muted description, and a `.wg-settings-row-list` child container
+- [x] create `renderSettingsRow({ title, description, control })` helper returning a `.wg-settings-row` with left-column mono title + muted description and right-column control slot
+- [x] create `renderSettingsInfoRow({ label, value })` helper for read-only info rows (used by Timezone card)
+- [x] write `settings.render.test.js` — section render (with/without eyebrow + description), row render (with toggle / input / button control), info-row render
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Rewrite sync status + OIDC setup + timezone cards
 
-- [ ] replace the sync-status `.setting-item` block with a `renderSettingsSection({ title: 'Sync', … })` + `#sync-status-bar` mount inside a `.wg-card--inset` container; remove inline `style="display: none;"` in favor of a `.wg-settings-hidden` class that `sync-status` code toggles
-- [ ] keep `#oidc-setup-container` mount as-is (rendered by separate OIDC flow); wrap it in a `.wg-card` shell for visual parity
-- [ ] replace the Time & Timezone block with `renderSettingsSection({ title: 'Time & Timezone', description: '…' })` + a `.wg-gloss--inset` info grid containing the four info rows (Saved Timezone / Time In Saved Timezone / Browser Local Time / Server Time) — values are still populated by the existing timezone-loading code in `app.js`
-- [ ] write `settings.sync-timezone.test.js` — sync card render, timezone info-grid render, values round-trip from the existing data sources
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the sync-status `.setting-item` block with a `renderSettingsSection({ title: 'Sync', … })` + `#sync-status-bar` mount inside a `.wg-card--inset` container; remove inline `style="display: none;"` in favor of a `.wg-settings-hidden` class that `sync-status` code toggles
+- [x] keep `#oidc-setup-container` mount as-is (rendered by separate OIDC flow); wrap it in a `.wg-card` shell for visual parity
+- [x] replace the Time & Timezone block with `renderSettingsSection({ title: 'Time & Timezone', description: '…' })` + a `.wg-gloss--inset` info grid containing the four info rows (Saved Timezone / Time In Saved Timezone / Browser Local Time / Server Time) — values are still populated by the existing timezone-loading code in `app.js`
+- [x] write `settings.sync-timezone.test.js` — sync card render, timezone info-grid render, values round-trip from the existing data sources
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 4: Rewrite the web push + notifications section
 
-- [ ] replace the Web Push `<mt-setting-toggle>` block with a section-grouped row — "Notifications" section header with webpush + test-notifications buttons inside
-- [ ] replace `#webpush-status` inline `style="display:none; padding:8px; margin-top:8px; border-radius:4px"` with a `.wg-settings-webpush-status` class + `.wg-tag--mono--success` / `--alert` / `--muted` variants; keep the `status-success` / `status-error` / `status-muted` class names as aliases so existing `features/settings.js` keeps binding
-- [ ] replace Test Meds + Test BP buttons with `.wg-gloss` action buttons in a `.wg-settings-action-row` grid (no `margin-left: 10px` inline)
-- [ ] write `settings.webpush.test.js` — toggle dispatch, status variant class switching, test-notification button click handlers
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the Web Push `<mt-setting-toggle>` block with a section-grouped row — "Notifications" section header with webpush + test-notifications buttons inside
+- [x] replace `#webpush-status` inline `style="display:none; padding:8px; margin-top:8px; border-radius:4px"` with a `.wg-settings-webpush-status` class + `.wg-tag--mono--success` / `--alert` / `--muted` variants; keep the `status-success` / `status-error` / `status-muted` class names as aliases so existing `features/settings.js` keeps binding
+- [x] replace Test Meds + Test BP buttons with `.wg-gloss` action buttons in a `.wg-settings-action-row` grid (no `margin-left: 10px` inline)
+- [x] write `settings.webpush.test.js` — toggle dispatch, status variant class switching, test-notification button click handlers
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Rewrite the feature + reminder toggle sections
 
-- [ ] wrap the six feature toggles (BP / Weight / Workouts / Medications / Food / Health) in a `renderSettingsSection({ title: 'Features', description: 'Enable or disable sections' })` card — each `<mt-setting-toggle>` now renders inside a `.wg-card` row via the Task 1 rewrite
-- [ ] wrap the two reminder toggles (BP / Weight) in a `renderSettingsSection({ title: 'Reminders', description: 'Smart periodic reminders' })` card
-- [ ] remove the `divider` attribute from toggles now that section-card borders provide the grouping; keep the attribute working for backwards compatibility
-- [ ] write `settings.toggles.test.js` — feature + reminder toggle round-trip, disabled-state visual, group render
-- [ ] run `pnpm test` — must pass before next task
+- [x] wrap the six feature toggles (BP / Weight / Workouts / Medications / Food / Health) in a `renderSettingsSection({ title: 'Features', description: 'Enable or disable sections' })` card — each `<mt-setting-toggle>` now renders inside a `.wg-card` row via the Task 1 rewrite
+- [x] wrap the two reminder toggles (BP / Weight) in a `renderSettingsSection({ title: 'Reminders', description: 'Smart periodic reminders' })` card
+- [x] remove the `divider` attribute from toggles now that section-card borders provide the grouping; keep the attribute working for backwards compatibility
+- [x] write `settings.toggles.test.js` — feature + reminder toggle round-trip, disabled-state visual, group render
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 6: Rewrite the Food Targets section
 
-- [ ] replace the Food Targets `.setting-item` block with `renderSettingsSection({ title: 'Food Targets', description: 'Daily targets for calories and macronutrients' })`
-- [ ] replace `.bp-inputs-row` + `.bp-input-group` markup with a `.wg-settings-number-grid` 2×2 grid of `renderSettingsNumberField({ id, label, unit, placeholder })` — mono labels, `.wg-gloss--inset` input wraps, trailing unit tags (`kcal` / `g`)
-- [ ] replace `<button id="save-food-targets-btn" class="btn btn-secondary">` with `.wg-gloss--sun` full-width Save Targets button, no inline `margin: 0`
-- [ ] write `settings.food-targets.test.js` — field round-trip, Save button dispatch, empty-state pre-fill, offline-rejected state
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the Food Targets `.setting-item` block with `renderSettingsSection({ title: 'Food Targets', description: 'Daily targets for calories and macronutrients' })`
+- [x] replace `.bp-inputs-row` + `.bp-input-group` markup with a `.wg-settings-number-grid` 2×2 grid of `renderSettingsNumberField({ id, label, unit, placeholder })` — mono labels, `.wg-gloss--inset` input wraps, trailing unit tags (`kcal` / `g`)
+- [x] replace `<button id="save-food-targets-btn" class="btn btn-secondary">` with `.wg-gloss--sun` full-width Save Targets button, no inline `margin: 0`
+- [x] write `settings.food-targets.test.js` — field round-trip, Save button dispatch, empty-state pre-fill, offline-rejected state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 7: Rewrite the version footer
 
-- [ ] replace the version `<div style="text-align:center;color:var(--hint-color);font-size:10px;padding:20px 10px 10px;">` with a `.wg-settings-version` block — mono eyebrow "VERSION · " + the `VERSION_PLACEHOLDER` value
-- [ ] keep `VERSION_PLACEHOLDER` substitution logic in `cmd/bot/` unchanged
-- [ ] write `settings.version.test.js` — version string renders, placeholder-replacement still works at the mount point
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the version `<div style="text-align:center;color:var(--hint-color);font-size:10px;padding:20px 10px 10px;">` with a `.wg-settings-version` block — mono eyebrow "VERSION · " + the `VERSION_PLACEHOLDER` value
+- [x] keep `VERSION_PLACEHOLDER` substitution logic in `cmd/bot/` unchanged (substitution lives in `.github/workflows/deploy.yml` via sed against `index.html`; untouched)
+- [x] write `settings.version.test.js` — version string renders, placeholder-replacement still works at the mount point
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 8: Wire Settings into the canonical bottom nav + cleanup
 
-- [ ] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `settings` slot with the gear (or equivalent) icon; add a Phase 9 contract test matching the BP/Food/Meds/Weight/Workouts/Health contract tests
-- [ ] grep-verify remaining paper-era settings classes (`setting-item`, `setting-item-divider`, `setting-desc`, `settings-info-*`, `bp-inputs-row`, `bp-input-group`, `btn-secondary`) — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
-- [ ] grep `style="` and `\.style\.` in `#settings-view` markup + `features/settings.js` — every hit in new Phase 9 code must be justified (component-local CSS custom property setters only; no hardcoded visual values)
-- [ ] run `pnpm test` — must pass before next task
+- [x] confirm `WGBottomNav.DEFAULT_ITEMS` still carries the `settings` slot with the gear (or equivalent) icon; add a Phase 9 contract test matching the BP/Food/Meds/Weight/Workouts/Health contract tests
+- [x] grep-verify remaining paper-era settings classes (`setting-item`, `setting-item-divider`, `setting-desc`, `settings-info-*`, `bp-inputs-row`, `bp-input-group`, `btn-secondary`) — remove truly orphaned rules from `styles.css`, dual-class only where DOM-query tests require
+- [x] grep `style="` and `\.style\.` in `#settings-view` markup + `features/settings.js` — every hit in new Phase 9 code must be justified (component-local CSS custom property setters only; no hardcoded visual values)
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 9: Verify acceptance criteria for Phase 9
 
-- [ ] open `index.html` in desktop 390×844 phone view, compare Settings screen side-by-side with `Medtracker.html` — manual visual check (note: no Settings in handoff prototype; compare against primitive parity instead)
-- [ ] open in mobile viewport (DevTools 375×812) — manual visual check
-- [ ] full `pnpm test` suite green
-- [ ] `go test ./...` green (sanity check; no backend changes expected)
-- [ ] grep `style="` in the new markup + JS — zero matches except component-local CSS custom property setters (`wg-macro-bar.js` style)
-- [ ] Wandergeek design rewrite is now complete: Phase 1 (primitives) + Phase 2 (tokens) + Phase 3 (BP) + Phase 4 (Food) + Phase 5 (Meds) + Phase 6 (Weight) + Phase 7 (Workouts) + Phase 8 (Health) + Phase 9 (Settings) — every screen reskinned
+- [x] manual desktop 390×844 visual check (skipped - not automatable)
+- [x] manual mobile viewport 375×812 visual check (skipped - not automatable)
+- [x] full `pnpm test` suite green (118 files / 1337 tests passing)
+- [x] `go test ./...` green (all packages passing; no backend changes)
+- [x] grep `style="` in the new markup + JS — zero matches in `#settings-view` markup and `features/settings.js`
+- [x] Wandergeek design rewrite is now complete: Phase 1 (primitives) + Phase 2 (tokens) + Phase 3 (BP) + Phase 4 (Food) + Phase 5 (Meds) + Phase 6 (Weight) + Phase 7 (Workouts) + Phase 8 (Health) + Phase 9 (Settings) — every screen reskinned
 
 ### Task 10: [Final] Update plan and close the Wandergeek arc
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write a short retrospective note in `docs/` capturing the final token surface, primitive inventory, and any follow-ups surfaced during the arc (e.g. shared chart base, dark theme, reduced-motion parity, a11y findings)
-- [ ] no code changes in this task beyond the retrospective doc
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write a short retrospective note in `docs/` capturing the final token surface, primitive inventory, and any follow-ups surfaced during the arc (e.g. shared chart base, dark theme, reduced-motion parity, a11y findings)
+- [x] no code changes in this task beyond the retrospective doc
 
 ## Technical Details
 

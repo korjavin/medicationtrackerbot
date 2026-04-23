@@ -106,6 +106,16 @@ describe('WGBottomNav — component', () => {
         } finally { cleanup(); }
     });
 
+    it('Settings is the eighth (final) slot with the "settings" icon — Phase 9 contract', () => {
+        const { window, cleanup } = loadEnv();
+        try {
+            const settingsSlot = window.WGBottomNav.DEFAULT_ITEMS[7];
+            expect(settingsSlot.id).toBe('settings');
+            expect(settingsSlot.icon).toBe('settings');
+            expect(settingsSlot.label).toBe('Settings');
+        } finally { cleanup(); }
+    });
+
     it('mount() with 5 items lays out a single row (cols=5)', () => {
         const { window, document, cleanup } = loadEnv();
         try {

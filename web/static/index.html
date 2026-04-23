@@ -294,115 +294,144 @@
         <div id="settings-view" class="view">
             <div class="section-header-mount" data-title="Settings"></div>
 
-            <div class="setting-item sync-status-item">
-                <div>
-                    <h3>Sync Status</h3>
-                    <p class="setting-desc">Connectivity and background sync</p>
+            <section class="wg-card wg-settings-section">
+                <h3 class="wg-settings-section__title">Sync</h3>
+                <p class="wg-settings-section__desc">Connectivity and background sync</p>
+                <div class="wg-settings-row-list">
+                    <div id="sync-status-bar" class="sync-status-bar wg-settings-hidden"></div>
                 </div>
-                <div id="sync-status-bar" class="sync-status-bar" style="display: none;"></div>
-            </div>
+            </section>
 
-            <div id="oidc-setup-container"></div>
+            <section id="oidc-setup-container" class="wg-card wg-settings-section wg-settings-oidc"></section>
 
-            <div class="setting-item setting-info-block">
-                <div style="width: 100%;">
-                    <h3>Time &amp; Timezone</h3>
-                    <p class="setting-desc">Read-only info to verify the detected timezone and compare clocks</p>
-                    <div class="settings-info-grid">
-                        <div class="settings-info-row">
-                            <span class="settings-info-label">Saved Timezone</span>
-                            <span id="settings-timezone-value" class="settings-info-value">Loading...</span>
+            <section class="wg-card wg-settings-section">
+                <h3 class="wg-settings-section__title">Time &amp; Timezone</h3>
+                <p class="wg-settings-section__desc">Read-only info to verify the detected timezone and compare clocks</p>
+                <div class="wg-gloss--inset wg-settings-info-grid">
+                    <div class="wg-settings-info-row">
+                        <span class="wg-settings-info-row__label">Saved Timezone</span>
+                        <span id="settings-timezone-value" class="wg-settings-info-row__value wg-mono-display">Loading...</span>
+                    </div>
+                    <div class="wg-settings-info-row">
+                        <span class="wg-settings-info-row__label">Time In Saved Timezone</span>
+                        <span id="settings-saved-time-value" class="wg-settings-info-row__value wg-mono-display">Loading...</span>
+                    </div>
+                    <div class="wg-settings-info-row">
+                        <span class="wg-settings-info-row__label">Browser Local Time</span>
+                        <span id="settings-local-time-value" class="wg-settings-info-row__value wg-mono-display">Loading...</span>
+                    </div>
+                    <div class="wg-settings-info-row">
+                        <span class="wg-settings-info-row__label">Server Time</span>
+                        <span id="settings-server-time-value" class="wg-settings-info-row__value wg-mono-display">Loading...</span>
+                    </div>
+                </div>
+                <p id="settings-timezone-note" class="wg-settings-info-note"></p>
+            </section>
+
+            <section class="wg-card wg-settings-section wg-settings-notifications">
+                <h3 class="wg-settings-section__title">Notifications</h3>
+                <p class="wg-settings-section__desc">Push alerts and test notifications</p>
+                <div class="wg-settings-row-list">
+                    <mt-setting-toggle title="Web Push Notifications"
+                        description="Browser notifications for medications" input-id="webpush-toggle"></mt-setting-toggle>
+                    <div id="webpush-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Test Notifications</div>
+                            <div class="wg-settings-row__desc">Simulate upcoming notifications</div>
                         </div>
-                        <div class="settings-info-row">
-                            <span class="settings-info-label">Time In Saved Timezone</span>
-                            <span id="settings-saved-time-value" class="settings-info-value">Loading...</span>
-                        </div>
-                        <div class="settings-info-row">
-                            <span class="settings-info-label">Browser Local Time</span>
-                            <span id="settings-local-time-value" class="settings-info-value">Loading...</span>
-                        </div>
-                        <div class="settings-info-row">
-                            <span class="settings-info-label">Server Time</span>
-                            <span id="settings-server-time-value" class="settings-info-value">Loading...</span>
+                        <div class="wg-settings-row__control wg-settings-action-row">
+                            <button id="test-med-notification-btn" class="wg-gloss wg-settings-action-btn">Test Meds</button>
+                            <button id="test-bp-notification-btn" class="wg-gloss wg-settings-action-btn">Test BP</button>
                         </div>
                     </div>
-                    <p id="settings-timezone-note" class="setting-desc settings-info-note"></p>
                 </div>
-            </div>
+            </section>
 
-            <mt-setting-toggle title="Web Push Notifications" description="Browser notifications for medications"
-                input-id="webpush-toggle"></mt-setting-toggle>
-            <div id="webpush-status" style="display:none; padding: 8px; margin-top: 8px; border-radius: 4px;"></div>
+            <section class="wg-card wg-settings-section wg-settings-features">
+                <h3 class="wg-settings-section__title">Features</h3>
+                <p class="wg-settings-section__desc">Enable or disable sections</p>
+                <div class="wg-settings-row-list">
+                    <mt-setting-toggle title="Feature: Blood Pressure"
+                        description="Enable blood pressure section and commands" input-id="bp-feature-toggle">
+                    </mt-setting-toggle>
 
-            <mt-setting-toggle divider title="Feature: Blood Pressure"
-                description="Enable blood pressure section and commands" input-id="bp-feature-toggle">
-            </mt-setting-toggle>
+                    <mt-setting-toggle title="Feature: Weight" description="Enable weight section and commands"
+                        input-id="weight-feature-toggle"></mt-setting-toggle>
 
-            <mt-setting-toggle divider title="Feature: Weight" description="Enable weight section and commands"
-                input-id="weight-feature-toggle"></mt-setting-toggle>
+                    <mt-setting-toggle title="Feature: Workouts" description="Enable workouts section and commands"
+                        input-id="workout-feature-toggle"></mt-setting-toggle>
 
-            <mt-setting-toggle divider title="Feature: Workouts" description="Enable workouts section and commands"
-                input-id="workout-feature-toggle"></mt-setting-toggle>
+                    <mt-setting-toggle title="Feature: Medications"
+                        description="Enable medications section and commands" input-id="medication-feature-toggle">
+                    </mt-setting-toggle>
 
-            <mt-setting-toggle divider title="Feature: Medications"
-                description="Enable medications section and commands" input-id="medication-feature-toggle">
-            </mt-setting-toggle>
+                    <mt-setting-toggle title="Food Intake Tracking" description="Enable food logging feature"
+                        input-id="food-intake-toggle"></mt-setting-toggle>
 
-            <mt-setting-toggle divider title="Blood Pressure Reminders"
-                description="Smart reminders to measure blood pressure regularly" input-id="bp-reminders-toggle">
-            </mt-setting-toggle>
+                    <mt-setting-toggle title="Health Data"
+                        description="Enable health section to view sleep and vitals averages"
+                        input-id="health-feature-toggle"></mt-setting-toggle>
+                </div>
+            </section>
 
-            <mt-setting-toggle divider title="Weight Reminders" description="Remind me to track my weight weekly"
-                input-id="weight-reminders-toggle"></mt-setting-toggle>
+            <section class="wg-card wg-settings-section wg-settings-reminders">
+                <h3 class="wg-settings-section__title">Reminders</h3>
+                <p class="wg-settings-section__desc">Smart periodic reminders</p>
+                <div class="wg-settings-row-list">
+                    <mt-setting-toggle title="Blood Pressure Reminders"
+                        description="Smart reminders to measure blood pressure regularly" input-id="bp-reminders-toggle">
+                    </mt-setting-toggle>
 
-            <mt-setting-toggle divider title="Food Intake Tracking" description="Enable food logging feature"
-                input-id="food-intake-toggle"></mt-setting-toggle>
+                    <mt-setting-toggle title="Weight Reminders" description="Remind me to track my weight weekly"
+                        input-id="weight-reminders-toggle"></mt-setting-toggle>
+                </div>
+            </section>
 
-            <mt-setting-toggle divider title="Health Data"
-                description="Enable health section to view sleep and vitals averages"
-                input-id="health-feature-toggle"></mt-setting-toggle>
-
-            <div id="food-target-settings" class="setting-item"
-                style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div style="width: 100%;">
-                    <h3>Food Targets</h3>
-                    <p class="setting-desc">Daily targets for calories and macronutrients</p>
-                    <div class="bp-inputs-row" style="margin-top: 12px;">
-                        <div class="bp-input-group">
-                            <label for="food-target-calories">Calories</label>
-                            <input type="number" id="food-target-calories" min="0" placeholder="1700">
-                        </div>
-                        <div class="bp-input-group">
-                            <label for="food-target-carbs">Carbs (g)</label>
-                            <input type="number" id="food-target-carbs" min="0" placeholder="170">
+            <section id="food-target-settings" class="wg-card wg-settings-section wg-settings-food-targets">
+                <h3 class="wg-settings-section__title">Food Targets</h3>
+                <p class="wg-settings-section__desc">Daily targets for calories and macronutrients</p>
+                <div class="wg-settings-number-grid">
+                    <div class="wg-settings-number-field">
+                        <label for="food-target-calories" class="wg-settings-number-field__label">Calories</label>
+                        <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                            <input type="number" id="food-target-calories"
+                                class="wg-settings-number-field__input" min="0" placeholder="1700">
+                            <span class="wg-settings-number-field__unit">kcal</span>
                         </div>
                     </div>
-                    <div class="bp-inputs-row">
-                        <div class="bp-input-group">
-                            <label for="food-target-protein">Protein (g)</label>
-                            <input type="number" id="food-target-protein" min="0" placeholder="120">
-                        </div>
-                        <div class="bp-input-group">
-                            <label for="food-target-fat">Fat (g)</label>
-                            <input type="number" id="food-target-fat" min="0" placeholder="60">
+                    <div class="wg-settings-number-field">
+                        <label for="food-target-carbs" class="wg-settings-number-field__label">Carbs</label>
+                        <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                            <input type="number" id="food-target-carbs"
+                                class="wg-settings-number-field__input" min="0" placeholder="170">
+                            <span class="wg-settings-number-field__unit">g</span>
                         </div>
                     </div>
-                    <button id="save-food-targets-btn" class="btn btn-secondary" style="margin: 0;">Save Targets</button>
+                    <div class="wg-settings-number-field">
+                        <label for="food-target-protein" class="wg-settings-number-field__label">Protein</label>
+                        <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                            <input type="number" id="food-target-protein"
+                                class="wg-settings-number-field__input" min="0" placeholder="120">
+                            <span class="wg-settings-number-field__unit">g</span>
+                        </div>
+                    </div>
+                    <div class="wg-settings-number-field">
+                        <label for="food-target-fat" class="wg-settings-number-field__label">Fat</label>
+                        <div class="wg-gloss--inset wg-settings-number-field__wrap">
+                            <input type="number" id="food-target-fat"
+                                class="wg-settings-number-field__input" min="0" placeholder="60">
+                            <span class="wg-settings-number-field__unit">g</span>
+                        </div>
+                    </div>
                 </div>
-            </div>
+                <button id="save-food-targets-btn"
+                    class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Targets</button>
+            </section>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
-                <div>
-                    <h3>Test Notifications</h3>
-                    <p class="setting-desc">Simulate upcoming notifications</p>
-                </div>
-                <button id="test-med-notification-btn" class="btn btn-secondary" style="margin: 0;">Test
-                    Meds</button>
-                <button id="test-bp-notification-btn" class="btn btn-secondary" style="margin: 0; margin-left: 10px;">Test
-                    BP</button>
-            </div>
-            <div style="text-align:center;color:var(--hint-color);font-size:10px;padding:20px 10px 10px;">
-                v: VERSION_PLACEHOLDER
+            <div class="wg-settings-version">
+                <span class="wg-settings-version__label">Version</span>
+                <span class="wg-settings-version__value">VERSION_PLACEHOLDER</span>
             </div>
         </div>
     </div>
@@ -1330,6 +1359,7 @@
     </mt-modal>
 
     <script src="/static/js/core/utils.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/components/wg-toggle.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/mt-elements.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/empty-state.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/stat-card.js?v=TIMESTAMP_PLACEHOLDER"></script>
@@ -1346,6 +1376,7 @@
     <script src="/static/js/components/wg-steps-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-vitals-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-macro-bar.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/components/wg-settings.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/core/modal-manager.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/core/api.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/core/app-kernel.js?v=TIMESTAMP_PLACEHOLDER"></script>
