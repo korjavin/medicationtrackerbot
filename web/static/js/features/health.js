@@ -991,3 +991,103 @@ async function deleteNote(id) {
         }
     });
 }
+
+// Edit-note modal (Phase 8, Task 8). The notes API exposes only POST + DELETE,
+// so an edit POSTs the replacement first and only DELETEs the original after
+// the new row lands — a failed POST therefore leaves the original intact, and
+// a failed DELETE leaves a duplicate (visible + fixable from the list) rather
+// than data loss.
+let editingNote = null;
+
+function editNote(note) {
+    if (!note) return;
+    editingNote = note;
+    const textarea = document.getElementById('note-modal-textarea');
+    if (textarea) textarea.value = typeof note.content === 'string' ? note.content : '';
+    const title = document.getElementById('note-modal-title');
+    if (title) title.textContent = 'Edit note';
+    if (window.ModalManager && window.ModalManager.note) {
+        window.ModalManager.note.open();
+    }
+}
+
+function closeEditNoteModal() {
+    editingNote = null;
+    if (window.ModalManager && window.ModalManager.note) {
+        window.ModalManager.note.close();
+    }
+}
+
+async function handleEditNoteSubmit(event) {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    const textarea = document.getElementById('note-modal-textarea');
+    if (!textarea) return;
+    const content = textarea.value.trim();
+    if (!content) {
+        safeAlert('Note cannot be empty.');
+        return;
+    }
+    if (content.length > 10000) {
+        safeAlert('Note is too long (max 10,000 characters).');
+        return;
+    }
+    if (!editingNote || editingNote.id == null) {
+        closeEditNoteModal();
+        return;
+    }
+    if (content === editingNote.content) {
+        closeEditNoteModal();
+        return;
+    }
+
+    const original = editingNote;
+    const postRes = await apiCall('/api/notes', 'POST', { content });
+    if (!postRes) return;
+
+    const isLocalId = typeof original.id === 'string' && original.id.startsWith('local_');
+    if (isLocalId) {
+        const localId = parseInt(String(original.id).replace('local_', ''), 10);
+        if (window.MedTrackerDB && window.MedTrackerDB.NotesStore
+            && typeof window.MedTrackerDB.NotesStore.confirmDelete === 'function'
+            && Number.isFinite(localId)) {
+            try {
+                await window.MedTrackerDB.NotesStore.confirmDelete(localId);
+                if (window.SyncManager && typeof window.SyncManager.updateStatus === 'function') {
+                    window.SyncManager.updateStatus();
+                }
+            } catch (e) {
+                console.error('Failed to purge local note edit:', e);
+            }
+        }
+    } else {
+        await apiCall(`/api/notes/${original.id}`, 'DELETE');
+    }
+
+    await window.DataStore.invalidateTags(['notes']);
+    closeEditNoteModal();
+    loadNotes();
+}
+
+function bindEditNoteModalControls() {
+    const cancel = document.getElementById('note-modal-cancel-btn');
+    if (cancel && !cancel._wgBound) {
+        cancel._wgBound = true;
+        cancel.addEventListener('click', () => closeEditNoteModal());
+    }
+    const close = document.getElementById('note-modal-close-btn');
+    if (close && !close._wgBound) {
+        close._wgBound = true;
+        close.addEventListener('click', () => closeEditNoteModal());
+    }
+    const form = document.getElementById('note-form');
+    if (form && !form._wgBound) {
+        form._wgBound = true;
+        form.addEventListener('submit', handleEditNoteSubmit);
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindEditNoteModalControls, { once: true });
+} else {
+    bindEditNoteModalControls();
+}

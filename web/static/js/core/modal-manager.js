@@ -48,6 +48,15 @@ const ModalManager = {
         }
     },
 
+    note: {
+        open() {
+            ModalManager.open('note-modal');
+        },
+        close() {
+            ModalManager.close('note-modal');
+        }
+    },
+
     food: {
         open() {
             ModalManager.open('food-modal');
@@ -212,6 +221,7 @@ const ModalManager = {
             { id: 'med-confirm-modal', fn: () => ModalManager.medConfirm.close() },
             { id: 'bp-modal', fn: () => ModalManager.bp.close() },
             { id: 'weight-modal', fn: () => ModalManager.weight.close() },
+            { id: 'note-modal', fn: () => ModalManager.note.close() },
             { id: 'food-modal', fn: () => ModalManager.food.close() },
             { id: 'workout-group-modal', fn: () => typeof closeWorkoutGroupModal === 'function' ? closeWorkoutGroupModal() : ModalManager.workoutGroup.close() },
             { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' ? closeVariantModal() : ModalManager.workoutVariant.close() },

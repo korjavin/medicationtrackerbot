@@ -159,11 +159,11 @@ No backend changes. The existing `/api/health/overview` and `/api/notes*` endpoi
 
 ### Task 8: Rewrite the edit-note modal
 
-- [ ] replace the existing edit-note modal markup in `index.html` with the Wandergeek shell — mono header ("Edit note"), `.wg-icon-btn` close trailing the header
-- [ ] note body — `.wg-gloss--inset` textarea wrap with mono labels
-- [ ] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss` left, Save `.wg-gloss--sun` right with 2× flex per modal-button-order convention
-- [ ] write `health.modal.test.js` — open/save/cancel, input round-trip, `modal-controller.js` history integration preserved
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the existing edit-note modal markup in `index.html` with the Wandergeek shell — mono header ("Edit note"), `.wg-icon-btn` close trailing the header
+- [x] note body — `.wg-gloss--inset` textarea wrap with mono labels
+- [x] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss` left, Save `.wg-gloss--sun` right with 2× flex per modal-button-order convention
+- [x] write `health.modal.test.js` — open/save/cancel, input round-trip, `modal-controller.js` history integration preserved
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 9: Wire Health into the canonical bottom nav + cleanup
 
