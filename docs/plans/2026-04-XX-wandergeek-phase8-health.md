@@ -116,14 +116,14 @@ No backend changes. The existing `/api/health/overview` and `/api/notes*` endpoi
 
 ### Task 4: Build the `WGSleepChart` component + rewrite sleep card
 
-- [ ] create `web/static/js/components/wg-sleep-chart.js` exposing `WGSleepChart.render({ stats, range })` returning a DOM element
-- [ ] mirror the existing `renderSleepChart` structure — stacked bars (deep/light/REM/awake) + HR line overlay — but replace every hardcoded hex with `--wg-health-sleep-*` CSS custom properties via CSS classes
-- [ ] register `window.WGSleepChart` in `architecture.globals.test.js` with a one-line justification
-- [ ] replace the sleep block in `renderHealthOverviewContent` with a `.wg-card` shell rendering `WGSleepChart` + mono 7d / 30d average subtitle + legend
-- [ ] empty state: muted "No sleep data yet" card
-- [ ] write `components.wg-sleep-chart.test.js` — stacked bars render, HR overlay renders when HR data present, empty-state card when no data, axis tick count sane
-- [ ] write `health.sleep.test.js` — sleep card render, legend render, empty state
-- [ ] run `pnpm test` — must pass before next task
+- [x] create `web/static/js/components/wg-sleep-chart.js` exposing `WGSleepChart.render({ stats, range })` returning a DOM element
+- [x] mirror the existing `renderSleepChart` structure — stacked bars (deep/light/REM/awake) + HR line overlay — but replace every hardcoded hex with `--wg-health-sleep-*` CSS custom properties via CSS classes
+- [x] register `window.WGSleepChart` in `architecture.globals.test.js` with a one-line justification
+- [x] replace the sleep block in `renderHealthOverviewContent` with a `.wg-card` shell rendering `WGSleepChart` + mono 7d / 30d average subtitle + legend
+- [x] empty state: muted "No sleep data yet" card
+- [x] write `components.wg-sleep-chart.test.js` — stacked bars render, HR overlay renders when HR data present, empty-state card when no data, axis tick count sane
+- [x] write `health.sleep.test.js` — sleep card render, legend render, empty state
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 5: Build the `WGStepsChart` component + rewrite steps card
 

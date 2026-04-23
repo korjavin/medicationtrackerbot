@@ -202,6 +202,76 @@ function renderHealthSummaryTiles(data, range) {
     return wrapper;
 }
 
+const HEALTH_SLEEP_LEGEND = [
+    { variant: 'deep', label: 'Deep' },
+    { variant: 'light', label: 'Light' },
+    { variant: 'rem', label: 'REM' },
+    { variant: 'awake', label: 'Awake' },
+    { variant: 'hr', label: 'HR', line: true }
+];
+
+function buildSleepLegend() {
+    const legend = document.createElement('div');
+    legend.className = 'wg-health-legend wg-sleep-card__legend';
+    HEALTH_SLEEP_LEGEND.forEach((entry) => {
+        const item = document.createElement('div');
+        item.className = 'wg-health-legend__item';
+        const badge = document.createElement('span');
+        const classes = ['wg-health-legend__badge', `wg-health-legend__badge--${entry.variant}`];
+        if (entry.line) classes.push('wg-health-legend__badge--line');
+        badge.className = classes.join(' ');
+        item.appendChild(badge);
+        item.appendChild(document.createTextNode(entry.label));
+        legend.appendChild(item);
+    });
+    return legend;
+}
+
+function renderSleepCard(data, activeRange) {
+    const range = HEALTH_RANGE_OPTIONS.indexOf(activeRange) !== -1 ? activeRange : HEALTH_RANGE_DEFAULT;
+    const card = document.createElement('div');
+    card.className = 'wg-card wg-sleep-card';
+    card.setAttribute('data-range', range);
+
+    const header = document.createElement('div');
+    header.className = 'wg-sleep-card__header wg-mono-display';
+    header.textContent = 'Sleep';
+    card.appendChild(header);
+
+    const stats = Array.isArray(data?.sleep_stats_7d) ? data.sleep_stats_7d : [];
+    const chartOpts = { stats, range };
+    const chartEl = window.WGSleepChart
+        ? window.WGSleepChart.render(chartOpts)
+        : null;
+
+    if (chartEl && !chartEl.classList.contains('wg-sleep-chart--empty')) {
+        card.appendChild(chartEl);
+        card.appendChild(buildSleepLegend());
+
+        const avg7 = Number(data?.average_sleep_hours_7d);
+        const avg30 = Number(data?.average_sleep_hours_30d);
+        const avg7Text = Number.isFinite(avg7) ? avg7.toFixed(1) : '\u2014';
+        const avg30Text = Number.isFinite(avg30) ? avg30.toFixed(1) : '\u2014';
+        const statDiv = document.createElement('div');
+        statDiv.className = 'wg-section-label wg-sleep-card__stat';
+        statDiv.textContent = `${avg7Text} hrs (7d avg) \u00B7 ${avg30Text} hrs (30d avg)`;
+        card.appendChild(statDiv);
+    } else {
+        const empty = chartEl || (() => {
+            const el = document.createElement('div');
+            el.className = 'wg-sleep-chart wg-sleep-chart--empty';
+            const msg = document.createElement('span');
+            msg.className = 'wg-sleep-chart__empty-msg';
+            msg.textContent = 'No sleep data yet';
+            el.appendChild(msg);
+            return el;
+        })();
+        card.appendChild(empty);
+    }
+
+    return card;
+}
+
 function renderHealthOverviewContent(content, data) {
     content.replaceChildren();
 
@@ -238,45 +308,7 @@ function renderHealthOverviewContent(content, data) {
         }
     };
 
-    if (data.sleep_stats_7d && data.sleep_stats_7d.length > 0) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'health-chart-wrapper';
-        const h3 = document.createElement('h3');
-        h3.textContent = 'Sleep';
-        const chartContainer = document.createElement('div');
-        chartContainer.id = 'sleepChartContainer';
-        chartContainer.className = 'health-chart-container-tall';
-        const legend = document.createElement('div');
-        legend.className = 'health-chart-legend';
-
-        const createLegendItem = (color, text, isLine = false) => {
-            const item = document.createElement('div');
-            item.className = 'health-legend-item';
-            const badge = document.createElement('span');
-            badge.className = isLine ? 'health-legend-badge-line' : 'health-legend-badge';
-            badge.style.background = color;
-            item.appendChild(badge);
-            item.appendChild(document.createTextNode(text));
-            return item;
-        };
-
-        legend.appendChild(createLegendItem('#5a2d9c', 'Deep'));
-        legend.appendChild(createLegendItem('#2481cc', 'Light'));
-        legend.appendChild(createLegendItem('#c161d9', 'REM'));
-        legend.appendChild(createLegendItem('#e5b220', 'Awake'));
-        legend.appendChild(createLegendItem('#ff3b30', 'HR', true));
-
-        const statDiv = document.createElement('div');
-        statDiv.className = 'health-chart-stat-spaced';
-        statDiv.textContent = `${data.average_sleep_hours_7d.toFixed(1)} hrs (7d avg) | ${data.average_sleep_hours_30d.toFixed(1)} hrs (30d avg)`;
-
-        wrapper.appendChild(h3);
-        wrapper.appendChild(chartContainer);
-        wrapper.appendChild(legend);
-        wrapper.appendChild(statDiv);
-        content.appendChild(wrapper);
-        setTimeout(() => renderSleepChart(data.sleep_stats_7d), 0);
-    }
+    content.appendChild(renderSleepCard(data, activeRange));
 
     if (data.step_stats_7d && data.step_stats_7d.length > 0) {
         const wrapper = document.createElement('div');
