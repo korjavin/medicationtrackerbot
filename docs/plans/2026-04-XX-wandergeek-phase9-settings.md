@@ -160,9 +160,9 @@ No backend changes. The existing `/api/settings/*`, `/api/bp/reminder/*`, `/api/
 
 ### Task 10: [Final] Update plan and close the Wandergeek arc
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write a short retrospective note in `docs/` capturing the final token surface, primitive inventory, and any follow-ups surfaced during the arc (e.g. shared chart base, dark theme, reduced-motion parity, a11y findings)
-- [ ] no code changes in this task beyond the retrospective doc
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write a short retrospective note in `docs/` capturing the final token surface, primitive inventory, and any follow-ups surfaced during the arc (e.g. shared chart base, dark theme, reduced-motion parity, a11y findings)
+- [x] no code changes in this task beyond the retrospective doc
 
 ## Technical Details
 
