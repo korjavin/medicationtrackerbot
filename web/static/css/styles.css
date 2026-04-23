@@ -6023,6 +6023,271 @@ textarea.wg-input {
     flex: 2;
 }
 
+/* Workouts groups sub-tab (Phase 7, Task 5). Each group renders as a
+   `.wg-card` row carrying a rotation-slot tag, mono group name, days +
+   scheduled-time meta, an optional rotating/inactive mono tag, and a
+   trailing `.wg-icon-btn` cluster (edit / delete). A full-width
+   `.wg-gloss--sun` "Add workout group" CTA sits below the list. */
+.wg-workouts-groups {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-workouts-groups__empty {
+    color: var(--wg-fg-4);
+    text-align: center;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    margin: var(--space-lg) 0;
+}
+
+.wg-workouts-groups__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-groups-row {
+    display: grid;
+    grid-template-columns: var(--wg-workouts-groups-row-cols);
+    column-gap: var(--wg-workouts-groups-row-gap);
+    align-items: center;
+    padding: var(--wg-workouts-groups-row-pad);
+    cursor: pointer;
+}
+
+.wg-workouts-groups-row--inactive {
+    opacity: 0.65;
+}
+
+.wg-workouts-groups-row__body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-groups-row__title {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-groups-row__name {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-groups-name-size);
+    color: var(--wg-fg-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.wg-workouts-groups-row__meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-groups-row__days,
+.wg-workouts-groups-row__time,
+.wg-workouts-groups-row__count {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-groups-count-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
+}
+
+.wg-workouts-groups-row__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+.wg-workouts-groups__add-cta {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    min-height: 44px;
+    padding: var(--space-md) var(--space-lg);
+    margin-top: var(--space-md);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-groups__add-cta-label {
+    letter-spacing: 0.04em;
+}
+
+/* Edit-workout-group modal (Phase 7, Task 5). Shares the generic `.wg-modal`
+   shell for positioning/chrome; overlays a mono eyebrow + title header,
+   `.wg-gloss--inset` input wraps for name / description / time /
+   notification, a days-select chip row, toggle checkboxes, variant +
+   exercise sub-sections, and a Cancel/Save action bar (Save 2× flex per
+   modal-button-order convention). */
+.wg-workouts-group-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-workouts-group-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-group-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-workouts-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-workouts-group-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-workouts-group-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-workouts-group-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-workouts-group-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-workouts-modal-section-gap);
+}
+
+.wg-workouts-group-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.wg-workouts-group-modal__row {
+    display: flex;
+    gap: var(--wg-workouts-modal-row-gap);
+}
+
+.wg-workouts-group-modal__label {
+    font-size: var(--wg-workouts-modal-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-workouts-group-modal__input-wrap {
+    padding: var(--wg-workouts-modal-input-pad-y) var(--wg-workouts-modal-input-pad-x);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-workouts-group-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-workouts-group-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-workouts-group-modal__textarea {
+    resize: vertical;
+    font-family: var(--wg-font-ui);
+}
+
+.wg-workouts-group-modal__days-wrap {
+    flex-wrap: wrap;
+}
+
+.wg-workouts-group-modal__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+    cursor: pointer;
+}
+
+.wg-workouts-group-modal__toggle-label {
+    letter-spacing: 0.02em;
+}
+
+.wg-workouts-group-modal__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+}
+
+.wg-workouts-group-modal__section-label {
+    padding: 0;
+}
+
+.wg-workouts-group-modal__section-add {
+    align-self: flex-start;
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-group-modal__actions {
+    display: flex;
+    gap: var(--wg-workouts-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-workouts-group-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-workouts-group-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-workouts-group-modal__action--save {
+    flex: 2 1 0;
+}
+
 /* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
    bracket clusters of scheduled meds; each row is a `.wg-card` with a name
    (mono-display), dosage, schedule summary, optional inventory tag, and a

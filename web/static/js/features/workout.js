@@ -105,6 +105,7 @@ function bindWorkoutControls() {
     bindClick('add-exercise-library-btn', () => showExerciseLibraryModal());
 
     bindClick('workout-group-cancel-btn', () => closeWorkoutGroupModal());
+    bindClick('workout-group-close-btn', () => closeWorkoutGroupModal());
     bindClick('workout-group-save-btn', () => saveWorkoutGroup());
     bindClick('add-variant-btn', () => showAddVariantModal());
     bindClick('add-flat-exercise-btn', () => showAddExerciseModalFromGroup());
@@ -527,62 +528,141 @@ function _renderWorkoutGroups(container, groups) {
     if (!doc || typeof doc.createElement !== 'function') return;
     workoutGroups = groups || [];
 
+    container.classList.add('wg-workouts-groups');
+
     if (!groups || groups.length === 0) {
         const empty = doc.createElement('p');
-        empty.className = 'workout-empty-state';
-        empty.textContent = 'No workout groups yet. Click "+ Add Workout Group" to get started!';
+        empty.className = 'wg-workouts-groups__empty';
+        empty.textContent = 'No workout groups yet \u2014 tap Add to create one.';
         container.replaceChildren(empty);
         return;
     }
 
-    container.replaceChildren();
+    const list = doc.createElement('ul');
+    list.className = 'list-reset wg-workouts-groups__list';
+
     groups.forEach((group) => {
-        let daysArray = [];
-        try {
-            daysArray = JSON.parse(group.days_of_week || '[]');
-        } catch (e) {
-            console.error('Error parsing days_of_week:', e);
-            daysArray = [];
-        }
-        const daysMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const daysText = daysArray.map((day) => daysMap[day]).join(', ');
-
-        const card = doc.createElement('div');
-        card.className = 'med-item workout-group-card';
-
-        const info = doc.createElement('div');
-        info.className = 'med-info cursor-pointer';
-        info.addEventListener('click', () => {
-            showEditWorkoutGroupModal(group.id);
-        });
-
-        const title = doc.createElement('h4');
-        const titleParts = [group.name];
-        if (group.is_rotating) titleParts.push('🔄');
-        if (!group.active) titleParts.push('(Inactive)');
-        title.textContent = titleParts.join(' ');
-
-        const description = doc.createElement('p');
-        description.textContent = group.description || '';
-
-        const schedule = doc.createElement('p');
-        schedule.className = 'workout-group-schedule';
-        schedule.appendChild(doc.createTextNode(`📅 ${daysText} at ${group.scheduled_time}`));
-        schedule.appendChild(doc.createElement('br'));
-        schedule.appendChild(doc.createTextNode(`🔔 ${group.notification_advance_minutes} min before`));
-
-        info.appendChild(title);
-        info.appendChild(description);
-        info.appendChild(schedule);
-
-        const deleteBtn = createDeleteButton((event) => {
-            deleteWorkoutGroup(group.id, event);
-        });
-
-        card.appendChild(info);
-        card.appendChild(deleteBtn);
-        container.appendChild(card);
+        list.appendChild(_buildWorkoutGroupRow(doc, group));
     });
+
+    container.replaceChildren(list);
+}
+
+function _buildWorkoutGroupRow(doc, group) {
+    const slot = getRotationSlot(group.name || '');
+    const slotMod = _slotTagModifier(slot);
+
+    const card = doc.createElement('li');
+    card.className = 'wg-card wg-workouts-groups-row';
+    card.dataset.groupId = String(group.id || '');
+    card.dataset.slot = slot;
+    if (group.is_rotating) card.classList.add('wg-workouts-groups-row--rotating');
+    if (!group.active) card.classList.add('wg-workouts-groups-row--inactive');
+
+    const body = doc.createElement('div');
+    body.className = 'wg-workouts-groups-row__body';
+
+    const title = doc.createElement('div');
+    title.className = 'wg-workouts-groups-row__title';
+
+    const slotTag = doc.createElement('span');
+    slotTag.className = `wg-workouts-slot-tag wg-workouts-slot-tag--${slotMod} wg-workouts-groups-row__slot`;
+    slotTag.textContent = slot;
+    title.appendChild(slotTag);
+
+    const name = doc.createElement('span');
+    name.className = 'wg-workouts-groups-row__name';
+    name.textContent = group.name || 'Workout group';
+    title.appendChild(name);
+
+    body.appendChild(title);
+
+    const meta = doc.createElement('div');
+    meta.className = 'wg-workouts-groups-row__meta';
+
+    let daysArray = [];
+    try {
+        daysArray = JSON.parse(group.days_of_week || '[]');
+    } catch (_) {
+        daysArray = [];
+    }
+    const daysMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const daysText = daysArray.map((d) => daysMap[d]).filter(Boolean).join(', ');
+
+    if (daysText) {
+        const days = doc.createElement('span');
+        days.className = 'wg-workouts-groups-row__days';
+        days.textContent = daysText;
+        meta.appendChild(days);
+    }
+
+    if (group.scheduled_time) {
+        const time = doc.createElement('span');
+        time.className = 'wg-workouts-groups-row__time';
+        time.textContent = group.scheduled_time;
+        meta.appendChild(time);
+    }
+
+    if (Number.isFinite(Number(group.exercises_count))) {
+        const count = doc.createElement('span');
+        count.className = 'wg-workouts-groups-row__count';
+        const n = Number(group.exercises_count);
+        count.textContent = `${n} exercise${n === 1 ? '' : 's'}`;
+        meta.appendChild(count);
+    }
+
+    if (group.is_rotating) {
+        const rot = doc.createElement('span');
+        rot.className = 'wg-tag wg-tag--mono wg-tag--normal wg-workouts-groups-row__rotating';
+        rot.textContent = 'Rotating';
+        meta.appendChild(rot);
+    }
+
+    if (!group.active) {
+        const inactive = doc.createElement('span');
+        inactive.className = 'wg-tag wg-tag--mono wg-tag--skipped wg-workouts-groups-row__inactive';
+        inactive.textContent = 'Inactive';
+        meta.appendChild(inactive);
+    }
+
+    if (meta.childNodes.length > 0) body.appendChild(meta);
+
+    card.appendChild(body);
+
+    const actions = doc.createElement('div');
+    actions.className = 'wg-workouts-groups-row__actions';
+    actions.appendChild(_buildGroupsIconBtn(doc, 'edit', 'Edit group', 'pencil', () => {
+        showEditWorkoutGroupModal(group.id);
+    }));
+    actions.appendChild(_buildGroupsIconBtn(doc, 'delete', 'Delete group', 'trash', (event) => {
+        deleteWorkoutGroup(group.id, event);
+    }));
+    card.appendChild(actions);
+
+    card.addEventListener('click', (e) => {
+        if (e.target.closest('.wg-workouts-groups-row__actions')) return;
+        showEditWorkoutGroupModal(group.id);
+    });
+
+    return card;
+}
+
+function _buildGroupsIconBtn(doc, kind, ariaLabel, iconName, handler) {
+    const btn = doc.createElement('button');
+    btn.type = 'button';
+    btn.className = `wg-icon-btn wg-workouts-groups-row__${kind}`;
+    btn.setAttribute('aria-label', ariaLabel);
+    const gloss = doc.createElement('span');
+    gloss.className = 'wg-gloss';
+    if (typeof window !== 'undefined' && window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        gloss.appendChild(window.WGIcons.iconSvg(iconName, { size: 16 }));
+    }
+    btn.appendChild(gloss);
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handler(e);
+    });
+    return btn;
 }
 
 function setFlatExercisesPendingSaveMessage() {

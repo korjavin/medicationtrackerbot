@@ -156,10 +156,12 @@
 
             <!-- Groups Management View -->
             <div id="workout-groups-tab" class="workout-tab-content">
-                <button id="add-workout-group-btn" class="btn btn-primary btn-pill btn-fab btn-lg">+ Add Workout Group</button>
-                <div id="workout-groups-list">
+                <div id="workout-groups-list" class="wg-workouts-groups">
                     Loading workout groups...
                 </div>
+                <button id="add-workout-group-btn" type="button" class="wg-gloss wg-gloss--sun wg-workouts-groups__add-cta">
+                    <span class="wg-workouts-groups__add-cta-label">+ Add workout group</span>
+                </button>
             </div>
 
             <!-- Exercises Library View -->
@@ -404,67 +406,96 @@
     </div>
 
     <!-- Modal for Adding/Editing Workout Group -->
-    <mt-modal id="workout-group-modal" class="hidden">
-        <div class="modal-header">
-            <h3 id="workout-group-modal-title">Add Workout Group</h3>
-            <div class="actions">
-                <button id="workout-group-cancel-btn" class="btn btn-secondary">Cancel</button>
-                <button id="workout-group-save-btn" class="btn btn-primary">Save</button>
+    <mt-modal id="workout-group-modal" class="hidden wg-modal wg-workouts-group-modal">
+        <div class="wg-workouts-group-modal__header">
+            <div class="wg-workouts-group-modal__heading">
+                <span class="wg-section-label wg-workouts-group-modal__eyebrow">Workout group</span>
+                <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-group-modal-title">Add Workout Group</span>
             </div>
+            <button type="button" id="workout-group-close-btn" class="wg-icon-btn wg-workouts-group-modal__close-btn"
+                aria-label="Close">
+                <span class="wg-gloss"></span>
+            </button>
         </div>
 
-        <input type="text" id="workout-group-name" placeholder="Group Name (e.g., Morning Cardio)">
-        <textarea id="workout-group-description" placeholder="Description (optional)" rows="2"></textarea>
-
-        <label class="checkbox-label">
-            <input type="checkbox" id="workout-group-rotating"> Rotating Workout
-            (A/B/C/D)
-        </label>
-
-        <div class="form-row">
-            <span class="form-label">Days of Week:</span>
-            <div class="days-select">
-                <span data-day="1">Mon</span>
-                <span data-day="2">Tue</span>
-                <span data-day="3">Wed</span>
-                <span data-day="4">Thu</span>
-                <span data-day="5">Fri</span>
-                <span data-day="6">Sat</span>
-                <span data-day="0">Sun</span>
+        <div class="wg-workouts-group-modal__body">
+            <div class="wg-workouts-group-modal__field">
+                <label for="workout-group-name" class="wg-workouts-group-modal__label">Name</label>
+                <div class="wg-gloss--inset wg-workouts-group-modal__input-wrap">
+                    <input type="text" id="workout-group-name" class="wg-workouts-group-modal__input" placeholder="Morning Cardio">
+                </div>
             </div>
-        </div>
 
-        <div class="form-row">
-            <label for="workout-group-time">Scheduled Time:</label>
-            <input type="time" id="workout-group-time">
-        </div>
+            <div class="wg-workouts-group-modal__field">
+                <label for="workout-group-description" class="wg-workouts-group-modal__label">Description</label>
+                <div class="wg-gloss--inset wg-workouts-group-modal__input-wrap">
+                    <textarea id="workout-group-description" class="wg-workouts-group-modal__input wg-workouts-group-modal__textarea" placeholder="Optional" rows="2"></textarea>
+                </div>
+            </div>
 
-        <div class="form-row">
-            <label for="workout-group-notification">Notification (minutes before):</label>
-            <input type="number" id="workout-group-notification" value="15" min="0" max="60">
-        </div>
-
-        <div class="form-row">
-            <label class="checkbox-label">
-                <input type="checkbox" id="workout-group-active" checked> Active
+            <label class="wg-workouts-group-modal__toggle">
+                <input type="checkbox" id="workout-group-rotating">
+                <span class="wg-workouts-group-modal__toggle-label">Rotating workout (A/B/C/D)</span>
             </label>
+
+            <div class="wg-workouts-group-modal__field">
+                <span class="wg-workouts-group-modal__label">Days of week</span>
+                <div class="wg-gloss--inset wg-workouts-group-modal__input-wrap wg-workouts-group-modal__days-wrap">
+                    <div class="days-select wg-workouts-group-modal__days">
+                        <span data-day="1">Mon</span>
+                        <span data-day="2">Tue</span>
+                        <span data-day="3">Wed</span>
+                        <span data-day="4">Thu</span>
+                        <span data-day="5">Fri</span>
+                        <span data-day="6">Sat</span>
+                        <span data-day="0">Sun</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="wg-workouts-group-modal__row">
+                <div class="wg-workouts-group-modal__field">
+                    <label for="workout-group-time" class="wg-workouts-group-modal__label">Scheduled time</label>
+                    <div class="wg-gloss--inset wg-workouts-group-modal__input-wrap">
+                        <input type="time" id="workout-group-time" class="wg-workouts-group-modal__input">
+                    </div>
+                </div>
+
+                <div class="wg-workouts-group-modal__field">
+                    <label for="workout-group-notification" class="wg-workouts-group-modal__label">Notify (min before)</label>
+                    <div class="wg-gloss--inset wg-workouts-group-modal__input-wrap">
+                        <input type="number" id="workout-group-notification" class="wg-workouts-group-modal__input" value="15" min="0" max="60">
+                    </div>
+                </div>
+            </div>
+
+            <label class="wg-workouts-group-modal__toggle">
+                <input type="checkbox" id="workout-group-active" checked>
+                <span class="wg-workouts-group-modal__toggle-label">Active</span>
+            </label>
+
+            <!-- Variants Section (only shown when editing existing group) -->
+            <div id="workout-variants-section" class="wg-workouts-group-modal__section" style="display: none;">
+                <span class="wg-section-label wg-workouts-group-modal__section-label">Workout variants</span>
+                <div id="workout-variants-list" class="wg-workouts-group-modal__variants"></div>
+                <button id="add-variant-btn" type="button" class="wg-gloss wg-workouts-group-modal__section-add">
+                    + Add variant
+                </button>
+            </div>
+
+            <!-- Exercises Section (for Non-Rotating groups) -->
+            <div id="workout-group-flat-exercises-section" class="wg-workouts-group-modal__section" style="display: none;">
+                <span class="wg-section-label wg-workouts-group-modal__section-label">Exercises</span>
+                <div id="workout-group-flat-exercises-list" class="wg-workouts-group-modal__exercises"></div>
+                <button id="add-flat-exercise-btn" type="button" class="wg-gloss wg-workouts-group-modal__section-add">
+                    + Add exercise
+                </button>
+            </div>
         </div>
 
-        <!-- Variants Section (only shown when editing existing group) -->
-        <div id="workout-variants-section"
-            style="display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
-            <h4>Workout Variants</h4>
-            <button id="add-variant-btn" class="btn btn-primary" style="margin-bottom: 10px;">+ Add Variant</button>
-            <div id="workout-variants-list"></div>
-        </div>
-
-        <!-- Exercises Section (for Non-Rotating groups) -->
-        <div id="workout-group-flat-exercises-section"
-            style="display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
-            <h4>Exercises</h4>
-            <button id="add-flat-exercise-btn" class="btn btn-primary" style="margin-bottom: 10px;">+ Add
-                Exercise</button>
-            <div id="workout-group-flat-exercises-list"></div>
+        <div class="wg-workouts-group-modal__actions">
+            <button type="button" id="workout-group-cancel-btn" class="wg-gloss wg-workouts-group-modal__action wg-workouts-group-modal__action--cancel">Cancel</button>
+            <button type="button" id="workout-group-save-btn" class="wg-gloss wg-gloss--sun wg-workouts-group-modal__action wg-workouts-group-modal__action--save">Save</button>
         </div>
     </mt-modal>
 
