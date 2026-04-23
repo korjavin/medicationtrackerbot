@@ -323,7 +323,6 @@ describe('app.js charts, scanner and visualization helpers', () => {
 
       window.DataStore.loadSWR = loadSWRSpy;
       const vitalsSpy = vi.spyOn(window, 'renderVitalsLineChart').mockImplementation(() => {});
-      const stepsSpy = vi.spyOn(window, 'renderStepsChart').mockImplementation(() => {});
 
       await window.loadHealthOverview();
       expect(document.getElementById('health-overview-content').innerHTML).toContain('No cached data');
@@ -343,7 +342,10 @@ describe('app.js charts, scanner and visualization helpers', () => {
       // .wg-sleep-card shell, not the legacy renderSleepChart helper.
       expect(content.querySelector('.wg-sleep-card')).toBeTruthy();
       expect(content.querySelector('.wg-sleep-card svg.wg-sleep-chart')).toBeTruthy();
-      expect(stepsSpy).toHaveBeenCalledTimes(1);
+      // Phase 8, Task 5: steps card now renders via WGStepsChart inside a
+      // .wg-steps-card shell, not the legacy renderStepsChart helper.
+      expect(content.querySelector('.wg-steps-card')).toBeTruthy();
+      expect(content.querySelector('.wg-steps-card svg.wg-steps-chart')).toBeTruthy();
       expect(loadSWRSpy).toHaveBeenCalledWith(expect.objectContaining({
         key: 'health_overview',
         tags: ['health'],

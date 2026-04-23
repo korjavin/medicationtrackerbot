@@ -65,6 +65,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.WGWeightChart',             // components/wg-weight-chart.js — Wandergeek single-series weight chart with optional goal-line overlay; colours resolve via CSS classes on SVG children, never inline
     'window.WGWorkoutChart',            // components/wg-workout-chart.js — Wandergeek single-series workout activity chart for the Stats sub-tab (sessions-per-week or volume); colours resolve via CSS classes on SVG children, never inline
     'window.WGSleepChart',              // components/wg-sleep-chart.js — Wandergeek sleep stacked-bar (deep/light/rem/awake) + HR overlay chart for the Health Overview sub-tab; sleep-stage fills + HR line/dot/label resolve via CSS classes on SVG children, never inline
+    'window.WGStepsChart',              // components/wg-steps-chart.js — Wandergeek single-series steps bar chart for the Health Overview sub-tab; bar fill + rotated in-bar count label colour resolve via CSS classes on SVG children, never inline
     'window.WGMacroBar',                // components/wg-macro-bar.js — Wandergeek Food-screen macro row (label + inset track + mono value/target); fill colour comes from .wg-macro-bar__fill--<variant> classes, fill width from a neutral --fill-pct custom property
     'window.AppBackButton',             // features/back-button.js — wires Telegram WebApp BackButton to section → Today navigation
 

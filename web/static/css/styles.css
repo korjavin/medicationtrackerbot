@@ -6944,6 +6944,83 @@ textarea.wg-input {
     background: var(--wg-health-sleep-hr);
 }
 
+/* Steps chart (Phase 8, Task 5). Single-series vertical bar chart with
+   rotated in-bar step-count labels. Bar fill + label contrast resolve via
+   the --wg-health-steps-* tokens; axis + day labels + guide lines match the
+   sleep chart's muted style. */
+.wg-steps-chart {
+    display: block;
+    width: 100%;
+    max-width: var(--wg-health-chart-width);
+    height: auto;
+    margin-inline: auto;
+}
+
+.wg-steps-chart--empty {
+    min-height: var(--wg-health-chart-tall-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-fg-5);
+    font-size: var(--font-size-sm);
+}
+
+.wg-steps-chart__bar {
+    fill: var(--wg-health-steps-bar);
+    stroke: none;
+}
+
+.wg-steps-chart__guide {
+    stroke: var(--wg-fg-5);
+    stroke-width: var(--wg-bp-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    fill: none;
+}
+
+.wg-steps-chart__axis-label {
+    fill: var(--wg-fg-5);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-steps-chart__day-label {
+    fill: var(--wg-fg-5);
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+}
+
+.wg-steps-chart__count-label {
+    font-size: var(--font-size-xs);
+    font-family: var(--wg-font-mono);
+    font-weight: var(--font-weight-medium);
+}
+
+.wg-steps-chart__count-label--inside {
+    fill: var(--wg-health-steps-label-inside);
+}
+
+.wg-steps-chart__count-label--outside {
+    fill: var(--wg-fg-1);
+}
+
+/* Steps card shell (Phase 8, Task 5). Wraps the WGStepsChart SVG under a
+   mono header, followed by a section-label averages line. */
+.wg-steps-card {
+    padding: var(--wg-health-card-pad);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-steps-card__header {
+    font-size: var(--wg-health-card-header-size);
+}
+
+.wg-steps-card__stat {
+    font-size: var(--wg-health-card-stat-size);
+    color: var(--wg-fg-4);
+}
+
 /* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
    bracket clusters of scheduled meds; each row is a `.wg-card` with a name
    (mono-display), dosage, schedule summary, optional inventory tag, and a
