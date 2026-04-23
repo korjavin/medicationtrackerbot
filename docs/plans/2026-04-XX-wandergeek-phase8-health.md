@@ -89,13 +89,13 @@ No backend changes. The existing `/api/health/overview` and `/api/notes*` endpoi
 
 ### Task 1: Extend tokens + fold notes into the health feature module
 
-- [ ] add `--wg-health-*` dimensional tokens to `:root` in `styles.css` (summary-tile grid, chart heights, sub-tab padding, notes-row grid-template-columns)
-- [ ] add `--wg-health-sleep-{deep,light,rem,awake,hr}`, `--wg-health-steps-*`, `--wg-health-vitals-{hr,spo2,stress}-*` semantic tokens replacing every hardcoded hex currently in `features/health.js`
-- [ ] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
-- [ ] fold the notes render + pagination + edit-modal flow out of `app.js` into `features/health.js` (or a sibling `features/health-notes.js`); script-tag load order + hoisted function declarations keep them accessible as globals (matches bp.js / food.js / meds.js / today.js / weight.js / workout.js / health.js)
-- [ ] update `index.html` script load order if a new feature file is added; update `sw.js` precache list + `tests/helpers/frontend-harness.js`
-- [ ] verify no behavior change — existing health + notes tests stay green
-- [ ] run `pnpm test` — design-tokens test + extraction smoke test must be green before next task
+- [x] add `--wg-health-*` dimensional tokens to `:root` in `styles.css` (summary-tile grid, chart heights, sub-tab padding, notes-row grid-template-columns)
+- [x] add `--wg-health-sleep-{deep,light,rem,awake,hr}`, `--wg-health-steps-*`, `--wg-health-vitals-{hr,spo2,stress}-*` semantic tokens replacing every hardcoded hex currently in `features/health.js`
+- [x] extend `WANDERGEEK_TOKENS` in `web/static/js/tests/architecture.design-tokens.test.js` with every new token
+- [x] fold the notes render + pagination + edit-modal flow out of `app.js` into `features/health.js` (or a sibling `features/health-notes.js`); script-tag load order + hoisted function declarations keep them accessible as globals (matches bp.js / food.js / meds.js / today.js / weight.js / workout.js / health.js)
+- [x] update `index.html` script load order if a new feature file is added; update `sw.js` precache list + `tests/helpers/frontend-harness.js` (not applicable — notes folded into existing `features/health.js`, no new script)
+- [x] verify no behavior change — existing health + notes tests stay green
+- [x] run `pnpm test` — design-tokens test + extraction smoke test must be green before next task
 
 ### Task 2: Build the sub-tab strip + subtab state plumbing
 
