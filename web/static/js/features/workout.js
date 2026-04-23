@@ -115,6 +115,7 @@ function bindWorkoutControls() {
     bindClick('variant-add-exercise-btn', () => showAddExerciseModal());
 
     bindClick('exercise-cancel-btn', () => closeExerciseModal());
+    bindClick('exercise-close-btn', () => closeExerciseModal());
     bindClick('exercise-save-btn', () => saveExercise());
 
     bindClick('exercise-library-cancel-btn', () => closeExerciseLibraryModal());
@@ -127,6 +128,7 @@ function bindWorkoutControls() {
     bindClick('workout-session-add-exercise-btn', () => showAddExerciseToSessionModal());
 
     bindClick('session-add-exercise-cancel-btn', () => closeAddExerciseToSessionModal());
+    bindClick('session-add-exercise-close-btn', () => closeAddExerciseToSessionModal());
     bindClick('session-add-exercise-save-btn', () => saveNewSessionExercise());
 
     bindClick('miband-workout-cancel-btn', () => closeMiBandWorkoutModal());
@@ -2818,6 +2820,9 @@ async function showAddExerciseToSessionModal() {
     document.getElementById('session-add-exercise-weight').value = '';
     document.getElementById('session-add-exercise-notes').value = '';
 
+    const titleEl = document.getElementById('workout-add-exercise-to-session-title');
+    if (titleEl) titleEl.textContent = 'Add exercise';
+
     // Load unique exercises
     const datalist = document.getElementById('unique-exercises-list');
     datalist.replaceChildren();
@@ -2869,6 +2874,9 @@ function onSessionExerciseSelect() {
 
     const val = input.value;
     const option = Array.from(datalist.options).find(o => o.value === val);
+
+    const titleEl = document.getElementById('workout-add-exercise-to-session-title');
+    if (titleEl) titleEl.textContent = val ? `Log set \u00b7 ${val}` : 'Add exercise';
 
     if (option) {
         hiddenId.value = option.dataset.id;

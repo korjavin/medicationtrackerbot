@@ -531,41 +531,82 @@
         </div>
     </mt-modal>
 
-    <!-- Modal for Adding/Editing Exercise -->
-    <mt-modal id="workout-exercise-modal" class="hidden">
-        <div class="modal-header">
-            <h3 id="workout-exercise-modal-title">Add Exercise</h3>
-            <div class="actions">
-                <button id="exercise-cancel-btn" class="btn btn-secondary">Cancel</button>
-                <button id="exercise-save-btn" class="btn btn-primary">Save</button>
+    <!-- Edit-exercise modal (Phase 7, Task 8). Adds or edits a planned exercise
+         on a workout variant — mono eyebrow + title header, `.wg-gloss--inset`
+         input wraps for name / sets / reps / weight / order, and a
+         Cancel/Save action bar (Save 2x flex per modal-button-order
+         convention). -->
+    <mt-modal id="workout-exercise-modal" class="hidden wg-modal wg-workouts-exercise-modal">
+        <div class="wg-workouts-exercise-modal__header">
+            <div class="wg-workouts-exercise-modal__heading">
+                <span class="wg-section-label wg-workouts-exercise-modal__eyebrow">Workout exercise</span>
+                <span class="wg-mono-display wg-workouts-exercise-modal__title" id="workout-exercise-modal-title">Add Exercise</span>
+            </div>
+            <button type="button" id="exercise-close-btn" class="wg-icon-btn wg-workouts-exercise-modal__close-btn"
+                aria-label="Close">
+                <span class="wg-gloss"></span>
+            </button>
+        </div>
+
+        <div class="wg-workouts-exercise-modal__body">
+            <div class="wg-workouts-exercise-modal__field">
+                <label for="workout-exercise-name" class="wg-workouts-exercise-modal__label">Name</label>
+                <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
+                    <input type="text" id="workout-exercise-name" class="wg-workouts-exercise-modal__input"
+                        placeholder="Barbell Rows">
+                </div>
+            </div>
+
+            <div class="wg-workouts-exercise-modal__row">
+                <div class="wg-workouts-exercise-modal__field">
+                    <label for="workout-exercise-sets" class="wg-workouts-exercise-modal__label">Sets</label>
+                    <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
+                        <input type="number" id="workout-exercise-sets" class="wg-workouts-exercise-modal__input"
+                            min="1" max="10" placeholder="4">
+                    </div>
+                </div>
+
+                <div class="wg-workouts-exercise-modal__field">
+                    <label for="workout-exercise-weight" class="wg-workouts-exercise-modal__label">Weight (kg)</label>
+                    <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
+                        <input type="number" id="workout-exercise-weight" class="wg-workouts-exercise-modal__input"
+                            step="0.5" min="0" placeholder="40">
+                    </div>
+                </div>
+            </div>
+
+            <div class="wg-workouts-exercise-modal__row">
+                <div class="wg-workouts-exercise-modal__field">
+                    <label for="workout-exercise-reps-min" class="wg-workouts-exercise-modal__label">Reps (min)</label>
+                    <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
+                        <input type="number" id="workout-exercise-reps-min" class="wg-workouts-exercise-modal__input"
+                            min="1" max="100" placeholder="8">
+                    </div>
+                </div>
+
+                <div class="wg-workouts-exercise-modal__field">
+                    <label for="workout-exercise-reps-max" class="wg-workouts-exercise-modal__label">Reps (max)</label>
+                    <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
+                        <input type="number" id="workout-exercise-reps-max" class="wg-workouts-exercise-modal__input"
+                            min="1" max="100" placeholder="10">
+                    </div>
+                </div>
+            </div>
+
+            <div class="wg-workouts-exercise-modal__field">
+                <label for="workout-exercise-order" class="wg-workouts-exercise-modal__label">Order</label>
+                <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
+                    <input type="number" id="workout-exercise-order" class="wg-workouts-exercise-modal__input"
+                        min="0" placeholder="0 = first, 1 = second, etc.">
+                </div>
             </div>
         </div>
 
-        <input type="text" id="workout-exercise-name" placeholder="Exercise Name (e.g., Barbell Rows)">
-
-        <div class="form-row">
-            <label for="workout-exercise-sets">Target Sets:</label>
-            <input type="number" id="workout-exercise-sets" min="1" max="10" placeholder="4">
-        </div>
-
-        <div class="form-row">
-            <label for="workout-exercise-reps-min">Target Reps (Min):</label>
-            <input type="number" id="workout-exercise-reps-min" min="1" max="100" placeholder="8">
-        </div>
-
-        <div class="form-row">
-            <label for="workout-exercise-reps-max">Target Reps (Max, optional):</label>
-            <input type="number" id="workout-exercise-reps-max" min="1" max="100" placeholder="10">
-        </div>
-
-        <div class="form-row">
-            <label for="workout-exercise-weight">Target Weight (kg, optional):</label>
-            <input type="number" id="workout-exercise-weight" step="0.5" min="0" placeholder="40">
-        </div>
-
-        <div class="form-row">
-            <label for="workout-exercise-order">Order in workout:</label>
-            <input type="number" id="workout-exercise-order" min="0" placeholder="0 = first, 1 = second, etc.">
+        <div class="wg-workouts-exercise-modal__actions">
+            <button type="button" id="exercise-cancel-btn"
+                class="wg-gloss wg-workouts-exercise-modal__action wg-workouts-exercise-modal__action--cancel">Cancel</button>
+            <button type="button" id="exercise-save-btn"
+                class="wg-gloss wg-gloss--sun wg-workouts-exercise-modal__action wg-workouts-exercise-modal__action--save">Save</button>
         </div>
     </mt-modal>
 
@@ -700,44 +741,74 @@
 
     </mt-modal>
 
-    <!-- Modal for Adding Exercise to Session -->
-    <mt-modal id="workout-add-exercise-to-session-modal" class="hidden">
-        <div class="modal-header">
-            <h3>Add Exercise to Session</h3>
-            <div class="actions">
-                <button id="session-add-exercise-cancel-btn" class="btn btn-secondary">Cancel</button>
-                <button id="session-add-exercise-save-btn" class="btn btn-primary">Add</button>
+    <!-- Log-set modal (Phase 7, Task 8). Adds an exercise log to an in-progress
+         workout session — mono eyebrow + title header, `.wg-gloss--inset` input
+         wraps for name / sets / reps / weight / notes, and a Cancel/Save action
+         bar (Save 2x flex per modal-button-order convention). -->
+    <mt-modal id="workout-add-exercise-to-session-modal" class="hidden wg-modal wg-workouts-log-set-modal">
+        <div class="wg-workouts-log-set-modal__header">
+            <div class="wg-workouts-log-set-modal__heading">
+                <span class="wg-section-label wg-workouts-log-set-modal__eyebrow">Log set</span>
+                <span class="wg-mono-display wg-workouts-log-set-modal__title" id="workout-add-exercise-to-session-title">Add exercise</span>
+            </div>
+            <button type="button" id="session-add-exercise-close-btn" class="wg-icon-btn wg-workouts-log-set-modal__close-btn"
+                aria-label="Close">
+                <span class="wg-gloss"></span>
+            </button>
+        </div>
+
+        <div class="wg-workouts-log-set-modal__body">
+            <div class="wg-workouts-log-set-modal__field">
+                <label for="session-add-exercise-name" class="wg-workouts-log-set-modal__label">Exercise</label>
+                <div class="wg-gloss--inset wg-workouts-log-set-modal__input-wrap">
+                    <input type="text" id="session-add-exercise-name" class="wg-workouts-log-set-modal__input"
+                        list="unique-exercises-list" placeholder="Start typing...">
+                </div>
+                <datalist id="unique-exercises-list"></datalist>
+                <input type="hidden" id="session-add-exercise-id">
+            </div>
+
+            <div class="wg-workouts-log-set-modal__row">
+                <div class="wg-workouts-log-set-modal__field">
+                    <label for="session-add-exercise-sets" class="wg-workouts-log-set-modal__label">Sets</label>
+                    <div class="wg-gloss--inset wg-workouts-log-set-modal__input-wrap">
+                        <input type="number" id="session-add-exercise-sets" class="wg-workouts-log-set-modal__input"
+                            min="1" max="20" placeholder="3">
+                    </div>
+                </div>
+
+                <div class="wg-workouts-log-set-modal__field">
+                    <label for="session-add-exercise-reps" class="wg-workouts-log-set-modal__label">Reps</label>
+                    <div class="wg-gloss--inset wg-workouts-log-set-modal__input-wrap">
+                        <input type="number" id="session-add-exercise-reps" class="wg-workouts-log-set-modal__input"
+                            min="1" max="100" placeholder="10">
+                    </div>
+                </div>
+
+                <div class="wg-workouts-log-set-modal__field">
+                    <label for="session-add-exercise-weight" class="wg-workouts-log-set-modal__label">Weight (kg)</label>
+                    <div class="wg-gloss--inset wg-workouts-log-set-modal__input-wrap">
+                        <input type="number" id="session-add-exercise-weight" class="wg-workouts-log-set-modal__input"
+                            step="0.5" min="0" placeholder="0">
+                    </div>
+                </div>
+            </div>
+
+            <div class="wg-workouts-log-set-modal__field">
+                <label for="session-add-exercise-notes" class="wg-workouts-log-set-modal__label">Notes</label>
+                <div class="wg-gloss--inset wg-workouts-log-set-modal__input-wrap">
+                    <input type="text" id="session-add-exercise-notes" class="wg-workouts-log-set-modal__input"
+                        placeholder="Optional notes">
+                </div>
             </div>
         </div>
 
-        <div class="form-row">
-            <label for="session-add-exercise-name">Exercise Name:</label>
-            <input type="text" id="session-add-exercise-name" list="unique-exercises-list"
-                placeholder="Start typing...">
-            <datalist id="unique-exercises-list"></datalist>
-            <input type="hidden" id="session-add-exercise-id">
+        <div class="wg-workouts-log-set-modal__actions">
+            <button type="button" id="session-add-exercise-cancel-btn"
+                class="wg-gloss wg-workouts-log-set-modal__action wg-workouts-log-set-modal__action--cancel">Cancel</button>
+            <button type="button" id="session-add-exercise-save-btn"
+                class="wg-gloss wg-gloss--sun wg-workouts-log-set-modal__action wg-workouts-log-set-modal__action--save">Save</button>
         </div>
-
-        <div class="form-row">
-            <label for="session-add-exercise-sets">Sets Completed:</label>
-            <input type="number" id="session-add-exercise-sets" min="1" max="20" placeholder="3">
-        </div>
-
-        <div class="form-row">
-            <label for="session-add-exercise-reps">Reps Completed:</label>
-            <input type="number" id="session-add-exercise-reps" min="1" max="100" placeholder="10">
-        </div>
-
-        <div class="form-row">
-            <label for="session-add-exercise-weight">Weight (kg):</label>
-            <input type="number" id="session-add-exercise-weight" step="0.5" min="0" placeholder="0">
-        </div>
-
-        <div class="form-row">
-            <label for="session-add-exercise-notes">Notes:</label>
-            <input type="text" id="session-add-exercise-notes" placeholder="Optional notes">
-        </div>
-
     </mt-modal>
 
     <!-- Modal for Adding/Editing Food -->

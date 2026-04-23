@@ -158,12 +158,12 @@ No backend changes. The existing `/api/workouts*`, `/api/exercises*`, `/api/work
 
 ### Task 8: Rewrite the log-set modal + edit-exercise modal
 
-- [ ] replace the log-set modal markup in `index.html` with the Wandergeek shell — mono header ("Log set · Bench"), `.wg-icon-btn` close trailing the header
-- [ ] weight + reps inputs — `.wg-gloss--inset` wraps with mono labels
-- [ ] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss` left, Save `.wg-gloss--sun` right with 2× flex per modal-button-order convention
-- [ ] edit-exercise modal (per-session exercise edit) restyled with the same shell
-- [ ] write `workout.modal.test.js` — open/save/cancel, input round-trip, `modal-controller.js` history integration preserved
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the log-set modal markup in `index.html` with the Wandergeek shell — mono header ("Log set · Bench"), `.wg-icon-btn` close trailing the header
+- [x] weight + reps inputs — `.wg-gloss--inset` wraps with mono labels
+- [x] Cancel + Save buttons row at the bottom — Cancel `.wg-gloss` left, Save `.wg-gloss--sun` right with 2× flex per modal-button-order convention
+- [x] edit-exercise modal (per-session exercise edit) restyled with the same shell
+- [x] write `workout.modal.test.js` — open/save/cancel, input round-trip, `modal-controller.js` history integration preserved
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 9: Wire Workouts into the canonical bottom nav + cleanup
 
