@@ -99,11 +99,11 @@ No backend changes. The existing `/api/health/overview` and `/api/notes*` endpoi
 
 ### Task 2: Build the sub-tab strip + subtab state plumbing
 
-- [ ] replace the current `.health-tabs` buttons with a `.wg-gloss--inset` container carrying two `.wg-gloss--sun`-capable pills (Overview / Notes) — active state via class, not inline style
-- [ ] state: which sub-tab is active persists via a new `mt-health-subtab` localStorage key matching the naming pattern
-- [ ] default sub-tab: Overview
-- [ ] write `health.subtabs.test.js` — active-state toggle, persistence across reload, default-tab behavior
-- [ ] run `pnpm test` — must pass before next task
+- [x] replace the current `.health-tabs` buttons with a `.wg-gloss--inset` container carrying two `.wg-gloss--sun`-capable pills (Overview / Notes) — active state via class, not inline style
+- [x] state: which sub-tab is active persists via a new `mt-health-subtab` localStorage key matching the naming pattern
+- [x] default sub-tab: Overview
+- [x] write `health.subtabs.test.js` — active-state toggle, persistence across reload, default-tab behavior
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Build the summary tile row + range selector
 
