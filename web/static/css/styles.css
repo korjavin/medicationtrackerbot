@@ -3781,6 +3781,26 @@ textarea.wg-input {
     cursor: pointer;
 }
 
+/* Plain surface variant: meds card at the bottom of Today drops the
+   sun-yellow banner and sits on the regular card background so the
+   "Take" gloss-sun button remains the only emphasis. */
+.wg-next-action-card--plain {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(0, 0, 0, 0) 60%),
+        var(--wg-bg-card);
+    border-color: var(--wg-border-hairline);
+}
+
+.wg-next-action-card--plain .wg-next-action-card__icon {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--wg-border-hairline);
+    color: var(--wg-fg-2);
+}
+
+.wg-next-action-card--plain .wg-next-action-card__kicker {
+    color: var(--wg-fg-3);
+}
+
 .wg-next-action-card__icon {
     flex-shrink: 0;
     width: 34px;
@@ -4048,6 +4068,100 @@ textarea.wg-input {
 .wg-plan-tile__detail {
     font-size: var(--font-size-xs);
     color: var(--wg-fg-3);
+}
+
+/* Today shortcut row (Task 3) — 3 quick-log tiles that open the existing
+   food / BP / weight modals directly. Uses the same material vocabulary
+   as `.wg-metric-tile` so the shortcuts visually belong to the Today
+   card stack. */
+.wg-today-shortcuts {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: var(--space-sm);
+}
+
+.wg-shortcut-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--wg-tile-pad-block) var(--space-xs);
+    background: var(--wg-metric-tile-bg);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    width: 100%;
+}
+
+.wg-shortcut-tile__icon {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--wg-radius-gloss);
+    background: var(--wg-next-action-icon-bg);
+    border: 1px solid var(--wg-next-action-icon-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-sun);
+}
+
+.wg-shortcut-tile__label {
+    font-size: var(--wg-font-size-caps);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--wg-fg-2);
+    font-weight: 600;
+}
+
+/* Today meds card (Task 3) — header row (icon + kicker + "Take" CTA),
+   then an optional list of scheduled med names. Lives at the bottom of
+   the Today stack. */
+.wg-today-meds {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    align-items: stretch;
+}
+
+.wg-today-meds__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.wg-today-meds__list {
+    list-style: none;
+    margin: 0;
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--wg-border-hairline);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-today-meds__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.wg-today-meds__dot {
+    width: 5px;
+    height: 5px;
+    border-radius: var(--wg-radius-pill);
+    background: var(--wg-sun);
+    flex-shrink: 0;
+}
+
+.wg-today-meds__name {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .wg-streak-card {
