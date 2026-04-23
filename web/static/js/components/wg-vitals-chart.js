@@ -176,7 +176,7 @@
         if (normalized.length === 0) return makeEmptyCard(vital, range);
 
         normalized.sort((a, b) => a.timestamp - b.timestamp);
-        const data = filterByRange(normalized, range);
+        const data = options.prefiltered ? normalized : filterByRange(normalized, range);
         if (data.length === 0) return makeEmptyCard(vital, range);
 
         const width = finiteOrDefault(options.width, DEFAULT_WIDTH);
@@ -279,14 +279,21 @@
         svg.appendChild(makeLastDot(xOf(lastPt.timestamp), yOf(lastPt.avg)));
 
         // X-axis date labels — (N+1) evenly spaced, matching the paper-era
-        // renderVitalsLineChart count of 5 labels.
-        for (let i = 0; i <= X_LABEL_COUNT; i++) {
-            const ts = minTime + (timeRange * (i / X_LABEL_COUNT));
-            const dt = new Date(ts);
+        // renderVitalsLineChart count of 5 labels. With a single sample xOf()
+        // returns a constant center x, so emit only one label to avoid
+        // stacking five identical labels on top of each other.
+        const yLabel = PAD_T + plotH + 15;
+        if (data.length === 1) {
+            const dt = new Date(minTime);
             const text = `${dt.getMonth() + 1}/${dt.getDate()}`;
-            const x = xOf(ts);
-            const y = PAD_T + plotH + 15;
-            svg.appendChild(makeDayLabel(x, y, text));
+            svg.appendChild(makeDayLabel(xOf(minTime), yLabel, text));
+        } else {
+            for (let i = 0; i <= X_LABEL_COUNT; i++) {
+                const ts = minTime + (timeRange * (i / X_LABEL_COUNT));
+                const dt = new Date(ts);
+                const text = `${dt.getMonth() + 1}/${dt.getDate()}`;
+                svg.appendChild(makeDayLabel(xOf(ts), yLabel, text));
+            }
         }
 
         return svg;

@@ -44,6 +44,13 @@
         return Number.isFinite(value) ? value : fallback;
     }
 
+    function isToday(date) {
+        const now = new Date();
+        return date.getFullYear() === now.getFullYear()
+            && date.getMonth() === now.getMonth()
+            && date.getDate() === now.getDate();
+    }
+
     function toDate(src) {
         if (src instanceof Date) return src;
         if (typeof src === 'string') {
@@ -71,11 +78,15 @@
         const days = RANGE_DAYS[range];
         if (!days) return data;
         if (data.length === 0) return data;
-        const now = Date.now();
-        const cutoff = now - days * 86400000;
+        // Calendar-day window: the last N days ending at today (inclusive),
+        // computed against local midnight boundaries so wall-clock time within
+        // the day doesn't shift which entries pass.
+        const now = new Date();
+        const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+        const cutoff = todayEnd - days * 86400000;
         return data.filter((d) => {
             const t = d.date.getTime();
-            return t >= cutoff && t <= now;
+            return t >= cutoff && t < todayEnd;
         });
     }
 
@@ -146,7 +157,7 @@
         if (normalized.length === 0) return makeEmptyCard(range);
 
         normalized.sort((a, b) => a.date - b.date);
-        const data = filterByRange(normalized, range);
+        const data = options.prefiltered ? normalized : filterByRange(normalized, range);
         if (data.length === 0) return makeEmptyCard(range);
 
         const width = finiteOrDefault(options.width, DEFAULT_WIDTH);
@@ -209,7 +220,7 @@
                 svg.appendChild(label);
             }
 
-            const dayName = (i === data.length - 1)
+            const dayName = isToday(dayStat.date)
                 ? 'Today'
                 : DAYS_MAP[dayStat.date.getDay()];
             svg.appendChild(makeText(

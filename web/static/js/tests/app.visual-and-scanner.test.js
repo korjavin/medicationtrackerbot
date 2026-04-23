@@ -324,7 +324,7 @@ describe('app.js charts, scanner and visualization helpers', () => {
       expect(content.querySelector('.wg-vitals-card--spo2 svg.wg-vitals-chart')).toBeTruthy();
       expect(content.querySelector('.wg-vitals-card--stress svg.wg-vitals-chart')).toBeTruthy();
       expect(loadSWRSpy).toHaveBeenCalledWith(expect.objectContaining({
-        key: 'health_overview',
+        key: expect.stringMatching(/^health_overview/),
         tags: ['health'],
         allowNullFresh: true,
         fetcher: expect.any(Function)
@@ -372,7 +372,7 @@ describe('app.js charts, scanner and visualization helpers', () => {
       const htmlAfterFresh = document.getElementById('health-overview-content').innerHTML;
       expect(htmlAfterFresh).toContain('10,000 steps (7d avg)');
       expect(window.DataStore.fetchFresh).toHaveBeenCalledWith(
-        'health_overview',
+        expect.stringMatching(/^health_overview/),
         expect.any(Function),
         ['health']
       );

@@ -221,8 +221,8 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
         it('empty-tile fallback: missing value renders "—" without a trend arrow', () => {
             const { window } = env;
             const tiles = window.renderHealthSummaryTiles({
-                average_sleep_hours_7d: 0,
-                average_sleep_hours_30d: 0,
+                average_sleep_hours_7d: null,
+                average_sleep_hours_30d: null,
                 average_steps_7d: 9000,
                 average_steps_30d: 8000,
                 average_heart_rate_7d: 70,
