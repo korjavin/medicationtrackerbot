@@ -332,6 +332,7 @@
     --wg-section-label-gap: 6px;
     --wg-font-size-metric-value: 20px;
     --wg-font-size-fuel-value: 22px;
+    --wg-font-size-fuel-pct: 16px;
     --wg-font-size-plan-value: 13px;
     --wg-font-size-streak-value: 18px;
     --wg-streak-bar-height: 22px;
@@ -384,7 +385,9 @@
        and edit-food modal. Every visual value in features/food.js and
        components/wg-macro-bar.js reads from here. */
     --wg-food-kcal-display-size: 30px;
-    --wg-food-kcal-unit-size: 12px;
+    --wg-food-kcal-unit-size: 14px;
+    --wg-food-kcal-pct-size: 22px;
+    --wg-food-kcal-pct-label-size: 10px;
     --wg-food-macro-bar-height: 8px;
     --wg-food-macro-row-cols: 56px 1fr auto;
     --wg-food-macro-row-gap: 12px;
@@ -3984,7 +3987,7 @@ textarea.wg-input {
 
 .wg-fuel-card__pct {
     font-family: var(--wg-font-display);
-    font-size: var(--font-size-md);
+    font-size: var(--wg-font-size-fuel-pct);
     color: var(--wg-sun);
     line-height: 1;
     text-align: right;
@@ -5308,18 +5311,31 @@ textarea.wg-input {
 }
 
 .wg-food-macros-card__percent {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    text-align: right;
     font-family: var(--wg-font-mono);
-    font-size: var(--font-size-xs);
     color: var(--wg-fg-3);
+    line-height: 1;
 }
 
 .wg-food-macros-card__percent-value {
     color: var(--wg-sun);
+    font-size: var(--wg-food-kcal-pct-size);
     font-weight: var(--font-weight-bold);
+    letter-spacing: -0.02em;
+    line-height: 1;
 }
 
 .wg-food-macros-card__percent-label {
     color: var(--wg-fg-4);
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-food-kcal-pct-label-size);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-top: 2px;
 }
 
 .wg-food-macros-card__bars {
