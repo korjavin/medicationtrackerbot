@@ -181,9 +181,9 @@ No backend changes. The existing `/api/workouts*`, `/api/exercises*`, `/api/work
 
 ### Task 11: [Final] Update plan and write Phase 8 plan stub
 
-- [ ] mark this plan complete; ralphex moves it to `docs/plans/completed/`
-- [ ] write `docs/plans/2026-04-XX-wandergeek-phase8-health.md` covering the Health screen rewrite (SpO2 + sleep + diary — vitals tiles, sleep history by week, notes/diary list)
-- [ ] no code changes in this task
+- [x] mark this plan complete; ralphex moves it to `docs/plans/completed/`
+- [x] write `docs/plans/2026-04-XX-wandergeek-phase8-health.md` covering the Health screen rewrite (SpO2 + sleep + diary — vitals tiles, sleep history by week, notes/diary list)
+- [x] no code changes in this task
 
 ## Technical Details
 
