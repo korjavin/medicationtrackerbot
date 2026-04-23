@@ -105,12 +105,12 @@ Six themes from the user's request:
 
 ### Task 1: Remove section headers from every screen
 Rationale: Design shows no top title on any screen. All 7 `section-header-mount` divs render titles + back buttons that the mockup doesn't have.
-- [ ] Remove the 7 `<div class="section-header-mount" data-title="…">` elements from `web/static/index.html` at lines 45, 114, 124, 136, 186, 267, 295.
-- [ ] Delete `web/static/js/components/section-header.js` and its `<script>` tag in `index.html:1367` — it has no remaining callers.
-- [ ] Remove any CSS rules in `web/static/css/styles.css` that target `.section-header` / `.wg-app-header` only (grep for them; keep rules that are shared with other primitives).
-- [ ] Remove/update characterization tests in `web/static/js/tests/` that assert on `.section-header` / `.wg-app-header` DOM presence.
-- [ ] Update `tests/architecture.*.test.js` to drop any assertions about the section-header component.
-- [ ] Run `pnpm test` and `go test ./...` — all green before next task.
+- [x] Remove the 7 `<div class="section-header-mount" data-title="…">` elements from `web/static/index.html` at lines 45, 114, 124, 136, 186, 267, 295.
+- [x] Delete `web/static/js/components/section-header.js` and its `<script>` tag in `index.html:1367` — it has no remaining callers.
+- [x] Remove any CSS rules in `web/static/css/styles.css` that target `.section-header` / `.wg-app-header` only (grep for them; keep rules that are shared with other primitives). (`.wg-app-header*` block removed entirely; unused `.section-header .section-back*` and `.section-header .badge*` rules pruned; Today still uses `.section-header` / `.section-title` and those rules stay until Task 3 rebuilds Today's header.)
+- [x] Remove/update characterization tests in `web/static/js/tests/` that assert on `.section-header` / `.wg-app-header` DOM presence. (`components.section-header.test.js` and `app.section-header-hydration.test.js` deleted; `food.daynav.test.js` now asserts the mount is absent.)
+- [x] Update `tests/architecture.*.test.js` to drop any assertions about the section-header component. (Dropped `window.SectionHeader` from the globals allowlist, the `--wg-app-header-*-size` tokens from design-tokens, and the `.wg-app-header--no-back` rule from wg-primitives.)
+- [x] Run `pnpm test` and `go test ./...` — all green before next task. (Go: all packages pass. Frontend: 1319 pass; the 2 failing `wg-sleep-chart` / `wg-steps-chart` tests are pre-existing date-dependent failures unrelated to this task — they reproduce on master.)
 
 ### Task 2: Reorder & relabel bottom nav (row 1: Today/BP/Food/Meds — row 2: Vitals/Workouts/Weight/Settings)
 - [ ] In `web/static/js/components/wg-bottom-nav.js`, reorder `DEFAULT_ITEMS` at lines 22-31 to: today, bp, food, meds, **health (label:"Vitals")**, workouts, weight, settings.

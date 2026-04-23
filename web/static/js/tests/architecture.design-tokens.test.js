@@ -279,10 +279,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-status-bar-font-size',
     '--wg-radius-pill',
 
-    // App header tokens (added in Task 4 alongside .wg-app-header)
-    '--wg-app-header-title-size',
-    '--wg-app-header-subtitle-size',
-
     // Bottom nav tokens (added in Task 5 alongside .wg-bottom-nav)
     '--wg-bottom-nav-pad-top',
     '--wg-bottom-nav-pad-x',

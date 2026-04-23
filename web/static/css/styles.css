@@ -296,10 +296,6 @@
     --wg-status-bar-font-size: 15px;
     --wg-radius-pill: 999px;
 
-    /* Wandergeek — app header (Task 4). JetBrains Mono title + uppercase subtitle. */
-    --wg-app-header-title-size: 17px;
-    --wg-app-header-subtitle-size: 10px;
-
     /* Wandergeek — bottom nav (Task 5). Multi-row nav, one slot per section. */
     --wg-bottom-nav-pad-top: 10px;
     --wg-bottom-nav-pad-x: 12px;
@@ -3162,26 +3158,6 @@ input:checked+.toggle-slider:before {
     box-sizing: border-box;
 }
 
-.section-header .section-back {
-    background: transparent;
-    color: var(--text-color);
-    justify-self: start;
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    width: auto;
-    padding: 0 var(--space-sm);
-}
-
-.section-header .section-back-label {
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-normal);
-}
-
-.section-header.no-back .section-back {
-    visibility: hidden;
-}
-
 .section-header .section-title {
     margin: 0;
     text-align: center;
@@ -3199,82 +3175,6 @@ input:checked+.toggle-slider:before {
     justify-content: flex-end;
     justify-self: end;
     min-width: 44px;
-}
-
-.section-header .badge {
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
-    padding: 2px var(--space-sm);
-    border-radius: var(--radius-pill);
-    background: var(--secondary-bg-color);
-    color: var(--hint-color);
-    text-transform: lowercase;
-    letter-spacing: 0.03em;
-}
-
-.section-header .badge-experimental {
-    background: var(--color-warning);
-    color: var(--bg-color);
-}
-
-/* =============================================
-   WG APP HEADER — Wandergeek reskin (Task 4)
-   Deep-teal stage header with a gloss back pill,
-   JetBrains Mono title, and optional uppercase
-   caps subtitle. Dual-classed with .section-header
-   on the element so sticky positioning + badge
-   styles from the legacy block still apply.
-   ============================================= */
-.wg-app-header {
-    display: grid;
-    grid-template-columns: var(--wg-icon-btn-size) 1fr var(--wg-icon-btn-size);
-    align-items: center;
-    gap: var(--space-sm);
-    padding: 2px var(--space-lg) var(--space-sm);
-    padding-top: calc(2px + env(safe-area-inset-top, 0px));
-    background: transparent;
-    box-shadow: none;
-    min-height: 0;
-}
-
-.wg-app-header__title {
-    margin: 0;
-    font-family: var(--wg-font-display);
-    font-weight: var(--font-weight-medium);
-    font-size: var(--wg-app-header-title-size);
-    letter-spacing: 0.02em;
-    text-align: center;
-    color: var(--wg-fg-1);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-}
-
-.wg-app-header__title small {
-    display: block;
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-app-header-subtitle-size);
-    font-weight: var(--font-weight-medium);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--wg-fg-4);
-    margin-top: 2px;
-}
-
-.wg-app-header__right {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    min-width: var(--wg-icon-btn-size);
-}
-
-.wg-app-header .wg-icon-btn {
-    justify-self: start;
-}
-
-.wg-app-header--no-back > .section-back.wg-icon-btn {
-    visibility: hidden;
 }
 
 .food-stats-period-row {
@@ -3821,14 +3721,6 @@ textarea.wg-input {
     padding: var(--space-lg) var(--space-lg) var(--wg-bottom-nav-reserved);
     min-height: 100vh;
     box-sizing: border-box;
-}
-
-/* Header title over the dark stage: legacy .section-header .section-title
-   (0,2,0) would otherwise pin titles to var(--text-color) (black). Scoping
-   to .wg-screen-stage gives 0,3,0 and restores the near-white fg. */
-.wg-screen-stage .section-header .section-title,
-.wg-screen-stage .wg-app-header__title {
-    color: var(--wg-fg-1);
 }
 
 /* Empty-state copy over the dark stage: #bp-list:empty::before and

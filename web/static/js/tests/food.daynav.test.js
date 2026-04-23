@@ -107,13 +107,12 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         expect(view.classList.contains('wg-screen-stage')).toBe(true);
     });
 
-    it('Food section header carries no data-badge attribute', () => {
+    it('Food view no longer mounts a section header', () => {
         const { document } = env;
         const mount = document
             .getElementById('food-view')
             .querySelector('.section-header-mount');
-        expect(mount).not.toBeNull();
-        expect(mount.hasAttribute('data-badge')).toBe(false);
+        expect(mount).toBeNull();
     });
 
     it('formatFoodDateSubtitle returns DD.MM.YYYY for ISO input and empty string for blank', () => {

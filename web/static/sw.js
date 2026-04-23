@@ -21,7 +21,6 @@ const STATIC_ASSETS = [
     '/static/js/components/empty-state.js',
     '/static/js/components/stat-card.js',
     '/static/js/components/action-row.js',
-    '/static/js/components/section-header.js',
     '/static/js/components/wg-icons.js',
     '/static/js/components/wg-bottom-nav.js',
     '/static/js/components/wg-sparkline.js',

@@ -8,7 +8,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
-const SECTION_HEADER_JS = path.join(REPO_ROOT, 'web/static/js/components/section-header.js');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
 const TODAY_JS = path.join(REPO_ROOT, 'web/static/js/features/today.js');
@@ -21,7 +20,6 @@ function loadRenderEnv() {
     });
     const { window } = dom;
     window.eval(fs.readFileSync(EMPTY_STATE_JS, 'utf8') + '\nwindow.createEmptyState = createEmptyState;');
-    window.eval(fs.readFileSync(SECTION_HEADER_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
     window.eval(fs.readFileSync(TODAY_JS, 'utf8'));
