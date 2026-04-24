@@ -701,17 +701,23 @@ function initOIDCSetupBanner() {
     rowTitle.textContent = 'Redirect URIs';
     const rowDesc = document.createElement('div');
     rowDesc.className = 'wg-settings-row__desc';
-    rowDesc.textContent = 'Open the setup page to copy values into your OIDC client.';
+    rowDesc.textContent = 'Opens the setup page (new tab) to copy redirect URIs and client credentials into your Pocket-ID / OIDC clients.';
     rowContent.appendChild(rowTitle);
     rowContent.appendChild(rowDesc);
 
     const rowControl = document.createElement('div');
     rowControl.className = 'wg-settings-row__control';
-    const actionBtn = document.createElement('button');
-    actionBtn.className = 'wg-gloss wg-settings-action-btn';
-    actionBtn.textContent = 'Open';
-    actionBtn.onclick = () => window.location.href = '/oidc-setup';
-    rowControl.appendChild(actionBtn);
+    // Opens in a new tab so the mini-app URL isn't clobbered — returning via
+    // browser-back otherwise re-runs handleDeepLinks() with no matching path
+    // and switchTab('today') fires as a fallback.
+    const actionLink = document.createElement('a');
+    actionLink.className = 'wg-gloss wg-settings-action-btn';
+    actionLink.textContent = 'Open';
+    actionLink.href = '/oidc-setup';
+    actionLink.target = '_blank';
+    actionLink.rel = 'noopener noreferrer';
+    actionLink.setAttribute('aria-label', 'Open OIDC setup page in a new tab');
+    rowControl.appendChild(actionLink);
 
     row.appendChild(rowContent);
     row.appendChild(rowControl);

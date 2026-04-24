@@ -176,13 +176,17 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
         expect(window.loadExerciseLibrary).toHaveBeenCalled();
     });
 
-    it('renders a full-width Add exercise CTA in the Exercises tab', () => {
+    it('renders an inline Add exercise sun-gloss pill in the Exercises tab header (Round-2 Task 6)', () => {
         const { document } = env;
         const cta = document.getElementById('add-exercise-library-btn');
         expect(cta).not.toBeNull();
         expect(cta.classList.contains('wg-gloss')).toBe(true);
         expect(cta.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(cta.classList.contains('wg-workouts-exercises__add-cta')).toBe(true);
+        // Round-2 Task 6: button moved from the sticky bottom CTA
+        // (`.wg-workouts-exercises__add-cta`) into the top-right of the
+        // exercises tab header (`.wg-workouts-exercises-header__add`).
+        expect(cta.classList.contains('wg-workouts-exercises-header__add')).toBe(true);
+        expect(cta.classList.contains('wg-workouts-exercises__add-cta')).toBe(false);
     });
 
     describe('edit-library-exercise modal shell', () => {

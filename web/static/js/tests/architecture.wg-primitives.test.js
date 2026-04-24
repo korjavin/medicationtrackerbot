@@ -146,12 +146,15 @@ describe('Wandergeek material primitives', () => {
     });
 
     it('.wg-fab has been retired — primary actions now live inline with tab/day-nav rows, not as fixed FABs', () => {
-        // Phase 5, Task 5: removed the floating-action-button utility once BP,
-        // Meds, Weight, and Workouts moved their primary CTAs inline. The
-        // `--wg-z-fab` token stays because `.wg-food-cta-dock` still reuses
-        // its sticky-docking layer for the food-log CTA.
+        // Phase 5, Task 5 + Round-2 Task 3: removed the floating-action-button
+        // utility and the Food sticky CTA dock once every section moved its
+        // primary CTA inline with the day-nav / title row. The `--wg-z-fab`
+        // token is kept in `:root` for now (guarded by the design-tokens
+        // allowlist test) but has no active consumers.
         const blocks = extractClassBlocks(css, '.wg-fab');
         expect(blocks.length).toBe(0);
+        const dockBlocks = extractClassBlocks(css, '.wg-food-cta-dock');
+        expect(dockBlocks.length).toBe(0);
     });
 
     it('.wg-modal carries card-like background pulling --wg-bg-card and uses z-modal', () => {

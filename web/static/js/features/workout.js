@@ -111,6 +111,7 @@ function bindWorkoutControls() {
     bindClick('add-flat-exercise-btn', () => showAddExerciseModalFromGroup());
 
     bindClick('variant-cancel-btn', () => closeVariantModal());
+    bindClick('workout-variant-close-btn', () => closeVariantModal());
     bindClick('variant-save-btn', () => saveVariant());
     bindClick('variant-add-exercise-btn', () => showAddExerciseModal());
 
@@ -164,6 +165,7 @@ function renderWorkoutModalCloseIcons() {
     if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
     const closeBtnIds = [
         'workout-group-close-btn',
+        'workout-variant-close-btn',
         'exercise-close-btn',
         'exercise-library-close-btn',
         'session-add-exercise-close-btn',
@@ -2723,6 +2725,29 @@ function _renderWorkoutStats(container, stats) {
     };
     renderChartInto(activeRange);
     root.appendChild(chartPanel);
+
+    // Round-2, Task 6 — single-series chart legend. Documents which metric
+    // the trend line represents ("Sessions · per week") so the chart reads
+    // without a separate caption. Mirrors the axis-tick work in
+    // wg-workout-chart.js and keeps the swatch + label outside the SVG so
+    // we don't over-complicate the chart component.
+    const legend = document.createElement('div');
+    legend.className = 'wg-workouts-stats__legend';
+    legend.setAttribute('role', 'list');
+    const legendChip = document.createElement('span');
+    legendChip.className = 'wg-workouts-stats__legend-chip';
+    legendChip.setAttribute('role', 'listitem');
+    legendChip.dataset.series = 'sessions';
+    const swatch = document.createElement('span');
+    swatch.className = 'wg-workouts-stats__legend-swatch';
+    swatch.setAttribute('aria-hidden', 'true');
+    const legendLabel = document.createElement('span');
+    legendLabel.className = 'wg-workouts-stats__legend-label';
+    legendLabel.textContent = 'Sessions · per week';
+    legendChip.appendChild(swatch);
+    legendChip.appendChild(legendLabel);
+    legend.appendChild(legendChip);
+    root.appendChild(legend);
 
     // Stat tiles — 2×2 `.wg-card` grid. Labels mirror the existing API
     // semantics: Active Weeks / 30-Day Sessions / Done / Skipped.
