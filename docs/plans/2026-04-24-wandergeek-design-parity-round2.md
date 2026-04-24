@@ -113,11 +113,11 @@ Addresses user findings #8 (history as default in runtime), #9 (schedule next-in
 
 Addresses user findings #12 (notes tags not clickable), #13 (list doesn't re-render after add/delete), #14 (not wandergeek background on Overview).
 
-- [ ] in `health.js` notes renderer, delegate click on `.wg-note-tag` chips — toggle active filter, re-render filtered list (currently chips render but have no listener)
-- [ ] on note create / delete success, call note-list render function AND dispatch `window.DataStore.invalidateTags(['health-notes'])`; remove any reliance on full page reload
-- [ ] audit `#health-view` Overview subtab: root must be `.wg-screen-stage`, metric-grid background uses `--wg-bg-card` tokens — fix any rogue backgrounds
-- [ ] write tests: `tests/health.test.js` — assert clicking `.wg-note-tag` filters visible notes and toggles `.wg-note-tag--active`, simulated note-deleted dispatches list re-render (note count decrements in DOM), overview root carries `.wg-screen-stage`
-- [ ] run `pnpm test` — must pass before next task
+- [x] in `health.js` notes renderer, delegate click on `.wg-note-tag` chips — toggle active filter, re-render filtered list (currently chips render but have no listener)  *(the shipped chip class is `.wg-health-notes-row__tag`; added a module-level `_notesAll` cache + `_notesFilterTag` plus a `paintNotes` helper that applies the active filter without re-fetching. Delegation is bound once on `#notes-list` via a `_wgNotesTagFilterBound` flag; clicking the already-active chip toggles the filter off.)*
+- [x] on note create / delete success, call note-list render function AND dispatch `window.DataStore.invalidateTags(['health-notes'])`; remove any reliance on full page reload  *(renamed all `invalidateTags(['notes'])` calls in `health.js` to `['health-notes']`; SWR `loadNotes` now registers under **both** `'notes'` and `'health-notes'` so the server-side change-event tag from migration 041 still evicts the cache on remote edits. `loadNotes()` is still invoked locally after create/delete, so the list repaints in place.)*
+- [x] audit `#health-view` Overview subtab: root must be `.wg-screen-stage`, metric-grid background uses `--wg-bg-card` tokens — fix any rogue backgrounds  *(added `wg-screen-stage` to `#health-view` in `index.html`; `.wg-health-summary` / `.wg-sleep-card` / `.wg-steps-card` / `.wg-vitals-card` already carry `.wg-card` which routes through `--wg-bg-card` — no non-token backgrounds left in the health block of `styles.css`.)*
+- [x] write tests: `tests/health.test.js` — assert clicking `.wg-note-tag` filters visible notes and toggles `.wg-note-tag--active`, simulated note-deleted dispatches list re-render (note count decrements in DOM), overview root carries `.wg-screen-stage`  *(lives at `web/static/js/tests/health.design-parity.test.js` per repo's test layout; also regression-guards the `['health-notes']` tag dispatch on both `addNote` and `deleteNote`. Updated `health.modal.test.js` to expect `['health-notes']` after the tag rename.)*
+- [x] run `pnpm test` — must pass before next task  *(121 suites / 1376 tests green; `go test ./...` also green, no backend changes were needed.)*
 
 ### Task 6: Workouts section — background, modals, start button placement, stats chart
 

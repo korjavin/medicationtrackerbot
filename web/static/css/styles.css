@@ -7583,6 +7583,16 @@ textarea.wg-input {
 .wg-health-notes-row__tag {
     font-size: var(--wg-health-notes-row-tag-size);
     letter-spacing: 0.1em;
+    cursor: pointer;
+}
+
+/* Round-2 Task 5: active-filter state — user has tapped a row chip to pin
+   the list to that tag. Reuses the existing high/sun token palette; the
+   distinguishing cue is a sharpened outline so the pinned chip reads as
+   "selected" against otherwise-identical siblings. */
+.wg-health-notes-row__tag--active {
+    outline: 1px solid var(--wg-sun);
+    outline-offset: 1px;
 }
 
 .wg-health-notes-row__content {

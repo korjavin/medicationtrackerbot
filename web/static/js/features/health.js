@@ -494,7 +494,7 @@ async function loadNotes() {
 
     await window.DataStore.loadSWR({
         key: 'diary_notes',
-        tags: ['notes'],
+        tags: ['notes', 'health-notes'],
         fetcher: async () => await apiCall(`/api/notes?limit=${NOTES_PAGE_SIZE}`, 'GET'),
         allowNullFresh: true,
         onCached: async (cached) => {
@@ -707,18 +707,71 @@ async function loadMoreNotes() {
 // and a trailing `.wg-icon-btn` cluster (edit + delete). Offline-pending +
 // rejected states surface as `.wg-tag--mono` badges. Pagination is a
 // full-width `.wg-gloss` "Load more" footer button.
-function renderNotes(list, notes) {
+// Round-2 Task 5: module-level cache so the tag-chip filter can repaint the
+// list from memory without refetching. `renderNotes` resets it; `appendNotes`
+// extends it. `_notesFilterTag` is null when no filter is active.
+let _notesAll = [];
+let _notesFilterTag = null;
+
+function getNotesFilterTag() {
+    return _notesFilterTag;
+}
+
+function setNotesFilterTag(tag) {
+    const next = (tag && VALID_NOTE_TAGS.indexOf(tag) !== -1) ? tag : null;
+    if (_notesFilterTag === next) return;
+    _notesFilterTag = next;
+    const list = document.getElementById('notes-list');
+    if (!list) return;
+    paintNotes(list);
+    syncNotesRowTagActive(list);
+    bindNotesTagFilterDelegation(list);
+}
+
+function filterNotesByActiveTag(notes) {
+    if (!Array.isArray(notes)) return [];
+    if (!_notesFilterTag) return notes;
+    return notes.filter((n) => n && n.tag === _notesFilterTag);
+}
+
+function paintNotes(list) {
     list.replaceChildren();
-    if (!notes || notes.length === 0) {
-        list.appendChild(buildNotesEmptyCard('No notes yet \u2014 write your first one.'));
+    const visible = filterNotesByActiveTag(_notesAll);
+    if (!visible || visible.length === 0) {
+        const msg = _notesFilterTag
+            ? `No notes tagged ${_notesFilterTag}`
+            : 'No notes yet \u2014 write your first one.';
+        list.appendChild(buildNotesEmptyCard(msg));
         return;
     }
-    appendNotes(list, notes);
+    paintNotesGroups(list, visible);
+}
+
+function renderNotes(list, notes) {
+    _notesAll = Array.isArray(notes) ? notes.slice() : [];
+    paintNotes(list);
+    syncNotesRowTagActive(list);
+    bindNotesTagFilterDelegation(list);
 }
 
 function appendNotes(list, notes) {
     if (!notes || notes.length === 0) return;
+    _notesAll = _notesAll.concat(notes);
 
+    // With a filter active, raw appends would reveal non-matching rows next
+    // to filtered ones \u2014 repaint the whole list from the cache instead.
+    if (_notesFilterTag) {
+        paintNotes(list);
+        syncNotesRowTagActive(list);
+        bindNotesTagFilterDelegation(list);
+        return;
+    }
+    paintNotesGroups(list, notes);
+    syncNotesRowTagActive(list);
+    bindNotesTagFilterDelegation(list);
+}
+
+function paintNotesGroups(list, notes) {
     const groups = groupNotesByDay(notes);
     groups.forEach((group, idx) => {
         // If the first group of an appended page shares its calendar day with
@@ -746,6 +799,29 @@ function appendNotes(list, notes) {
     if (notes.length === NOTES_PAGE_SIZE) {
         list.appendChild(buildNotesLoadMore());
     }
+}
+
+function syncNotesRowTagActive(list) {
+    if (!list) return;
+    const active = _notesFilterTag;
+    list.querySelectorAll('.wg-health-notes-row__tag').forEach((chip) => {
+        const matches = active != null && chip.getAttribute('data-tag') === active;
+        chip.classList.toggle('wg-health-notes-row__tag--active', matches);
+    });
+}
+
+function bindNotesTagFilterDelegation(list) {
+    if (!list || list._wgNotesTagFilterBound) return;
+    list._wgNotesTagFilterBound = true;
+    list.addEventListener('click', (ev) => {
+        const chip = ev.target.closest('.wg-health-notes-row__tag');
+        if (!chip || !list.contains(chip)) return;
+        const tag = chip.getAttribute('data-tag');
+        if (VALID_NOTE_TAGS.indexOf(tag) === -1) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        setNotesFilterTag(_notesFilterTag === tag ? null : tag);
+    });
 }
 
 const NOTES_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -943,7 +1019,7 @@ async function addNote() {
         textarea.value = '';
         setNotesComposerTag(null);
         syncNotesComposerCount();
-        await window.DataStore.invalidateTags(['notes']);
+        await window.DataStore.invalidateTags(['health-notes']);
         loadNotes();
     }
 }
@@ -971,14 +1047,14 @@ async function deleteNote(id) {
                     console.error('Failed to purge local note delete:', e);
                 }
             }
-            await window.DataStore.invalidateTags(['notes']);
+            await window.DataStore.invalidateTags(['health-notes']);
             loadNotes();
             return;
         }
 
         const res = await apiCall(`/api/notes/${id}`, 'DELETE');
         if (res !== null) {
-            await window.DataStore.invalidateTags(['notes']);
+            await window.DataStore.invalidateTags(['health-notes']);
             loadNotes();
         }
     });
@@ -1059,7 +1135,7 @@ async function handleEditNoteSubmit(event) {
         await apiCall(`/api/notes/${original.id}`, 'DELETE');
     }
 
-    await window.DataStore.invalidateTags(['notes']);
+    await window.DataStore.invalidateTags(['health-notes']);
     closeEditNoteModal();
     loadNotes();
 }
