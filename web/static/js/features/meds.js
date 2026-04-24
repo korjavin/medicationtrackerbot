@@ -6,18 +6,20 @@
 // _archiveMedApi, editingMedId, medications, initialAuthLoad, etc.) that
 // remain in app.js.
 
-// Sub-tab state (Phase 5, Task 2, revised Task 5). Mirrors the
-// `mt-food-subtab` pattern — one of three values (`schedule`, `history`,
-// `inventory`), persisted to localStorage so the user's choice survives
-// reload. Default is `history` to match the Claude Design mockup's Meds
-// screen, which lists the recent intakes first.
+// Sub-tab state (Phase 5, Task 2; revised Task 5; round-2 Task 4).
+// Scoped to sessionStorage so every fresh launch lands on the History
+// default (matching the Claude Design mockup). A user's in-session tab
+// click still survives reloads within the same tab — it just doesn't
+// leak across sessions. Legacy mt-meds-subtab localStorage values are
+// cleared on boot so previously-saved "schedule"/"inventory" choices
+// don't keep overriding the history default.
 const MEDS_SUBTAB_STORAGE_KEY = 'mt-meds-subtab';
 const MEDS_SUBTAB_OPTIONS = ['schedule', 'history', 'inventory'];
 const MEDS_SUBTAB_DEFAULT = 'history';
 
 function getActiveMedsSubTab() {
     try {
-        const raw = window.localStorage.getItem(MEDS_SUBTAB_STORAGE_KEY);
+        const raw = window.sessionStorage.getItem(MEDS_SUBTAB_STORAGE_KEY);
         if (MEDS_SUBTAB_OPTIONS.indexOf(raw) !== -1) return raw;
     } catch (_) { /* ignore */ }
     return MEDS_SUBTAB_DEFAULT;
@@ -25,8 +27,10 @@ function getActiveMedsSubTab() {
 
 function setActiveMedsSubTab(tab) {
     if (MEDS_SUBTAB_OPTIONS.indexOf(tab) === -1) return;
-    try { window.localStorage.setItem(MEDS_SUBTAB_STORAGE_KEY, tab); } catch (_) { /* ignore */ }
+    try { window.sessionStorage.setItem(MEDS_SUBTAB_STORAGE_KEY, tab); } catch (_) { /* ignore */ }
 }
+
+try { window.localStorage.removeItem(MEDS_SUBTAB_STORAGE_KEY); } catch (_) { /* ignore */ }
 
 function syncMedsSubTabActiveClass(activeTab) {
     const container = document.querySelector('.wg-meds-subtabs');
@@ -133,16 +137,10 @@ function showEditModal(id) {
     document.getElementById('med-tz-policy').value = med.tz_shift_policy || 'flexible';
 }
 
-// Next-action card (Phase 5, Task 3) — sun-glossed card mirroring the Today
-// next-action pattern. The helper is pure and DOM-only: it accepts the local
-// medications list and the cached next-intake payload (`{ scheduled_at,
-// medication_names }`), composes a `.wg-meds-next-action` element, and wires
-// the Take button to `showMedicationConfirmModal` (mode=confirm) for the
-// upcoming cluster. Tests pass `opts.onTake` to intercept the click without
-// reaching into the global modal stack.
-
-const MEDS_NEXT_ACTION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h horizon for empty-state cutoff
-
+// Relative-time formatter shared between the Schedule hour-header rows and
+// the Today dashboard. Round-2 Task 4 dropped the Schedule-tab next-action
+// card (it duplicated the History/Today next-intake surface), so this helper
+// is no longer invoked from a card — it still backs `_formatHourHeader`.
 function _formatNextActionRelative(diffMs) {
     if (diffMs <= 0) return 'overdue';
     const totalMinutes = Math.round(diffMs / 60000);
@@ -151,164 +149,6 @@ function _formatNextActionRelative(diffMs) {
     if (hours > 0 && minutes > 0) return `in ${hours}h ${minutes}m`;
     if (hours > 0) return `in ${hours}h`;
     return `in ${minutes}m`;
-}
-
-function _formatNextActionTime(date) {
-    const hh = String(date.getHours()).padStart(2, '0');
-    const mm = String(date.getMinutes()).padStart(2, '0');
-    return `${hh}:${mm}`;
-}
-
-function _formatNextActionNames(names) {
-    if (!Array.isArray(names) || names.length === 0) return 'Scheduled';
-    if (names.length <= 3) return names.join(' · ');
-    const first = names.slice(0, 2).join(' · ');
-    return `${first} · +${names.length - 2}`;
-}
-
-function renderNextActionCard(meds, nextIntake, opts) {
-    const d = (typeof document !== 'undefined') ? document : null;
-    if (!d) return null;
-    const options = opts || {};
-    const now = options.now instanceof Date
-        ? options.now
-        : (options.now != null ? new Date(options.now) : new Date());
-    const nowMs = now.getTime();
-
-    const card = d.createElement('div');
-    card.className = 'wg-meds-next-action wg-gloss wg-gloss--sun';
-    card.setAttribute('data-section', 'next-action');
-
-    const text = d.createElement('div');
-    text.className = 'wg-meds-next-action__text';
-    const subtitle = d.createElement('div');
-    subtitle.className = 'wg-meds-next-action__subtitle';
-    const value = d.createElement('div');
-    value.className = 'wg-meds-next-action__value';
-    text.appendChild(subtitle);
-    text.appendChild(value);
-
-    const scheduledMs = nextIntake && nextIntake.scheduled_at
-        ? Date.parse(nextIntake.scheduled_at)
-        : NaN;
-    const withinHorizon = Number.isFinite(scheduledMs)
-        && (scheduledMs - nowMs) <= MEDS_NEXT_ACTION_WINDOW_MS;
-
-    if (!withinHorizon) {
-        card.classList.add('wg-meds-next-action--empty');
-        subtitle.textContent = 'No upcoming doses';
-        value.textContent = 'Schedule one to see it here';
-        card.appendChild(text);
-        return card;
-    }
-
-    const scheduledDate = new Date(scheduledMs);
-    const timeStr = _formatNextActionTime(scheduledDate);
-    const relStr = _formatNextActionRelative(scheduledMs - nowMs);
-    subtitle.textContent = `Next · ${timeStr} · ${relStr}`;
-
-    const names = Array.isArray(nextIntake.medication_names)
-        ? nextIntake.medication_names.slice()
-        : [];
-    const serverIds = Array.isArray(nextIntake.medication_ids)
-        ? nextIntake.medication_ids.slice()
-        : null;
-    value.textContent = _formatNextActionNames(names);
-    card.appendChild(text);
-
-    const takeBtn = d.createElement('button');
-    takeBtn.type = 'button';
-    takeBtn.className = 'wg-meds-next-action__take wg-gloss wg-gloss--sun';
-    takeBtn.textContent = 'Take';
-    takeBtn.addEventListener('click', () => {
-        const medList = Array.isArray(meds) ? meds : [];
-        // Prefer the server-provided medication_ids (zip by index with names):
-        // two meds can share the same name with different dosages, and a pure
-        // name-based resolver would collapse them to the first match. Fall
-        // back to name-based resolution only when the payload predates the
-        // id-aware server (older cached next_intake entries) so the card
-        // remains usable across the upgrade.
-        let pairs;
-        if (serverIds && serverIds.length === names.length) {
-            const byId = new Map(
-                medList.filter((m) => m && m.id != null).map((m) => [m.id, m])
-            );
-            pairs = serverIds
-                .map((id, idx) => (byId.has(id) ? { id, name: names[idx] } : null))
-                .filter((p) => p !== null);
-        } else {
-            // Resolve {id, name} pairs together and filter together so the
-            // confirm modal's `ids.forEach((id, index) => names[index])` loop
-            // can't desync when a name in the cached payload no longer
-            // resolves locally (e.g. the med was deleted after `next_intake`
-            // was cached).
-            const used = new Set();
-            pairs = names
-                .map((name) => {
-                    const m = medList.find((med) => med && med.name === name && !used.has(med.id));
-                    if (!m) return null;
-                    used.add(m.id);
-                    return { id: m.id, name };
-                })
-                .filter((p) => p !== null);
-        }
-        const resolvedIds = pairs.map((p) => p.id);
-        const resolvedNames = pairs.map((p) => p.name);
-        const handler = typeof options.onTake === 'function' ? options.onTake : null;
-        if (handler) {
-            handler({ ids: resolvedIds, names: resolvedNames, scheduledAt: nextIntake.scheduled_at });
-            return;
-        }
-        // Stale `next_intake` cache: names no longer resolve locally (e.g.
-        // meds deleted after cache write). Avoid opening a blank confirm modal.
-        if (resolvedIds.length === 0) {
-            if (typeof safeAlert === 'function') {
-                safeAlert('Medication list is out of date. Please refresh.');
-            }
-            return;
-        }
-        if (typeof showMedicationConfirmModal === 'function') {
-            showMedicationConfirmModal(resolvedIds, resolvedNames, nextIntake.scheduled_at, 'confirm');
-        }
-    });
-    card.appendChild(takeBtn);
-    return card;
-}
-
-async function mountNextActionCard() {
-    if (typeof document === 'undefined') return;
-    const container = document.getElementById('med-next-action');
-    if (!container) return;
-    let nextIntake = null;
-    try {
-        // Kick off a refresh so the card reflects mutations that just
-        // invalidated `next_intake` (save / delete / archive from Schedule).
-        // Reading the cache afterwards lets a concurrent invalidation win
-        // over an already-inflight stale fetch — matches the pattern
-        // renderNextIntakeTrigger uses on the History tab.
-        if (window.DataStore && typeof window.DataStore.fetchFresh === 'function'
-            && typeof fetchNextIntakePayload === 'function') {
-            try {
-                await window.DataStore.fetchFresh(
-                    'next_intake',
-                    fetchNextIntakePayload,
-                    ['history', 'medications']
-                );
-            } catch (_) { /* offline / fetch failed — fall back to cached value */ }
-        }
-        if (window.DataStore && typeof window.DataStore.getCached === 'function') {
-            nextIntake = await window.DataStore.getCached('next_intake');
-        }
-    } catch (_) { /* offline / cache miss falls through to empty state */ }
-    const card = renderNextActionCard(
-        Array.isArray(medications) ? medications : [],
-        nextIntake
-    );
-    if (card) {
-        container.replaceChildren(card);
-    } else {
-        container.replaceChildren();
-    }
 }
 
 // Schedule sub-tab render (Phase 5, Task 4). Scheduled meds group by
@@ -450,7 +290,6 @@ function renderMeds() {
     const list = document.getElementById('med-list');
     list.replaceChildren();
     const now = new Date();
-    void mountNextActionCard();
 
     const scheduledEntries = [];
     const asNeeded = [];

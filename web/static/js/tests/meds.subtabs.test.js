@@ -1,10 +1,11 @@
-// Wandergeek Meds sub-tab strip (Phase 5, Task 2).
+// Wandergeek Meds sub-tab strip (Phase 5, Task 2; round-2 Task 4).
 //
 // Asserts the rewritten sub-tab strip uses the Wandergeek primitives —
 // `.wg-gloss--inset` container, `.wg-gloss--sun` active pill — persists the
-// active sub-tab via the `mt-meds-subtab` localStorage key, defaults to
-// `schedule`, and that clicking a sub-tab routes through switchMedTab() to
-// toggle the active-state classes.
+// active sub-tab via the `mt-meds-subtab` sessionStorage key (round-2 moved
+// persistence from localStorage to sessionStorage so every fresh session
+// lands on the History default), defaults to `history`, and that clicking
+// a sub-tab routes through switchMedTab() to toggle the active-state classes.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -23,6 +24,7 @@ describe('Meds sub-tab strip (Phase 5, Task 2)', () => {
 
     afterEach(() => {
         try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        try { env.window.sessionStorage.clear(); } catch (_) { /* ignore */ }
         env.cleanup();
         env = null;
     });
@@ -101,14 +103,24 @@ describe('Meds sub-tab strip (Phase 5, Task 2)', () => {
 
     it('getActiveMedsSubTab defaults to "history" when no value is stored', () => {
         const { window } = env;
-        window.localStorage.removeItem('mt-meds-subtab');
+        window.sessionStorage.removeItem('mt-meds-subtab');
         expect(window.getActiveMedsSubTab()).toBe('history');
     });
 
-    it('setActiveMedsSubTab round-trips valid values through localStorage', () => {
+    it('getActiveMedsSubTab falls back to history when a stale localStorage value is present (round-2 Task 4)', () => {
+        // Previously the sub-tab was persisted to localStorage, so existing
+        // users may still carry an `mt-meds-subtab` entry — the fresh session
+        // must ignore it and render History so the view matches the mockup.
+        const { window } = env;
+        window.localStorage.setItem('mt-meds-subtab', 'inventory');
+        window.sessionStorage.removeItem('mt-meds-subtab');
+        expect(window.getActiveMedsSubTab()).toBe('history');
+    });
+
+    it('setActiveMedsSubTab round-trips valid values through sessionStorage', () => {
         const { window } = env;
         window.setActiveMedsSubTab('history');
-        expect(window.localStorage.getItem('mt-meds-subtab')).toBe('history');
+        expect(window.sessionStorage.getItem('mt-meds-subtab')).toBe('history');
         expect(window.getActiveMedsSubTab()).toBe('history');
 
         window.setActiveMedsSubTab('inventory');
@@ -118,6 +130,13 @@ describe('Meds sub-tab strip (Phase 5, Task 2)', () => {
         expect(window.getActiveMedsSubTab()).toBe('schedule');
     });
 
+    it('setActiveMedsSubTab does not write to localStorage (round-2 Task 4)', () => {
+        const { window } = env;
+        window.localStorage.removeItem('mt-meds-subtab');
+        window.setActiveMedsSubTab('inventory');
+        expect(window.localStorage.getItem('mt-meds-subtab')).toBeNull();
+    });
+
     it('setActiveMedsSubTab ignores invalid values and keeps the previous setting', () => {
         const { window } = env;
         window.setActiveMedsSubTab('history');
@@ -125,13 +144,13 @@ describe('Meds sub-tab strip (Phase 5, Task 2)', () => {
         expect(window.getActiveMedsSubTab()).toBe('history');
     });
 
-    it('switchMedTab persists the chosen sub-tab to localStorage', () => {
+    it('switchMedTab persists the chosen sub-tab to sessionStorage', () => {
         const { window } = env;
         window.switchMedTab('inventory');
-        expect(window.localStorage.getItem('mt-meds-subtab')).toBe('inventory');
+        expect(window.sessionStorage.getItem('mt-meds-subtab')).toBe('inventory');
 
         window.switchMedTab('history');
-        expect(window.localStorage.getItem('mt-meds-subtab')).toBe('history');
+        expect(window.sessionStorage.getItem('mt-meds-subtab')).toBe('history');
     });
 
     it('restoreMedsSubTab applies the stored value to the strip', () => {
