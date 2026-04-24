@@ -8363,37 +8363,6 @@ textarea.wg-input {
     border-color: var(--wg-tag-alert-border);
 }
 
-.wg-food-add-cta {
-    width: 100%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-sm);
-    min-height: 44px;
-    padding: var(--space-md) var(--space-lg);
-    margin-top: var(--space-md);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    border-radius: var(--wg-radius-gloss);
-}
-
-/* Sticky footer dock for the Add Food CTA — hoisted out of #food-list so
-   the button stays pinned above the bottom nav while the meal list scrolls.
-   The gradient backdrop fades scrolled content into the stage instead of
-   clipping abruptly behind the button. */
-.wg-food-cta-dock {
-    position: sticky;
-    bottom: var(--wg-bottom-nav-reserved, 0);
-    z-index: var(--wg-z-fab);
-    padding: var(--space-sm) 0;
-    background: linear-gradient(to bottom, transparent, var(--wg-bg-stage) 40%);
-    pointer-events: none;
-}
-
-.wg-food-cta-dock > * {
-    pointer-events: auto;
-}
-
 .wg-food-meal-list__empty {
     padding: var(--space-lg) 0;
 }
