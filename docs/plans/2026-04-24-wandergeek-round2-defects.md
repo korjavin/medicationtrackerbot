@@ -202,9 +202,9 @@ Root-cause the recurring "primary action button in a section toolbar row is visu
 
 ### Task 15: Update documentation
 
-- [ ] update `docs/frontend.md` if new shared classes (e.g., `.wg-toolbar-btn`) were introduced — document the class and when to use it
-- [ ] update CLAUDE.md only if an existing rule needs reinforcement; otherwise skip
-- [ ] no new README or planning docs unless the user asks
+- [x] update `docs/frontend.md` if new shared classes (e.g., `.wg-toolbar-btn`) were introduced — document the class and when to use it — added a "Shared toolbar-row action button (`.wg-toolbar-btn`)" paragraph to the Design Tokens section covering the base class (sizing/padding/radius via `--wg-toolbar-btn-height`) and both `--primary` (sun-gloss fill) and `--secondary` (outline/ghost) variants, with the adoption pins (`architecture.toolbar-btn.test.js` + per-section DOM tests). Also updated the Canonical primary-action placement paragraph to reference `.wg-toolbar-btn wg-toolbar-btn--primary` (replacing the outdated `.wg-gloss wg-gloss--sun` pill mention) and to reflect the Meds Add move to `.wg-meds-schedule-header` and the Weight Add move into the range-selector row
+- [x] update CLAUDE.md only if an existing rule needs reinforcement; otherwise skip — skipped: CLAUDE.md already mandates `--wg-*` tokens and forbids inline `.style.` / hex colors (Critical Rule #3); round-2 work reinforced but did not alter that rule, so no edit required
+- [x] no new README or planning docs unless the user asks — confirmed: no new docs created this round; only `docs/frontend.md` was edited
 
 ## Technical Details
 
