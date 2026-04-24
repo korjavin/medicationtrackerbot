@@ -210,12 +210,19 @@ describe('Settings sync + timezone cards (Phase 9, Task 3)', () => {
             expect(rowTitle).not.toBeNull();
             expect(rowTitle.classList.contains('wg-mono-display')).toBe(true);
 
-            const actionBtn = row.querySelector('.wg-settings-row__control button');
-            expect(actionBtn).not.toBeNull();
-            expect(actionBtn.classList.contains('wg-settings-action-btn')).toBe(true);
-            expect(actionBtn.classList.contains('btn')).toBe(false);
-            expect(actionBtn.classList.contains('btn-secondary')).toBe(false);
-            expect(actionBtn.textContent.trim()).toBe('Open');
+            // Round-2 Task 7: the "Open" control is now an <a target="_blank">
+            // anchor so `/oidc-setup` opens in a new tab instead of clobbering
+            // the mini-app URL (which previously caused a Today fallback on back).
+            const actionLink = row.querySelector('.wg-settings-row__control a');
+            expect(actionLink).not.toBeNull();
+            expect(actionLink.classList.contains('wg-settings-action-btn')).toBe(true);
+            expect(actionLink.classList.contains('btn')).toBe(false);
+            expect(actionLink.classList.contains('btn-secondary')).toBe(false);
+            expect(actionLink.textContent.trim()).toBe('Open');
+            expect(actionLink.getAttribute('href')).toBe('/oidc-setup');
+            expect(actionLink.getAttribute('target')).toBe('_blank');
+            expect(actionLink.getAttribute('rel')).toBe('noopener noreferrer');
+            expect(row.querySelector('.wg-settings-row__control button')).toBeNull();
         } finally {
             cleanup();
         }

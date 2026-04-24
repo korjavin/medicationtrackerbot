@@ -42,28 +42,28 @@ const ALLOWED = new Map([
         "style.setProperty on a neutral CSS custom property (--fill-pct) — CSS class reads it via width: var(--fill-pct, 0%); no hardcoded visual value lives in JS",
     ],
     [
-        'web/static/js/features/food.js:2148',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS",
+        'web/static/js/features/food.js:2112',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted after Round-2 Task 3 removed the CTA-dock helpers.",
     ],
     [
-        'web/static/js/features/food.js:2149',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS",
+        'web/static/js/features/food.js:2113',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted after Round-2 Task 3 removed the CTA-dock helpers.",
     ],
     [
-        'web/static/js/features/meds.js:79',
-        "pre-Phase-5 show/hide toggle for the RxNorm display row — preserved as-is during the Task 1 extraction from app.js (no-behavior-change extraction); CSS-class migration tracked separately",
+        'web/static/js/features/meds.js:83',
+        "pre-Phase-5 show/hide toggle for the RxNorm display row — preserved as-is during the Task 1 extraction from app.js (no-behavior-change extraction); CSS-class migration tracked separately. Line shifted after Round-2 Task 4 expanded the sub-tab comment block.",
     ],
     [
-        'web/static/js/features/meds.js:81',
-        "pre-Phase-5 show/hide toggle for the RxNorm display row — preserved as-is during the Task 1 extraction from app.js (no-behavior-change extraction); CSS-class migration tracked separately",
-    ],
-    [
-        'web/static/js/features/meds.js:94',
-        "pre-Phase-5 show/hide toggle for the restock-section modal block — preserved as-is during the Task 1 extraction from app.js; inventory-fields sibling already uses .hidden class, this row slated for the same migration",
+        'web/static/js/features/meds.js:85',
+        "pre-Phase-5 show/hide toggle for the RxNorm display row — preserved as-is during the Task 1 extraction from app.js (no-behavior-change extraction); CSS-class migration tracked separately. Line shifted after Round-2 Task 4 expanded the sub-tab comment block.",
     ],
     [
         'web/static/js/features/meds.js:98',
-        "pre-Phase-5 show/hide toggle for the restock-section modal block — preserved as-is during the Task 1 extraction from app.js; inventory-fields sibling already uses .hidden class, this row slated for the same migration",
+        "pre-Phase-5 show/hide toggle for the restock-section modal block — preserved as-is during the Task 1 extraction from app.js; inventory-fields sibling already uses .hidden class, this row slated for the same migration. Line shifted after Round-2 Task 4 expanded the sub-tab comment block.",
+    ],
+    [
+        'web/static/js/features/meds.js:102',
+        "pre-Phase-5 show/hide toggle for the restock-section modal block — preserved as-is during the Task 1 extraction from app.js; inventory-fields sibling already uses .hidden class, this row slated for the same migration. Line shifted after Round-2 Task 4 expanded the sub-tab comment block.",
     ],
 ]);
 

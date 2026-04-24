@@ -483,6 +483,20 @@ const WANDERGEEK_TOKENS = [
     '--wg-weight-chart-goal-dasharray',
     '--wg-weight-chart-last-point-radius',
     '--wg-weight-chart-last-stroke-width',
+    // Round 2, Task 1 — plan trajectory + regression trend line + axis
+    // tick labels + goal label + legend swatches + prognosis card.
+    '--wg-weight-chart-plan-stroke-width',
+    '--wg-weight-chart-plan-dasharray',
+    '--wg-weight-chart-trend-stroke-width',
+    '--wg-weight-chart-trend-dasharray',
+    '--wg-weight-chart-tick-size',
+    '--wg-weight-chart-goal-label-size',
+    '--wg-weight-chart-legend-swatch-w',
+    '--wg-weight-chart-legend-swatch-h',
+    '--wg-weight-chart-legend-swatch-radius',
+    '--wg-weight-prognosis-label-gap',
+    '--wg-weight-prognosis-value-size',
+    '--wg-weight-prognosis-trend-size',
     '--wg-weight-history-row-cols',
     '--wg-weight-history-row-gap',
     '--wg-weight-history-row-pad',
@@ -597,6 +611,7 @@ const WANDERGEEK_TOKENS = [
     '--wg-workouts-chart-line-stroke-width',
     '--wg-workouts-chart-last-point-radius',
     '--wg-workouts-chart-last-stroke-width',
+    '--wg-workouts-stats-legend-swatch-size',
 
     // Workouts modal tokens (Phase 7, Task 1) — log-set / edit-exercise /
     // edit-group / edit-library modals share the same mono header, gloss

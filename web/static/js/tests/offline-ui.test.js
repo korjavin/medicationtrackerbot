@@ -102,7 +102,7 @@ describe('Offline UI indicators', () => {
         container.appendChild(medSaveBtn);
 
         const foodBtn = document.createElement('button');
-        foodBtn.id = 'add-food-btn';
+        foodBtn.id = 'add-food-inline-btn';
         container.appendChild(foodBtn);
 
         const notesBtn = document.createElement('button');
@@ -139,7 +139,7 @@ describe('Offline UI indicators', () => {
       try {
         const container = document.createElement('div');
         const foodBtn = document.createElement('button');
-        foodBtn.id = 'add-food-btn';
+        foodBtn.id = 'add-food-inline-btn';
         container.appendChild(foodBtn);
         document.body.appendChild(container);
 
@@ -163,7 +163,7 @@ describe('Offline UI indicators', () => {
       try {
         const container = document.createElement('div');
         const btn = document.createElement('button');
-        btn.id = 'add-food-btn';
+        btn.id = 'add-food-inline-btn';
         container.appendChild(btn);
         document.body.appendChild(container);
 

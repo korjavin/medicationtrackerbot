@@ -149,15 +149,10 @@ describe('app.js UI characterization', () => {
       const closeFoodModalSpy = vi.spyOn(window, 'closeFoodModal').mockImplementation(() => {});
       window.loadFoodLogs = vi.fn();
 
-      // Add-food CTA is rendered dynamically at the end of the meal list.
+      // Round-2 Task 3 — the inline +Add pill in the day-nav is the only
+      // Add-food affordance; the trailing sticky CTA has been removed to
+      // match `.local/design-reference/project/screens.jsx` FoodScreen.
       window._renderFoodData([], null, 'day', '2026-04-20');
-      document.getElementById('add-food-btn').click();
-      expect(showFoodModalSpy).toHaveBeenCalled();
-
-      // Phase 5, Task 4 — inline +Add in the day-nav opens the same
-      // modal; clicking the in-card Daily/Weekly toggle re-runs
-      // loadFoodLogs() and flips the active pill.
-      showFoodModalSpy.mockClear();
       document.getElementById('add-food-inline-btn').click();
       expect(showFoodModalSpy).toHaveBeenCalled();
 

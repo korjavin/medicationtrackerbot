@@ -1,12 +1,15 @@
-// Wandergeek Food meal-grouped item list (Phase 4, Task 5).
+// Wandergeek Food meal-grouped item list (Phase 4, Task 5; Round-2 Task 3).
 //
 // Asserts that the daily-log render path renders each meal as a
 // `.wg-food-meal-group` with a `.wg-section-label` header + trailing mono
 // kcal total, each item as a `.wg-card` row carrying name/grams/kcal/P-F,
 // preserves offline-pending + rejected badge states as `.wg-tag--mono`
-// variants, wires the edit/delete icon buttons to the existing handlers,
-// and appends a full-width `.wg-gloss--sun` "Add food" CTA after the last
-// meal group on day-period renders.
+// variants, and wires the edit/delete icon buttons to the existing handlers.
+//
+// Round-2 Task 3 removed the trailing `.wg-food-cta-dock`; the only Add
+// affordance is `#add-food-inline-btn` in the day-nav header, matching
+// `.local/design-reference/project/screens.jsx` FoodScreen. The meal list
+// no longer mounts a second CTA after the last group.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -246,130 +249,75 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         editSpy.mockRestore();
     });
 
-    it('mounts a full-width .wg-gloss--sun Add-food CTA into the sticky dock (day period)', () => {
+    it('no sticky Add-food CTA dock is rendered — only the header inline button remains', () => {
+        // Round-2 Task 3: the bottom CTA was removed; Add-food affordance
+        // is the `#add-food-inline-btn` inline pill in the day-nav.
         const { window, document } = env;
         window._renderFoodData(FIXTURE, null, 'day', '2026-04-20');
 
-        const dock = document.getElementById('food-add-cta-dock');
-        expect(dock).not.toBeNull();
-        expect(dock.classList.contains('wg-food-cta-dock')).toBe(true);
-        expect(dock.classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('food-add-cta-dock')).toBeNull();
+        expect(document.querySelector('.wg-food-cta-dock')).toBeNull();
+        expect(document.querySelector('.wg-food-add-cta')).toBeNull();
 
-        const cta = dock.querySelector('.wg-food-add-cta');
-        expect(cta).not.toBeNull();
-        expect(cta.classList.contains('wg-gloss')).toBe(true);
-        expect(cta.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(cta.textContent).toContain('Add food');
-
-        // CTA must NOT live inside the scrolling #food-list — it lives in
-        // the sibling sticky dock so it stays pinned during scroll.
         const list = document.getElementById('food-list');
         expect(list.querySelector('.wg-food-add-cta')).toBeNull();
     });
 
-    it('CTA dock is a sibling of #food-list inside #food-log-tab', () => {
-        const { document } = env;
-        const dock = document.getElementById('food-add-cta-dock');
-        const list = document.getElementById('food-list');
-        const tab = document.getElementById('food-log-tab');
-        expect(dock.parentElement).toBe(tab);
-        expect(list.parentElement).toBe(tab);
-    });
-
-    it('Add-food CTA click opens the add-food modal', () => {
+    it('header #add-food-inline-btn click opens the add-food modal', () => {
         const { window, document } = env;
         window._renderFoodData(FIXTURE, null, 'day', '2026-04-20');
 
         const openSpy = vi.spyOn(window, 'showAddFoodModal').mockImplementation(() => {});
-        document.querySelector('#food-add-cta-dock .wg-food-add-cta').click();
+        const inline = document.getElementById('add-food-inline-btn');
+        expect(inline).not.toBeNull();
+        inline.click();
         expect(openSpy).toHaveBeenCalled();
         openSpy.mockRestore();
     });
 
-    it('empty-state renders the hint paragraph and still shows the Add-food CTA in the dock', () => {
+    it('empty-state renders the hint paragraph without remounting a bottom CTA', () => {
         const { window, document } = env;
         window._renderFoodData([], null, 'day', '2026-04-20');
 
         const list = document.getElementById('food-list');
         expect(list.querySelector('.wg-food-meal-list__empty').textContent)
             .toContain('No food logs');
-        const dock = document.getElementById('food-add-cta-dock');
-        expect(dock.querySelector('.wg-food-add-cta')).not.toBeNull();
+        expect(document.querySelector('.wg-food-add-cta')).toBeNull();
+        expect(document.getElementById('food-add-cta-dock')).toBeNull();
     });
 
-    it('weekly macros range keeps the Add-food CTA visible (meal list is always daily)', () => {
-        // Phase 5, Task 4 — the Daily/Weekly toggle lives inside the
-        // macros card; the meal list and its trailing Add-food action
-        // are always daily and must stay rendered regardless of range.
+    it('weekly macros render does not introduce a bottom CTA', () => {
+        // Phase 5, Task 4 kept the meal list always-daily when the macros
+        // card flips to Weekly. Round-2 Task 3 removed the trailing CTA
+        // entirely — the inline header button is the only Add affordance
+        // regardless of range.
         const { window, document } = env;
         const weekStats = { calories: 3000, carbs: 320, protein: 180, fat: 110 };
         window._renderFoodData([], weekStats, 'week', '2026-04-20');
 
-        const dock = document.getElementById('food-add-cta-dock');
-        expect(dock.querySelector('.wg-food-add-cta')).not.toBeNull();
-        expect(dock.classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('food-add-cta-dock')).toBeNull();
+        expect(document.querySelector('.wg-food-add-cta')).toBeNull();
     });
 
-    it('loadFoodLogs() preseeds the Add-food CTA before awaiting', async () => {
-        // Phase 5, Task 4 — the CTA is now always-visible; loadFoodLogs()
-        // mounts it up front so the button is ready across the async
-        // boundary on a cold load, day change, or no-cache error path.
+    it('loadFoodLogs() does not remount a removed Add-food CTA dock', async () => {
+        // Regression guard for Round-2 Task 3: previously loadFoodLogs()
+        // preseeded the sticky dock on every call. That dock is now gone;
+        // loadFoodLogs() must complete cleanly without synthesizing it.
         const { window, document } = env;
-
-        const dock = document.getElementById('food-add-cta-dock');
-        dock.replaceChildren();
-        dock.classList.add('hidden');
 
         window.loadFoodTargets = async () => {};
         window.DataStore.getCached = async () => null;
         window.DataStore.setCached = async () => {};
         window.apiCall = async () => null;
 
-        const pending = window.loadFoodLogs();
-        expect(dock.classList.contains('hidden')).toBe(false);
-        expect(dock.querySelector('.wg-food-add-cta')).not.toBeNull();
-        await pending;
+        await window.loadFoodLogs();
+        expect(document.getElementById('food-add-cta-dock')).toBeNull();
+        expect(document.querySelector('.wg-food-add-cta')).toBeNull();
     });
 
-    it('loadFoodLogs() preserves the visible Add-food CTA on a daily reload', async () => {
-        // Regression guard for the inverse of the weekly-leak fix: on a
-        // daily reload the existing dock contents must remain in place
-        // while the function awaits targets/data, so the Add-food action
-        // never disappears across slow first loads, day changes, or the
-        // no-cache/error path. `_renderFoodData()` rebuilds the CTA on
-        // every render, so transient flicker is the only failure mode.
-        const { window, document } = env;
-
-        const dock = document.getElementById('food-add-cta-dock');
-        dock.classList.remove('hidden');
-        const cta = document.createElement('button');
-        cta.className = 'wg-food-add-cta';
-        cta.id = 'add-food-btn';
-        dock.appendChild(cta);
-
-        window.loadFoodTargets = async () => {};
-        window.DataStore.getCached = async () => null;
-        window.DataStore.setCached = async () => {};
-        window.apiCall = async () => null;
-        window.setFoodStatsPeriod('day');
-
-        const pending = window.loadFoodLogs();
-        expect(dock.classList.contains('hidden')).toBe(false);
-        expect(dock.querySelector('.wg-food-add-cta')).not.toBeNull();
-        await pending;
-    });
-
-    it('loadFoodLogs() keeps the CTA mounted when the daily fetch fails without cache', async () => {
-        // No-cache API failure path: the catch branch only renders an
-        // error message inside `#food-list` and never re-adds the CTA.
-        // The synchronous preseed in `loadFoodLogs()` must leave the
-        // dock populated so the Add-food action survives the failure.
+    it('loadFoodLogs() does not remount a CTA when the daily fetch fails without cache', async () => {
         allowConsoleNoise();
         const { window, document } = env;
-
-        const dock = document.getElementById('food-add-cta-dock');
-        dock.replaceChildren();
-        dock.classList.add('hidden');
 
         window.loadFoodTargets = async () => {};
         window.DataStore.getCached = async () => null;
@@ -377,8 +325,8 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         window.apiCall = async () => { throw new Error('network'); };
 
         await window.loadFoodLogs();
-        expect(dock.classList.contains('hidden')).toBe(false);
-        expect(dock.querySelector('.wg-food-add-cta')).not.toBeNull();
+        expect(document.getElementById('food-add-cta-dock')).toBeNull();
+        expect(document.querySelector('.wg-food-add-cta')).toBeNull();
     });
 
     it('selects the correct log into currentFoodLogs by id', () => {
