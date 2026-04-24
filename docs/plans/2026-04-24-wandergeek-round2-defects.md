@@ -137,14 +137,14 @@ Root-cause the recurring "primary action button in a section toolbar row is visu
 
 ### Task 8: Meds → History — Reorder + Wandergeek restyle of "Next scheduled intake" pane (#11)
 
-- [ ] **#11a order**: in the Meds History template, move the "Next scheduled intake" pane above the `MEDICATION` / `RANGE` filter row so it's the first block on the History view
-- [ ] **#11b styling**: replace the purple gradient card + translucent pill button with Wandergeek tokens:
-  - card surface = the same elevated-teal-card class used by the Today "Next up" card
-  - `Take Now` = yellow filled primary button, shared size token
-  - labels = muted-uppercase small caption, display numeric for the time, secondary line for `<MedName> at <DD.MM.>, HH:MM`
-  - no gradient, no translucent button, no emoji accents
-- [ ] add a DOM / CSS test asserting no `linear-gradient(` or hex colors exist on the restyled pane (tokens only)
-- [ ] run `pnpm test`
+- [x] **#11a order**: in the Meds History template, move the "Next scheduled intake" pane above the `MEDICATION` / `RANGE` filter row so it's the first block on the History view — `#next-intake-trigger` in `web/static/index.html` was the last child of `#med-history-tab` (after `.wg-meds-filters` and before `#history-list`); lifted it to the top so the order is now `[#next-intake-trigger, .wg-meds-filters, #history-list]`. Comment rewritten to reflect the new "first block on History" role
+- [x] **#11b styling**: replace the purple gradient card + translucent pill button with Wandergeek tokens:
+  - card surface = the same elevated-teal-card class used by the Today "Next up" card — new `.wg-meds-next-intake-card` rule in `styles.css` uses `var(--wg-bg-card)` + `1px solid var(--wg-border-hairline)` + `var(--wg-radius-card)` (same token recipe as `.wg-next-action-card` / `.wg-metric-tile`); legacy `.next-intake-card` rule (with its `linear-gradient(135deg, var(--color-chart-primary), var(--color-chart-secondary))` + `color:#fff`) deleted
+  - `Take Now` = yellow filled primary button, shared size token — `renderNextIntakeTrigger()` in `app.js` now emits `<button class="wg-toolbar-btn wg-toolbar-btn--primary wg-meds-next-intake-card__cta"><span class="wg-toolbar-btn__label">Take Now</span></button>` (adopts the Task 2 shared class)
+  - labels = muted-uppercase small caption, display numeric for the time, secondary line for `<MedName> at <DD.MM.>, HH:MM` — `__kicker` = `var(--wg-font-size-caps)` + `letter-spacing: 0.14em` + `text-transform: uppercase` + `var(--wg-fg-3)`; `__time` = `var(--wg-font-display)` at `var(--font-size-xl)`; `__meta` = `var(--wg-font-ui)` at `var(--font-size-xs)` in `var(--wg-fg-2)`
+  - no gradient, no translucent button, no emoji accents — confirmed by the architecture + pane-scoped CSS tests below
+- [x] add a DOM / CSS test asserting no `linear-gradient(` or hex colors exist on the restyled pane (tokens only) — new `web/static/js/tests/meds.next-intake.test.js` (5 tests): (1) DOM order pins `#next-intake-trigger` before `.wg-meds-filters` before `#history-list` inside `#med-history-tab`; (2) rendered markup carries kicker/time/meta spans + shared toolbar-btn CTA; (3) every `.wg-meds-next-intake-card*` CSS block is free of `linear-gradient(`, hex colors, and raw `rgb()/rgba()` literals (tokens only); (4) legacy `.next-intake-*` rules are removed from `styles.css`; (5) `renderNextIntakeTrigger` no longer references the old class strings or `btn-pill`. Also updated `architecture.design-tokens.test.js` `requiredClasses` list: swapped the old `.next-intake-*` entries for the new `.wg-meds-next-intake-card*` ones
+- [x] run `pnpm test` — 1431/1431 frontend tests green (128 files + new `meds.next-intake.test.js`); `go test ./...` all packages pass
 
 ### Task 9: Vitals → Notes — Tag chip interactivity + verify list refresh (#12a, #12b)
 

@@ -80,6 +80,11 @@
             </div>
 
             <div id="med-history-tab" class="med-tab-content active">
+                <!-- Round-2 Task 8 (#11a): "Next scheduled intake" pane is the
+                     first block on History — the most actionable info. Filters
+                     and the list follow below. `renderNextIntakeTrigger` owns
+                     the card markup; the container is empty until data lands. -->
+                <div id="next-intake-trigger" class="wg-meds-next-intake-trigger"></div>
                 <!-- Intake history filter strip (Phase 5, Task 5). Two select
                      wraps styled as `.wg-gloss--inset` — the medication filter
                      keeps its `history-filter-med` id (populateMedFilter fills
@@ -103,10 +108,6 @@
                         </select>
                     </label>
                 </div>
-                <!-- Muted link-style row under the filters — renderNextIntakeTrigger
-                     fills it in. Inline style swept out in Phase 5 Task 5; the
-                     margin now comes from `.wg-meds-next-intake-trigger`. -->
-                <div id="next-intake-trigger" class="wg-meds-next-intake-trigger"></div>
                 <div id="history-list" class="wg-meds-history"></div>
             </div>
 

@@ -2292,16 +2292,21 @@ async function renderNextIntakeTrigger() {
             minute: '2-digit'
         });
 
+        // Round-2 Task 8 (#11b): restyled to match the Today "Next up" card —
+        // elevated-teal surface + muted-uppercase kicker + display-numeric
+        // countdown + secondary meta line + shared toolbar-btn primary CTA.
         const card = document.createElement('div');
-        card.className = 'next-intake-card';
+        card.className = 'wg-meds-next-intake-card';
 
         const body = document.createElement('div');
+        body.className = 'wg-meds-next-intake-card__text';
+
         const title = document.createElement('div');
-        title.className = 'next-intake-title';
+        title.className = 'wg-meds-next-intake-card__kicker';
         title.textContent = 'Next scheduled intake';
 
         const countdown = document.createElement('div');
-        countdown.className = 'next-intake-countdown';
+        countdown.className = 'wg-meds-next-intake-card__time';
         function updateCountdown() {
             countdown.textContent = _formatCountdown(nextTime - Date.now());
         }
@@ -2309,7 +2314,7 @@ async function renderNextIntakeTrigger() {
         _nextIntakeTimerInterval = setInterval(updateCountdown, 30000);
 
         const details = document.createElement('div');
-        details.className = 'next-intake-details';
+        details.className = 'wg-meds-next-intake-card__meta';
         details.textContent = `${medNamesStr} at ${timeStr}`;
         body.appendChild(title);
         body.appendChild(countdown);
@@ -2317,9 +2322,11 @@ async function renderNextIntakeTrigger() {
 
         const action = document.createElement('button');
         action.type = 'button';
-        action.className = 'btn btn-pill';
-        action.classList.add('next-intake-action');
-        action.textContent = 'Take Now';
+        action.className = 'wg-toolbar-btn wg-toolbar-btn--primary wg-meds-next-intake-card__cta';
+        const actionLabel = document.createElement('span');
+        actionLabel.className = 'wg-toolbar-btn__label';
+        actionLabel.textContent = 'Take Now';
+        action.appendChild(actionLabel);
         action.addEventListener('click', () => {
             triggerNextIntake();
         });
