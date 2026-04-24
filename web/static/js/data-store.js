@@ -329,16 +329,24 @@
         // Advance the change cursor without triggering a tab refresh.
         // Called after the client itself performs a write, so that the next
         // scheduled poll does not re-notify about the client's own changes.
+        //
+        // Must NOT invalidate tags. This runs fire-and-forget from
+        // apiCallDirect after every successful write, so the /api/changes
+        // response typically lands DURING the caller's own post-write
+        // refresh flow (e.g. saveFoodLog → invalidateTags → loadToday →
+        // fetchFresh). Invalidating here would bump the fetchGeneration of
+        // the key the caller just scheduled a refetch for, causing the
+        // resolving response to be dropped as "superseded" and leaving the
+        // cache empty — the Today fuel/weight/BP tile then re-renders at 0
+        // after a save. Callers are expected to invalidate their own write's
+        // tag explicitly; cross-client changes are picked up by the next
+        // scheduled poll.
         async advanceCursorSilently() {
             if (!window.apiCallDirect) return;
             try {
                 const since = this.getChangeCursor();
                 const res = await window.apiCallDirect(`/api/changes?since=${since}`, 'GET');
                 if (!res || typeof res.cursor !== 'number') return;
-                const changedTags = Array.isArray(res.changed_tags) ? res.changed_tags : [];
-                if (changedTags.length > 0) {
-                    await this.invalidateTags(changedTags);
-                }
                 this.setChangeCursor(res.cursor);
             } catch (_e) {
                 // Best-effort; the regular poll will catch up.

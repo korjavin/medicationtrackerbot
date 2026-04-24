@@ -131,6 +131,35 @@ describe('data-store.js unit tests', () => {
     }
   });
 
+  it('advanceCursorSilently advances cursor but does NOT invalidate tags', async () => {
+    // Regression: advanceCursorSilently runs fire-and-forget from
+    // apiCallDirect after every successful write. If it invalidates the
+    // tags returned by /api/changes (which include the client's own write)
+    // it races with the caller's own post-write refetch chain —
+    // bumping the fetchGeneration of the key the caller is currently
+    // fetching and causing the resolving response to be dropped as
+    // "superseded", leaving the cache empty. The Today fuel/weight/BP
+    // tile then renders 0 after a save. The cursor advance is the only
+    // safe side effect here; cross-client changes are caught by the
+    // regular 30s poll.
+    const { window, cleanup } = loadDataStoreEnv();
+
+    try {
+      window.apiCallDirect = vi.fn().mockResolvedValue({
+        cursor: 42,
+        changed_tags: ['food', 'weight', 'bp']
+      });
+      const invalidateSpy = vi.spyOn(window.DataStore, 'invalidateTags');
+
+      await window.DataStore.advanceCursorSilently();
+
+      expect(invalidateSpy).not.toHaveBeenCalled();
+      expect(window.DataStore.getChangeCursor()).toBe(42);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('setChangeCursor/getChangeCursor sanitize invalid values', () => {
     const { window, cleanup } = loadDataStoreEnv();
 
