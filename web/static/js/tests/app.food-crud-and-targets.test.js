@@ -107,6 +107,46 @@ describe('app.js food CRUD, targets and period helpers', () => {
     }
   });
 
+  it('saveFoodLog explicitly clears the Today per-day food cache by key', async () => {
+    // Regression: tagToKeys is in-memory, so if the user mutates food
+    // before Today has rendered in this session (cold start → deeplink to
+    // Food → +Add, or app reload between visits), invalidateTags(['food'])
+    // silently no-ops and Today's presence check then sees a stale cache
+    // persisted by a previous session and skips the refetch — the fuel
+    // card gets stuck at 0 kcal after the save. saveFoodLog must also
+    // clear the Today food key directly to guarantee eviction.
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      document.getElementById('food-datetime').value = '2026-03-01T12:00';
+      document.getElementById('food-name').value = 'Oats';
+      document.getElementById('food-weight').value = '50';
+      document.getElementById('food-carbs').value = '30';
+      document.getElementById('food-protein').value = '10';
+      document.getElementById('food-fat').value = '5';
+      document.getElementById('food-calories').value = '205';
+      document.getElementById('food-per-100g').checked = false;
+      document.getElementById('food-id').value = '';
+
+      window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+      window.closeFoodModal = vi.fn();
+      window.loadFoodLogs = vi.fn();
+      window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+      const clearCachedSpy = vi.fn().mockResolvedValue(undefined);
+      window.DataStore.clearCached = clearCachedSpy;
+      window.loadToday = vi.fn();
+      window.AppStore.set('currentTab', 'today');
+
+      await window.saveFoodLog();
+
+      const now = new Date();
+      const expectedKey = `food_${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_day`;
+      expect(clearCachedSpy).toHaveBeenCalledWith(expectedKey);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('loadFoodTargets and saveFoodTargets cover cache/network success and failure flows', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 

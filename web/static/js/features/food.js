@@ -1426,6 +1426,17 @@ async function saveFoodLog() {
         // leaving the macros card out of date. loadFoodLogs() writes its
         // own `food_<date>_v2` cache and doesn't touch the Today key.
         await window.DataStore.invalidateTags(['food']);
+        // Belt-and-suspenders: tagToKeys is in-memory, so if the user
+        // mutates food before ever rendering Today in this session
+        // (cold start → deeplink to Food → +Add, or app reload between
+        // visits), the map is empty and invalidateTags silently no-ops.
+        // Today's presence check then sees a stale `{groups: []}`
+        // persisted by a previous session and skips the refetch, leaving
+        // the fuel card at 0 kcal after the save. Clearing the key
+        // directly guarantees eviction regardless of map state.
+        if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
+            await window.DataStore.clearCached(todayFoodKey(new Date()));
+        }
         closeFoodModal();
         loadFoodLogs();
         // Today shortcut path: the visible tab is 'today' while the food
