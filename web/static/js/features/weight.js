@@ -346,6 +346,16 @@ async function handleWeightSubmit(event) {
     }
 
     await window.DataStore.invalidateTags(['weight']);
+    // Belt-and-suspenders: tagToKeys is in-memory, so if bootstrap was
+    // skipped (cached-auth fast path, or bootstrap fetch failed) the
+    // 'weight' key isn't registered and invalidateTags silently no-ops.
+    // Today's presence check then sees the stale IndexedDB snapshot,
+    // treats it as fresh, and skips the refetch — zeroing the weight
+    // tile after a new log. Clearing the key directly guarantees
+    // eviction regardless of map state.
+    if (window.DataStore.clearCached) {
+        await window.DataStore.clearCached('weight');
+    }
     closeWeightModal();
     loadWeightLogs();
     // Today shortcut path: the visible tab is 'today' while the weight modal
@@ -1012,6 +1022,9 @@ async function _deleteWeightApi(id) {
     const res = await apiCall(`/api/weight/${id}`, 'DELETE');
     if (res) {
         await window.DataStore.invalidateTags(['weight']);
+        if (window.DataStore.clearCached) {
+            await window.DataStore.clearCached('weight');
+        }
         // Also remove from local IndexedDB if it exists there
         if (window.MedTrackerDB) {
             try {

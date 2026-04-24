@@ -406,4 +406,59 @@ describe('app.js form submissions and push modal behavior', () => {
       cleanup();
     }
   });
+
+  it('handleWeightSubmit explicitly clears the Today weight cache by key', async () => {
+    // Regression: tagToKeys is in-memory, so if bootstrap was skipped
+    // (cached-auth fast path, or bootstrap fetch failed) the 'weight' key
+    // isn't registered and invalidateTags(['weight']) silently no-ops.
+    // Today's presence check then treats the stale IndexedDB snapshot as
+    // fresh and zeroes the weight tile after the save. Must clear by key
+    // to guarantee eviction.
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      window.apiCall = vi.fn().mockResolvedValue({ id: 1 });
+      window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+      const clearCachedSpy = vi.fn().mockResolvedValue(undefined);
+      window.DataStore.clearCached = clearCachedSpy;
+      window.loadWeightLogs = vi.fn();
+      window.loadToday = vi.fn();
+      window.AppStore.set('currentTab', 'today');
+
+      window.showWeightModal();
+      document.getElementById('weight-datetime').value = '2026-02-27T11:05';
+      document.getElementById('weight-value').value = '79.4';
+
+      await window.handleWeightSubmit({ preventDefault() {} });
+
+      expect(clearCachedSpy).toHaveBeenCalledWith('weight');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('handleBPSubmit explicitly clears the Today BP cache by key', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      window.apiCall = vi.fn().mockResolvedValue({ id: 1 });
+      window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+      const clearCachedSpy = vi.fn().mockResolvedValue(undefined);
+      window.DataStore.clearCached = clearCachedSpy;
+      window.loadBPReadings = vi.fn().mockResolvedValue(undefined);
+      window.loadToday = vi.fn();
+      window.AppStore.set('currentTab', 'today');
+
+      window.showBPRecordModal();
+      document.getElementById('bp-datetime').value = '2026-02-27T10:30';
+      document.getElementById('bp-systolic').value = '128';
+      document.getElementById('bp-diastolic').value = '82';
+
+      await window.handleBPSubmit({ preventDefault() {} });
+
+      expect(clearCachedSpy).toHaveBeenCalledWith('bp');
+    } finally {
+      cleanup();
+    }
+  });
 });
