@@ -647,6 +647,7 @@
     --wg-workouts-chart-line-stroke-width: 2px;
     --wg-workouts-chart-last-point-radius: 4px;
     --wg-workouts-chart-last-stroke-width: 2px;
+    --wg-workouts-stats-legend-swatch-size: 10px;
 
     /* Log-set / edit-exercise / edit-group / edit-library modal tokens
        (Phase 7, Task 8) — mono header, gloss-inset input wraps for name /
@@ -1088,10 +1089,6 @@ h3 {
     z-index: var(--z-overlay);
 }
 
-#workout-group-modal,
-#workout-variant-modal,
-#workout-exercise-modal,
-#exercise-library-modal,
 #miband-workout-modal,
 #workout-session-modal,
 #workout-start-modal,
@@ -6518,23 +6515,41 @@ textarea.wg-input {
     flex-shrink: 0;
 }
 
-.wg-workouts-exercises__add-cta {
-    width: 100%;
+/* Exercises tab header row (Round-2, Task 6). Inline sun-gloss `+ Add`
+   pill right-aligned next to a section label. Replaces the retired
+   full-width `.wg-workouts-exercises__add-cta` bottom dock so the
+   affordance is always visible above the library list. */
+.wg-workouts-exercises-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
+}
+
+.wg-workouts-exercises-header__label {
+    padding: 0;
+    flex: 1;
+    min-width: 0;
+}
+
+.wg-workouts-exercises-header__add {
+    flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: var(--space-sm);
-    min-height: 44px;
-    padding: var(--space-md) var(--space-lg);
-    margin-top: var(--space-md);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
+    gap: var(--space-xs);
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
     cursor: pointer;
 }
 
-.wg-workouts-exercises__add-cta-label {
-    letter-spacing: 0.04em;
+.wg-workouts-exercises-header__add-label {
+    letter-spacing: 0.02em;
 }
 
 /* Edit-library-exercise modal (Phase 7, Task 6). Shares the generic `.wg-modal`
@@ -6766,6 +6781,141 @@ textarea.wg-input {
 }
 
 .wg-workouts-exercise-modal__action--save {
+    flex: 2 1 0;
+}
+
+/* Edit-variant modal (Round-2, Task 6). Mirrors the group/exercise modal
+   shape on the generic `.wg-modal` shell so its background and chrome are
+   driven by the --wg-bg-card teal-gloss tokens, not the legacy paper-white
+   modal block. */
+.wg-workouts-variant-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-workouts-variant-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-variant-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-workouts-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-workouts-variant-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-workouts-variant-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-workouts-variant-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-workouts-variant-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-workouts-modal-section-gap);
+}
+
+.wg-workouts-variant-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.wg-workouts-variant-modal__label {
+    font-size: var(--wg-workouts-modal-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-workouts-variant-modal__input-wrap {
+    padding: var(--wg-workouts-modal-input-pad-y) var(--wg-workouts-modal-input-pad-x);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-workouts-variant-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-workouts-variant-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-workouts-variant-modal__textarea {
+    resize: vertical;
+    font-family: var(--wg-font-ui);
+}
+
+.wg-workouts-variant-modal__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+}
+
+.wg-workouts-variant-modal__section-label {
+    padding: 0;
+}
+
+.wg-workouts-variant-modal__section-add {
+    align-self: flex-start;
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-variant-modal__actions {
+    display: flex;
+    gap: var(--wg-workouts-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-workouts-variant-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-workouts-variant-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-workouts-variant-modal__action--save {
     flex: 2 1 0;
 }
 
@@ -7059,6 +7209,58 @@ textarea.wg-input {
     fill: var(--wg-sun);
     stroke: var(--wg-teal-stage);
     stroke-width: var(--wg-workouts-chart-last-stroke-width);
+}
+
+/* Round-2, Task 6 — numeric axis tick labels. Mirrors the bp/weight
+   `__axis-tick` pattern: labels pull `fill` from the muted-on-teal
+   foreground token and reserve a tabular-nums variant so the numbers stay
+   vertically aligned. Y-tick labels right-align against the plot edge;
+   x-tick date labels centre-align below the plot. */
+.wg-workout-chart__axis-tick {
+    fill: var(--wg-fg-3);
+    font-family: inherit;
+    font-size: var(--wg-font-size-mini);
+    font-variant-numeric: tabular-nums;
+}
+
+.wg-workout-chart__axis-tick[data-workout-axis="y"] {
+    text-anchor: end;
+}
+
+.wg-workout-chart__axis-tick[data-workout-axis="x"] {
+    text-anchor: middle;
+}
+
+/* Round-2, Task 6 — stats-tab chart legend. Sits directly below the chart
+   panel; a sun-swatch + series-label pill documents which metric the line
+   shows (sessions per week vs volume kg). */
+.wg-workouts-stats__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.wg-workouts-stats__legend-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-font-size-mini);
+    color: var(--wg-fg-2);
+    background: var(--wg-bg-card-inset);
+    border: 1px solid var(--wg-border-hairline);
+}
+
+.wg-workouts-stats__legend-swatch {
+    width: var(--wg-workouts-stats-legend-swatch-size);
+    height: var(--wg-workouts-stats-legend-swatch-size);
+    border-radius: var(--wg-radius-pill);
+    background: var(--wg-sun);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 /* WGSleepChart base shell (Phase 8, Task 4). The SVG carries the shared

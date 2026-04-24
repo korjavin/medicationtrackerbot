@@ -158,6 +158,36 @@
         return circle;
     }
 
+    // Round-2, Task 6 — numeric axis tick labels. Axes match the
+    // .wg-bp-chart / .wg-weight-chart pattern: each tick is a <text>
+    // node carrying the shared axis-tick class plus a data-workout-axis
+    // discriminator (y | x) so tests can pick them out deterministically.
+    function makeAxisTick(x, y, text, axis) {
+        const t = document.createElementNS(SVG_NS, 'text');
+        t.setAttribute('x', x.toFixed(1));
+        t.setAttribute('y', y.toFixed(1));
+        t.classList.add('wg-workout-chart__axis-tick');
+        t.dataset.workoutAxis = axis;
+        t.textContent = text;
+        return t;
+    }
+
+    function pickXTickTimes(firstTime, lastTime, count) {
+        if (!Number.isFinite(firstTime) || !Number.isFinite(lastTime)) return [];
+        const n = Math.max(2, Math.min(count, 6));
+        if (lastTime <= firstTime) return [firstTime];
+        const step = (lastTime - firstTime) / (n - 1);
+        const out = [];
+        for (let i = 0; i < n; i += 1) out.push(firstTime + step * i);
+        return out;
+    }
+
+    function formatXTickLabel(ms) {
+        const d = new Date(ms);
+        if (Number.isNaN(d.getTime())) return '';
+        return d.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
+    }
+
     function makeEmptyCard(range) {
         const card = document.createElement('div');
         card.classList.add('wg-workout-chart', 'wg-workout-chart--empty');
@@ -262,6 +292,24 @@
         svg.dataset.workoutTickCount = String(
             ticks.filter((t) => t > yMin && t < yMax).length,
         );
+
+        // Round-2, Task 6 — numeric y-axis tick labels. We always label yMin
+        // and yMax (chart bounds) plus any interior grid ticks so the reader
+        // can map a line height to a session-count / volume-kg number.
+        const yLabelValues = [yMin, ...ticks.filter((t) => t > yMin && t < yMax), yMax];
+        for (const value of yLabelValues) {
+            const tick = makeAxisTick(PAD_L - 4, yOf(value) + 3, String(value), 'y');
+            svg.appendChild(tick);
+        }
+
+        // Round-2, Task 6 — x-axis date tick labels. 4 evenly-spaced ticks
+        // span the visible time window; placed below the plot area.
+        const xTickTimes = pickXTickTimes(firstTime, lastTime, 4);
+        for (const t of xTickTimes) {
+            const label = formatXTickLabel(t);
+            if (!label) continue;
+            svg.appendChild(makeAxisTick(xOf(t), height - 8, label, 'x'));
+        }
 
         const linePath = makePath(buildSplinePath(points), 'wg-workout-chart__line');
         svg.appendChild(linePath);

@@ -146,7 +146,7 @@
             <ul id="weight-list" class="wg-weight-history"></ul>
         </div>
 
-        <div id="workouts-view" class="view">
+        <div id="workouts-view" class="view wg-screen-stage">
             <!-- Workout Tabs + inline +Start (Phase 7 / Phase 5 Task 5 rework).
                  Outer `.wg-workouts-subtabs-row` flex container wraps the inset
                  4-pill track and the trailing sun-gloss `#start-adhoc-workout-btn`
@@ -183,14 +183,23 @@
                 </button>
             </div>
 
-            <!-- Exercises Library View -->
+            <!-- Exercises Library View.
+                 Round-2 Task 6: the `+ Add exercise` affordance moved from
+                 the sticky bottom CTA to the top-right of the tab via the
+                 `.wg-workouts-exercises-header` row so users can reach it
+                 without scrolling past the library. -->
             <div id="workout-exercises-tab" class="workout-tab-content">
+                <div class="wg-workouts-exercises-header">
+                    <span class="wg-section-label wg-workouts-exercises-header__label">Library</span>
+                    <button id="add-exercise-library-btn" type="button"
+                        class="wg-gloss wg-gloss--sun wg-workouts-exercises-header__add"
+                        aria-label="Add exercise">
+                        <span class="wg-workouts-exercises-header__add-label">+ Add</span>
+                    </button>
+                </div>
                 <div id="exercise-library-list" class="wg-workouts-exercises">
                     Loading exercise library...
                 </div>
-                <button id="add-exercise-library-btn" type="button" class="wg-gloss wg-gloss--sun wg-workouts-exercises__add-cta">
-                    <span class="wg-workouts-exercises__add-cta-label">+ Add exercise</span>
-                </button>
             </div>
 
             <!-- Stats View -->
@@ -574,33 +583,63 @@
         </div>
     </mt-modal>
 
-    <!-- Modal for Adding/Editing Variant -->
-    <mt-modal id="workout-variant-modal" class="hidden">
-        <div class="modal-header">
-            <h3 id="workout-variant-modal-title">Add Variant</h3>
-            <div class="actions">
-                <button id="variant-cancel-btn" class="btn btn-secondary">Cancel</button>
-                <button id="variant-save-btn" class="btn btn-primary">Save</button>
+    <!-- Variant modal (Round-2, Task 6). Migrated to the shared .wg-modal
+         shell so its background and chrome are driven by the --wg-bg-card
+         teal-gloss tokens rather than the legacy paper-white modal block. -->
+    <mt-modal id="workout-variant-modal" class="hidden wg-modal wg-workouts-variant-modal">
+        <div class="wg-workouts-variant-modal__header">
+            <div class="wg-workouts-variant-modal__heading">
+                <span class="wg-section-label wg-workouts-variant-modal__eyebrow">Workout variant</span>
+                <span class="wg-mono-display wg-workouts-variant-modal__title" id="workout-variant-modal-title">Add Variant</span>
+            </div>
+            <button type="button" id="workout-variant-close-btn" class="wg-icon-btn wg-workouts-variant-modal__close-btn"
+                aria-label="Close">
+                <span class="wg-gloss"></span>
+            </button>
+        </div>
+
+        <div class="wg-workouts-variant-modal__body">
+            <div class="wg-workouts-variant-modal__field">
+                <label for="workout-variant-name" class="wg-workouts-variant-modal__label">Name</label>
+                <div class="wg-gloss--inset wg-workouts-variant-modal__input-wrap">
+                    <input type="text" id="workout-variant-name" class="wg-workouts-variant-modal__input"
+                        placeholder="Day A, Push Day">
+                </div>
+            </div>
+
+            <div class="wg-workouts-variant-modal__field">
+                <label for="workout-variant-description" class="wg-workouts-variant-modal__label">Description</label>
+                <div class="wg-gloss--inset wg-workouts-variant-modal__input-wrap">
+                    <textarea id="workout-variant-description"
+                        class="wg-workouts-variant-modal__input wg-workouts-variant-modal__textarea"
+                        placeholder="Optional" rows="2"></textarea>
+                </div>
+            </div>
+
+            <div id="workout-variant-rotation-field" class="wg-workouts-variant-modal__field" style="display: none;">
+                <label for="workout-variant-rotation" class="wg-workouts-variant-modal__label">Rotation order</label>
+                <div class="wg-gloss--inset wg-workouts-variant-modal__input-wrap">
+                    <input type="number" id="workout-variant-rotation"
+                        class="wg-workouts-variant-modal__input"
+                        min="0" placeholder="0 = first, 1 = second, etc.">
+                </div>
+            </div>
+
+            <!-- Exercises Section (only shown when editing existing variant) -->
+            <div id="workout-exercises-section" class="wg-workouts-variant-modal__section" style="display: none;">
+                <span class="wg-section-label wg-workouts-variant-modal__section-label">Exercises</span>
+                <div id="workout-exercises-list" class="wg-workouts-variant-modal__exercises"></div>
+                <button id="variant-add-exercise-btn" type="button" class="wg-gloss wg-workouts-variant-modal__section-add">
+                    + Add exercise
+                </button>
             </div>
         </div>
 
-        <input type="text" id="workout-variant-name" placeholder="Variant Name (e.g., Day A, Push Day)">
-        <textarea id="workout-variant-description" placeholder="Description (optional)" rows="2"></textarea>
-
-        <div id="workout-variant-rotation-field" style="display: none;">
-            <div class="form-row">
-                <label for="workout-variant-rotation">Rotation Order:</label>
-                <input type="number" id="workout-variant-rotation" min="0" placeholder="0 = first, 1 = second, etc.">
-            </div>
-        </div>
-
-        <!-- Exercises Section (only shown when editing existing variant) -->
-        <div id="workout-exercises-section"
-            style="display: none; margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
-            <h4>Exercises</h4>
-            <button id="variant-add-exercise-btn" class="btn btn-primary" style="margin-bottom: 10px;">+ Add
-                Exercise</button>
-            <div id="workout-exercises-list"></div>
+        <div class="wg-workouts-variant-modal__actions">
+            <button type="button" id="variant-cancel-btn"
+                class="wg-gloss wg-workouts-variant-modal__action wg-workouts-variant-modal__action--cancel">Cancel</button>
+            <button type="button" id="variant-save-btn"
+                class="wg-gloss wg-gloss--sun wg-workouts-variant-modal__action wg-workouts-variant-modal__action--save">Save</button>
         </div>
     </mt-modal>
 

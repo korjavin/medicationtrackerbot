@@ -611,6 +611,7 @@ const WANDERGEEK_TOKENS = [
     '--wg-workouts-chart-line-stroke-width',
     '--wg-workouts-chart-last-point-radius',
     '--wg-workouts-chart-last-stroke-width',
+    '--wg-workouts-stats-legend-swatch-size',
 
     // Workouts modal tokens (Phase 7, Task 1) — log-set / edit-exercise /
     // edit-group / edit-library modals share the same mono header, gloss
