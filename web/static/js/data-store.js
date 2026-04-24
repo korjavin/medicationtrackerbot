@@ -63,6 +63,16 @@
             await window.MedTrackerDB.ApiCache.set(key, data);
         },
 
+        // Register a key→tags mapping without touching the cached value. Use
+        // this when a caller reads a cached payload directly from IndexedDB
+        // (bypassing loadSWR/fetchFresh) but still wants future invalidateByTag
+        // calls to evict the entry. Without it, `tagToKeys` is empty for that
+        // key on cached-start / reload paths, so `invalidateTags(['food'])`
+        // (etc.) silently no-ops and stale payloads survive mutations.
+        registerTags(key, tags = []) {
+            registerKeyTags(key, tags);
+        },
+
         // Cache an authoritative value (e.g. from a bootstrap payload) and
         // register its tags. Bumps the key's generation and drops any pending
         // in-flight fetch for it so an older request — which may have been

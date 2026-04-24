@@ -218,4 +218,19 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         window.updateFoodDateNav();
         expect(nextBtn.disabled).toBe(false);
     });
+
+    it('setFoodMacrosRange("week") makes shiftFoodDate step by 7 days', () => {
+        const { document, window } = env;
+        window.loadFoodLogs = () => {};
+        const filter = document.getElementById('food-date-filter');
+        filter.value = '2026-03-01';
+
+        window.setFoodMacrosRange('week');
+        window.shiftFoodDate(1);
+        expect(filter.value).toBe('2026-03-08');
+
+        window.setFoodMacrosRange('day');
+        window.shiftFoodDate(-1);
+        expect(filter.value).toBe('2026-03-07');
+    });
 });

@@ -1249,6 +1249,21 @@ async function _todayReadCaches(foodKey) {
             }
         }
     } catch (_) { /* best-effort — render whatever we have */ }
+    // Register key→tag mappings for every Today cache we just read directly
+    // from IndexedDB. Without this, `tagToKeys` is empty for these keys on
+    // cached-start / reload paths, so a feature save's
+    // `invalidateTags(['food'])` etc. silently no-ops and the visible Today
+    // dashboard stays stale until a full bootstrap re-fetch. todayFetchSpecs
+    // owns the canonical key→tags map; reusing it keeps registration in sync
+    // with fetcher tags in one place.
+    if (window.DataStore && typeof window.DataStore.registerTags === 'function') {
+        try {
+            const specs = todayFetchSpecs(foodKey);
+            for (const key of Object.keys(specs)) {
+                window.DataStore.registerTags(key, specs[key].tags || []);
+            }
+        } catch (_) { /* best-effort — invalidation will fall back to a no-op */ }
+    }
     // Fall back to localStorage so Today renders in the user's saved order
     // even if the settings_bundle cache was invalidated since last render.
     if (!cardOrder) {

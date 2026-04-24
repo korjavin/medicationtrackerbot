@@ -222,6 +222,13 @@ async function handleWeightSubmit(event) {
     await window.DataStore.invalidateTags(['weight']);
     closeWeightModal();
     loadWeightLogs();
+    // Today shortcut path: the visible tab is 'today' while the weight modal
+    // is open, and loadWeightLogs() only updates the hidden weight screen.
+    // Refresh Today so the dashboard tile reflects the new reading.
+    if (window.AppStore && window.AppStore.get('currentTab') === 'today'
+        && typeof window.loadToday === 'function') {
+        window.loadToday();
+    }
 }
 
 function setWeightValue(weight) {

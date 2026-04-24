@@ -55,6 +55,9 @@ function toggleFoodLibraryView() {
 function setFoodMacrosRange(range) {
     if (FOOD_MACROS_RANGES.indexOf(range) === -1) return;
     foodMacrosRange = range;
+    // Keep `currentFoodStatsPeriod` in sync so shiftFoodDate() steps by 7 days
+    // in weekly mode and 1 day in daily mode.
+    currentFoodStatsPeriod = range;
     syncFoodMacrosToggleActiveClass();
     // Re-pull the weekly data when flipping to 'week' for the first time;
     // loadFoodLogs() is the single source for fetching both daily groups
@@ -1417,8 +1420,22 @@ async function saveFoodLog() {
             res = await apiCall('/api/food/log', 'POST', payload);
         }
         if (!res) return;
+        // Invalidate the `food` tag so Today's per-day food cache
+        // (`food_<date>_day`) is evicted. Without this, loadToday()'s
+        // presence check sees the stale cache and skips the refetch,
+        // leaving the macros card out of date. loadFoodLogs() writes its
+        // own `food_<date>_v2` cache and doesn't touch the Today key.
+        await window.DataStore.invalidateTags(['food']);
         closeFoodModal();
         loadFoodLogs();
+        // Today shortcut path: the visible tab is 'today' while the food
+        // modal is open, and loadFoodLogs() reads the hidden Food screen's
+        // date filter (not necessarily the saved date). Refresh Today so
+        // the dashboard macros reflect the new log for today's date.
+        if (window.AppStore && window.AppStore.get('currentTab') === 'today'
+            && typeof window.loadToday === 'function') {
+            window.loadToday();
+        }
     });
 }
 
