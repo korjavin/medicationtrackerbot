@@ -41,20 +41,27 @@ const CSS = fs.readFileSync(CSS_PATH, 'utf8');
 // `.wg-toolbar-btn .wg-toolbar-btn--primary` in the listed Round-2 task.
 // Entries are removed as their per-section task lands and DOM adoption is
 // pinned by a dedicated test.
-const TOOLBAR_BTN_MIGRATION_TODO = [
-    // Round-2 Task 5 (defect #8): `#add-bp-btn` — ADOPTED; DOM adoption
-    // pinned in `bp.render.test.js` and reasserted below.
-    // Round-2 Task 6 (defect #9): `#add-food-inline-btn` — ADOPTED; DOM
-    // adoption pinned in `food.toolbar-row.test.js` and reasserted below.
-    // Round-2 Task 7 (defect #10): `#add-btn` — ADOPTED; the button moved
-    // out of the subtab row and is now scoped to the Schedule subtab via
-    // `.wg-meds-schedule-header`. DOM adoption pinned in
-    // `meds.schedule-add.test.js` and reasserted below.
-    // Round-2 Task 10 (defect #13b): `#start-adhoc-workout-btn` — ADOPTED;
-    // DOM adoption pinned in `workout.design-parity.test.js` and
-    // reasserted below (source-level guard on index.html).
-    { file: 'web/static/index.html',          button: '#add-weight-btn', oneOffClass: '.wg-weight-header-row__add', task: 'Round-2 Task 12 (defect #15)' },
-];
+// Round-2 Task 5 (defect #8): `#add-bp-btn` — ADOPTED; DOM adoption pinned
+// in `bp.render.test.js` and reasserted below.
+// Round-2 Task 6 (defect #9): `#add-food-inline-btn` — ADOPTED; DOM
+// adoption pinned in `food.toolbar-row.test.js` and reasserted below.
+// Round-2 Task 7 (defect #10): `#add-btn` — ADOPTED; the button moved out
+// of the subtab row and is now scoped to the Schedule subtab via
+// `.wg-meds-schedule-header`. DOM adoption pinned in
+// `meds.schedule-add.test.js` and reasserted below.
+// Round-2 Task 10 (defect #13b): `#start-adhoc-workout-btn` — ADOPTED;
+// DOM adoption pinned in `workout.design-parity.test.js` and reasserted
+// below (source-level guard on index.html).
+// Round-2 Task 12 (defect #15): `#add-weight-btn` — ADOPTED; the button
+// moved out of the (deleted) `.wg-weight-header-row` into the
+// range-selector row via `buildWeightInlineAddButton`. DOM adoption
+// pinned in `weight.history.test.js` and reasserted below (source-level
+// guard on features/weight.js).
+//
+// Array is empty because every per-section button has adopted the shared
+// class. If a new section later re-introduces the pattern, add its entry
+// here until its dedicated DOM-adoption test lands.
+const TOOLBAR_BTN_MIGRATION_TODO = [];
 
 function extractRule(css, selector) {
     const idx = css.indexOf(selector);
@@ -115,18 +122,14 @@ describe('Round-2 Task 2 — shared .wg-toolbar-btn class', () => {
         expect(primary).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     });
 
-    // Adoption TODO — documented here so the migration stays visible.
-    // Once each per-section task lands and the one-off class is replaced
-    // with `.wg-toolbar-btn .wg-toolbar-btn--primary`, extend this suite
-    // to assert DOM adoption per file.
-    it('records the per-section adoption TODO (migration tracked in Round-2 follow-up tasks)', () => {
-        expect(TOOLBAR_BTN_MIGRATION_TODO.length).toBeGreaterThan(0);
-        for (const entry of TOOLBAR_BTN_MIGRATION_TODO) {
-            expect(entry.file).toMatch(/^web\/static\//);
-            expect(entry.button).toMatch(/^#/);
-            expect(entry.oneOffClass).toMatch(/^\.wg-/);
-            expect(entry.task).toMatch(/Round-2/);
-        }
+    // Adoption TODO — originally tracked five per-section buttons that
+    // still used a one-off class. All five landed in Round-2 Tasks
+    // 5/6/7/10/12 (defects #8/#9/#10/#13b/#15); the TODO is now drained.
+    // If a new section reintroduces the pattern, add an entry to
+    // TOOLBAR_BTN_MIGRATION_TODO with { file, button, oneOffClass, task }
+    // until its dedicated DOM-adoption test lands.
+    it('per-section adoption TODO is drained (all buttons use the shared class)', () => {
+        expect(TOOLBAR_BTN_MIGRATION_TODO).toEqual([]);
     });
 
     // Round-2 Task 5 (defect #8): BP +Log button adopted the shared class.
@@ -224,6 +227,33 @@ describe('Round-2 Task 2 — shared .wg-toolbar-btn class', () => {
     it('CSS no longer defines the dead .wg-workouts-subtabs-row__add rule', () => {
         expect(CSS).not.toMatch(/\.wg-workouts-subtabs-row__add\s*\{/);
         expect(CSS).not.toMatch(/\.wg-workouts-subtabs-row__add-label\s*\{/);
+    });
+
+    // Round-2 Task 12 (defect #15): Weight +Log button was lifted out of
+    // the (deleted) Latest-pane header row and moved inline into the
+    // range-selector row via `buildWeightInlineAddButton` — mirrors BP's
+    // `buildBPInlineAddButton`. Source-level guard on features/weight.js;
+    // DOM-level adoption lives in `weight.history.test.js`.
+    it('Weight buildWeightInlineAddButton uses .wg-toolbar-btn + .wg-toolbar-btn--primary (not the old one-off)', () => {
+        const WEIGHT_FEATURE_PATH = path.join(REPO_ROOT, 'web/static/js/features/weight.js');
+        const src = fs.readFileSync(WEIGHT_FEATURE_PATH, 'utf8');
+        expect(src).toMatch(/btn\.className\s*=\s*['"]wg-toolbar-btn\s+wg-toolbar-btn--primary['"]/);
+        // The per-section one-off must not come back on #add-weight-btn.
+        expect(src).not.toMatch(/wg-weight-header-row__add/);
+        // The Latest-pane renderer and its classifier went with the
+        // pane — don't resurrect them.
+        expect(src).not.toMatch(/renderWeightCurrentCard\s*\(/);
+        expect(src).not.toMatch(/classifyWeightTrend\s*\(/);
+    });
+
+    it('CSS no longer defines the dead .wg-weight-header-row + Latest-pane rules', () => {
+        expect(CSS).not.toMatch(/\.wg-weight-header-row\s*\{/);
+        expect(CSS).not.toMatch(/\.wg-weight-header-row__add\s*\{/);
+        expect(CSS).not.toMatch(/\.wg-weight-header-row__add-label\s*\{/);
+        expect(CSS).not.toMatch(/\.wg-weight-current-card\s*\{/);
+        expect(CSS).not.toMatch(/\.wg-weight-current-card__[a-z-]+\s*\{/);
+        expect(CSS).not.toMatch(/\.wg-weight-trend\s*\{/);
+        expect(CSS).not.toMatch(/\.wg-weight-trend--(good|bad|flat)\s*\{/);
     });
 
     // Round-2 Task 10 (defect #13a): a new outline/ghost secondary

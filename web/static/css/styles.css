@@ -502,11 +502,6 @@
        range selector, single-series chart, and day-grouped history rows.
        Everything visual in features/weight.js and components/wg-weight-chart.js
        reads from here. */
-    --wg-weight-current-value-size: 44px;
-    --wg-weight-current-unit-size: 12px;
-    --wg-weight-current-card-pad: 16px;
-    --wg-weight-trend-size: 14px;
-    --wg-weight-trend-icon-size: 16px;
     --wg-weight-goal-card-pad: 12px;
     --wg-weight-goal-value-size: 16px;
     --wg-weight-goal-bar-height: 8px;
@@ -588,22 +583,6 @@
     --wg-med-confirm-modal-dose-size: 10.5px;
     --wg-med-confirm-modal-action-gap: 8px;
 
-    /* Weight trend aliases (Phase 6, Task 1) — wrap the shared sun / alert /
-       mint tag triplets so the JS classifier can return a token-group name
-       (good / bad / flat) relative to goal direction without duplicating
-       styles. `good` is sun (decrease when lose-goal; increase when gain-goal);
-       `bad` is alert (opposite direction); `flat` is mint (no change or no
-       goal). Mirrors the --wg-bp-status-* / --wg-meds-status-* pattern. */
-    --wg-weight-trend-good-bg: var(--wg-tag-high-bg);
-    --wg-weight-trend-good-fg: var(--wg-tag-high-fg);
-    --wg-weight-trend-good-border: var(--wg-tag-high-border);
-    --wg-weight-trend-bad-bg: var(--wg-tag-alert-bg);
-    --wg-weight-trend-bad-fg: var(--wg-tag-alert-fg);
-    --wg-weight-trend-bad-border: var(--wg-tag-alert-border);
-    --wg-weight-trend-flat-bg: var(--wg-tag-normal-bg);
-    --wg-weight-trend-flat-fg: var(--wg-tag-normal-fg);
-    --wg-weight-trend-flat-border: var(--wg-tag-normal-border);
-
     /* Wandergeek — Workouts screen (Phase 7, Task 1). Dimensional tokens for
        the sub-tab strip, today's-workout card, day-grouped history rows,
        session-detail view with set-by-set rows, groups/exercises list rows,
@@ -673,7 +652,7 @@
        PUSH/PULL/LEGS are the active-session variants (sun-adjacent); REST
        is the muted/normal variant; AD-HOC is the mint variant so it reads
        as a neutral "not-a-rotation-slot" tag. Mirrors the
-       --wg-bp-status-* / --wg-meds-status-* / --wg-weight-trend-* pattern. */
+       --wg-bp-status-* / --wg-meds-status-* pattern. */
     --wg-workouts-slot-push-bg: var(--wg-tag-high-bg);
     --wg-workouts-slot-push-fg: var(--wg-tag-high-fg);
     --wg-workouts-slot-push-border: var(--wg-tag-high-border);
@@ -3304,14 +3283,14 @@ input:checked+.toggle-slider:before {
    "primary action pill sitting next to a range/subtab track" pattern on BP
    (+Log), Weight (+Log), Meds (Add), Workouts (Start) and Food (Add). The
    per-section one-off classes (.wg-bp-range-selector__add, .wg-meds-subtabs-
-   row__add, .wg-workouts-subtabs-row__add, .wg-food-day-nav__add) that once
-   repeated the same size/padding/radius recipe have been deleted as each
-   per-section task migrated to this shared class (defects 8, 9, 10, 13b);
-   .wg-weight-header-row__add remains pending for Task 12 (defect 15).
+   row__add, .wg-workouts-subtabs-row__add, .wg-food-day-nav__add,
+   .wg-weight-header-row__add) that once repeated the same size/padding/radius
+   recipe have been deleted as each per-section task migrated to this shared
+   class (defects 8, 9, 10, 13b, 15).
    Size+shape only — color is provided by .wg-gloss / .wg-gloss--sun or the
    --primary modifier below. `align-self: center` defeats the
    `align-items: stretch` inflation that made the add button visually
-   taller than the adjacent pills (defects 8, 10, 13b). */
+   taller than the adjacent pills (defects 8, 10, 13b, 15). */
 .wg-toolbar-btn {
     flex-shrink: 0;
     align-self: center;
@@ -4568,90 +4547,13 @@ textarea.wg-input {
     color: var(--wg-fg-4);
 }
 
-/* Weight current-reading + goal cards (Phase 6, Task 3). The current-reading
-   card shows a big mono kilo readout with a small "kg" suffix, a trend tag
-   ("↓ −0.6 kg" / "↑ +0.4 kg" / "→ 0.0 kg") whose colour flips via
-   --wg-weight-trend-{good,bad,flat}-* aliases against the user's goal
-   direction, and a kicker timestamp. The goal card renders only when a goal
-   exists; it carries a mono target, a gloss-inset progress track with a
-   --fill-pct width driven by goalData progress, and a muted "Δ kg to goal"
-   label. */
-.wg-weight-current-card {
-    padding: var(--wg-weight-current-card-pad);
-    margin-bottom: var(--space-md);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-}
-
-.wg-weight-current-card__empty {
-    font-size: var(--font-size-md);
-    color: var(--wg-fg-4);
-}
-
-.wg-weight-current-card__kicker {
-    padding: 0;
-}
-
-.wg-weight-current-card__value {
-    font-size: var(--wg-weight-current-value-size);
-    line-height: 1;
-    color: var(--wg-fg-1);
-    display: inline-flex;
-    align-items: baseline;
-    gap: var(--space-xs);
-}
-
-.wg-weight-current-card__unit {
-    font-size: var(--wg-weight-current-unit-size);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--wg-fg-4);
-}
-
-.wg-weight-current-card__meta {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    flex-wrap: wrap;
-}
-
-.wg-weight-trend {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-weight-trend-size);
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    padding: 3px var(--space-sm);
-    border-radius: var(--radius-pill);
-    border: 1px solid transparent;
-}
-
-.wg-weight-trend__arrow {
-    font-size: var(--wg-weight-trend-icon-size);
-    line-height: 1;
-}
-
-.wg-weight-trend--good {
-    background: var(--wg-weight-trend-good-bg);
-    color: var(--wg-weight-trend-good-fg);
-    border-color: var(--wg-weight-trend-good-border);
-}
-
-.wg-weight-trend--bad {
-    background: var(--wg-weight-trend-bad-bg);
-    color: var(--wg-weight-trend-bad-fg);
-    border-color: var(--wg-weight-trend-bad-border);
-}
-
-.wg-weight-trend--flat {
-    background: var(--wg-weight-trend-flat-bg);
-    color: var(--wg-weight-trend-flat-fg);
-    border-color: var(--wg-weight-trend-flat-border);
-}
-
+/* Weight goal card (Phase 6, Task 3; Round-2 Task 12 defect #15). The
+   paper-era current-reading card was deleted in Round-2 Task 12 — the
+   value surfaces on Today's weight tile, the chart, and the history
+   list instead. The goal card renders only when a goal exists; it
+   carries a mono target, a gloss-inset progress track with a
+   --fill-pct width driven by goalData progress, and a muted
+   “Δ kg to goal” label. */
 .wg-weight-goal-card {
     padding: var(--wg-weight-goal-card-pad);
     margin-bottom: var(--space-md);
@@ -4694,14 +4596,25 @@ textarea.wg-input {
     font-size: var(--wg-weight-goal-delta-size);
 }
 
-/* Weight range selector + chart panel (Phase 6, Task 4). A gloss-inset
-   strip with four 7d/30d/90d/All buttons drives WGWeightChart; the active
-   button picks up the sun modifier. Dimensions come entirely from tokens. */
+/* Weight range selector + chart panel (Phase 6, Task 4; Round-2 Task 12
+   defect #15). Outer container is a flex row holding the inset
+   7d/30d/90d/All track and the trailing inline +Log pill (via the
+   shared .wg-toolbar-btn .wg-toolbar-btn--primary). Keeping the inset
+   limited to the track preserves the “tabs in a trough” look while
+   letting the primary action sit on the stage (mirrors
+   .wg-bp-range-selector). */
 .wg-weight-range-selector {
     display: flex;
     gap: var(--space-xs);
-    padding: var(--wg-weight-range-selector-pad);
+    align-items: stretch;
     margin-bottom: var(--space-md);
+}
+
+.wg-weight-range-selector__track {
+    flex: 1;
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--wg-weight-range-selector-pad);
 }
 
 .wg-weight-range-selector__btn {
@@ -4801,43 +4714,6 @@ textarea.wg-input {
     gap: var(--space-xs);
 }
 
-/* Weight header row (Phase 5, Task 5). Flex row holding the latest-weight
-   card on the left and the inline sun-gloss add-weight button on the
-   right, replacing the paper-era full-width bottom CTA. align-items: stretch
-   lets the button match the card's visual height without hardcoding a size. */
-.wg-weight-header-row {
-    display: flex;
-    gap: var(--space-sm);
-    align-items: stretch;
-    margin-bottom: var(--space-md);
-}
-
-.wg-weight-header-row > #weight-current-card {
-    flex: 1;
-    min-width: 0;
-    margin-bottom: 0;
-}
-
-.wg-weight-header-row__add {
-    flex-shrink: 0;
-    align-self: flex-start;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-xs);
-    min-height: 36px;
-    padding: var(--space-sm) var(--space-md);
-    margin-top: var(--space-xs);
-    font-family: var(--wg-font-ui);
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-weight-header-row__add-label {
-    letter-spacing: 0.02em;
-}
 
 /* Edit-weight modal (Phase 6, Task 6) — shares the generic `.wg-modal` shell
    for positioning and chrome; overlays a dual-line mono header, gloss input
