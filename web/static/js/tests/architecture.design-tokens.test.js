@@ -268,6 +268,8 @@ const WANDERGEEK_TOKENS = [
     '--wg-icon-btn-size',
     '--wg-font-size-tag',
     '--wg-section-label-pad-top',
+    // Shared toolbar-row action button height (Round-2 defects Task 2)
+    '--wg-toolbar-btn-height',
 
     // Phone chrome tokens (added in Task 3 alongside .wg-phone, .wg-status-bar, etc.)
     '--wg-phone-pad',
@@ -321,6 +323,21 @@ const WANDERGEEK_TOKENS = [
     '--wg-metric-tile-bg',
     '--wg-mini-bar-track-bg',
     '--wg-mini-bar-track-shadow',
+
+    // Shared chart theme tokens (Round-2 Task 13 / defect 16) — single
+    // source of truth for every chart card's surface, grid-line stroke,
+    // and axis-tick label color/size so BP/Weight/Workout/Sleep/Steps/
+    // Vitals charts stay visually coherent and axis labels stay legible
+    // on the dark teal stage.
+    '--wg-chart-card-bg',
+    '--wg-chart-card-border',
+    '--wg-chart-card-radius',
+    '--wg-chart-card-pad',
+    '--wg-chart-guide-stroke',
+    '--wg-chart-guide-stroke-width',
+    '--wg-chart-guide-dasharray',
+    '--wg-chart-axis-tick-color',
+    '--wg-chart-axis-tick-size',
 
     // BP screen tokens (Phase 3, Task 1) — current-reading card, range
     // selector, chart geometry, averages, history row.
@@ -462,14 +479,10 @@ const WANDERGEEK_TOKENS = [
     '--wg-meds-modal-time-row-gap',
     '--wg-meds-modal-toggle-gap',
 
-    // Weight screen tokens (Phase 6, Task 1) — current-weight card, trend
-    // arrow + delta, optional goal card + progress bar, range selector,
-    // single-series chart geometry, day-grouped history rows.
-    '--wg-weight-current-value-size',
-    '--wg-weight-current-unit-size',
-    '--wg-weight-current-card-pad',
-    '--wg-weight-trend-size',
-    '--wg-weight-trend-icon-size',
+    // Weight screen tokens (Phase 6, Task 1) — optional goal card +
+    // progress bar, range selector, single-series chart geometry,
+    // day-grouped history rows. Round-2 Task 12 (defect #15) deleted the
+    // Latest-pane tokens (current-value/unit/card-pad + trend-size/icon).
     '--wg-weight-goal-card-pad',
     '--wg-weight-goal-value-size',
     '--wg-weight-goal-bar-height',
@@ -504,18 +517,10 @@ const WANDERGEEK_TOKENS = [
     '--wg-weight-history-time-size',
     '--wg-weight-history-day-size',
 
-    // Weight trend aliases (Phase 6, Task 1) — wrap the shared sun / alert /
-    // mint tag triplets so the JS classifier can return good / bad / flat
-    // relative to goal direction. Mirrors the --wg-bp-status-* pattern.
-    '--wg-weight-trend-good-bg',
-    '--wg-weight-trend-good-fg',
-    '--wg-weight-trend-good-border',
-    '--wg-weight-trend-bad-bg',
-    '--wg-weight-trend-bad-fg',
-    '--wg-weight-trend-bad-border',
-    '--wg-weight-trend-flat-bg',
-    '--wg-weight-trend-flat-fg',
-    '--wg-weight-trend-flat-border',
+    // Weight trend aliases (Phase 6, Task 1) — retired in Round-2 Task 12
+    // (defect #15) when the Latest-pane .wg-weight-trend element was
+    // deleted. The shared --wg-tag-high/alert/normal-* triplets remain for
+    // other consumers (BP status, workouts slot, vitals tags).
 
     // Edit-weight modal tokens (Phase 6, Task 6) — dual-line header, gloss
     // input wraps, kg/lb unit-toggle pill pair, Cancel/Save action bar with
@@ -629,7 +634,7 @@ const WANDERGEEK_TOKENS = [
     // sun / normal / mint tag triplets so the rotation-slot classifier
     // (PUSH / PULL / LEGS / REST / AD-HOC) can return a token-group name
     // without duplicating tag styles. Mirrors the --wg-bp-status-* /
-    // --wg-meds-status-* / --wg-weight-trend-* pattern.
+    // --wg-meds-status-* pattern.
     '--wg-workouts-slot-push-bg',
     '--wg-workouts-slot-push-fg',
     '--wg-workouts-slot-push-border',
@@ -1399,9 +1404,10 @@ describe('Architecture – design tokens', () => {
             // Medication
             '.med-supplement-badge', '.med-normalized-name',
             '.med-action-icons', '.med-empty-text',
-            // Next intake
-            '.next-intake-card', '.next-intake-title',
-            '.next-intake-countdown', '.next-intake-details', '.next-intake-action',
+            // Next intake (Round-2 Task 8, #11b: restyled to Wandergeek tokens)
+            '.wg-meds-next-intake-card', '.wg-meds-next-intake-card__kicker',
+            '.wg-meds-next-intake-card__time', '.wg-meds-next-intake-card__meta',
+            '.wg-meds-next-intake-card__cta',
             // Charts
             '.chart-section', '.chart-container', '.chart-container-tall',
             '.chart-stat', '.chart-stat-spaced', '.chart-legend',
@@ -1435,11 +1441,16 @@ describe('Architecture – design tokens', () => {
             // Workout components (paper-era classes still used as dual-class alongside wg-* equivalents)
             '.workout-pending-msg',
             '.workout-variant-card', '.workout-variant-desc',
-            '.workout-exercise-card', '.workout-exercise-meta',
             '.workout-delete-btn-inline',
-            '.workout-btn-row', '.workout-btn-stop', '.workout-btn-skip',
-            '.workout-btn-full', '.workout-btn-full-secondary',
             '.exercise-log-header', '.exercise-log-delete-btn',
+            // Next workout card (Round-2 Task 10, #13a: restyled to Wandergeek tokens)
+            '.wg-workouts-next-card', '.wg-workouts-next-card__kicker',
+            '.wg-workouts-next-card__date', '.wg-workouts-next-card__title',
+            '.wg-workouts-next-card__subtitle', '.wg-workouts-next-card__actions',
+            // Edit Variant modal exercise rows (Round-2 Task 11, #14: restyled to Wandergeek tokens)
+            '.wg-workouts-exercise-row', '.wg-workouts-exercise-row__info',
+            '.wg-workouts-exercise-row__title', '.wg-workouts-exercise-row__meta',
+            '.wg-workouts-exercise-row__delete',
             // Food product link
             '.food-product-link',
             // Sync hint

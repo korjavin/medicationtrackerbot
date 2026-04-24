@@ -26,6 +26,11 @@ function setActiveWeightRange(range) {
     try { window.localStorage.setItem(WEIGHT_RANGE_STORAGE_KEY, String(range)); } catch (_) { /* ignore */ }
 }
 
+// Range selector row. Round-2 Task 12 (defect #15): the top "Latest" pane was
+// deleted and `#add-weight-btn` moved inline next to the 7d/30d/90d/All pills
+// — mirrors BP's buildBPInlineAddButton pattern. The outer container is a
+// plain flex row; the inset gloss wraps only the range-pill track so the
+// trailing primary-toolbar button sits on the stage.
 function renderWeightRangeSelector(opts) {
     const container = document.getElementById('weight-range-selector');
     if (!container) return;
@@ -36,7 +41,10 @@ function renderWeightRangeSelector(opts) {
     const onChange = typeof options.onChange === 'function' ? options.onChange : null;
 
     container.replaceChildren();
-    container.className = 'wg-gloss--inset wg-weight-range-selector';
+    container.className = 'wg-weight-range-selector';
+
+    const track = document.createElement('div');
+    track.className = 'wg-gloss--inset wg-weight-range-selector__track';
 
     WEIGHT_RANGE_OPTIONS.forEach((range) => {
         const btn = document.createElement('button');
@@ -50,8 +58,41 @@ function renderWeightRangeSelector(opts) {
             if (range === active) return;
             if (onChange) onChange(range);
         });
-        container.appendChild(btn);
+        track.appendChild(btn);
     });
+
+    container.appendChild(track);
+    container.appendChild(buildWeightInlineAddButton());
+}
+
+// Build the inline +Log button that sits at the end of the range-selector
+// row. Round-2 Task 12 (defect #15): replaces the paper-era header-row CTA.
+// Kept as `#add-weight-btn` so offline-ui's disabled-state sweep still finds
+// it and existing bindings (sync.js, showWeightModal wiring) keep working.
+function buildWeightInlineAddButton() {
+    const btn = document.createElement('button');
+    btn.id = 'add-weight-btn';
+    btn.type = 'button';
+    btn.className = 'wg-toolbar-btn wg-toolbar-btn--primary';
+    btn.setAttribute('aria-label', 'Log weight');
+
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        const icon = window.WGIcons.iconSvg('plus', { size: 14 });
+        if (icon) btn.appendChild(icon);
+    }
+    const label = document.createElement('span');
+    label.className = 'wg-toolbar-btn__label';
+    label.textContent = 'Log';
+    btn.appendChild(label);
+
+    btn.addEventListener('click', () => {
+        if (typeof window.showWeightModal === 'function') {
+            window.showWeightModal();
+        } else if (typeof showWeightModal === 'function') {
+            showWeightModal();
+        }
+    });
+    return btn;
 }
 
 // ==================== Weight Modal (Wandergeek Phase 6, Task 6) ====================
@@ -65,9 +106,16 @@ function renderWeightRangeSelector(opts) {
 const WEIGHT_KG_PER_LB = 0.45359237;
 let weightModalUnit = 'kg';
 let editingWeightLog = null;
+// Bumped on every showWeightModal() call so a late-resolving async seed from a
+// prior open can't land on a subsequent one.
+let weightModalOpenGen = 0;
 
 function showWeightModal() {
     editingWeightLog = null;
+    // Bump on every open so any in-flight async seed from a prior session
+    // (even one where cachedWeightLogs is now populated and the fallback
+    // branch below is skipped) can't overwrite the current input.
+    const openGen = ++weightModalOpenGen;
     window.ModalManager.weight.open();
     setWeightModalEyebrow('New entry');
 
@@ -76,12 +124,90 @@ function showWeightModal() {
 
     resetWeightUnitToggle();
 
-    const lastWeight = cachedWeightLogs && cachedWeightLogs.length > 0
+    // Seed the weight input with the user's most recent logged weight so the
+    // common case (log a value close to yesterday's) is one tap away. Users
+    // who open the modal via the Today shortcut may not have visited the
+    // Weight tab yet — cachedWeightLogs is empty then, so we fall back to
+    // the DataStore / IndexedDB cache asynchronously and re-seed if the
+    // user hasn't typed anything in the meantime.
+    const sync = cachedWeightLogs && cachedWeightLogs.length > 0
         ? cachedWeightLogs[0].weight
         : 75.0;
-    setWeightValue(lastWeight);
+    setWeightValue(sync);
+    if (!cachedWeightLogs || cachedWeightLogs.length === 0) {
+        const input = document.getElementById('weight-value');
+        const baseline = input ? input.value : '';
+        readCachedLatestWeightKg().then((kg) => {
+            if (!Number.isFinite(kg)) return;
+            // Caller (editWeightLog) sets editingWeightLog AFTER showWeightModal
+            // returns, and the edited row's weight may coincidentally equal the
+            // default 75.0 — bypassing the baseline guard. Skip the seed in
+            // edit mode, and also skip if the modal was closed/reopened.
+            if (editingWeightLog) return;
+            if (openGen !== weightModalOpenGen) return;
+            if (!input || input.value !== baseline) return;
+            setWeightValue(kg);
+        }).catch(() => {});
+    }
 
     attachWeightUnitToggleHandlers();
+    renderWeightModalIcons();
+    focusWeightModalInput();
+}
+
+// Reads the latest logged weight (kg) from the combined DataStore bootstrap
+// cache (server logs) + IndexedDB WeightStore (pending/rejected local writes).
+// The two sources can diverge — e.g. an offline log added via the Today
+// shortcut lives only in IndexedDB until sync — so we merge them and pick the
+// newest by measured_at rather than trusting whichever is populated first.
+// Returns NaN when nothing is available. Errors are swallowed — the caller
+// only uses the result when it's a finite number.
+async function readCachedLatestWeightKg() {
+    const pickLatestKg = (arr) => {
+        if (!Array.isArray(arr) || arr.length === 0) return NaN;
+        const sorted = arr.slice().sort((a, b) => {
+            const ta = new Date(a && a.measured_at).getTime();
+            const tb = new Date(b && b.measured_at).getTime();
+            return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+        });
+        const top = sorted[0];
+        const w = top && Number(top.weight);
+        return Number.isFinite(w) ? w : NaN;
+    };
+
+    const combined = [];
+
+    try {
+        if (window.DataStore && typeof window.DataStore.getCached === 'function') {
+            const cached = await window.DataStore.getCached('weight');
+            if (cached && Array.isArray(cached.logsRes)) combined.push(...cached.logsRes);
+        }
+    } catch (_) { /* best-effort */ }
+
+    try {
+        if (window.MedTrackerDB && window.MedTrackerDB.WeightStore
+            && typeof window.MedTrackerDB.WeightStore.getAll === 'function') {
+            const all = await window.MedTrackerDB.WeightStore.getAll();
+            if (Array.isArray(all)) combined.push(...all);
+        }
+    } catch (_) { /* best-effort */ }
+
+    return pickLatestKg(combined);
+}
+
+function renderWeightModalIcons() {
+    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
+    const closeGloss = document.querySelector('#weight-modal-close-btn .wg-gloss');
+    if (closeGloss && !closeGloss.querySelector('svg')) {
+        closeGloss.replaceChildren(window.WGIcons.iconSvg('close', { size: 14 }));
+    }
+}
+
+function focusWeightModalInput() {
+    const input = document.getElementById('weight-value');
+    if (!input) return;
+    try { input.focus(); } catch (_) { /* jsdom may throw on hidden inputs */ }
+    try { if (typeof input.select === 'function') input.select(); } catch (_) { /* numeric inputs can reject select() */ }
 }
 
 function closeWeightModal() {
@@ -248,135 +374,12 @@ function setWeightValue(weight) {
     }
 }
 
+// =================== Weight Goal Card (Wandergeek Phase 6) ===================
+// Round-2 Task 12 (defect #15): the Latest-weight pane at the top of the
+// Weight section was deleted. renderWeightCurrentCard, classifyWeightTrend,
+// WEIGHT_TREND_ARROWS, and formatWeightTimestamp went with it — the value
+// surfaces on Today's weight tile, the chart below, and the history list.
 
-// =================== Weight Current + Goal Cards (Wandergeek Phase 6) ===================
-
-// Trend arrow glyphs — decrease / increase / flat. Used by the current-weight
-// card. Delta is previous-to-latest (positive = gained).
-const WEIGHT_TREND_ARROWS = { down: '\u2193', up: '\u2191', flat: '\u2192' };
-
-// classifyWeightTrend — returns a token-group name ('good' | 'bad' | 'flat')
-// relative to the user's goal direction. The caller maps this to a CSS variant
-// via .wg-weight-trend--<variant>; styles.css owns the color aliases.
-//   • Any zero / non-finite delta, or a missing goal direction, returns 'flat'.
-//   • goal_direction === 'lose' (default): negative delta = good, positive = bad
-//   • goal_direction === 'gain'          : positive delta = good, negative = bad
-function classifyWeightTrend(delta, goalDirection) {
-    const d = Number(delta);
-    if (!Number.isFinite(d) || d === 0) return 'flat';
-    const dir = typeof goalDirection === 'string' ? goalDirection.toLowerCase() : '';
-    if (dir !== 'lose' && dir !== 'gain') return 'flat';
-    if (dir === 'lose') return d < 0 ? 'good' : 'bad';
-    return d > 0 ? 'good' : 'bad';
-}
-
-// Format helper — turns 2h / 5m / 3d into a short "... ago" phrase. Falls back
-// to the local ISO stamp when the log is older than a week.
-function formatWeightTimestamp(measuredAt) {
-    if (!measuredAt) return '';
-    const ts = new Date(measuredAt).getTime();
-    if (!Number.isFinite(ts)) return '';
-    const now = Date.now();
-    const diff = now - ts;
-    if (diff < 0) return 'just now';
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days < 7) return `${days}d ago`;
-    return new Date(ts).toLocaleDateString(undefined, {
-        day: '2-digit', month: '2-digit', year: 'numeric'
-    });
-}
-
-function renderWeightCurrentCard(logs, goalData) {
-    const container = document.getElementById('weight-current-card');
-    if (!container) return;
-    container.replaceChildren();
-    container.className = 'wg-card wg-weight-current-card';
-
-    const list = Array.isArray(logs) ? logs : [];
-    if (list.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'wg-weight-current-card__empty wg-muted';
-        empty.textContent = 'No weight logged yet — add your first entry.';
-        container.appendChild(empty);
-        return;
-    }
-
-    // Logs arrive newest-first from _renderWeightData (pending prepended + server DESC).
-    const latest = list[0];
-    const previous = list.length > 1 ? list[1] : null;
-    const latestWeight = Number(latest && latest.weight);
-    const previousWeight = previous && Number(previous.weight);
-    const hasPrevious = Number.isFinite(previousWeight);
-    const delta = hasPrevious ? (latestWeight - previousWeight) : 0;
-    // Backend weight-goal endpoint does not yet expose goal_direction — default
-    // to 'lose' so trend coloring still works for the legacy lose-weight users
-    // (matches renderWeightGoalCard's fallback). When no goal is set at all,
-    // the hasGoal check below still forces a flat variant.
-    const goalDirection = (goalData && typeof goalData.goal_direction === 'string')
-        ? goalData.goal_direction
-        : 'lose';
-    const hasGoal = !!(goalData && Number.isFinite(Number(goalData.goal)));
-    const variant = hasPrevious && hasGoal
-        ? classifyWeightTrend(delta, goalDirection)
-        : 'flat';
-
-    const arrowGlyph = !hasPrevious || delta === 0
-        ? WEIGHT_TREND_ARROWS.flat
-        : (delta < 0 ? WEIGHT_TREND_ARROWS.down : WEIGHT_TREND_ARROWS.up);
-
-    const kicker = document.createElement('div');
-    kicker.className = 'wg-section-label wg-weight-current-card__kicker';
-    if (latest.isRejected) {
-        kicker.textContent = 'Latest · sync failed';
-    } else if (latest.isLocal) {
-        kicker.textContent = 'Latest · pending sync';
-    } else {
-        kicker.textContent = `Latest · ${formatWeightTimestamp(latest.measured_at)}`;
-    }
-    container.appendChild(kicker);
-
-    const value = document.createElement('div');
-    value.className = 'wg-mono-display wg-weight-current-card__value';
-    const weightSpan = document.createElement('span');
-    weightSpan.className = 'wg-weight-current-card__weight';
-    weightSpan.textContent = Number.isFinite(latestWeight) ? latestWeight.toFixed(1) : '—';
-    const unitSpan = document.createElement('span');
-    unitSpan.className = 'wg-weight-current-card__unit';
-    unitSpan.textContent = 'kg';
-    value.appendChild(weightSpan);
-    value.appendChild(unitSpan);
-    container.appendChild(value);
-
-    const meta = document.createElement('div');
-    meta.className = 'wg-weight-current-card__meta';
-
-    const trend = document.createElement('span');
-    trend.className = `wg-tag wg-weight-trend wg-weight-trend--${variant}`;
-    trend.setAttribute('data-trend-variant', variant);
-    const arrow = document.createElement('span');
-    arrow.className = 'wg-weight-trend__arrow';
-    arrow.textContent = arrowGlyph;
-    const deltaSpan = document.createElement('span');
-    deltaSpan.className = 'wg-weight-trend__delta';
-    if (!hasPrevious) {
-        deltaSpan.textContent = 'first entry';
-    } else if (delta === 0) {
-        deltaSpan.textContent = '0.0 kg';
-    } else {
-        const sign = delta > 0 ? '+' : '\u2212';
-        deltaSpan.textContent = `${sign}${Math.abs(delta).toFixed(1)} kg`;
-    }
-    trend.appendChild(arrow);
-    trend.appendChild(deltaSpan);
-    meta.appendChild(trend);
-
-    container.appendChild(meta);
-}
 
 function renderWeightGoalCard(logs, goalData) {
     const container = document.getElementById('weight-goal-card');
@@ -723,7 +726,6 @@ async function _renderWeightData(logsRes, goalRes) {
     cachedWeightLogs = allLogs;
 
     const goalData = goalRes || {};
-    renderWeightCurrentCard(allLogs, goalData);
     renderWeightGoalCard(allLogs, goalData);
     renderWeightRangeSelector({
         active: getActiveWeightRange(),

@@ -282,6 +282,11 @@
     --wg-icon-btn-size: 44px;
     --wg-font-size-tag: 10.5px;
     --wg-section-label-pad-top: 18px;
+    /* Shared toolbar-row action button height (Round-2 defects Task 2).
+       Matches the 14d / 30d / 60d range pill min-height so the primary
+       action button (+Log, Add, Start) aligns on the same visual baseline
+       as the sibling range/subtab pills. Used by .wg-toolbar-btn. */
+    --wg-toolbar-btn-height: 36px;
 
     /* Wandergeek — phone chrome (Task 3). Decorative iPhone frame on desktop. */
     --wg-phone-pad: 12px;
@@ -346,6 +351,24 @@
     --wg-mini-bar-track-bg: rgba(0, 0, 0, 0.35);
     --wg-mini-bar-track-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 
+    /* Wandergeek — shared chart theme (Round-2 Task 13 / defect 16).
+       Single source of truth for every chart card's surface, grid-line
+       stroke, and axis-tick label color/size. BP + Weight + Workout chart
+       rules consume these tokens so the look stays coherent across sections
+       and axis labels stay readable on the dark stage. Individual charts
+       keep their own `--wg-<chart>-*` tokens for chart-specific geometry
+       (line stroke width, band alpha, point radius, etc.) — but surface,
+       grid, and axis tick styling MUST come from the shared tokens below. */
+    --wg-chart-card-bg: var(--wg-bg-card);
+    --wg-chart-card-border: var(--wg-border-hairline);
+    --wg-chart-card-radius: var(--wg-radius-card);
+    --wg-chart-card-pad: var(--wg-card-pad);
+    --wg-chart-guide-stroke: var(--wg-fg-5);
+    --wg-chart-guide-stroke-width: 1px;
+    --wg-chart-guide-dasharray: 2 4;
+    --wg-chart-axis-tick-color: var(--wg-fg-3);
+    --wg-chart-axis-tick-size: 10px;
+
     /* Wandergeek — BP screen (Phase 3, Task 1). Dimensional tokens for the
        current-reading card, range selector, chart geometry, and guide-line
        strokes. Everything visual in features/bp.js reads from here. */
@@ -355,8 +378,8 @@
     --wg-bp-chart-width: 358px;
     --wg-bp-chart-height: 200px;
     --wg-bp-chart-band-alpha: 0.18;
-    --wg-bp-chart-guide-dasharray: 2 4;
-    --wg-bp-chart-guide-stroke-width: 1px;
+    --wg-bp-chart-guide-dasharray: var(--wg-chart-guide-dasharray);
+    --wg-bp-chart-guide-stroke-width: var(--wg-chart-guide-stroke-width);
     --wg-bp-chart-line-stroke-width: 2px;
     --wg-bp-chart-last-point-radius: 4px;
     --wg-bp-chart-last-stroke-width: 2px;
@@ -497,11 +520,6 @@
        range selector, single-series chart, and day-grouped history rows.
        Everything visual in features/weight.js and components/wg-weight-chart.js
        reads from here. */
-    --wg-weight-current-value-size: 44px;
-    --wg-weight-current-unit-size: 12px;
-    --wg-weight-current-card-pad: 16px;
-    --wg-weight-trend-size: 14px;
-    --wg-weight-trend-icon-size: 16px;
     --wg-weight-goal-card-pad: 12px;
     --wg-weight-goal-value-size: 16px;
     --wg-weight-goal-bar-height: 8px;
@@ -583,22 +601,6 @@
     --wg-med-confirm-modal-dose-size: 10.5px;
     --wg-med-confirm-modal-action-gap: 8px;
 
-    /* Weight trend aliases (Phase 6, Task 1) — wrap the shared sun / alert /
-       mint tag triplets so the JS classifier can return a token-group name
-       (good / bad / flat) relative to goal direction without duplicating
-       styles. `good` is sun (decrease when lose-goal; increase when gain-goal);
-       `bad` is alert (opposite direction); `flat` is mint (no change or no
-       goal). Mirrors the --wg-bp-status-* / --wg-meds-status-* pattern. */
-    --wg-weight-trend-good-bg: var(--wg-tag-high-bg);
-    --wg-weight-trend-good-fg: var(--wg-tag-high-fg);
-    --wg-weight-trend-good-border: var(--wg-tag-high-border);
-    --wg-weight-trend-bad-bg: var(--wg-tag-alert-bg);
-    --wg-weight-trend-bad-fg: var(--wg-tag-alert-fg);
-    --wg-weight-trend-bad-border: var(--wg-tag-alert-border);
-    --wg-weight-trend-flat-bg: var(--wg-tag-normal-bg);
-    --wg-weight-trend-flat-fg: var(--wg-tag-normal-fg);
-    --wg-weight-trend-flat-border: var(--wg-tag-normal-border);
-
     /* Wandergeek — Workouts screen (Phase 7, Task 1). Dimensional tokens for
        the sub-tab strip, today's-workout card, day-grouped history rows,
        session-detail view with set-by-set rows, groups/exercises list rows,
@@ -668,7 +670,7 @@
        PUSH/PULL/LEGS are the active-session variants (sun-adjacent); REST
        is the muted/normal variant; AD-HOC is the mint variant so it reads
        as a neutral "not-a-rotation-slot" tag. Mirrors the
-       --wg-bp-status-* / --wg-meds-status-* / --wg-weight-trend-* pattern. */
+       --wg-bp-status-* / --wg-meds-status-* pattern. */
     --wg-workouts-slot-push-bg: var(--wg-tag-high-bg);
     --wg-workouts-slot-push-fg: var(--wg-tag-high-fg);
     --wg-workouts-slot-push-border: var(--wg-tag-high-border);
@@ -1557,84 +1559,84 @@ svg.chart-svg {
     padding: var(--space-sm);
 }
 
-/* Next Workout Card */
-.next-workout-card {
-    background: linear-gradient(135deg, var(--color-workout-card-bg-start) 0%, var(--color-workout-card-bg-end) 100%);
-    border-radius: var(--radius-md);
-    padding: var(--space-lg);
-    margin-bottom: var(--space-xl);
-    border-left: 4px solid var(--color-chart-primary);
-}
+/* Workouts — "Next workout" card.
+   Round-2 Task 10 (defect 13a): restyled from the legacy purple/teal
+   gradient card (with white-on-gradient text, yellow accent stripe, and
+   emoji-prefixed pill buttons) to Wandergeek tokens. Surface mirrors
+   the Today "Next up" card + Meds History next-intake pane — elevated
+   teal on the stage, hairline border, --wg-radius-card. The kicker label
+   uses the muted-uppercase small caption; the title is display typeface;
+   the subtitle is secondary UI text. Primary action (Start Workout /
+   Continue / Cancel Skip) is .wg-toolbar-btn.wg-toolbar-btn--primary —
+   yellow filled, matching every other primary CTA across the app.
+   Secondary actions (Skip / Stop / Next Variant) use the shared outline
+   variant .wg-toolbar-btn--secondary added in the same task. No
+   gradients, no accent stripe, no emoji. */
 
-.next-workout-card.notified,
-.next-workout-card.in-progress {
-    background: linear-gradient(135deg, var(--color-chart-primary) 0%, var(--color-chart-secondary) 100%);
-    color: white;
-    border-left: 4px solid var(--color-chart-highlight);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-}
-
-.next-workout-card.today {
-    background: linear-gradient(135deg, var(--color-workout-today-start) 0%, var(--color-workout-today-end) 100%);
-    color: white;
-    border-left: 4px solid white;
-}
-
-.next-workout-card.pre-skipped {
-    background: linear-gradient(135deg, var(--color-workout-skipped-start) 0%, var(--color-workout-skipped-end) 100%);
-    border-left: 4px solid var(--color-workout-skipped-accent);
-    opacity: 0.85;
-}
-
-.next-workout-header {
+.wg-workouts-next-card {
     display: flex;
-    justify-content: space-between;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    margin-bottom: var(--space-lg);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    box-sizing: border-box;
+}
+
+.wg-workouts-next-card__header {
+    display: flex;
     align-items: center;
-    margin-bottom: var(--space-md);
-    font-size: 0.85em;
+    justify-content: space-between;
+    gap: var(--space-sm);
 }
 
-.next-workout-status {
-    font-weight: var(--font-weight-bold);
+.wg-workouts-next-card__kicker {
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-font-size-caps);
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    color: var(--wg-fg-3);
+    font-weight: 600;
 }
 
-.next-workout-card.notified .next-workout-status,
-.next-workout-card.in-progress .next-workout-status,
-.next-workout-card.today .next-workout-status {
-    color: rgba(255, 255, 255, 0.95);
+.wg-workouts-next-card__date {
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-2);
 }
 
-.next-workout-card.pre-skipped .next-workout-status {
-    color: var(--color-workout-skipped-accent);
+.wg-workouts-next-card__info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    cursor: pointer;
 }
 
-.next-workout-date {
-    opacity: 0.8;
-}
-
-.next-workout-info h3 {
-    margin: 0 0 var(--space-sm) 0;
-    font-size: 1.3em;
-}
-
-.next-workout-info p {
+.wg-workouts-next-card__title {
     margin: 0;
-    opacity: 0.85;
-    font-size: 0.95em;
+    font-family: var(--wg-font-display);
+    font-size: var(--font-size-lg);
+    line-height: 1.2;
+    color: var(--wg-fg-1);
 }
 
-.next-workout-card.notified .next-workout-info h3,
-.next-workout-card.in-progress .next-workout-info h3,
-.next-workout-card.today .next-workout-info h3 {
-    color: white;
+.wg-workouts-next-card__subtitle {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
 }
 
-.next-workout-card.notified .next-workout-info p,
-.next-workout-card.in-progress .next-workout-info p,
-.next-workout-card.today .next-workout-info p {
-    color: rgba(255, 255, 255, 0.9);
+.wg-workouts-next-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-next-card__actions > .wg-toolbar-btn {
+    flex: 1 1 auto;
 }
 
 /* ==================== Sync Status Styles ==================== */
@@ -2661,40 +2663,64 @@ input:checked+.toggle-slider:before {
     color: var(--hint-color);
 }
 
-/* ========== Next Intake Card ========== */
+/* ========== Next Intake Card (Meds, History) ==========
+   Round-2 Task 8, defect 11b: restyled from the legacy purple-gradient
+   plus translucent-pill look to Wandergeek tokens. Card surface matches
+   the Today "Next up" pattern (elevated teal on the stage, hairline
+   border, --wg-radius-card); kicker label is muted-uppercase small
+   caption; the countdown uses the display-numeric typeface; meta line
+   carries the medication names and `at DD.MM., HH:MM`. The Take Now
+   CTA reuses .wg-toolbar-btn.wg-toolbar-btn--primary so its size
+   matches the other primary actions across the app — color is the
+   only emphasis. */
 
-.next-intake-card {
-    background: linear-gradient(135deg, var(--color-chart-primary) 0%, var(--color-chart-secondary) 100%);
-    color: #fff;
-    padding: var(--space-md) var(--space-lg);
-    border-radius: var(--radius-md);
+.wg-meds-next-intake-card {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    box-sizing: border-box;
 }
 
-.next-intake-title {
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-bold);
-    margin-bottom: 2px;
+.wg-meds-next-intake-card__text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
 
-.next-intake-countdown {
+.wg-meds-next-intake-card__kicker {
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-font-size-caps);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: 600;
+}
+
+.wg-meds-next-intake-card__time {
+    font-family: var(--wg-font-display);
     font-size: var(--font-size-xl);
-    font-weight: 700;
-    letter-spacing: 1px;
     line-height: 1.1;
-    margin-bottom: var(--space-xs);
+    color: var(--wg-fg-1);
+    margin-top: 2px;
 }
 
-.next-intake-details {
+.wg-meds-next-intake-card__meta {
+    font-family: var(--wg-font-ui);
     font-size: var(--font-size-xs);
-    opacity: 0.9;
+    color: var(--wg-fg-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.next-intake-action {
-    background: rgba(255, 255, 255, 0.25);
-    color: #fff;
+.wg-meds-next-intake-card__cta {
     white-space: nowrap;
 }
 
@@ -2930,58 +2956,53 @@ input:checked+.toggle-slider:before {
     color: var(--hint-color);
 }
 
-.workout-exercise-card {
-    background: var(--secondary-bg-color, #f0f4ff);
-    padding: var(--space-md) var(--space-lg);
-    border-radius: var(--radius-sm);
-    margin-bottom: var(--space-sm);
-    border: 1px solid rgba(0, 0, 0, 0.06);
+/* Edit Variant modal exercise rows (Round-2 Task 11, #14): dark elevated-teal
+   card surface matching .wg-workouts-next-card / .wg-meds-next-intake-card so
+   the rows read against the modal stage instead of a legacy white card.
+   Text tokens flip to paper-on-dark; the trash button hover flips to a
+   light-on-dark overlay so the 44px hit target remains discoverable. */
+.wg-workouts-exercise-row {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    margin-bottom: var(--space-sm);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    box-sizing: border-box;
 }
 
-.workout-exercise-meta {
-    font-size: 0.85em;
-    color: var(--hint-color);
+.wg-workouts-exercise-row__info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    cursor: pointer;
+}
+
+.wg-workouts-exercise-row__title {
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+}
+
+.wg-workouts-exercise-row__meta {
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-2);
+}
+
+.wg-workouts-exercise-row__delete:hover {
+    background-color: rgba(255, 255, 255, 0.08);
 }
 
 .workout-delete-btn-inline {
     position: static;
     margin-left: var(--space-md);
-}
-
-.workout-btn-row {
-    display: flex;
-    gap: var(--space-md);
-    margin-top: var(--space-md);
-}
-
-.workout-btn-stop {
-    background-color: var(--color-workout-stop-bg);
-    color: var(--color-workout-stop-text);
-    border: 1px solid var(--color-workout-stop-border);
-}
-
-.workout-btn-skip {
-    background-color: var(--color-workout-skip-bg);
-    color: var(--color-workout-skip-text);
-    border: 1px solid var(--color-workout-skip-border);
-}
-
-.workout-btn-full {
-    margin-top: var(--space-md);
-    width: 100%;
-    background-color: var(--button-color, #5288c1);
-    color: white;
-}
-
-.workout-btn-full-secondary {
-    margin-top: var(--space-sm);
-    width: 100%;
-    background-color: var(--secondary-bg-color, #f0f0f0);
-    color: var(--text-color, #000);
-    box-shadow: none;
 }
 
 /* Workout exercise log entry */
@@ -3274,6 +3295,76 @@ input:checked+.toggle-slider:before {
     min-height: 44px;
     padding: var(--space-md) var(--space-xl);
     font-size: var(--font-size-md);
+}
+
+/* Shared toolbar-row action button (Round-2 defects Task 2). Unifies the
+   "primary action pill sitting next to a range/subtab track" pattern on BP
+   (+Log), Weight (+Log), Meds (Add), Workouts (Start) and Food (Add). The
+   per-section one-off classes (.wg-bp-range-selector__add, .wg-meds-subtabs-
+   row__add, .wg-workouts-subtabs-row__add, .wg-food-day-nav__add,
+   .wg-weight-header-row__add) that once repeated the same size/padding/radius
+   recipe have been deleted as each per-section task migrated to this shared
+   class (defects 8, 9, 10, 13b, 15).
+   Size+shape only — color is provided by .wg-gloss / .wg-gloss--sun or the
+   --primary modifier below. `align-self: center` defeats the
+   `align-items: stretch` inflation that made the add button visually
+   taller than the adjacent pills (defects 8, 10, 13b, 15). */
+.wg-toolbar-btn {
+    flex-shrink: 0;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    min-height: var(--wg-toolbar-btn-height);
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+/* Primary variant — yellow filled gloss, matching .wg-gloss--sun. Color
+   only; never changes size. Apply to the canonical "add/log/start" action
+   in a toolbar row. */
+.wg-toolbar-btn--primary {
+    color: var(--wg-ink);
+    background: var(--wg-gloss-bg-sun);
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
+    box-shadow: var(--wg-gloss-shadow-sun);
+    transition: filter 120ms ease, transform 120ms ease;
+}
+
+.wg-toolbar-btn--primary:active {
+    transform: translateY(1px);
+    filter: brightness(0.95);
+}
+
+.wg-toolbar-btn--primary:hover {
+    filter: brightness(1.07);
+}
+
+/* Secondary variant — outline/ghost on the teal stage. Introduced in
+   Round-2 Task 10 (defect 13a) for the Workouts "Next workout" card's
+   Skip / Stop / Next Variant actions. Matches the --primary variant's
+   size (base class owns all sizing) — color only. */
+.wg-toolbar-btn--secondary {
+    color: var(--wg-fg-1);
+    background: transparent;
+    border: 1px solid var(--wg-border-hairline);
+    box-shadow: none;
+    transition: filter 120ms ease, transform 120ms ease, background-color 120ms ease;
+}
+
+.wg-toolbar-btn--secondary:active {
+    transform: translateY(1px);
+    filter: brightness(0.95);
+}
+
+.wg-toolbar-btn--secondary:hover {
+    border-color: var(--wg-border-strong);
 }
 
 .wg-icon-btn {
@@ -3770,6 +3861,11 @@ textarea.wg-input {
     font: inherit;
     text-align: left;
     width: 100%;
+    /* WHY: the meds variant renders as a <div>, which defaults to
+       box-sizing: content-box. Without this, width: 100% + padding
+       overflows the Today stage gutter while sibling <button> cards
+       (fuel/plan tiles) pick up UA border-box and stay inside it. */
+    box-sizing: border-box;
     cursor: pointer;
 }
 
@@ -3868,6 +3964,7 @@ textarea.wg-input {
     font: inherit;
     cursor: pointer;
     width: 100%;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: var(--space-xs);
@@ -3920,6 +4017,7 @@ textarea.wg-input {
     font: inherit;
     text-align: left;
     width: 100%;
+    box-sizing: border-box;
     cursor: pointer;
 }
 
@@ -4030,6 +4128,7 @@ textarea.wg-input {
     font: inherit;
     text-align: left;
     width: 100%;
+    box-sizing: border-box;
     cursor: pointer;
     display: flex;
     flex-direction: column;
@@ -4085,6 +4184,7 @@ textarea.wg-input {
     font: inherit;
     cursor: pointer;
     width: 100%;
+    box-sizing: border-box;
 }
 
 .wg-shortcut-tile__icon {
@@ -4247,9 +4347,9 @@ textarea.wg-input {
 }
 
 .wg-bp-chart__guide {
-    stroke: var(--wg-fg-5);
-    stroke-width: var(--wg-bp-chart-guide-stroke-width);
-    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    stroke: var(--wg-chart-guide-stroke);
+    stroke-width: var(--wg-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-chart-guide-dasharray);
     fill: none;
 }
 
@@ -4283,12 +4383,12 @@ textarea.wg-input {
 
 /* Round-2, Task 2 — axis tick labels. Emitted as <text> elements with a
    data-bp-axis attribute so x/y ticks can be restyled independently if
-   needed. Color resolves to the standard muted-on-teal token so readings
-   stay legible on the stage. */
+   needed. Color and size resolve via the shared --wg-chart-axis-tick-*
+   tokens so the weight chart matches (Round-2 Task 13 / defect 16). */
 .wg-bp-chart__axis-tick {
-    fill: var(--wg-fg-3);
+    fill: var(--wg-chart-axis-tick-color);
     font-family: inherit;
-    font-size: var(--wg-font-size-mini);
+    font-size: var(--wg-chart-axis-tick-size);
     font-variant-numeric: tabular-nums;
 }
 
@@ -4321,9 +4421,9 @@ textarea.wg-input {
 }
 
 .wg-weight-chart__guide {
-    stroke: var(--wg-fg-5);
-    stroke-width: var(--wg-bp-chart-guide-stroke-width);
-    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    stroke: var(--wg-chart-guide-stroke);
+    stroke-width: var(--wg-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-chart-guide-dasharray);
     fill: none;
 }
 
@@ -4366,9 +4466,10 @@ textarea.wg-input {
 
 .wg-weight-chart__y-tick-label,
 .wg-weight-chart__x-tick-label {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-weight-chart-tick-size);
-    fill: var(--wg-fg-4);
+    font-family: inherit;
+    font-size: var(--wg-chart-axis-tick-size);
+    font-variant-numeric: tabular-nums;
+    fill: var(--wg-chart-axis-tick-color);
 }
 
 .wg-weight-chart__goal-label {
@@ -4465,90 +4566,13 @@ textarea.wg-input {
     color: var(--wg-fg-4);
 }
 
-/* Weight current-reading + goal cards (Phase 6, Task 3). The current-reading
-   card shows a big mono kilo readout with a small "kg" suffix, a trend tag
-   ("↓ −0.6 kg" / "↑ +0.4 kg" / "→ 0.0 kg") whose colour flips via
-   --wg-weight-trend-{good,bad,flat}-* aliases against the user's goal
-   direction, and a kicker timestamp. The goal card renders only when a goal
-   exists; it carries a mono target, a gloss-inset progress track with a
-   --fill-pct width driven by goalData progress, and a muted "Δ kg to goal"
-   label. */
-.wg-weight-current-card {
-    padding: var(--wg-weight-current-card-pad);
-    margin-bottom: var(--space-md);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-}
-
-.wg-weight-current-card__empty {
-    font-size: var(--font-size-md);
-    color: var(--wg-fg-4);
-}
-
-.wg-weight-current-card__kicker {
-    padding: 0;
-}
-
-.wg-weight-current-card__value {
-    font-size: var(--wg-weight-current-value-size);
-    line-height: 1;
-    color: var(--wg-fg-1);
-    display: inline-flex;
-    align-items: baseline;
-    gap: var(--space-xs);
-}
-
-.wg-weight-current-card__unit {
-    font-size: var(--wg-weight-current-unit-size);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--wg-fg-4);
-}
-
-.wg-weight-current-card__meta {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    flex-wrap: wrap;
-}
-
-.wg-weight-trend {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-weight-trend-size);
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    padding: 3px var(--space-sm);
-    border-radius: var(--radius-pill);
-    border: 1px solid transparent;
-}
-
-.wg-weight-trend__arrow {
-    font-size: var(--wg-weight-trend-icon-size);
-    line-height: 1;
-}
-
-.wg-weight-trend--good {
-    background: var(--wg-weight-trend-good-bg);
-    color: var(--wg-weight-trend-good-fg);
-    border-color: var(--wg-weight-trend-good-border);
-}
-
-.wg-weight-trend--bad {
-    background: var(--wg-weight-trend-bad-bg);
-    color: var(--wg-weight-trend-bad-fg);
-    border-color: var(--wg-weight-trend-bad-border);
-}
-
-.wg-weight-trend--flat {
-    background: var(--wg-weight-trend-flat-bg);
-    color: var(--wg-weight-trend-flat-fg);
-    border-color: var(--wg-weight-trend-flat-border);
-}
-
+/* Weight goal card (Phase 6, Task 3; Round-2 Task 12 defect #15). The
+   paper-era current-reading card was deleted in Round-2 Task 12 — the
+   value surfaces on Today's weight tile, the chart, and the history
+   list instead. The goal card renders only when a goal exists; it
+   carries a mono target, a gloss-inset progress track with a
+   --fill-pct width driven by goalData progress, and a muted
+   “Δ kg to goal” label. */
 .wg-weight-goal-card {
     padding: var(--wg-weight-goal-card-pad);
     margin-bottom: var(--space-md);
@@ -4591,14 +4615,25 @@ textarea.wg-input {
     font-size: var(--wg-weight-goal-delta-size);
 }
 
-/* Weight range selector + chart panel (Phase 6, Task 4). A gloss-inset
-   strip with four 7d/30d/90d/All buttons drives WGWeightChart; the active
-   button picks up the sun modifier. Dimensions come entirely from tokens. */
+/* Weight range selector + chart panel (Phase 6, Task 4; Round-2 Task 12
+   defect #15). Outer container is a flex row holding the inset
+   7d/30d/90d/All track and the trailing inline +Log pill (via the
+   shared .wg-toolbar-btn .wg-toolbar-btn--primary). Keeping the inset
+   limited to the track preserves the “tabs in a trough” look while
+   letting the primary action sit on the stage (mirrors
+   .wg-bp-range-selector). */
 .wg-weight-range-selector {
     display: flex;
     gap: var(--space-xs);
-    padding: var(--wg-weight-range-selector-pad);
+    align-items: stretch;
     margin-bottom: var(--space-md);
+}
+
+.wg-weight-range-selector__track {
+    flex: 1;
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--wg-weight-range-selector-pad);
 }
 
 .wg-weight-range-selector__btn {
@@ -4611,11 +4646,11 @@ textarea.wg-input {
 }
 
 .wg-weight-chart-panel {
-    padding: var(--wg-card-pad);
+    padding: var(--wg-chart-card-pad);
     margin-bottom: var(--space-md);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
+    background: var(--wg-chart-card-bg);
+    border: 1px solid var(--wg-chart-card-border);
+    border-radius: var(--wg-chart-card-radius);
 }
 
 /* Weight history list (Phase 6, Task 5). Day-grouped gloss cards with a
@@ -4698,43 +4733,6 @@ textarea.wg-input {
     gap: var(--space-xs);
 }
 
-/* Weight header row (Phase 5, Task 5). Flex row holding the latest-weight
-   card on the left and the inline sun-gloss add-weight button on the
-   right, replacing the paper-era full-width bottom CTA. align-items: stretch
-   lets the button match the card's visual height without hardcoding a size. */
-.wg-weight-header-row {
-    display: flex;
-    gap: var(--space-sm);
-    align-items: stretch;
-    margin-bottom: var(--space-md);
-}
-
-.wg-weight-header-row > #weight-current-card {
-    flex: 1;
-    min-width: 0;
-    margin-bottom: 0;
-}
-
-.wg-weight-header-row__add {
-    flex-shrink: 0;
-    align-self: flex-start;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-xs);
-    min-height: 36px;
-    padding: var(--space-sm) var(--space-md);
-    margin-top: var(--space-xs);
-    font-family: var(--wg-font-ui);
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-weight-header-row__add-label {
-    letter-spacing: 0.02em;
-}
 
 /* Edit-weight modal (Phase 6, Task 6) — shares the generic `.wg-modal` shell
    for positioning and chrome; overlays a dual-line mono header, gloss input
@@ -5147,31 +5145,20 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
-.wg-bp-range-selector__add {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-xs);
-    min-height: var(--wg-bp-range-selector-height);
-    padding: var(--space-xs) var(--space-md);
-    font-family: var(--wg-font-ui);
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-bp-range-selector__add-label {
+/* Round-2 Task 5 (defect 8): the BP +Log button adopted the shared
+   .wg-toolbar-btn .wg-toolbar-btn--primary (see ~line 3295). The per-section
+   .wg-bp-range-selector__add / __add-label rules were removed — the label
+   below the icon now uses the shared .wg-toolbar-btn__label. */
+.wg-toolbar-btn__label {
     letter-spacing: 0.02em;
 }
 
 .wg-bp-chart-card {
-    padding: var(--wg-card-pad);
+    padding: var(--wg-chart-card-pad);
     margin-bottom: var(--space-md);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
+    background: var(--wg-chart-card-bg);
+    border: 1px solid var(--wg-chart-card-border);
+    border-radius: var(--wg-chart-card-radius);
 }
 
 /* 3-up averages grid (14d / 30d / 60d). Each tile reuses .wg-card as the
@@ -5491,29 +5478,6 @@ textarea.wg-input {
     margin-top: var(--space-xs);
 }
 
-/* Inline +Add inside the food day navigator (Phase 5, Task 4). */
-.wg-food-day-nav--with-action {
-    grid-template-columns:
-        var(--wg-food-day-nav-icon-size) 1fr var(--wg-food-day-nav-icon-size) auto;
-}
-
-.wg-food-day-nav__add {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    min-height: var(--wg-food-day-nav-icon-size);
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-xs);
-    letter-spacing: 0.08em;
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-food-day-nav__add-label {
-    white-space: nowrap;
-}
-
 /* Food library entry (Phase 5, Task 4). Ghost-link row below the meal list
    that reveals the collapsed My Meals + Food DB panels. Keeps the sections
    reachable after the outer tab strip was removed. */
@@ -5557,12 +5521,15 @@ textarea.wg-input {
     margin-bottom: var(--space-md);
 }
 
-/* Meds sub-tab strip (Phase 5, Task 2; revised Task 5). `.wg-gloss--inset`
-   container wraps three `.wg-gloss`-capable pills — History (default) /
-   Schedule / Inventory — the active pill carries `.wg-gloss--sun` (plus
-   `.wg-meds-subtabs__btn--active` for tests). The strip is wrapped by a
-   `.wg-meds-subtabs-row` flex container that also holds the inline sun-gloss
-   add-medication pill on the right, replacing the paper-era full-width bottom CTA. */
+/* Meds sub-tab strip (Phase 5, Task 2; revised Task 5; Round-2 Task 7).
+   `.wg-gloss--inset` container wraps three `.wg-gloss`-capable pills —
+   History (default) / Schedule / Inventory — the active pill carries
+   `.wg-gloss--sun` (plus `.wg-meds-subtabs__btn--active` for tests).
+   Round-2 Task 7 removed the trailing add-medication pill from this row
+   (the Add CTA is now scoped to the Schedule subtab via
+   `.wg-meds-schedule-header` below) so History and Inventory no longer
+   show an irrelevant control. The outer `.wg-meds-subtabs-row` wrapper
+   is retained for layout stability and to keep legacy selectors happy. */
 .wg-meds-subtabs-row {
     display: flex;
     gap: var(--space-xs);
@@ -5586,31 +5553,28 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
-.wg-meds-subtabs-row__add {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-xs);
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-md);
-    font-family: var(--wg-font-ui);
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
+/* Schedule-subtab header (Round-2 Task 7 — defect #10).
+   Hosts the #add-btn Add-medication pill at the top of the Schedule list.
+   Because this row lives inside `#med-schedule-tab` (a `.med-tab-content`
+   that toggles `display:none` when inactive), the Add control is only
+   visible while Schedule is the active subtab — History and Inventory
+   render without an Add control, per the defect report. */
+.wg-meds-schedule-header {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: var(--space-sm);
 }
 
-.wg-meds-subtabs-row__add-label {
-    letter-spacing: 0.02em;
-}
-
-/* Workouts sub-tab strip (Phase 7, Task 2; revised Task 5). `.wg-gloss--inset`
-   container wraps four `.wg-gloss`-capable pills — History / Groups / Exercises /
-   Stats — the active pill carries `.wg-gloss--sun` (plus
+/* Workouts sub-tab strip (Phase 7, Task 2; revised Task 5; Round-2 Task 10).
+   `.wg-gloss--inset` container wraps four `.wg-gloss`-capable pills — History /
+   Groups / Exercises / Stats — the active pill carries `.wg-gloss--sun` (plus
    `.wg-workouts-subtabs__btn--active` for tests). The strip is wrapped by a
-   `.wg-workouts-subtabs-row` flex container that also holds the inline sun-gloss
-   `#start-adhoc-workout-btn` ad-hoc CTA on the right. */
+   `.wg-workouts-subtabs-row` flex container that also holds the inline
+   `#start-adhoc-workout-btn` ad-hoc CTA on the right. Round-2 Task 10
+   (defect 13b) migrated the Start button from its per-section
+   `.wg-workouts-subtabs-row__add` one-off onto the shared
+   `.wg-toolbar-btn .wg-toolbar-btn--primary` class so its height aligns
+   with the sibling subtab pills. */
 .wg-workouts-subtabs-row {
     display: flex;
     gap: var(--space-xs);
@@ -5632,25 +5596,6 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
     padding: var(--space-xs) var(--space-sm);
     border-radius: var(--wg-radius-gloss);
-}
-
-.wg-workouts-subtabs-row__add {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-xs);
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-md);
-    font-family: var(--wg-font-ui);
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-workouts-subtabs-row__add-label {
-    letter-spacing: 0.02em;
 }
 
 /* Health sub-tab strip (Phase 8, Task 2). `.wg-gloss--inset` container wraps
@@ -8340,6 +8285,18 @@ textarea.wg-input {
     row-gap: var(--space-xs);
     align-items: center;
     margin-bottom: var(--space-md);
+}
+
+/* Round-2 Task 6 (defect #9). `--with-action` widens the grid to a trailing
+   `auto` column so the inline +Add sits beside the next-day chevron in a
+   single row: [< prev] [date] [next >] [Add]. Previously this rule lived
+   above the base `.wg-food-day-nav` declaration — equal specificity meant
+   the base rule's 3-column `grid-template-columns` won the cascade, so the
+   4th grid item (Add) spilled onto an implicit second row. Keeping the
+   override AFTER the base rule fixes the wrap. */
+.wg-food-day-nav--with-action {
+    grid-template-columns:
+        var(--wg-food-day-nav-icon-size) 1fr var(--wg-food-day-nav-icon-size) auto;
 }
 
 .wg-food-day-nav__icon-btn {
