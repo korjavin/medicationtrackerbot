@@ -637,6 +637,10 @@ function renderWeightChart(logs, goalData) {
     const activeRange = getActiveWeightRange();
     container.setAttribute('data-weight-range', activeRange);
 
+    const list = Array.isArray(logs) ? logs : [];
+    const current = buildWeightChartCurrentBadge(list);
+    if (current) container.appendChild(current);
+
     if (!window.WGWeightChart || typeof window.WGWeightChart.render !== 'function') {
         const noDataSpan = document.createElement('span');
         noDataSpan.className = 'no-data-msg';
@@ -646,11 +650,44 @@ function renderWeightChart(logs, goalData) {
     }
 
     const node = window.WGWeightChart.render({
-        logs: Array.isArray(logs) ? logs : [],
+        logs: list,
         range: activeRange,
         goal: goalData || null,
     });
     if (node) container.appendChild(node);
+}
+
+// Current-weight badge shown at the top of the chart panel. The old Latest
+// pane above the chart was removed in Round-2 Task 12 (#15) — but the value
+// is still useful to surface right where users scan for trend context, so
+// we inline it inside the chart card instead of resurrecting the old pane.
+// Returns null when no valid entry is available so the chart still works on
+// an empty dataset.
+function buildWeightChartCurrentBadge(logs) {
+    if (!Array.isArray(logs) || logs.length === 0) return null;
+    const top = logs[0];
+    const weight = top ? Number(top.weight) : NaN;
+    if (!Number.isFinite(weight)) return null;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'wg-weight-chart-panel__current';
+
+    const label = document.createElement('span');
+    label.className = 'wg-weight-chart-panel__current-label';
+    label.textContent = 'Current';
+    wrap.appendChild(label);
+
+    const value = document.createElement('span');
+    value.className = 'wg-weight-chart-panel__current-value';
+    value.textContent = weight.toFixed(1);
+
+    const unit = document.createElement('span');
+    unit.className = 'wg-weight-chart-panel__current-unit';
+    unit.textContent = 'kg';
+    value.appendChild(unit);
+
+    wrap.appendChild(value);
+    return wrap;
 }
 
 

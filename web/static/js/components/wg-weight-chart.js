@@ -312,6 +312,14 @@
         const interiorTicks = ticks.filter((t) => t > yMin && t < yMax);
         for (const tick of interiorTicks) {
             svg.appendChild(makeGuideLine(PAD_L, width - PAD_R, yOf(tick), tick));
+        }
+        // Render tick LABELS at every tick (including bounds) so the user sees
+        // a proper numeric scale down the left gutter — previously only
+        // interior ticks had labels, which meant short ranges could show a
+        // single label and left the top/bottom of the plot unanchored.
+        // Guide lines stay interior-only to avoid doubling the outer frame.
+        const labelTicks = ticks.length > 0 ? ticks : [yMin, yMax];
+        for (const tick of labelTicks) {
             svg.appendChild(
                 makeTickText(PAD_L - 4, yOf(tick) + 3, tick, 'wg-weight-chart__y-tick-label', 'end'),
             );
