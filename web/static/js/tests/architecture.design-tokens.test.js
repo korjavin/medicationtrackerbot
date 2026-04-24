@@ -324,6 +324,21 @@ const WANDERGEEK_TOKENS = [
     '--wg-mini-bar-track-bg',
     '--wg-mini-bar-track-shadow',
 
+    // Shared chart theme tokens (Round-2 Task 13 / defect 16) — single
+    // source of truth for every chart card's surface, grid-line stroke,
+    // and axis-tick label color/size so BP/Weight/Workout/Sleep/Steps/
+    // Vitals charts stay visually coherent and axis labels stay legible
+    // on the dark teal stage.
+    '--wg-chart-card-bg',
+    '--wg-chart-card-border',
+    '--wg-chart-card-radius',
+    '--wg-chart-card-pad',
+    '--wg-chart-guide-stroke',
+    '--wg-chart-guide-stroke-width',
+    '--wg-chart-guide-dasharray',
+    '--wg-chart-axis-tick-color',
+    '--wg-chart-axis-tick-size',
+
     // BP screen tokens (Phase 3, Task 1) — current-reading card, range
     // selector, chart geometry, averages, history row.
     '--wg-bp-reading-value-size',

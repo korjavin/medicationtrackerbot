@@ -351,6 +351,24 @@
     --wg-mini-bar-track-bg: rgba(0, 0, 0, 0.35);
     --wg-mini-bar-track-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 
+    /* Wandergeek — shared chart theme (Round-2 Task 13 / defect 16).
+       Single source of truth for every chart card's surface, grid-line
+       stroke, and axis-tick label color/size. BP + Weight + Workout chart
+       rules consume these tokens so the look stays coherent across sections
+       and axis labels stay readable on the dark stage. Individual charts
+       keep their own `--wg-<chart>-*` tokens for chart-specific geometry
+       (line stroke width, band alpha, point radius, etc.) — but surface,
+       grid, and axis tick styling MUST come from the shared tokens below. */
+    --wg-chart-card-bg: var(--wg-bg-card);
+    --wg-chart-card-border: var(--wg-border-hairline);
+    --wg-chart-card-radius: var(--wg-radius-card);
+    --wg-chart-card-pad: var(--wg-card-pad);
+    --wg-chart-guide-stroke: var(--wg-fg-5);
+    --wg-chart-guide-stroke-width: 1px;
+    --wg-chart-guide-dasharray: 2 4;
+    --wg-chart-axis-tick-color: var(--wg-fg-3);
+    --wg-chart-axis-tick-size: 10px;
+
     /* Wandergeek — BP screen (Phase 3, Task 1). Dimensional tokens for the
        current-reading card, range selector, chart geometry, and guide-line
        strokes. Everything visual in features/bp.js reads from here. */
@@ -360,8 +378,8 @@
     --wg-bp-chart-width: 358px;
     --wg-bp-chart-height: 200px;
     --wg-bp-chart-band-alpha: 0.18;
-    --wg-bp-chart-guide-dasharray: 2 4;
-    --wg-bp-chart-guide-stroke-width: 1px;
+    --wg-bp-chart-guide-dasharray: var(--wg-chart-guide-dasharray);
+    --wg-bp-chart-guide-stroke-width: var(--wg-chart-guide-stroke-width);
     --wg-bp-chart-line-stroke-width: 2px;
     --wg-bp-chart-last-point-radius: 4px;
     --wg-bp-chart-last-stroke-width: 2px;
@@ -4329,9 +4347,9 @@ textarea.wg-input {
 }
 
 .wg-bp-chart__guide {
-    stroke: var(--wg-fg-5);
-    stroke-width: var(--wg-bp-chart-guide-stroke-width);
-    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    stroke: var(--wg-chart-guide-stroke);
+    stroke-width: var(--wg-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-chart-guide-dasharray);
     fill: none;
 }
 
@@ -4365,12 +4383,12 @@ textarea.wg-input {
 
 /* Round-2, Task 2 — axis tick labels. Emitted as <text> elements with a
    data-bp-axis attribute so x/y ticks can be restyled independently if
-   needed. Color resolves to the standard muted-on-teal token so readings
-   stay legible on the stage. */
+   needed. Color and size resolve via the shared --wg-chart-axis-tick-*
+   tokens so the weight chart matches (Round-2 Task 13 / defect 16). */
 .wg-bp-chart__axis-tick {
-    fill: var(--wg-fg-3);
+    fill: var(--wg-chart-axis-tick-color);
     font-family: inherit;
-    font-size: var(--wg-font-size-mini);
+    font-size: var(--wg-chart-axis-tick-size);
     font-variant-numeric: tabular-nums;
 }
 
@@ -4403,9 +4421,9 @@ textarea.wg-input {
 }
 
 .wg-weight-chart__guide {
-    stroke: var(--wg-fg-5);
-    stroke-width: var(--wg-bp-chart-guide-stroke-width);
-    stroke-dasharray: var(--wg-bp-chart-guide-dasharray);
+    stroke: var(--wg-chart-guide-stroke);
+    stroke-width: var(--wg-chart-guide-stroke-width);
+    stroke-dasharray: var(--wg-chart-guide-dasharray);
     fill: none;
 }
 
@@ -4448,9 +4466,10 @@ textarea.wg-input {
 
 .wg-weight-chart__y-tick-label,
 .wg-weight-chart__x-tick-label {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-weight-chart-tick-size);
-    fill: var(--wg-fg-4);
+    font-family: inherit;
+    font-size: var(--wg-chart-axis-tick-size);
+    font-variant-numeric: tabular-nums;
+    fill: var(--wg-chart-axis-tick-color);
 }
 
 .wg-weight-chart__goal-label {
@@ -4627,11 +4646,11 @@ textarea.wg-input {
 }
 
 .wg-weight-chart-panel {
-    padding: var(--wg-card-pad);
+    padding: var(--wg-chart-card-pad);
     margin-bottom: var(--space-md);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
+    background: var(--wg-chart-card-bg);
+    border: 1px solid var(--wg-chart-card-border);
+    border-radius: var(--wg-chart-card-radius);
 }
 
 /* Weight history list (Phase 6, Task 5). Day-grouped gloss cards with a
@@ -5135,11 +5154,11 @@ textarea.wg-input {
 }
 
 .wg-bp-chart-card {
-    padding: var(--wg-card-pad);
+    padding: var(--wg-chart-card-pad);
     margin-bottom: var(--space-md);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
+    background: var(--wg-chart-card-bg);
+    border: 1px solid var(--wg-chart-card-border);
+    border-radius: var(--wg-chart-card-radius);
 }
 
 /* 3-up averages grid (14d / 30d / 60d). Each tile reuses .wg-card as the
