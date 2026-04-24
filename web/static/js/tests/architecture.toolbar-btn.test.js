@@ -46,7 +46,10 @@ const TOOLBAR_BTN_MIGRATION_TODO = [
     // pinned in `bp.render.test.js` and reasserted below.
     // Round-2 Task 6 (defect #9): `#add-food-inline-btn` — ADOPTED; DOM
     // adoption pinned in `food.toolbar-row.test.js` and reasserted below.
-    { file: 'web/static/index.html',          button: '#add-btn',    oneOffClass: '.wg-meds-subtabs-row__add',    task: 'Round-2 Task 7 (defect #10)' },
+    // Round-2 Task 7 (defect #10): `#add-btn` — ADOPTED; the button moved
+    // out of the subtab row and is now scoped to the Schedule subtab via
+    // `.wg-meds-schedule-header`. DOM adoption pinned in
+    // `meds.schedule-add.test.js` and reasserted below.
     { file: 'web/static/index.html',          button: '#start-adhoc-workout-btn', oneOffClass: '.wg-workouts-subtabs-row__add', task: 'Round-2 Task 10 (defect #13b)' },
     { file: 'web/static/index.html',          button: '#add-weight-btn', oneOffClass: '.wg-weight-header-row__add', task: 'Round-2 Task 12 (defect #15)' },
 ];
@@ -166,5 +169,35 @@ describe('Round-2 Task 2 — shared .wg-toolbar-btn class', () => {
     it('CSS no longer defines the dead .wg-food-day-nav__add rule', () => {
         expect(CSS).not.toMatch(/\.wg-food-day-nav__add\s*\{/);
         expect(CSS).not.toMatch(/\.wg-food-day-nav__add-label\s*\{/);
+    });
+
+    // Round-2 Task 7 (defect #10): Meds #add-btn moved out of the subtab
+    // row and into the Schedule subtab's `.wg-meds-schedule-header`.
+    // Source-level guards mirror the BP/Food patterns above — DOM-level
+    // visibility/placement assertions live in `meds.schedule-add.test.js`.
+    it('Meds #add-btn uses .wg-toolbar-btn + .wg-toolbar-btn--primary and lives in the Schedule header', () => {
+        const INDEX_HTML_PATH = path.join(REPO_ROOT, 'web/static/index.html');
+        const src = fs.readFileSync(INDEX_HTML_PATH, 'utf8');
+        const match = src.match(/<button\s+id="add-btn"[^>]*class="([^"]+)"/);
+        expect(match).not.toBeNull();
+        const classAttr = match[1];
+        expect(classAttr).toMatch(/\bwg-toolbar-btn\b/);
+        expect(classAttr).toMatch(/\bwg-toolbar-btn--primary\b/);
+        // The per-section one-offs must not coexist with the shared class.
+        expect(classAttr).not.toMatch(/\bwg-meds-subtabs-row__add\b/);
+        expect(classAttr).not.toMatch(/\bwg-gloss--sun\b/);
+        // And the button must live inside the Schedule subtab's header
+        // (so History/Inventory render without an Add control).
+        const scheduleTabIdx = src.indexOf('id="med-schedule-tab"');
+        const scheduleTabClose = src.indexOf('</div>', src.indexOf('<div id="med-list"', scheduleTabIdx));
+        const addBtnIdx = src.indexOf('id="add-btn"');
+        expect(scheduleTabIdx).toBeGreaterThan(-1);
+        expect(addBtnIdx).toBeGreaterThan(scheduleTabIdx);
+        expect(addBtnIdx).toBeLessThan(scheduleTabClose);
+    });
+
+    it('CSS no longer defines the dead .wg-meds-subtabs-row__add rule', () => {
+        expect(CSS).not.toMatch(/\.wg-meds-subtabs-row__add\s*\{/);
+        expect(CSS).not.toMatch(/\.wg-meds-subtabs-row__add-label\s*\{/);
     });
 });

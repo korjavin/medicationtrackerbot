@@ -42,30 +42,34 @@
 
 
         <div id="meds-view" class="view wg-screen-stage">
-            <!-- Med Sub-tabs + inline +Add (Phase 5, Task 5 rework; round-2
-                 Task 4 added `wg-screen-stage` so the view sits directly on
-                 the teal palette instead of the paper-white body). Outer
-                 container is a plain flex row holding the inset 3-pill track
-                 (History / Schedule / Inventory — default "history" matches
-                 the mockup) and the trailing sun-gloss `#add-btn`. Dual-classed
-                 `.med-tabs` + `.wg-meds-subtabs` so legacy selectors in
-                 existing tests keep working. -->
+            <!-- Med Sub-tabs (Phase 5, Task 5 rework; round-2 Task 4 added
+                 `wg-screen-stage` so the view sits directly on the teal
+                 palette; round-2 Task 7 removed the global #add-btn from this
+                 row and re-homed it at the top of the Schedule subtab list).
+                 Outer container is a plain flex row holding the inset 3-pill
+                 track (History / Schedule / Inventory — default "history"
+                 matches the mockup). Dual-classed `.med-tabs` +
+                 `.wg-meds-subtabs` so legacy selectors in existing tests
+                 keep working. -->
             <div class="wg-meds-subtabs-row" id="med-subtabs">
                 <div class="wg-gloss--inset wg-meds-subtabs med-tabs">
                     <button class="wg-gloss wg-meds-subtabs__btn wg-gloss--sun wg-meds-subtabs__btn--active med-tab active" data-tab="history" aria-pressed="true">History</button>
                     <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="schedule" aria-pressed="false">Schedule</button>
                     <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="inventory" aria-pressed="false">Inventory</button>
                 </div>
-                <!-- Add medication CTA (Phase 5, Task 5). Inline sun-gloss pill
-                     replacing the old full-width bottom CTA. `#add-btn` id
-                     retained so bindClick('add-btn', showAddModal) and the
-                     offline UI wiring continue to work. -->
-                <button id="add-btn" type="button" class="wg-gloss wg-gloss--sun wg-meds-subtabs-row__add" aria-label="Add medication">
-                    <span class="wg-meds-subtabs-row__add-label">Add</span>
-                </button>
             </div>
 
             <div id="med-schedule-tab" class="med-tab-content">
+                <!-- Round-2 Task 7 (defect #10): #add-btn moved out of the
+                     subtab row and into a schedule-scoped header so History
+                     and Inventory no longer show an orphan Add control.
+                     Shared .wg-toolbar-btn sizing keeps it aligned with the
+                     subtab pills above. -->
+                <div class="wg-meds-schedule-header">
+                    <button id="add-btn" type="button" class="wg-toolbar-btn wg-toolbar-btn--primary" aria-label="Add medication">
+                        <span class="wg-toolbar-btn__label">Add</span>
+                    </button>
+                </div>
                 <!-- Round-2 Task 4: the Schedule-tab "next-intake" card was
                      removed (duplicated the Today next-action + History
                      next-intake trigger). The schedule list now sits
