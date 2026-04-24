@@ -1457,18 +1457,6 @@ function setFoodStatsPeriod(period) {
 async function loadFoodLogs() {
     const list = document.getElementById('food-list');
 
-    // Phase 5, Task 4 — meal list is always daily; the macros card flips
-    // between daily and weekly totals via `foodMacrosRange`. The sticky
-    // Add Food CTA dock is therefore always visible; `_renderFoodData()`
-    // rebuilds its contents on every render.
-    const ctaDock = document.getElementById('food-add-cta-dock');
-    if (ctaDock) {
-        if (!ctaDock.querySelector('.wg-food-add-cta')) {
-            ctaDock.replaceChildren(renderFoodAddCta());
-        }
-        ctaDock.classList.remove('hidden');
-    }
-
     // Ensure targets are available even if Settings tab hasn't been opened yet.
     await loadFoodTargets();
 
@@ -1688,31 +1676,11 @@ function buildFoodActionButton(iconName, ariaLabel, onClick) {
     return btn;
 }
 
-function renderFoodAddCta() {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'wg-gloss wg-gloss--sun wg-food-add-cta';
-    btn.id = 'add-food-btn';
-
-    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
-        btn.appendChild(window.WGIcons.iconSvg('plus', { size: 18 }));
-    }
-    const label = document.createElement('span');
-    label.className = 'wg-food-add-cta__label';
-    label.textContent = 'Add food';
-    btn.appendChild(label);
-
-    btn.addEventListener('click', () => showAddFoodModal());
-    return btn;
-}
-
 function _renderFoodData(groups, weekStats, range, dateStr) {
     const list = document.getElementById('food-list');
     const summary = document.getElementById('food-summary');
-    const ctaDock = document.getElementById('food-add-cta-dock');
 
     list.replaceChildren();
-    if (ctaDock) ctaDock.replaceChildren();
     let dayCals = 0, dayCarbs = 0, dayProt = 0, dayFat = 0;
     currentFoodLogs = {};
 
@@ -1735,10 +1703,6 @@ function _renderFoodData(groups, weekStats, range, dateStr) {
             list.appendChild(renderFoodMealGroup(group));
         });
     }
-
-    // Meal list is always daily; the Add Food CTA is always available.
-    (ctaDock || list).appendChild(renderFoodAddCta());
-    if (ctaDock) ctaDock.classList.remove('hidden');
 
     const progress = document.getElementById('food-target-progress');
     if (progress) {

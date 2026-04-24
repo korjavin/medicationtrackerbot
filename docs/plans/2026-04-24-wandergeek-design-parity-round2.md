@@ -92,11 +92,11 @@ Addresses user findings #2 (BP graph has no numbers), #3 (14d default), #4 (list
 
 Addresses user findings #6 (duplicate bottom Add button), #7 (top Add button broke layout, should be same row as "Today").
 
-- [ ] remove `#food-add-cta-dock` element from `web/static/index.html` and its population code from `food.js`; drop orphaned `.wg-food-cta-dock` rules in `styles.css`
-- [ ] restructure `#food-view` header so the title row contains: day-nav chevrons + "Today" label (flex-grow) + `#add-food-inline-btn` sun-gloss pill (right-aligned) on a single row at all mobile widths — mirror `.local/design-reference/project/screens.jsx` Food header
-- [ ] verify macros card remains below header unchanged
-- [ ] write tests: `tests/food.test.js` — assert absence of `#food-add-cta-dock`, presence of `#add-food-inline-btn` as direct child of the same header flex row as the day-nav, no second "Add" button in DOM
-- [ ] run `pnpm test` — must pass before next task
+- [x] remove `#food-add-cta-dock` element from `web/static/index.html` and its population code from `food.js`; drop orphaned `.wg-food-cta-dock` rules in `styles.css`  *(also removed the dead `renderFoodAddCta()` helper + the `.wg-food-add-cta` CSS block — both went unreferenced after the dock removal. Kept the `--wg-z-fab` token since it's guarded by `architecture.design-tokens.test.js`; the `architecture.wg-primitives.test.js` "retired FAB" case now also asserts `.wg-food-cta-dock` has zero rule blocks.)*
+- [x] restructure `#food-view` header so the title row contains: day-nav chevrons + "Today" label (flex-grow) + `#add-food-inline-btn` sun-gloss pill (right-aligned) on a single row at all mobile widths — mirror `.local/design-reference/project/screens.jsx` Food header  *(the `.wg-food-day-nav--with-action` grid template already provided the 4th `auto` column for the inline pill; no new markup/CSS needed once the bottom dock was dropped. Pinned by the new design-parity test.)*
+- [x] verify macros card remains below header unchanged  *(asserted in `food.design-parity.test.js`: `#food-macros-card` stays inside `#food-log-tab` and DOM order keeps it after the day-nav.)*
+- [x] write tests: `tests/food.test.js` — assert absence of `#food-add-cta-dock`, presence of `#add-food-inline-btn` as direct child of the same header flex row as the day-nav, no second "Add" button in DOM  *(lives at `web/static/js/tests/food.design-parity.test.js`; updated `food.meallist.test.js` + `app.ui-characterization.test.js` to match the new reality and refreshed the line numbers in `architecture.inline-styles.test.js` after the helper removal shifted the legacy `renderFoodTargetProgress` allowlist entries.)*
+- [x] run `pnpm test` — must pass before next task  *(120 suites / 1368 tests green; `go test ./...` also green, no backend changes were needed.)*
 
 ### Task 4: Meds section — history default actually applied, remove schedule summary, background + modals
 
