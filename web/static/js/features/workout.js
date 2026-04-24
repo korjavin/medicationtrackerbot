@@ -165,6 +165,7 @@ function renderWorkoutModalCloseIcons() {
     if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
     const closeBtnIds = [
         'workout-group-close-btn',
+        'workout-variant-close-btn',
         'exercise-close-btn',
         'exercise-library-close-btn',
         'session-add-exercise-close-btn',

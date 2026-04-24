@@ -657,8 +657,23 @@ async function loadMoreNotes() {
             _notesHasLoadedMore = false;
             const pending = _notesPendingFresh.data;
             _notesPendingFresh = null;
-            renderNotes(list, pending);
-            _notesCursor = pending && pending.length > 0 ? pending[pending.length - 1].id : 0;
+            const freshLastID = pending && pending.length > 0 ? pending[pending.length - 1].id : 0;
+            if (freshLastID !== page1EndCursor) {
+                // Page-1 boundary shifted while we were fetching page 2. The empty
+                // page-2 response was relative to the old boundary; rows may now
+                // sit on a different page. Reload for a contiguous, accurate list.
+                loadNotes();
+                return;
+            }
+            // Boundary unchanged and server proved no older rows exist — render
+            // the pending page-1 data and suppress Load more. Bypass renderNotes
+            // so _notesHasMore is not re-set from pending.length.
+            _notesAll = Array.isArray(pending) ? pending.slice() : [];
+            _notesHasMore = false;
+            paintNotes(list);
+            syncNotesRowTagActive(list);
+            bindNotesTagFilterDelegation(list);
+            _notesCursor = freshLastID;
             return;
         }
         if (notes.length > 0) _notesCursor = notes[notes.length - 1].id;
@@ -710,8 +725,12 @@ async function loadMoreNotes() {
 // Round-2 Task 5: module-level cache so the tag-chip filter can repaint the
 // list from memory without refetching. `renderNotes` resets it; `appendNotes`
 // extends it. `_notesFilterTag` is null when no filter is active.
+// `_notesHasMore` tracks whether the last server response returned a full
+// page — it must be based on the unfiltered fetch, not the filtered visible
+// count, or tag-filtered views would drop the Load-more control prematurely.
 let _notesAll = [];
 let _notesFilterTag = null;
+let _notesHasMore = false;
 
 function getNotesFilterTag() {
     return _notesFilterTag;
@@ -742,21 +761,29 @@ function paintNotes(list) {
             ? `No notes tagged ${_notesFilterTag}`
             : 'No notes yet \u2014 write your first one.';
         list.appendChild(buildNotesEmptyCard(msg));
-        return;
+    } else {
+        paintNotesGroups(list, visible);
     }
-    paintNotesGroups(list, visible);
+    appendLoadMoreIfNeeded(list);
 }
 
 function renderNotes(list, notes) {
     _notesAll = Array.isArray(notes) ? notes.slice() : [];
+    _notesHasMore = _notesAll.length === NOTES_PAGE_SIZE;
     paintNotes(list);
     syncNotesRowTagActive(list);
     bindNotesTagFilterDelegation(list);
 }
 
 function appendNotes(list, notes) {
-    if (!notes || notes.length === 0) return;
+    if (!notes || notes.length === 0) {
+        // Server proved no more rows exist; clear the flag so a later
+        // paintNotes() (e.g. tag-filter toggle) does not re-add Load more.
+        _notesHasMore = false;
+        return;
+    }
     _notesAll = _notesAll.concat(notes);
+    _notesHasMore = notes.length === NOTES_PAGE_SIZE;
 
     // With a filter active, raw appends would reveal non-matching rows next
     // to filtered ones \u2014 repaint the whole list from the cache instead.
@@ -767,8 +794,15 @@ function appendNotes(list, notes) {
         return;
     }
     paintNotesGroups(list, notes);
+    appendLoadMoreIfNeeded(list);
     syncNotesRowTagActive(list);
     bindNotesTagFilterDelegation(list);
+}
+
+function appendLoadMoreIfNeeded(list) {
+    if (!list || !_notesHasMore) return;
+    if (list.querySelector('.wg-health-notes__load-more')) return;
+    list.appendChild(buildNotesLoadMore());
 }
 
 function paintNotesGroups(list, notes) {
@@ -795,10 +829,6 @@ function paintNotesGroups(list, notes) {
             list.appendChild(groupItem);
         }
     });
-
-    if (notes.length === NOTES_PAGE_SIZE) {
-        list.appendChild(buildNotesLoadMore());
-    }
 }
 
 function syncNotesRowTagActive(list) {
