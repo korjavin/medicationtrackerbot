@@ -106,9 +106,16 @@ function buildWeightInlineAddButton() {
 const WEIGHT_KG_PER_LB = 0.45359237;
 let weightModalUnit = 'kg';
 let editingWeightLog = null;
+// Bumped on every showWeightModal() call so a late-resolving async seed from a
+// prior open can't land on a subsequent one.
+let weightModalOpenGen = 0;
 
 function showWeightModal() {
     editingWeightLog = null;
+    // Bump on every open so any in-flight async seed from a prior session
+    // (even one where cachedWeightLogs is now populated and the fallback
+    // branch below is skipped) can't overwrite the current input.
+    const openGen = ++weightModalOpenGen;
     window.ModalManager.weight.open();
     setWeightModalEyebrow('New entry');
 
@@ -132,6 +139,12 @@ function showWeightModal() {
         const baseline = input ? input.value : '';
         readCachedLatestWeightKg().then((kg) => {
             if (!Number.isFinite(kg)) return;
+            // Caller (editWeightLog) sets editingWeightLog AFTER showWeightModal
+            // returns, and the edited row's weight may coincidentally equal the
+            // default 75.0 — bypassing the baseline guard. Skip the seed in
+            // edit mode, and also skip if the modal was closed/reopened.
+            if (editingWeightLog) return;
+            if (openGen !== weightModalOpenGen) return;
             if (!input || input.value !== baseline) return;
             setWeightValue(kg);
         }).catch(() => {});
@@ -142,11 +155,13 @@ function showWeightModal() {
     focusWeightModalInput();
 }
 
-// Reads the latest logged weight (kg) from whichever cache is populated.
-// Returns NaN when none is available. Order matches how Today/Weight
-// dashboards surface the value: DataStore bootstrap cache first (shared
-// with Today), then IndexedDB pending/rejected locals. Errors are swallowed
-// — the caller only uses the result when it's a finite number.
+// Reads the latest logged weight (kg) from the combined DataStore bootstrap
+// cache (server logs) + IndexedDB WeightStore (pending/rejected local writes).
+// The two sources can diverge — e.g. an offline log added via the Today
+// shortcut lives only in IndexedDB until sync — so we merge them and pick the
+// newest by measured_at rather than trusting whichever is populated first.
+// Returns NaN when nothing is available. Errors are swallowed — the caller
+// only uses the result when it's a finite number.
 async function readCachedLatestWeightKg() {
     const pickLatestKg = (arr) => {
         if (!Array.isArray(arr) || arr.length === 0) return NaN;
@@ -160,11 +175,12 @@ async function readCachedLatestWeightKg() {
         return Number.isFinite(w) ? w : NaN;
     };
 
+    const combined = [];
+
     try {
         if (window.DataStore && typeof window.DataStore.getCached === 'function') {
             const cached = await window.DataStore.getCached('weight');
-            const kg = pickLatestKg(cached && cached.logsRes);
-            if (Number.isFinite(kg)) return kg;
+            if (cached && Array.isArray(cached.logsRes)) combined.push(...cached.logsRes);
         }
     } catch (_) { /* best-effort */ }
 
@@ -172,12 +188,11 @@ async function readCachedLatestWeightKg() {
         if (window.MedTrackerDB && window.MedTrackerDB.WeightStore
             && typeof window.MedTrackerDB.WeightStore.getAll === 'function') {
             const all = await window.MedTrackerDB.WeightStore.getAll();
-            const kg = pickLatestKg(all);
-            if (Number.isFinite(kg)) return kg;
+            if (Array.isArray(all)) combined.push(...all);
         }
     } catch (_) { /* best-effort */ }
 
-    return NaN;
+    return pickLatestKg(combined);
 }
 
 function renderWeightModalIcons() {
