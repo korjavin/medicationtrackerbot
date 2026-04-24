@@ -413,4 +413,48 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(document.getElementById('weight-modal').classList.contains('hidden')).toBe(true);
         });
     });
+
+    // Round-2 defects Task 4 — #2 (close icon), #3 (last-logged seed), #4 (focus)
+    describe('Round-2 Task 4: open-time polish', () => {
+        it('paints the Wandergeek close SVG into #weight-modal-close-btn on open (defect #2)', () => {
+            const { window, document } = env;
+            window.showWeightModal();
+
+            const closeBtn = document.getElementById('weight-modal-close-btn');
+            expect(closeBtn).not.toBeNull();
+            expect(closeBtn.classList.contains('wg-icon-btn')).toBe(true);
+
+            const gloss = closeBtn.querySelector('.wg-gloss');
+            expect(gloss).not.toBeNull();
+            const svg = gloss.querySelector('svg');
+            expect(svg, 'expected close SVG to be rendered on open').not.toBeNull();
+            expect(svg.getAttribute('data-wg-icon')).toBe('close');
+        });
+
+        it('seeds the weight input from DataStore weight cache when no in-memory log exists (defect #3)', async () => {
+            const { window, document } = env;
+            const cachedPayload = {
+                logsRes: [
+                    { id: 9, measured_at: '2026-04-20T07:00:00Z', weight: 82.5 },
+                    { id: 8, measured_at: '2026-04-18T07:00:00Z', weight: 83.1 },
+                ]
+            };
+            window.DataStore.getCached = vi.fn(async (key) => key === 'weight' ? cachedPayload : null);
+
+            window.showWeightModal();
+            // showWeightModal kicks off the async DataStore read; flush the
+            // microtask queue so the input picks up the cached latest weight.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            const input = document.getElementById('weight-value');
+            expect(parseFloat(input.value)).toBeCloseTo(82.5, 2);
+        });
+
+        it('focuses the weight input on open (defect #4)', () => {
+            const { window, document } = env;
+            window.showWeightModal();
+            const input = document.getElementById('weight-value');
+            expect(document.activeElement).toBe(input);
+        });
+    });
 });

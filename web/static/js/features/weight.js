@@ -76,12 +76,82 @@ function showWeightModal() {
 
     resetWeightUnitToggle();
 
-    const lastWeight = cachedWeightLogs && cachedWeightLogs.length > 0
+    // Seed the weight input with the user's most recent logged weight so the
+    // common case (log a value close to yesterday's) is one tap away. Users
+    // who open the modal via the Today shortcut may not have visited the
+    // Weight tab yet — cachedWeightLogs is empty then, so we fall back to
+    // the DataStore / IndexedDB cache asynchronously and re-seed if the
+    // user hasn't typed anything in the meantime.
+    const sync = cachedWeightLogs && cachedWeightLogs.length > 0
         ? cachedWeightLogs[0].weight
         : 75.0;
-    setWeightValue(lastWeight);
+    setWeightValue(sync);
+    if (!cachedWeightLogs || cachedWeightLogs.length === 0) {
+        const input = document.getElementById('weight-value');
+        const baseline = input ? input.value : '';
+        readCachedLatestWeightKg().then((kg) => {
+            if (!Number.isFinite(kg)) return;
+            if (!input || input.value !== baseline) return;
+            setWeightValue(kg);
+        }).catch(() => {});
+    }
 
     attachWeightUnitToggleHandlers();
+    renderWeightModalIcons();
+    focusWeightModalInput();
+}
+
+// Reads the latest logged weight (kg) from whichever cache is populated.
+// Returns NaN when none is available. Order matches how Today/Weight
+// dashboards surface the value: DataStore bootstrap cache first (shared
+// with Today), then IndexedDB pending/rejected locals. Errors are swallowed
+// — the caller only uses the result when it's a finite number.
+async function readCachedLatestWeightKg() {
+    const pickLatestKg = (arr) => {
+        if (!Array.isArray(arr) || arr.length === 0) return NaN;
+        const sorted = arr.slice().sort((a, b) => {
+            const ta = new Date(a && a.measured_at).getTime();
+            const tb = new Date(b && b.measured_at).getTime();
+            return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+        });
+        const top = sorted[0];
+        const w = top && Number(top.weight);
+        return Number.isFinite(w) ? w : NaN;
+    };
+
+    try {
+        if (window.DataStore && typeof window.DataStore.getCached === 'function') {
+            const cached = await window.DataStore.getCached('weight');
+            const kg = pickLatestKg(cached && cached.logsRes);
+            if (Number.isFinite(kg)) return kg;
+        }
+    } catch (_) { /* best-effort */ }
+
+    try {
+        if (window.MedTrackerDB && window.MedTrackerDB.WeightStore
+            && typeof window.MedTrackerDB.WeightStore.getAll === 'function') {
+            const all = await window.MedTrackerDB.WeightStore.getAll();
+            const kg = pickLatestKg(all);
+            if (Number.isFinite(kg)) return kg;
+        }
+    } catch (_) { /* best-effort */ }
+
+    return NaN;
+}
+
+function renderWeightModalIcons() {
+    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
+    const closeGloss = document.querySelector('#weight-modal-close-btn .wg-gloss');
+    if (closeGloss && !closeGloss.querySelector('svg')) {
+        closeGloss.replaceChildren(window.WGIcons.iconSvg('close', { size: 14 }));
+    }
+}
+
+function focusWeightModalInput() {
+    const input = document.getElementById('weight-value');
+    if (!input) return;
+    try { input.focus(); } catch (_) { /* jsdom may throw on hidden inputs */ }
+    try { if (typeof input.select === 'function') input.select(); } catch (_) { /* numeric inputs can reject select() */ }
 }
 
 function closeWeightModal() {
