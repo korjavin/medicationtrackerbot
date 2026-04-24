@@ -41,8 +41,10 @@
         </div>
 
 
-        <div id="meds-view" class="view">
-            <!-- Med Sub-tabs + inline +Add (Phase 5, Task 5 rework). Outer
+        <div id="meds-view" class="view wg-screen-stage">
+            <!-- Med Sub-tabs + inline +Add (Phase 5, Task 5 rework; round-2
+                 Task 4 added `wg-screen-stage` so the view sits directly on
+                 the teal palette instead of the paper-white body). Outer
                  container is a plain flex row holding the inset 3-pill track
                  (History / Schedule / Inventory — default "history" matches
                  the mockup) and the trailing sun-gloss `#add-btn`. Dual-classed
@@ -64,11 +66,10 @@
             </div>
 
             <div id="med-schedule-tab" class="med-tab-content">
-                <!-- Next-action card (Phase 5, Task 3). Sun-glossed card mounted
-                     atop the Schedule sub-tab; mirrors the Today next-action
-                     pattern. Populated by mountNextActionCard() from cached
-                     `next_intake`. -->
-                <div id="med-next-action"></div>
+                <!-- Round-2 Task 4: the Schedule-tab "next-intake" card was
+                     removed (duplicated the Today next-action + History
+                     next-intake trigger). The schedule list now sits
+                     directly under the sub-tab strip. -->
                 <div id="med-list">
                     <!-- Meds injected here -->
                 </div>

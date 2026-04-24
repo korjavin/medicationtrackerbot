@@ -1094,7 +1094,6 @@ h3 {
 #exercise-library-modal,
 #miband-workout-modal,
 #workout-session-modal,
-#med-confirm-modal,
 #workout-start-modal,
 #workout-add-exercise-to-session-modal {
     position: fixed;
@@ -5559,55 +5558,6 @@ textarea.wg-input {
     gap: var(--space-lg);
     margin-top: var(--space-md);
     margin-bottom: var(--space-md);
-}
-
-/* Meds next-action card (Phase 5, Task 3). Sun-glossed card mirroring the
-   Today next-action pattern; subtitle = "Next · HH:MM · in Xh Ym", value =
-   mono-display names list (truncated to "Name1 · Name2 · +N" for >3), and a
-   trailing sun-gloss Take button. Empty state hides the Take button and
-   shows muted copy. */
-.wg-meds-next-action {
-    display: flex;
-    align-items: center;
-    gap: var(--space-md);
-    padding: var(--wg-meds-next-card-pad);
-    border-radius: var(--wg-radius-card);
-    color: inherit;
-    text-align: left;
-    width: 100%;
-    margin-bottom: var(--space-md);
-}
-
-.wg-meds-next-action__text {
-    flex: 1;
-    min-width: 0;
-}
-
-.wg-meds-next-action__subtitle {
-    font-size: var(--wg-meds-next-subtitle-size);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-sun-soft);
-    font-weight: 600;
-}
-
-.wg-meds-next-action__value {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-meds-next-names-size);
-    color: var(--wg-fg-1);
-    margin-top: var(--space-xs);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.wg-meds-next-action__take {
-    flex-shrink: 0;
-    padding: var(--space-xs) var(--space-md);
-    font-size: var(--font-size-sm);
-    font-family: var(--wg-font-mono);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
 }
 
 /* Meds sub-tab strip (Phase 5, Task 2; revised Task 5). `.wg-gloss--inset`
