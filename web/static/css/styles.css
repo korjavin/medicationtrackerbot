@@ -2979,19 +2979,29 @@ input:checked+.toggle-slider:before {
 }
 
 .workout-variant-card {
-    background: var(--secondary-bg-color, #f8f9fa);
-    padding: var(--space-lg);
-    border-radius: var(--radius-sm);
+    background: var(--wg-bg-card);
+    padding: var(--space-md) var(--space-lg);
+    border-radius: var(--wg-radius-card);
     margin-bottom: var(--space-sm);
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--wg-border-hairline);
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: var(--space-md);
+    box-sizing: border-box;
+    font-family: var(--wg-font-ui);
+    color: var(--wg-fg-1);
+}
+
+.workout-variant-card strong {
+    font-weight: 600;
+    color: var(--wg-fg-1);
 }
 
 .workout-variant-desc {
-    font-size: 0.85em;
-    color: var(--hint-color);
+    margin-top: 2px;
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-2);
 }
 
 /* Edit Variant modal exercise rows (Round-2 Task 11, #14): dark elevated-teal
