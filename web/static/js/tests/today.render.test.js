@@ -8,7 +8,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
-const SECTION_HEADER_JS = path.join(REPO_ROOT, 'web/static/js/components/section-header.js');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
 const TODAY_JS = path.join(REPO_ROOT, 'web/static/js/features/today.js');
@@ -21,7 +20,6 @@ function loadRenderEnv() {
     });
     const { window } = dom;
     window.eval(fs.readFileSync(EMPTY_STATE_JS, 'utf8') + '\nwindow.createEmptyState = createEmptyState;');
-    window.eval(fs.readFileSync(SECTION_HEADER_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
     window.eval(fs.readFileSync(TODAY_JS, 'utf8'));
@@ -68,6 +66,8 @@ function allPresentState(now) {
         },
         caloriesToday: { value: 1200, deeplink: 'food', status: 'ok' },
         caloriesTarget: { value: 2200, deeplink: 'food', status: 'ok' },
+        macrosToday: { value: { protein: 60, carbs: 130, fat: 40 }, deeplink: 'food', status: 'ok' },
+        macrosTarget: { value: { protein: 150, carbs: 250, fat: 70 }, deeplink: 'food', status: 'ok' },
         nextWorkout: {
             value: { scheduled_date: '2026-04-20', scheduled_time: '18:30', group_name: 'Push day', status: 'pending', is_today: false },
             deeplink: 'workouts',
@@ -87,6 +87,8 @@ function allMissingState() {
         weightTrend7d: { value: null, deeplink: 'weight', status: 'missing' },
         caloriesToday: { value: 0, deeplink: 'food', status: 'missing' },
         caloriesTarget: { value: null, deeplink: 'food', status: 'missing' },
+        macrosToday: { value: { protein: 0, carbs: 0, fat: 0 }, deeplink: 'food', status: 'missing' },
+        macrosTarget: { value: null, deeplink: 'food', status: 'missing' },
         nextWorkout: { value: null, deeplink: 'workouts', status: 'missing' },
         sleepLastNight: { value: null, deeplink: 'health', status: 'missing' }
     };
@@ -102,6 +104,8 @@ function allDisabledState() {
         weightTrend7d: { value: null, deeplink: 'weight', status: 'disabled' },
         caloriesToday: { value: null, deeplink: 'food', status: 'disabled' },
         caloriesTarget: { value: null, deeplink: 'food', status: 'disabled' },
+        macrosToday: { value: null, deeplink: 'food', status: 'disabled' },
+        macrosTarget: { value: null, deeplink: 'food', status: 'disabled' },
         nextWorkout: { value: null, deeplink: 'workouts', status: 'disabled' },
         sleepLastNight: { value: null, deeplink: 'health', status: 'disabled' }
     };
@@ -120,24 +124,25 @@ describe('TodayDashboard.renderToday', () => {
         env = null;
     });
 
-    it('renders every canonical Wandergeek section when all data is present', () => {
+    it('renders every canonical section when all data is present', () => {
         const root = env.document.getElementById('today-content');
         env.render(allPresentState(now), root, { now });
 
         expect(root.classList.contains('wg-today')).toBe(true);
 
-        const title = root.querySelector('.section-header .section-title');
-        expect(title).not.toBeNull();
-        expect(title.textContent).toBe('Good morning');
+        // No top-of-screen header anymore — the mockup has no greeting/title.
+        expect(root.querySelector('.section-header')).toBeNull();
 
-        expect(root.querySelector('.wg-next-action-card')).not.toBeNull();
+        expect(root.querySelector('.wg-today-shortcuts')).not.toBeNull();
+        expect(root.querySelectorAll('.wg-shortcut-tile').length).toBe(3);
         expect(root.querySelector('.wg-vitals-grid')).not.toBeNull();
         expect(root.querySelectorAll('.wg-metric-tile').length).toBe(2);
         expect(root.querySelector('.wg-fuel-card')).not.toBeNull();
-        expect(root.querySelectorAll('.wg-mini-bar').length).toBe(1);
+        expect(root.querySelectorAll('.wg-mini-bar').length).toBe(4);
         expect(root.querySelector('.wg-plan-grid')).not.toBeNull();
         expect(root.querySelectorAll('.wg-plan-tile').length).toBe(2);
-        expect(root.querySelector('.wg-streak-card')).not.toBeNull();
+        expect(root.querySelector('.wg-today-meds')).not.toBeNull();
+        expect(root.querySelector('.wg-streak-card')).toBeNull();
 
         const bpTile = root.querySelector('.wg-metric-tile[data-deeplink="bp"]');
         expect(bpTile.textContent).toMatch(/122/);
@@ -147,26 +152,63 @@ describe('TodayDashboard.renderToday', () => {
         expect(weightTile.textContent).toMatch(/81\.6/);
     });
 
-    it('omits the next-action card and still renders vitals when meds are missing', () => {
+    it('meds card sits at the bottom of the Today stack', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(allPresentState(now), root, { now });
+        const medsCard = root.querySelector('.wg-today-meds');
+        expect(medsCard).not.toBeNull();
+        // Meds card is the last non-empty child of root.
+        const children = Array.from(root.children);
+        expect(children[children.length - 1]).toBe(medsCard);
+    });
+
+    it('meds card lists each scheduled medication name', () => {
+        const root = env.document.getElementById('today-content');
+        const state = allPresentState(now);
+        state.nextMed.value.names = ['Aspirin', 'Metformin', 'Vitamin D'];
+        env.render(state, root, { now });
+        const rows = root.querySelectorAll('.wg-today-meds__row');
+        expect(rows.length).toBe(3);
+        expect(rows[0].textContent).toMatch(/Aspirin/);
+        expect(rows[2].textContent).toMatch(/Vitamin D/);
+    });
+
+    it('meds card has NO sun-yellow banner background (plain card surface)', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(allPresentState(now), root, { now });
+        const medsCard = root.querySelector('.wg-today-meds');
+        expect(medsCard.classList.contains('wg-next-action-card--plain')).toBe(true);
+    });
+
+    it('meds card Take button is a sun-gloss CTA', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(allPresentState(now), root, { now });
+        const cta = root.querySelector('.wg-today-meds .wg-next-action-card__cta');
+        expect(cta).not.toBeNull();
+        expect(cta.classList.contains('wg-gloss')).toBe(true);
+        expect(cta.classList.contains('wg-gloss--sun')).toBe(true);
+        expect(cta.textContent).toMatch(/Take/);
+    });
+
+    it('renders a missing placeholder meds card when no scheduled dose', () => {
         const root = env.document.getElementById('today-content');
         env.render(allMissingState(), root, { now });
 
-        const nextAction = root.querySelector('.wg-next-action-card');
-        expect(nextAction).not.toBeNull();
-        // Missing state surfaces a clear placeholder rather than hiding the card.
-        expect(nextAction.textContent).toMatch(/No scheduled doses/i);
-        // Vitals + fuel + plan + streak still render.
+        const medsCard = root.querySelector('.wg-today-meds');
+        expect(medsCard).not.toBeNull();
+        expect(medsCard.textContent).toMatch(/No scheduled doses/i);
+        // Vitals + fuel + plan still render.
         expect(root.querySelector('.wg-vitals-grid')).not.toBeNull();
         expect(root.querySelector('.wg-fuel-card')).not.toBeNull();
         expect(root.querySelector('.wg-plan-grid')).not.toBeNull();
-        expect(root.querySelector('.wg-streak-card')).not.toBeNull();
     });
 
     it('shows the disabled empty state when every feature is off', () => {
         const root = env.document.getElementById('today-content');
         env.render(allDisabledState(), root, { now });
 
-        expect(root.querySelector('.wg-next-action-card')).toBeNull();
+        expect(root.querySelector('.wg-today-shortcuts')).toBeNull();
+        expect(root.querySelector('.wg-today-meds')).toBeNull();
         expect(root.querySelector('.wg-vitals-grid')).toBeNull();
         expect(root.querySelector('.wg-fuel-card')).toBeNull();
         expect(root.querySelector('.wg-plan-grid')).toBeNull();
@@ -188,20 +230,20 @@ describe('TodayDashboard.renderToday', () => {
         state.nextMed = { value: null, deeplink: 'meds', status: 'disabled' };
         env.render(state, root, { now });
 
-        expect(root.querySelector('.wg-next-action-card')).toBeNull();
+        expect(root.querySelector('.wg-today-meds')).toBeNull();
         const bpTile = root.querySelector('.wg-metric-tile[data-deeplink="bp"]');
         expect(bpTile).not.toBeNull();
         expect(bpTile.textContent).toMatch(/130/);
         expect(bpTile.textContent).toMatch(/85/);
     });
 
-    it('surfaces an Overdue kicker on the next-action card when medication is overdue', () => {
+    it('surfaces an Overdue kicker on the meds card when medication is overdue', () => {
         const root = env.document.getElementById('today-content');
         const state = allPresentState(now);
         state.nextMed.status = 'overdue';
         env.render(state, root, { now });
 
-        const card = root.querySelector('.wg-next-action-card');
+        const card = root.querySelector('.wg-today-meds');
         expect(card).not.toBeNull();
         const kicker = card.querySelector('.wg-next-action-card__kicker');
         expect(kicker.textContent).toMatch(/Overdue/);
@@ -237,6 +279,53 @@ describe('TodayDashboard.renderToday', () => {
         expect(env.window.switchTab).toHaveBeenCalledWith('weight');
     });
 
+    it('shortcut tiles invoke the modal openers, not tab switches', () => {
+        const root = env.document.getElementById('today-content');
+        const onLogFood = vi.fn();
+        const onAddBp = vi.fn();
+        const onAddWeight = vi.fn();
+        env.render(allPresentState(now), root, { now, onLogFood, onAddBp, onAddWeight });
+
+        const tiles = root.querySelectorAll('.wg-shortcut-tile');
+        expect(tiles.length).toBe(3);
+        tiles[0].click(); // Log food
+        tiles[1].click(); // Add BP
+        tiles[2].click(); // Add weight
+
+        expect(onLogFood).toHaveBeenCalledTimes(1);
+        expect(onAddBp).toHaveBeenCalledTimes(1);
+        expect(onAddWeight).toHaveBeenCalledTimes(1);
+    });
+
+    it('shortcut tiles fall back to the global modal functions when no handler is provided', () => {
+        const root = env.document.getElementById('today-content');
+        env.window.showAddFoodModal = vi.fn();
+        env.window.showBPRecordModal = vi.fn();
+        env.window.showWeightModal = vi.fn();
+        env.render(allPresentState(now), root, { now });
+
+        const tiles = root.querySelectorAll('.wg-shortcut-tile');
+        tiles[0].click();
+        tiles[1].click();
+        tiles[2].click();
+
+        expect(env.window.showAddFoodModal).toHaveBeenCalledTimes(1);
+        expect(env.window.showBPRecordModal).toHaveBeenCalledTimes(1);
+        expect(env.window.showWeightModal).toHaveBeenCalledTimes(1);
+    });
+
+    it('shortcut row omits tiles for disabled features', () => {
+        const root = env.document.getElementById('today-content');
+        const state = allPresentState(now);
+        state.caloriesTarget.status = 'disabled';
+        env.render(state, root, { now });
+
+        const tiles = root.querySelectorAll('.wg-shortcut-tile');
+        expect(tiles.length).toBe(2); // BP + Weight only
+        const labels = Array.from(tiles).map((t) => t.textContent);
+        expect(labels.some((l) => /food/i.test(l))).toBe(false);
+    });
+
     it('never sets inline style attributes on rendered elements', () => {
         const root = env.document.getElementById('today-content');
         env.render(allPresentState(now), root, { now });
@@ -252,6 +341,8 @@ describe('TodayDashboard.renderToday', () => {
         env.render(allPresentState(now), root, { now });
         const secondCount = root.querySelectorAll('.wg-metric-tile').length;
         expect(firstCount).toBe(secondCount);
+        expect(root.querySelectorAll('.wg-today-shortcuts').length).toBe(1);
+        expect(root.querySelectorAll('.wg-today-meds').length).toBe(1);
     });
 
     it('first-run offline: render shows connect empty state with no cards when __firstRun is set', () => {
@@ -260,7 +351,8 @@ describe('TodayDashboard.renderToday', () => {
         state.__firstRun = true;
         env.render(state, root, { now });
 
-        expect(root.querySelector('.wg-next-action-card')).toBeNull();
+        expect(root.querySelector('.wg-today-shortcuts')).toBeNull();
+        expect(root.querySelector('.wg-today-meds')).toBeNull();
         expect(root.querySelector('.wg-vitals-grid')).toBeNull();
         const empty = root.querySelector('.today-empty');
         expect(empty).not.toBeNull();
@@ -288,9 +380,11 @@ describe('TodayDashboard.renderToday', () => {
         state.nextMed = { value: null, deeplink: 'meds', status: 'disabled' };
         state.caloriesToday = { value: null, deeplink: 'food', status: 'disabled' };
         state.caloriesTarget = { value: null, deeplink: 'food', status: 'disabled' };
+        state.macrosToday = { value: null, deeplink: 'food', status: 'disabled' };
+        state.macrosTarget = { value: null, deeplink: 'food', status: 'disabled' };
         env.render(state, root, { now });
 
-        expect(root.querySelector('.wg-next-action-card')).toBeNull();
+        expect(root.querySelector('.wg-today-meds')).toBeNull();
         expect(root.querySelector('.wg-fuel-card')).toBeNull();
         expect(root.querySelector('.wg-vitals-grid')).not.toBeNull();
         expect(root.querySelector('.wg-plan-grid')).not.toBeNull();
@@ -314,60 +408,12 @@ describe('TodayDashboard.renderToday', () => {
         expect(detail.textContent).toMatch(/18:30/);
     });
 
-    it('prepends a section header with the greeting as title and a gear button', () => {
+    it('does not render a section-header or settings gear on Today', () => {
         const root = env.document.getElementById('today-content');
         env.render(allPresentState(now), root, { now });
 
-        const header = root.querySelector('.section-header');
-        expect(header).not.toBeNull();
-        expect(root.firstChild).toBe(header);
-        expect(header.classList.contains('no-back')).toBe(true);
-
-        const title = header.querySelector('.section-title');
-        expect(title).not.toBeNull();
-        expect(title.textContent).toBe('Good morning');
-
-        const gear = header.querySelector('.today-settings-gear');
-        expect(gear).not.toBeNull();
-        expect(gear.getAttribute('aria-label')).toBe('Settings');
-    });
-
-    it('uses "Today" as the header title when the greeting value is empty', () => {
-        const root = env.document.getElementById('today-content');
-        const state = allPresentState(now);
-        state.greeting = { value: '', deeplink: null, status: 'ok' };
-        env.render(state, root, { now });
-
-        const title = root.querySelector('.section-header .section-title');
-        expect(title.textContent).toBe('Today');
-    });
-
-    it('invokes onSettings when the gear is clicked', () => {
-        const root = env.document.getElementById('today-content');
-        const onSettings = vi.fn();
-        env.render(allPresentState(now), root, { now, onSettings });
-
-        root.querySelector('.today-settings-gear').click();
-        expect(onSettings).toHaveBeenCalledTimes(1);
-    });
-
-    it('falls back to window.switchTab("settings") when no onSettings handler is provided', () => {
-        const root = env.document.getElementById('today-content');
-        env.window.switchTab = vi.fn();
-        env.render(allPresentState(now), root, { now });
-
-        root.querySelector('.today-settings-gear').click();
-        expect(env.window.switchTab).toHaveBeenCalledWith('settings');
-    });
-
-    it('renders exactly one section header on Today (no back button)', () => {
-        const root = env.document.getElementById('today-content');
-        env.render(allPresentState(now), root, { now });
-        env.render(allPresentState(now), root, { now });
-
-        expect(root.querySelectorAll('.section-header').length).toBe(1);
-        const header = root.querySelector('.section-header');
-        expect(header.classList.contains('no-back')).toBe(true);
+        expect(root.querySelector('.section-header')).toBeNull();
+        expect(root.querySelector('.today-settings-gear')).toBeNull();
     });
 
     it('renders offline banner when state.__offline is set and not first-run', () => {

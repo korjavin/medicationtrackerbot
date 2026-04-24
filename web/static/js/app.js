@@ -943,35 +943,6 @@ function bindTabGroup(options) {
     });
 }
 
-// Hydrate a section view's [data-section-header-mount] placeholder (if any) into
-// a SectionHeader component. Idempotent: skips if already hydrated. Today builds
-// its own header inside renderToday, so hydrateSectionHeader is a no-op there.
-function hydrateSectionHeader(tab) {
-    if (tab === 'today') return;
-    const view = document.getElementById(`${tab}-view`);
-    if (!view) return;
-    const mount = view.querySelector('.section-header-mount');
-    if (!mount || mount.dataset.hydrated === '1') return;
-    const factory = window.SectionHeader && window.SectionHeader.create;
-    if (typeof factory !== 'function') return;
-    const title = mount.dataset.title || '';
-    const badge = mount.dataset.badge || '';
-    let rightSlot = null;
-    if (badge) {
-        const b = document.createElement('span');
-        b.className = `badge badge-${badge}`;
-        b.textContent = badge;
-        rightSlot = b;
-    }
-    const header = factory({
-        title,
-        onBack: () => switchTab('today'),
-        rightSlot
-    });
-    mount.replaceWith(header);
-    header.dataset.hydrated = '1';
-}
-
 function switchTab(tab) {
     const tabToFeature = {
         food: 'food',
@@ -994,15 +965,13 @@ function switchTab(tab) {
     });
     if (!activated) return;
 
-    hydrateSectionHeader(tab);
-
     window.AppStore && window.AppStore.set('currentTab', tab);
     if (window.AppKernel && typeof window.AppKernel.onTabSwitch === 'function') {
         window.AppKernel.onTabSwitch(tab);
     }
 
     if (tab === 'meds') {
-        const stored = typeof getActiveMedsSubTab === 'function' ? getActiveMedsSubTab() : 'schedule';
+        const stored = typeof getActiveMedsSubTab === 'function' ? getActiveMedsSubTab() : 'history';
         const activeMedTab = document.querySelector('.med-tab.active');
         if (!activeMedTab || activeMedTab.dataset.tab !== stored) {
             switchMedTab(stored);
@@ -1280,6 +1249,21 @@ async function _todayReadCaches(foodKey) {
             }
         }
     } catch (_) { /* best-effort — render whatever we have */ }
+    // Register key→tag mappings for every Today cache we just read directly
+    // from IndexedDB. Without this, `tagToKeys` is empty for these keys on
+    // cached-start / reload paths, so a feature save's
+    // `invalidateTags(['food'])` etc. silently no-ops and the visible Today
+    // dashboard stays stale until a full bootstrap re-fetch. todayFetchSpecs
+    // owns the canonical key→tags map; reusing it keeps registration in sync
+    // with fetcher tags in one place.
+    if (window.DataStore && typeof window.DataStore.registerTags === 'function') {
+        try {
+            const specs = todayFetchSpecs(foodKey);
+            for (const key of Object.keys(specs)) {
+                window.DataStore.registerTags(key, specs[key].tags || []);
+            }
+        } catch (_) { /* best-effort — invalidation will fall back to a no-op */ }
+    }
     // Fall back to localStorage so Today renders in the user's saved order
     // even if the settings_bundle cache was invalidated since last render.
     if (!cardOrder) {
@@ -1493,8 +1477,10 @@ function bindMeasurementControls() {
         if (element) element.addEventListener('click', handler);
     };
 
-    bindClick('add-bp-btn', () => showBPRecordModal());
+    // #add-bp-btn lives inside the dynamically-rendered #bp-range-selector
+    // row (Phase 5, Task 5); its click handler is bound in renderRangeSelector.
     bindClick('bp-modal-cancel-btn', () => closeBPRecordModal());
+    bindClick('bp-modal-close-btn', () => closeBPRecordModal());
     bindClick('add-weight-btn', () => showWeightModal());
     bindClick('weight-modal-cancel-btn', () => closeWeightModal());
     bindClick('weight-modal-close-btn', () => closeWeightModal());

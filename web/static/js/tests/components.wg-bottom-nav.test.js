@@ -46,6 +46,24 @@ describe('WGBottomNav — component', () => {
         } finally { cleanup(); }
     });
 
+    it('DEFAULT_ITEMS canonical order matches the design mockup (row 1 / row 2)', () => {
+        const { window, cleanup } = loadEnv();
+        try {
+            const order = window.WGBottomNav.DEFAULT_ITEMS.map(i => i.id);
+            // row 1: today / bp / food / meds
+            // row 2: health("Vitals") / workouts / weight / settings
+            expect(order).toEqual([
+                'today', 'bp', 'food', 'meds',
+                'health', 'workouts', 'weight', 'settings',
+            ]);
+            const labels = window.WGBottomNav.DEFAULT_ITEMS.map(i => i.label);
+            expect(labels).toEqual([
+                'Today', 'BP', 'Food', 'Meds',
+                'Vitals', 'Workouts', 'Weight', 'Settings',
+            ]);
+        } finally { cleanup(); }
+    });
+
     it('BP is the second slot (post-Today) with the "activity" icon — Phase 3 contract', () => {
         const { window, cleanup } = loadEnv();
         try {
@@ -76,17 +94,18 @@ describe('WGBottomNav — component', () => {
         } finally { cleanup(); }
     });
 
-    it('Weight is the fifth slot with the "scale" icon — Phase 6 contract', () => {
+    it('Vitals is the fifth slot (first of row 2) with the "heart" icon and internal id "health"', () => {
         const { window, cleanup } = loadEnv();
         try {
-            const weightSlot = window.WGBottomNav.DEFAULT_ITEMS[4];
-            expect(weightSlot.id).toBe('weight');
-            expect(weightSlot.icon).toBe('scale');
-            expect(weightSlot.label).toBe('Weight');
+            const vitalsSlot = window.WGBottomNav.DEFAULT_ITEMS[4];
+            // Internal id stays 'health' for route + storage stability; only the label changed.
+            expect(vitalsSlot.id).toBe('health');
+            expect(vitalsSlot.icon).toBe('heart');
+            expect(vitalsSlot.label).toBe('Vitals');
         } finally { cleanup(); }
     });
 
-    it('Workouts is the sixth slot with the "dumbbell" icon — Phase 7 contract', () => {
+    it('Workouts is the sixth slot with the "dumbbell" icon', () => {
         const { window, cleanup } = loadEnv();
         try {
             const workoutsSlot = window.WGBottomNav.DEFAULT_ITEMS[5];
@@ -96,13 +115,13 @@ describe('WGBottomNav — component', () => {
         } finally { cleanup(); }
     });
 
-    it('Health is the seventh slot with the "heart" icon — Phase 8 contract', () => {
+    it('Weight is the seventh slot with the "scale" icon', () => {
         const { window, cleanup } = loadEnv();
         try {
-            const healthSlot = window.WGBottomNav.DEFAULT_ITEMS[6];
-            expect(healthSlot.id).toBe('health');
-            expect(healthSlot.icon).toBe('heart');
-            expect(healthSlot.label).toBe('Health');
+            const weightSlot = window.WGBottomNav.DEFAULT_ITEMS[6];
+            expect(weightSlot.id).toBe('weight');
+            expect(weightSlot.icon).toBe('scale');
+            expect(weightSlot.label).toBe('Weight');
         } finally { cleanup(); }
     });
 

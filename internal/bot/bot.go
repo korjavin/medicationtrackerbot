@@ -44,7 +44,7 @@ type Bot struct {
 	activityAI    domain.ActivityAIService
 	activityLog   ActivityLogStore
 	imports       ImportStore
-	notes         NoteStore
+	notesSvc      domain.NotesService
 	timezone      TimezoneStore
 	tzPlanStore   TZPlanCallbackStore
 	allowedUserID int64
@@ -103,7 +103,7 @@ func New(token string, allowedUserID int64, s *store.Store, foodAI domain.FoodAI
 		activityAI:       activityAI,
 		activityLog:      s,
 		imports:          s,
-		notes:            s,
+		notesSvc:         domain.NewNotesService(s),
 		timezone:         s,
 		tzPlanStore:      s,
 		allowedUserID:    allowedUserID,

@@ -238,15 +238,26 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(editSpy).toHaveBeenCalledWith(42);
     });
 
-    it('Add medication CTA is a full-width `.wg-gloss--sun` button, not the paper-era FAB', () => {
+    it('Add medication CTA is an inline `.wg-gloss--sun` pill in the subtabs row (Phase 5, Task 5)', () => {
         const { document } = env;
         const btn = document.getElementById('add-btn');
         expect(btn).not.toBeNull();
         expect(btn.classList.contains('wg-gloss')).toBe(true);
         expect(btn.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(btn.classList.contains('wg-meds-add-cta')).toBe(true);
+        expect(btn.classList.contains('wg-meds-subtabs-row__add')).toBe(true);
+        expect(btn.classList.contains('wg-meds-add-cta')).toBe(false);
+        expect(btn.classList.contains('wg-fab')).toBe(false);
         expect(btn.classList.contains('btn-fab')).toBe(false);
-        expect(btn.textContent.trim()).toBe('Add medication');
+        // The inline pill lives inside the subtabs row, as a sibling of the
+        // inset 3-pill track — not inside the Schedule tab-content below.
+        const row = document.getElementById('med-subtabs');
+        expect(row.contains(btn)).toBe(true);
+        const scheduleTab = document.getElementById('med-schedule-tab');
+        expect(scheduleTab.contains(btn)).toBe(false);
+
+        const label = btn.querySelector('.wg-meds-subtabs-row__add-label');
+        expect(label).not.toBeNull();
+        expect(label.textContent.trim()).toBe('Add');
     });
 
     it('rendering twice replaces the list cleanly (no duplicate section headers)', async () => {

@@ -541,6 +541,72 @@ async function loadNotes() {
         saveBtn._noteHandlerAttached = true;
         saveBtn.addEventListener('click', addNote);
     }
+    bindNotesComposer();
+}
+
+// Note-tag composer (Phase 8 / Task 7). Backend enum is SLEEP | STRESS | HR |
+// SPO2 | STEPS | NOTE; unknown values are sanitized to NULL server-side, but
+// the composer only lets the user pick from this list. `null` means no tag.
+const VALID_NOTE_TAGS = ['SLEEP', 'STRESS', 'HR', 'SPO2', 'STEPS', 'NOTE'];
+const _notesCompose = { selectedTag: null };
+
+function setNotesComposerTag(tag) {
+    const next = VALID_NOTE_TAGS.indexOf(tag) !== -1 ? tag : null;
+    _notesCompose.selectedTag = next;
+    syncNotesComposerTagClasses();
+}
+
+function syncNotesComposerTagClasses() {
+    const container = document.getElementById('notes-compose-tags');
+    if (!container) return;
+    const active = _notesCompose.selectedTag;
+    container.querySelectorAll('.wg-health-notes-compose__tag').forEach((btn) => {
+        const on = btn.getAttribute('data-tag') === active;
+        btn.classList.toggle('wg-tag--sun', on);
+        btn.classList.toggle('wg-health-notes-compose__tag--active', on);
+        btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+}
+
+function syncNotesComposerCount() {
+    const textarea = document.getElementById('notes-textarea');
+    const count = document.getElementById('notes-compose-count');
+    const save = document.getElementById('notes-save-btn');
+    if (!textarea) return;
+    const len = textarea.value.length;
+    if (count) count.textContent = len > 0 ? `${len} chars` : 'empty';
+    if (save) {
+        const hasContent = textarea.value.trim().length > 0;
+        if (hasContent) {
+            save.removeAttribute('disabled');
+        } else {
+            save.setAttribute('disabled', 'disabled');
+        }
+    }
+}
+
+function bindNotesComposer() {
+    const container = document.getElementById('notes-compose-tags');
+    if (container && !container._wgBound) {
+        container._wgBound = true;
+        container.addEventListener('click', (ev) => {
+            const btn = ev.target.closest('.wg-health-notes-compose__tag');
+            if (!btn || !container.contains(btn)) return;
+            const tag = btn.getAttribute('data-tag');
+            if (_notesCompose.selectedTag === tag) {
+                setNotesComposerTag(null);
+            } else {
+                setNotesComposerTag(tag);
+            }
+        });
+    }
+    const textarea = document.getElementById('notes-textarea');
+    if (textarea && !textarea._wgBound) {
+        textarea._wgBound = true;
+        textarea.addEventListener('input', syncNotesComposerCount);
+    }
+    syncNotesComposerTagClasses();
+    syncNotesComposerCount();
 }
 
 async function loadMoreNotes() {
@@ -615,9 +681,10 @@ async function loadMoreNotes() {
             // boundary). Re-render page-1 from the fresh server data, then fall
             // through to append page-2 so both pages are up-to-date.
             renderNotes(list, freshData);
-            // Do not update _notesCursor here — it was already advanced to the last
-            // page-2 ID at line 3170. Overwriting with freshLastID (page-1 boundary)
-            // would cause the next "load more" to re-fetch page-2.
+            // Do not update _notesCursor here — it was already advanced to the
+            // last page-2 ID before the deferred page-1 replay ran. Overwriting
+            // with freshLastID (page-1 boundary) would cause the next
+            // "load more" to re-fetch page-2.
             // renderNotes may have added a "Load more" button at the end of page-1;
             // remove it before appending the page-2 items below.
             list.querySelector('.wg-health-notes__load-more')?.remove();
@@ -746,6 +813,15 @@ function buildNoteRow(note) {
 
     const meta = document.createElement('div');
     meta.className = 'wg-health-notes-row__meta';
+
+    if (typeof note.tag === 'string' && VALID_NOTE_TAGS.indexOf(note.tag) !== -1) {
+        const tagEl = document.createElement('span');
+        tagEl.className = 'wg-tag wg-tag--high wg-health-notes-row__tag';
+        tagEl.setAttribute('data-tag', note.tag);
+        tagEl.textContent = note.tag;
+        meta.appendChild(tagEl);
+    }
+
     const time = document.createElement('span');
     time.className = 'wg-mono-display wg-health-notes-row__time';
     const d = new Date(note.created_at);
@@ -851,14 +927,22 @@ async function addNote() {
     if (!textarea) return;
     const content = textarea.value.trim();
     if (!content) return;
-    if (content.length > 10000) {
+    // Backend counts runes (utf8.RuneCountInString); JS .length counts UTF-16
+    // code units, which double-counts astral-plane chars (most emoji, CJK
+    // extension). Iterate to get code-point length so client and server agree.
+    if ([...content].length > 10000) {
         safeAlert('Note is too long (max 10,000 characters).');
         return;
     }
 
-    const res = await apiCall('/api/notes', 'POST', { content });
+    const body = { content };
+    if (_notesCompose.selectedTag) body.tag = _notesCompose.selectedTag;
+
+    const res = await apiCall('/api/notes', 'POST', body);
     if (res) {
         textarea.value = '';
+        setNotesComposerTag(null);
+        syncNotesComposerCount();
         await window.DataStore.invalidateTags(['notes']);
         loadNotes();
     }
@@ -935,7 +1019,7 @@ async function handleEditNoteSubmit(event) {
         safeAlert('Note cannot be empty.');
         return;
     }
-    if (content.length > 10000) {
+    if ([...content].length > 10000) {
         safeAlert('Note is too long (max 10,000 characters).');
         return;
     }
@@ -949,7 +1033,11 @@ async function handleEditNoteSubmit(event) {
     }
 
     const original = editingNote;
-    const postRes = await apiCall('/api/notes', 'POST', { content });
+    const postBody = { content };
+    if (typeof original.tag === 'string' && original.tag) {
+        postBody.tag = original.tag;
+    }
+    const postRes = await apiCall('/api/notes', 'POST', postBody);
     if (!postRes) return;
 
     const isLocalId = typeof original.id === 'string' && original.id.startsWith('local_');

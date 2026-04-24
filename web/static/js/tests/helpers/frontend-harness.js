@@ -13,7 +13,6 @@ const MT_ELEMENTS_JS = path.join(REPO_ROOT, 'web/static/js/components/mt-element
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const STAT_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/stat-card.js');
 const ACTION_ROW_JS = path.join(REPO_ROOT, 'web/static/js/components/action-row.js');
-const SECTION_HEADER_JS = path.join(REPO_ROOT, 'web/static/js/components/section-header.js');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_BOTTOM_NAV_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-bottom-nav.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
@@ -149,7 +148,6 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalWithSourceURL(window, fs.readFileSync(EMPTY_STATE_JS, 'utf8'), EMPTY_STATE_JS);
   evalWithSourceURL(window, fs.readFileSync(STAT_CARD_JS, 'utf8'), STAT_CARD_JS);
   evalWithSourceURL(window, fs.readFileSync(ACTION_ROW_JS, 'utf8'), ACTION_ROW_JS);
-  evalWithSourceURL(window, fs.readFileSync(SECTION_HEADER_JS, 'utf8'), SECTION_HEADER_JS);
   evalWithSourceURL(window, fs.readFileSync(WG_ICONS_JS, 'utf8'), WG_ICONS_JS);
   evalWithSourceURL(window, fs.readFileSync(WG_BOTTOM_NAV_JS, 'utf8'), WG_BOTTOM_NAV_JS);
   evalWithSourceURL(window, fs.readFileSync(WG_SPARKLINE_JS, 'utf8'), WG_SPARKLINE_JS);

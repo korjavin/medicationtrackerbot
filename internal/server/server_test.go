@@ -64,9 +64,6 @@ func TestNew(t *testing.T) {
 	if srv.miband != db {
 		t.Error("srv.miband not set correctly")
 	}
-	if srv.notes != db {
-		t.Error("srv.notes not set correctly")
-	}
 	if srv.tzPlanStore != db {
 		t.Error("srv.tzPlanStore not set correctly")
 	}

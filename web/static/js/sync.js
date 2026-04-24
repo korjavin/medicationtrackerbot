@@ -257,6 +257,7 @@ const SyncManager = {
             'add-btn',
             'med-modal-save-btn',
             'add-food-btn',
+            'add-food-inline-btn',
             'notes-save-btn',
             'start-adhoc-workout-btn',
             'add-workout-group-btn',

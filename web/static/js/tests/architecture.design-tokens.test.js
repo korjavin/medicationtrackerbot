@@ -279,10 +279,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-status-bar-font-size',
     '--wg-radius-pill',
 
-    // App header tokens (added in Task 4 alongside .wg-app-header)
-    '--wg-app-header-title-size',
-    '--wg-app-header-subtitle-size',
-
     // Bottom nav tokens (added in Task 5 alongside .wg-bottom-nav)
     '--wg-bottom-nav-pad-top',
     '--wg-bottom-nav-pad-x',
@@ -312,6 +308,7 @@ const WANDERGEEK_TOKENS = [
     '--wg-section-label-gap',
     '--wg-font-size-metric-value',
     '--wg-font-size-fuel-value',
+    '--wg-font-size-fuel-pct',
     '--wg-font-size-plan-value',
     '--wg-font-size-streak-value',
     '--wg-streak-bar-height',
@@ -362,6 +359,8 @@ const WANDERGEEK_TOKENS = [
     // sub-tab strip, day navigator, meal list, edit-food modal.
     '--wg-food-kcal-display-size',
     '--wg-food-kcal-unit-size',
+    '--wg-food-kcal-pct-size',
+    '--wg-food-kcal-pct-label-size',
     '--wg-food-macro-bar-height',
     '--wg-food-macro-row-cols',
     '--wg-food-macro-row-gap',
@@ -521,6 +520,36 @@ const WANDERGEEK_TOKENS = [
     '--wg-weight-modal-unit-btn-min-w',
     '--wg-weight-modal-label-size',
     '--wg-weight-modal-action-gap',
+    '--wg-weight-modal-weight-input-size',
+
+    // Record-BP modal tokens (Task 4b audit) — dual-line header, gloss-inset
+    // input wraps, 3-up Systolic / Diastolic / Pulse reading row with 20px
+    // mono inputs, 2-up Site / Position row, Notes textarea, and the Cancel
+    // / Save action bar with 2× flex on Save.
+    '--wg-bp-modal-eyebrow-size',
+    '--wg-bp-modal-title-size',
+    '--wg-bp-modal-section-gap',
+    '--wg-bp-modal-row-gap',
+    '--wg-bp-modal-input-pad-y',
+    '--wg-bp-modal-input-pad-x',
+    '--wg-bp-modal-label-size',
+    '--wg-bp-modal-reading-size',
+    '--wg-bp-modal-action-gap',
+
+    // Take-meds (medication confirm) modal tokens (Task 4b audit) — dual-line
+    // sun-eyebrow header, subtitle, check-row geometry (selected = green tag
+    // highlight), secondary Snooze + Skip row, full-width primary button.
+    '--wg-med-confirm-modal-eyebrow-size',
+    '--wg-med-confirm-modal-title-size',
+    '--wg-med-confirm-modal-subtitle-size',
+    '--wg-med-confirm-modal-row-pad-y',
+    '--wg-med-confirm-modal-row-pad-x',
+    '--wg-med-confirm-modal-row-gap',
+    '--wg-med-confirm-modal-check-size',
+    '--wg-med-confirm-modal-check-radius',
+    '--wg-med-confirm-modal-name-size',
+    '--wg-med-confirm-modal-dose-size',
+    '--wg-med-confirm-modal-action-gap',
 
     // Workouts screen tokens (Phase 7, Task 1) — sub-tab strip, today's-
     // workout card, rotation-slot tag, day-grouped history rows, session-
@@ -634,6 +663,19 @@ const WANDERGEEK_TOKENS = [
     '--wg-health-notes-body-size',
     '--wg-health-notes-compose-pad-y',
     '--wg-health-notes-compose-pad-x',
+    '--wg-health-notes-compose-card-pad',
+    '--wg-health-notes-compose-gap',
+    '--wg-health-notes-compose-title-size',
+    '--wg-health-notes-compose-tag-size',
+    '--wg-health-notes-compose-tag-pad-y',
+    '--wg-health-notes-compose-tag-pad-x',
+    '--wg-health-notes-compose-textarea-min',
+    '--wg-health-notes-compose-count-size',
+    '--wg-health-notes-compose-save-min',
+    '--wg-health-notes-compose-save-pad-y',
+    '--wg-health-notes-compose-save-pad-x',
+    '--wg-health-notes-compose-save-size',
+    '--wg-health-notes-row-tag-size',
 
     // Edit-note modal tokens (Phase 8, Task 1 / rewired Task 8) — mono
     // header, gloss-inset textarea wrap, Cancel + Save bar with 2× flex
@@ -1540,5 +1582,37 @@ describe('Architecture – Wandergeek tokens', () => {
         expect(mapping.get('normal')).toBeDefined();
         expect(mapping.get('highnormal')).toBeDefined();
         expect(mapping.get('normal')).not.toBe(mapping.get('highnormal'));
+    });
+
+    it('Task 8 typography tokens match the Anthropic mockup pixel values', () => {
+        // Locks in the Task 8 pixel-parity sweep against
+        // .local/design-reference/project/screens.jsx. Values come directly
+        // from the mockup's inline fontSize declarations:
+        //   • macros card kcal total: 30 px (screens.jsx:331)
+        //   • macros card kcal unit: 14 px (screens.jsx:332)
+        //   • macros card % of target value: 22 px (screens.jsx:339)
+        //   • macros card % of target label: 10 px caps (screens.jsx:340)
+        //   • Today fuel card % value: 16 px (screens.jsx:51)
+        //   • metric tile mono value: 20 px (screens.jsx:130)
+        //   • section label uppercase size: 10.5 px (.section-label in styles.css)
+        //   • card padding (default): 14 px (.card in styles.css:181)
+        //   • section label padding-top (default): 18 px (styles.css:191)
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        const rootBlock = extractRootBlock(css);
+        function tokenValue(name) {
+            const re = new RegExp(`${name.replace(/[-]/g, '\\-')}\\s*:\\s*([^;]+);`);
+            const m = rootBlock.match(re);
+            return m ? m[1].trim() : null;
+        }
+        expect(tokenValue('--wg-food-kcal-display-size')).toBe('30px');
+        expect(tokenValue('--wg-food-kcal-unit-size')).toBe('14px');
+        expect(tokenValue('--wg-food-kcal-pct-size')).toBe('22px');
+        expect(tokenValue('--wg-food-kcal-pct-label-size')).toBe('10px');
+        expect(tokenValue('--wg-font-size-fuel-value')).toBe('22px');
+        expect(tokenValue('--wg-font-size-fuel-pct')).toBe('16px');
+        expect(tokenValue('--wg-font-size-metric-value')).toBe('20px');
+        expect(tokenValue('--wg-font-size-tag')).toBe('10.5px');
+        expect(tokenValue('--wg-card-pad')).toBe('14px');
+        expect(tokenValue('--wg-section-label-pad-top')).toBe('18px');
     });
 });

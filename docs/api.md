@@ -30,8 +30,8 @@
 | POST | `/api/food/targets` | Set nutrition targets |
 | GET | `/api/sleep` | Sleep logs |
 | POST | `/api/sleep` | Log sleep |
-| GET | `/api/notes` | List diary notes |
-| POST | `/api/notes` | Create diary note |
+| GET | `/api/notes` | List diary notes (each row includes `tag` — one of `SLEEP \| STRESS \| HR \| SPO2 \| STEPS \| NOTE`, or omitted when NULL) |
+| POST | `/api/notes` | Create diary note (accepts `{content, tag?}`; invalid tags are sanitized to NULL and returned in the `201` response, not rejected) |
 | DELETE | `/api/notes/{id}` | Delete diary note |
 
 ## Workouts

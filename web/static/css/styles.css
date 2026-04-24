@@ -296,10 +296,6 @@
     --wg-status-bar-font-size: 15px;
     --wg-radius-pill: 999px;
 
-    /* Wandergeek — app header (Task 4). JetBrains Mono title + uppercase subtitle. */
-    --wg-app-header-title-size: 17px;
-    --wg-app-header-subtitle-size: 10px;
-
     /* Wandergeek — bottom nav (Task 5). Multi-row nav, one slot per section. */
     --wg-bottom-nav-pad-top: 10px;
     --wg-bottom-nav-pad-x: 12px;
@@ -336,6 +332,7 @@
     --wg-section-label-gap: 6px;
     --wg-font-size-metric-value: 20px;
     --wg-font-size-fuel-value: 22px;
+    --wg-font-size-fuel-pct: 16px;
     --wg-font-size-plan-value: 13px;
     --wg-font-size-streak-value: 18px;
     --wg-streak-bar-height: 22px;
@@ -388,7 +385,9 @@
        and edit-food modal. Every visual value in features/food.js and
        components/wg-macro-bar.js reads from here. */
     --wg-food-kcal-display-size: 30px;
-    --wg-food-kcal-unit-size: 12px;
+    --wg-food-kcal-unit-size: 14px;
+    --wg-food-kcal-pct-size: 22px;
+    --wg-food-kcal-pct-label-size: 10px;
     --wg-food-macro-bar-height: 8px;
     --wg-food-macro-row-cols: 56px 1fr auto;
     --wg-food-macro-row-gap: 12px;
@@ -540,6 +539,37 @@
     --wg-weight-modal-unit-btn-min-w: 40px;
     --wg-weight-modal-label-size: 10.5px;
     --wg-weight-modal-action-gap: 8px;
+    --wg-weight-modal-weight-input-size: 20px;
+
+    /* Record-BP modal tokens (Task 4b audit) — dual-line header, gloss-inset
+       input wraps, 3-up Systolic/Diastolic/Pulse readings row with 20px mono
+       inputs, 2-up Site/Position row, Notes textarea, and the Cancel / Save
+       action bar with 2× flex on Save per modal-button-order convention. */
+    --wg-bp-modal-eyebrow-size: 10.5px;
+    --wg-bp-modal-title-size: 18px;
+    --wg-bp-modal-section-gap: 14px;
+    --wg-bp-modal-row-gap: 10px;
+    --wg-bp-modal-input-pad-y: 10px;
+    --wg-bp-modal-input-pad-x: 12px;
+    --wg-bp-modal-label-size: 10.5px;
+    --wg-bp-modal-reading-size: 20px;
+    --wg-bp-modal-action-gap: 8px;
+
+    /* Take-meds (medication confirm) modal tokens (Task 4b audit) — dual-line
+       header with a sun eyebrow, checkbox-style med rows (selected = green
+       highlight, idle = inset dark), secondary Snooze + Skip buttons row, and
+       the full-width "Confirm selected" primary button. */
+    --wg-med-confirm-modal-eyebrow-size: 10.5px;
+    --wg-med-confirm-modal-title-size: 22px;
+    --wg-med-confirm-modal-subtitle-size: 11px;
+    --wg-med-confirm-modal-row-pad-y: 10px;
+    --wg-med-confirm-modal-row-pad-x: 12px;
+    --wg-med-confirm-modal-row-gap: 6px;
+    --wg-med-confirm-modal-check-size: 22px;
+    --wg-med-confirm-modal-check-radius: 6px;
+    --wg-med-confirm-modal-name-size: 13px;
+    --wg-med-confirm-modal-dose-size: 10.5px;
+    --wg-med-confirm-modal-action-gap: 8px;
 
     /* Weight trend aliases (Phase 6, Task 1) — wrap the shared sun / alert /
        mint tag triplets so the JS classifier can return a token-group name
@@ -676,6 +706,19 @@
     --wg-health-notes-body-size: 14px;
     --wg-health-notes-compose-pad-y: 10px;
     --wg-health-notes-compose-pad-x: 12px;
+    --wg-health-notes-compose-card-pad: 12px;
+    --wg-health-notes-compose-gap: 10px;
+    --wg-health-notes-compose-title-size: 13px;
+    --wg-health-notes-compose-tag-size: 10.5px;
+    --wg-health-notes-compose-tag-pad-y: 3px;
+    --wg-health-notes-compose-tag-pad-x: 8px;
+    --wg-health-notes-compose-textarea-min: 64px;
+    --wg-health-notes-compose-count-size: 10.5px;
+    --wg-health-notes-compose-save-min: 36px;
+    --wg-health-notes-compose-save-pad-y: 9px;
+    --wg-health-notes-compose-save-pad-x: 16px;
+    --wg-health-notes-compose-save-size: 12.5px;
+    --wg-health-notes-row-tag-size: 10px;
 
     /* Edit-note modal tokens (Phase 8, Task 1 / rewired Task 8) — mono header,
        gloss-inset textarea wrap, Cancel + Save action bar with 2× flex on
@@ -3137,160 +3180,6 @@ input:checked+.toggle-slider:before {
     border-radius: var(--radius-lg);
 }
 
-/* =============================================
-   SECTION HEADER — Today-as-primary-nav pattern
-   Sticky header at top of every view with
-   [back-to-Today] [title] [right-slot]
-   ============================================= */
-.section-header {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    /* Three-column grid: left slot holds the "← Today" pill (grows to fit its
-       label), right slot grows for optional badge/gear. Title is centered
-       within its own column; on Today's no-back variant the left slot is
-       hidden via visibility so the greeting still sits in the center column. */
-    display: grid;
-    grid-template-columns: minmax(44px, auto) 1fr minmax(44px, auto);
-    align-items: center;
-    gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-md);
-    padding-top: calc(var(--space-sm) + env(safe-area-inset-top, 0px));
-    background: var(--bg-color);
-    box-shadow: var(--shadow-sm);
-    min-height: 48px;
-    box-sizing: border-box;
-}
-
-.section-header .section-back {
-    background: transparent;
-    color: var(--text-color);
-    justify-self: start;
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    width: auto;
-    padding: 0 var(--space-sm);
-}
-
-.section-header .section-back-label {
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-normal);
-}
-
-.section-header.no-back .section-back {
-    visibility: hidden;
-}
-
-.section-header .section-title {
-    margin: 0;
-    text-align: center;
-    font-size: var(--font-size-md);
-    font-weight: var(--font-weight-medium);
-    color: var(--text-color);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.section-header .section-header-right {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    justify-self: end;
-    min-width: 44px;
-}
-
-.section-header .badge {
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
-    padding: 2px var(--space-sm);
-    border-radius: var(--radius-pill);
-    background: var(--secondary-bg-color);
-    color: var(--hint-color);
-    text-transform: lowercase;
-    letter-spacing: 0.03em;
-}
-
-.section-header .badge-experimental {
-    background: var(--color-warning);
-    color: var(--bg-color);
-}
-
-/* =============================================
-   WG APP HEADER — Wandergeek reskin (Task 4)
-   Deep-teal stage header with a gloss back pill,
-   JetBrains Mono title, and optional uppercase
-   caps subtitle. Dual-classed with .section-header
-   on the element so sticky positioning + badge
-   styles from the legacy block still apply.
-   ============================================= */
-.wg-app-header {
-    display: grid;
-    grid-template-columns: var(--wg-icon-btn-size) 1fr var(--wg-icon-btn-size);
-    align-items: center;
-    gap: var(--space-sm);
-    padding: 2px var(--space-lg) var(--space-sm);
-    padding-top: calc(2px + env(safe-area-inset-top, 0px));
-    background: transparent;
-    box-shadow: none;
-    min-height: 0;
-}
-
-.wg-app-header__title {
-    margin: 0;
-    font-family: var(--wg-font-display);
-    font-weight: var(--font-weight-medium);
-    font-size: var(--wg-app-header-title-size);
-    letter-spacing: 0.02em;
-    text-align: center;
-    color: var(--wg-fg-1);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-}
-
-.wg-app-header__title small {
-    display: block;
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-app-header-subtitle-size);
-    font-weight: var(--font-weight-medium);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--wg-fg-4);
-    margin-top: 2px;
-}
-
-.wg-app-header__right {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    min-width: var(--wg-icon-btn-size);
-}
-
-.wg-app-header .wg-icon-btn {
-    justify-self: start;
-}
-
-.wg-app-header--no-back > .section-back.wg-icon-btn {
-    visibility: hidden;
-}
-
-.food-stats-period-row {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: var(--space-xs);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-normal);
-    margin-bottom: var(--space-sm);
-}
-
-.food-stats-period-row .period-divider {
-    color: var(--hint-color);
-}
-
 /* ==========================================================================
    Wandergeek primitives — gloss material classes for the deep-teal stage.
    All values come from --wg-* tokens; no hardcoded hex in this block.
@@ -3375,17 +3264,6 @@ input:checked+.toggle-slider:before {
     min-height: 44px;
     padding: var(--space-md) var(--space-xl);
     font-size: var(--font-size-md);
-}
-
-/* Floating action button utility — generic, reused by every section that
-   needs an "add new entry" pill above the bottom nav (BP, Food, Meds,
-   Weight, Workouts). Vertical offset comes from --wg-bottom-nav-reserved
-   so the FAB sits clear of the fixed nav at every viewport. */
-.wg-fab {
-    position: fixed;
-    right: var(--space-lg);
-    bottom: calc(var(--wg-bottom-nav-reserved) + var(--space-md));
-    z-index: var(--wg-z-fab);
 }
 
 .wg-icon-btn {
@@ -3570,6 +3448,17 @@ textarea.wg-input {
 .wg-tag--mono {
     font-family: var(--wg-font-mono);
     letter-spacing: 0;
+}
+
+/* Sun-yellow active-chip variant. Used by the notes-composer tag chips
+   (Phase 8 / Task 7) when the user picks SLEEP / STRESS / HR / SPO2 /
+   STEPS / NOTE. Visual value resolves to the shared `--wg-tag-high-*`
+   palette (same sun-yellow used by BP high-normal + weight trend-good)
+   so no new colors enter the token set. */
+.wg-tag--sun {
+    background: var(--wg-tag-high-bg);
+    color: var(--wg-tag-high-fg);
+    border-color: var(--wg-tag-high-border);
 }
 
 .wg-section-label {
@@ -3823,14 +3712,6 @@ textarea.wg-input {
     box-sizing: border-box;
 }
 
-/* Header title over the dark stage: legacy .section-header .section-title
-   (0,2,0) would otherwise pin titles to var(--text-color) (black). Scoping
-   to .wg-screen-stage gives 0,3,0 and restores the near-white fg. */
-.wg-screen-stage .section-header .section-title,
-.wg-screen-stage .wg-app-header__title {
-    color: var(--wg-fg-1);
-}
-
 /* Empty-state copy over the dark stage: #bp-list:empty::before and
    .empty-state-msg both default to var(--hint-color) (mid-grey), which
    drops to poor contrast on --wg-bg-stage. Restore a near-white muted
@@ -3867,13 +3748,6 @@ textarea.wg-input {
     box-sizing: border-box;
 }
 
-/* Header title on Today: legacy .section-header .section-title (0,2,0)
-   would otherwise pin the greeting to var(--text-color) (black) on the
-   dark stage. Scoping to .wg-today gives 0,3,0 and restores the near-white. */
-.wg-today .section-header .section-title {
-    color: var(--wg-fg-1);
-}
-
 .wg-next-action-card {
     display: flex;
     align-items: center;
@@ -3887,6 +3761,26 @@ textarea.wg-input {
     text-align: left;
     width: 100%;
     cursor: pointer;
+}
+
+/* Plain surface variant: meds card at the bottom of Today drops the
+   sun-yellow banner and sits on the regular card background so the
+   "Take" gloss-sun button remains the only emphasis. */
+.wg-next-action-card--plain {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(0, 0, 0, 0) 60%),
+        var(--wg-bg-card);
+    border-color: var(--wg-border-hairline);
+}
+
+.wg-next-action-card--plain .wg-next-action-card__icon {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--wg-border-hairline);
+    color: var(--wg-fg-2);
+}
+
+.wg-next-action-card--plain .wg-next-action-card__kicker {
+    color: var(--wg-fg-3);
 }
 
 .wg-next-action-card__icon {
@@ -4042,7 +3936,7 @@ textarea.wg-input {
 
 .wg-fuel-card__pct {
     font-family: var(--wg-font-display);
-    font-size: var(--font-size-md);
+    font-size: var(--wg-font-size-fuel-pct);
     color: var(--wg-sun);
     line-height: 1;
     text-align: right;
@@ -4156,6 +4050,100 @@ textarea.wg-input {
 .wg-plan-tile__detail {
     font-size: var(--font-size-xs);
     color: var(--wg-fg-3);
+}
+
+/* Today shortcut row (Task 3) — 3 quick-log tiles that open the existing
+   food / BP / weight modals directly. Uses the same material vocabulary
+   as `.wg-metric-tile` so the shortcuts visually belong to the Today
+   card stack. */
+.wg-today-shortcuts {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: var(--space-sm);
+}
+
+.wg-shortcut-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--wg-tile-pad-block) var(--space-xs);
+    background: var(--wg-metric-tile-bg);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    width: 100%;
+}
+
+.wg-shortcut-tile__icon {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--wg-radius-gloss);
+    background: var(--wg-next-action-icon-bg);
+    border: 1px solid var(--wg-next-action-icon-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--wg-sun);
+}
+
+.wg-shortcut-tile__label {
+    font-size: var(--wg-font-size-caps);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--wg-fg-2);
+    font-weight: 600;
+}
+
+/* Today meds card (Task 3) — header row (icon + kicker + "Take" CTA),
+   then an optional list of scheduled med names. Lives at the bottom of
+   the Today stack. */
+.wg-today-meds {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    align-items: stretch;
+}
+
+.wg-today-meds__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.wg-today-meds__list {
+    list-style: none;
+    margin: 0;
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--wg-border-hairline);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-today-meds__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.wg-today-meds__dot {
+    width: 5px;
+    height: 5px;
+    border-radius: var(--wg-radius-pill);
+    background: var(--wg-sun);
+    flex-shrink: 0;
+}
+
+.wg-today-meds__name {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .wg-streak-card {
@@ -4564,25 +4552,41 @@ textarea.wg-input {
     gap: var(--space-xs);
 }
 
-/* Full-width Add-weight CTA (Phase 6, Task 5). Sits at the bottom of the
-   weight view in place of the paper-era FAB. Uses the shared .wg-gloss
-   primitive with the sun modifier; width + padding come from tokens. */
-.wg-weight-add-cta {
+/* Weight header row (Phase 5, Task 5). Flex row holding the latest-weight
+   card on the left and the inline sun-gloss add-weight button on the
+   right, replacing the paper-era full-width bottom CTA. align-items: stretch
+   lets the button match the card's visual height without hardcoding a size. */
+.wg-weight-header-row {
     display: flex;
+    gap: var(--space-sm);
+    align-items: stretch;
+    margin-bottom: var(--space-md);
+}
+
+.wg-weight-header-row > #weight-current-card {
+    flex: 1;
+    min-width: 0;
+    margin-bottom: 0;
+}
+
+.wg-weight-header-row__add {
+    flex-shrink: 0;
+    align-self: flex-start;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: var(--space-xs);
-    width: 100%;
-    min-height: 44px;
-    margin-top: var(--space-md);
+    min-height: 36px;
     padding: var(--space-sm) var(--space-md);
+    margin-top: var(--space-xs);
     font-family: var(--wg-font-ui);
     font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
 }
 
-.wg-weight-add-cta__label {
-    font-size: var(--font-size-md);
+.wg-weight-header-row__add-label {
     letter-spacing: 0.02em;
 }
 
@@ -4692,7 +4696,7 @@ textarea.wg-input {
 }
 
 .wg-weight-modal__weight-input {
-    font-size: var(--font-size-lg);
+    font-size: var(--wg-weight-modal-weight-input-size);
     -moz-appearance: textfield;
     appearance: textfield;
 }
@@ -4744,6 +4748,143 @@ textarea.wg-input {
 }
 
 .wg-weight-modal__action--save {
+    flex: 2 1 0;
+}
+
+/* Record-BP modal (Task 4b audit) — shares the generic `.wg-modal` shell;
+   overlays the dual-line eyebrow/title header, gloss-inset input wraps, a
+   3-up Systolic/Diastolic/Pulse row with 20px mono readings, a 2-up
+   Site/Position row, Notes textarea, and the Cancel/Save action bar with a
+   2× flex on Save per the modal-button-order convention. Every visual value
+   reads from a `--wg-bp-modal-*` or shared `--wg-*` token. */
+.wg-bp-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-bp-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-bp-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-bp-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-bp-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-bp-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-bp-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-bp-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-bp-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-bp-modal-section-gap);
+}
+
+.wg-bp-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-bp-modal__label {
+    font-size: var(--wg-bp-modal-label-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-bp-modal__input-wrap {
+    padding: var(--wg-bp-modal-input-pad-y) var(--wg-bp-modal-input-pad-x);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-bp-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-bp-modal__input::placeholder {
+    color: var(--wg-fg-4);
+}
+
+.wg-bp-modal__input--reading {
+    font-size: var(--wg-bp-modal-reading-size);
+}
+
+.wg-bp-modal__textarea {
+    resize: vertical;
+    font-family: var(--wg-font-ui);
+}
+
+.wg-bp-modal__select {
+    font-family: var(--wg-font-ui);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.wg-bp-modal__row {
+    display: flex;
+    gap: var(--wg-bp-modal-row-gap);
+    align-items: flex-end;
+}
+
+.wg-bp-modal__row > .wg-bp-modal__field {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.wg-bp-modal__actions {
+    display: flex;
+    gap: var(--wg-bp-modal-action-gap);
+    margin-top: var(--space-md);
+}
+
+.wg-bp-modal__action {
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-bp-modal__action--cancel {
+    flex: 1 1 0;
+}
+
+.wg-bp-modal__action--save {
     flex: 2 1 0;
 }
 
@@ -4833,11 +4974,22 @@ textarea.wg-input {
     border-color: var(--wg-bp-status-grade2-border);
 }
 
+/* Range selector row (Phase 5, Task 5). Outer container is a plain flex
+   row holding the inset 14/30/60d track and the trailing inline +Log pill.
+   Keeping the inset limited to the track preserves the "tabs in a trough"
+   look while letting the sun-gloss action button sit on the stage. */
 .wg-bp-range-selector {
     display: flex;
     gap: var(--space-xs);
-    padding: var(--wg-bp-range-selector-pad);
+    align-items: stretch;
     margin-bottom: var(--space-md);
+}
+
+.wg-bp-range-selector__track {
+    flex: 1;
+    display: flex;
+    gap: var(--space-xs);
+    padding: var(--wg-bp-range-selector-pad);
 }
 
 .wg-bp-range-selector__btn {
@@ -4847,6 +4999,25 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
     padding: var(--space-xs) var(--space-sm);
     border-radius: var(--wg-radius-gloss);
+}
+
+.wg-bp-range-selector__add {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    min-height: var(--wg-bp-range-selector-height);
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-bp-range-selector__add-label {
+    letter-spacing: 0.02em;
 }
 
 .wg-bp-chart-card {
@@ -5089,18 +5260,31 @@ textarea.wg-input {
 }
 
 .wg-food-macros-card__percent {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    text-align: right;
     font-family: var(--wg-font-mono);
-    font-size: var(--font-size-xs);
     color: var(--wg-fg-3);
+    line-height: 1;
 }
 
 .wg-food-macros-card__percent-value {
     color: var(--wg-sun);
+    font-size: var(--wg-food-kcal-pct-size);
     font-weight: var(--font-weight-bold);
+    letter-spacing: -0.02em;
+    line-height: 1;
 }
 
 .wg-food-macros-card__percent-label {
     color: var(--wg-fg-4);
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-food-kcal-pct-label-size);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-top: 2px;
 }
 
 .wg-food-macros-card__bars {
@@ -5109,24 +5293,122 @@ textarea.wg-input {
     gap: var(--space-sm);
 }
 
-/* Food sub-tab strip (Phase 4, Task 3). `.wg-gloss--inset` container wraps
-   three `.wg-gloss`-capable pills; the active pill also carries
-   `.wg-gloss--sun` (plus `.wg-food-subtabs__btn--active` for tests). Mirrors
-   the BP range-selector pattern from Phase 3. */
-.wg-food-subtabs {
+/* Phase 5, Task 4 — outer `.wg-food-subtabs` strip was retired in favor of
+   an inline +Add button in the day navigator and a Daily/Weekly segmented
+   toggle inside the macros card. Rules for `.wg-food-subtabs` and
+   `.wg-food-subtabs__btn` were removed alongside the markup. */
+
+/* In-card Daily/Weekly toggle (Phase 5, Task 4). Inset pill strip that sits
+   above the kcal total inside `.wg-food-macros-card`; the active pill uses
+   the sun-gloss gradient vocabulary. All values resolve through existing
+   `--wg-*` tokens — no hardcoded colors. */
+.wg-food-macros-card__header-left {
     display: flex;
-    gap: var(--wg-food-subtab-gap);
-    padding: var(--wg-food-subtab-pad-y) var(--wg-food-subtab-pad-x);
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-food-macros-card__toggle {
+    display: inline-flex;
+    gap: var(--space-xs);
+    padding: var(--space-xs);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-food-macros-card__toggle-btn {
+    padding: var(--space-xs) var(--space-sm);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: var(--font-weight-bold);
+    color: var(--wg-fg-4);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-food-macros-card__toggle-btn--active {
+    color: var(--wg-sun);
+    background: var(--wg-gloss-bg-sun);
+    border-color: var(--wg-border-strong);
+    box-shadow: var(--wg-gloss-shadow-sun);
+}
+
+.wg-food-macros-card__avg {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-4);
+    margin-top: var(--space-xs);
+}
+
+/* Inline +Add inside the food day navigator (Phase 5, Task 4). */
+.wg-food-day-nav--with-action {
+    grid-template-columns:
+        var(--wg-food-day-nav-icon-size) 1fr var(--wg-food-day-nav-icon-size) auto;
+}
+
+.wg-food-day-nav__add {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    min-height: var(--wg-food-day-nav-icon-size);
+    padding: var(--space-xs) var(--space-sm);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.08em;
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-food-day-nav__add-label {
+    white-space: nowrap;
+}
+
+/* Food library entry (Phase 5, Task 4). Ghost-link row below the meal list
+   that reveals the collapsed My Meals + Food DB panels. Keeps the sections
+   reachable after the outer tab strip was removed. */
+.wg-food-library-entry {
+    display: flex;
+    justify-content: center;
+    margin-top: var(--space-lg);
     margin-bottom: var(--space-md);
 }
 
-.wg-food-subtabs__btn {
-    flex: 1;
-    min-height: 36px;
+.wg-food-library-entry__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-md);
     font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    background: transparent;
+    border: 1px solid var(--wg-border-hairline);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-food-library-entry__btn--open .wg-food-library-entry__chevron {
+    transform: rotate(180deg);
+}
+
+.wg-food-library-entry__chevron {
+    display: inline-block;
+    transition: transform 160ms ease;
+}
+
+.wg-food-library-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+    margin-top: var(--space-md);
+    margin-bottom: var(--space-md);
 }
 
 /* Meds next-action card (Phase 5, Task 3). Sun-glossed card mirroring the
@@ -5178,15 +5460,24 @@ textarea.wg-input {
     cursor: pointer;
 }
 
-/* Meds sub-tab strip (Phase 5, Task 2). `.wg-gloss--inset` container wraps
-   three `.wg-gloss`-capable pills — Schedule / History / Inventory — the
-   active pill carries `.wg-gloss--sun` (plus `.wg-meds-subtabs__btn--active`
-   for tests). Mirrors the Phase 4 Food sub-tab strip. */
+/* Meds sub-tab strip (Phase 5, Task 2; revised Task 5). `.wg-gloss--inset`
+   container wraps three `.wg-gloss`-capable pills — History (default) /
+   Schedule / Inventory — the active pill carries `.wg-gloss--sun` (plus
+   `.wg-meds-subtabs__btn--active` for tests). The strip is wrapped by a
+   `.wg-meds-subtabs-row` flex container that also holds the inline sun-gloss
+   add-medication pill on the right, replacing the paper-era full-width bottom CTA. */
+.wg-meds-subtabs-row {
+    display: flex;
+    gap: var(--space-xs);
+    align-items: stretch;
+    margin-bottom: var(--space-md);
+}
+
 .wg-meds-subtabs {
+    flex: 1;
     display: flex;
     gap: var(--wg-meds-subtab-gap);
     padding: var(--wg-meds-subtab-pad-y) var(--wg-meds-subtab-pad-x);
-    margin-bottom: var(--space-md);
 }
 
 .wg-meds-subtabs__btn {
@@ -5198,16 +5489,43 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
-/* Workouts sub-tab strip (Phase 7, Task 2). `.wg-gloss--inset` container
-   wraps four `.wg-gloss`-capable pills — History / Groups / Exercises /
+.wg-meds-subtabs-row__add {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-meds-subtabs-row__add-label {
+    letter-spacing: 0.02em;
+}
+
+/* Workouts sub-tab strip (Phase 7, Task 2; revised Task 5). `.wg-gloss--inset`
+   container wraps four `.wg-gloss`-capable pills — History / Groups / Exercises /
    Stats — the active pill carries `.wg-gloss--sun` (plus
-   `.wg-workouts-subtabs__btn--active` for tests). Mirrors the Phase 4 Food
-   and Phase 5 Meds sub-tab strips. */
+   `.wg-workouts-subtabs__btn--active` for tests). The strip is wrapped by a
+   `.wg-workouts-subtabs-row` flex container that also holds the inline sun-gloss
+   `#start-adhoc-workout-btn` ad-hoc CTA on the right. */
+.wg-workouts-subtabs-row {
+    display: flex;
+    gap: var(--space-xs);
+    align-items: stretch;
+    margin-bottom: var(--space-md);
+}
+
 .wg-workouts-subtabs {
+    flex: 1;
     display: flex;
     gap: var(--wg-workouts-subtab-gap);
     padding: var(--wg-workouts-subtab-pad-y) var(--wg-workouts-subtab-pad-x);
-    margin-bottom: var(--space-md);
 }
 
 .wg-workouts-subtabs__btn {
@@ -5217,6 +5535,25 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
     padding: var(--space-xs) var(--space-sm);
     border-radius: var(--wg-radius-gloss);
+}
+
+.wg-workouts-subtabs-row__add {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+.wg-workouts-subtabs-row__add-label {
+    letter-spacing: 0.02em;
 }
 
 /* Health sub-tab strip (Phase 8, Task 2). `.wg-gloss--inset` container wraps
@@ -6982,7 +7319,46 @@ textarea.wg-input {
 .wg-health-notes-compose {
     display: flex;
     flex-direction: column;
+    gap: var(--wg-health-notes-compose-gap);
+    padding: var(--wg-health-notes-compose-card-pad);
+}
+
+.wg-health-notes-compose__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: var(--space-sm);
+    min-width: 0;
+}
+
+.wg-health-notes-compose__title {
+    font-size: var(--wg-health-notes-compose-title-size);
+    color: var(--wg-fg-1);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+}
+
+.wg-health-notes-compose__tags {
+    display: flex;
+    gap: var(--space-xs);
+    overflow-x: auto;
+    min-width: 0;
+    scrollbar-width: none;
+}
+
+.wg-health-notes-compose__tags::-webkit-scrollbar {
+    display: none;
+}
+
+.wg-health-notes-compose__tag {
+    flex: 0 0 auto;
+    cursor: pointer;
+    background: var(--wg-tag-normal-bg);
+    color: var(--wg-tag-normal-fg);
+    border-color: var(--wg-tag-normal-border);
+    font-size: var(--wg-health-notes-compose-tag-size);
+    letter-spacing: 0.1em;
+    padding: var(--wg-health-notes-compose-tag-pad-y) var(--wg-health-notes-compose-tag-pad-x);
 }
 
 .wg-health-notes-compose__wrap {
@@ -6996,28 +7372,46 @@ textarea.wg-input {
     border: 0;
     outline: none;
     resize: vertical;
-    font-family: var(--wg-font-mono);
+    font-family: var(--wg-font-ui);
     font-size: var(--wg-health-notes-body-size);
     color: var(--wg-fg-1);
-    min-height: 64px;
+    min-height: var(--wg-health-notes-compose-textarea-min);
+    line-height: 1.45;
 }
 
 .wg-health-notes-compose__textarea::placeholder {
     color: var(--wg-fg-4);
 }
 
+.wg-health-notes-compose__footer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.wg-health-notes-compose__count {
+    font-size: var(--wg-health-notes-compose-count-size);
+    color: var(--wg-fg-4);
+    letter-spacing: 0.08em;
+}
+
 .wg-health-notes-compose__save {
-    width: 100%;
+    margin-left: auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: var(--space-sm);
-    min-height: 44px;
-    padding: var(--space-md) var(--space-lg);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
+    gap: var(--space-xs);
+    min-height: var(--wg-health-notes-compose-save-min);
+    padding: var(--wg-health-notes-compose-save-pad-y) var(--wg-health-notes-compose-save-pad-x);
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-health-notes-compose-save-size);
     border-radius: var(--wg-radius-gloss);
     cursor: pointer;
+}
+
+.wg-health-notes-compose__save[disabled] {
+    opacity: 0.55;
+    cursor: not-allowed;
 }
 
 .wg-health-notes__loading {
@@ -7084,6 +7478,11 @@ textarea.wg-input {
     font-size: var(--wg-health-notes-time-size);
     color: var(--wg-fg-3);
     letter-spacing: 0.02em;
+}
+
+.wg-health-notes-row__tag {
+    font-size: var(--wg-health-notes-row-tag-size);
+    letter-spacing: 0.1em;
 }
 
 .wg-health-notes-row__content {
@@ -7336,25 +7735,6 @@ textarea.wg-input {
     display: inline-flex;
     align-items: center;
     gap: var(--space-xs);
-}
-
-.wg-meds-add-cta {
-    width: 100%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-sm);
-    min-height: 44px;
-    padding: var(--space-md) var(--space-lg);
-    margin-top: var(--space-md);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-meds-add-cta__label {
-    letter-spacing: 0.04em;
 }
 
 /* Meds history sub-tab (Phase 5, Task 5). Two `.wg-gloss--inset` select
@@ -8422,6 +8802,197 @@ textarea.wg-input {
 
 .wg-meds-modal__action--save {
     flex: 2 1 0;
+}
+
+/* Take-meds (medication confirm) modal (Task 4b audit) — shares the generic
+   `.wg-modal` shell; overlays a sun-coloured eyebrow, mono title ("Time for
+   Meds"), subtitle (count / scheduled-for text), scrollable list of
+   checkbox-style rows (each row flips from dark-inset to green-highlight
+   when selected), a Snooze + Skip secondary actions row, and the full-width
+   sun "Confirm selected" primary button. Every visual value reads from a
+   `--wg-med-confirm-modal-*` or shared `--wg-*` token. */
+.wg-med-confirm-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-md);
+}
+
+.wg-med-confirm-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-med-confirm-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-med-confirm-modal-eyebrow-size);
+    color: var(--wg-sun);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-med-confirm-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-med-confirm-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-med-confirm-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-med-confirm-modal__subtitle {
+    font-size: var(--wg-med-confirm-modal-subtitle-size);
+    color: var(--wg-fg-3);
+}
+
+.wg-med-confirm-modal__close-btn {
+    flex-shrink: 0;
+}
+
+.wg-med-confirm-modal__time-edit {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-md);
+}
+
+.wg-med-confirm-modal__label {
+    font-size: var(--wg-med-confirm-modal-eyebrow-size);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+    font-weight: var(--font-weight-bold);
+}
+
+.wg-med-confirm-modal__input-wrap {
+    padding: var(--space-md);
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.wg-med-confirm-modal__input {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+}
+
+.wg-med-confirm-modal__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-med-confirm-modal-row-gap);
+    margin-bottom: var(--space-md);
+}
+
+.wg-med-confirm-modal__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--wg-med-confirm-modal-row-pad-y) var(--wg-med-confirm-modal-row-pad-x);
+    border-radius: var(--wg-radius-gloss);
+    background: var(--wg-gloss-bg-inset);
+    border: 1px solid var(--wg-border-hairline);
+    cursor: pointer;
+    min-width: 0;
+}
+
+.wg-med-confirm-modal__row--on {
+    background: var(--wg-tag-high-bg);
+    border-color: var(--wg-tag-high-border);
+}
+
+.wg-med-confirm-modal__row-input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+    height: 0;
+}
+
+.wg-med-confirm-modal__check {
+    width: var(--wg-med-confirm-modal-check-size);
+    height: var(--wg-med-confirm-modal-check-size);
+    border-radius: var(--wg-med-confirm-modal-check-radius);
+    flex-shrink: 0;
+    background: var(--wg-bg-card-inset);
+    border: 1px solid var(--wg-border-hairline);
+    box-shadow: var(--wg-gloss-shadow-inset);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.wg-med-confirm-modal__row--on .wg-med-confirm-modal__check {
+    background: var(--wg-tag-high-fg);
+    border-color: var(--wg-tag-high-border);
+    box-shadow: none;
+    position: relative;
+}
+
+.wg-med-confirm-modal__row--on .wg-med-confirm-modal__check::after {
+    content: '';
+    width: 8px;
+    height: 4px;
+    border-left: 2px solid var(--wg-ink);
+    border-bottom: 2px solid var(--wg-ink);
+    transform: rotate(-45deg) translate(1px, -1px);
+}
+
+.wg-med-confirm-modal__row-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.wg-med-confirm-modal__row-name {
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-med-confirm-modal-name-size);
+    color: var(--wg-fg-1);
+    font-weight: var(--font-weight-bold);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wg-med-confirm-modal__secondary-actions {
+    display: flex;
+    gap: var(--wg-med-confirm-modal-action-gap);
+    margin-bottom: var(--wg-med-confirm-modal-action-gap);
+}
+
+.wg-med-confirm-modal__secondary {
+    flex: 1 1 0;
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+}
+
+.wg-med-confirm-modal__secondary--skip {
+    color: var(--wg-tag-alert-fg);
+}
+
+.wg-med-confirm-modal__primary {
+    width: 100%;
+    padding: var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    border-radius: var(--wg-radius-gloss);
 }
 
 /* Wandergeek toggle primitive (Phase 9, Task 1). Renders a pill with a

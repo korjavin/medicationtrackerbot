@@ -7,10 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -31,7 +30,7 @@ func (s *Server) handleListNotes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	notes, err := s.notes.ListDiaryNotes(r.Context(), userID, time.Time{}, time.Time{}, limit, beforeID)
+	notes, err := s.notesSvc.ListNotes(r.Context(), userID, time.Time{}, time.Time{}, limit, beforeID)
 	if err != nil {
 		slog.Error("list diary notes", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -51,25 +50,25 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
 	var req struct {
-		Content string `json:"content"`
+		Content string  `json:"content"`
+		Tag     *string `json:"tag"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	req.Content = strings.TrimSpace(req.Content)
-	if req.Content == "" {
-		http.Error(w, "content is required", http.StatusBadRequest)
-		return
-	}
-	if utf8.RuneCountInString(req.Content) > 10000 {
-		http.Error(w, "content too long", http.StatusBadRequest)
-		return
-	}
 
-	note, err := s.notes.CreateDiaryNote(r.Context(), userID, req.Content)
+	note, err := s.notesSvc.CreateNote(r.Context(), userID, req.Content, req.Tag)
 	if err != nil {
+		if errors.Is(err, domain.ErrEmptyContent) {
+			http.Error(w, "content is required", http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, domain.ErrContentTooLong) {
+			http.Error(w, "content too long", http.StatusBadRequest)
+			return
+		}
 		slog.Error("create diary note", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -92,7 +91,7 @@ func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.notes.DeleteDiaryNote(r.Context(), userID, id); err != nil {
+	if err := s.notesSvc.DeleteNote(r.Context(), userID, id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "note not found", http.StatusNotFound)
 			return

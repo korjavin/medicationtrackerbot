@@ -86,7 +86,7 @@ func TestHandleListNotes(t *testing.T) {
 
 	ctx := ctxWithUser(123456)
 	for i := 0; i < 3; i++ {
-		_, err := db.CreateDiaryNote(ctx, 123456, fmt.Sprintf("note %d", i))
+		_, err := db.CreateDiaryNote(ctx, 123456, fmt.Sprintf("note %d", i), nil)
 		if err != nil {
 			t.Fatalf("CreateDiaryNote: %v", err)
 		}
@@ -117,7 +117,7 @@ func TestHandleListNotes_LimitParam(t *testing.T) {
 
 	ctx := ctxWithUser(123456)
 	for i := 0; i < 5; i++ {
-		_, err := db.CreateDiaryNote(ctx, 123456, fmt.Sprintf("note %d", i))
+		_, err := db.CreateDiaryNote(ctx, 123456, fmt.Sprintf("note %d", i), nil)
 		if err != nil {
 			t.Fatalf("CreateDiaryNote: %v", err)
 		}
@@ -148,7 +148,7 @@ func TestHandleListNotes_CursorPagination(t *testing.T) {
 	ctx := ctxWithUser(123456)
 	var lastID int64
 	for i := 0; i < 5; i++ {
-		note, err := db.CreateDiaryNote(ctx, 123456, fmt.Sprintf("note %d", i))
+		note, err := db.CreateDiaryNote(ctx, 123456, fmt.Sprintf("note %d", i), nil)
 		if err != nil {
 			t.Fatalf("CreateDiaryNote: %v", err)
 		}
@@ -200,7 +200,7 @@ func TestHandleDeleteNote(t *testing.T) {
 	defer db.Close()
 
 	ctx := ctxWithUser(123456)
-	note, err := db.CreateDiaryNote(ctx, 123456, "to delete")
+	note, err := db.CreateDiaryNote(ctx, 123456, "to delete", nil)
 	if err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
@@ -270,5 +270,128 @@ func TestHandleCreateNote_ContentTooLong(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleCreateNote_WithValidTag(t *testing.T) {
+	srv, db := createNotesTestServer(t)
+	defer db.Close()
+
+	body, _ := json.Marshal(map[string]interface{}{"content": "slept 8h", "tag": "SLEEP"})
+	req := httptest.NewRequest("POST", "/api/notes", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateNote(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected 201, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	var resp store.DiaryNote
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if resp.Tag == nil || *resp.Tag != "SLEEP" {
+		t.Errorf("Expected tag SLEEP, got %v", resp.Tag)
+	}
+}
+
+func TestHandleCreateNote_LowercaseTagNormalized(t *testing.T) {
+	srv, db := createNotesTestServer(t)
+	defer db.Close()
+
+	body, _ := json.Marshal(map[string]interface{}{"content": "x", "tag": "stress"})
+	req := httptest.NewRequest("POST", "/api/notes", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateNote(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected 201, got %d", w.Code)
+	}
+	var resp store.DiaryNote
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if resp.Tag == nil || *resp.Tag != "STRESS" {
+		t.Errorf("Expected normalized STRESS, got %v", resp.Tag)
+	}
+}
+
+// Invalid tags are sanitized to NULL rather than rejected — the POST still succeeds with 201.
+func TestHandleCreateNote_InvalidTagSanitizedToNull(t *testing.T) {
+	srv, db := createNotesTestServer(t)
+	defer db.Close()
+
+	body, _ := json.Marshal(map[string]interface{}{"content": "x", "tag": "MOOD"})
+	req := httptest.NewRequest("POST", "/api/notes", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateNote(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 (sanitized), got %d. Body: %s", w.Code, w.Body.String())
+	}
+	var resp store.DiaryNote
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if resp.Tag != nil {
+		t.Errorf("Expected nil tag after sanitization, got %v", *resp.Tag)
+	}
+}
+
+func TestHandleCreateNote_NoTagField(t *testing.T) {
+	srv, db := createNotesTestServer(t)
+	defer db.Close()
+
+	body, _ := json.Marshal(map[string]string{"content": "just text"})
+	req := httptest.NewRequest("POST", "/api/notes", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateNote(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected 201, got %d", w.Code)
+	}
+	var resp store.DiaryNote
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if resp.Tag != nil {
+		t.Errorf("Expected nil tag, got %v", *resp.Tag)
+	}
+}
+
+func TestHandleListNotes_ReturnsTag(t *testing.T) {
+	srv, db := createNotesTestServer(t)
+	defer db.Close()
+
+	ctx := ctxWithUser(123456)
+	tag := "HR"
+	if _, err := db.CreateDiaryNote(ctx, 123456, "resting 58", &tag); err != nil {
+		t.Fatalf("CreateDiaryNote: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/notes", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleListNotes(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", w.Code)
+	}
+	var notes []store.DiaryNote
+	if err := json.NewDecoder(w.Body).Decode(&notes); err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 {
+		t.Fatalf("Expected 1 note, got %d", len(notes))
+	}
+	if notes[0].Tag == nil || *notes[0].Tag != "HR" {
+		t.Errorf("Expected tag HR, got %v", notes[0].Tag)
 	}
 }
