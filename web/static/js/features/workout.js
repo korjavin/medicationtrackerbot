@@ -1106,19 +1106,20 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
             const weightText = ex.target_weight_kg ? ` @ ${ex.target_weight_kg}kg` : '';
 
             const card = document.createElement('div');
-            card.className = 'workout-exercise-card';
+            card.className = 'wg-workouts-exercise-row';
 
             const info = document.createElement('div');
-            info.className = 'cursor-pointer flex-1';
+            info.className = 'wg-workouts-exercise-row__info';
             info.addEventListener('click', () => {
                 showEditExerciseModal(ex.id);
             });
 
-            const title = document.createElement('strong');
+            const title = document.createElement('span');
+            title.className = 'wg-workouts-exercise-row__title';
             title.textContent = `${ex.order_index + 1}. ${ex.exercise_name}`;
 
-            const meta = document.createElement('div');
-            meta.className = 'workout-exercise-meta';
+            const meta = document.createElement('span');
+            meta.className = 'wg-workouts-exercise-row__meta';
             meta.textContent = `${ex.target_sets} sets × ${repsText} reps${weightText}`;
 
             info.appendChild(title);
@@ -1127,7 +1128,7 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
             const deleteBtn = createDeleteButton((event) => {
                 deleteExercise(ex.id, event);
             });
-            deleteBtn.classList.add('workout-delete-btn-inline');
+            deleteBtn.classList.add('workout-delete-btn-inline', 'wg-workouts-exercise-row__delete');
 
             card.appendChild(info);
             card.appendChild(deleteBtn);
