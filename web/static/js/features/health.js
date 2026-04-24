@@ -1029,7 +1029,11 @@ async function handleEditNoteSubmit(event) {
     }
 
     const original = editingNote;
-    const postRes = await apiCall('/api/notes', 'POST', { content });
+    const postBody = { content };
+    if (typeof original.tag === 'string' && original.tag) {
+        postBody.tag = original.tag;
+    }
+    const postRes = await apiCall('/api/notes', 'POST', postBody);
     if (!postRes) return;
 
     const isLocalId = typeof original.id === 'string' && original.id.startsWith('local_');

@@ -93,7 +93,8 @@
         const at = Date.parse(nx.scheduled_at);
         if (!Number.isFinite(at)) return cell(null, 'meds', 'missing');
         const names = Array.isArray(nx.medication_names) ? nx.medication_names : [];
-        const value = { scheduledAt: nx.scheduled_at, names };
+        const ids = Array.isArray(nx.medication_ids) ? nx.medication_ids : [];
+        const value = { scheduledAt: nx.scheduled_at, names, ids };
         const status = at + OVERDUE_GRACE_MS < nowMs ? 'overdue' : 'ok';
         return cell(value, 'meds', status);
     }
@@ -552,6 +553,14 @@
         }
         cta.addEventListener('click', (event) => {
             event.stopPropagation();
+            const v = cell.value;
+            const canConfirm = v && Array.isArray(v.ids) && v.ids.length > 0
+                && (cell.status === 'ok' || cell.status === 'overdue');
+            const win = (typeof window !== 'undefined') ? window : null;
+            if (canConfirm && win && typeof win.showMedicationConfirmModal === 'function') {
+                win.showMedicationConfirmModal(v.ids, v.names || [], v.scheduledAt, 'confirm');
+                return;
+            }
             if (typeof onDeeplink === 'function') onDeeplink(cell.deeplink || 'meds');
         });
         head.appendChild(cta);
