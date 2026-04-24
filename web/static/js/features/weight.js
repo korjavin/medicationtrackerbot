@@ -463,6 +463,153 @@ function renderWeightGoalCard(logs, goalData) {
     container.appendChild(delta);
 }
 
+// Linear regression on the last N logs (default 14). Returns a slope in
+// kg/day. NaN/Infinity safe — returns null when there isn't enough data or
+// when the regression denominator is zero (all timestamps equal). Consumers
+// must guard against a null return.
+function computeWeightTrendPerDay(logs, n) {
+    if (!Array.isArray(logs) || logs.length === 0) return null;
+    const cleaned = [];
+    for (const l of logs) {
+        if (!l || l.measured_at == null) continue;
+        const t = new Date(l.measured_at).getTime();
+        const w = Number(l.weight);
+        if (!Number.isFinite(t) || !Number.isFinite(w)) continue;
+        cleaned.push({ t, w });
+    }
+    if (cleaned.length < 2) return null;
+    // Logs arrive newest-first from _renderWeightData. Sort ascending so the
+    // regression runs over the chronological ordering the user expects.
+    cleaned.sort((a, b) => a.t - b.t);
+    const limit = Math.min(Number.isFinite(n) && n > 0 ? n : 14, cleaned.length);
+    const slice = cleaned.slice(cleaned.length - limit);
+    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    const base = slice[0].t;
+    for (const p of slice) {
+        const x = (p.t - base) / 86400000;
+        sumX += x;
+        sumY += p.w;
+        sumXY += x * p.w;
+        sumXX += x * x;
+    }
+    const denom = slice.length * sumXX - sumX * sumX;
+    if (denom === 0) return null;
+    const slope = (slice.length * sumXY - sumX * sumY) / denom;
+    return Number.isFinite(slope) ? slope : null;
+}
+
+// Render the chart legend — Actual / Plan / Goal swatches. Mirrors the design
+// reference: shown only when the goal is set (otherwise Plan/Goal are
+// meaningless and we hide the row entirely).
+function renderWeightChartLegend(goalData) {
+    const container = document.getElementById('weight-chart-legend');
+    if (!container) return;
+    const goalValue = goalData != null ? Number(goalData.goal) : NaN;
+    if (!Number.isFinite(goalValue)) {
+        container.hidden = true;
+        container.replaceChildren();
+        return;
+    }
+    container.hidden = false;
+    container.replaceChildren();
+
+    const items = [
+        { label: 'Actual', swatch: 'actual' },
+        { label: 'Plan', swatch: 'plan' },
+        { label: `Goal ${goalValue.toFixed(1)} kg`, swatch: 'goal' },
+    ];
+    items.forEach((item) => {
+        const li = document.createElement('span');
+        li.className = 'wg-weight-chart-legend__item';
+        const swatch = document.createElement('span');
+        swatch.className = `wg-weight-chart-legend__swatch wg-weight-chart-legend__swatch--${item.swatch}`;
+        li.appendChild(swatch);
+        const label = document.createElement('span');
+        label.className = 'wg-weight-chart-legend__label';
+        label.textContent = item.label;
+        li.appendChild(label);
+        container.appendChild(li);
+    });
+}
+
+// Render the goal-prognosis card — "days to goal" + weekly trend. Hidden
+// when no goal is set. All numeric outputs guard against NaN/Infinity and
+// fall back to "—" so users never see a literal "NaN" on screen.
+function renderWeightPrognosisCard(logs, goalData) {
+    const container = document.getElementById('weight-prognosis-card');
+    if (!container) return;
+    container.replaceChildren();
+
+    const goalValue = goalData != null ? Number(goalData.goal) : NaN;
+    if (!Number.isFinite(goalValue)) {
+        container.hidden = true;
+        return;
+    }
+    container.hidden = false;
+
+    const list = Array.isArray(logs) ? logs : [];
+    const currentRaw = list.length > 0 ? Number(list[0].weight) : NaN;
+    const current = Number.isFinite(currentRaw) ? currentRaw : null;
+    const slopePerDay = computeWeightTrendPerDay(list, 14);
+
+    // Days-to-goal projection. We want the slope to point TOWARDS the goal
+    // (losing when above, gaining when below). If the slope is flat, zero,
+    // or NaN, or points away from the goal, we fall back to "—".
+    let daysToGoal = Infinity;
+    if (current != null && slopePerDay != null && slopePerDay !== 0) {
+        const diff = goalValue - current;
+        const projected = diff / slopePerDay;
+        if (Number.isFinite(projected) && projected > 0) {
+            daysToGoal = projected;
+        }
+    }
+
+    const leftCol = document.createElement('div');
+    leftCol.className = 'wg-weight-prognosis-card__col wg-weight-prognosis-card__col--days';
+    const leftLabel = document.createElement('div');
+    leftLabel.className = 'wg-weight-prognosis-card__label';
+    leftLabel.textContent = 'Time to goal';
+    leftCol.appendChild(leftLabel);
+    const leftValue = document.createElement('div');
+    leftValue.className = 'wg-weight-prognosis-card__value';
+    if (current != null && Math.abs(current - goalValue) < 0.05) {
+        leftValue.textContent = 'At goal';
+    } else if (Number.isFinite(daysToGoal)) {
+        const rounded = Math.round(daysToGoal);
+        leftValue.textContent = `in ${rounded} day${rounded === 1 ? '' : 's'}`;
+    } else {
+        leftValue.textContent = '—';
+    }
+    leftCol.appendChild(leftValue);
+    container.appendChild(leftCol);
+
+    const rightCol = document.createElement('div');
+    rightCol.className = 'wg-weight-prognosis-card__col wg-weight-prognosis-card__col--trend';
+    const rightLabel = document.createElement('div');
+    rightLabel.className = 'wg-weight-prognosis-card__label';
+    rightLabel.textContent = 'Trend';
+    rightCol.appendChild(rightLabel);
+    const rightValue = document.createElement('div');
+    const perWeek = slopePerDay != null ? slopePerDay * 7 : NaN;
+    let variant = 'flat';
+    if (Number.isFinite(perWeek) && Math.abs(perWeek) >= 0.05) {
+        const goalDir = (goalData && typeof goalData.goal_direction === 'string')
+            ? goalData.goal_direction.toLowerCase()
+            : (current != null && current > goalValue ? 'lose' : 'gain');
+        if (goalDir === 'lose') variant = perWeek < 0 ? 'good' : 'bad';
+        else variant = perWeek > 0 ? 'good' : 'bad';
+    }
+    rightValue.className = `wg-weight-prognosis-card__trend-value wg-weight-prognosis-card__trend-value--${variant}`;
+    if (Number.isFinite(perWeek)) {
+        const sign = perWeek > 0 ? '+' : (perWeek < 0 ? '−' : '');
+        rightValue.textContent = `${sign}${Math.abs(perWeek).toFixed(1)} kg/week`;
+    } else {
+        rightValue.textContent = '—';
+    }
+    rightCol.appendChild(rightValue);
+    container.appendChild(rightCol);
+}
+
 // Render weight chart — delegates to WGWeightChart for the Wandergeek SVG,
 // honours the active range (7d / 30d / 90d / all) from localStorage, and
 // renders the goal overlay when a goal is set. Empty input or no match in
@@ -586,6 +733,8 @@ async function _renderWeightData(logsRes, goalRes) {
         }
     });
     renderWeightChart(allLogs, goalData);
+    renderWeightChartLegend(goalData);
+    renderWeightPrognosisCard(allLogs, goalData);
 
     if (allLogs.length === 0 && logsRes === null) {
         list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
