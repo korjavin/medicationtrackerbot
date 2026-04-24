@@ -5542,29 +5542,6 @@ textarea.wg-input {
     margin-top: var(--space-xs);
 }
 
-/* Inline +Add inside the food day navigator (Phase 5, Task 4). */
-.wg-food-day-nav--with-action {
-    grid-template-columns:
-        var(--wg-food-day-nav-icon-size) 1fr var(--wg-food-day-nav-icon-size) auto;
-}
-
-.wg-food-day-nav__add {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    min-height: var(--wg-food-day-nav-icon-size);
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-xs);
-    letter-spacing: 0.08em;
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-food-day-nav__add-label {
-    white-space: nowrap;
-}
-
 /* Food library entry (Phase 5, Task 4). Ghost-link row below the meal list
    that reveals the collapsed My Meals + Food DB panels. Keeps the sections
    reachable after the outer tab strip was removed. */
@@ -8391,6 +8368,18 @@ textarea.wg-input {
     row-gap: var(--space-xs);
     align-items: center;
     margin-bottom: var(--space-md);
+}
+
+/* Round-2 Task 6 (defect #9). `--with-action` widens the grid to a trailing
+   `auto` column so the inline +Add sits beside the next-day chevron in a
+   single row: [< prev] [date] [next >] [Add]. Previously this rule lived
+   above the base `.wg-food-day-nav` declaration — equal specificity meant
+   the base rule's 3-column `grid-template-columns` won the cascade, so the
+   4th grid item (Add) spilled onto an implicit second row. Keeping the
+   override AFTER the base rule fixes the wrap. */
+.wg-food-day-nav--with-action {
+    grid-template-columns:
+        var(--wg-food-day-nav-icon-size) 1fr var(--wg-food-day-nav-icon-size) auto;
 }
 
 .wg-food-day-nav__icon-btn {

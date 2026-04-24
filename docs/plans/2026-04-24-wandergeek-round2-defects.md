@@ -120,12 +120,12 @@ Root-cause the recurring "primary action button in a section toolbar row is visu
 
 ### Task 6: Food — Rebuild top toolbar as single row (#9)
 
-- [ ] in `web/static/js/features/food.js` (and its CSS), restructure the header markup to one flex row: `[<] [Today / 24.04.2026] [>] [Add]` with `flex-wrap: nowrap` and proper `justify-content` / `gap`
-- [ ] apply the shared `.wg-toolbar-btn` sizing to `Add` (primary variant — yellow fill, same height/radius/padding as the `<` / `>` stepper buttons)
-- [ ] verify on mobile viewports that the row never wraps; date sub-label `24.04.2026` stays with the `Today` label
-- [ ] add a DOM test asserting the header row contains Prev, Date, Next, Add in a single flex container
-- [ ] verify food logging still triggers Today macro update (#6) — expected to pass after Task 1
-- [ ] run `pnpm test`
+- [x] in `web/static/js/features/food.js` (and its CSS), restructure the header markup to one flex row: `[<] [Today / 24.04.2026] [>] [Add]` with `flex-wrap: nowrap` and proper `justify-content` / `gap` — root cause found: `.wg-food-day-nav--with-action` (4-column grid override at styles.css:5546) and `.wg-food-day-nav` base rule (3-column grid at styles.css:8386) have equal specificity; the base rule came LATER in source order, so its 3-column `grid-template-columns` won the cascade and the 4th grid item (Add) spilled onto an implicit second row. Fix: moved the `--with-action` override DOWN into the same block as the base rule (now styles.css:~8395) so it wins. Markup already had all four items as direct siblings of `.wg-food-day-nav--with-action` — no structural change needed
+- [x] apply the shared `.wg-toolbar-btn` sizing to `Add` (primary variant — yellow fill, same height/radius/padding as the `<` / `>` stepper buttons) — `#add-food-inline-btn` in index.html migrated from `wg-gloss wg-gloss--sun wg-food-day-nav__add` to `wg-toolbar-btn wg-toolbar-btn--primary`; inner label span migrated from `wg-food-day-nav__add-label` to the shared `wg-toolbar-btn__label`. Dead per-section rules `.wg-food-day-nav__add` and `.wg-food-day-nav__add-label` removed from styles.css
+- [x] verify on mobile viewports that the row never wraps; date sub-label `24.04.2026` stays with the `Today` label [x] manual test (skipped - not automatable; to be re-verified after deploy per Post-Completion section). Cascade fix + `.wg-toolbar-btn { align-self: center }` prevent the wrap in pure CSS layout; new DOM test pins source order + 4-column grid-template-columns
+- [x] add a DOM test asserting the header row contains Prev, Date, Next, Add in a single flex container — new `web/static/js/tests/food.toolbar-row.test.js` (7 tests): direct-child order `[prev, center, next, Add]`, Add is sibling of chevrons not nested in center, Add carries shared `.wg-toolbar-btn .wg-toolbar-btn--primary` + `.wg-toolbar-btn__label`, CSS cascade regression guard (override AFTER base), 4-column grid-template-columns, dead one-off rules stay gone, click still opens food modal
+- [x] verify food logging still triggers Today macro update (#6) — expected to pass after Task 1 — confirmed via existing `app.forms-and-push.test.js` coverage of the food log → `invalidateTags(['food'])` → Today reload chain; Task 1's SW fix (idempotent `put()` + per-item `ConstraintError` swallow) ensures the post-food replay no longer aborts, so Today's macro aggregates land. Manual in-browser re-verify tracked in Post-Completion
+- [x] run `pnpm test` — 1419/1419 frontend tests green (128 files, added 7 via new `food.toolbar-row.test.js`; `architecture.toolbar-btn.test.js` now also pins the Food adoption at 9 tests total); `go test ./...` all packages pass
 
 ### Task 7: Meds — Remove global Add from top bar; add to Schedule list only (#10)
 

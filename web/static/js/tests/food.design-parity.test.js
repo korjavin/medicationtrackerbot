@@ -95,13 +95,17 @@ describe('Food round-2 design parity', () => {
             expect(center.parentElement).toBe(nav);
         });
 
-        it('inline pill carries the sun-gloss treatment and a visible "Add" label', () => {
+        it('inline pill carries the shared .wg-toolbar-btn primary sizing and a visible "Add" label', () => {
+            // Round-2 Task 6 (defect #9): button migrated from the per-section
+            // `.wg-food-day-nav__add` one-off onto the shared
+            // `.wg-toolbar-btn .wg-toolbar-btn--primary` sizing (sun-gloss
+            // fill is provided by the --primary variant, not by .wg-gloss).
             const { document } = env;
             const inline = document.getElementById('add-food-inline-btn');
             expect(inline).not.toBeNull();
-            expect(inline.classList.contains('wg-gloss')).toBe(true);
-            expect(inline.classList.contains('wg-gloss--sun')).toBe(true);
-            expect(inline.classList.contains('wg-food-day-nav__add')).toBe(true);
+            expect(inline.classList.contains('wg-toolbar-btn')).toBe(true);
+            expect(inline.classList.contains('wg-toolbar-btn--primary')).toBe(true);
+            expect(inline.classList.contains('wg-food-day-nav__add')).toBe(false);
             expect(inline.textContent).toContain('Add');
         });
     });
