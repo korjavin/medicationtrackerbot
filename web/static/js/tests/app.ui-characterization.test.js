@@ -83,6 +83,11 @@ describe('app.js UI characterization', () => {
       expect(overlay.classList.contains('hidden')).toBe(true);
       expect(bpModal.classList.contains('hidden')).toBe(true);
 
+      // Round-2 Task 12 (defect #15): the Weight +Log pill is rendered
+      // inline with the range selector by renderWeightRangeSelector()
+      // (mirrors the BP +Log pattern above). Invoke it so the button
+      // exists before clicking.
+      window.renderWeightRangeSelector({ active: '30d', onChange: () => {} });
       document.getElementById('add-weight-btn').click();
       expect(weightModal.classList.contains('hidden')).toBe(false);
 

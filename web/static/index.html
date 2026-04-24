@@ -42,30 +42,34 @@
 
 
         <div id="meds-view" class="view wg-screen-stage">
-            <!-- Med Sub-tabs + inline +Add (Phase 5, Task 5 rework; round-2
-                 Task 4 added `wg-screen-stage` so the view sits directly on
-                 the teal palette instead of the paper-white body). Outer
-                 container is a plain flex row holding the inset 3-pill track
-                 (History / Schedule / Inventory — default "history" matches
-                 the mockup) and the trailing sun-gloss `#add-btn`. Dual-classed
-                 `.med-tabs` + `.wg-meds-subtabs` so legacy selectors in
-                 existing tests keep working. -->
+            <!-- Med Sub-tabs (Phase 5, Task 5 rework; round-2 Task 4 added
+                 `wg-screen-stage` so the view sits directly on the teal
+                 palette; round-2 Task 7 removed the global #add-btn from this
+                 row and re-homed it at the top of the Schedule subtab list).
+                 Outer container is a plain flex row holding the inset 3-pill
+                 track (History / Schedule / Inventory — default "history"
+                 matches the mockup). Dual-classed `.med-tabs` +
+                 `.wg-meds-subtabs` so legacy selectors in existing tests
+                 keep working. -->
             <div class="wg-meds-subtabs-row" id="med-subtabs">
                 <div class="wg-gloss--inset wg-meds-subtabs med-tabs">
                     <button class="wg-gloss wg-meds-subtabs__btn wg-gloss--sun wg-meds-subtabs__btn--active med-tab active" data-tab="history" aria-pressed="true">History</button>
                     <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="schedule" aria-pressed="false">Schedule</button>
                     <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="inventory" aria-pressed="false">Inventory</button>
                 </div>
-                <!-- Add medication CTA (Phase 5, Task 5). Inline sun-gloss pill
-                     replacing the old full-width bottom CTA. `#add-btn` id
-                     retained so bindClick('add-btn', showAddModal) and the
-                     offline UI wiring continue to work. -->
-                <button id="add-btn" type="button" class="wg-gloss wg-gloss--sun wg-meds-subtabs-row__add" aria-label="Add medication">
-                    <span class="wg-meds-subtabs-row__add-label">Add</span>
-                </button>
             </div>
 
             <div id="med-schedule-tab" class="med-tab-content">
+                <!-- Round-2 Task 7 (defect #10): #add-btn moved out of the
+                     subtab row and into a schedule-scoped header so History
+                     and Inventory no longer show an orphan Add control.
+                     Shared .wg-toolbar-btn sizing keeps it aligned with the
+                     subtab pills above. -->
+                <div class="wg-meds-schedule-header">
+                    <button id="add-btn" type="button" class="wg-toolbar-btn wg-toolbar-btn--primary" aria-label="Add medication">
+                        <span class="wg-toolbar-btn__label">Add</span>
+                    </button>
+                </div>
                 <!-- Round-2 Task 4: the Schedule-tab "next-intake" card was
                      removed (duplicated the Today next-action + History
                      next-intake trigger). The schedule list now sits
@@ -76,6 +80,11 @@
             </div>
 
             <div id="med-history-tab" class="med-tab-content active">
+                <!-- Round-2 Task 8 (#11a): "Next scheduled intake" pane is the
+                     first block on History — the most actionable info. Filters
+                     and the list follow below. `renderNextIntakeTrigger` owns
+                     the card markup; the container is empty until data lands. -->
+                <div id="next-intake-trigger" class="wg-meds-next-intake-trigger"></div>
                 <!-- Intake history filter strip (Phase 5, Task 5). Two select
                      wraps styled as `.wg-gloss--inset` — the medication filter
                      keeps its `history-filter-med` id (populateMedFilter fills
@@ -99,10 +108,6 @@
                         </select>
                     </label>
                 </div>
-                <!-- Muted link-style row under the filters — renderNextIntakeTrigger
-                     fills it in. Inline style swept out in Phase 5 Task 5; the
-                     margin now comes from `.wg-meds-next-intake-trigger`. -->
-                <div id="next-intake-trigger" class="wg-meds-next-intake-trigger"></div>
                 <div id="history-list" class="wg-meds-history"></div>
             </div>
 
@@ -129,15 +134,14 @@
         </div>
 
         <div id="weight-view" class="view wg-screen-stage">
-            <!-- Header row (Phase 5, Task 5). Latest-weight card sits on the
-                 left; inline sun-gloss `#add-weight-btn` pill sits on the right,
-                 replacing the paper-era full-width bottom CTA. -->
-            <div class="wg-weight-header-row">
-                <div id="weight-current-card"></div>
-                <button id="add-weight-btn" type="button" class="wg-gloss wg-gloss--sun wg-weight-header-row__add" aria-label="Log weight">
-                    <span class="wg-weight-header-row__add-label">+ Log</span>
-                </button>
-            </div>
+            <!-- Round-2 Task 12 (defect #15): the "Latest · 134.0 kg · 17M ago"
+                 pane (#weight-current-card + .wg-weight-header-row) was deleted
+                 — the same value surfaces on the Today weight tile, the chart
+                 below, and the history list. The `#add-weight-btn` now lives
+                 inline inside the range-toolbar row next to 7d/30d/90d/All
+                 (rendered by renderWeightRangeSelector, matching BP's
+                 buildBPInlineAddButton pattern) using the shared
+                 `.wg-toolbar-btn .wg-toolbar-btn--primary` sizing. -->
             <div id="weight-goal-card"></div>
             <div id="weight-range-selector"></div>
             <div id="weightChart" class="wg-weight-chart-panel"></div>
@@ -147,10 +151,13 @@
         </div>
 
         <div id="workouts-view" class="view wg-screen-stage">
-            <!-- Workout Tabs + inline +Start (Phase 7 / Phase 5 Task 5 rework).
-                 Outer `.wg-workouts-subtabs-row` flex container wraps the inset
-                 4-pill track and the trailing sun-gloss `#start-adhoc-workout-btn`
-                 ad-hoc CTA. -->
+            <!-- Workout Tabs + inline +Start (Phase 7 / Phase 5 Task 5 rework;
+                 Round-2 Task 10 (#13b): Start button migrated to the shared
+                 `.wg-toolbar-btn .wg-toolbar-btn--primary` class so its height
+                 aligns with the adjacent subtab pills — matches BP +Log, Food
+                 Add, and Meds Add). Outer `.wg-workouts-subtabs-row` flex
+                 container wraps the inset 4-pill track and the trailing
+                 `#start-adhoc-workout-btn` ad-hoc CTA. -->
             <div class="wg-workouts-subtabs-row" id="workouts-subtabs">
                 <div class="wg-gloss--inset wg-workouts-subtabs workout-tabs">
                     <button class="wg-gloss wg-workouts-subtabs__btn wg-gloss--sun wg-workouts-subtabs__btn--active workout-tab active" data-tab="history" aria-pressed="true">History</button>
@@ -158,8 +165,8 @@
                     <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="exercises" aria-pressed="false">Exercises</button>
                     <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="stats" aria-pressed="false">Stats</button>
                 </div>
-                <button id="start-adhoc-workout-btn" type="button" class="wg-gloss wg-gloss--sun wg-workouts-subtabs-row__add" aria-label="Start ad-hoc workout">
-                    <span class="wg-workouts-subtabs-row__add-label">Start</span>
+                <button id="start-adhoc-workout-btn" type="button" class="wg-toolbar-btn wg-toolbar-btn--primary" aria-label="Start ad-hoc workout">
+                    <span class="wg-toolbar-btn__label">Start</span>
                 </button>
             </div>
 
@@ -224,8 +231,8 @@
                     <div id="food-week-display" class="wg-food-day-nav__week hidden"></div>
                 </div>
                 <button id="food-date-next-btn" class="wg-gloss wg-icon-btn wg-food-day-nav__icon-btn" type="button" aria-label="Next day"></button>
-                <button id="add-food-inline-btn" class="wg-gloss wg-gloss--sun wg-food-day-nav__add" type="button" aria-label="Add food">
-                    <span class="wg-food-day-nav__add-label">Add</span>
+                <button id="add-food-inline-btn" class="wg-toolbar-btn wg-toolbar-btn--primary" type="button" aria-label="Add food">
+                    <span class="wg-toolbar-btn__label">Add</span>
                 </button>
             </div>
 

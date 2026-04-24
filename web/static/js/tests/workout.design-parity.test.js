@@ -60,13 +60,27 @@ describe('Workouts round-2 design parity', () => {
     });
 
     describe('Start button placement', () => {
-        it('Start button is an inline sun-gloss pill inside the subtabs row — not inside a .wg-title-hero', () => {
+        // Round-2 Task 10 (defect #13b): Start button migrated from the
+        // per-section `.wg-gloss .wg-gloss--sun .wg-workouts-subtabs-row__add`
+        // stack to the shared `.wg-toolbar-btn .wg-toolbar-btn--primary`
+        // — consolidates sizing with BP / Food / Meds primary actions.
+        it('Start button uses the shared .wg-toolbar-btn + .wg-toolbar-btn--primary classes inside the subtabs row — not inside a .wg-title-hero', () => {
             const { document } = env;
             const startBtn = document.getElementById('start-adhoc-workout-btn');
             expect(startBtn).not.toBeNull();
-            expect(startBtn.classList.contains('wg-gloss')).toBe(true);
-            expect(startBtn.classList.contains('wg-gloss--sun')).toBe(true);
-            expect(startBtn.classList.contains('wg-workouts-subtabs-row__add')).toBe(true);
+            expect(startBtn.classList.contains('wg-toolbar-btn')).toBe(true);
+            expect(startBtn.classList.contains('wg-toolbar-btn--primary')).toBe(true);
+
+            // The per-section one-off and the now-unused sun-gloss base
+            // must NOT coexist with the shared class.
+            expect(startBtn.classList.contains('wg-workouts-subtabs-row__add')).toBe(false);
+            expect(startBtn.classList.contains('wg-gloss')).toBe(false);
+            expect(startBtn.classList.contains('wg-gloss--sun')).toBe(false);
+
+            // Label is wrapped in the shared `.wg-toolbar-btn__label` span.
+            const label = startBtn.querySelector('.wg-toolbar-btn__label');
+            expect(label).not.toBeNull();
+            expect(label.textContent).toBe('Start');
 
             // Lives inside the subtabs flex row, next to the Tab strip.
             const row = document.getElementById('workouts-subtabs');

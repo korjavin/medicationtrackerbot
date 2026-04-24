@@ -230,13 +230,12 @@ describe('app.js charts, scanner and visualization helpers', () => {
       window.renderWeightChart(logs, goalData);
       expect(weightChart.querySelector('svg')).toBeTruthy();
 
-      // Wandergeek Phase 6: the paper-era #weight-stats block is replaced by a
-      // pair of cards (#weight-current-card + #weight-goal-card). Each is
-      // covered by weight.current-card.test.js; here we just sanity-check the
-      // render path wires up without throwing.
-      window.renderWeightCurrentCard(logs, goalData);
-      expect(document.querySelector('#weight-current-card.wg-weight-current-card')).toBeTruthy();
-      expect(document.querySelector('#weight-current-card .wg-mono-display')).toBeTruthy();
+      // Wandergeek Phase 6 / Round-2 Task 12 (defect #15): the paper-era
+      // #weight-stats block was first split into #weight-current-card +
+      // #weight-goal-card, and the Latest-pane (#weight-current-card) was
+      // then deleted in Round-2 Task 12 — the value surfaces on Today's
+      // tile, the chart above, and the history list. Only the goal card
+      // remains; sanity-check the render path wires up without throwing.
       window.renderWeightGoalCard(logs, goalData);
       expect(document.querySelector('#weight-goal-card.wg-weight-goal-card')).toBeTruthy();
 

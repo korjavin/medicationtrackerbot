@@ -238,24 +238,34 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(editSpy).toHaveBeenCalledWith(42);
     });
 
-    it('Add medication CTA is an inline `.wg-gloss--sun` pill in the subtabs row (Phase 5, Task 5)', () => {
+    it('Add medication CTA uses the shared toolbar-btn classes and lives in the Schedule header (round-2 Task 7)', () => {
         const { document } = env;
         const btn = document.getElementById('add-btn');
         expect(btn).not.toBeNull();
-        expect(btn.classList.contains('wg-gloss')).toBe(true);
-        expect(btn.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(btn.classList.contains('wg-meds-subtabs-row__add')).toBe(true);
+        // Round-2 Task 7 (defect #10): migrated to the shared toolbar-btn
+        // classes and re-homed under the Schedule subtab, so History and
+        // Inventory no longer surface an Add control.
+        expect(btn.classList.contains('wg-toolbar-btn')).toBe(true);
+        expect(btn.classList.contains('wg-toolbar-btn--primary')).toBe(true);
+        // Dead one-offs must not coexist with the shared class.
+        expect(btn.classList.contains('wg-gloss')).toBe(false);
+        expect(btn.classList.contains('wg-gloss--sun')).toBe(false);
+        expect(btn.classList.contains('wg-meds-subtabs-row__add')).toBe(false);
         expect(btn.classList.contains('wg-meds-add-cta')).toBe(false);
         expect(btn.classList.contains('wg-fab')).toBe(false);
         expect(btn.classList.contains('btn-fab')).toBe(false);
-        // The inline pill lives inside the subtabs row, as a sibling of the
-        // inset 3-pill track — not inside the Schedule tab-content below.
+        // The Add pill is now scoped to the Schedule subtab — it must sit
+        // inside #med-schedule-tab and NOT inside the subtabs row above.
         const row = document.getElementById('med-subtabs');
-        expect(row.contains(btn)).toBe(true);
+        expect(row.contains(btn)).toBe(false);
         const scheduleTab = document.getElementById('med-schedule-tab');
-        expect(scheduleTab.contains(btn)).toBe(false);
+        expect(scheduleTab.contains(btn)).toBe(true);
+        // It lives in a dedicated header wrapper above the med-list.
+        const header = scheduleTab.querySelector('.wg-meds-schedule-header');
+        expect(header).not.toBeNull();
+        expect(header.contains(btn)).toBe(true);
 
-        const label = btn.querySelector('.wg-meds-subtabs-row__add-label');
+        const label = btn.querySelector('.wg-toolbar-btn__label');
         expect(label).not.toBeNull();
         expect(label.textContent.trim()).toBe('Add');
     });
