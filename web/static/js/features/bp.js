@@ -195,15 +195,12 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
         }
     }
 
-    if (allReadings.length === 0 && readingsRes === null) {
-        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
-
-        return;
-    }
-
     const activeRange = getActiveBPRange();
 
-    renderCurrentReading(pickLatestReading(allReadings), allReadings);
+    // Always render the range selector row so the trailing inline +Log button
+    // (#add-bp-btn) is visible even when there's no cached data yet \u2014 the
+    // button is the user's only affordance for logging a reading, and the
+    // offline-write path works without any prior data.
     renderRangeSelector({
         active: activeRange,
         onChange: (days) => {
@@ -211,6 +208,13 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
             _renderBPData(readingsRes, goalRes, statsRes);
         }
     });
+
+    if (allReadings.length === 0 && readingsRes === null) {
+        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+        return;
+    }
+
+    renderCurrentReading(pickLatestReading(allReadings), allReadings);
     renderBPChart(allReadings, goalRes || {});
     renderBPAverages(statsRes || {});
 
