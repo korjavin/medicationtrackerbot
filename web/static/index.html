@@ -840,24 +840,32 @@
     </mt-modal>
 
     <!-- Modal for Workout Session Details -->
-    <mt-modal id="workout-session-modal" class="hidden">
-        <div class="modal-header">
-            <h3 id="workout-session-modal-title">Workout Details</h3>
-            <div class="actions">
-                <button id="workout-session-delete-btn" class="btn btn-danger-outline">Delete</button>
-                <button id="workout-session-cancel-btn" class="btn btn-secondary">Cancel</button>
-                <button id="workout-session-save-btn" class="btn btn-primary">Save Changes</button>
+    <mt-modal id="workout-session-modal" class="hidden wg-modal wg-workouts-session-modal">
+        <div class="wg-workouts-session-modal__header">
+            <div class="wg-workouts-session-modal__heading">
+                <span class="wg-section-label wg-workouts-session-modal__eyebrow">Workout</span>
+                <span class="wg-mono-display wg-workouts-session-modal__title" id="workout-session-modal-title">Workout Details</span>
+            </div>
+            <div class="wg-workouts-session-modal__header-actions">
+                <button type="button" id="workout-session-delete-btn"
+                    class="wg-gloss wg-workouts-session-modal__header-btn wg-workouts-session-modal__header-btn--danger">Delete</button>
+                <button type="button" id="workout-session-cancel-btn"
+                    class="wg-gloss wg-workouts-session-modal__header-btn">Cancel</button>
+                <button type="button" id="workout-session-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-session-modal__header-btn wg-workouts-session-modal__header-btn--save">Save Changes</button>
             </div>
         </div>
-        <div id="workout-session-info"></div>
-        <div id="workout-session-logs">
-            <!-- Exercise logs injected here -->
-        </div>
 
-        <div id="workout-session-actions" class="wg-workouts-session-actions">
-            <!-- Log-set / Finish / Delete action cluster injected here -->
-        </div>
+        <div class="wg-workouts-session-modal__body">
+            <div id="workout-session-info"></div>
+            <div id="workout-session-logs">
+                <!-- Exercise logs injected here -->
+            </div>
 
+            <div id="workout-session-actions" class="wg-workouts-session-actions">
+                <!-- Log-set / Finish / Delete action cluster injected here -->
+            </div>
+        </div>
     </mt-modal>
 
     <!-- Log-set modal (Phase 7, Task 8). Adds an exercise log to an in-progress
