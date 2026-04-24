@@ -1401,9 +1401,10 @@ describe('Architecture – design tokens', () => {
             // Medication
             '.med-supplement-badge', '.med-normalized-name',
             '.med-action-icons', '.med-empty-text',
-            // Next intake
-            '.next-intake-card', '.next-intake-title',
-            '.next-intake-countdown', '.next-intake-details', '.next-intake-action',
+            // Next intake (Round-2 Task 8, #11b: restyled to Wandergeek tokens)
+            '.wg-meds-next-intake-card', '.wg-meds-next-intake-card__kicker',
+            '.wg-meds-next-intake-card__time', '.wg-meds-next-intake-card__meta',
+            '.wg-meds-next-intake-card__cta',
             // Charts
             '.chart-section', '.chart-container', '.chart-container-tall',
             '.chart-stat', '.chart-stat-spaced', '.chart-legend',
