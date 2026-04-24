@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -27,6 +28,7 @@ func (b *Bot) handleNoteCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.Messa
 		case errors.Is(err, domain.ErrEmptyContent):
 			msgConfig.Text = "Usage: /note <text>\nExample: /note Feeling tired today"
 		default:
+			slog.Error("create diary note", "error", err, "user_id", b.allowedUserID)
 			msgConfig.Text = "❌ Error saving note."
 		}
 		return

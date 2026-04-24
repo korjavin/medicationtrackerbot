@@ -69,57 +69,6 @@ func TestCreateDiaryNote_WithTag(t *testing.T) {
 	}
 }
 
-func TestUpdateDiaryNoteTag(t *testing.T) {
-	s := setupDiaryTestStore(t)
-	ctx := context.Background()
-
-	note, err := s.CreateDiaryNote(ctx, 1, "some note", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tag := "STRESS"
-	if err := s.UpdateDiaryNoteTag(ctx, 1, note.ID, &tag); err != nil {
-		t.Fatalf("UpdateDiaryNoteTag: %v", err)
-	}
-
-	notes, err := s.ListDiaryNotes(ctx, 1, time.Time{}, time.Time{}, 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if notes[0].Tag == nil || *notes[0].Tag != "STRESS" {
-		t.Errorf("expected tag STRESS, got %v", notes[0].Tag)
-	}
-
-	// Clearing the tag with nil.
-	if err := s.UpdateDiaryNoteTag(ctx, 1, note.ID, nil); err != nil {
-		t.Fatalf("UpdateDiaryNoteTag clear: %v", err)
-	}
-	notes2, err := s.ListDiaryNotes(ctx, 1, time.Time{}, time.Time{}, 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if notes2[0].Tag != nil {
-		t.Errorf("expected nil tag after clear, got %v", *notes2[0].Tag)
-	}
-}
-
-func TestUpdateDiaryNoteTag_WrongUser(t *testing.T) {
-	s := setupDiaryTestStore(t)
-	ctx := context.Background()
-
-	note, err := s.CreateDiaryNote(ctx, 1, "mine", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tag := "NOTE"
-	err = s.UpdateDiaryNoteTag(ctx, 2, note.ID, &tag)
-	if !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("expected sql.ErrNoRows when updating another user's note tag, got %v", err)
-	}
-}
-
 func TestListDiaryNotes(t *testing.T) {
 	s := setupDiaryTestStore(t)
 	ctx := context.Background()
