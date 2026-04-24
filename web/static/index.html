@@ -152,10 +152,13 @@
         </div>
 
         <div id="workouts-view" class="view wg-screen-stage">
-            <!-- Workout Tabs + inline +Start (Phase 7 / Phase 5 Task 5 rework).
-                 Outer `.wg-workouts-subtabs-row` flex container wraps the inset
-                 4-pill track and the trailing sun-gloss `#start-adhoc-workout-btn`
-                 ad-hoc CTA. -->
+            <!-- Workout Tabs + inline +Start (Phase 7 / Phase 5 Task 5 rework;
+                 Round-2 Task 10 (#13b): Start button migrated to the shared
+                 `.wg-toolbar-btn .wg-toolbar-btn--primary` class so its height
+                 aligns with the adjacent subtab pills — matches BP +Log, Food
+                 Add, and Meds Add). Outer `.wg-workouts-subtabs-row` flex
+                 container wraps the inset 4-pill track and the trailing
+                 `#start-adhoc-workout-btn` ad-hoc CTA. -->
             <div class="wg-workouts-subtabs-row" id="workouts-subtabs">
                 <div class="wg-gloss--inset wg-workouts-subtabs workout-tabs">
                     <button class="wg-gloss wg-workouts-subtabs__btn wg-gloss--sun wg-workouts-subtabs__btn--active workout-tab active" data-tab="history" aria-pressed="true">History</button>
@@ -163,8 +166,8 @@
                     <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="exercises" aria-pressed="false">Exercises</button>
                     <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="stats" aria-pressed="false">Stats</button>
                 </div>
-                <button id="start-adhoc-workout-btn" type="button" class="wg-gloss wg-gloss--sun wg-workouts-subtabs-row__add" aria-label="Start ad-hoc workout">
-                    <span class="wg-workouts-subtabs-row__add-label">Start</span>
+                <button id="start-adhoc-workout-btn" type="button" class="wg-toolbar-btn wg-toolbar-btn--primary" aria-label="Start ad-hoc workout">
+                    <span class="wg-toolbar-btn__label">Start</span>
                 </button>
             </div>
 
