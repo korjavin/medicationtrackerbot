@@ -681,9 +681,10 @@ async function loadMoreNotes() {
             // boundary). Re-render page-1 from the fresh server data, then fall
             // through to append page-2 so both pages are up-to-date.
             renderNotes(list, freshData);
-            // Do not update _notesCursor here — it was already advanced to the last
-            // page-2 ID at line 3170. Overwriting with freshLastID (page-1 boundary)
-            // would cause the next "load more" to re-fetch page-2.
+            // Do not update _notesCursor here — it was already advanced to the
+            // last page-2 ID before the deferred page-1 replay ran. Overwriting
+            // with freshLastID (page-1 boundary) would cause the next
+            // "load more" to re-fetch page-2.
             // renderNotes may have added a "Load more" button at the end of page-1;
             // remove it before appending the page-2 items below.
             list.querySelector('.wg-health-notes__load-more')?.remove();
@@ -926,7 +927,10 @@ async function addNote() {
     if (!textarea) return;
     const content = textarea.value.trim();
     if (!content) return;
-    if (content.length > 10000) {
+    // Backend counts runes (utf8.RuneCountInString); JS .length counts UTF-16
+    // code units, which double-counts astral-plane chars (most emoji, CJK
+    // extension). Iterate to get code-point length so client and server agree.
+    if ([...content].length > 10000) {
         safeAlert('Note is too long (max 10,000 characters).');
         return;
     }
@@ -1015,7 +1019,7 @@ async function handleEditNoteSubmit(event) {
         safeAlert('Note cannot be empty.');
         return;
     }
-    if (content.length > 10000) {
+    if ([...content].length > 10000) {
         safeAlert('Note is too long (max 10,000 characters).');
         return;
     }

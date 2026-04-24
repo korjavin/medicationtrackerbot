@@ -14,7 +14,6 @@ type fakeNotesStore struct {
 	notes       []store.DiaryNote
 	nextID      int64
 	createErr   error
-	updateErr   error
 	deleteErr   error
 	listErr     error
 	lastTagSent *string
@@ -58,20 +57,6 @@ func (f *fakeNotesStore) DeleteDiaryNote(ctx context.Context, userID, noteID int
 	for i, n := range f.notes {
 		if n.ID == noteID && n.UserID == userID {
 			f.notes = append(f.notes[:i], f.notes[i+1:]...)
-			return nil
-		}
-	}
-	return errors.New("not found")
-}
-
-func (f *fakeNotesStore) UpdateDiaryNoteTag(ctx context.Context, userID, noteID int64, tag *string) error {
-	if f.updateErr != nil {
-		return f.updateErr
-	}
-	f.lastTagSent = tag
-	for i, n := range f.notes {
-		if n.ID == noteID && n.UserID == userID {
-			f.notes[i].Tag = tag
 			return nil
 		}
 	}
@@ -236,18 +221,3 @@ func TestNotesService_DeleteNote(t *testing.T) {
 	}
 }
 
-func TestNotesService_UpdateTag_InvalidBecomesNil(t *testing.T) {
-	fs := &fakeNotesStore{}
-	svc := NewNotesService(fs)
-	n, err := svc.CreateNote(context.Background(), 1, "x", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bad := "mood"
-	if err := svc.UpdateTag(context.Background(), 1, n.ID, &bad); err != nil {
-		t.Fatal(err)
-	}
-	if fs.lastTagSent != nil {
-		t.Errorf("expected nil tag to store, got %v", *fs.lastTagSent)
-	}
-}

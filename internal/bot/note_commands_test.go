@@ -35,10 +35,6 @@ func (m *mockNotesService) DeleteNote(ctx context.Context, userID, noteID int64)
 	return nil
 }
 
-func (m *mockNotesService) UpdateTag(ctx context.Context, userID, noteID int64, tag *string) error {
-	return nil
-}
-
 func TestHandleNoteCommand_Success(t *testing.T) {
 	ms := &mockNotesService{}
 	b := &Bot{notesSvc: ms, allowedUserID: 123}

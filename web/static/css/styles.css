@@ -3180,50 +3180,6 @@ input:checked+.toggle-slider:before {
     border-radius: var(--radius-lg);
 }
 
-/* =============================================
-   SECTION HEADER — Today-as-primary-nav pattern
-   Sticky header at top of every view with
-   [back-to-Today] [title] [right-slot]
-   ============================================= */
-.section-header {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    /* Three-column grid: left slot holds the "← Today" pill (grows to fit its
-       label), right slot grows for optional badge/gear. Title is centered
-       within its own column; on Today's no-back variant the left slot is
-       hidden via visibility so the greeting still sits in the center column. */
-    display: grid;
-    grid-template-columns: minmax(44px, auto) 1fr minmax(44px, auto);
-    align-items: center;
-    gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-md);
-    padding-top: calc(var(--space-sm) + env(safe-area-inset-top, 0px));
-    background: var(--bg-color);
-    box-shadow: var(--shadow-sm);
-    min-height: 48px;
-    box-sizing: border-box;
-}
-
-.section-header .section-title {
-    margin: 0;
-    text-align: center;
-    font-size: var(--font-size-md);
-    font-weight: var(--font-weight-medium);
-    color: var(--text-color);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.section-header .section-header-right {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    justify-self: end;
-    min-width: 44px;
-}
-
 /* ==========================================================================
    Wandergeek primitives — gloss material classes for the deep-teal stage.
    All values come from --wg-* tokens; no hardcoded hex in this block.
@@ -3790,13 +3746,6 @@ textarea.wg-input {
     padding: var(--space-lg) var(--space-lg) var(--wg-bottom-nav-reserved);
     min-height: 100vh;
     box-sizing: border-box;
-}
-
-/* Header title on Today: legacy .section-header .section-title (0,2,0)
-   would otherwise pin the greeting to var(--text-color) (black) on the
-   dark stage. Scoping to .wg-today gives 0,3,0 and restores the near-white. */
-.wg-today .section-header .section-title {
-    color: var(--wg-fg-1);
 }
 
 .wg-next-action-card {
