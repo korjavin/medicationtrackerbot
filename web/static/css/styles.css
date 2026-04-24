@@ -4285,6 +4285,25 @@ textarea.wg-input {
     stroke-width: var(--wg-bp-chart-last-stroke-width);
 }
 
+/* Round-2, Task 2 — axis tick labels. Emitted as <text> elements with a
+   data-bp-axis attribute so x/y ticks can be restyled independently if
+   needed. Color resolves to the standard muted-on-teal token so readings
+   stay legible on the stage. */
+.wg-bp-chart__axis-tick {
+    fill: var(--wg-fg-3);
+    font-family: inherit;
+    font-size: var(--wg-font-size-mini);
+    font-variant-numeric: tabular-nums;
+}
+
+.wg-bp-chart__axis-tick[data-bp-axis="y"] {
+    text-anchor: end;
+}
+
+.wg-bp-chart__axis-tick[data-bp-axis="x"] {
+    text-anchor: middle;
+}
+
 /* Weight chart (Phase 6, Task 2) — single-series line with optional goal
    overlay. Every stroke/fill resolves via tokens; SVG children carry no
    inline stroke= / fill= / style= attributes. */

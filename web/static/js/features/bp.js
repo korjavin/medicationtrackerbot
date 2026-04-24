@@ -3,7 +3,10 @@
 
 const BP_RANGE_STORAGE_KEY = 'mt-bp-range';
 const BP_RANGE_OPTIONS = [14, 30, 60];
-const BP_RANGE_DEFAULT = 60;
+// Round-2, Task 2: default range changed from 60 → 14 to match the design
+// reference. 14d is the most actionable window (short-term drift visible on
+// the chart), and the user can still opt up to 30/60.
+const BP_RANGE_DEFAULT = 14;
 
 // Get BP category based on ISH 2020 guidelines (for users < 65 years)
 function getBPCategory(sys, dia) {
@@ -234,106 +237,15 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
         return;
     }
 
-    renderCurrentReading(pickLatestReading(allReadings), allReadings);
+    // Round-2, Task 2: the #bp-current-card top summary pane was removed
+    // from #bp-view along with renderCurrentReading(); the inline title
+    // row + range-pill + sun-gloss +Log now acts as the screen header and
+    // latest-reading context lives inside the history list below.
     renderBPChart(allReadings, goalRes || {});
     renderBPAverages(statsRes || {});
 
     const filteredReadings = filterReadingsByRange(allReadings, activeRange);
     renderBPReadings(filteredReadings);
-}
-
-function pickLatestReading(readings) {
-    if (!Array.isArray(readings) || readings.length === 0) return null;
-    let latest = null;
-    let latestMs = -Infinity;
-    for (const r of readings) {
-        const t = new Date(r.measured_at).getTime();
-        if (!Number.isFinite(t)) continue;
-        if (t > latestMs) { latestMs = t; latest = r; }
-    }
-    return latest;
-}
-
-function renderCurrentReading(reading, recentReadings) {
-    const container = document.getElementById('bp-current-card');
-    if (!container) return;
-    container.replaceChildren();
-    container.className = 'wg-card wg-bp-current-card';
-
-    if (!reading) {
-        const empty = document.createElement('div');
-        empty.className = 'wg-bp-current-card__empty wg-muted';
-        empty.textContent = 'No readings yet';
-        container.appendChild(empty);
-        return;
-    }
-
-    const kicker = document.createElement('div');
-    kicker.className = 'wg-section-label wg-bp-current-card__kicker';
-    const kickerText = document.createElement('span');
-    kickerText.textContent = reading.isLocal
-        ? (reading.isRejected ? 'Latest · sync failed' : 'Latest · pending sync')
-        : `Latest · ${formatDate(reading.measured_at)}`;
-    kicker.appendChild(kickerText);
-    container.appendChild(kicker);
-
-    const value = document.createElement('div');
-    value.className = 'wg-mono-display wg-bp-current-card__value';
-    const sysSpan = document.createElement('span');
-    sysSpan.className = 'wg-bp-current-card__sys';
-    sysSpan.textContent = String(reading.systolic);
-    const diaSpan = document.createElement('span');
-    diaSpan.className = 'wg-bp-current-card__dia';
-    diaSpan.textContent = `/${reading.diastolic}`;
-    value.appendChild(sysSpan);
-    value.appendChild(diaSpan);
-    container.appendChild(value);
-
-    const meta = document.createElement('div');
-    meta.className = 'wg-bp-current-card__meta';
-
-    const category = getBPCategory(reading.systolic, reading.diastolic);
-    const tag = document.createElement('span');
-    tag.className = `wg-tag wg-bp-status wg-bp-status--${category.class}`;
-    tag.textContent = category.label;
-    meta.appendChild(tag);
-
-    if (reading.pulse) {
-        const pulse = document.createElement('span');
-        pulse.className = 'wg-muted wg-bp-current-card__pulse';
-        pulse.textContent = `${reading.pulse} bpm`;
-        meta.appendChild(pulse);
-    }
-    container.appendChild(meta);
-
-    if (reading.pulse && window.WGSparkline && typeof window.WGSparkline.render === 'function') {
-        const sparkSlot = document.createElement('div');
-        sparkSlot.className = 'wg-bp-current-card__spark';
-
-        // Extract recent pulse history (up to 7 readings with pulse values)
-        let pulsePoints = [];
-        if (Array.isArray(recentReadings) && recentReadings.length > 0) {
-            pulsePoints = recentReadings
-                .filter(r => r.pulse != null && Number.isFinite(Number(r.pulse)))
-                .sort((a, b) => new Date(a.measured_at).getTime() - new Date(b.measured_at).getTime())
-                .slice(-7)
-                .map(r => Number(r.pulse));
-        }
-
-        // Fall back to current pulse only if no history available
-        if (pulsePoints.length === 0 && Number.isFinite(Number(reading.pulse))) {
-            pulsePoints = [Number(reading.pulse)];
-        }
-
-        const spark = window.WGSparkline.render({
-            points: pulsePoints,
-            variant: 'sun',
-            width: 120,
-            height: 22
-        });
-        if (spark) sparkSlot.appendChild(spark);
-        container.appendChild(sparkSlot);
-    }
 }
 
 function renderRangeSelector(opts) {

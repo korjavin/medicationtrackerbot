@@ -1,14 +1,15 @@
-// Wandergeek BP screen render tests (Phase 3, Task 3).
+// Wandergeek BP screen render tests (Phase 3, Task 3; Round-2, Task 2).
 //
-// Covers the three new render helpers on the BP screen:
-//   • renderCurrentReading(reading) — .wg-bp-current-card with 44px mono
-//     sys/dia display, status tag from getBPCategory, optional pulse row,
-//     optional pulse sparkline via WGSparkline.
+// Covers the BP screen render helpers that survived the round-2 parity pass:
 //   • renderRangeSelector({ active, onChange }) — .wg-gloss--inset strip
 //     with three 14d/30d/60d buttons; active button gets .wg-gloss--sun.
 //   • renderBPChart(readings, goalData) — delegates to WGBpChart.render()
 //     with the active range; empty input renders a "No data available"
 //     message without calling the chart component.
+//
+// Round-2, Task 2: renderCurrentReading was removed along with the top
+// summary pane. Its test coverage is dropped here; the design-parity tests
+// in bp.design-parity.test.js verify the pane no longer mounts.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -44,158 +45,6 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
         try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
         env.cleanup();
         env = null;
-    });
-
-    describe('renderCurrentReading', () => {
-        it('renders the current-reading card with 44px mono sys/dia and status tag', () => {
-            const { document, window } = env;
-            const reading = {
-                id: 1,
-                measured_at: '2026-04-20T08:12:00Z',
-                systolic: 132,
-                diastolic: 70,
-                pulse: 76
-            };
-            window.renderCurrentReading(reading);
-
-            const card = document.getElementById('bp-current-card');
-            expect(card.classList.contains('wg-bp-current-card')).toBe(true);
-            expect(card.classList.contains('wg-card')).toBe(true);
-
-            const value = card.querySelector('.wg-bp-current-card__value');
-            expect(value).not.toBeNull();
-            expect(value.classList.contains('wg-mono-display')).toBe(true);
-            expect(value.querySelector('.wg-bp-current-card__sys').textContent).toBe('132');
-            expect(value.querySelector('.wg-bp-current-card__dia').textContent).toBe('/70');
-
-            const tag = card.querySelector('.wg-bp-status');
-            expect(tag).not.toBeNull();
-            expect(tag.classList.contains('wg-bp-status--highnormal')).toBe(true);
-
-            const pulse = card.querySelector('.wg-bp-current-card__pulse');
-            expect(pulse).not.toBeNull();
-            expect(pulse.textContent).toContain('76');
-        });
-
-        it('renders a pulse sparkline via WGSparkline when pulse is present', () => {
-            const { document, window } = env;
-            window.renderCurrentReading({
-                id: 2,
-                measured_at: '2026-04-20T08:12:00Z',
-                systolic: 118,
-                diastolic: 76,
-                pulse: 66
-            });
-
-            const svg = document.querySelector('#bp-current-card svg.wg-sparkline');
-            expect(svg).not.toBeNull();
-            expect(svg.classList.contains('wg-sparkline--sun')).toBe(true);
-        });
-
-        it('uses actual pulse history when recentReadings are provided', () => {
-            const { document, window } = env;
-            const recentReadings = [
-                { measured_at: '2026-04-20T08:00:00Z', pulse: 60 },
-                { measured_at: '2026-04-20T08:04:00Z', pulse: 62 },
-                { measured_at: '2026-04-20T08:08:00Z', pulse: 65 },
-                { measured_at: '2026-04-20T08:12:00Z', pulse: 66 },
-            ];
-            const latestReading = recentReadings[recentReadings.length - 1];
-            const sparkRenderSpy = vi.spyOn(window.WGSparkline, 'render');
-
-            window.renderCurrentReading(latestReading, recentReadings);
-
-            expect(sparkRenderSpy).toHaveBeenCalled();
-            const callArgs = sparkRenderSpy.mock.calls[0][0];
-            // Must use actual pulse history [60, 62, 65, 66], not fabricated values
-            expect(callArgs.points).toEqual([60, 62, 65, 66]);
-        });
-
-        it('sorts unsorted readings by measured_at before extracting pulse sparkline', () => {
-            const { document, window } = env;
-            const recentReadings = [
-                // Simulate pending items first (unsorted), then server data (newest-first)
-                { measured_at: '2026-04-20T08:08:00Z', pulse: 65 },
-                { measured_at: '2026-04-20T08:00:00Z', pulse: 60 },
-                { measured_at: '2026-04-20T08:12:00Z', pulse: 66 },
-                { measured_at: '2026-04-20T08:04:00Z', pulse: 62 },
-            ];
-            const latestReading = {
-                id: 2,
-                measured_at: '2026-04-20T08:12:00Z',
-                systolic: 118,
-                diastolic: 76,
-                pulse: 66
-            };
-            const sparkRenderSpy = vi.spyOn(window.WGSparkline, 'render');
-
-            window.renderCurrentReading(latestReading, recentReadings);
-
-            expect(sparkRenderSpy).toHaveBeenCalled();
-            const callArgs = sparkRenderSpy.mock.calls[0][0];
-            // Must sort by measured_at despite unsorted input, and show chronological trend
-            expect(callArgs.points).toEqual([60, 62, 65, 66]);
-        });
-
-        it('falls back to current pulse only if no history has pulse values', () => {
-            const { document, window } = env;
-            const recentReadings = [
-                { measured_at: '2026-04-20T08:00:00Z', pulse: null },
-                { measured_at: '2026-04-20T08:04:00Z', pulse: null },
-            ];
-            const latestReading = {
-                id: 2,
-                measured_at: '2026-04-20T08:12:00Z',
-                systolic: 118,
-                diastolic: 76,
-                pulse: 66
-            };
-            const sparkRenderSpy = vi.spyOn(window.WGSparkline, 'render');
-
-            window.renderCurrentReading(latestReading, recentReadings);
-
-            expect(sparkRenderSpy).toHaveBeenCalled();
-            const callArgs = sparkRenderSpy.mock.calls[0][0];
-            // No pulse history available, so fall back to current pulse only
-            expect(callArgs.points).toEqual([66]);
-        });
-
-        it('shows "No readings yet" when the reading is null', () => {
-            const { document, window } = env;
-            window.renderCurrentReading(null);
-
-            const card = document.getElementById('bp-current-card');
-            expect(card.textContent).toMatch(/no readings/i);
-            expect(card.querySelector('.wg-bp-current-card__value')).toBeNull();
-        });
-
-        it('labels offline-pending readings with a pending-sync kicker', () => {
-            const { document, window } = env;
-            window.renderCurrentReading({
-                id: 'local_9',
-                measured_at: '2026-04-20T08:12:00Z',
-                systolic: 125,
-                diastolic: 82,
-                pulse: null,
-                isLocal: true
-            });
-
-            const kicker = document.querySelector('#bp-current-card .wg-bp-current-card__kicker');
-            expect(kicker.textContent).toMatch(/pending sync/i);
-        });
-
-        it('maps Grade 2 BP to the grade2 status class', () => {
-            const { document, window } = env;
-            window.renderCurrentReading({
-                id: 3,
-                measured_at: '2026-04-20T08:12:00Z',
-                systolic: 168,
-                diastolic: 104,
-                pulse: 80
-            });
-            const tag = document.querySelector('#bp-current-card .wg-bp-status');
-            expect(tag.classList.contains('wg-bp-status--grade2')).toBe(true);
-        });
     });
 
     describe('renderRangeSelector', () => {
@@ -234,13 +83,13 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
             inactive.forEach((b) => expect(b.getAttribute('aria-pressed')).toBe('false'));
         });
 
-        it('falls back to the default (60d) range when active is invalid', () => {
+        it('falls back to the default (14d) range when active is invalid', () => {
             const { document, window } = env;
             window.renderRangeSelector({ active: 999, onChange: () => {} });
             const active = document.querySelector(
                 '#bp-range-selector .wg-bp-range-selector__track .wg-gloss--sun'
             );
-            expect(active.getAttribute('data-range')).toBe('60');
+            expect(active.getAttribute('data-range')).toBe('14');
         });
 
         it('invokes onChange with the selected range when a different button is clicked', () => {
@@ -312,10 +161,10 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
     });
 
     describe('getActiveBPRange / setActiveBPRange', () => {
-        it('defaults to 60 when no value is stored', () => {
+        it('defaults to 14 when no value is stored', () => {
             const { window } = env;
             window.localStorage.removeItem('mt-bp-range');
-            expect(window.getActiveBPRange()).toBe(60);
+            expect(window.getActiveBPRange()).toBe(14);
         });
 
         it('round-trips valid range values through localStorage', () => {

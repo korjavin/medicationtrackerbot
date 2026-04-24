@@ -125,6 +125,45 @@
         return circle;
     }
 
+    function makeAxisTick(x, y, text, axis) {
+        const t = document.createElementNS(SVG_NS, 'text');
+        t.setAttribute('x', x.toFixed(1));
+        t.setAttribute('y', y.toFixed(1));
+        t.classList.add('wg-bp-chart__axis-tick');
+        t.dataset.bpAxis = axis;
+        t.textContent = text;
+        return t;
+    }
+
+    // Round-2, Task 2 — pick 3-4 y-axis tick values from the standard mmHg
+    // ladder (60 / 80 / 100 / 120 / 140 / 160 / 180), keeping only those
+    // inside the current [yMin, yMax] window so the chart doesn't label
+    // ticks off-canvas. The 80/120 values coincide with the teal guide band
+    // so they double as band labels.
+    function pickYTickValues(yMin, yMax) {
+        const ladder = [60, 80, 100, 120, 140, 160, 180];
+        return ladder.filter((v) => v >= yMin && v <= yMax);
+    }
+
+    // Round-2, Task 2 — emit 4-5 x-axis date ticks spanning [firstTime,
+    // lastTime]. Uses localeDateString in short MM/DD form (day-first locales
+    // get their native order). Ticks are placed below the plot area.
+    function pickXTickTimes(firstTime, lastTime, count) {
+        if (!Number.isFinite(firstTime) || !Number.isFinite(lastTime)) return [];
+        const n = Math.max(2, Math.min(count, 6));
+        if (lastTime <= firstTime) return [firstTime];
+        const step = (lastTime - firstTime) / (n - 1);
+        const out = [];
+        for (let i = 0; i < n; i += 1) out.push(firstTime + step * i);
+        return out;
+    }
+
+    function formatXTickLabel(ms) {
+        const d = new Date(ms);
+        if (Number.isNaN(d.getTime())) return '';
+        return d.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
+    }
+
     function renderBpChart(opts) {
         const options = opts || {};
         const rawReadings = Array.isArray(options.readings) ? options.readings : [];
@@ -200,6 +239,25 @@
         for (const value of GUIDE_VALUES) {
             if (value < yMin || value > yMax) continue;
             svg.appendChild(makeLine(PAD_L, width - PAD_R, yOf(value), value));
+        }
+
+        // Round-2, Task 2 — numeric y-axis tick labels (mmHg ladder).
+        // Labels sit just left of the plot; a small x-offset keeps the text
+        // right-aligned against the plot edge.
+        const yTickValues = pickYTickValues(yMin, yMax);
+        for (const value of yTickValues) {
+            const tick = makeAxisTick(PAD_L - 4, yOf(value) + 3, String(value), 'y');
+            svg.appendChild(tick);
+        }
+
+        // Round-2, Task 2 — date tick labels on the x-axis. 4 evenly-spaced
+        // ticks across the visible time window; placed below the plot.
+        const xTickTimes = pickXTickTimes(firstTime, lastTime, 4);
+        for (const t of xTickTimes) {
+            const label = formatXTickLabel(t);
+            if (!label) continue;
+            const tick = makeAxisTick(xOf(t), height - 8, label, 'x');
+            svg.appendChild(tick);
         }
 
         const bandD = buildBandPath(sysPoints, diaPoints);
