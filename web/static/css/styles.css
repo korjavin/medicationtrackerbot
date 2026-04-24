@@ -515,6 +515,18 @@
     --wg-weight-chart-goal-dasharray: 2 4;
     --wg-weight-chart-last-point-radius: 4px;
     --wg-weight-chart-last-stroke-width: 2px;
+    --wg-weight-chart-plan-stroke-width: 1.2px;
+    --wg-weight-chart-plan-dasharray: 2 3;
+    --wg-weight-chart-trend-stroke-width: 1px;
+    --wg-weight-chart-trend-dasharray: 4 3;
+    --wg-weight-chart-tick-size: 9px;
+    --wg-weight-chart-goal-label-size: 9.5px;
+    --wg-weight-chart-legend-swatch-w: 14px;
+    --wg-weight-chart-legend-swatch-h: 2px;
+    --wg-weight-chart-legend-swatch-radius: 1px;
+    --wg-weight-prognosis-label-gap: 4px;
+    --wg-weight-prognosis-value-size: 18px;
+    --wg-weight-prognosis-trend-size: 14px;
     --wg-weight-history-row-cols: 1fr auto;
     --wg-weight-history-row-gap: 10px;
     --wg-weight-history-row-pad: 12px;
@@ -1081,7 +1093,6 @@ h3 {
 #workout-exercise-modal,
 #exercise-library-modal,
 #miband-workout-modal,
-#weight-modal,
 #workout-session-modal,
 #med-confirm-modal,
 #workout-start-modal,
@@ -1125,11 +1136,14 @@ h3 {
 #workout-exercise-modal.hidden,
 #exercise-library-modal.hidden,
 #miband-workout-modal.hidden,
-#weight-modal.hidden,
 #workout-session-modal.hidden,
 #workout-add-exercise-to-session-modal.hidden,
 #modal-overlay.hidden,
 .view {
+    display: none;
+}
+
+#weight-modal.hidden {
     display: none;
 }
 
@@ -4317,6 +4331,123 @@ textarea.wg-input {
     fill: var(--wg-sun);
     stroke: var(--wg-teal-stage);
     stroke-width: var(--wg-weight-chart-last-stroke-width);
+}
+
+.wg-weight-chart__plan {
+    stroke: var(--wg-sun);
+    stroke-width: var(--wg-weight-chart-plan-stroke-width);
+    stroke-dasharray: var(--wg-weight-chart-plan-dasharray);
+    opacity: 0.55;
+    fill: none;
+}
+
+.wg-weight-chart__trend {
+    stroke: var(--wg-mint-soft);
+    stroke-width: var(--wg-weight-chart-trend-stroke-width);
+    stroke-dasharray: var(--wg-weight-chart-trend-dasharray);
+    opacity: 0.55;
+    fill: none;
+}
+
+.wg-weight-chart__y-tick-label,
+.wg-weight-chart__x-tick-label {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-weight-chart-tick-size);
+    fill: var(--wg-fg-4);
+}
+
+.wg-weight-chart__goal-label {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-weight-chart-goal-label-size);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    fill: var(--wg-sun);
+}
+
+.wg-weight-chart-legend {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-md);
+    margin: var(--space-xs) 0 var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--wg-fg-4);
+}
+
+.wg-weight-chart-legend__item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.wg-weight-chart-legend__swatch {
+    display: inline-block;
+    width: var(--wg-weight-chart-legend-swatch-w);
+    height: var(--wg-weight-chart-legend-swatch-h);
+    border-radius: var(--wg-weight-chart-legend-swatch-radius);
+}
+
+.wg-weight-chart-legend__swatch--actual {
+    background: var(--wg-mint-soft);
+}
+
+.wg-weight-chart-legend__swatch--plan {
+    background: var(--wg-sun);
+    opacity: 0.7;
+}
+
+.wg-weight-chart-legend__swatch--goal {
+    background: var(--wg-sun);
+}
+
+/* Weight prognosis card — shows days-to-goal + weekly trend using a
+   simple linear-regression projection. Shown when a goal is set and we
+   have enough data points; the render helper guards against NaN/Infinity
+   and falls back to "—" when the projection isn't meaningful. */
+.wg-weight-prognosis-card {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-md);
+}
+
+.wg-weight-prognosis-card__label {
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-4);
+}
+
+.wg-weight-prognosis-card__value {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-weight-prognosis-value-size);
+    color: var(--wg-fg-1);
+    letter-spacing: -0.02em;
+    margin-top: var(--wg-weight-prognosis-label-gap);
+}
+
+.wg-weight-prognosis-card__trend-value {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-weight-prognosis-trend-size);
+    letter-spacing: -0.01em;
+}
+
+.wg-weight-prognosis-card__trend-value--good {
+    color: var(--wg-mint-soft);
+}
+
+.wg-weight-prognosis-card__trend-value--bad {
+    color: var(--wg-warn-fg, #E56B4A);
+}
+
+.wg-weight-prognosis-card__trend-value--flat {
+    color: var(--wg-fg-4);
 }
 
 /* Weight current-reading + goal cards (Phase 6, Task 3). The current-reading

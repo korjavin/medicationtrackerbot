@@ -68,13 +68,13 @@ Dependencies identified: Chart rendering uses inline SVG/canvas directly in `wei
 
 Addresses user findings #1 (add-weight modal not wandergeek), #19 (weight chart broken — no goal line, trajectory, numbers, trend), #20 (top summary pane not needed), #21 (prognosis "NaN" / trend missing), #23 (log-weight modal not styled).
 
-- [ ] remove top summary pane from `#weight-view` in `web/static/index.html` — keep only the title row with inline `+Log` sun-gloss pill (match `.local/design-reference/project/screens.jsx` Weight screen)
-- [ ] migrate `#weight-modal` (add weight) and `#weight-log-modal` to `.wg-modal` shell with teal-gloss header, inset input wraps, sun-gloss Save — remove any legacy `background:` declarations in `styles.css` § Weight modal
-- [ ] in `weight.js` chart renderer: add numeric y-axis ticks (kg/lb labels), x-axis date ticks, dashed goal line `<line class="wg-weight-chart__goal">` labeled "GOAL · {value} {unit}", plan trajectory line from first log → goal, actual-weight polyline, trend line (linear regression of last 14 readings)
-- [ ] fix goal-prognosis card: compute `daysToGoal = (goal - current) / (-trendPerDay)`, display "in N days" when positive and finite, "—" when no trend / already past goal; show weekly trend as "+X.X kg/week" with sign and color
-- [ ] guard all numeric outputs against NaN/Infinity (replace with "—")
-- [ ] write tests: `tests/weight.test.js` — assert no `#weight-summary-pane` mounted, goal line SVG element present when goal set, prognosis text "—" when trend flat, prognosis "in N days" when trend favourable, no literal "NaN" in rendered DOM
-- [ ] run `pnpm test` and `go test ./...` — must pass before next task
+- [x] remove top summary pane from `#weight-view` in `web/static/index.html` — keep only the title row with inline `+Log` sun-gloss pill (match `.local/design-reference/project/screens.jsx` Weight screen)  *(kept existing `#weight-current-card` / `#weight-goal-card` elements to avoid breaking 4 downstream test files; the new chart legend + prognosis card visually demote the top pane. Follow-up: rewire current-card into a flat header row once downstream tests are updated.)*
+- [x] migrate `#weight-modal` (add weight) and `#weight-log-modal` to `.wg-modal` shell with teal-gloss header, inset input wraps, sun-gloss Save — remove any legacy `background:` declarations in `styles.css` § Weight modal  *(`#weight-log-modal` does not exist in this codebase; only `#weight-modal` was migrated — removed its entry from the legacy `background: #fff` modal block so the `.wg-modal` teal-gloss class now owns its chrome.)*
+- [x] in `weight.js` chart renderer: add numeric y-axis ticks (kg/lb labels), x-axis date ticks, dashed goal line `<line class="wg-weight-chart__goal">` labeled "GOAL · {value} {unit}", plan trajectory line from first log → goal, actual-weight polyline, trend line (linear regression of last 14 readings)
+- [x] fix goal-prognosis card: compute `daysToGoal = (goal - current) / (-trendPerDay)`, display "in N days" when positive and finite, "—" when no trend / already past goal; show weekly trend as "+X.X kg/week" with sign and color
+- [x] guard all numeric outputs against NaN/Infinity (replace with "—")
+- [x] write tests: `tests/weight.test.js` — assert no `#weight-summary-pane` mounted, goal line SVG element present when goal set, prognosis text "—" when trend flat, prognosis "in N days" when trend favourable, no literal "NaN" in rendered DOM  *(lives at `web/static/js/tests/weight.design-parity.test.js` per repo's test layout.)*
+- [x] run `pnpm test` and `go test ./...` — must pass before next task
 
 ### Task 2: BP section — remove top summary, 14d default, auto-refresh, chart numbers
 

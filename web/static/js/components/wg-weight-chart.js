@@ -151,6 +151,66 @@
         return circle;
     }
 
+    function makeTickText(x, y, text, className, anchor) {
+        const t = document.createElementNS(SVG_NS, 'text');
+        t.setAttribute('x', String(x));
+        t.setAttribute('y', String(y));
+        if (anchor) t.setAttribute('text-anchor', anchor);
+        t.classList.add(className);
+        t.textContent = String(text);
+        return t;
+    }
+
+    function makePlanLine(x1, y1, x2, y2) {
+        const line = document.createElementNS(SVG_NS, 'line');
+        line.setAttribute('x1', x1.toFixed(1));
+        line.setAttribute('y1', y1.toFixed(1));
+        line.setAttribute('x2', x2.toFixed(1));
+        line.setAttribute('y2', y2.toFixed(1));
+        line.classList.add('wg-weight-chart__plan');
+        return line;
+    }
+
+    function makeTrendLine(x1, y1, x2, y2) {
+        const line = document.createElementNS(SVG_NS, 'line');
+        line.setAttribute('x1', x1.toFixed(1));
+        line.setAttribute('y1', y1.toFixed(1));
+        line.setAttribute('x2', x2.toFixed(1));
+        line.setAttribute('y2', y2.toFixed(1));
+        line.classList.add('wg-weight-chart__trend');
+        return line;
+    }
+
+    // Linear regression on the last N points (default 14). Returns
+    // { slope, intercept, count } where slope is kg/ms and intercept is the
+    // weight at t=0. Null when fewer than 2 points (no line possible).
+    function regressLastN(data, n) {
+        const count = Math.min(n, data.length);
+        if (count < 2) return null;
+        const slice = data.slice(data.length - count);
+        let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+        for (const p of slice) {
+            const x = p.date.getTime();
+            const y = p.weight;
+            sumX += x;
+            sumY += y;
+            sumXY += x * y;
+            sumXX += x * x;
+        }
+        const denom = count * sumXX - sumX * sumX;
+        if (denom === 0) return null;
+        const slope = (count * sumXY - sumX * sumY) / denom;
+        const intercept = (sumY - slope * sumX) / count;
+        if (!Number.isFinite(slope) || !Number.isFinite(intercept)) return null;
+        return { slope, intercept, count };
+    }
+
+    function fmtDateTick(d) {
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        return `${dd}.${mm}`;
+    }
+
     function makeEmptyCard(range) {
         const card = document.createElement('div');
         card.classList.add('wg-weight-chart', 'wg-weight-chart--empty');
@@ -249,16 +309,61 @@
         svg.dataset.weightPointCount = String(data.length);
 
         const ticks = computeYTicks(yMin, yMax);
-        for (const tick of ticks) {
-            if (tick <= yMin || tick >= yMax) continue;
+        const interiorTicks = ticks.filter((t) => t > yMin && t < yMax);
+        for (const tick of interiorTicks) {
             svg.appendChild(makeGuideLine(PAD_L, width - PAD_R, yOf(tick), tick));
+            svg.appendChild(
+                makeTickText(PAD_L - 4, yOf(tick) + 3, tick, 'wg-weight-chart__y-tick-label', 'end'),
+            );
         }
-        svg.dataset.weightTickCount = String(
-            ticks.filter((t) => t > yMin && t < yMax).length,
-        );
+        svg.dataset.weightTickCount = String(interiorTicks.length);
+
+        // Plan trajectory line: from first actual log → goal (at time of last
+        // data point). Renders underneath the goal line/line so the goal and
+        // actual stay dominant. When no goal is set we skip the plan line.
+        if (goalValue != null && data.length > 0) {
+            const first = data[0];
+            const last = data[data.length - 1];
+            svg.appendChild(
+                makePlanLine(
+                    xOf(first.date.getTime()),
+                    yOf(first.weight),
+                    xOf(last.date.getTime()),
+                    yOf(goalValue),
+                ),
+            );
+        }
 
         if (goalValue != null) {
             svg.appendChild(makeGoalLine(PAD_L, width - PAD_R, yOf(goalValue), goalValue));
+            const goalUnit = (typeof options.unit === 'string' && options.unit.toLowerCase() === 'lb')
+                ? 'lb' : 'kg';
+            const goalY = Math.max(PAD_T + 10, yOf(goalValue) - 5);
+            svg.appendChild(
+                makeTickText(
+                    width - PAD_R - 4,
+                    goalY,
+                    `GOAL · ${goalValue} ${goalUnit}`,
+                    'wg-weight-chart__goal-label',
+                    'end',
+                ),
+            );
+        }
+
+        // Trend line — linear regression on the last 14 data points. Rendered
+        // as a dashed line so users can see whether they're converging on the
+        // goal at their current pace. Skip when there's only one point.
+        const trend = regressLastN(data, 14);
+        if (trend) {
+            const tStart = data[data.length - trend.count].date.getTime();
+            const tEnd = data[data.length - 1].date.getTime();
+            const wStart = trend.intercept + trend.slope * tStart;
+            const wEnd = trend.intercept + trend.slope * tEnd;
+            if (Number.isFinite(wStart) && Number.isFinite(wEnd)) {
+                svg.appendChild(
+                    makeTrendLine(xOf(tStart), yOf(wStart), xOf(tEnd), yOf(wEnd)),
+                );
+            }
         }
 
         const linePath = makePath(buildSplinePath(points), 'wg-weight-chart__line');
@@ -270,6 +375,29 @@
 
         const last = data[data.length - 1];
         svg.appendChild(makeLastCircle(xOf(last.date.getTime()), yOf(last.weight)));
+
+        // X-axis date ticks — anchor on first + last data point so users can
+        // orient the chart span. Skip when we only have a single point.
+        if (data.length >= 2) {
+            svg.appendChild(
+                makeTickText(
+                    PAD_L,
+                    height - 6,
+                    fmtDateTick(data[0].date),
+                    'wg-weight-chart__x-tick-label',
+                    'start',
+                ),
+            );
+            svg.appendChild(
+                makeTickText(
+                    width - PAD_R,
+                    height - 6,
+                    fmtDateTick(data[data.length - 1].date),
+                    'wg-weight-chart__x-tick-label',
+                    'end',
+                ),
+            );
+        }
 
         return svg;
     }
