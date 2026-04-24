@@ -282,6 +282,11 @@
     --wg-icon-btn-size: 44px;
     --wg-font-size-tag: 10.5px;
     --wg-section-label-pad-top: 18px;
+    /* Shared toolbar-row action button height (Round-2 defects Task 2).
+       Matches the 14d / 30d / 60d range pill min-height so the primary
+       action button (+Log, Add, Start) aligns on the same visual baseline
+       as the sibling range/subtab pills. Used by .wg-toolbar-btn. */
+    --wg-toolbar-btn-height: 36px;
 
     /* Wandergeek — phone chrome (Task 3). Decorative iPhone frame on desktop. */
     --wg-phone-pad: 12px;
@@ -3274,6 +3279,54 @@ input:checked+.toggle-slider:before {
     min-height: 44px;
     padding: var(--space-md) var(--space-xl);
     font-size: var(--font-size-md);
+}
+
+/* Shared toolbar-row action button (Round-2 defects Task 2). Unifies the
+   "primary action pill sitting next to a range/subtab track" pattern on BP
+   (+Log), Weight (+Log), Meds (Add), Workouts (Start) and Food (Add). The
+   per-section one-off classes (.wg-bp-range-selector__add, .wg-meds-subtabs-
+   row__add, .wg-workouts-subtabs-row__add, .wg-weight-header-row__add,
+   .wg-food-day-nav__add) repeat the same size/padding/radius recipe and
+   are being migrated onto this class in later Round-2 tasks (defects 8,
+   10, 13b, 15). Size+shape only — color is provided by .wg-gloss /
+   .wg-gloss--sun or the --primary modifier below. `align-self: center`
+   defeats the `align-items: stretch` inflation that made the add button
+   visually taller than the adjacent pills (defects 8, 10, 13b). */
+.wg-toolbar-btn {
+    flex-shrink: 0;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    min-height: var(--wg-toolbar-btn-height);
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+}
+
+/* Primary variant — yellow filled gloss, matching .wg-gloss--sun. Color
+   only; never changes size. Apply to the canonical "add/log/start" action
+   in a toolbar row. */
+.wg-toolbar-btn--primary {
+    color: var(--wg-ink);
+    background: var(--wg-gloss-bg-sun);
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
+    box-shadow: var(--wg-gloss-shadow-sun);
+    transition: filter 120ms ease, transform 120ms ease;
+}
+
+.wg-toolbar-btn--primary:active {
+    transform: translateY(1px);
+    filter: brightness(0.95);
+}
+
+.wg-toolbar-btn--primary:hover {
+    filter: brightness(1.07);
 }
 
 .wg-icon-btn {

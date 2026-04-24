@@ -268,6 +268,8 @@ const WANDERGEEK_TOKENS = [
     '--wg-icon-btn-size',
     '--wg-font-size-tag',
     '--wg-section-label-pad-top',
+    // Shared toolbar-row action button height (Round-2 defects Task 2)
+    '--wg-toolbar-btn-height',
 
     // Phone chrome tokens (added in Task 3 alongside .wg-phone, .wg-status-bar, etc.)
     '--wg-phone-pad',
