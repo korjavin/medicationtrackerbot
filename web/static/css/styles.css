@@ -5585,12 +5585,15 @@ textarea.wg-input {
     margin-bottom: var(--space-md);
 }
 
-/* Meds sub-tab strip (Phase 5, Task 2; revised Task 5). `.wg-gloss--inset`
-   container wraps three `.wg-gloss`-capable pills — History (default) /
-   Schedule / Inventory — the active pill carries `.wg-gloss--sun` (plus
-   `.wg-meds-subtabs__btn--active` for tests). The strip is wrapped by a
-   `.wg-meds-subtabs-row` flex container that also holds the inline sun-gloss
-   add-medication pill on the right, replacing the paper-era full-width bottom CTA. */
+/* Meds sub-tab strip (Phase 5, Task 2; revised Task 5; Round-2 Task 7).
+   `.wg-gloss--inset` container wraps three `.wg-gloss`-capable pills —
+   History (default) / Schedule / Inventory — the active pill carries
+   `.wg-gloss--sun` (plus `.wg-meds-subtabs__btn--active` for tests).
+   Round-2 Task 7 removed the trailing add-medication pill from this row
+   (the Add CTA is now scoped to the Schedule subtab via
+   `.wg-meds-schedule-header` below) so History and Inventory no longer
+   show an irrelevant control. The outer `.wg-meds-subtabs-row` wrapper
+   is retained for layout stability and to keep legacy selectors happy. */
 .wg-meds-subtabs-row {
     display: flex;
     gap: var(--space-xs);
@@ -5614,23 +5617,16 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
-.wg-meds-subtabs-row__add {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-xs);
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-md);
-    font-family: var(--wg-font-ui);
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-meds-subtabs-row__add-label {
-    letter-spacing: 0.02em;
+/* Schedule-subtab header (Round-2 Task 7 — defect #10).
+   Hosts the #add-btn Add-medication pill at the top of the Schedule list.
+   Because this row lives inside `#med-schedule-tab` (a `.med-tab-content`
+   that toggles `display:none` when inactive), the Add control is only
+   visible while Schedule is the active subtab — History and Inventory
+   render without an Add control, per the defect report. */
+.wg-meds-schedule-header {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: var(--space-sm);
 }
 
 /* Workouts sub-tab strip (Phase 7, Task 2; revised Task 5). `.wg-gloss--inset`
