@@ -193,12 +193,12 @@ Root-cause the recurring "primary action button in a section toolbar row is visu
 
 ### Task 14: Verify acceptance criteria across all 17 defects
 
-- [ ] walk through defects #1–#17 in the appendix and confirm each is resolved or explicitly deferred (with reason)
-- [ ] run full `pnpm test` suite
-- [ ] run `go test ./...`
-- [ ] run frontend linter — all issues must be fixed
-- [ ] verify no new `window.*` globals were added without allowlist entries (`tests/architecture.globals.test.js`)
-- [ ] verify no hardcoded colors or inline `.style.` assignments were introduced (architecture tests)
+- [x] walk through defects #1–#17 in the appendix and confirm each is resolved or explicitly deferred (with reason) — all 17 defects cross-referenced to Tasks 1–13: #1→T3 (box-sizing fix); #2/#3/#4→T4 (X icon render, last-weight seed, focus+select); #5→T1 (SW fix, verified in T4); #6→T1+T6 verify; #7a/#7b→T1+T5; #8→T5 (shared `.wg-toolbar-btn`); #9→T6 (grid cascade + shared toolbar-btn); #10→T7 (Add moved from subtab row to Schedule header); #11→T8 (pane reordered + Wandergeek restyle); #12a→T9 (chip handler already wired by Phase 8; new inline-style guard); #12b→T1+T9 (SW fix + onFresh hide); #13a/#13b→T10 (shared toolbar-btn + elevated-teal-card); #14→T11 (`.wg-workouts-exercise-row` adopts elevated-teal-card tokens); #15→T12 (Latest pane deleted, `+ Log` moved to range toolbar); #16→T13 (shared `--wg-chart-*` tokens + axis tick color alignment); #17→T1 (idempotent `put()` + per-item ConstraintError swallow). All resolved — no deferrals
+- [x] run full `pnpm test` suite — 1455/1455 frontend tests green (133 files)
+- [x] run `go test ./...` — all Go packages pass (bot, ai, bot, domain, domain/tzreschedule, mcp, notifier, rxnorm, scheduler, server, store, testharness, tzlookup, webpush, workout)
+- [x] run frontend linter — all issues must be fixed — this project ships no separate ESLint/Prettier/Biome config; the architecture test suite (`architecture.globals.test.js`, `architecture.inline-styles.test.js`, `architecture.design-tokens.test.js`, `architecture.toolbar-btn.test.js`, `architecture.chart-theme.test.js`, `architecture.wg-primitives.test.js`, `architecture.sw-precache.test.js`) serves as the enforcement mechanism and all 119 checks pass
+- [x] verify no new `window.*` globals were added without allowlist entries (`tests/architecture.globals.test.js`) — `web/static/js/tests/architecture.globals.test.js` passes (1 test); no new globals introduced across Tasks 1–13
+- [x] verify no hardcoded colors or inline `.style.` assignments were introduced (architecture tests) — `architecture.inline-styles.test.js` passes (1 test); `architecture.design-tokens.test.js` passes (18 tests) including the 9 newly-required `--wg-chart-*` tokens; all per-section restyle tests assert no `linear-gradient(`, hex colors, or raw `rgb()/rgba()` literals on the new Wandergeek surfaces (meds next-intake card, workouts next card, workouts exercise row, weight chart panel)
 
 ### Task 15: Update documentation
 
