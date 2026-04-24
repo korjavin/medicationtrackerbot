@@ -2724,6 +2724,29 @@ function _renderWorkoutStats(container, stats) {
     renderChartInto(activeRange);
     root.appendChild(chartPanel);
 
+    // Round-2, Task 6 — single-series chart legend. Documents which metric
+    // the trend line represents ("Sessions · per week") so the chart reads
+    // without a separate caption. Mirrors the axis-tick work in
+    // wg-workout-chart.js and keeps the swatch + label outside the SVG so
+    // we don't over-complicate the chart component.
+    const legend = document.createElement('div');
+    legend.className = 'wg-workouts-stats__legend';
+    legend.setAttribute('role', 'list');
+    const legendChip = document.createElement('span');
+    legendChip.className = 'wg-workouts-stats__legend-chip';
+    legendChip.setAttribute('role', 'listitem');
+    legendChip.dataset.series = 'sessions';
+    const swatch = document.createElement('span');
+    swatch.className = 'wg-workouts-stats__legend-swatch';
+    swatch.setAttribute('aria-hidden', 'true');
+    const legendLabel = document.createElement('span');
+    legendLabel.className = 'wg-workouts-stats__legend-label';
+    legendLabel.textContent = 'Sessions · per week';
+    legendChip.appendChild(swatch);
+    legendChip.appendChild(legendLabel);
+    legend.appendChild(legendChip);
+    root.appendChild(legend);
+
     // Stat tiles — 2×2 `.wg-card` grid. Labels mirror the existing API
     // semantics: Active Weeks / 30-Day Sessions / Done / Skipped.
     const tiles = document.createElement('div');
