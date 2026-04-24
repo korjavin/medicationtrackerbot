@@ -491,3 +491,116 @@ describe('Health Notes composer tag chips (Phase 8, Task 7)', () => {
         expect(bogusRow.querySelector('.wg-health-notes-row__tag')).toBeNull();
     });
 });
+
+// Round-2 Task 9 — Vitals → Notes tag-chip interactivity + post-add list
+// refresh. The chip behavior + addNote payload shape are already covered
+// above; these cases pin the design-token discipline (no inline styles on
+// chip toggle) and the #12b regression (list must reflect the new note
+// after addNote, with the "Loading notes…" indicator cleared, without a
+// full page reload).
+describe('Vitals → Notes — Round-2 Task 9 (#12a + #12b)', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadFrontendEnv();
+    });
+
+    afterEach(() => {
+        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        env.cleanup();
+        env = null;
+    });
+
+    it('chip toggle never writes inline styles — selected state is class-driven only', () => {
+        const { document, window } = env;
+        if (typeof window.bindNotesComposer === 'function') window.bindNotesComposer();
+
+        const chip = document.getElementById('notes-compose-tags').querySelector('[data-tag="SLEEP"]');
+        expect(chip).not.toBeNull();
+        // Baseline: no inline style attribute before the click.
+        expect(chip.getAttribute('style') || '').toBe('');
+
+        chip.click();
+        expect(chip.classList.contains('wg-tag--sun')).toBe(true);
+        // Selected state must come from the class, not inline style — guards
+        // CLAUDE.md rule #3 (no inline style assignments in frontend code).
+        expect(chip.getAttribute('style') || '').toBe('');
+
+        chip.click();
+        expect(chip.classList.contains('wg-tag--sun')).toBe(false);
+        expect(chip.getAttribute('style') || '').toBe('');
+    });
+
+    it('after addNote the list shows the new note without a full reload and clears the loading indicator', async () => {
+        const { document, window } = env;
+        if (typeof window.bindNotesComposer === 'function') window.bindNotesComposer();
+
+        // Track GET vs POST; the refresh chain should perform at least one
+        // GET /api/notes after the POST and paint its result into #notes-list.
+        const serverState = [];
+        let getCount = 0;
+        let postCount = 0;
+        window.apiCall = async (url, method, body) => {
+            if (url.startsWith('/api/notes') && method === 'GET') {
+                getCount += 1;
+                return serverState.slice();
+            }
+            if (url === '/api/notes' && method === 'POST') {
+                postCount += 1;
+                const row = {
+                    id: 101,
+                    content: body && body.content,
+                    tag: (body && body.tag) || null,
+                    created_at: new Date().toISOString()
+                };
+                serverState.unshift(row);
+                return row;
+            }
+            return null;
+        };
+
+        const list = document.getElementById('notes-list');
+        const loading = document.getElementById('notes-loading');
+        // Start with an empty list so we can prove the post-add refresh painted
+        // the new note rather than leaving a stale render behind.
+        window.renderNotes(list, []);
+        expect(list.querySelector('.wg-health-notes__empty')).not.toBeNull();
+
+        const textarea = document.getElementById('notes-textarea');
+        textarea.value = 'post-add refresh works';
+        textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+        const stressChip = document.getElementById('notes-compose-tags').querySelector('[data-tag="STRESS"]');
+        stressChip.click();
+
+        // window.addNote is the feature-module export; its signature is (no args).
+        await window.addNote();
+        // addNote fires loadNotes() without awaiting; let microtasks drain so
+        // the SWR chain (fetcher → onFresh → paintNotes) settles.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(postCount).toBe(1);
+        expect(getCount).toBeGreaterThanOrEqual(1);
+
+        // The composer resets on success: textarea cleared, chip deselected,
+        // char-count back to "empty".
+        expect(textarea.value).toBe('');
+        expect(stressChip.classList.contains('wg-tag--sun')).toBe(false);
+        expect(document.getElementById('notes-compose-count').textContent).toBe('empty');
+
+        // The new note is rendered into the list without a full page reload.
+        const rows = list.querySelectorAll('.wg-health-notes-row');
+        expect(rows.length).toBe(1);
+        const row = list.querySelector('[data-note-id="101"]');
+        expect(row).not.toBeNull();
+        expect(row.querySelector('.wg-health-notes-row__content').textContent)
+            .toBe('post-add refresh works');
+
+        // #12b: "Loading notes…" must NOT be left visible after the refresh
+        // chain completes — previously blocked by the SW ConstraintError that
+        // Task 1 resolved. Guard here so a future regression in the onFresh /
+        // onError completion path is caught by the suite.
+        expect(loading.style.display).toBe('none');
+    });
+});
