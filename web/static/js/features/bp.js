@@ -123,6 +123,18 @@ async function handleBPSubmit(event) {
 // Load BP readings from API (with offline support)
 async function loadBPReadings() {
     const list = document.getElementById('bp-list');
+    // Always render the range selector (with its inline +Log button) before
+    // loadSWR runs. Otherwise, a first-visit user who is offline with no
+    // cache and whose fetch resolves to null (apiCall returns null on 5xx /
+    // network failure without throwing) would get neither onCached, onFresh,
+    // nor onError \u2014 leaving the screen with no way to log a reading.
+    renderRangeSelector({
+        active: getActiveBPRange(),
+        onChange: (days) => {
+            setActiveBPRange(days);
+            loadBPReadings();
+        }
+    });
     await window.DataStore.loadSWR({
         key: 'bp',
         tags: ['bp'],
