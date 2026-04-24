@@ -2516,11 +2516,11 @@ function closeWorkoutSessionModal() {
 }
 
 async function saveWorkoutSessionDetails() {
-    // Either the paper-era "Save Changes" button or the Wandergeek bottom
-    // "Finish" button can trigger this flow (finishWorkoutSession re-enters
-    // here after flipping the status select). Disable both so the unclicked
-    // one can't be tapped a second time while the first request is in-flight.
-    const topSaveBtn = document.querySelector('#workout-session-modal .actions .btn-primary');
+    // Either the top "Save Changes" button or the bottom "Finish" button can
+    // trigger this flow (finishWorkoutSession re-enters here after flipping
+    // the status select). Disable both so the unclicked one can't be tapped
+    // a second time while the first request is in-flight.
+    const topSaveBtn = document.getElementById('workout-session-save-btn');
     const finishBtn = document.getElementById('workout-session-finish-btn');
     const busyTargets = [topSaveBtn, finishBtn].filter(Boolean);
     const feedbackBtn = topSaveBtn || finishBtn;
