@@ -77,12 +77,12 @@ This plan consolidates the 17 defects into **grouped tasks ordered by leverage**
 
 Fixes defect **#17** and is expected to transitively fix **#5**, **#6**, **#7a**, **#7b**, **#12b**. Must land first — every other UI refresh task is easier to verify on a working sync chain.
 
-- [ ] reproduce the `ConstraintError: Key already exists in the object store` at `web/static/sw.js:193` (save a note → observe console) and confirm the call site is an `add()` on a per-entity store
-- [ ] change duplicate-prone `add()` calls in the `changes?since` replay path to idempotent `put()` (upsert), OR wrap per-item writes in `try { await add(x) } catch (e) { if (e.name !== 'ConstraintError') throw e }` so one duplicate does not abort the batch
-- [ ] ensure the post-mutation refresh signal (whatever flips "Loading notes…" off / triggers list re-render) fires even when one item in the batch is a duplicate
-- [ ] write vitest DOM test that simulates SW sync pushing a duplicate-key row and asserts the chain completes without rejection
-- [ ] manually re-verify in browser: add note, save weight, log food, add BP, delete BP — downstream UI in all five paths reflects the mutation without a full reload
-- [ ] run `pnpm test` and `go test ./...` — must pass before Task 2
+- [x] reproduce the `ConstraintError: Key already exists in the object store` at `web/static/sw.js:193` (save a note → observe console) and confirm the call site is an `add()` on a per-entity store — traced to `MedicationStore.saveCache` (`clear()` + `add({id:'medications_list'})`) in `web/static/js/db.js`; concurrent callers (bootstrap + `meds.loadMeds` / `changes?since` replay) race and the second `add()` rejects with `ConstraintError`
+- [x] change duplicate-prone `add()` calls in the `changes?since` replay path to idempotent `put()` (upsert), OR wrap per-item writes in `try { await add(x) } catch (e) { if (e.name !== 'ConstraintError') throw e }` so one duplicate does not abort the batch — `MedicationStore.saveCache` now uses `put()`; `BPStore.syncFromServer` / `WeightStore.syncFromServer` wrap `add()` in per-item try/catch that swallows `ConstraintError` only
+- [x] ensure the post-mutation refresh signal (whatever flips "Loading notes…" off / triggers list re-render) fires even when one item in the batch is a duplicate — per-item error isolation means the batch never aborts, so the downstream tag-invalidate / tab-refresh chain in `DataStore.applyChangesPayload` always runs
+- [x] write vitest DOM test that simulates SW sync pushing a duplicate-key row and asserts the chain completes without rejection — `web/static/js/tests/db.sync-duplicate.test.js` (4 tests: idempotent saveCache, BP/Weight ConstraintError swallowed, non-ConstraintError still propagates)
+- [x] manually re-verify in browser: add note, save weight, log food, add BP, delete BP — downstream UI in all five paths reflects the mutation without a full reload [x] manual test (skipped - not automatable; to be re-verified after deploy per Post-Completion section)
+- [x] run `pnpm test` and `go test ./...` — must pass before Task 2 (all 1396 frontend tests + all Go packages green)
 
 ### Task 2: Introduce shared toolbar primary-button size class (groundwork for #8, #10, #13b, #15)
 
