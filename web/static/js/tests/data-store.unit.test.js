@@ -84,6 +84,29 @@ describe('data-store.js unit tests', () => {
     }
   });
 
+  it('registerTags lets invalidateTags evict keys seeded outside fetchFresh', async () => {
+    // Today reads some keys directly from IndexedDB (bypassing loadSWR /
+    // fetchFresh); without registerTags, tagToKeys is empty for those keys
+    // so subsequent invalidateTags(['food']) silently no-ops. This pins the
+    // contract that registerTags alone is enough to opt into tag invalidation.
+    const { window, cacheMap, cleanup } = loadDataStoreEnv({
+      initialCache: { food_2026_04_24_day: { groups: [] } }
+    });
+
+    try {
+      // No registration yet — invalidate is a no-op.
+      await window.DataStore.invalidateTags(['food']);
+      expect(cacheMap.has('food_2026_04_24_day')).toBe(true);
+
+      window.DataStore.registerTags('food_2026_04_24_day', ['food']);
+      await window.DataStore.invalidateTags(['food']);
+
+      expect(cacheMap.has('food_2026_04_24_day')).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('applyChangesPayload invalidates changed tags, requests refresh and stores cursor', async () => {
     const { window, cleanup } = loadDataStoreEnv();
 

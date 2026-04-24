@@ -220,4 +220,3 @@ func TestNotesService_DeleteNote(t *testing.T) {
 		t.Errorf("expected 0 notes after delete, got %d", len(notes))
 	}
 }
-

@@ -113,6 +113,14 @@ async function handleBPSubmit(event) {
             await window.DataStore.invalidateTags(['bp']);
             await loadBPReadings();
             closeBPRecordModal();
+            // Today shortcut path: the visible tab is 'today' while the BP
+            // modal is open, and loadBPReadings() only updates the hidden BP
+            // screen. Refresh Today so the dashboard tile reflects the new
+            // reading without waiting for a future cross-device change poll.
+            if (window.AppStore && window.AppStore.get('currentTab') === 'today'
+                && typeof window.loadToday === 'function') {
+                window.loadToday();
+            }
         }
     } finally {
         bpSubmitInFlight = false;

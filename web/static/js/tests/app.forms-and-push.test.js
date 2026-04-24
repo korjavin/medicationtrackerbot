@@ -335,4 +335,75 @@ describe('app.js form submissions and push modal behavior', () => {
       cleanup();
     }
   });
+
+  it('handleBPSubmit refreshes Today when the modal was opened from the today shortcut', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      window.apiCall = vi.fn().mockResolvedValue({ id: 1 });
+      window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+      window.loadBPReadings = vi.fn().mockResolvedValue(undefined);
+      const loadTodaySpy = vi.fn();
+      window.loadToday = loadTodaySpy;
+      window.AppStore.set('currentTab', 'today');
+
+      window.showBPRecordModal();
+      document.getElementById('bp-datetime').value = '2026-02-27T10:30';
+      document.getElementById('bp-systolic').value = '128';
+      document.getElementById('bp-diastolic').value = '82';
+
+      await window.handleBPSubmit({ preventDefault() {} });
+
+      expect(loadTodaySpy).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('handleBPSubmit does not refresh Today when the modal was opened from the BP screen', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      window.apiCall = vi.fn().mockResolvedValue({ id: 1 });
+      window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+      window.loadBPReadings = vi.fn().mockResolvedValue(undefined);
+      const loadTodaySpy = vi.fn();
+      window.loadToday = loadTodaySpy;
+      window.AppStore.set('currentTab', 'bp');
+
+      window.showBPRecordModal();
+      document.getElementById('bp-datetime').value = '2026-02-27T10:30';
+      document.getElementById('bp-systolic').value = '128';
+      document.getElementById('bp-diastolic').value = '82';
+
+      await window.handleBPSubmit({ preventDefault() {} });
+
+      expect(loadTodaySpy).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('handleWeightSubmit refreshes Today when the modal was opened from the today shortcut', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      window.apiCall = vi.fn().mockResolvedValue({ id: 1 });
+      window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+      window.loadWeightLogs = vi.fn();
+      const loadTodaySpy = vi.fn();
+      window.loadToday = loadTodaySpy;
+      window.AppStore.set('currentTab', 'today');
+
+      window.showWeightModal();
+      document.getElementById('weight-datetime').value = '2026-02-27T11:05';
+      document.getElementById('weight-value').value = '79.4';
+
+      await window.handleWeightSubmit({ preventDefault() {} });
+
+      expect(loadTodaySpy).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
 });
