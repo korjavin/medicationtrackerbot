@@ -1092,9 +1092,7 @@ h3 {
 }
 
 #miband-workout-modal,
-#workout-session-modal,
-#workout-start-modal,
-#workout-add-exercise-to-session-modal {
+#workout-start-modal {
     position: fixed;
     top: 50%;
     left: 50%;
@@ -1123,7 +1121,6 @@ h3 {
     }
 }
 
-#workout-session-modal,
 #miband-workout-modal {
     max-width: 500px;
 }
@@ -6157,16 +6154,14 @@ textarea.wg-input {
    action row with wandergeek tokens so the Delete / Cancel / Save buttons
    match the rest of the workouts surfaces instead of sitting on paper. */
 .wg-workouts-session-modal {
-    max-width: 520px;
+    max-width: 420px;
 }
 
 .wg-workouts-session-modal__header {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
 }
 
 .wg-workouts-session-modal__heading {
@@ -6174,7 +6169,6 @@ textarea.wg-input {
     flex-direction: column;
     gap: var(--space-xs);
     min-width: 0;
-    flex: 1 1 auto;
 }
 
 .wg-workouts-session-modal__eyebrow {
@@ -6203,17 +6197,23 @@ textarea.wg-input {
 }
 
 .wg-workouts-session-modal__header-btn {
+    flex: 1 1 auto;
     min-height: 36px;
-    padding: var(--space-xs) var(--space-md);
+    padding: var(--space-xs) var(--space-sm);
     font-family: var(--wg-font-ui);
     font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
     cursor: pointer;
     color: var(--wg-fg-1);
+    white-space: nowrap;
 }
 
 .wg-workouts-session-modal__header-btn--danger {
     color: var(--color-danger);
+}
+
+.wg-workouts-session-modal__header-btn--save {
+    flex: 2 1 auto;
 }
 
 .wg-workouts-session-modal__body {
