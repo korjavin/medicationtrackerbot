@@ -281,13 +281,16 @@ function renderRangeSelector(opts) {
 }
 
 // Build the inline +Log button that sits at the end of the range-selector
-// row (Phase 5, Task 5). Kept as `#add-bp-btn` so offline-ui's disabled-state
-// sweep still finds it, and so existing tests / bindings keep working.
+// row (Phase 5, Task 5). Round-2 Task 5 (defect #8): migrated to the shared
+// `.wg-toolbar-btn .wg-toolbar-btn--primary` so the pill matches the
+// 14/30/60d range-toggle height. Kept as `#add-bp-btn` so offline-ui's
+// disabled-state sweep still finds it, and so existing tests / bindings
+// keep working.
 function buildBPInlineAddButton() {
     const btn = document.createElement('button');
     btn.id = 'add-bp-btn';
     btn.type = 'button';
-    btn.className = 'wg-gloss wg-gloss--sun wg-bp-range-selector__add';
+    btn.className = 'wg-toolbar-btn wg-toolbar-btn--primary';
     btn.setAttribute('aria-label', 'Log blood pressure');
 
     if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
@@ -295,7 +298,7 @@ function buildBPInlineAddButton() {
         if (icon) btn.appendChild(icon);
     }
     const label = document.createElement('span');
-    label.className = 'wg-bp-range-selector__add-label';
+    label.className = 'wg-toolbar-btn__label';
     label.textContent = 'Log';
     btn.appendChild(label);
 
