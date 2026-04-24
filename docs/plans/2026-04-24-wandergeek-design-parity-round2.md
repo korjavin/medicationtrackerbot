@@ -80,13 +80,13 @@ Addresses user findings #1 (add-weight modal not wandergeek), #19 (weight chart 
 
 Addresses user findings #2 (BP graph has no numbers), #3 (14d default), #4 (list doesn't refresh after add), #5 (top summary pane not needed).
 
-- [ ] remove `#bp-current-card` top summary pane from `#bp-view` in `web/static/index.html`
-- [ ] change BP range default from current (60d) to 14d in `bp.js` — update range-pill active state, initial fetch window, chart render
-- [ ] add numeric y-axis ticks (mmHg labels at 60/80/100/120/140/160/180) and x-axis date ticks to BP chart; keep teal band 80–120
-- [ ] after `POST /api/bp` success, emit `window.DataStore.invalidateTags(['bp'])` AND re-invoke `loadBPReadings()` for the current range — chart + list update in place, no reload
-- [ ] subscribe Today dashboard BP tile to `bp` tag invalidation (or refetch via existing tag listener) so it updates without tab switch
-- [ ] write tests: `tests/bp.test.js` — assert no `#bp-current-card`, default range pill is 14d, after dispatched `bp-created` event list re-renders with new row, axis tick labels present in SVG
-- [ ] run `pnpm test` — must pass before next task
+- [x] remove `#bp-current-card` top summary pane from `#bp-view` in `web/static/index.html`  *(div deleted; dead `renderCurrentReading` + `pickLatestReading` helpers also removed from `bp.js`. CSS rules/tokens for `.wg-bp-current-card` kept to avoid touching the architecture-token allowlist.)*
+- [x] change BP range default from current (60d) to 14d in `bp.js` — update range-pill active state, initial fetch window, chart render  *(BP_RANGE_DEFAULT=14; the initial fetch still hits `/api/bp?days=60` so `renderBPAverages` has 30/60d coverage — filtering to the active range happens client-side in `filterReadingsByRange`.)*
+- [x] add numeric y-axis ticks (mmHg labels at 60/80/100/120/140/160/180) and x-axis date ticks to BP chart; keep teal band 80–120  *(emitted as `<text class="wg-bp-chart__axis-tick" data-bp-axis="y|x">`; only ladder values inside `[yMin,yMax]` render to keep ticks on-canvas.)*
+- [x] after `POST /api/bp` success, emit `window.DataStore.invalidateTags(['bp'])` AND re-invoke `loadBPReadings()` for the current range — chart + list update in place, no reload  *(already wired in `handleBPSubmit`; pinned by a new test that mocks `apiCall` + `invalidateTags` + `loadBPReadings`.)*
+- [x] subscribe Today dashboard BP tile to `bp` tag invalidation (or refetch via existing tag listener) so it updates without tab switch  *(already covered by `TodayDashboard.subscribe` via the `RELEVANT_TAGS = [..., 'bp', ...]` filter on `datastore:changed`; the Today-tab shortcut in `handleBPSubmit` still triggers `loadToday()` when BP is added from the Today screen.)*
+- [x] write tests: `tests/bp.test.js` — assert no `#bp-current-card`, default range pill is 14d, after dispatched `bp-created` event list re-renders with new row, axis tick labels present in SVG  *(lives at `web/static/js/tests/bp.design-parity.test.js`; existing `bp.render.test.js` had its `renderCurrentReading` describe block dropped and default-range assertions flipped to 14.)*
+- [x] run `pnpm test` — must pass before next task
 
 ### Task 3: Food section — remove bottom duplicate, fix top-row layout
 
