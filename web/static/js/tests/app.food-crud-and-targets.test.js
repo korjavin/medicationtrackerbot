@@ -71,6 +71,42 @@ describe('app.js food CRUD, targets and period helpers', () => {
     }
   });
 
+  it('saveFoodLog refreshes Today when the visible tab is today (shortcut-open path)', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      document.getElementById('food-datetime').value = '2026-03-01T12:00';
+      document.getElementById('food-name').value = 'Oats';
+      document.getElementById('food-weight').value = '50';
+      document.getElementById('food-carbs').value = '30';
+      document.getElementById('food-protein').value = '10';
+      document.getElementById('food-fat').value = '5';
+      document.getElementById('food-calories').value = '205';
+      document.getElementById('food-per-100g').checked = false;
+      document.getElementById('food-id').value = '';
+
+      window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+      window.closeFoodModal = vi.fn();
+      window.loadFoodLogs = vi.fn();
+      const invalidateSpy = vi.fn().mockResolvedValue(undefined);
+      window.DataStore.invalidateTags = invalidateSpy;
+      const loadTodaySpy = vi.fn();
+      window.loadToday = loadTodaySpy;
+      window.AppStore.set('currentTab', 'today');
+
+      await window.saveFoodLog();
+      expect(invalidateSpy).toHaveBeenCalledWith(['food']);
+      expect(loadTodaySpy).toHaveBeenCalledTimes(1);
+
+      loadTodaySpy.mockClear();
+      window.AppStore.set('currentTab', 'food');
+      await window.saveFoodLog();
+      expect(loadTodaySpy).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
   it('loadFoodTargets and saveFoodTargets cover cache/network success and failure flows', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
@@ -182,7 +218,9 @@ describe('app.js food CRUD, targets and period helpers', () => {
       window.loadFoodLogs = vi.fn();
       window.setFoodStatsPeriod('week');
       expect(window.loadFoodLogs).toHaveBeenCalled();
-      expect(document.querySelector('#food-stats-period-container .period-link[data-period="week"]').classList.contains('active')).toBe(true);
+      const toggle = document.getElementById('food-macros-toggle');
+      const weekBtn = toggle.querySelector('[data-range="week"]');
+      expect(weekBtn.classList.contains('wg-food-macros-card__toggle-btn--active')).toBe(true);
 
       const dateFilter = document.getElementById('food-date-filter');
       dateFilter.value = '2026-03-01';
@@ -217,7 +255,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
 
       window._renderFoodData([], null, 'day', '2026-03-01');
       expect(document.getElementById('food-list').innerHTML).toContain('No food logs for this day');
-      expect(document.getElementById('food-stats-period-container').classList.contains('hidden')).toBe(false);
+      expect(document.getElementById('food-macros-card').classList.contains('hidden')).toBe(false);
 
       const groups = [
         {

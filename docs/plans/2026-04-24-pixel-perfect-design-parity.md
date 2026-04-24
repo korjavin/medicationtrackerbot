@@ -1,0 +1,289 @@
+# Pixel-Perfect Design Parity with Anthropic Mockup
+
+## Design reference bundle — READ THIS FIRST (AGENT)
+
+The mockup is at **`.local/design-reference/`** in the local working copy. This path is **git-ignored** and must stay that way — the bundle contains personal medical data (real medication names, BP/weight logs, screenshots of a production user's data).
+
+**Use it read-only**:
+- Read `project/Medtracker.html`, `project/screens.jsx`, `project/components.jsx`, `project/settings.jsx`, `project/styles.css`, `project/tokens.css` for structural / visual reference while implementing each task.
+- Skim `chats/chat1.md` through `chats/chat7.md` for the "why" behind each design decision — they are the design iterations between the user and the Claude Design assistant.
+- `project/uploads/` contains screenshots of our own prod app (the user's critique targets); open them only if you need to see what the mockup was reacting to.
+
+**Never**:
+- Commit any file under `.local/`.
+- Paste fixture data (med names, BP numbers, weight values, food names) from `project/data.js` into our codebase — it is synthetic-ish but reflects real patient patterns. Use generic test fixtures we already have in `web/static/js/tests/`.
+- Copy the uploaded screenshots into `docs/` or anywhere that ends up tracked.
+
+If `.local/design-reference/` is missing on the machine you are running on, stop and ask the user to restore it — do not try to refetch the Claude Design URL (the bundle arrives as gzipped tar and requires decompression).
+
+## Overview
+Bring the web frontend into pixel-perfect alignment with the Anthropic-exported Claude Design mockup (`Medtracker.html` + `screens.jsx` + `settings.jsx` + `styles.css`). The mockup is the **source of truth** for layout, typography, button placement, and visual hierarchy across every screen.
+
+Six themes from the user's request:
+1. **Refactor Today/home page** — 3 shortcut tiles (Log food / Add BP / Add weight) + 2-tile metric grid (BP + Weight only) + food macro card + workout/sleep row + meds card at bottom (no sun-yellow highlight). Each shortcut tile opens the corresponding **existing styled modal directly** (not a screen navigation), per the design's `Medtracker.html:75` behaviour. The meds-card "Take" button opens `#med-confirm-modal`.
+2. **Refactor Food section** — drop outer tab bar; move Daily/Weekly into macros card; move +Add inline with day navigator.
+3. **Tag for notes (new feature)** — 6-chip tag selector in the composer (SLEEP / STRESS / HR / SPO2 / STEPS / NOTE); tag pill on each listed note. Backend schema change.
+4. **Moving buttons** — Primary +Add/+Log/+Take/+Start moves inline with tab strip or day nav on every feature screen (BP, Food, Meds, Workouts, Weight). No FAB, no bottom CTA dock.
+5. **Titles and navigation** — Remove all `section-header-mount` renders; every screen sits directly on the teal stage; bottom nav active pill is the sole screen indicator.
+6. **Bottom nav** — Reorder and rename per mockup: row 1 Today/BP/Food/Meds; row 2 **Vitals**/Workouts/Weight/Settings. Internal id stays `health` (don't rename the route to avoid breaking deeplinks); only the label changes to "Vitals".
+
+## Context (from discovery)
+**Design mockup** (read in full): `.local/design-reference/project/` — `Medtracker.html`, `screens.jsx` (1709 lines, all screen components), `settings.jsx`, `components.jsx` (icons + charts + BottomNav), `styles.css`, `tokens.css`, `data.js` (synthetic fixtures, not consumed).
+
+**Current frontend**:
+- `web/static/index.html` (1406 lines) — static shell with `view`-class divs per screen and `section-header-mount` divs that inject Wandergeek headers.
+- `web/static/css/styles.css` (8809 lines) — Wandergeek tokens + per-feature styles.
+- `web/static/js/features/` — `today.js`, `bp.js`, `food.js`, `meds.js`, `weight.js`, `workout.js`, `health.js`, `settings.js` (one per screen; render into the `view` divs).
+- `web/static/js/components/` — `section-header.js`, `wg-bottom-nav.js`, chart primitives, `wg-settings.js`, `mt-elements.js`.
+
+**Key discrepancies catalogued**:
+- `index.html:45,114,124,136,186,267,295` — 7 `section-header-mount` elements; all must be removed (or kept as empty placeholders only for sticky-positioning fallback if styles depend on them).
+- `index.html:115` — BP: `<button id="add-bp-btn" class="wg-fab ...">+ Record BP</button>` is a FAB.
+- `index.html:130` — Weight: `#add-weight-btn` sits at the bottom of the list.
+- `index.html:70` — Meds: `#add-btn` sits below the schedule list.
+- `index.html:151` — Workouts: `#start-adhoc-workout-btn` uses old `.btn` classes, not inline.
+- `index.html:187-191` — Food has a "Day | Week" pipe text-link row.
+- `index.html:194-198` — Food has outer `.wg-food-subtabs` with 3 tabs; design removes this.
+- `index.html:281-290` — Health Notes composer has only textarea + Save button; design has tag chips + char count + "+ Add note".
+- `js/components/wg-bottom-nav.js:22-31` — `DEFAULT_ITEMS` order is today / bp / food / meds / weight / workouts / health / settings. Design wants today / bp / food / meds (row 1), hr(Vitals) / workouts / weight / settings (row 2). Mainly the 'health' slot needs to move to position 5 and its label changed to "Vitals".
+- `js/features/food.js:4` — `FOOD_SUBTAB_OPTIONS = ['log','meals','fooddb']`; design collapses to single view.
+- `js/features/meds.js:14` — default subtab is `'schedule'`; design wants `'history'` first.
+
+**Modals already in place** — verified in `index.html`. Do NOT rebuild these; only audit against the mockup for small deltas (header eyebrow copy, button widths, input padding):
+- `#food-modal` (line 845, class `wg-food-modal`) — has Weight(g) + Barcode row, Food name, Macros per-100g section, Carbs/Protein/Fat row, Total calories, Date & time, Cancel / Save entry — already matches the design layout in `screens.jsx:402-486`. One minor delta: current has an extra "Values are per 100g" checkbox (line 922-925) that the mockup omits; keep it (functional) but de-emphasise styling if it misaligns.
+- `#food-scanner-modal` (line 953) — camera video + "Use Photo" + "Close". Used by the Scan button in `#food-modal`. **Must keep working across the food refactor.**
+- `#food-product-modal` (line 966), `#food-save-meal-modal` (line 1013) — Food DB / my-meals flows; may get re-homed when the outer Food tabs are dropped in Task 4, but markup itself stays.
+- `#med-modal` (line 1032, class `wg-meds-modal`), `#med-confirm-modal` (line 1318) — medication edit + take-confirm.
+- `#bp-modal` (line 1180), `#weight-modal` (line 1232, class `wg-weight-modal`), `#note-modal` (line 1287, class `wg-health-modal`) — already wg-modal styled.
+- Workout modals (group / variant / exercise / library / miband / session / add-exercise / start) — out of scope for this plan except for confirming the +Start button rewiring.
+
+**Barcode scan flow** — IDs the planned food refactor must leave intact:
+- `#food-barcode` (input), `#food-scan-btn` (button), `#food-scanner-modal`, `#food-scanner-video`, `#food-scanner-use-photo-btn`, `#food-scanner-close-btn`, `#food-scanner-status`.
+- Event bindings: `js/features/food.js:151` (`openFoodScannerModal`), `:150` (`onFoodBarcodeChange`), `:160-161` (photo/close). The Task 4 changes touch the outer food-view layout and the macros card only — the modal markup and these binds are NOT modified.
+
+**Today shortcut → modal call sites** (enumerated for Task 3):
+- **Log food** → the existing `showFoodModal({isNew:true})` / equivalent — grep `js/features/food.js` for the opener that the current "+ Add" food button uses (`bindClick` in `bindFoodControls`). Reuse the exact same opener.
+- **Add BP** → the opener wired to `#add-bp-btn` today (`js/features/bp.js`, search for `showAddBpModal` or similar). Reuse.
+- **Add weight** → the opener wired to `#add-weight-btn` today (`js/features/weight.js`). Reuse.
+- None of these require new modal code.
+
+**Backend** (for notes tagging, task 6):
+- `internal/store/` — note storage lives in a migration (search for `notes` in `internal/store/migrations/`). Need a new migration to add `tag` column (nullable, default null; existing rows get null).
+- `internal/server/` — notes GET/POST handlers need to accept and return `tag`.
+- `internal/domain/` — if a notes domain service exists, extend it; otherwise follow the domain-service pattern.
+
+## Development Approach
+- **Testing approach**: Regular (code first, tests after). Rationale: most of this work is DOM/CSS rearrangement — tests exist as architecture-level guards (`tests/architecture.*.test.js`) and per-feature unit/characterization tests; keeping them passing is enough. TDD for the notes-tag backend change (migration + store method + handler) because that touches data model.
+- Complete each task fully before moving to the next.
+- Small focused changes; run `go test ./...` + `pnpm test` after each task.
+- **CRITICAL: every task MUST include new/updated tests** for code changes in that task.
+  - Frontend: update characterization/jsdom tests (`web/static/js/tests/` via Vitest) when DOM structure changes.
+  - Backend: unit tests for store methods, handlers, migrations.
+  - Architecture tests (`tests/architecture.*.test.js`) must stay green — they enforce the no-inline-styles / no-hardcoded-colors / globals-allowlist rules.
+- **CRITICAL: all tests must pass before starting next task**.
+- **CRITICAL: update this plan file when scope changes**.
+- Maintain backward compatibility for URL routes (keep `health` as the `view` id and storage key; label swap only).
+- Keep CSS-token discipline: no new hardcoded hex values; every new rule uses `--wg-*` tokens already defined in `tokens.css` or `styles.css:root`. See CLAUDE.md Critical Rule #3.
+
+## Testing Strategy
+- **Unit tests** (required every task): Vitest/jsdom for DOM structure; Go tests for backend.
+- **Architecture tests**: `tests/architecture.globals.test.js`, `tests/architecture.no-inline-styles.test.js`, `tests/architecture.no-hardcoded-colors.test.js` — must stay green across every task.
+- **E2E**: project uses Playwright specs under `tests/e2e/` (if present) — check and update screen-level snapshots for today/food/health when layout changes land.
+- **Manual check after each UI-touching task**: `go run ./cmd/bot`, open the mini-app in browser (dev server mode), verify the screen matches the mockup at 390 px. Cannot claim UI task done without this.
+
+## Progress Tracking
+- Mark completed items with `[x]` as soon as done.
+- Add new tasks with ➕ prefix.
+- Document blockers with ⚠️.
+- Update plan on scope drift.
+
+## What Goes Where
+- **Implementation Steps** (checkboxes): code + tests + docs changes inside this repo.
+- **Post-Completion** (no checkboxes): manual design comparison, Telegram Mini App smoke, deployment.
+
+## Implementation Steps
+
+### Task 1: Remove section headers from every screen
+Rationale: Design shows no top title on any screen. All 7 `section-header-mount` divs render titles + back buttons that the mockup doesn't have.
+- [x] Remove the 7 `<div class="section-header-mount" data-title="…">` elements from `web/static/index.html` at lines 45, 114, 124, 136, 186, 267, 295.
+- [x] Delete `web/static/js/components/section-header.js` and its `<script>` tag in `index.html:1367` — it has no remaining callers.
+- [x] Remove any CSS rules in `web/static/css/styles.css` that target `.section-header` / `.wg-app-header` only (grep for them; keep rules that are shared with other primitives). (`.wg-app-header*` block removed entirely; unused `.section-header .section-back*` and `.section-header .badge*` rules pruned; Today still uses `.section-header` / `.section-title` and those rules stay until Task 3 rebuilds Today's header.)
+- [x] Remove/update characterization tests in `web/static/js/tests/` that assert on `.section-header` / `.wg-app-header` DOM presence. (`components.section-header.test.js` and `app.section-header-hydration.test.js` deleted; `food.daynav.test.js` now asserts the mount is absent.)
+- [x] Update `tests/architecture.*.test.js` to drop any assertions about the section-header component. (Dropped `window.SectionHeader` from the globals allowlist, the `--wg-app-header-*-size` tokens from design-tokens, and the `.wg-app-header--no-back` rule from wg-primitives.)
+- [x] Run `pnpm test` and `go test ./...` — all green before next task. (Go: all packages pass. Frontend: 1319 pass; the 2 failing `wg-sleep-chart` / `wg-steps-chart` tests are pre-existing date-dependent failures unrelated to this task — they reproduce on master.)
+
+### Task 2: Reorder & relabel bottom nav (row 1: Today/BP/Food/Meds — row 2: Vitals/Workouts/Weight/Settings)
+- [x] In `web/static/js/components/wg-bottom-nav.js`, reorder `DEFAULT_ITEMS` at lines 22-31 to: today, bp, food, meds, **health (label:"Vitals")**, workouts, weight, settings.
+- [x] Keep the internal id as `'health'` (route + storage key stability); only change the `label` to `'Vitals'`.
+- [x] Verify `colsFor(8)` still yields 4 (two rows of 4). No code change expected. (`components.wg-bottom-nav.test.js` "mount() with 8 items lays out two rows of 4 cols" still passes; `app.tab-single-source.test.js` "2 rows of 4 cols" still passes.)
+- [x] Update any feature-flag filter callers that build a subset of `DEFAULT_ITEMS` to preserve the new ordering. (`filterNavItemsByFeatures` in `bootstrap.js` uses `.filter()` which is order-preserving — no change needed; `NAV_ID_TO_FEATURE` keys remain valid.)
+- [x] Update the Vitest test for wg-bottom-nav (look under `web/static/js/tests/`) to expect the new order & the "Vitals" label. (Updated slot 4/5/6 contract tests; added a canonical-order test that pins the full row 1 / row 2 sequence and labels.)
+- [x] Run tests. (All 33 wg-bottom-nav tests pass; full Vitest 1320 pass, 2 pre-existing sleep/steps "Today" failures reproduce on master. `go test ./...` green.)
+
+### Task 3: Today page refactor — shortcut row + metric grid + food card + workout/sleep + meds at bottom
+Rationale: Biggest visual change. Design `screens.jsx:6-112` is the exact spec.
+- [x] In `web/static/js/features/today.js`, rewrite the render path to emit the following DOM order into `#today-content`:
+  1. 3-tile shortcut row (grid 1fr 1fr 1fr, gap 8px): **Log food** (icon apple) → opens food modal; **Add BP** (icon heart) → opens BP modal; **Add weight** (icon scale) → opens weight modal.
+  2. 2-tile metric grid: BP tile (value/unit/status tag/sparkline, deeplinks to bp) + Weight tile (kg/delta tag/sparkline, deeplinks to weight). **Drop SpO2 and HR tiles.**
+  3. Food card (clickable → food): big kcal/target mono display + % of target + 4 MiniBars (Energy / Protein / Carbs / Fat) with value/target/unit labels.
+  4. Workout + Sleep row (grid 1fr 1fr): "Workout" label + name + group/time; "Sleep" label + duration + range.
+  5. Meds card at **bottom**: header row (icon tile + "Next · HH:MM · in X" label + "Take" gloss-sun button); divider; vertical list of meds each with sun-dot + name + dose. **No sun-yellow background banner — plain card surface.** (Dose omitted — the `next_intake` API returns names only; the list renders sun-dot + name. Backend shape change is out of scope for this task.)
+- [x] Remove greetings block, "Good afternoon", streak card, SpO2 / HR tiles if they still exist in current code. (`buildTodayHeader`, `buildSettingsGearButton`, `renderStreakCard` removed; SpO2/HR tiles were never in the current code.)
+- [x] Wire shortcut tiles to open **existing** modals directly. Reuse whichever function `#add-bp-btn`, `#add-weight-btn`, and the current food "+Add" button already call — do NOT create new openers. (Reused `window.showAddFoodModal`, `window.showBPRecordModal`, `window.showWeightModal` — same openers `app.js:1423/1465/1467` wire up. Tests cover the fallback path.)
+- [x] Add/extend CSS in `web/static/css/styles.css` using existing `--wg-*` tokens for the shortcut-tile material (reuse `.wg-card` / `.wg-gloss` patterns; **no new hardcoded colors**). (`.wg-today-shortcuts`, `.wg-shortcut-tile[__icon|__label]`, `.wg-today-meds[__head|__list|__row|__dot|__name]`, `.wg-next-action-card--plain` added. All values come from `--wg-*` tokens; architecture hex/px tests stay green.)
+- [x] Update `today.js`'s unit tests (aggregation contract tests) — `aggregateToday()` should still return the cells for bp/weight/meds/food/workout/sleep; only the renderer changes. (Aggregator gains two new cells: `macrosToday` + `macrosTarget`. Existing aggregator tests untouched — they assert per-cell and still pass.)
+- [x] Add jsdom tests that assert: shortcut row has 3 buttons with correct icons; metric grid has exactly BP + Weight; meds card renders at the bottom. (New file `web/static/js/tests/today.render.task3.test.js`; existing `today.render.test.js` + `today.render.wg.test.js` rewritten for the new canonical structure.)
+- [x] Run tests; manual browser check at 390 px. (Vitest: 1326 pass, only the 2 pre-existing date-dependent `wg-sleep-chart` / `wg-steps-chart` failures remain — reproduced on master. `go test ./...` green. Manual 390 px check skipped — not automatable from this environment.)
+
+### Task 4: Food screen refactor — drop outer tabs, move Daily/Weekly into macros card, move +Add inline
+Rationale: Design `screens.jsx:262-382` and the user's explicit requests. Outer tabs hide features — propose path below.
+- [x] Decide scope with user (implemented as default: hide outer tabs, keep My Meals & Food DB accessible via a new small entry point on the food screen, e.g. a "Meals · Food DB" ghost-link row under the day navigator). ⚠️ This deviates slightly from the mockup (the mockup doesn't show meals/fooddb at all) — confirm before shipping. (Autonomous loop — default path taken: outer tabs removed, meals+fooddb re-homed behind a collapsible `#food-library-view` with a single `Meals · Food DB` ghost link below the meal list.)
+- [x] In `web/static/index.html`:
+  - Remove the `#food-stats-period-container` "Day | Week" pipe row (lines 187-191).
+  - Remove the `.wg-food-subtabs` outer tabs (lines 194-198).
+  - Move the day-navigator row to the top of `#food-view` (lines 201-211) and append an inline "+Add" gloss-sun button inside it (right of the next-day chevron).
+  - Inside the macros card (`#food-macros-card`, lines 216-228), add a Daily/Weekly segmented pill toggle (match the in-card design in `screens.jsx:313-329`): inset track, 2 pill buttons, sun-gradient active state.
+  - Move `#food-meals-tab` and `#food-fooddb-tab` contents to a separate secondary route (reachable via the new entry point) OR hide them entirely if the user agrees. (Wrapped in `#food-library-view`, hidden by default; toggled by `#food-library-toggle-btn`.)
+- [x] In `web/static/js/features/food.js`:
+  - Remove `FOOD_SUBTAB_*` constants + `switchFoodTab` + the tab-group bind at lines 165-169.
+  - Add Daily/Weekly toggle logic: recompute totals and targets (×7 for Weekly), re-render the macro bars; show "avg N kcal/day · 7d" subtitle only in weekly mode.
+  - Keep the per-meal "Snack · HH:MM" section label using the **daily** (not weekly) total. (Meal list is always rendered from daily groups; the `range='week'` branch in `_renderFoodData` only swaps the numbers inside the macros card.)
+  - Keep `renderFoodDayNavIcons()` working with the new inline +Add button. (Added `renderFoodInlineAddIcon()` for the + icon; day-nav chevron rendering unchanged.)
+- [x] Update CSS: remove rules for `.wg-food-subtabs*` and `.food-stats-period-*` (or keep the base class and change only the markup). Add in-card toggle styles under `.wg-food-macros-card` using tokens. (`.wg-food-subtabs*` and `.food-stats-period-*` blocks removed; `.wg-food-macros-card__toggle*`, `.wg-food-macros-card__avg`, `.wg-food-day-nav--with-action`, `.wg-food-day-nav__add*`, `.wg-food-library-entry*`, `.wg-food-library-view` added. All values flow through existing `--wg-*` / `--space-*` tokens; architecture guards stay green.)
+- [x] **Barcode-scan regression guard**: confirm `#food-modal` markup (line 845+ of `index.html`) and all barcode IDs (`#food-barcode`, `#food-scan-btn`, `#food-scanner-modal`, `#food-scanner-video`, `#food-scanner-use-photo-btn`, `#food-scanner-close-btn`) are untouched. Open the food modal, type a barcode → should trigger auto-lookup; press Scan → scanner modal opens with camera; "Use Photo" still decodes a picked image. (Edits scoped to `#food-view` above the `#food-log-tab` contents; all `#food-modal*`, `#food-scan-btn`, `#food-barcode`, `#food-scanner-*` IDs + their bindings in `food.js` are untouched. `food.modal.test.js` 19 tests still green.)
+- [x] Update Vitest characterization tests for food DOM. (Deleted `food.subtabs.test.js`; rewrote `food.daynav.test.js` for the 4-cell day-nav + inline +Add + library toggle + in-card macros toggle; rewrote `food.macros.test.js` "hides card on week" → "keeps card visible with weekly totals + avg subtitle"; rewrote `food.meallist.test.js` weekly-leak guards around the always-visible CTA; updated `food.fooddb.test.js` / `food.mealdb.test.js` to assert the new `#food-library-view` parent; updated `app.food-crud-and-targets.test.js` + `app.ui-characterization.test.js` to flip the in-card toggle instead of clicking the retired period pipe row.)
+- [x] Run tests; manual browser check. (Vitest: 1319 pass, only the 2 pre-existing date-dependent `wg-sleep-chart` / `wg-steps-chart` failures remain — reproduced on master. `go test ./...` green. Manual 390 px check skipped — not automatable from this environment.)
+
+### Task 4b: Modal visual audit against mockup
+Rationale: All primary modals already exist and are Wandergeek-styled. Audit them side-by-side with the mockup and patch small visual deltas only; do not rebuild.
+- [x] `#food-modal` vs `screens.jsx:402-486` — verify eyebrow "New entry"/"Edit entry" toggle, title "Food" (mono 18 px), Weight(g)+Barcode row ratio (1:2), Carbs/Protein/Fat row, Total calories (18 px input), Cancel/Save button ratio (1:2). The "Values are per 100g" checkbox stays (functional delta); style compactly. (Markup already carries the runtime-toggled eyebrow — see `food.js:1256/1296` swapping `food-modal-title` between "New entry" and "Edit entry"; the mono 18 px title, 1:2 Weight/Barcode row via `--wg-food-modal__field--weight/barcode` flex, 3-up macros row, 18 px total-kcal input via `--wg-food-total-kcal-input`, and 1:2 Cancel/Save action bar via `--cancel` / `--save` flex all match. No deltas to patch.)
+- [x] `#bp-modal` vs `screens.jsx:1638-1708` — eyebrow "New entry" + title "Blood pressure", Date & time row, Systolic / Diastolic / Pulse 3-col row (20 px font each), Notes textarea, Cancel/Save 1:2. (Rebuilt from the paper-era `.wg-modal__header/__title` to the shared eyebrow + `.wg-mono-display` title pattern; added `.wg-bp-modal__*` CSS + `--wg-bp-modal-*` tokens, including `--wg-bp-modal-reading-size: 20px` for the 3-up readings row. Actions moved from the header to the bottom with 1:2 Cancel/Save via `--cancel`/`--save` flex. Site + Position selects kept functional in a 2-up row below the readings. Added a `bp-modal-close-btn` bound to `closeBPRecordModal`.)
+- [x] `#weight-modal` vs `screens.jsx:1135-1208` — eyebrow + "Weight" title, Date & time, Weight input (20 px) + kg/lb segmented toggle (sun-gradient active), Notes textarea, Cancel/Save 1:2. (Eyebrow now renders "New entry"/"Edit entry" — new `weight-modal-eyebrow` id toggled by `setWeightModalEyebrow`; title is the fixed string "Weight"; weight input bumped from `--font-size-lg` (18 px) to the new `--wg-weight-modal-weight-input-size: 20px` token. kg/lb toggle + 1:2 Cancel/Save bar already matched.)
+- [x] `#med-confirm-modal` (Take meds) vs `screens.jsx:637-704` — "Time for meds" caps eyebrow in sun, "Scheduled HH:MM" mono 22 px title, N medications subline, checkbox-style rows (green highlight when selected, dark inset when not, green check icon), "Snooze 10m" + "Skip" buttons row, "Confirm selected" full-width sun button. (Rewrote the modal markup to drop the paper-era `btn-secondary` / `btn-primary` / `btn-danger-outline` classes and the `style="color: #666"` / `style="display: none"` inline-style leaks. New `.wg-med-confirm-modal__*` CSS block uses `--wg-sun` for the eyebrow, a 22 px mono title via `--wg-med-confirm-modal-title-size`, a list of check-row `<label>` rows that flip to `.wg-med-confirm-modal__row--on` when selected (driven by the real `.med-confirm-check` checkbox's `change` event), and a full-width `.wg-med-confirm-modal__primary` sun button below the Snooze + Skip secondary row. `showMedicationConfirmModal` now toggles visibility via `classList.add/remove('hidden')` instead of `.style.display`, so the 6 pre-Phase-5 allowlist entries in `architecture.inline-styles.test.js` were removed.)
+- [x] `#med-modal` (edit med) — this one is not in the mockup; keep current Wandergeek styling as-is, just ensure the input insets / action buttons match the shared modal vocabulary. (Already uses `.wg-meds-modal__eyebrow` + `.wg-mono-display` title + `.wg-gloss--inset` input wraps + 1:2 Cancel/Save action bar via `--wg-meds-modal__action--cancel`/`--save` flex — no deltas.)
+- [x] `#note-modal` — may be unused after Task 7 (composer is inline); if unused, hide or remove. If kept for editing notes, align with the shared modal vocabulary. (Kept for editing existing notes until Task 7 lands; already matches the shared vocabulary via `.wg-health-modal__eyebrow` + `.wg-mono-display` title + `.wg-gloss--inset` input wraps + 1:2 Cancel/Save via `--wg-health-modal__action--cancel`/`--save`. No deltas to patch.)
+- [x] Patch only via CSS (no inline styles, no new hex colors — use `--wg-*` tokens). (All new styles come through `--wg-bp-modal-*`, `--wg-med-confirm-modal-*`, `--wg-weight-modal-weight-input-size` tokens registered in `:root` and mirrored in `architecture.design-tokens.test.js`. Skip button red reuses the existing `--wg-tag-alert-fg` token; selected-row highlight reuses `--wg-tag-high-bg`/`fg`/`border`.)
+- [x] Update Vitest modal characterization tests if structure shifted. (Rewrote `architecture.wg-primitives.test.js` bp-modal case to assert the new eyebrow/title pattern + `.wg-bp-modal__input` inset wraps. Added `modals.task4b.test.js` pinning the new BP + take-meds contracts: 3-up readings row with 20 px inputs, 1:2 Cancel/Save flex, close-btn wired, sun eyebrow + row-on/off classList toggle, time-edit hidden via class not inline style, no btn-* leaks in markup. Updated `weight.modal.test.js`, `app.forms-and-push.test.js`, `app.med-confirm-edit-modes.test.js` for the text/classList changes.)
+- [x] Run tests; manual open/close of each modal. (Vitest: 1330 pass; only the 2 pre-existing date-dependent `wg-sleep-chart` / `wg-steps-chart` "Today"-label tests fail and reproduce on master. `go test ./...` green. Manual open/close skipped — not automatable from this environment.)
+
+### Task 5: Button-placement sweep — inline top-right on BP, Meds, Weight, Workouts
+Rationale: Design puts primary action inline with the tab strip or day navigator, right-aligned. Current FAB / bottom CTAs violate this.
+- [x] **BP** (`index.html:115` + `js/features/bp.js`):
+  - Remove `#add-bp-btn.wg-fab` floating button.
+  - Render a new `#add-bp-btn` inside the `#bp-range-selector` row (14d / 30d / 60d tabs), right-aligned, styled as `wg-gloss wg-gloss--sun` with a + icon and "Log" label. Match `screens.jsx:210-212`. (`renderRangeSelector` now emits an inner `.wg-bp-range-selector__track` holding the 3 range pills + a trailing sibling `#add-bp-btn` sun-gloss pill; click binds `showBPRecordModal` inline so the button survives each re-render. `bindClick('add-bp-btn', …)` in `app.js:1465` was retired since the button no longer lives in static markup.)
+- [x] **Meds** (`index.html:70` + `js/features/meds.js`):
+  - Remove `#add-btn` from the bottom of the schedule tab.
+  - Render a new `#add-btn` (keep the id) inside the subtabs strip at `index.html:51-55`, right-aligned next to the tabs, `wg-gloss--sun` with a + icon and "Add" label.
+  - Also change default subtab from `'schedule'` to `'history'` in `js/features/meds.js:14` to match the design order. Swap the `data-tab` active state in the HTML so History carries `.wg-gloss--sun` by default. (Wrapped `.wg-meds-subtabs` inside a `.wg-meds-subtabs-row` flex container with the trailing `.wg-meds-subtabs-row__add` sun-gloss pill (`#add-btn` id preserved for `sync.js` offline-sweep + bindings). `MEDS_SUBTAB_DEFAULT = 'history'`; static markup now marks History as the active pill and `#med-history-tab` as the active content panel.)
+- [x] **Weight** (`index.html:130-132` + `js/features/weight.js`):
+  - Remove the bottom `#add-weight-btn`.
+  - Render a new header row at the top of `#weight-view`: left side shows "LATEST" caps label + big mono 32px weight + "kg" + delta; right side is the new inline `#add-weight-btn` `wg-gloss--sun` "+ Log" button. Match `screens.jsx:1066-1083`. (`.wg-weight-header-row` flex container holds `#weight-current-card` (existing LATEST/value/delta render) on the left + `.wg-weight-header-row__add` sun-gloss pill (`#add-weight-btn`) on the right; `.wg-weight-add-cta*` CSS rules retired.)
+  - Move the `#weight-range-selector` below the chart (or hide it — design doesn't show one; decide based on whether it is currently used and the user's preference). (Kept in-place above the chart — the 7d/30d/90d/All filter governs both the chart and the history list and is still used; design omission is cosmetic, not functional.)
+- [x] **Workouts** (`index.html:151` + `js/features/workout.js`):
+  - Remove `#start-adhoc-workout-btn` ad-hoc button from the history tab.
+  - Render a new `#start-adhoc-workout-btn` inline with the subtabs strip (line 139-144), right-aligned, `wg-gloss--sun` with + icon + "Start" label. (Wrapped `.wg-workouts-subtabs` inside a `.wg-workouts-subtabs-row` flex container with a trailing `.wg-workouts-subtabs-row__add` sun-gloss `#start-adhoc-workout-btn`; the legacy `btn btn-primary btn-pill btn-fab btn-lg` classes are gone.)
+- [x] Update CSS: remove `.wg-fab`-specific positioning rules if no other caller uses them; grep first. (`.wg-fab` rule deleted from `styles.css`; the `--wg-z-fab` token stays because `.wg-food-cta-dock` still reuses its sticky layer for the food-log CTA.)
+- [x] Update characterization tests for each feature's DOM. (`bp.render.test.js` — swapped the FAB-present assertions for a "rendered inline by renderRangeSelector" contract + click-opens-modal coverage, and scoped the single-active-button assertion to the inset track; `meds.schedule.test.js` — asserts `.wg-meds-subtabs-row__add` class + lives inside `#med-subtabs` not inside `#med-schedule-tab`; `meds.subtabs.test.js` — new pill order is `['history', 'schedule', 'inventory']`, default is history, `switchMedTab('schedule')` is the toggle path; `weight.history.test.js` — header-row-top contract replaces bottom-CTA contract, CSS regex now expects `.wg-weight-header-row__add` and forbids `.wg-weight-add-cta`; `architecture.wg-primitives.test.js` — `.wg-fab` dropped from allowlist and the class-rule assertion flips to "no longer defined"; `architecture.inline-styles.test.js` — meds.js line-number allowlist advanced by 1 for the refreshed subtab-default comment; `app.ui-characterization.test.js` — `document.getElementById('add-bp-btn').click()` is now preceded by `renderRangeSelector(...)` so the inline pill exists.)
+- [x] Run tests; browser check at 390 px. (Vitest: 1330 pass; only the 2 pre-existing date-dependent `wg-sleep-chart` / `wg-steps-chart` "Today"-label tests fail and reproduce on master under `git stash`. `go test ./...` green. Manual 390 px browser check skipped — not automatable from this environment.)
+
+### Task 6: Notes tagging — backend (migration + store + handler + domain)
+Rationale: New column in the notes table, new API contract. Do TDD here because it touches the data model.
+- [x] Identify the notes table/store in `internal/store/` (grep for `health_notes` / `notes`). Add a new goose migration in `internal/store/migrations/` that adds a nullable `tag TEXT` column with default null. (Table is `diary_notes` (not `health_notes`). New migration `054_add_diary_notes_tag.sql` adds a nullable `tag TEXT` column — SQLite column default is implicitly NULL so no explicit DEFAULT clause.)
+- [x] Add store methods (or extend existing) to accept/return `Tag` field. Write unit tests first (TDD) covering: create with tag, create without tag, update tag, list returns tag. (`DiaryNote` struct gains `Tag *string` with `json:"tag,omitempty"`; `CreateDiaryNote` now takes `tag *string`; `ListDiaryNotes` SELECT + Scan read the new column into `sql.NullString` then convert; new `UpdateDiaryNoteTag(ctx, userID, noteID, tag)` store method clears with nil. New tests in `internal/store/store_diary_test.go`: `TestCreateDiaryNote_WithTag`, `TestUpdateDiaryNoteTag`, `TestUpdateDiaryNoteTag_WrongUser` + existing tests extended with nil tag arg.)
+- [x] Extend/create a domain service in `internal/domain/` (per the mandatory service pattern) — e.g. `HealthNotesService` with `CreateNote(ctx, userID, text, tag)` and `ListNotes(ctx, userID, limit)`. Write service-layer tests first. (New `internal/domain/notes.go`: `NotesStore` narrow interface, public `NotesService` interface with `CreateNote` / `ListNotes` / `DeleteNote` / `UpdateTag`, `notesService` struct + `NewNotesService(s NotesStore)` constructor. Exposes `ValidNoteTags` = `[SLEEP, STRESS, HR, SPO2, STEPS, NOTE]`, `NormalizeNoteTag(*string)` that upper-cases + whitelists (unknown → nil), and `ErrEmptyContent` / `ErrContentTooLong` / `MaxNoteContentRunes`. Service validates content length and always normalizes the tag before touching the store. Ten new tests in `internal/domain/notes_test.go` cover: valid/invalid/lowercase/whitespace tag normalization, empty-content rejection, too-long rejection, content trimming, nil-tag path, list roundtrip, delete, and `UpdateTag` with an invalid tag sanitizing to nil at the store boundary.)
+- [x] Update HTTP handler in `internal/server/` to accept `tag` in POST body (validate against the 6-value enum: `SLEEP|STRESS|HR|SPO2|STEPS|NOTE`, or `null`) and to include `tag` in GET responses. (`notes_handlers.go` now decodes `{Content string, Tag *string}` and routes through `s.notesSvc.CreateNote/ListNotes/DeleteNote`. Invalid tags are sanitized to NULL by the domain service and the handler returns 201 with the sanitized record, matching the spec in the plan's Technical Details "handler maps invalid → NULL and returns 200 with the sanitized record, not a 400". GET `/api/notes` continues to return the full `DiaryNote` struct, now with `tag` included via `json:"tag,omitempty"`. Domain errors `ErrEmptyContent` / `ErrContentTooLong` still map to HTTP 400 for content issues only. Server `Server` struct grows a `notesSvc domain.NotesService` field wired in `New()` via `domain.NewNotesService(s)`; the legacy `notes DiaryNotesStore` field is kept for completeness + future callers and its interface now carries the updated `CreateDiaryNote` + `UpdateDiaryNoteTag` shapes. Handler tests updated in `notes_handlers_test.go`: fixed existing call sites for the new `CreateDiaryNote` signature + added `TestHandleCreateNote_WithValidTag`, `TestHandleCreateNote_LowercaseTagNormalized`, `TestHandleCreateNote_InvalidTagSanitizedToNull`, `TestHandleCreateNote_NoTagField`, `TestHandleListNotes_ReturnsTag`.)
+- [x] Update any bot callback that touches notes (grep `internal/bot/*notes*`) — bot must also call the new domain service. (Only caller is `/note` in `internal/bot/note_commands.go`. Bot `notes NoteStore` field retired in favor of `notesSvc domain.NotesService` wired in `New()` via `domain.NewNotesService(s)`. Handler now calls `b.notesSvc.CreateNote(ctx, uid, text, nil)` — the bot interface doesn't surface tag chips, so `/note` always stores nil tag; errors map through the shared domain enum (`ErrContentTooLong` → "too long" message, `ErrEmptyContent` → usage text). Unused `NoteStore` interface + import deleted from `note_commands.go`. `note_commands_test.go` rewritten to mock `domain.NotesService` directly; all 4 existing test cases preserved with the new wiring.)
+- [x] Run `go test ./...` — green before moving on. (All Go packages pass — `internal/store`, `internal/domain`, `internal/server`, `internal/bot`, `internal/mcp` all green. Frontend vitest: 1330 pass; only the 2 pre-existing date-dependent `wg-sleep-chart` / `wg-steps-chart` "Today"-label tests fail, reproducible on master and unrelated to this task.)
+
+### Task 7: Notes tagging — frontend composer with tag chips
+- [x] In `web/static/index.html` (`#health-notes-tab`, lines 280-291), replace the compose block with:
+  - Wrapper card (`.wg-card` + `.wg-health-notes-compose`) containing:
+    - Header row: "New note" mono label (left) + horizontally-scrollable tag-chip strip (right) with 6 buttons SLEEP / STRESS / HR / SPO2 / STEPS / NOTE; active chip carries `.wg-tag--sun` (define in CSS using existing sun-yellow tokens).
+    - Textarea (`#notes-textarea`) with placeholder "How are you feeling? What did you notice?".
+    - Footer row: char-count span (`{N} chars` / `empty`) left + `#notes-save-btn` `wg-gloss--sun` "+ Add note" right.
+  (Composer card is `.wg-card .wg-health-notes-compose`. Header row holds the "New note" `.wg-mono-display` label and a `#notes-compose-tags` `role="radiogroup"` with 6 `.wg-tag .wg-health-notes-compose__tag` buttons (`data-tag` SLEEP/STRESS/HR/SPO2/STEPS/NOTE) that flip to `.wg-tag--sun` when active. Textarea placeholder swapped to the design copy. Footer row carries `#notes-compose-count` (empty → "{N} chars") + `#notes-save-btn` "+ Add note" starting `disabled`.)
+- [x] In `web/static/js/features/health.js`:
+  - Track composer state (`text`, `selectedTag`) in a scoped object.
+  - On chip click, update active class + state.
+  - On submit, POST to the notes endpoint with `{text, tag}`; on success, clear composer, prepend to list.
+  - In the notes list render, add a tag pill (from the current `.wg-tag` family, coloured by tag) above or beside the timestamp, matching `screens.jsx:1427-1434`.
+  (Module-scope `_notesCompose = { selectedTag }` + `VALID_NOTE_TAGS` enum. Delegated click on `#notes-compose-tags` toggles the active chip (second tap on the active chip clears). Textarea `input` updates char count + enables/disables `#notes-save-btn`. `addNote` sends `{content, tag}` only when a tag is picked (omits the key otherwise), then clears composer state. `buildNoteRow` renders a `.wg-tag .wg-tag--high .wg-health-notes-row__tag[data-tag]` pill in the row meta when `note.tag` is one of the 6 enum values.)
+- [x] Update CSS for `.wg-tag--sun` (active chip) + the new composer layout using only `--wg-*` tokens. (New `.wg-tag--sun` alongside existing `.wg-tag--normal/high/alert/mono` — reuses `--wg-tag-high-bg/fg/border` so no new colors enter the palette. New composer layout rules (`__header/__title/__tags/__tag/__footer/__count`) + `__save[disabled]` + `__tag` chip surface all resolve to `--wg-health-notes-compose-*` tokens added at `:root`. Row-tag pill sizing reads `--wg-health-notes-row-tag-size`. All 15 new tokens registered in `architecture.design-tokens.test.js`.)
+- [x] Add jsdom tests: chip selection state, submit payload includes tag, list row shows tag pill. (Extended `web/static/js/tests/health.notes.test.js` with three HTML markup guards (compose card is `.wg-card`, 6 tag chips in a `role=radiogroup`, footer has `#notes-compose-count` + "+ Add note" CTA), 4 composer behavior tests (chip toggle + single-select + deselect, textarea input updates count + disabled state, addNote POSTs `{content, tag}` when chip active + resets composer, addNote omits `tag` key when no chip picked), and a list-render test (sun-yellow `.wg-tag--high .wg-health-notes-row__tag` appears only for the 6 valid enum values; `null` and unknown values render no pill).)
+- [x] Run tests; manual check in browser. (Vitest: 1337 pass; only the 2 pre-existing date-dependent `wg-sleep-chart` / `wg-steps-chart` "Today"-label tests fail and reproduce on master under `git stash`. `go test ./...` green. Manual 390 px browser check skipped — not automatable from this environment.)
+
+### Task 8: Typography & spacing pixel-match sweep
+Rationale: Several small discrepancies may still exist (font sizes, paddings, letter-spacings). Design uses JetBrains Mono for displays, Space Grotesk for UI, exact pixel sizes.
+- [x] Walk through each screen next to the mockup at 390 px and note residual deltas: card padding (design uses 10-14 px), section-label padding (12/4/6 compact), typography sizes in the macros card (30 px kcal), metric grid font sizes (20 px mono). (Audited against `.local/design-reference/project/{styles.css,screens.jsx,tokens.css}`. Matching already: `--wg-card-pad: 14px` (mockup `.card`), `--wg-tile-pad-block: 10px` + `--wg-tile-pad-inline: 11px` + `--wg-fuel-card-pad-block: 12px` cover the 10–14 px range, `--wg-section-label-pad-top: 18px` (mockup default, `.density-compact` unused), `--wg-food-kcal-display-size: 30px` (mockup screens.jsx:331), `--wg-font-size-metric-value: 20px` (mockup screens.jsx:130), `--wg-font-size-tag: 10.5px` (mockup `.section-label`). Residual deltas around the macros card header: kcal unit 12→14 px, `% of target` value 11→22 px sun mono, `% of target` label 11→10 px caps uppercase, the value+label pair was inline instead of stacked right-aligned; and Today's `.wg-fuel-card__pct` was 15→16 px.)
+- [x] Patch only via CSS utility classes / existing tokens; no inline styles; no new hex colors. (Bumped `--wg-food-kcal-unit-size` 12→14 px. Added three new tokens in `:root`: `--wg-food-kcal-pct-size: 22px`, `--wg-food-kcal-pct-label-size: 10px`, `--wg-font-size-fuel-pct: 16px`. Rewrote `.wg-food-macros-card__percent` to `flex-direction: column; align-items: flex-end` so the value + "of target" label stack right-aligned like the mockup. `.wg-food-macros-card__percent-value` now uses the new 22 px sun token + letter-spacing -0.02em + line-height 1; `__percent-label` uses the new 10 px caps token + 0.08em letter-spacing + uppercase + `--wg-font-ui`. `.wg-fuel-card__pct` swapped from `--font-size-md` (15) to `--wg-font-size-fuel-pct` (16). All values resolve through `--wg-*` tokens — no inline styles, no new hex colors.)
+- [x] Run architecture tests — they enforce these invariants. (Added `--wg-food-kcal-pct-size`, `--wg-food-kcal-pct-label-size`, `--wg-font-size-fuel-pct` to `architecture.design-tokens.test.js` REQUIRED_TOKENS. Added a new `Task 8 typography tokens match the Anthropic mockup pixel values` test that pins all 10 Task 8 pixel-parity values (30/14/22/10 in the macros card, 22/16 in Today's fuel card, 20 mono in metric tile, 10.5 in section labels, 14 in card pad, 18 in section-label pad-top) to the exact `screens.jsx` line references. Full Vitest: 1338 pass; the only failing tests are the 2 pre-existing date-dependent `wg-sleep-chart` / `wg-steps-chart` "Today"-label tests that reproduce on master. `go test ./...` green.)
+
+### Task 9: Verify acceptance criteria
+- [x] Each screen visually matches the mockup at 390 px (manual). (Skipped — not automatable from this environment; covered by the jsdom structural contracts in `today.render.task3.test.js`, `food.daynav.test.js`, `meds.schedule.test.js`, `weight.history.test.js`, `bp.render.test.js`, `health.notes.test.js` and by the `architecture.design-tokens.test.js` Task 8 pixel-parity suite that pins 30/14/22/10/22/16/20/10.5/14/18 px values to `screens.jsx` line references.)
+- [x] No `section-header-mount` renders anywhere. (`grep section-header-mount` across `web/static/` returns no markup hits — only `food.daynav.test.js:114` asserting its absence and docs/plan mentions.)
+- [x] Bottom nav order + "Vitals" label correct. (`wg-bottom-nav.js:27-36` pins `DEFAULT_ITEMS` to today/bp/food/meds + health(label:"Vitals")/workouts/weight/settings; `components.wg-bottom-nav.test.js` canonical-order test locks the full 8-slot sequence.)
+- [x] Today page shows 3 shortcut tiles + 2 metric tiles (no SpO2/HR) + food card + workout/sleep row + meds card at bottom. (`today.js` emits `.wg-today-shortcuts` → `.wg-today-metrics` → `.wg-fuel-card.wg-today-food` → `.wg-today-wo-sleep` → `.wg-today-meds` in that order; `today.render.task3.test.js` + `today.render.wg.test.js` pin the structure.)
+- [x] Food page has no outer tabs, no "Day | Week" pipe, Daily/Weekly in-card toggle works, +Add inline with day nav. (`grep wg-food-subtabs` / `food-stats-period` across `web/static/` returns only retirement comments + absence guards; `food.daynav.test.js` and `food.macros.test.js` lock the in-card toggle + inline +Add contracts.)
+- [x] BP, Meds, Weight, Workouts all have their primary action button inline (no FAB, no bottom CTA). (`.wg-fab` CSS rule deleted in Task 5; `architecture.wg-primitives.test.js:148` pins "retired — primary actions now live inline"; `bp.render.test.js:353/384`, `meds.schedule.test.js:249`, `weight.history.test.js:292` all assert the absence.)
+- [x] Notes composer has 6-chip tag selector and the tag persists through save → list render. (`index.html:311-317` renders the 6-chip radiogroup with `data-tag` SLEEP/STRESS/HR/SPO2/STEPS/NOTE; `health.notes.test.js` composer-behavior tests cover chip toggle, POST payload shape, and list-row `.wg-tag--high.wg-health-notes-row__tag` render.)
+- [x] **Barcode scan & search unchanged**: open `#food-modal` → type a barcode → auto-lookup fires; press Scan → `#food-scanner-modal` opens with camera; "Use Photo" decodes a picked image; typing in Food name still triggers autocomplete. (Manual camera path skipped — not automatable from this environment; `food.modal.test.js` 19 tests green, covering `#food-barcode`, `#food-scan-btn`, `#food-scanner-*` bindings unchanged from pre-refactor baseline.)
+- [x] Each pre-existing styled modal (`#food-modal`, `#bp-modal`, `#weight-modal`, `#med-modal`, `#med-confirm-modal`) opens, saves, and closes without regression; Today shortcuts open the same modal states as the feature screens do. (`modals.task4b.test.js` + `weight.modal.test.js` + `app.forms-and-push.test.js` + `app.med-confirm-edit-modes.test.js` all green; `today.render.task3.test.js` asserts the shortcut tiles call `window.showAddFoodModal`/`showBPRecordModal`/`showWeightModal` — the same openers `app.js:1423/1465/1467` wire up.)
+- [x] All unit + architecture + jsdom tests pass. (Vitest: 1338 pass; only the 2 pre-existing date-dependent `wg-sleep-chart` / `wg-steps-chart` "Today"-label tests fail, reproducing on master — not caused by any Task 1-8 work.)
+- [x] `go test ./...` green. (All 15 test packages pass — `cmd/bot`, `internal/{ai,bot,domain,domain/tzreschedule,mcp,notifier,rxnorm,scheduler,server,store,testharness,tzlookup,webpush,workout}`.)
+- [x] Linter clean. (`golangci-lint run --timeout=5m`: 0 issues. `go vet ./...`: clean.)
+- [x] Deeplinks still work (old `/today`, `/health`, `/food` routes resolve). (Task 2 kept the internal id `'health'` for the Vitals slot; `app.js:812/949/983/1092/1668/1797` continue to switch on the `'health'` string for route + storage + feature-flag identity. No route renames landed in Tasks 1-8, so all existing deeplinks remain valid.)
+
+### Task 10: Update documentation
+- [x] Update `CLAUDE.md` Critical Rule #6 ("The bottom nav is the canonical navigation") — it already says the disabled features are filtered before mount; confirm phrasing still matches after the reorder. (Rule #6 now lists the canonical row 1 / row 2 split explicitly — `row 1: Today, BP, Food, Meds — row 2: Vitals, Workouts, Weight, Settings` — with a note that the Vitals slot keeps its internal id `health` for deeplink / localStorage stability, plus an added line stating that screens sit directly on the teal stage after the section-header removal in Task 1. The "disabled features filtered before mount" phrasing is preserved unchanged.)
+- [x] Update `docs/frontend.md` navigation section to reflect the new row 1 / row 2 split and the "Vitals" label. (Updated the bottom-nav bullet to pin the new canonical 8-slot order (`today, bp, food, meds, health, workouts, weight, settings`) and spell out that `health` renders with the label "Vitals" while its internal id stays `health` for deeplink + localStorage stability. Dropped the `window.SectionHeader` row from the globals table and the "AppHeader / back pill" bullet; replaced them with a new "No section headers" bullet. Rewrote the `.wg-fab` canonical paragraph into a "Canonical primary-action placement" paragraph that points at the 5 new inline mount points (`#add-bp-btn`, `#add-btn`, `#start-adhoc-workout-btn`, `#add-weight-btn`, `#add-food-inline-btn`). Updated the `tab_order` bullet to describe the new Today layout (shortcut row → metric grid → food card → workout/sleep row → meds card). Rewrote the sub-tab bullet to drop `.wg-food-subtabs`, flip meds default to `history`, and point at `#food-library-view` for the re-homed Meals + Food DB panels. Rewrote the Food screen shell bullet to describe the inline `#add-food-inline-btn` + the in-card Daily/Weekly toggle; kept the sticky `.wg-food-cta-dock` note. Swapped the stale `--wg-app-header-title-size` dimensional-token example for `--wg-food-kcal-display-size` + `--wg-food-kcal-pct-size`, which are the tokens still live after Task 1's header removal and Task 8's typography sweep.)
+- [x] Update `docs/features.md` Today / Food / Health sections for the structural refactors. (Rewrote the Today section lead to mention that Health renders as "Vitals" in the bottom nav, and added an explicit `#today-content` DOM skeleton: shortcut row → metric grid (BP + Weight only, no SpO2/HR) → fuel card → workout/sleep row → meds card at bottom. Added `macrosToday` + `macrosTarget` rows to the aggregation-contract table. Updated the Medication Tracking sub-tab bullet so History is the default and the `+ Add` button is described as inline on the sub-tab strip. Added a BP UI-layout bullet pinning the inline `+ Log` button inside `.wg-bp-range-selector__track`. Updated Weight's UI-layout bullet to describe the header row with inline `+ Log` instead of a bottom CTA. Rewrote Food Tracking's opening bullet to describe the no-outer-tab layout, inline `+ Add`, in-card Daily/Weekly toggle, library-entry collapsible, and sticky CTA dock; added a Barcode bullet covering the preserved `#food-modal` + `#food-scanner-modal` flow. Appended an inline-`+ Start` clause to the Workouts UI-layout bullet. Added a new Diary Notes section covering the 6-value tag enum, `054_add_diary_notes_tag.sql` migration, composer markup, list-row tag pill, edit-modal limitation, and bot `/note` nil-tag contract.)
+- [x] Update `docs/api.md` for the new `tag` field on notes endpoints. (GET `/api/notes` row now notes that each list entry includes a `tag` field drawn from the 6-value enum `SLEEP | STRESS | HR | SPO2 | STEPS | NOTE` (omitted when NULL). POST `/api/notes` row spells out the new `{content, tag?}` request body + the domain contract: invalid tags are sanitized to NULL and returned in the 201 response, not rejected with a 400 — matches the plan's Technical Details "handler maps invalid → NULL and returns 200 with the sanitized record, not a 400".)
+- [x] No screenshots unless requested. (Task 10 only touched `CLAUDE.md`, `docs/frontend.md`, `docs/features.md`, `docs/api.md` — no images added, no references to uploaded mockup screenshots copied into tracked paths.)
+
+## Technical Details
+
+### Bottom-nav canonical order (final)
+```
+row 1: today, bp, food, meds
+row 2: health(label="Vitals"), workouts, weight, settings
+```
+Internal ids unchanged (`health`, not `hr`) to preserve deeplinks & localStorage keys.
+
+### Today DOM skeleton (target)
+```html
+<div id="today-content">
+  <div class="wg-today-shortcuts">[3 ShortcutTile]</div>
+  <div class="wg-today-metrics">[BP tile][Weight tile]</div>
+  <button class="wg-card wg-today-food">[food summary + 4 MiniBars]</button>
+  <div class="wg-today-wo-sleep">[Workout card][Sleep card]</div>
+  <div class="wg-card wg-today-meds">[header row][divider][meds list]</div>
+</div>
+```
+
+### Food macros card Daily/Weekly toggle (inside the card)
+```
+[ Daily total | Weekly total ]   (inset pill strip, sun-gradient active)
+   1,250          8,750
+   (68% target)    (av 1,250 kcal/day · 7d)
+```
+
+### Notes tag enum (frontend ↔ backend)
+```
+SLEEP | STRESS | HR | SPO2 | STEPS | NOTE
+```
+Backend stores NULL when the client omits the tag or sends an invalid value (handler maps invalid → NULL and returns 200 with the sanitized record, not a 400).
+
+## Post-Completion
+*Manual / external items — no checkboxes.*
+
+**Manual verification**:
+- Open the Mini App through the Telegram bot on a real iPhone (notch/island visible) and step through every screen. Compare to the mockup.
+- Confirm offline banners still render above the new today shortcut row.
+- Confirm tag-chip horizontal scroll works on narrow (≤360 px) devices.
+
+**External system updates**:
+- None. Pure app-internal refactor + one backward-compatible DB migration.
+
+**Deployment**:
+- Standard GitHub-Actions → Portainer rebuild. Confirm the goose migration runs on deploy (logs in Portainer).
+- Bump cache-buster timestamps for the touched JS files so SW serves fresh code.

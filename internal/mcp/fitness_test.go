@@ -86,7 +86,7 @@ func TestAnalyzeFitness_AllDomains(t *testing.T) {
 	}
 
 	// Add diary note
-	if _, err := st.CreateDiaryNote(ctx, userID, "felt great during workout"); err != nil {
+	if _, err := st.CreateDiaryNote(ctx, userID, "felt great during workout", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 

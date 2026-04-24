@@ -127,10 +127,10 @@ func TestHandleGetDiaryNotesReturnsNotes(t *testing.T) {
 	ctx := context.Background()
 
 	// Create two notes within range and one outside
-	if _, err := st.CreateDiaryNote(ctx, 123456, "feeling great today"); err != nil {
+	if _, err := st.CreateDiaryNote(ctx, 123456, "feeling great today", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
-	if _, err := st.CreateDiaryNote(ctx, 123456, "a bit tired"); err != nil {
+	if _, err := st.CreateDiaryNote(ctx, 123456, "a bit tired", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 
@@ -189,7 +189,7 @@ func TestHandleGetDiaryNotesDefaultLimit(t *testing.T) {
 
 	ctx := context.Background()
 
-	if _, err := st.CreateDiaryNote(ctx, 123456, "note one"); err != nil {
+	if _, err := st.CreateDiaryNote(ctx, 123456, "note one", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 
@@ -892,7 +892,7 @@ func TestHandleGetBloodPressure_IncludesContextNotes(t *testing.T) {
 	}
 
 	// Create a diary note
-	if _, err := st.CreateDiaryNote(ctx, 123456, "started new medication today"); err != nil {
+	if _, err := st.CreateDiaryNote(ctx, 123456, "started new medication today", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 
@@ -940,7 +940,7 @@ func TestHandleGetBloodPressure_ExcludeNotesOmitsContextNotes(t *testing.T) {
 	}
 
 	// Create a diary note
-	if _, err := st.CreateDiaryNote(ctx, 123456, "some note"); err != nil {
+	if _, err := st.CreateDiaryNote(ctx, 123456, "some note", nil); err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
 

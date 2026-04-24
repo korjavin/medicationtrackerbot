@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -21,7 +23,7 @@ func TestCreateDiaryNote(t *testing.T) {
 	s := setupDiaryTestStore(t)
 	ctx := context.Background()
 
-	note, err := s.CreateDiaryNote(ctx, 1, "feeling good today")
+	note, err := s.CreateDiaryNote(ctx, 1, "feeling good today", nil)
 	if err != nil {
 		t.Fatalf("CreateDiaryNote: %v", err)
 	}
@@ -37,21 +39,49 @@ func TestCreateDiaryNote(t *testing.T) {
 	if note.CreatedAt.IsZero() {
 		t.Error("expected non-zero created_at")
 	}
+	if note.Tag != nil {
+		t.Errorf("expected nil tag, got %v", *note.Tag)
+	}
+}
+
+func TestCreateDiaryNote_WithTag(t *testing.T) {
+	s := setupDiaryTestStore(t)
+	ctx := context.Background()
+
+	tag := "SLEEP"
+	note, err := s.CreateDiaryNote(ctx, 1, "slept 8h", &tag)
+	if err != nil {
+		t.Fatalf("CreateDiaryNote: %v", err)
+	}
+	if note.Tag == nil || *note.Tag != "SLEEP" {
+		t.Errorf("expected tag SLEEP, got %v", note.Tag)
+	}
+
+	notes, err := s.ListDiaryNotes(ctx, 1, time.Time{}, time.Time{}, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 {
+		t.Fatalf("expected 1 note, got %d", len(notes))
+	}
+	if notes[0].Tag == nil || *notes[0].Tag != "SLEEP" {
+		t.Errorf("list: expected tag SLEEP, got %v", notes[0].Tag)
+	}
 }
 
 func TestListDiaryNotes(t *testing.T) {
 	s := setupDiaryTestStore(t)
 	ctx := context.Background()
 
-	_, err := s.CreateDiaryNote(ctx, 1, "note 1")
+	_, err := s.CreateDiaryNote(ctx, 1, "note 1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.CreateDiaryNote(ctx, 1, "note 2")
+	_, err = s.CreateDiaryNote(ctx, 1, "note 2", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.CreateDiaryNote(ctx, 2, "other user note")
+	_, err = s.CreateDiaryNote(ctx, 2, "other user note", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +104,7 @@ func TestListDiaryNotes_Limit(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 5; i++ {
-		if _, err := s.CreateDiaryNote(ctx, 1, "note"); err != nil {
+		if _, err := s.CreateDiaryNote(ctx, 1, "note", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -102,7 +132,7 @@ func TestListDiaryNotes_Since(t *testing.T) {
 
 	cutoff := time.Now()
 
-	_, err = s.CreateDiaryNote(ctx, 1, "new note")
+	_, err = s.CreateDiaryNote(ctx, 1, "new note", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +154,7 @@ func TestListDiaryNotes_CursorPagination(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 5; i++ {
-		if _, err := s.CreateDiaryNote(ctx, 1, fmt.Sprintf("note %d", i)); err != nil {
+		if _, err := s.CreateDiaryNote(ctx, 1, fmt.Sprintf("note %d", i), nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -160,7 +190,7 @@ func TestDeleteDiaryNote(t *testing.T) {
 	s := setupDiaryTestStore(t)
 	ctx := context.Background()
 
-	note, err := s.CreateDiaryNote(ctx, 1, "to be deleted")
+	note, err := s.CreateDiaryNote(ctx, 1, "to be deleted", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,13 +212,14 @@ func TestDeleteDiaryNote_WrongUser(t *testing.T) {
 	s := setupDiaryTestStore(t)
 	ctx := context.Background()
 
-	note, err := s.CreateDiaryNote(ctx, 1, "my note")
+	note, err := s.CreateDiaryNote(ctx, 1, "my note", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// user 2 tries to delete user 1's note — should error
-	if err := s.DeleteDiaryNote(ctx, 2, note.ID); err == nil {
-		t.Error("expected error when deleting another user's note")
+	// user 2 tries to delete user 1's note — should error with sql.ErrNoRows
+	err = s.DeleteDiaryNote(ctx, 2, note.ID)
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("expected sql.ErrNoRows when deleting another user's note, got %v", err)
 	}
 }

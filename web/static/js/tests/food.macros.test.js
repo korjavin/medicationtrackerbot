@@ -237,7 +237,10 @@ describe('Food daily macros card (Phase 4, Task 4)', () => {
         expect(progress.children).toHaveLength(0);
     });
 
-    it('_renderFoodData hides the macros card when period is week', () => {
+    it('_renderFoodData keeps the macros card visible with weekly totals on range=week', () => {
+        // Phase 5, Task 4 — the macros card now contains an in-card
+        // Daily/Weekly toggle; when the range flips to 'week', the card
+        // stays visible and swaps in the weekly totals + ×7 targets.
         const { window, document } = env;
         const groups = [];
         const weekStats = { calories: 3500, carbs: 400, protein: 250, fat: 100 };
@@ -245,6 +248,20 @@ describe('Food daily macros card (Phase 4, Task 4)', () => {
         window._renderFoodData(groups, weekStats, 'week', '2026-04-20');
 
         const card = document.getElementById('food-macros-card');
-        expect(card.classList.contains('hidden')).toBe(true);
+        expect(card.classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('food-macros-card-kcal').textContent).toBe('3500');
+
+        const avg = document.getElementById('food-macros-card-avg');
+        expect(avg.classList.contains('hidden')).toBe(false);
+        expect(avg.textContent).toContain('avg');
+        expect(avg.textContent).toContain('500');
+        expect(avg.textContent).toContain('kcal/day');
+    });
+
+    it('Daily mode hides the avg-per-day subtitle under the kcal total', () => {
+        const { window, document } = env;
+        window._renderFoodData([], null, 'day', '2026-04-20');
+        const avg = document.getElementById('food-macros-card-avg');
+        expect(avg.classList.contains('hidden')).toBe(true);
     });
 });

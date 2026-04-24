@@ -45,6 +45,8 @@ describe('app.js UI characterization', () => {
       const loadMedsSpy = vi.fn();
       window.loadMeds = loadMedsSpy;
 
+      // Phase 5, Task 5: default landing tab is now history. Click schedule
+      // to route through the loader and assert the active-state swap.
       const scheduleTab = document.querySelector('.med-tab[data-tab="schedule"]');
       scheduleTab.click();
 
@@ -67,6 +69,10 @@ describe('app.js UI characterization', () => {
       expect(bpModal.classList.contains('hidden')).toBe(true);
       expect(weightModal.classList.contains('hidden')).toBe(true);
 
+      // Phase 5, Task 5: the BP +Log pill is rendered inline with the range
+      // selector by renderRangeSelector(); invoke it so the button exists
+      // before clicking.
+      window.renderRangeSelector({ active: 60, onChange: () => {} });
       document.getElementById('add-bp-btn').click();
 
       expect(overlay.classList.contains('hidden')).toBe(false);
@@ -141,15 +147,26 @@ describe('app.js UI characterization', () => {
     try {
       const showFoodModalSpy = vi.spyOn(window, 'showAddFoodModal').mockImplementation(() => {});
       const closeFoodModalSpy = vi.spyOn(window, 'closeFoodModal').mockImplementation(() => {});
-      window.setFoodStatsPeriod = vi.fn();
+      window.loadFoodLogs = vi.fn();
 
       // Add-food CTA is rendered dynamically at the end of the meal list.
       window._renderFoodData([], null, 'day', '2026-04-20');
       document.getElementById('add-food-btn').click();
       expect(showFoodModalSpy).toHaveBeenCalled();
 
-      document.getElementById('food-period-week-link').click();
-      expect(window.setFoodStatsPeriod).toHaveBeenCalledWith('week');
+      // Phase 5, Task 4 — inline +Add in the day-nav opens the same
+      // modal; clicking the in-card Daily/Weekly toggle re-runs
+      // loadFoodLogs() and flips the active pill.
+      showFoodModalSpy.mockClear();
+      document.getElementById('add-food-inline-btn').click();
+      expect(showFoodModalSpy).toHaveBeenCalled();
+
+      const toggle = document.getElementById('food-macros-toggle');
+      toggle.querySelector('[data-range="week"]').click();
+      expect(window.loadFoodLogs).toHaveBeenCalled();
+      expect(
+          toggle.querySelector('[data-range="week"]').classList.contains('wg-food-macros-card__toggle-btn--active')
+      ).toBe(true);
 
       document.getElementById('food-modal-cancel-btn').click();
       expect(closeFoodModalSpy).toHaveBeenCalled();

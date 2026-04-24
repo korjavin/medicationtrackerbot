@@ -261,19 +261,26 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         expect(view.classList.contains('wg-screen-stage')).toBe(true);
     });
 
-    it('renders the full-width .wg-weight-add-cta at the bottom of #weight-view', () => {
+    it('renders the inline .wg-weight-header-row__add pill at the TOP of #weight-view (Phase 5, Task 5)', () => {
         const { document } = env;
         const cta = document.getElementById('add-weight-btn');
         expect(cta).not.toBeNull();
-        expect(cta.classList.contains('wg-weight-add-cta')).toBe(true);
+        expect(cta.classList.contains('wg-weight-header-row__add')).toBe(true);
         expect(cta.classList.contains('wg-gloss')).toBe(true);
         expect(cta.classList.contains('wg-gloss--sun')).toBe(true);
-        // CTA sits AFTER the weight-list in the weight-view.
+        expect(cta.classList.contains('wg-weight-add-cta')).toBe(false);
+
+        // The CTA lives inside the .wg-weight-header-row alongside
+        // #weight-current-card, not below the history list.
+        const headerRow = document.querySelector('#weight-view .wg-weight-header-row');
+        expect(headerRow).not.toBeNull();
+        expect(headerRow.contains(cta)).toBe(true);
+        expect(headerRow.querySelector('#weight-current-card')).not.toBeNull();
+
+        // The header row is the first child of #weight-view (before
+        // goal card, range selector, chart, and history list).
         const view = document.getElementById('weight-view');
-        const children = Array.from(view.children);
-        const listIdx = children.findIndex((el) => el.id === 'weight-list');
-        const ctaIdx = children.findIndex((el) => el.id === 'add-weight-btn');
-        expect(ctaIdx).toBeGreaterThan(listIdx);
+        expect(view.firstElementChild).toBe(headerRow);
     });
 
     it('index.html does NOT declare the paper-era FAB button classes on #add-weight-btn', () => {
@@ -282,15 +289,20 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         expect(m, 'expected #add-weight-btn declaration in index.html').not.toBeNull();
         expect(m[0]).not.toMatch(/btn-fab/);
         expect(m[0]).not.toMatch(/btn-pill/);
+        expect(m[0]).not.toMatch(/wg-fab/);
+        expect(m[0]).not.toMatch(/wg-weight-add-cta/);
         expect(m[0]).toMatch(/wg-gloss--sun/);
-        expect(m[0]).toMatch(/wg-weight-add-cta/);
+        expect(m[0]).toMatch(/wg-weight-header-row__add/);
     });
 
-    it('styles.css registers the .wg-weight-history and .wg-weight-add-cta rules', () => {
+    it('styles.css registers the .wg-weight-history and .wg-weight-header-row rules', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
         expect(css).toMatch(/\.wg-weight-history\s*\{/);
         expect(css).toMatch(/\.wg-weight-history-row\s*\{/);
-        expect(css).toMatch(/\.wg-weight-add-cta\s*\{/);
+        expect(css).toMatch(/\.wg-weight-header-row\s*\{/);
+        expect(css).toMatch(/\.wg-weight-header-row__add\s*\{/);
+        // Paper-era full-width CTA rule was retired in Phase 5, Task 5.
+        expect(css).not.toMatch(/\.wg-weight-add-cta\s*\{/);
     });
 
     it('editWeightLog prefills the weight modal with the log values', () => {

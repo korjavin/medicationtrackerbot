@@ -6,13 +6,14 @@
 // _archiveMedApi, editingMedId, medications, initialAuthLoad, etc.) that
 // remain in app.js.
 
-// Sub-tab state (Phase 5, Task 2). Mirrors the `mt-food-subtab` pattern —
-// one of three values (`schedule`, `history`, `inventory`), persisted to
-// localStorage so the user's choice survives reload. The default is
-// `schedule` (distinct from the paper-era default of `history`).
+// Sub-tab state (Phase 5, Task 2, revised Task 5). Mirrors the
+// `mt-food-subtab` pattern — one of three values (`schedule`, `history`,
+// `inventory`), persisted to localStorage so the user's choice survives
+// reload. Default is `history` to match the Claude Design mockup's Meds
+// screen, which lists the recent intakes first.
 const MEDS_SUBTAB_STORAGE_KEY = 'mt-meds-subtab';
 const MEDS_SUBTAB_OPTIONS = ['schedule', 'history', 'inventory'];
-const MEDS_SUBTAB_DEFAULT = 'schedule';
+const MEDS_SUBTAB_DEFAULT = 'history';
 
 function getActiveMedsSubTab() {
     try {
@@ -1193,20 +1194,27 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
 
     window.ModalManager.medConfirm.open();
 
+    const eyebrowEl = document.getElementById('med-confirm-eyebrow');
     const titleEl = document.getElementById('med-confirm-title');
     const subtitleEl = document.getElementById('med-confirm-subtitle');
     const timeEditEl = document.getElementById('med-confirm-time-edit');
     const timeInput = document.getElementById('med-confirm-datetime');
     const actionBtn = document.getElementById('med-confirm-action-btn');
     const snoozeBtn = document.getElementById('med-confirm-snooze-btn');
+    const skipBtn = document.getElementById('med-confirm-skip-btn');
 
-    // UI based on mode
+    let timeStr = scheduledAt;
+    try {
+        const d = new Date(scheduledAt);
+        timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (_) { /* keep raw */ }
+
     if (mode === 'edit' || mode === 'log_past') {
+        if (eyebrowEl) eyebrowEl.textContent = mode === 'edit' ? 'Edit intake' : 'Log intake';
         titleEl.innerText = mode === 'edit' ? "Edit Intake" : "Log Intake";
-        subtitleEl.innerText = "";
-        timeEditEl.style.display = 'block';
+        subtitleEl.textContent = "";
+        timeEditEl.classList.remove('hidden');
 
-        // Set time input (handling both ISO strings and formatted strings if parsable)
         try {
             timeInput.value = formatDateTimeLocalForInput(scheduledAt);
         } catch (e) {
@@ -1215,39 +1223,19 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
 
         actionBtn.innerText = mode === 'edit' ? "Update" : "Log Intake";
         actionBtn.onclick = mode === 'edit' ? updateIntakeHistory : confirmLogPast;
-        snoozeBtn.style.display = 'none';
-
+        snoozeBtn.classList.add('hidden');
+        if (skipBtn) skipBtn.classList.add('hidden');
     } else {
-
-        // Confirm Mode
+        if (eyebrowEl) eyebrowEl.textContent = 'Time for meds';
         titleEl.innerText = "Time for Meds!";
-        timeEditEl.style.display = 'none';
+        timeEditEl.classList.add('hidden');
 
-        // Format time display
-        let timeStr = scheduledAt;
-        try {
-            const d = new Date(scheduledAt);
-            timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        } catch (e) { }
-        subtitleEl.innerText = "Scheduled for: " + timeStr;
+        subtitleEl.textContent = "Scheduled for: " + timeStr;
 
         actionBtn.innerText = "Confirm Selected";
         actionBtn.onclick = confirmSelectedMedications;
-        snoozeBtn.style.display = 'inline-block';
-
-        // Show skip button only for PENDING intakes
-        const skipBtn = document.getElementById('med-confirm-skip-btn');
-        if (skipBtn) {
-            skipBtn.style.display = 'inline-block';
-        }
-    }
-
-    // Hide skip button if we're not in 'confirm' mode
-    if (mode !== 'confirm') {
-        const skipBtn = document.getElementById('med-confirm-skip-btn');
-        if (skipBtn) {
-            skipBtn.style.display = 'none';
-        }
+        snoozeBtn.classList.remove('hidden');
+        if (skipBtn) skipBtn.classList.remove('hidden');
     }
 
     const list = document.getElementById('med-confirm-list');
@@ -1256,23 +1244,31 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
     ids.forEach((id, index) => {
         const name = names[index] || ('Medication ' + id);
 
-        const div = document.createElement('div');
-        div.className = 'form-row';
-        div.classList.add('mb-sm');
-
-        const label = document.createElement('label');
-        label.className = 'checkbox-label';
-        label.classList.add('fw-medium');
+        const row = document.createElement('label');
+        row.className = 'wg-med-confirm-modal__row wg-med-confirm-modal__row--on';
 
         const input = document.createElement('input');
         input.type = 'checkbox';
         input.value = String(index);
         input.checked = true;
-        input.className = 'med-confirm-check';
+        input.className = 'med-confirm-check wg-med-confirm-modal__row-input';
+        input.addEventListener('change', () => {
+            row.classList.toggle('wg-med-confirm-modal__row--on', input.checked);
+        });
 
-        label.appendChild(input);
-        label.appendChild(document.createTextNode(` ${name}`));
-        div.appendChild(label);
-        list.appendChild(div);
+        const check = document.createElement('span');
+        check.className = 'wg-med-confirm-modal__check';
+        check.setAttribute('aria-hidden', 'true');
+
+        const body = document.createElement('span');
+        body.className = 'wg-med-confirm-modal__row-body';
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'wg-med-confirm-modal__row-name';
+        nameEl.textContent = name;
+        body.appendChild(nameEl);
+
+        row.append(input, check, body);
+        list.appendChild(row);
     });
 }

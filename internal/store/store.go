@@ -162,6 +162,7 @@ type DiaryNote struct {
 	ID        int64     `json:"id"`
 	UserID    int64     `json:"-"`
 	Content   string    `json:"content"`
+	Tag       *string   `json:"tag,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -2361,13 +2362,22 @@ func (s *Store) setSettingsBool(ctx context.Context, column string, enabled bool
 	return err
 }
 
-// CreateDiaryNote inserts a new diary note for the user.
-func (s *Store) CreateDiaryNote(ctx context.Context, userID int64, content string) (*DiaryNote, error) {
-	query := `INSERT INTO diary_notes (user_id, content, created_at) VALUES (?, ?, ?) RETURNING id, user_id, content, created_at`
+// CreateDiaryNote inserts a new diary note for the user. tag may be nil for an untagged note.
+func (s *Store) CreateDiaryNote(ctx context.Context, userID int64, content string, tag *string) (*DiaryNote, error) {
+	query := `INSERT INTO diary_notes (user_id, content, tag, created_at) VALUES (?, ?, ?, ?) RETURNING id, user_id, content, tag, created_at`
 	var note DiaryNote
-	err := s.db.QueryRowContext(ctx, query, userID, content, nowFunc()).Scan(&note.ID, &note.UserID, &note.Content, &note.CreatedAt)
+	var tagArg interface{}
+	if tag != nil {
+		tagArg = *tag
+	}
+	var tagOut sql.NullString
+	err := s.db.QueryRowContext(ctx, query, userID, content, tagArg, nowFunc()).Scan(&note.ID, &note.UserID, &note.Content, &tagOut, &note.CreatedAt)
 	if err != nil {
 		return nil, err
+	}
+	if tagOut.Valid {
+		v := tagOut.String
+		note.Tag = &v
 	}
 	return &note, nil
 }
@@ -2379,7 +2389,7 @@ func (s *Store) CreateDiaryNote(ctx context.Context, userID int64, content strin
 // beforeID, when > 0, acts as a keyset cursor: only notes with id < beforeID are returned,
 // enabling stable pagination even when notes are added or deleted between pages.
 func (s *Store) ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]DiaryNote, error) {
-	query := `SELECT id, user_id, content, created_at FROM diary_notes WHERE user_id = ?`
+	query := `SELECT id, user_id, content, tag, created_at FROM diary_notes WHERE user_id = ?`
 	args := []interface{}{userID}
 	if !since.IsZero() {
 		query += " AND created_at >= ?"
@@ -2409,8 +2419,13 @@ func (s *Store) ListDiaryNotes(ctx context.Context, userID int64, since, until t
 	var notes []DiaryNote
 	for rows.Next() {
 		var n DiaryNote
-		if err := rows.Scan(&n.ID, &n.UserID, &n.Content, &n.CreatedAt); err != nil {
+		var tag sql.NullString
+		if err := rows.Scan(&n.ID, &n.UserID, &n.Content, &tag, &n.CreatedAt); err != nil {
 			return nil, err
+		}
+		if tag.Valid {
+			v := tag.String
+			n.Tag = &v
 		}
 		notes = append(notes, n)
 	}

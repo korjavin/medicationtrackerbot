@@ -42,19 +42,28 @@
 
 
         <div id="meds-view" class="view">
-            <div class="section-header-mount" data-title="Medications"></div>
-            <!-- Med Sub-tabs (Phase 5, Task 2). Dual-classed `.med-tabs` +
-                 `.wg-meds-subtabs` so legacy selectors in existing tests keep
-                 working while the Wandergeek strip primitives take over the
-                 visuals. Three pills — Schedule (default) / History /
-                 Inventory — active pill carries `.wg-gloss--sun`. -->
-            <div class="wg-gloss--inset wg-meds-subtabs med-tabs" id="med-subtabs">
-                <button class="wg-gloss wg-meds-subtabs__btn wg-gloss--sun wg-meds-subtabs__btn--active med-tab active" data-tab="schedule" aria-pressed="true">Schedule</button>
-                <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="history" aria-pressed="false">History</button>
-                <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="inventory" aria-pressed="false">Inventory</button>
+            <!-- Med Sub-tabs + inline +Add (Phase 5, Task 5 rework). Outer
+                 container is a plain flex row holding the inset 3-pill track
+                 (History / Schedule / Inventory — default "history" matches
+                 the mockup) and the trailing sun-gloss `#add-btn`. Dual-classed
+                 `.med-tabs` + `.wg-meds-subtabs` so legacy selectors in
+                 existing tests keep working. -->
+            <div class="wg-meds-subtabs-row" id="med-subtabs">
+                <div class="wg-gloss--inset wg-meds-subtabs med-tabs">
+                    <button class="wg-gloss wg-meds-subtabs__btn wg-gloss--sun wg-meds-subtabs__btn--active med-tab active" data-tab="history" aria-pressed="true">History</button>
+                    <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="schedule" aria-pressed="false">Schedule</button>
+                    <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="inventory" aria-pressed="false">Inventory</button>
+                </div>
+                <!-- Add medication CTA (Phase 5, Task 5). Inline sun-gloss pill
+                     replacing the old full-width bottom CTA. `#add-btn` id
+                     retained so bindClick('add-btn', showAddModal) and the
+                     offline UI wiring continue to work. -->
+                <button id="add-btn" type="button" class="wg-gloss wg-gloss--sun wg-meds-subtabs-row__add" aria-label="Add medication">
+                    <span class="wg-meds-subtabs-row__add-label">Add</span>
+                </button>
             </div>
 
-            <div id="med-schedule-tab" class="med-tab-content active">
+            <div id="med-schedule-tab" class="med-tab-content">
                 <!-- Next-action card (Phase 5, Task 3). Sun-glossed card mounted
                      atop the Schedule sub-tab; mirrors the Today next-action
                      pattern. Populated by mountNextActionCard() from cached
@@ -63,16 +72,9 @@
                 <div id="med-list">
                     <!-- Meds injected here -->
                 </div>
-                <!-- Add medication CTA (Phase 5, Task 4). Full-width sun-gloss
-                     button replacing the paper-era FAB. `#add-btn` id retained
-                     so bindClick('add-btn', showAddModal) and the offline UI
-                     wiring continue to work. -->
-                <button id="add-btn" type="button" class="wg-gloss wg-gloss--sun wg-meds-add-cta">
-                    <span class="wg-meds-add-cta__label">Add medication</span>
-                </button>
             </div>
 
-            <div id="med-history-tab" class="med-tab-content">
+            <div id="med-history-tab" class="med-tab-content active">
                 <!-- Intake history filter strip (Phase 5, Task 5). Two select
                      wraps styled as `.wg-gloss--inset` — the medication filter
                      keeps its `history-filter-med` id (populateMedFilter fills
@@ -111,9 +113,11 @@
         </div>
 
         <div id="bp-view" class="view wg-screen-stage">
-            <div class="section-header-mount" data-title="Blood Pressure"></div>
-            <button id="add-bp-btn" class="wg-fab wg-gloss wg-gloss--sun wg-gloss--lg">+ Record BP</button>
             <div id="bp-current-card"></div>
+            <!-- Range selector row (Phase 5, Task 5). Renders the 14/30/60d
+                 pills and an inline `#add-bp-btn` (sun gloss) trailing pill in
+                 a single flex row — `renderRangeSelector()` owns the layout so
+                 the button is regenerated each time and stays bound. -->
             <div id="bp-range-selector"></div>
             <div id="bpChart" class="wg-bp-chart-card"></div>
             <div id="bp-averages"></div>
@@ -121,26 +125,36 @@
         </div>
 
         <div id="weight-view" class="view wg-screen-stage">
-            <div class="section-header-mount" data-title="Weight"></div>
-            <div id="weight-current-card"></div>
+            <!-- Header row (Phase 5, Task 5). Latest-weight card sits on the
+                 left; inline sun-gloss `#add-weight-btn` pill sits on the right,
+                 replacing the paper-era full-width bottom CTA. -->
+            <div class="wg-weight-header-row">
+                <div id="weight-current-card"></div>
+                <button id="add-weight-btn" type="button" class="wg-gloss wg-gloss--sun wg-weight-header-row__add" aria-label="Log weight">
+                    <span class="wg-weight-header-row__add-label">+ Log</span>
+                </button>
+            </div>
             <div id="weight-goal-card"></div>
             <div id="weight-range-selector"></div>
             <div id="weightChart" class="wg-weight-chart-panel"></div>
             <ul id="weight-list" class="wg-weight-history"></ul>
-            <button id="add-weight-btn" type="button" class="wg-gloss wg-gloss--sun wg-weight-add-cta">
-                <span class="wg-weight-add-cta__label">+ Log weight</span>
-            </button>
         </div>
 
         <div id="workouts-view" class="view">
-            <div class="section-header-mount" data-title="Workouts"></div>
-
-            <!-- Workout Tabs (Phase 7 — .wg-gloss--inset strip, .wg-gloss--sun active pill) -->
-            <div class="wg-gloss--inset wg-workouts-subtabs workout-tabs" id="workouts-subtabs">
-                <button class="wg-gloss wg-workouts-subtabs__btn wg-gloss--sun wg-workouts-subtabs__btn--active workout-tab active" data-tab="history" aria-pressed="true">History</button>
-                <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="groups" aria-pressed="false">Groups</button>
-                <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="exercises" aria-pressed="false">Exercises</button>
-                <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="stats" aria-pressed="false">Stats</button>
+            <!-- Workout Tabs + inline +Start (Phase 7 / Phase 5 Task 5 rework).
+                 Outer `.wg-workouts-subtabs-row` flex container wraps the inset
+                 4-pill track and the trailing sun-gloss `#start-adhoc-workout-btn`
+                 ad-hoc CTA. -->
+            <div class="wg-workouts-subtabs-row" id="workouts-subtabs">
+                <div class="wg-gloss--inset wg-workouts-subtabs workout-tabs">
+                    <button class="wg-gloss wg-workouts-subtabs__btn wg-gloss--sun wg-workouts-subtabs__btn--active workout-tab active" data-tab="history" aria-pressed="true">History</button>
+                    <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="groups" aria-pressed="false">Groups</button>
+                    <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="exercises" aria-pressed="false">Exercises</button>
+                    <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="stats" aria-pressed="false">Stats</button>
+                </div>
+                <button id="start-adhoc-workout-btn" type="button" class="wg-gloss wg-gloss--sun wg-workouts-subtabs-row__add" aria-label="Start ad-hoc workout">
+                    <span class="wg-workouts-subtabs-row__add-label">Start</span>
+                </button>
             </div>
 
             <!-- History View -->
@@ -148,7 +162,6 @@
                 <!-- Next Workout Card -->
                 <div id="next-workout-card"></div>
 
-                <button id="start-adhoc-workout-btn" class="btn btn-primary btn-pill btn-fab btn-lg">💪 Start Ad-hoc Workout</button>
                 <div id="workout-history-display">
                     Loading...
                 </div>
@@ -183,45 +196,48 @@
         </div>
 
         <div id="food-view" class="view wg-screen-stage">
-            <div class="section-header-mount" data-title="Food Intake"></div>
-            <div id="food-stats-period-container" class="food-stats-period-container food-stats-period-row">
-                <span id="food-period-day-link" class="period-link active" data-period="day">Day</span>
-                <span class="period-divider">|</span>
-                <span id="food-period-week-link" class="period-link" data-period="week">Week</span>
-            </div>
-
-            <!-- Food Tabs (Phase 4 — .wg-gloss--inset strip, .wg-gloss--sun active pill) -->
-            <div class="wg-gloss--inset wg-food-subtabs" id="food-subtabs">
-                <button class="wg-gloss wg-food-subtabs__btn wg-gloss--sun wg-food-subtabs__btn--active food-tab active" data-tab="log" aria-pressed="true">Daily log</button>
-                <button class="wg-gloss wg-food-subtabs__btn food-tab" data-tab="meals" aria-pressed="false">My meals</button>
-                <button class="wg-gloss wg-food-subtabs__btn food-tab" data-tab="fooddb" aria-pressed="false">Food DB</button>
+            <!-- Day navigator + inline +Add (Phase 5, Task 4). Chevron buttons
+                 bracket the mono-display date title; trailing sun-gloss pill
+                 opens the food modal directly. -->
+            <div class="wg-food-day-nav wg-food-day-nav--with-action food-date-nav">
+                <button id="food-date-prev-btn" class="wg-gloss wg-icon-btn wg-food-day-nav__icon-btn"
+                    type="button" aria-label="Previous day"></button>
+                <div class="wg-food-day-nav__center">
+                    <input type="date" id="food-date-filter" class="wg-food-day-nav__input" aria-label="Select date">
+                    <div id="food-date-label" class="wg-mono-display wg-food-day-nav__title" role="button" tabindex="0"></div>
+                    <div id="food-date-subtitle" class="wg-section-label wg-food-day-nav__subtitle"></div>
+                    <div id="food-week-display" class="wg-food-day-nav__week hidden"></div>
+                </div>
+                <button id="food-date-next-btn" class="wg-gloss wg-icon-btn wg-food-day-nav__icon-btn" type="button" aria-label="Next day"></button>
+                <button id="add-food-inline-btn" class="wg-gloss wg-gloss--sun wg-food-day-nav__add" type="button" aria-label="Add food">
+                    <span class="wg-food-day-nav__add-label">Add</span>
+                </button>
             </div>
 
             <div id="food-log-tab" class="food-tab-content active">
-                <div class="wg-food-day-nav food-date-nav">
-                    <button id="food-date-prev-btn" class="wg-gloss wg-icon-btn wg-food-day-nav__icon-btn"
-                        type="button" aria-label="Previous day"></button>
-                    <div class="wg-food-day-nav__center">
-                        <input type="date" id="food-date-filter" class="wg-food-day-nav__input" aria-label="Select date">
-                        <div id="food-date-label" class="wg-mono-display wg-food-day-nav__title" role="button" tabindex="0"></div>
-                        <div id="food-date-subtitle" class="wg-section-label wg-food-day-nav__subtitle"></div>
-                        <div id="food-week-display" class="wg-food-day-nav__week hidden"></div>
-                    </div>
-                    <button id="food-date-next-btn" class="wg-gloss wg-icon-btn wg-food-day-nav__icon-btn" type="button" aria-label="Next day"></button>
-                </div>
-
                 <!-- Daily macros card (Phase 4, Task 4). Populated by
                      renderFoodMacrosCard() with kcal total, % of target, and
-                     four WGMacroBar rows. Hidden when period is week/2weeks. -->
+                     four WGMacroBar rows. Phase 5, Task 4: adds an in-card
+                     Daily/Weekly toggle that switches the macro bars between
+                     daily totals (from the meal list) and weekly totals
+                     (from /api/food/stats); the meal list below stays
+                     daily regardless of toggle state. -->
                 <div id="food-macros-card" class="wg-card wg-food-macros-card hidden">
                     <div class="wg-food-macros-card__header">
-                        <div class="wg-food-macros-card__total">
-                            <span id="food-macros-card-kcal" class="wg-mono-display wg-food-macros-card__kcal">0</span>
-                            <span class="wg-food-macros-card__unit">kcal</span>
+                        <div class="wg-food-macros-card__header-left">
+                            <div class="wg-gloss--inset wg-food-macros-card__toggle" id="food-macros-toggle" role="tablist" aria-label="Macros range">
+                                <button type="button" class="wg-food-macros-card__toggle-btn wg-food-macros-card__toggle-btn--active" data-range="day" role="tab" aria-selected="true">Daily total</button>
+                                <button type="button" class="wg-food-macros-card__toggle-btn" data-range="week" role="tab" aria-selected="false">Weekly total</button>
+                            </div>
+                            <div class="wg-food-macros-card__total">
+                                <span id="food-macros-card-kcal" class="wg-mono-display wg-food-macros-card__kcal">0</span>
+                                <span class="wg-food-macros-card__unit">kcal</span>
+                            </div>
+                            <div id="food-macros-card-avg" class="wg-food-macros-card__avg hidden"></div>
                         </div>
                         <div id="food-macros-card-percent" class="wg-food-macros-card__percent">
                             <span id="food-macros-card-percent-value" class="wg-food-macros-card__percent-value">0%</span>
-                            <span class="wg-food-macros-card__percent-label"> of target</span>
+                            <span class="wg-food-macros-card__percent-label">of target</span>
                         </div>
                     </div>
                     <div id="food-macros-card-bars" class="wg-food-macros-card__bars"></div>
@@ -232,39 +248,49 @@
                 <div id="food-summary" class="food-summary-block"></div>
                 <div id="food-list"></div>
                 <div id="food-add-cta-dock" class="wg-food-cta-dock"></div>
+
+                <!-- Food library entry (Phase 5, Task 4). Preserves access to
+                     My Meals + Food DB after the outer tab strip was removed. -->
+                <div class="wg-food-library-entry">
+                    <button id="food-library-toggle-btn" type="button" class="wg-food-library-entry__btn" aria-expanded="false" aria-controls="food-library-view">
+                        <span class="wg-food-library-entry__label">Meals · Food DB</span>
+                        <span class="wg-food-library-entry__chevron" aria-hidden="true">↓</span>
+                    </button>
+                </div>
             </div>
 
-            <div id="food-meals-tab" class="food-tab-content wg-food-db-panel">
-                <p class="wg-food-db-panel__hint">
-                    Select items from your log to create a meal template. Use the Select button on the daily total.
-                </p>
-                <div id="food-meals-list" class="wg-food-db-panel__list">
-                    <!-- Meals injected here -->
-                </div>
-            </div>
-
-            <div id="food-fooddb-tab" class="food-tab-content wg-food-db-panel">
-                <input type="text" id="fooddb-search" class="wg-input wg-food-db-panel__search" placeholder="Search products...">
-                <div class="wg-gloss--inset wg-food-db-panel__sort fooddb-sort-controls">
-                    <button class="wg-gloss wg-food-db-panel__sort-btn wg-gloss--sun fooddb-sort-btn active" data-sort="usage" aria-pressed="true">Most Used</button>
-                    <button class="wg-gloss wg-food-db-panel__sort-btn fooddb-sort-btn" data-sort="last_used" aria-pressed="false">Recently Used</button>
-                    <button class="wg-gloss wg-food-db-panel__sort-btn fooddb-sort-btn" data-sort="name" aria-pressed="false">A-Z</button>
-                </div>
-                <div id="fooddb-list" class="wg-food-db-panel__list">
-                    <!-- Products injected here -->
-                </div>
-                <div id="fooddb-pagination" class="wg-food-db-panel__pagination fooddb-pagination-controls hidden">
-                    <span id="fooddb-page-info" class="wg-food-db-panel__page-info">Showing 0-0 of 0</span>
-                    <div class="wg-food-db-panel__page-actions pagination-buttons">
-                        <button id="fooddb-prev-btn" class="wg-gloss wg-food-db-panel__page-btn">Prev</button>
-                        <button id="fooddb-next-btn" class="wg-gloss wg-food-db-panel__page-btn">Next</button>
+            <div id="food-library-view" class="wg-food-library-view hidden">
+                <section id="food-meals-tab" class="wg-food-db-panel">
+                    <p class="wg-food-db-panel__hint">
+                        Select items from your log to create a meal template. Use the Select button on the daily total.
+                    </p>
+                    <div id="food-meals-list" class="wg-food-db-panel__list">
+                        <!-- Meals injected here -->
                     </div>
-                </div>
+                </section>
+
+                <section id="food-fooddb-tab" class="wg-food-db-panel">
+                    <input type="text" id="fooddb-search" class="wg-input wg-food-db-panel__search" placeholder="Search products...">
+                    <div class="wg-gloss--inset wg-food-db-panel__sort fooddb-sort-controls">
+                        <button class="wg-gloss wg-food-db-panel__sort-btn wg-gloss--sun fooddb-sort-btn active" data-sort="usage" aria-pressed="true">Most Used</button>
+                        <button class="wg-gloss wg-food-db-panel__sort-btn fooddb-sort-btn" data-sort="last_used" aria-pressed="false">Recently Used</button>
+                        <button class="wg-gloss wg-food-db-panel__sort-btn fooddb-sort-btn" data-sort="name" aria-pressed="false">A-Z</button>
+                    </div>
+                    <div id="fooddb-list" class="wg-food-db-panel__list">
+                        <!-- Products injected here -->
+                    </div>
+                    <div id="fooddb-pagination" class="wg-food-db-panel__pagination fooddb-pagination-controls hidden">
+                        <span id="fooddb-page-info" class="wg-food-db-panel__page-info">Showing 0-0 of 0</span>
+                        <div class="wg-food-db-panel__page-actions pagination-buttons">
+                            <button id="fooddb-prev-btn" class="wg-gloss wg-food-db-panel__page-btn">Prev</button>
+                            <button id="fooddb-next-btn" class="wg-gloss wg-food-db-panel__page-btn">Next</button>
+                        </div>
+                    </div>
+                </section>
             </div>
         </div>
 
         <div id="health-view" class="view">
-            <div class="section-header-mount" data-title="Health"></div>
             <div class="wg-gloss--inset wg-health-subtabs health-tabs" id="health-subtabs">
                 <button class="wg-gloss wg-health-subtabs__btn wg-gloss--sun wg-health-subtabs__btn--active health-tab active" data-tab="overview" aria-pressed="true">Overview</button>
                 <button class="wg-gloss wg-health-subtabs__btn health-tab" data-tab="notes" aria-pressed="false">Notes</button>
@@ -279,11 +305,25 @@
 
             <div id="health-notes-tab" class="health-tab-content">
                 <div class="wg-health-notes">
-                    <div class="wg-health-notes-compose">
-                        <div class="wg-gloss--inset wg-health-notes-compose__wrap">
-                            <textarea id="notes-textarea" class="wg-health-notes-compose__textarea" placeholder="Write a note..." rows="3"></textarea>
+                    <div class="wg-card wg-health-notes-compose">
+                        <div class="wg-health-notes-compose__header">
+                            <span class="wg-mono-display wg-health-notes-compose__title">New note</span>
+                            <div class="wg-health-notes-compose__tags" id="notes-compose-tags" role="radiogroup" aria-label="Note tag">
+                                <button type="button" class="wg-tag wg-health-notes-compose__tag" data-tag="SLEEP" role="radio" aria-checked="false">SLEEP</button>
+                                <button type="button" class="wg-tag wg-health-notes-compose__tag" data-tag="STRESS" role="radio" aria-checked="false">STRESS</button>
+                                <button type="button" class="wg-tag wg-health-notes-compose__tag" data-tag="HR" role="radio" aria-checked="false">HR</button>
+                                <button type="button" class="wg-tag wg-health-notes-compose__tag" data-tag="SPO2" role="radio" aria-checked="false">SPO2</button>
+                                <button type="button" class="wg-tag wg-health-notes-compose__tag" data-tag="STEPS" role="radio" aria-checked="false">STEPS</button>
+                                <button type="button" class="wg-tag wg-health-notes-compose__tag" data-tag="NOTE" role="radio" aria-checked="false">NOTE</button>
+                            </div>
                         </div>
-                        <button id="notes-save-btn" class="wg-gloss wg-gloss--sun wg-health-notes-compose__save">Save note</button>
+                        <div class="wg-gloss--inset wg-health-notes-compose__wrap">
+                            <textarea id="notes-textarea" class="wg-health-notes-compose__textarea" placeholder="How are you feeling? What did you notice?" rows="3"></textarea>
+                        </div>
+                        <div class="wg-health-notes-compose__footer">
+                            <span id="notes-compose-count" class="wg-mono-display wg-health-notes-compose__count">empty</span>
+                            <button id="notes-save-btn" class="wg-gloss wg-gloss--sun wg-health-notes-compose__save" disabled>+ Add note</button>
+                        </div>
                     </div>
                     <div id="notes-loading" class="wg-health-notes__loading" style="display:none;">Loading notes...</div>
                     <ul id="notes-list" class="wg-health-notes__list list-reset"></ul>
@@ -292,8 +332,6 @@
         </div>
 
         <div id="settings-view" class="view">
-            <div class="section-header-mount" data-title="Settings"></div>
-
             <section class="wg-card wg-settings-section">
                 <h3 class="wg-settings-section__title">Sync</h3>
                 <p class="wg-settings-section__desc">Connectivity and background sync</p>
@@ -1177,53 +1215,87 @@
     </mt-modal>
 
     <!-- Modal for BP Recording -->
-    <mt-modal id="bp-modal" class="hidden wg-modal">
-        <div class="wg-modal__header">
-            <h3 id="bp-modal-title" class="wg-modal__title">Record Blood Pressure</h3>
-            <div class="wg-modal__actions">
-                <button type="button" id="bp-modal-cancel-btn" class="wg-gloss">Cancel</button>
-                <button type="submit" form="bp-form" class="wg-gloss wg-gloss--sun">Save</button>
+    <mt-modal id="bp-modal" class="hidden wg-modal wg-bp-modal">
+        <div class="wg-bp-modal__header">
+            <div class="wg-bp-modal__heading">
+                <span class="wg-section-label wg-bp-modal__eyebrow" id="bp-modal-eyebrow">New entry</span>
+                <span class="wg-mono-display wg-bp-modal__title" id="bp-modal-title">Blood pressure</span>
             </div>
+            <button type="button" id="bp-modal-close-btn" class="wg-icon-btn wg-bp-modal__close-btn"
+                aria-label="Close">
+                <span class="wg-gloss"></span>
+            </button>
         </div>
-        <form id="bp-form" class="wg-modal__body">
-            <div class="wg-field">
-                <label for="bp-datetime" class="wg-label">Time</label>
-                <input type="datetime-local" id="bp-datetime" class="wg-input" required>
-            </div>
-            <div class="wg-field--row">
-                <div class="wg-field">
-                    <label for="bp-systolic" class="wg-label">Systolic</label>
-                    <input type="number" id="bp-systolic" class="wg-input" min="60" max="250" placeholder="120"
-                        required inputmode="numeric">
-                </div>
-                <div class="wg-field">
-                    <label for="bp-diastolic" class="wg-label">Diastolic</label>
-                    <input type="number" id="bp-diastolic" class="wg-input" min="40" max="150" placeholder="80"
-                        required inputmode="numeric">
+
+        <form id="bp-form" class="wg-bp-modal__body">
+            <div class="wg-bp-modal__field">
+                <label for="bp-datetime" class="wg-bp-modal__label">Date &amp; time</label>
+                <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                    <input type="datetime-local" id="bp-datetime" class="wg-bp-modal__input" required>
                 </div>
             </div>
-            <div class="wg-field">
-                <label for="bp-pulse" class="wg-label">Pulse (optional)</label>
-                <input type="number" id="bp-pulse" class="wg-input" min="30" max="250" placeholder="70"
-                    inputmode="numeric">
+
+            <div class="wg-bp-modal__row wg-bp-modal__row--readings">
+                <div class="wg-bp-modal__field">
+                    <label for="bp-systolic" class="wg-bp-modal__label">Systolic</label>
+                    <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                        <input type="number" id="bp-systolic"
+                            class="wg-bp-modal__input wg-bp-modal__input--reading"
+                            min="60" max="250" placeholder="120" required inputmode="numeric">
+                    </div>
+                </div>
+                <div class="wg-bp-modal__field">
+                    <label for="bp-diastolic" class="wg-bp-modal__label">Diastolic</label>
+                    <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                        <input type="number" id="bp-diastolic"
+                            class="wg-bp-modal__input wg-bp-modal__input--reading"
+                            min="40" max="150" placeholder="80" required inputmode="numeric">
+                    </div>
+                </div>
+                <div class="wg-bp-modal__field">
+                    <label for="bp-pulse" class="wg-bp-modal__label">Pulse</label>
+                    <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                        <input type="number" id="bp-pulse"
+                            class="wg-bp-modal__input wg-bp-modal__input--reading"
+                            min="30" max="250" placeholder="70" inputmode="numeric">
+                    </div>
+                </div>
             </div>
-            <div class="wg-field">
-                <label for="bp-site" class="wg-label">Site</label>
-                <select id="bp-site" class="wg-select">
-                    <option value="right_arm">Right Arm</option>
-                    <option value="left_arm">Left Arm</option>
-                </select>
+
+            <div class="wg-bp-modal__row wg-bp-modal__row--meta">
+                <div class="wg-bp-modal__field">
+                    <label for="bp-site" class="wg-bp-modal__label">Site</label>
+                    <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                        <select id="bp-site" class="wg-bp-modal__input wg-bp-modal__select">
+                            <option value="right_arm">Right arm</option>
+                            <option value="left_arm">Left arm</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="wg-bp-modal__field">
+                    <label for="bp-position" class="wg-bp-modal__label">Position</label>
+                    <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                        <select id="bp-position" class="wg-bp-modal__input wg-bp-modal__select">
+                            <option value="seated">Seated</option>
+                            <option value="horizontal">Horizontal</option>
+                        </select>
+                    </div>
+                </div>
             </div>
-            <div class="wg-field">
-                <label for="bp-position" class="wg-label">Position</label>
-                <select id="bp-position" class="wg-select">
-                    <option value="seated">Seated</option>
-                    <option value="horizontal">Horizontal</option>
-                </select>
+
+            <div class="wg-bp-modal__field">
+                <label for="bp-notes" class="wg-bp-modal__label">Notes</label>
+                <div class="wg-gloss--inset wg-bp-modal__input-wrap">
+                    <textarea id="bp-notes" class="wg-bp-modal__input wg-bp-modal__textarea"
+                        placeholder="e.g. after coffee" rows="2"></textarea>
+                </div>
             </div>
-            <div class="wg-field">
-                <label for="bp-notes" class="wg-label">Notes</label>
-                <textarea id="bp-notes" class="wg-input" placeholder="Any notes..." rows="3"></textarea>
+
+            <div class="wg-bp-modal__actions">
+                <button type="button" id="bp-modal-cancel-btn"
+                    class="wg-gloss wg-bp-modal__action wg-bp-modal__action--cancel">Cancel</button>
+                <button type="submit" form="bp-form"
+                    class="wg-gloss wg-gloss--sun wg-bp-modal__action wg-bp-modal__action--save">Save entry</button>
             </div>
         </form>
     </mt-modal>
@@ -1232,8 +1304,8 @@
     <mt-modal id="weight-modal" class="hidden wg-modal wg-weight-modal">
         <div class="wg-weight-modal__header">
             <div class="wg-weight-modal__heading">
-                <span class="wg-section-label wg-weight-modal__eyebrow">Log</span>
-                <span class="wg-mono-display wg-weight-modal__title" id="weight-modal-title">New weight</span>
+                <span class="wg-section-label wg-weight-modal__eyebrow" id="weight-modal-eyebrow">New entry</span>
+                <span class="wg-mono-display wg-weight-modal__title" id="weight-modal-title">Weight</span>
             </div>
             <button type="button" id="weight-modal-close-btn" class="wg-icon-btn wg-weight-modal__close-btn"
                 aria-label="Close">
@@ -1315,30 +1387,38 @@
     </mt-modal>
 
     <!-- Modal for Medication Confirmation (from Push) -->
-    <mt-modal id="med-confirm-modal" class="hidden">
-        <div class="modal-header">
-            <h3 id="med-confirm-title">Time for Meds!</h3>
-            <div class="actions">
-                <button id="med-confirm-dismiss-btn" class="btn btn-secondary">Dismiss</button>
-                <button id="med-confirm-action-btn" class="btn btn-primary">Confirm
-                    Selected</button>
+    <mt-modal id="med-confirm-modal" class="hidden wg-modal wg-med-confirm-modal">
+        <div class="wg-med-confirm-modal__header">
+            <div class="wg-med-confirm-modal__heading">
+                <span class="wg-section-label wg-med-confirm-modal__eyebrow"
+                    id="med-confirm-eyebrow">Time for meds</span>
+                <span class="wg-mono-display wg-med-confirm-modal__title" id="med-confirm-title">Time for Meds!</span>
+                <span class="wg-med-confirm-modal__subtitle" id="med-confirm-subtitle"></span>
+            </div>
+            <button type="button" id="med-confirm-dismiss-btn"
+                class="wg-icon-btn wg-med-confirm-modal__close-btn" aria-label="Close">
+                <span class="wg-gloss"></span>
+            </button>
+        </div>
+
+        <div id="med-confirm-time-edit" class="wg-med-confirm-modal__time-edit hidden">
+            <label for="med-confirm-datetime" class="wg-med-confirm-modal__label">Time taken</label>
+            <div class="wg-gloss--inset wg-med-confirm-modal__input-wrap">
+                <input type="datetime-local" id="med-confirm-datetime" class="wg-med-confirm-modal__input">
             </div>
         </div>
-        <p id="med-confirm-subtitle" style="color: #666; margin-bottom: 15px;"></p>
 
-        <!-- Editable Time Input (Initially Hidden) -->
-        <div id="med-confirm-time-edit" style="display: none; margin-bottom: 15px;">
-            <label for="med-confirm-datetime">Time Taken:</label>
-            <input type="datetime-local" id="med-confirm-datetime">
+        <div id="med-confirm-list" class="wg-med-confirm-modal__list"></div>
+
+        <div class="wg-med-confirm-modal__secondary-actions">
+            <button type="button" id="med-confirm-snooze-btn"
+                class="wg-gloss wg-med-confirm-modal__secondary wg-med-confirm-modal__secondary--snooze">Snooze 10m</button>
+            <button type="button" id="med-confirm-skip-btn"
+                class="wg-gloss wg-med-confirm-modal__secondary wg-med-confirm-modal__secondary--skip">Skip</button>
         </div>
 
-        <div id="med-confirm-list" style="margin-bottom: 20px;">
-            <!-- Checkboxes injected here -->
-        </div>
-        <div class="actions" style="display: flex; gap: 10px; justify-content: space-between;">
-            <button id="med-confirm-snooze-btn" class="btn btn-secondary" style="flex: 1;">Snooze 10m</button>
-            <button id="med-confirm-skip-btn" class="btn btn-danger-outline" style="flex: 1;">Skip</button>
-        </div>
+        <button type="button" id="med-confirm-action-btn"
+            class="wg-gloss wg-gloss--sun wg-med-confirm-modal__primary">Confirm selected</button>
     </mt-modal>
 
     <!-- Modal for Workout Start (from Push) -->
@@ -1364,7 +1444,6 @@
     <script src="/static/js/components/empty-state.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/stat-card.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/action-row.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/components/section-header.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-icons.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-bottom-nav.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-sparkline.js?v=TIMESTAMP_PLACEHOLDER"></script>

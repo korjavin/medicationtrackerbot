@@ -18,9 +18,9 @@ describe('app.js medication confirm edit/log modes', () => {
     try {
       window.showMedicationConfirmModal([11], ['Vitamin D'], 'not-a-date', 'edit', [111]);
       expect(document.getElementById('med-confirm-title').innerText).toBe('Edit Intake');
-      expect(document.getElementById('med-confirm-time-edit').style.display).toBe('block');
+      expect(document.getElementById('med-confirm-time-edit').classList.contains('hidden')).toBe(false);
       expect(document.getElementById('med-confirm-action-btn').innerText).toBe('Update');
-      expect(document.getElementById('med-confirm-snooze-btn').style.display).toBe('none');
+      expect(document.getElementById('med-confirm-snooze-btn').classList.contains('hidden')).toBe(true);
       expect(consoleErrorSpy).toHaveBeenCalled();
       const lastErrorCall = consoleErrorSpy.mock.calls.at(-1);
       expect(lastErrorCall[0]).toBe('Error formatting date for input');

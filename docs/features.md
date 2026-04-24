@@ -2,7 +2,15 @@
 
 ## Today Dashboard
 
-Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashboard`). The unconditional home view on every cold start — `features/bootstrap.js` always calls `switchTab('today')` after auth; there is no persistent tab strip. Section views (BP, Weight, Meds, Workouts, Food, Health, Settings) are reached via card deep-links, the gear icon (Settings), or URL hash / `tgWebAppStartParam`.
+Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashboard`). The unconditional home view on every cold start — `features/bootstrap.js` always calls `switchTab('today')` after auth. Section views (BP, Weight, Meds, Workouts, Food, Health (labelled "Vitals" in the bottom nav), Settings) are reached via the bottom nav, card deep-links, or URL hash / `tgWebAppStartParam`.
+
+**DOM skeleton** (`#today-content` render order, via `features/today.js`):
+
+1. `.wg-today-shortcuts` — 3-tile row: Log food / Add BP / Add weight. Each tile opens the **existing** styled modal directly (`window.showAddFoodModal` / `window.showBPRecordModal` / `window.showWeightModal`) rather than navigating to the feature screen.
+2. `.wg-today-metrics` — 2-tile grid: BP tile (value + unit + status tag + sparkline, deeplinks to `bp`) and Weight tile (kg + delta tag + sparkline, deeplinks to `weight`). No SpO2 or HR tiles on Today.
+3. `.wg-fuel-card.wg-today-food` — clickable food card: mono kcal display + "% of target" + 4 `WGMacroBar` rows (Energy / Protein / Carbs / Fat).
+4. `.wg-today-wo-sleep` — 2-tile grid: Workout (name + group/time) and Sleep (duration + range).
+5. `.wg-today-meds` — plain card (no sun-yellow background banner): header row with icon tile + "Next · HH:MM · in X" label + "Take" gloss-sun button that opens `#med-confirm-modal`; divider; vertical list of upcoming meds (sun-dot + name).
 
 **Aggregation contract** — `aggregateToday(bootstrap, swrCaches, now)` is pure and synchronous; `Date.now()` is injected for testability. Returns a flat object where each field is `{ value, deeplink, status }`. Status values:
 
@@ -21,6 +29,7 @@ Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashb
 | `bpLatest`, `bpTrend7d` | `bootstrap.bp.readings` (7-day anchors) | `bp` |
 | `weightLatest`, `weightTrend7d` | `bootstrap.weight.logs` (7-day anchors) | `weight` |
 | `caloriesToday`, `caloriesTarget` | SWR `food_today` cache + `settings_bundle` food_targets | `food` |
+| `macrosToday`, `macrosTarget` | SWR `food_today` cache + `settings_bundle` food_targets | `food` |
 | `nextWorkout` | SWR `workout_next` cache | `workouts` |
 | `sleepLastNight` | SWR `health_overview.sleep_stats_7d` (most recent) | `health` |
 
@@ -34,7 +43,7 @@ Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashb
 
 ## Medication Tracking
 
-- **Sub-tabs**: Schedule (hour-grouped dose list with next-action card on top), History (day-grouped intake log with med + day-range filters and offline/rejected badges), Inventory (per-medication stock with low-stock alerts and Refill button that posts to `/api/medications/{id}/restock`). Active sub-tab persists under the `mt-meds-subtab` localStorage key.
+- **Sub-tabs**: History (default — day-grouped intake log with med + day-range filters and offline/rejected badges), Schedule (hour-grouped dose list with next-action card on top), Inventory (per-medication stock with low-stock alerts and Refill button that posts to `/api/medications/{id}/restock`). The "+ Add" medication button renders **inline** with the sub-tab strip (right-aligned `.wg-gloss--sun` pill, id `#add-btn`), not below the list. Active sub-tab persists under the `mt-meds-subtab` localStorage key.
 - **Schedule order**: hour-of-next-dose buckets (each under a `HH:MM · in Xh Ym` section label, earliest first) → `Scheduled` fallback for entries with no computable next dose → `As needed` → `Archived`. Entries within a bucket are sorted by next-dose time (fallback buckets by most-recent intake).
 - **Archiving & Deleting**: active medications can be archived; archived medications can be permanently deleted only if they have no intake history
 - **Schedule Types**: Daily, Weekly, As-Needed with optional Start/End dates
@@ -49,11 +58,12 @@ Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashb
 - **Target**: <130/80 mmHg
 - **Tracking**: 2–3x daily recommended
 - **Statistics**: daily-weighted averaging — each day with readings gets equal weight regardless of measurement count (prevents frequency bias). Day boundaries use the user's stored timezone (falls back to UTC).
+- **UI layout**: the "+ Log" BP button renders **inline** with the range selector (14d / 30d / 60d) inside `.wg-bp-range-selector__track`, not as a floating FAB. `#add-bp-btn` is a `.wg-gloss--sun` pill that re-renders with the range selector.
 - **Export**: CSV
 
 ## Weight Tracking
 
-- **UI layout** (Wandergeek Phase 6): current-weight card (mono kg display + trend arrow colored by `goal_direction` — decreasing is "good" under `lose`, increasing under `gain`), optional goal card with progress bar, 7d/30d/90d/All range selector persisted via `mt-weight-range` (default `30d`), single-series `WGWeightChart` line chart with optional dashed goal overlay, and a day-grouped history list.
+- **UI layout** (Wandergeek Phase 6): header row at the top of `#weight-view` with the current-weight card on the left (mono kg display + trend arrow colored by `goal_direction` — decreasing is "good" under `lose`, increasing under `gain`) and the inline "+ Log" button (`#add-weight-btn`, `.wg-gloss--sun`) on the right. Below: optional goal card with progress bar, 7d/30d/90d/All range selector persisted via `mt-weight-range` (default `30d`), single-series `WGWeightChart` line chart with optional dashed goal overlay, and a day-grouped history list. There is no bottom CTA.
 - **Edit modal**: kg/lb unit toggle (replaces the paper-era drag ruler). Editing an existing entry deletes the original and POSTs the replacement because the backend has no PATCH route for `/api/weight`.
 - **Trend**: exponential moving average for smooth visualization
 - **Export**: CSV in Libra format (compatible with Libra app)
@@ -61,12 +71,14 @@ Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashb
 
 ## Food Tracking
 
+- **UI layout**: no outer sub-tab strip. `#food-view` opens directly on the daily log — the day navigator sits at the top with an inline `#add-food-inline-btn` sun-gloss "+ Add" pill; below it, the macros card (`#food-macros-card`) carries an in-card Daily / Weekly segmented toggle. Daily shows today's totals; Weekly shows the 7-day total plus an "avg N kcal/day · 7d" subtitle. The meal list stays daily regardless of the toggle. My Meals and Food DB live behind a collapsible `#food-library-view` reachable via the "Meals · Food DB" entry under the meal list. A sticky `.wg-food-cta-dock` at the bottom of `#food-log-tab` mirrors the inline + Add for parity with long scrolls.
 - **Manual logging**: web UI (Open Food Facts search) and multi-item "Meals" templates with aggregated macros
+- **Barcode**: `#food-modal` supports barcode auto-lookup (type into `#food-barcode`) and camera scanning via `#food-scanner-modal` (`#food-scan-btn` opens the camera, "Use Photo" decodes a picked image)
 - **`/food` Telegram command**: natural-language meal logging via AI. The AI splits complex meals into atomic items (one row per distinct food/ingredient) and normalizes dish names to common English terms regardless of input language (e.g., Russian "куриная грудка с рисом" → two items named "chicken breast" and "rice"). Each item becomes its own `food_log` row sharing the same `eaten_at` timestamp. The bot replies with a per-item breakdown plus an aggregate total. On partial failure, remaining items still persist and the reply reports "Logged N of M items".
 
 ## Workout Tracking
 
-- **UI layout** (Wandergeek Phase 7): four sub-tabs (History / Groups / Exercises / Stats) persisted via `mt-workouts-subtab` (default `history`); History surfaces a day-grouped session list with per-row view/edit/delete actions, Groups and Exercises sub-tabs render as `.wg-card` lists with full-width `.wg-gloss--sun` "Add" CTAs, and Stats renders a 7d/30d/90d/All range selector (persisted via `mt-workouts-stats-range`) driving a single-series `WGWorkoutChart` sessions-per-week trend plus a 2×2 stat-tile grid (Active Weeks / 30-Day Sessions / Done / Skipped) and a Top Exercises list.
+- **UI layout** (Wandergeek Phase 7): four sub-tabs (History / Groups / Exercises / Stats) persisted via `mt-workouts-subtab` (default `history`); History surfaces a day-grouped session list with per-row view/edit/delete actions, Groups and Exercises sub-tabs render as `.wg-card` lists with full-width `.wg-gloss--sun` "Add" CTAs, and Stats renders a 7d/30d/90d/All range selector (persisted via `mt-workouts-stats-range`) driving a single-series `WGWorkoutChart` sessions-per-week trend plus a 2×2 stat-tile grid (Active Weeks / 30-Day Sessions / Done / Skipped) and a Top Exercises list. The "+ Start" ad-hoc workout button (`#start-adhoc-workout-btn`) renders **inline** with the sub-tab strip (right-aligned `.wg-gloss--sun` pill), not below the history list.
 - **Hierarchy**: Groups → Variants → Exercises
 - **Rotation**: automatic A/B/C/D progression (e.g., PPL, PHUL splits)
 - **Scheduling**: configurable days of week, notification advance time (default 15 min)
@@ -78,6 +90,15 @@ Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashb
 ### Stats API (`/api/workout/stats`)
 
 Returns `active_weeks` (count of weeks with at least one completed session) and `total_sessions` (sum of completed and skipped). Does **not** return streak or total volume metrics.
+
+## Diary Notes
+
+- **Backing table**: `diary_notes` (id, user_id, content, created_at, tag). The `tag` column is nullable — legacy rows stay NULL and the column was added by migration `054_add_diary_notes_tag.sql`.
+- **Tag enum**: one of `SLEEP | STRESS | HR | SPO2 | STEPS | NOTE`, or NULL. The domain service (`internal/domain/notes.go` — `NotesService`) normalizes the tag on the way in: incoming values are upper-cased and matched against the 6-value enum; anything else is coerced to NULL so the handler returns `201` with the sanitized record rather than a `400`.
+- **Frontend composer** (`#health-notes-tab`): `.wg-card.wg-health-notes-compose` with a "New note" mono label on the left and a horizontally-scrollable 6-chip radiogroup on the right (`SLEEP / STRESS / HR / SPO2 / STEPS / NOTE`). The active chip carries `.wg-tag--sun`; tapping the active chip again deselects it. Below the header sits a textarea + footer row with a live char count and a `.wg-gloss--sun` "+ Add note" button (disabled when empty). Submit POSTs `{content, tag}` to `/api/notes` (the `tag` field is omitted when no chip is selected), prepends the new row to the list, and clears the composer.
+- **List rendering**: each note row shows a `.wg-tag--high.wg-health-notes-row__tag` pill with the tag label when `note.tag` is one of the 6 enum values; NULL and unknown values render no pill.
+- **Edit**: the legacy `#note-modal` still opens from a list row for editing an existing note's content (tag editing is not exposed in the edit modal yet — only the inline composer creates tagged rows).
+- **Bot**: `/note` command (`internal/bot/note_commands.go`) routes through the domain service with `tag = nil` — the bot surface has no tag picker.
 
 ## MCP Server
 

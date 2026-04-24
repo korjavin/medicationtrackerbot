@@ -89,12 +89,13 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
     });
 
     describe('showWeightModal()', () => {
-        it('opens the modal, sets the New-weight title, and seeds datetime + default value', () => {
+        it('opens the modal, sets the New-entry eyebrow, keeps the Weight title, and seeds datetime + default value', () => {
             const { window, document } = env;
             window.showWeightModal();
 
             expect(document.getElementById('weight-modal').classList.contains('hidden')).toBe(false);
-            expect(document.getElementById('weight-modal-title').textContent).toBe('New weight');
+            expect(document.getElementById('weight-modal-eyebrow').textContent).toBe('New entry');
+            expect(document.getElementById('weight-modal-title').textContent).toBe('Weight');
             expect(document.getElementById('weight-datetime').value).not.toBe('');
             expect(document.getElementById('weight-notes').value).toBe('');
             const valueInput = document.getElementById('weight-value');
@@ -136,7 +137,7 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
     });
 
     describe('editWeightLog()', () => {
-        it('prefills weight, datetime, notes and swaps the header to Edit weight', () => {
+        it('prefills weight, datetime, notes and swaps the eyebrow to Edit entry while the title stays Weight', () => {
             const { window, document } = env;
             const measuredAt = new Date('2026-03-12T09:30:00Z').toISOString();
             window.editWeightLog({
@@ -144,7 +145,8 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             });
 
             expect(document.getElementById('weight-modal').classList.contains('hidden')).toBe(false);
-            expect(document.getElementById('weight-modal-title').textContent).toBe('Edit weight');
+            expect(document.getElementById('weight-modal-eyebrow').textContent).toBe('Edit entry');
+            expect(document.getElementById('weight-modal-title').textContent).toBe('Weight');
             expect(parseFloat(document.getElementById('weight-value').value)).toBeCloseTo(78.4, 2);
             expect(document.getElementById('weight-notes').value).toBe('post-run');
             expect(document.getElementById('weight-datetime').value).not.toBe('');

@@ -31,9 +31,19 @@ function setActiveBPRange(days) {
     try { window.localStorage.setItem(BP_RANGE_STORAGE_KEY, String(days)); } catch (_) { /* ignore */ }
 }
 
+function renderBPModalIcons() {
+    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
+    const closeGloss = document.querySelector('#bp-modal-close-btn .wg-gloss');
+    if (closeGloss && !closeGloss.querySelector('svg')) {
+        closeGloss.replaceChildren(window.WGIcons.iconSvg('close', { size: 14 }));
+    }
+}
+
 // Show BP recording modal
 function showBPRecordModal() {
     window.ModalManager.bp.open();
+    renderBPModalIcons();
+    setBPModalEyebrow('New entry');
 
     // Set default datetime to now
     document.getElementById('bp-datetime').value = formatDateTimeLocalForInput();
@@ -48,6 +58,11 @@ function showBPRecordModal() {
 
     // Focus the systolic field
     document.getElementById('bp-systolic').focus();
+}
+
+function setBPModalEyebrow(text) {
+    const el = document.getElementById('bp-modal-eyebrow');
+    if (el) el.textContent = text;
 }
 
 // Close BP modal
@@ -98,6 +113,14 @@ async function handleBPSubmit(event) {
             await window.DataStore.invalidateTags(['bp']);
             await loadBPReadings();
             closeBPRecordModal();
+            // Today shortcut path: the visible tab is 'today' while the BP
+            // modal is open, and loadBPReadings() only updates the hidden BP
+            // screen. Refresh Today so the dashboard tile reflects the new
+            // reading without waiting for a future cross-device change poll.
+            if (window.AppStore && window.AppStore.get('currentTab') === 'today'
+                && typeof window.loadToday === 'function') {
+                window.loadToday();
+            }
         }
     } finally {
         bpSubmitInFlight = false;
@@ -108,6 +131,18 @@ async function handleBPSubmit(event) {
 // Load BP readings from API (with offline support)
 async function loadBPReadings() {
     const list = document.getElementById('bp-list');
+    // Always render the range selector (with its inline +Log button) before
+    // loadSWR runs. Otherwise, a first-visit user who is offline with no
+    // cache and whose fetch resolves to null (apiCall returns null on 5xx /
+    // network failure without throwing) would get neither onCached, onFresh,
+    // nor onError \u2014 leaving the screen with no way to log a reading.
+    renderRangeSelector({
+        active: getActiveBPRange(),
+        onChange: (days) => {
+            setActiveBPRange(days);
+            loadBPReadings();
+        }
+    });
     await window.DataStore.loadSWR({
         key: 'bp',
         tags: ['bp'],
@@ -180,15 +215,12 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
         }
     }
 
-    if (allReadings.length === 0 && readingsRes === null) {
-        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
-
-        return;
-    }
-
     const activeRange = getActiveBPRange();
 
-    renderCurrentReading(pickLatestReading(allReadings), allReadings);
+    // Always render the range selector row so the trailing inline +Log button
+    // (#add-bp-btn) is visible even when there's no cached data yet \u2014 the
+    // button is the user's only affordance for logging a reading, and the
+    // offline-write path works without any prior data.
     renderRangeSelector({
         active: activeRange,
         onChange: (days) => {
@@ -196,6 +228,13 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
             _renderBPData(readingsRes, goalRes, statsRes);
         }
     });
+
+    if (allReadings.length === 0 && readingsRes === null) {
+        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+        return;
+    }
+
+    renderCurrentReading(pickLatestReading(allReadings), allReadings);
     renderBPChart(allReadings, goalRes || {});
     renderBPAverages(statsRes || {});
 
@@ -305,7 +344,10 @@ function renderRangeSelector(opts) {
     const onChange = typeof options.onChange === 'function' ? options.onChange : null;
 
     container.replaceChildren();
-    container.className = 'wg-gloss--inset wg-bp-range-selector';
+    container.className = 'wg-bp-range-selector';
+
+    const track = document.createElement('div');
+    track.className = 'wg-gloss--inset wg-bp-range-selector__track';
 
     BP_RANGE_OPTIONS.forEach((days) => {
         const btn = document.createElement('button');
@@ -319,8 +361,40 @@ function renderRangeSelector(opts) {
             if (days === active) return;
             if (onChange) onChange(days);
         });
-        container.appendChild(btn);
+        track.appendChild(btn);
     });
+
+    container.appendChild(track);
+    container.appendChild(buildBPInlineAddButton());
+}
+
+// Build the inline +Log button that sits at the end of the range-selector
+// row (Phase 5, Task 5). Kept as `#add-bp-btn` so offline-ui's disabled-state
+// sweep still finds it, and so existing tests / bindings keep working.
+function buildBPInlineAddButton() {
+    const btn = document.createElement('button');
+    btn.id = 'add-bp-btn';
+    btn.type = 'button';
+    btn.className = 'wg-gloss wg-gloss--sun wg-bp-range-selector__add';
+    btn.setAttribute('aria-label', 'Log blood pressure');
+
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        const icon = window.WGIcons.iconSvg('plus', { size: 14 });
+        if (icon) btn.appendChild(icon);
+    }
+    const label = document.createElement('span');
+    label.className = 'wg-bp-range-selector__add-label';
+    label.textContent = 'Log';
+    btn.appendChild(label);
+
+    btn.addEventListener('click', () => {
+        if (typeof window.showBPRecordModal === 'function') {
+            window.showBPRecordModal();
+        } else if (typeof showBPRecordModal === 'function') {
+            showBPRecordModal();
+        }
+    });
+    return btn;
 }
 
 // Render BP Chart — delegates to WGBpChart for the Wandergeek SVG and filters
