@@ -456,5 +456,112 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             const input = document.getElementById('weight-value');
             expect(document.activeElement).toBe(input);
         });
+
+        it('does NOT overwrite an edit-modal value with the async DataStore seed when the edited weight rounds to the 75.0 default', async () => {
+            // Regression: editWeightLog() calls showWeightModal() first, which
+            // schedules an async seed from DataStore with the baseline =
+            // "75.0". editWeightLog then writes the selected row's value. If
+            // the row happens to equal 75.0, the baseline guard incorrectly
+            // passes and the async callback overwrites the edit with the
+            // cached latest weight.
+            const { window, document } = env;
+            const cachedPayload = {
+                logsRes: [
+                    { id: 9, measured_at: '2026-04-20T07:00:00Z', weight: 82.5 },
+                ]
+            };
+            window.DataStore.getCached = vi.fn(async (key) => key === 'weight' ? cachedPayload : null);
+
+            window.editWeightLog({ id: 42, measured_at: '2026-04-20T08:00:00Z', weight: 75.0, notes: '' });
+            // Flush microtask queue so the async seed resolves.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            const input = document.getElementById('weight-value');
+            // Must stay at 75.0 (the edit target), not 82.5 (the cached latest).
+            expect(parseFloat(input.value)).toBeCloseTo(75.0, 2);
+        });
+
+        it('a stale async seed from a prior open cannot overwrite a later session even when the later open skips the fallback branch', async () => {
+            // Regression: if the first open finds cachedWeightLogs empty it
+            // schedules an async seed keyed by weightModalOpenGen. If the gen
+            // only bumps inside the fallback branch, a subsequent open that
+            // SKIPs the branch (because cachedWeightLogs is now populated)
+            // leaves the gen unchanged — the stale promise resolves with the
+            // same gen it captured, passes the check, and overwrites the
+            // current input.
+            const { window, document } = env;
+
+            // First getCached call (from showWeightModal's async seed) is
+            // gated; subsequent calls (e.g. from DataStore.loadSWR) return
+            // null so the fresh fetcher path runs normally.
+            let resolveFirst;
+            const firstGate = new Promise((resolve) => { resolveFirst = resolve; });
+            let getCachedCount = 0;
+            window.DataStore.getCached = vi.fn(async (key) => {
+                if (key !== 'weight') return null;
+                getCachedCount += 1;
+                if (getCachedCount === 1) {
+                    await firstGate;
+                    return { logsRes: [{ id: 9, measured_at: '2026-04-20T07:00:00Z', weight: 82.5 }] };
+                }
+                return null;
+            });
+
+            // First open: cachedWeightLogs is empty → fallback branch runs
+            // and the async seed stays in flight (gated on firstGate).
+            window.showWeightModal();
+            window.closeWeightModal();
+
+            // Populate cachedWeightLogs with a fresh 75.0 via loadWeightLogs.
+            const apiCallSpy = vi.fn()
+                .mockResolvedValueOnce([{ id: 10, measured_at: '2026-04-22T07:00:00Z', weight: 75.0 }])
+                .mockResolvedValueOnce({ goal: null });
+            window.apiCall = apiCallSpy;
+            await window.loadWeightLogs();
+
+            // Second open: cachedWeightLogs is now populated so the fallback
+            // branch is SKIPPED. The input is seeded synchronously to 75.0.
+            window.showWeightModal();
+            const input = document.getElementById('weight-value');
+            expect(parseFloat(input.value)).toBeCloseTo(75.0, 2);
+
+            // Release the stale seed from the first open. With the fix,
+            // weightModalOpenGen was bumped on the second open, so the stale
+            // promise's captured openGen no longer matches and setWeightValue
+            // is short-circuited.
+            resolveFirst();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(parseFloat(input.value)).toBeCloseTo(75.0, 2);
+        });
+
+        it('picks the newest weight across DataStore cache AND IndexedDB WeightStore (defect #3 follow-up)', async () => {
+            // An offline log lives only in WeightStore until sync; when the
+            // user opens the modal via the Today shortcut before sync lands,
+            // the seed must reflect the actual newest value — not the older
+            // server entry in the DataStore cache.
+            const { window, document } = env;
+            const cachedPayload = {
+                logsRes: [
+                    { id: 9, measured_at: '2026-04-20T07:00:00Z', weight: 80.0 },
+                ]
+            };
+            window.DataStore.getCached = vi.fn(async (key) => key === 'weight' ? cachedPayload : null);
+            window.MedTrackerDB = {
+                WeightStore: {
+                    getAll: vi.fn(async () => [
+                        // Newer offline/pending entry, not yet synced.
+                        { localId: 1, measured_at: '2026-04-22T07:00:00Z', weight: 82.5, syncStatus: 'pending' },
+                    ]),
+                },
+            };
+
+            window.showWeightModal();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            const input = document.getElementById('weight-value');
+            expect(parseFloat(input.value)).toBeCloseTo(82.5, 2);
+        });
     });
 });
