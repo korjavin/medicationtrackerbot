@@ -1361,15 +1361,53 @@ select {
     padding: 40px var(--space-xl);
 }
 
-/* Weight Section */
+/* Weight Section — Wandergeek chart card surface.
+   Shares the same teal card background / hairline border as #bpChart so the
+   weight screen matches the rest of the stage instead of showing through the
+   Telegram theme's --secondary-bg-color (which is near-white on light
+   clients and made the chart and Y-axis tick labels illegible). */
 #weightChart {
-    height: 250px;
-    margin-bottom: var(--space-xl);
-    background: var(--secondary-bg-color);
-    border-radius: var(--radius-sm);
-    padding: var(--space-xl) var(--space-md);
+    margin-bottom: var(--space-md);
+    padding: var(--wg-chart-card-pad);
+    background: var(--wg-chart-card-bg);
+    border: 1px solid var(--wg-chart-card-border);
+    border-radius: var(--wg-chart-card-radius);
     box-sizing: border-box;
     position: relative;
+}
+
+.wg-weight-chart-panel__current {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xs);
+    padding: 0 2px;
+}
+
+.wg-weight-chart-panel__current-label {
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wg-fg-4);
+}
+
+.wg-weight-chart-panel__current-value {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-weight-goal-value-size);
+    line-height: 1;
+    color: var(--wg-fg-1);
+    letter-spacing: -0.01em;
+}
+
+.wg-weight-chart-panel__current-unit {
+    font-family: var(--wg-font-mono);
+    font-size: 0.55em;
+    margin-left: 0.25em;
+    color: var(--wg-fg-3);
+    letter-spacing: 0.04em;
 }
 
 svg.chart-svg {
