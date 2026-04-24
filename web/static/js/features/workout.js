@@ -111,6 +111,7 @@ function bindWorkoutControls() {
     bindClick('add-flat-exercise-btn', () => showAddExerciseModalFromGroup());
 
     bindClick('variant-cancel-btn', () => closeVariantModal());
+    bindClick('workout-variant-close-btn', () => closeVariantModal());
     bindClick('variant-save-btn', () => saveVariant());
     bindClick('variant-add-exercise-btn', () => showAddExerciseModal());
 
