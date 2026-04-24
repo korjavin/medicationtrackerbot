@@ -147,7 +147,10 @@ const BPStore = {
             .toArray();
     },
 
-    // Update local readings with server data (after fetching from API)
+    // Update local readings with server data (after fetching from API).
+    // Per-item writes are isolated: a single duplicate-key ConstraintError
+    // (e.g. optimistic insert already placed the row) must not abort the
+    // batch and suppress the downstream "list re-render" signal.
     async syncFromServer(serverReadings) {
         // Get all local readings that are synced (have serverId)
         const localSynced = await db.bp_readings
@@ -160,11 +163,15 @@ const BPStore = {
         // Add new readings from server that we don't have locally
         for (const serverReading of serverReadings) {
             if (!localServerIds.has(serverReading.id)) {
-                await db.bp_readings.add({
-                    ...serverReading,
-                    serverId: serverReading.id,
-                    syncStatus: 'synced'
-                });
+                try {
+                    await db.bp_readings.add({
+                        ...serverReading,
+                        serverId: serverReading.id,
+                        syncStatus: 'synced'
+                    });
+                } catch (e) {
+                    if (e?.name !== 'ConstraintError') throw e;
+                }
             }
         }
     },
@@ -298,7 +305,10 @@ const WeightStore = {
             .toArray();
     },
 
-    // Update local logs with server data (after fetching from API)
+    // Update local logs with server data (after fetching from API).
+    // Per-item writes are isolated: a single duplicate-key ConstraintError
+    // (e.g. optimistic insert already placed the row) must not abort the
+    // batch and suppress the downstream "list re-render" signal.
     async syncFromServer(serverLogs) {
         // Get all local logs that are synced (have serverId)
         const localSynced = await db.weight_logs
@@ -311,11 +321,15 @@ const WeightStore = {
         // Add new logs from server that we don't have locally
         for (const serverLog of serverLogs) {
             if (!localServerIds.has(serverLog.id)) {
-                await db.weight_logs.add({
-                    ...serverLog,
-                    serverId: serverLog.id,
-                    syncStatus: 'synced'
-                });
+                try {
+                    await db.weight_logs.add({
+                        ...serverLog,
+                        serverId: serverLog.id,
+                        syncStatus: 'synced'
+                    });
+                } catch (e) {
+                    if (e?.name !== 'ConstraintError') throw e;
+                }
             }
         }
     },
@@ -393,15 +407,15 @@ const MedicationStore = {
     // Cache TTL: 7 days (medications don't change often)
     CACHE_TTL: 7 * 24 * 60 * 60 * 1000,
 
-    // Save medications list to cache
+    // Save medications list to cache.
+    // Uses put() (upsert) rather than clear()+add() so concurrent writers
+    // can't race into a `ConstraintError: Key already exists` between the
+    // clear and the add — that error aborted the post-mutation refresh chain
+    // for unrelated UI paths (notes list, BP list, Today macro card).
     async saveCache(medications) {
         dbLog('Saving medications cache', { count: medications.length });
 
-        // Clear existing cache
-        await db.medication_cache.clear();
-
-        // Save new cache with timestamp
-        await db.medication_cache.add({
+        await db.medication_cache.put({
             id: 'medications_list',
             timestamp: Date.now(),
             data: medications
