@@ -44,10 +44,11 @@ const CSS = fs.readFileSync(CSS_PATH, 'utf8');
 const TOOLBAR_BTN_MIGRATION_TODO = [
     // Round-2 Task 5 (defect #8): `#add-bp-btn` — ADOPTED; DOM adoption
     // pinned in `bp.render.test.js` and reasserted below.
+    // Round-2 Task 6 (defect #9): `#add-food-inline-btn` — ADOPTED; DOM
+    // adoption pinned in `food.toolbar-row.test.js` and reasserted below.
     { file: 'web/static/index.html',          button: '#add-btn',    oneOffClass: '.wg-meds-subtabs-row__add',    task: 'Round-2 Task 7 (defect #10)' },
     { file: 'web/static/index.html',          button: '#start-adhoc-workout-btn', oneOffClass: '.wg-workouts-subtabs-row__add', task: 'Round-2 Task 10 (defect #13b)' },
     { file: 'web/static/index.html',          button: '#add-weight-btn', oneOffClass: '.wg-weight-header-row__add', task: 'Round-2 Task 12 (defect #15)' },
-    { file: 'web/static/index.html',          button: '#add-food-inline-btn', oneOffClass: '.wg-food-day-nav__add', task: 'Round-2 (follow-up, defect #9)' },
 ];
 
 function extractRule(css, selector) {
@@ -144,5 +145,26 @@ describe('Round-2 Task 2 — shared .wg-toolbar-btn class', () => {
         // also removed; the new shared class is `.wg-toolbar-btn__label`.
         expect(CSS).not.toMatch(/\.wg-bp-range-selector__add\s*\{/);
         expect(CSS).not.toMatch(/\.wg-bp-range-selector__add-label\s*\{/);
+    });
+
+    // Round-2 Task 6 (defect #9): Food +Add inline pill adopted the shared
+    // class. Source-level guard on index.html — a DOM-level adoption test
+    // lives in `food.toolbar-row.test.js`.
+    it('Food #add-food-inline-btn uses .wg-toolbar-btn + .wg-toolbar-btn--primary (not the old one-off)', () => {
+        const INDEX_HTML_PATH = path.join(REPO_ROOT, 'web/static/index.html');
+        const src = fs.readFileSync(INDEX_HTML_PATH, 'utf8');
+        // Find the button element and check its class attribute.
+        const match = src.match(/<button\s+id="add-food-inline-btn"[^>]*class="([^"]+)"/);
+        expect(match).not.toBeNull();
+        const classAttr = match[1];
+        expect(classAttr).toMatch(/\bwg-toolbar-btn\b/);
+        expect(classAttr).toMatch(/\bwg-toolbar-btn--primary\b/);
+        // The per-section one-off must not coexist with the shared class.
+        expect(classAttr).not.toMatch(/\bwg-food-day-nav__add\b/);
+    });
+
+    it('CSS no longer defines the dead .wg-food-day-nav__add rule', () => {
+        expect(CSS).not.toMatch(/\.wg-food-day-nav__add\s*\{/);
+        expect(CSS).not.toMatch(/\.wg-food-day-nav__add-label\s*\{/);
     });
 });

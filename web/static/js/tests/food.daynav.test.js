@@ -60,13 +60,18 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         expect(subtitle.classList.contains('wg-section-label')).toBe(true);
         expect(subtitle.classList.contains('wg-food-day-nav__subtitle')).toBe(true);
 
-        // Phase 5, Task 4 — inline +Add sun-gloss button lives inside the
-        // day-nav row and opens the food modal directly.
+        // Phase 5, Task 4 — inline +Add lives inside the day-nav row and
+        // opens the food modal directly. Round-2 Task 6 (defect #9) migrated
+        // the button from the per-section `.wg-food-day-nav__add` one-off to
+        // the shared `.wg-toolbar-btn .wg-toolbar-btn--primary` sizing pair
+        // so it matches the adjacent chevron icon buttons and the +Log /
+        // Add / Start adopters on BP / Meds / Workouts / Weight.
         const addBtn = document.getElementById('add-food-inline-btn');
         expect(addBtn).not.toBeNull();
-        expect(addBtn.classList.contains('wg-gloss')).toBe(true);
-        expect(addBtn.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(addBtn.classList.contains('wg-food-day-nav__add')).toBe(true);
+        expect(addBtn.classList.contains('wg-toolbar-btn')).toBe(true);
+        expect(addBtn.classList.contains('wg-toolbar-btn--primary')).toBe(true);
+        // The dead per-section one-off must not come back on this button.
+        expect(addBtn.classList.contains('wg-food-day-nav__add')).toBe(false);
     });
 
     it('updateFoodDateNav populates both title and DD.MM.YYYY subtitle', () => {
