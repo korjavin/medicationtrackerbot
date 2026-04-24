@@ -3823,6 +3823,11 @@ textarea.wg-input {
     font: inherit;
     text-align: left;
     width: 100%;
+    /* WHY: the meds variant renders as a <div>, which defaults to
+       box-sizing: content-box. Without this, width: 100% + padding
+       overflows the Today stage gutter while sibling <button> cards
+       (fuel/plan tiles) pick up UA border-box and stay inside it. */
+    box-sizing: border-box;
     cursor: pointer;
 }
 
@@ -3921,6 +3926,7 @@ textarea.wg-input {
     font: inherit;
     cursor: pointer;
     width: 100%;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: var(--space-xs);
@@ -3973,6 +3979,7 @@ textarea.wg-input {
     font: inherit;
     text-align: left;
     width: 100%;
+    box-sizing: border-box;
     cursor: pointer;
 }
 
@@ -4083,6 +4090,7 @@ textarea.wg-input {
     font: inherit;
     text-align: left;
     width: 100%;
+    box-sizing: border-box;
     cursor: pointer;
     display: flex;
     flex-direction: column;
@@ -4138,6 +4146,7 @@ textarea.wg-input {
     font: inherit;
     cursor: pointer;
     width: 100%;
+    box-sizing: border-box;
 }
 
 .wg-shortcut-tile__icon {

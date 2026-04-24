@@ -96,10 +96,10 @@ Root-cause the recurring "primary action button in a section toolbar row is visu
 
 ### Task 3: Today — Fix "Next up" medication card width (#1)
 
-- [ ] in `web/static/js/features/today.js` (and/or the shared Today card CSS in `css/styles.css`), align the "Next up" medication card's horizontal inset / max-width to match the kcal card and the Workout+Sleep row above it
-- [ ] verify on mobile viewport (390×844 and 375×812) that all Today cards share identical left and right edges
-- [ ] add a DOM/layout test or visual-regression snapshot if the project already has one for Today; otherwise a short assertion that the medication card and kcal card share the same computed `max-width` / wrapper class
-- [ ] run `pnpm test` — must pass before Task 4
+- [x] in `web/static/js/features/today.js` (and/or the shared Today card CSS in `css/styles.css`), align the "Next up" medication card's horizontal inset / max-width to match the kcal card and the Workout+Sleep row above it — root cause traced to `box-sizing` mismatch: `.wg-next-action-card` renders on a `<div>` (UA default `content-box`), so `width: 100%` + padding overflowed the Today stage gutter, while the sibling `.wg-fuel-card` on a `<button>` picked up UA `border-box` and stayed inside. Added explicit `box-sizing: border-box` to `.wg-next-action-card`, `.wg-fuel-card`, `.wg-metric-tile`, `.wg-plan-tile`, `.wg-shortcut-tile` so every Today card is UA-agnostic
+- [x] verify on mobile viewport (390×844 and 375×812) that all Today cards share identical left and right edges [x] manual test (skipped - not automatable; to be re-verified after deploy per Post-Completion section)
+- [x] add a DOM/layout test or visual-regression snapshot if the project already has one for Today; otherwise a short assertion that the medication card and kcal card share the same computed `max-width` / wrapper class — `web/static/js/tests/today.card-width.test.js` parses `styles.css` and asserts all five Today card classes declare `box-sizing: border-box`, plus a DOM assertion that the meds card carries `.wg-next-action-card` (so the shared rule applies) and both cards are direct children of the Today root
+- [x] run `pnpm test` — must pass before Task 4 (1403/1403 frontend tests green; all Go packages pass)
 
 ### Task 4: Today — Add Weight modal correctness (#2, #3, #4) + verify #5 resolved
 
