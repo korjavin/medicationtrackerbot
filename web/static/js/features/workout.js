@@ -383,29 +383,20 @@ function _renderNextWorkout(container, data) {
     const _dateParts = (session.scheduled_date || '').split('T')[0].split('-').map(Number);
     const date = _dateParts.length === 3 ? new Date(_dateParts[0], _dateParts[1] - 1, _dateParts[2]) : new Date();
 
-    // Determine card styling based on status
-    let cardClass = 'next-workout-card';
-    let statusEmoji = '📅';
+    // Round-2 Task 10 (defect #13a): kicker label replaces the legacy
+    // emoji-prefixed status line. Text content preserved so downstream
+    // tests (loadNextWorkout / SWR / snoozed paths) keep pinning the same
+    // status strings.
     let statusText = 'Upcoming';
-
     if (isSnoozed) {
-        cardClass += ' notified';
-        statusEmoji = '⏰';
         statusText = 'Snoozed';
     } else if (status === 'in_progress') {
-        cardClass += ' in-progress';
-        statusEmoji = '🏋️';
         statusText = 'In Progress';
     } else if (status === 'notified') {
-        cardClass += ' notified';
-        statusEmoji = '🔔';
         statusText = 'Ready to Start';
     } else if (status === 'pre_skipped') {
-        cardClass += ' pre-skipped';
-        statusEmoji = '⏭';
         statusText = 'To Be Skipped';
     } else if (isToday) {
-        cardClass += ' today';
         statusText = 'Today';
     }
 
@@ -420,17 +411,17 @@ function _renderNextWorkout(container, data) {
     const isRotating = data.is_rotating || false;
 
     const card = document.createElement('div');
-    card.className = cardClass;
+    card.className = 'wg-workouts-next-card';
 
     const header = document.createElement('div');
-    header.className = 'next-workout-header';
+    header.className = 'wg-workouts-next-card__header';
 
     const statusEl = document.createElement('div');
-    statusEl.className = 'next-workout-status';
-    statusEl.textContent = `${statusEmoji} ${statusText}`;
+    statusEl.className = 'wg-workouts-next-card__kicker';
+    statusEl.textContent = statusText;
 
     const dateEl = document.createElement('div');
-    dateEl.className = 'next-workout-date';
+    dateEl.className = 'wg-workouts-next-card__date';
     dateEl.textContent = `${dateStr} at ${session.scheduled_time}`;
 
     header.appendChild(statusEl);
@@ -438,27 +429,40 @@ function _renderNextWorkout(container, data) {
     card.appendChild(header);
 
     const info = document.createElement('div');
-    info.className = 'next-workout-info';
-    info.classList.add('cursor-pointer');
+    info.className = 'wg-workouts-next-card__info';
     info.title = 'View/edit planned exercises';
     info.addEventListener('click', () => {
         openNextWorkoutEditModal(variantId, groupId);
     });
 
     const title = document.createElement('h3');
+    title.className = 'wg-workouts-next-card__title';
     title.textContent = data.group_name;
     const subtitle = document.createElement('p');
-    subtitle.textContent = `${data.variant_name} • ${data.exercises_count} exercises ✏️`;
+    subtitle.className = 'wg-workouts-next-card__subtitle';
+    subtitle.textContent = `${data.variant_name} · ${data.exercises_count} exercises`;
     info.appendChild(title);
     info.appendChild(subtitle);
     card.appendChild(info);
 
     const isOffline = window.SyncManager && !window.SyncManager.isOnline;
-    const createButton = (label, className, onClick) => {
+    // Round-2 Task 10 (defect #13a): every action button adopts the
+    // shared `.wg-toolbar-btn` sizing with a primary (yellow filled) or
+    // secondary (outline/ghost) variant. No emoji prefixes. The
+    // `workout-action-btn` marker class is preserved so `sync.js`
+    // offline-disabled handler (which scans `.workout-action-btn`) keeps
+    // flipping these buttons when connectivity drops mid-session.
+    const createButton = (label, variant, onClick) => {
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = className + ' workout-action-btn';
-        button.textContent = label;
+        const variantClass = variant === 'primary'
+            ? 'wg-toolbar-btn--primary'
+            : 'wg-toolbar-btn--secondary';
+        button.className = `wg-toolbar-btn ${variantClass} workout-action-btn`;
+        const labelEl = document.createElement('span');
+        labelEl.className = 'wg-toolbar-btn__label';
+        labelEl.textContent = label;
+        button.appendChild(labelEl);
         if (isOffline) {
             button.classList.add('offline-disabled');
             button.setAttribute('data-offline-disabled', 'true');
@@ -470,27 +474,24 @@ function _renderNextWorkout(container, data) {
         return button;
     };
 
+    const actions = document.createElement('div');
+    actions.className = 'wg-workouts-next-card__actions';
     if (status === 'in_progress') {
-        const row = document.createElement('div');
-        row.className = 'workout-btn-row';
-        row.appendChild(createButton('🏋️ Continue', 'btn btn-pill flex-1', showWorkoutSessionModal));
-        row.appendChild(createButton('🛑 Stop', 'btn btn-pill flex-1 workout-btn-stop', cancelWorkoutSession));
-        card.appendChild(row);
+        actions.appendChild(createButton('Continue', 'primary', showWorkoutSessionModal));
+        actions.appendChild(createButton('Stop', 'secondary', cancelWorkoutSession));
     } else if (status === 'pre_skipped') {
-        card.appendChild(createButton('↩ Cancel Skip', 'btn btn-pill workout-btn-full', cancelPreSkipWorkoutSession));
+        actions.appendChild(createButton('Cancel Skip', 'primary', cancelPreSkipWorkoutSession));
         if (isRotating) {
-            card.appendChild(createButton('↻ Next Variant', 'btn btn-pill workout-btn-full-secondary', nextWorkoutVariant));
+            actions.appendChild(createButton('Next Variant', 'secondary', nextWorkoutVariant));
         }
     } else {
-        const row = document.createElement('div');
-        row.className = 'workout-btn-row';
-        row.appendChild(createButton('🏋️ Start Workout', 'btn btn-pill flex-1', startWorkoutSession));
-        row.appendChild(createButton('⏭ Skip', 'btn btn-pill flex-1 workout-btn-skip', preSkipWorkoutSession));
-        card.appendChild(row);
+        actions.appendChild(createButton('Start Workout', 'primary', startWorkoutSession));
+        actions.appendChild(createButton('Skip', 'secondary', preSkipWorkoutSession));
         if (isRotating) {
-            card.appendChild(createButton('↻ Next Variant', 'btn btn-pill workout-btn-full-secondary', nextWorkoutVariant));
+            actions.appendChild(createButton('Next Variant', 'secondary', nextWorkoutVariant));
         }
     }
+    card.appendChild(actions);
 
     container.replaceChildren(card);
 }

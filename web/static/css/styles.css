@@ -1562,84 +1562,84 @@ svg.chart-svg {
     padding: var(--space-sm);
 }
 
-/* Next Workout Card */
-.next-workout-card {
-    background: linear-gradient(135deg, var(--color-workout-card-bg-start) 0%, var(--color-workout-card-bg-end) 100%);
-    border-radius: var(--radius-md);
-    padding: var(--space-lg);
-    margin-bottom: var(--space-xl);
-    border-left: 4px solid var(--color-chart-primary);
-}
+/* Workouts — "Next workout" card.
+   Round-2 Task 10 (defect 13a): restyled from the legacy purple/teal
+   gradient card (with white-on-gradient text, yellow accent stripe, and
+   emoji-prefixed pill buttons) to Wandergeek tokens. Surface mirrors
+   the Today "Next up" card + Meds History next-intake pane — elevated
+   teal on the stage, hairline border, --wg-radius-card. The kicker label
+   uses the muted-uppercase small caption; the title is display typeface;
+   the subtitle is secondary UI text. Primary action (Start Workout /
+   Continue / Cancel Skip) is .wg-toolbar-btn.wg-toolbar-btn--primary —
+   yellow filled, matching every other primary CTA across the app.
+   Secondary actions (Skip / Stop / Next Variant) use the shared outline
+   variant .wg-toolbar-btn--secondary added in the same task. No
+   gradients, no accent stripe, no emoji. */
 
-.next-workout-card.notified,
-.next-workout-card.in-progress {
-    background: linear-gradient(135deg, var(--color-chart-primary) 0%, var(--color-chart-secondary) 100%);
-    color: white;
-    border-left: 4px solid var(--color-chart-highlight);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-}
-
-.next-workout-card.today {
-    background: linear-gradient(135deg, var(--color-workout-today-start) 0%, var(--color-workout-today-end) 100%);
-    color: white;
-    border-left: 4px solid white;
-}
-
-.next-workout-card.pre-skipped {
-    background: linear-gradient(135deg, var(--color-workout-skipped-start) 0%, var(--color-workout-skipped-end) 100%);
-    border-left: 4px solid var(--color-workout-skipped-accent);
-    opacity: 0.85;
-}
-
-.next-workout-header {
+.wg-workouts-next-card {
     display: flex;
-    justify-content: space-between;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    margin-bottom: var(--space-lg);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    box-sizing: border-box;
+}
+
+.wg-workouts-next-card__header {
+    display: flex;
     align-items: center;
-    margin-bottom: var(--space-md);
-    font-size: 0.85em;
+    justify-content: space-between;
+    gap: var(--space-sm);
 }
 
-.next-workout-status {
-    font-weight: var(--font-weight-bold);
+.wg-workouts-next-card__kicker {
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-font-size-caps);
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    color: var(--wg-fg-3);
+    font-weight: 600;
 }
 
-.next-workout-card.notified .next-workout-status,
-.next-workout-card.in-progress .next-workout-status,
-.next-workout-card.today .next-workout-status {
-    color: rgba(255, 255, 255, 0.95);
+.wg-workouts-next-card__date {
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-2);
 }
 
-.next-workout-card.pre-skipped .next-workout-status {
-    color: var(--color-workout-skipped-accent);
+.wg-workouts-next-card__info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    cursor: pointer;
 }
 
-.next-workout-date {
-    opacity: 0.8;
-}
-
-.next-workout-info h3 {
-    margin: 0 0 var(--space-sm) 0;
-    font-size: 1.3em;
-}
-
-.next-workout-info p {
+.wg-workouts-next-card__title {
     margin: 0;
-    opacity: 0.85;
-    font-size: 0.95em;
+    font-family: var(--wg-font-display);
+    font-size: var(--font-size-lg);
+    line-height: 1.2;
+    color: var(--wg-fg-1);
 }
 
-.next-workout-card.notified .next-workout-info h3,
-.next-workout-card.in-progress .next-workout-info h3,
-.next-workout-card.today .next-workout-info h3 {
-    color: white;
+.wg-workouts-next-card__subtitle {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
 }
 
-.next-workout-card.notified .next-workout-info p,
-.next-workout-card.in-progress .next-workout-info p,
-.next-workout-card.today .next-workout-info p {
-    color: rgba(255, 255, 255, 0.9);
+.wg-workouts-next-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-next-card__actions > .wg-toolbar-btn {
+    flex: 1 1 auto;
 }
 
 /* ==================== Sync Status Styles ==================== */
@@ -2980,39 +2980,6 @@ input:checked+.toggle-slider:before {
     margin-left: var(--space-md);
 }
 
-.workout-btn-row {
-    display: flex;
-    gap: var(--space-md);
-    margin-top: var(--space-md);
-}
-
-.workout-btn-stop {
-    background-color: var(--color-workout-stop-bg);
-    color: var(--color-workout-stop-text);
-    border: 1px solid var(--color-workout-stop-border);
-}
-
-.workout-btn-skip {
-    background-color: var(--color-workout-skip-bg);
-    color: var(--color-workout-skip-text);
-    border: 1px solid var(--color-workout-skip-border);
-}
-
-.workout-btn-full {
-    margin-top: var(--space-md);
-    width: 100%;
-    background-color: var(--button-color, #5288c1);
-    color: white;
-}
-
-.workout-btn-full-secondary {
-    margin-top: var(--space-sm);
-    width: 100%;
-    background-color: var(--secondary-bg-color, #f0f0f0);
-    color: var(--text-color, #000);
-    box-shadow: none;
-}
-
 /* Workout exercise log entry */
 .exercise-log-entry.unsaved {
     opacity: 0.6;
@@ -3309,13 +3276,14 @@ input:checked+.toggle-slider:before {
    "primary action pill sitting next to a range/subtab track" pattern on BP
    (+Log), Weight (+Log), Meds (Add), Workouts (Start) and Food (Add). The
    per-section one-off classes (.wg-bp-range-selector__add, .wg-meds-subtabs-
-   row__add, .wg-workouts-subtabs-row__add, .wg-weight-header-row__add,
-   .wg-food-day-nav__add) repeat the same size/padding/radius recipe and
-   are being migrated onto this class in later Round-2 tasks (defects 8,
-   10, 13b, 15). Size+shape only — color is provided by .wg-gloss /
-   .wg-gloss--sun or the --primary modifier below. `align-self: center`
-   defeats the `align-items: stretch` inflation that made the add button
-   visually taller than the adjacent pills (defects 8, 10, 13b). */
+   row__add, .wg-workouts-subtabs-row__add, .wg-food-day-nav__add) that once
+   repeated the same size/padding/radius recipe have been deleted as each
+   per-section task migrated to this shared class (defects 8, 9, 10, 13b);
+   .wg-weight-header-row__add remains pending for Task 12 (defect 15).
+   Size+shape only — color is provided by .wg-gloss / .wg-gloss--sun or the
+   --primary modifier below. `align-self: center` defeats the
+   `align-items: stretch` inflation that made the add button visually
+   taller than the adjacent pills (defects 8, 10, 13b). */
 .wg-toolbar-btn {
     flex-shrink: 0;
     align-self: center;
@@ -3351,6 +3319,27 @@ input:checked+.toggle-slider:before {
 
 .wg-toolbar-btn--primary:hover {
     filter: brightness(1.07);
+}
+
+/* Secondary variant — outline/ghost on the teal stage. Introduced in
+   Round-2 Task 10 (defect 13a) for the Workouts "Next workout" card's
+   Skip / Stop / Next Variant actions. Matches the --primary variant's
+   size (base class owns all sizing) — color only. */
+.wg-toolbar-btn--secondary {
+    color: var(--wg-fg-1);
+    background: transparent;
+    border: 1px solid var(--wg-border-hairline);
+    box-shadow: none;
+    transition: filter 120ms ease, transform 120ms ease, background-color 120ms ease;
+}
+
+.wg-toolbar-btn--secondary:active {
+    transform: translateY(1px);
+    filter: brightness(0.95);
+}
+
+.wg-toolbar-btn--secondary:hover {
+    border-color: var(--wg-border-strong);
 }
 
 .wg-icon-btn {
@@ -5653,12 +5642,16 @@ textarea.wg-input {
     margin-bottom: var(--space-sm);
 }
 
-/* Workouts sub-tab strip (Phase 7, Task 2; revised Task 5). `.wg-gloss--inset`
-   container wraps four `.wg-gloss`-capable pills — History / Groups / Exercises /
-   Stats — the active pill carries `.wg-gloss--sun` (plus
+/* Workouts sub-tab strip (Phase 7, Task 2; revised Task 5; Round-2 Task 10).
+   `.wg-gloss--inset` container wraps four `.wg-gloss`-capable pills — History /
+   Groups / Exercises / Stats — the active pill carries `.wg-gloss--sun` (plus
    `.wg-workouts-subtabs__btn--active` for tests). The strip is wrapped by a
-   `.wg-workouts-subtabs-row` flex container that also holds the inline sun-gloss
-   `#start-adhoc-workout-btn` ad-hoc CTA on the right. */
+   `.wg-workouts-subtabs-row` flex container that also holds the inline
+   `#start-adhoc-workout-btn` ad-hoc CTA on the right. Round-2 Task 10
+   (defect 13b) migrated the Start button from its per-section
+   `.wg-workouts-subtabs-row__add` one-off onto the shared
+   `.wg-toolbar-btn .wg-toolbar-btn--primary` class so its height aligns
+   with the sibling subtab pills. */
 .wg-workouts-subtabs-row {
     display: flex;
     gap: var(--space-xs);
@@ -5680,25 +5673,6 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
     padding: var(--space-xs) var(--space-sm);
     border-radius: var(--wg-radius-gloss);
-}
-
-.wg-workouts-subtabs-row__add {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-xs);
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-md);
-    font-family: var(--wg-font-ui);
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-workouts-subtabs-row__add-label {
-    letter-spacing: 0.02em;
 }
 
 /* Health sub-tab strip (Phase 8, Task 2). `.wg-gloss--inset` container wraps

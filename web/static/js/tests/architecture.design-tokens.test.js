@@ -1440,9 +1440,11 @@ describe('Architecture – design tokens', () => {
             '.workout-variant-card', '.workout-variant-desc',
             '.workout-exercise-card', '.workout-exercise-meta',
             '.workout-delete-btn-inline',
-            '.workout-btn-row', '.workout-btn-stop', '.workout-btn-skip',
-            '.workout-btn-full', '.workout-btn-full-secondary',
             '.exercise-log-header', '.exercise-log-delete-btn',
+            // Next workout card (Round-2 Task 10, #13a: restyled to Wandergeek tokens)
+            '.wg-workouts-next-card', '.wg-workouts-next-card__kicker',
+            '.wg-workouts-next-card__date', '.wg-workouts-next-card__title',
+            '.wg-workouts-next-card__subtitle', '.wg-workouts-next-card__actions',
             // Food product link
             '.food-product-link',
             // Sync hint

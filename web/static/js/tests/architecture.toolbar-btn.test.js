@@ -50,7 +50,9 @@ const TOOLBAR_BTN_MIGRATION_TODO = [
     // out of the subtab row and is now scoped to the Schedule subtab via
     // `.wg-meds-schedule-header`. DOM adoption pinned in
     // `meds.schedule-add.test.js` and reasserted below.
-    { file: 'web/static/index.html',          button: '#start-adhoc-workout-btn', oneOffClass: '.wg-workouts-subtabs-row__add', task: 'Round-2 Task 10 (defect #13b)' },
+    // Round-2 Task 10 (defect #13b): `#start-adhoc-workout-btn` — ADOPTED;
+    // DOM adoption pinned in `workout.design-parity.test.js` and
+    // reasserted below (source-level guard on index.html).
     { file: 'web/static/index.html',          button: '#add-weight-btn', oneOffClass: '.wg-weight-header-row__add', task: 'Round-2 Task 12 (defect #15)' },
 ];
 
@@ -199,5 +201,47 @@ describe('Round-2 Task 2 — shared .wg-toolbar-btn class', () => {
     it('CSS no longer defines the dead .wg-meds-subtabs-row__add rule', () => {
         expect(CSS).not.toMatch(/\.wg-meds-subtabs-row__add\s*\{/);
         expect(CSS).not.toMatch(/\.wg-meds-subtabs-row__add-label\s*\{/);
+    });
+
+    // Round-2 Task 10 (defect #13b): Workouts #start-adhoc-workout-btn
+    // adopted the shared class. Source-level guard on index.html — a
+    // DOM-level adoption test lives in `workout.design-parity.test.js`.
+    it('Workouts #start-adhoc-workout-btn uses .wg-toolbar-btn + .wg-toolbar-btn--primary (not the old one-off)', () => {
+        const INDEX_HTML_PATH = path.join(REPO_ROOT, 'web/static/index.html');
+        const src = fs.readFileSync(INDEX_HTML_PATH, 'utf8');
+        const match = src.match(/<button\s+id="start-adhoc-workout-btn"[^>]*class="([^"]+)"/);
+        expect(match).not.toBeNull();
+        const classAttr = match[1];
+        expect(classAttr).toMatch(/\bwg-toolbar-btn\b/);
+        expect(classAttr).toMatch(/\bwg-toolbar-btn--primary\b/);
+        // The per-section one-off and the now-unused sun-gloss base must
+        // not coexist with the shared class (the shared --primary variant
+        // already carries the yellow fill).
+        expect(classAttr).not.toMatch(/\bwg-workouts-subtabs-row__add\b/);
+        expect(classAttr).not.toMatch(/\bwg-gloss--sun\b/);
+    });
+
+    it('CSS no longer defines the dead .wg-workouts-subtabs-row__add rule', () => {
+        expect(CSS).not.toMatch(/\.wg-workouts-subtabs-row__add\s*\{/);
+        expect(CSS).not.toMatch(/\.wg-workouts-subtabs-row__add-label\s*\{/);
+    });
+
+    // Round-2 Task 10 (defect #13a): a new outline/ghost secondary
+    // variant was introduced alongside the Workouts "Next workout" card
+    // restyle. Same contract as --primary: color only, no size overrides.
+    it('defines .wg-toolbar-btn--secondary as a color-only variant (no size overrides)', () => {
+        const rule = extractRule(CSS, '\n.wg-toolbar-btn--secondary {');
+        expect(rule).not.toBeNull();
+        // Transparent / outline on the teal stage, with the shared
+        // hairline border token — no hex colors.
+        expect(rule).toMatch(/background\s*:\s*transparent/);
+        expect(rule).toMatch(/color\s*:\s*var\(--wg-fg-1\)/);
+        expect(rule).toMatch(/border\s*:\s*1px\s+solid\s+var\(--wg-border-hairline\)/);
+        // No size overrides — sizing lives on the base class.
+        expect(rule).not.toMatch(/min-height\s*:/);
+        expect(rule).not.toMatch(/padding\s*:/);
+        expect(rule).not.toMatch(/border-radius\s*:/);
+        // No raw hex colors.
+        expect(rule).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     });
 });
