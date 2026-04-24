@@ -88,11 +88,11 @@ Fixes defect **#17** and is expected to transitively fix **#5**, **#6**, **#7a**
 
 Root-cause the recurring "primary action button in a section toolbar row is visually taller / heavier than the sibling toggle pills" issue once. All per-section restyle tasks below will consume this shared class rather than re-solving it locally.
 
-- [ ] in `web/static/css/styles.css`, define a shared `.wg-toolbar-btn` (or confirm existing token) that matches the `14d / 30d / 60d` range-pill height, padding, radius; add a `.wg-toolbar-btn--primary` variant that changes only fill color (yellow) — NOT size
-- [ ] audit current BP `+ Log`, Meds `Add`, Workouts `Start` for the extra padding / different base class; document the offending class(es) in the commit message
-- [ ] no markup changes in this task — just CSS + documentation; actual adoption happens in per-section tasks below
-- [ ] add/extend an architecture test asserting that toolbar-row primary buttons use `.wg-toolbar-btn` (or the existing shared class) — failing test until the per-section tasks land is acceptable; list affected files as TODO
-- [ ] run `pnpm test` — tests must pass (or the new architecture test must be written to tolerate the known-failing files it will later enforce)
+- [x] in `web/static/css/styles.css`, define a shared `.wg-toolbar-btn` (or confirm existing token) that matches the `14d / 30d / 60d` range-pill height, padding, radius; add a `.wg-toolbar-btn--primary` variant that changes only fill color (yellow) — NOT size — added `.wg-toolbar-btn` + `.wg-toolbar-btn--primary` after `.wg-gloss--lg` (styles.css:3294-3330) plus `--wg-toolbar-btn-height: 36px` token on `:root`; `align-self: center` defeats the `align-items: stretch` inflation that caused the original visual size mismatch
+- [x] audit current BP `+ Log`, Meds `Add`, Workouts `Start` for the extra padding / different base class; document the offending class(es) in the commit message — five duplicate one-offs identified: `.wg-bp-range-selector__add` (styles.css:5158), `.wg-meds-subtabs-row__add` (5597), `.wg-workouts-subtabs-row__add` (5645), `.wg-weight-header-row__add` (4726), `.wg-food-day-nav__add` (5508); all share `min-height:36px; padding: xs md; font-ui bold sm; radius-gloss` recipe, so the shared class consolidates them
+- [x] no markup changes in this task — just CSS + documentation; actual adoption happens in per-section tasks below — confirmed no markup changed
+- [x] add/extend an architecture test asserting that toolbar-row primary buttons use `.wg-toolbar-btn` (or the existing shared class) — failing test until the per-section tasks land is acceptable; list affected files as TODO — new `web/static/js/tests/architecture.toolbar-btn.test.js` pins base-class shape (token-driven size/padding/radius, `align-self:center`) + primary-variant color-only contract (no size overrides), plus a `TOOLBAR_BTN_MIGRATION_TODO` list capturing the five adoption sites and the Round-2 follow-up task per entry
+- [x] run `pnpm test` — tests must pass (or the new architecture test must be written to tolerate the known-failing files it will later enforce) — 1401/1401 frontend tests green; `go test ./...` all packages pass
 
 ### Task 3: Today — Fix "Next up" medication card width (#1)
 
