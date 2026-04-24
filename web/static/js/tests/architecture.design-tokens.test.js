@@ -464,14 +464,10 @@ const WANDERGEEK_TOKENS = [
     '--wg-meds-modal-time-row-gap',
     '--wg-meds-modal-toggle-gap',
 
-    // Weight screen tokens (Phase 6, Task 1) — current-weight card, trend
-    // arrow + delta, optional goal card + progress bar, range selector,
-    // single-series chart geometry, day-grouped history rows.
-    '--wg-weight-current-value-size',
-    '--wg-weight-current-unit-size',
-    '--wg-weight-current-card-pad',
-    '--wg-weight-trend-size',
-    '--wg-weight-trend-icon-size',
+    // Weight screen tokens (Phase 6, Task 1) — optional goal card +
+    // progress bar, range selector, single-series chart geometry,
+    // day-grouped history rows. Round-2 Task 12 (defect #15) deleted the
+    // Latest-pane tokens (current-value/unit/card-pad + trend-size/icon).
     '--wg-weight-goal-card-pad',
     '--wg-weight-goal-value-size',
     '--wg-weight-goal-bar-height',
@@ -506,18 +502,10 @@ const WANDERGEEK_TOKENS = [
     '--wg-weight-history-time-size',
     '--wg-weight-history-day-size',
 
-    // Weight trend aliases (Phase 6, Task 1) — wrap the shared sun / alert /
-    // mint tag triplets so the JS classifier can return good / bad / flat
-    // relative to goal direction. Mirrors the --wg-bp-status-* pattern.
-    '--wg-weight-trend-good-bg',
-    '--wg-weight-trend-good-fg',
-    '--wg-weight-trend-good-border',
-    '--wg-weight-trend-bad-bg',
-    '--wg-weight-trend-bad-fg',
-    '--wg-weight-trend-bad-border',
-    '--wg-weight-trend-flat-bg',
-    '--wg-weight-trend-flat-fg',
-    '--wg-weight-trend-flat-border',
+    // Weight trend aliases (Phase 6, Task 1) — retired in Round-2 Task 12
+    // (defect #15) when the Latest-pane .wg-weight-trend element was
+    // deleted. The shared --wg-tag-high/alert/normal-* triplets remain for
+    // other consumers (BP status, workouts slot, vitals tags).
 
     // Edit-weight modal tokens (Phase 6, Task 6) — dual-line header, gloss
     // input wraps, kg/lb unit-toggle pill pair, Cancel/Save action bar with
@@ -631,7 +619,7 @@ const WANDERGEEK_TOKENS = [
     // sun / normal / mint tag triplets so the rotation-slot classifier
     // (PUSH / PULL / LEGS / REST / AD-HOC) can return a token-group name
     // without duplicating tag styles. Mirrors the --wg-bp-status-* /
-    // --wg-meds-status-* / --wg-weight-trend-* pattern.
+    // --wg-meds-status-* pattern.
     '--wg-workouts-slot-push-bg',
     '--wg-workouts-slot-push-fg',
     '--wg-workouts-slot-push-border',

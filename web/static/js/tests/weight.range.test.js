@@ -1,9 +1,12 @@
-// Wandergeek Weight range selector + chart panel (Phase 6, Task 4).
+// Wandergeek Weight range selector + chart panel (Phase 6, Task 4;
+// Round-2 Task 12 defect #15 reshaped the container).
 //
-// Covers the new range-selector render helper and its persistence:
-//   • renderWeightRangeSelector({ active, onChange }) — .wg-gloss--inset
-//     strip with four 7d/30d/90d/All buttons; active button gets
-//     .wg-gloss--sun.
+// Covers the range-selector render helper and its persistence:
+//   • renderWeightRangeSelector({ active, onChange }) — flex row holding
+//     a .wg-gloss--inset .wg-weight-range-selector__track with four
+//     7d/30d/90d/All buttons AND a trailing shared .wg-toolbar-btn
+//     .wg-toolbar-btn--primary #add-weight-btn (mirrors BP's
+//     buildBPInlineAddButton). Active button gets .wg-gloss--sun.
 //   • getActiveWeightRange / setActiveWeightRange — mt-weight-range
 //     localStorage key, default '30d'.
 //   • renderWeightChart — delegates to WGWeightChart with the active range
@@ -73,20 +76,57 @@ describe('Weight range selector + chart panel (Phase 6, Task 4)', () => {
     });
 
     describe('renderWeightRangeSelector', () => {
-        it('renders four 7d/30d/90d/All buttons inside .wg-gloss--inset', () => {
+        it('renders four 7d/30d/90d/All buttons inside a .wg-gloss--inset track', () => {
             const { document, window } = env;
             window.renderWeightRangeSelector({ active: '30d', onChange: () => {} });
 
             const container = document.getElementById('weight-range-selector');
             expect(container.classList.contains('wg-weight-range-selector')).toBe(true);
-            expect(container.classList.contains('wg-gloss--inset')).toBe(true);
+            // Round-2 Task 12 (defect #15): inset moved off the outer row
+            // onto an inner `__track` wrapper so the trailing +Log button
+            // sits on the stage (matches .wg-bp-range-selector).
+            expect(container.classList.contains('wg-gloss--inset')).toBe(false);
+            const track = container.querySelector('.wg-weight-range-selector__track');
+            expect(track).not.toBeNull();
+            expect(track.classList.contains('wg-gloss--inset')).toBe(true);
 
-            const btns = container.querySelectorAll('button[data-range]');
+            const btns = track.querySelectorAll('button[data-range]');
             expect(btns.length).toBe(4);
             expect(Array.from(btns).map((b) => b.getAttribute('data-range')))
                 .toEqual(['7d', '30d', '90d', 'all']);
             expect(Array.from(btns).map((b) => b.textContent))
                 .toEqual(['7d', '30d', '90d', 'All']);
+        });
+
+        it('appends a trailing #add-weight-btn primary toolbar button that opens the weight modal', () => {
+            const { document, window } = env;
+            window.renderWeightRangeSelector({ active: '30d', onChange: () => {} });
+
+            const cta = document.getElementById('add-weight-btn');
+            expect(cta).not.toBeNull();
+            // Shared Round-2 Task 2 toolbar classes (color-only --primary).
+            expect(cta.classList.contains('wg-toolbar-btn')).toBe(true);
+            expect(cta.classList.contains('wg-toolbar-btn--primary')).toBe(true);
+            // The label span uses the shared .wg-toolbar-btn__label.
+            const label = cta.querySelector('.wg-toolbar-btn__label');
+            expect(label).not.toBeNull();
+            expect(label.textContent).toBe('Log');
+            expect(cta.getAttribute('aria-label')).toBe('Log weight');
+            expect(cta.getAttribute('type')).toBe('button');
+
+            // Button lives inside the outer selector row, NOT inside the
+            // inset track (so it sits on the stage next to the track).
+            const container = document.getElementById('weight-range-selector');
+            expect(container.contains(cta)).toBe(true);
+            const track = container.querySelector('.wg-weight-range-selector__track');
+            expect(track.contains(cta)).toBe(false);
+
+            // Clicking dispatches to window.showWeightModal (mirrors BP's
+            // `#add-bp-btn` → `window.showBPRecordModal` wiring).
+            const spy = vi.fn();
+            window.showWeightModal = spy;
+            cta.click();
+            expect(spy).toHaveBeenCalledTimes(1);
         });
 
         it('marks exactly one button as active via .wg-gloss--sun and aria-pressed', () => {
@@ -98,7 +138,11 @@ describe('Weight range selector + chart panel (Phase 6, Task 4)', () => {
             expect(active[0].getAttribute('data-range')).toBe('30d');
             expect(active[0].getAttribute('aria-pressed')).toBe('true');
 
-            const inactive = document.querySelectorAll('#weight-range-selector button:not(.wg-gloss--sun)');
+            // Round-2 Task 12 (defect #15): the trailing #add-weight-btn
+            // is also a button inside #weight-range-selector but it's
+            // not a range pill (no data-range / aria-pressed). Scope the
+            // "other pills" query to the inset track to exclude it.
+            const inactive = document.querySelectorAll('#weight-range-selector .wg-weight-range-selector__track button:not(.wg-gloss--sun)');
             inactive.forEach((b) => expect(b.getAttribute('aria-pressed')).toBe('false'));
         });
 
