@@ -93,6 +93,9 @@ func LoadConfigFromEnv() (*Config, error) {
 		AuditSecret:    os.Getenv("MCP_AUDIT_SECRET"),
 	}
 
+	if cfg.AllowedSubject == "" {
+		return nil, fmt.Errorf("MCP_ALLOWED_SUBJECT is required")
+	}
 	if cfg.DatabasePath == "" {
 		return nil, fmt.Errorf("MCP_DATABASE_PATH is required")
 	}
