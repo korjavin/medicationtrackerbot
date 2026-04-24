@@ -1438,13 +1438,16 @@ describe('Architecture – design tokens', () => {
             // Workout components (paper-era classes still used as dual-class alongside wg-* equivalents)
             '.workout-pending-msg',
             '.workout-variant-card', '.workout-variant-desc',
-            '.workout-exercise-card', '.workout-exercise-meta',
             '.workout-delete-btn-inline',
             '.exercise-log-header', '.exercise-log-delete-btn',
             // Next workout card (Round-2 Task 10, #13a: restyled to Wandergeek tokens)
             '.wg-workouts-next-card', '.wg-workouts-next-card__kicker',
             '.wg-workouts-next-card__date', '.wg-workouts-next-card__title',
             '.wg-workouts-next-card__subtitle', '.wg-workouts-next-card__actions',
+            // Edit Variant modal exercise rows (Round-2 Task 11, #14: restyled to Wandergeek tokens)
+            '.wg-workouts-exercise-row', '.wg-workouts-exercise-row__info',
+            '.wg-workouts-exercise-row__title', '.wg-workouts-exercise-row__meta',
+            '.wg-workouts-exercise-row__delete',
             // Food product link
             '.food-product-link',
             // Sync hint

@@ -2959,20 +2959,48 @@ input:checked+.toggle-slider:before {
     color: var(--hint-color);
 }
 
-.workout-exercise-card {
-    background: var(--secondary-bg-color, #f0f4ff);
-    padding: var(--space-md) var(--space-lg);
-    border-radius: var(--radius-sm);
-    margin-bottom: var(--space-sm);
-    border: 1px solid rgba(0, 0, 0, 0.06);
+/* Edit Variant modal exercise rows (Round-2 Task 11, #14): dark elevated-teal
+   card surface matching .wg-workouts-next-card / .wg-meds-next-intake-card so
+   the rows read against the modal stage instead of a legacy white card.
+   Text tokens flip to paper-on-dark; the trash button hover flips to a
+   light-on-dark overlay so the 44px hit target remains discoverable. */
+.wg-workouts-exercise-row {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    margin-bottom: var(--space-sm);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+    box-sizing: border-box;
 }
 
-.workout-exercise-meta {
-    font-size: 0.85em;
-    color: var(--hint-color);
+.wg-workouts-exercise-row__info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    cursor: pointer;
+}
+
+.wg-workouts-exercise-row__title {
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+}
+
+.wg-workouts-exercise-row__meta {
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-2);
+}
+
+.wg-workouts-exercise-row__delete:hover {
+    background-color: rgba(255, 255, 255, 0.08);
 }
 
 .workout-delete-btn-inline {
