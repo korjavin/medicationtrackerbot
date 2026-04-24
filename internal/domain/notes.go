@@ -53,7 +53,6 @@ type NotesStore interface {
 	CreateDiaryNote(ctx context.Context, userID int64, content string, tag *string) (*store.DiaryNote, error)
 	ListDiaryNotes(ctx context.Context, userID int64, since, until time.Time, limit int, beforeID int64) ([]store.DiaryNote, error)
 	DeleteDiaryNote(ctx context.Context, userID, noteID int64) error
-	UpdateDiaryNoteTag(ctx context.Context, userID, noteID int64, tag *string) error
 }
 
 // NotesService is the public interface for diary-note business logic.
@@ -71,10 +70,6 @@ type NotesService interface {
 	// DeleteNote deletes a note owned by the user. Returns the store's
 	// sql.ErrNoRows when the note does not exist or is not owned by the user.
 	DeleteNote(ctx context.Context, userID, noteID int64) error
-
-	// UpdateTag sets or clears the tag on an existing note owned by the user.
-	// Invalid tags are normalized to nil (clear) rather than rejected.
-	UpdateTag(ctx context.Context, userID, noteID int64, tag *string) error
 }
 
 type notesService struct {
@@ -103,8 +98,4 @@ func (s *notesService) ListNotes(ctx context.Context, userID int64, since, until
 
 func (s *notesService) DeleteNote(ctx context.Context, userID, noteID int64) error {
 	return s.store.DeleteDiaryNote(ctx, userID, noteID)
-}
-
-func (s *notesService) UpdateTag(ctx context.Context, userID, noteID int64, tag *string) error {
-	return s.store.UpdateDiaryNoteTag(ctx, userID, noteID, NormalizeNoteTag(tag))
 }
