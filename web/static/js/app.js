@@ -971,7 +971,7 @@ function switchTab(tab) {
     }
 
     if (tab === 'meds') {
-        const stored = typeof getActiveMedsSubTab === 'function' ? getActiveMedsSubTab() : 'schedule';
+        const stored = typeof getActiveMedsSubTab === 'function' ? getActiveMedsSubTab() : 'history';
         const activeMedTab = document.querySelector('.med-tab.active');
         if (!activeMedTab || activeMedTab.dataset.tab !== stored) {
             switchMedTab(stored);

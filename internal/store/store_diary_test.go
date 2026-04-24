@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -112,8 +114,9 @@ func TestUpdateDiaryNoteTag_WrongUser(t *testing.T) {
 	}
 
 	tag := "NOTE"
-	if err := s.UpdateDiaryNoteTag(ctx, 2, note.ID, &tag); err == nil {
-		t.Error("expected error when updating another user's note tag")
+	err = s.UpdateDiaryNoteTag(ctx, 2, note.ID, &tag)
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("expected sql.ErrNoRows when updating another user's note tag, got %v", err)
 	}
 }
 
@@ -265,8 +268,9 @@ func TestDeleteDiaryNote_WrongUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// user 2 tries to delete user 1's note — should error
-	if err := s.DeleteDiaryNote(ctx, 2, note.ID); err == nil {
-		t.Error("expected error when deleting another user's note")
+	// user 2 tries to delete user 1's note — should error with sql.ErrNoRows
+	err = s.DeleteDiaryNote(ctx, 2, note.ID)
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("expected sql.ErrNoRows when deleting another user's note, got %v", err)
 	}
 }

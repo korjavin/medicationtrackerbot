@@ -59,8 +59,11 @@ Located in `web/static/js/components/`:
   field helpers).
 
 Shared modal + field shell lives in `styles.css` as utility classes (`.wg-modal*`,
-`.wg-field*`, `.wg-label`, `.wg-input`, `.wg-select`, `.wg-gloss*`, `.wg-fab`).
-Future sections reuse these rather than introducing scoped variants.
+`.wg-field*`, `.wg-label`, `.wg-input`, `.wg-select`, `.wg-gloss*`). Future
+sections reuse these rather than introducing scoped variants. The former
+`.wg-fab` floating-action-button utility was retired during the pixel-perfect
+design-parity refactor — primary actions now render inline in each screen's
+tab strip or day navigator (see `docs/frontend.md#navigation`).
 
 ## Follow-ups (explicitly deferred)
 
