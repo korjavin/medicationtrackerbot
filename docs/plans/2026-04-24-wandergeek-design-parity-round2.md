@@ -152,8 +152,8 @@ Addresses user finding #22 (redirect URLs unclear, URL bar changes but UI falls 
 
 ### Task 9: [Final] Update documentation
 
-- [ ] update `docs/frontend.md` if modal-shell or auto-refresh-pattern guidance changed
-- [ ] no README changes expected
+- [x] update `docs/frontend.md` if modal-shell or auto-refresh-pattern guidance changed  *(modal-shell invariant was already covered at line 129 under "Canonical primary-action placement and modal utilities"; added a new "Cross-section Auto-refresh Invariant" subsection under "Change Detection" documenting the write-side rule — local loader + `invalidateTags([tag])` — and the tag vocabulary (`bp`, `weight`, `medications`, `history`, `food`, `workouts`, `health-notes`) so future screens follow the same pattern.)*
+- [x] no README changes expected  *(verified — no README changes made this round.)*
 
 ## Technical Details
 

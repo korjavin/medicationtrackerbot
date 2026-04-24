@@ -30,6 +30,15 @@ Offline writes are supported for BP readings, weight logs, and medication confir
 
 Polls `/api/changes?since=` every 30s (SSE disabled due to HTTP/2 proxy issues — see [technical-decisions.md](technical-decisions.md)). When the poll reports invalidated tags, `data-store.js` both calls `window.requestTabRefresh({ changedTags, source })` (debounced 500ms, reloads the active tab) **and** dispatches a `datastore:changed` CustomEvent on `window` with `detail = { changedTags, source }`. Features that need to react without owning the active tab (e.g. the Today dashboard's live-update subscriber) listen on the CustomEvent.
 
+### Cross-section Auto-refresh Invariant
+
+After any local create/update/delete, the originating screen must do **both**:
+
+1. Call its own loader to repaint in place (e.g. `loadBPReadings()`, `loadNotes()`).
+2. Call `window.DataStore.invalidateTags([tag])` so Today tiles and other listeners refresh without a tab switch.
+
+Tag vocabulary: `bp`, `weight`, `medications`, `history`, `food`, `workouts`, `health-notes`. Tags are also emitted server-side by SQLite triggers (migration 027+) and surface through the change-polling path above, so remote edits propagate by the same route.
+
 ### SW Cache Strategy
 
 - All static assets listed in the `STATIC_ASSETS` array, validated by `architecture.sw-precache.test.js`
