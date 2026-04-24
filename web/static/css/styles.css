@@ -5209,22 +5209,11 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
-.wg-bp-range-selector__add {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-xs);
-    min-height: var(--wg-bp-range-selector-height);
-    padding: var(--space-xs) var(--space-md);
-    font-family: var(--wg-font-ui);
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-bp-range-selector__add-label {
+/* Round-2 Task 5 (defect 8): the BP +Log button adopted the shared
+   .wg-toolbar-btn .wg-toolbar-btn--primary (see ~line 3295). The per-section
+   .wg-bp-range-selector__add / __add-label rules were removed — the label
+   below the icon now uses the shared .wg-toolbar-btn__label. */
+.wg-toolbar-btn__label {
     letter-spacing: 0.02em;
 }
 

@@ -39,8 +39,11 @@ const CSS = fs.readFileSync(CSS_PATH, 'utf8');
 // Section-level migration TODO. Each entry is a button that currently
 // uses its own per-section `__add` class and is scheduled to adopt
 // `.wg-toolbar-btn .wg-toolbar-btn--primary` in the listed Round-2 task.
+// Entries are removed as their per-section task lands and DOM adoption is
+// pinned by a dedicated test.
 const TOOLBAR_BTN_MIGRATION_TODO = [
-    { file: 'web/static/js/features/bp.js',  button: '#add-bp-btn', oneOffClass: '.wg-bp-range-selector__add',  task: 'Round-2 Task 5 (defect #8)' },
+    // Round-2 Task 5 (defect #8): `#add-bp-btn` — ADOPTED; DOM adoption
+    // pinned in `bp.render.test.js` and reasserted below.
     { file: 'web/static/index.html',          button: '#add-btn',    oneOffClass: '.wg-meds-subtabs-row__add',    task: 'Round-2 Task 7 (defect #10)' },
     { file: 'web/static/index.html',          button: '#start-adhoc-workout-btn', oneOffClass: '.wg-workouts-subtabs-row__add', task: 'Round-2 Task 10 (defect #13b)' },
     { file: 'web/static/index.html',          button: '#add-weight-btn', oneOffClass: '.wg-weight-header-row__add', task: 'Round-2 Task 12 (defect #15)' },
@@ -118,5 +121,28 @@ describe('Round-2 Task 2 — shared .wg-toolbar-btn class', () => {
             expect(entry.oneOffClass).toMatch(/^\.wg-/);
             expect(entry.task).toMatch(/Round-2/);
         }
+    });
+
+    // Round-2 Task 5 (defect #8): BP +Log button adopted the shared class.
+    // Guard the source to keep the migration from regressing — if someone
+    // resurrects `.wg-bp-range-selector__add` on `#add-bp-btn`, this breaks.
+    it('BP buildBPInlineAddButton uses .wg-toolbar-btn + .wg-toolbar-btn--primary (not the old one-off)', () => {
+        const BP_FEATURE_PATH = path.join(REPO_ROOT, 'web/static/js/features/bp.js');
+        const src = fs.readFileSync(BP_FEATURE_PATH, 'utf8');
+        // The className literal on `#add-bp-btn` must carry the shared classes.
+        expect(src).toMatch(/btn\.className\s*=\s*['"]wg-toolbar-btn\s+wg-toolbar-btn--primary['"]/);
+        // And must not reintroduce the per-section `__add` one-off on the button.
+        expect(src).not.toMatch(/wg-bp-range-selector__add(?!-)/);
+    });
+
+    // The dead per-section `.wg-bp-range-selector__add` CSS rule was removed
+    // along with the className migration. If it comes back, the migration
+    // has regressed (two conflicting size stacks on the same button).
+    it('CSS no longer defines the dead .wg-bp-range-selector__add rule', () => {
+        // Match the rule opener `.wg-bp-range-selector__add {` (with space+brace)
+        // so the surviving `.wg-bp-range-selector__add-label` — wait, that was
+        // also removed; the new shared class is `.wg-toolbar-btn__label`.
+        expect(CSS).not.toMatch(/\.wg-bp-range-selector__add\s*\{/);
+        expect(CSS).not.toMatch(/\.wg-bp-range-selector__add-label\s*\{/);
     });
 });
