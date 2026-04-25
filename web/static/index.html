@@ -503,10 +503,16 @@
                 <span class="wg-section-label wg-workouts-group-modal__eyebrow">Workout group</span>
                 <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-group-modal-title">Add Workout Group</span>
             </div>
-            <button type="button" id="workout-group-close-btn" class="wg-icon-btn wg-workouts-group-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-workouts-group-modal__header-actions">
+                <button type="button" id="workout-group-close-btn" class="wg-icon-btn wg-workouts-group-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="workout-group-cancel-btn"
+                    class="wg-gloss wg-workouts-group-modal__header-btn">Cancel</button>
+                <button type="button" id="workout-group-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-group-modal__header-btn wg-workouts-group-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <div class="wg-workouts-group-modal__body">
@@ -584,10 +590,6 @@
             </div>
         </div>
 
-        <div class="wg-workouts-group-modal__actions">
-            <button type="button" id="workout-group-cancel-btn" class="wg-gloss wg-workouts-group-modal__action wg-workouts-group-modal__action--cancel">Cancel</button>
-            <button type="button" id="workout-group-save-btn" class="wg-gloss wg-gloss--sun wg-workouts-group-modal__action wg-workouts-group-modal__action--save">Save</button>
-        </div>
     </mt-modal>
 
     <!-- Variant modal (Round-2, Task 6). Migrated to the shared .wg-modal
