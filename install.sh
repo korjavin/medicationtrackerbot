@@ -470,11 +470,7 @@ LE_EMAIL=""
 NETWORK_NAME=""
 
 if $USE_TRAEFIK; then
-<<<<<<< HEAD
-  LE_EMAIL=$(prompt "Email for Let's Encrypt" "admin@example.com")
-=======
-  LE_EMAIL=$(prompt_state "LE_EMAIL" "Email for Let's Encrypt" "user@domain.example")
->>>>>>> ec77a4e (Improve installer resume and permissions)
+  LE_EMAIL=$(prompt_state "LE_EMAIL" "Email for Let's Encrypt" "admin@example.com")
   if [ -z "$LE_EMAIL" ]; then
     die "Let's Encrypt email is required"
   fi
@@ -669,6 +665,40 @@ if confirm_state "ENABLE_WEBPUSH" "Enable web push (browser notifications)?" "ye
   fi
 fi
 
+OPENAI_API_KEY=""
+OPENAI_URL=""
+OPENAI_MODEL=""
+say ""
+say "AI food/activity logging uses an OpenAI-compatible API to parse"
+say "natural-language entries for /food and /activity commands."
+if confirm_state "ENABLE_OPENAI" "Enable AI food/activity logging?" "no"; then
+  OPENAI_API_KEY=$(prompt_secret_state "OPENAI_API_KEY" "OpenAI API key")
+  OPENAI_URL=$(prompt_state "OPENAI_URL" "OpenAI base URL" "https://api.openai.com/v1")
+  OPENAI_MODEL=$(prompt_state "OPENAI_MODEL" "OpenAI model" "gpt-4o-mini")
+  if [ -z "$OPENAI_API_KEY" ]; then
+    die "OpenAI API key is required when AI logging is enabled"
+  fi
+fi
+
+EXTERNAL_WORKOUT_API_KEY=""
+say ""
+say "The external workout endpoint accepts webhooks (e.g. Mi Notify) using"
+say "a shared secret in the X-Api-Key header."
+if confirm_state "ENABLE_EXTERNAL_WORKOUT" "Enable external workout webhook (Mi Notify)?" "no"; then
+  EXTERNAL_WORKOUT_API_KEY=$(get_state "EXTERNAL_WORKOUT_API_KEY")
+  if [ -z "$EXTERNAL_WORKOUT_API_KEY" ]; then
+    if confirm "Auto-generate the webhook API key?" "yes"; then
+      EXTERNAL_WORKOUT_API_KEY=$(gen_random_base64)
+      set_state "EXTERNAL_WORKOUT_API_KEY" "$EXTERNAL_WORKOUT_API_KEY"
+    else
+      EXTERNAL_WORKOUT_API_KEY=$(prompt_secret_state "EXTERNAL_WORKOUT_API_KEY" "Workout webhook API key")
+      if [ -z "$EXTERNAL_WORKOUT_API_KEY" ]; then
+        die "Workout webhook API key is required when the external workout endpoint is enabled"
+      fi
+    fi
+  fi
+fi
+
 ENABLE_MCP=false
 MCP_DOMAIN=""
 MCP_SERVER_URL=""
@@ -785,6 +815,13 @@ PUBLIC_IP=$(detect_public_ip)
     set_state "SESSION_SECRET" "$SESSION_SECRET"
   fi
   printf 'SESSION_SECRET=%s\n' "$SESSION_SECRET"
+  MCP_AUDIT_SECRET=$(get_state "MCP_AUDIT_SECRET")
+  if [ -z "$MCP_AUDIT_SECRET" ]; then
+    MCP_AUDIT_SECRET=$(gen_random_base64)
+    set_state "MCP_AUDIT_SECRET" "$MCP_AUDIT_SECRET"
+  fi
+  printf 'MCP_AUDIT_SECRET=%s\n' "$MCP_AUDIT_SECRET"
+  printf 'MCP_AUDIT_ENDPOINT=%s\n' "http://medtracker:8080/api/mcp-audit"
   printf 'AUTH_TRUST_PROXY=%s\n' "true"
   printf 'GOOGLE_CLIENT_ID=%s\n' ""
   printf 'GOOGLE_CLIENT_SECRET=%s\n' ""
@@ -806,6 +843,10 @@ PUBLIC_IP=$(detect_public_ip)
   printf 'VAPID_PUBLIC_KEY=%s\n' "$VAPID_PUBLIC_KEY"
   printf 'VAPID_PRIVATE_KEY=%s\n' "$VAPID_PRIVATE_KEY"
   printf 'VAPID_SUBJECT=%s\n' "$VAPID_SUBJECT"
+  printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
+  printf 'OPENAI_URL=%s\n' "$OPENAI_URL"
+  printf 'OPENAI_MODEL=%s\n' "$OPENAI_MODEL"
+  printf 'EXTERNAL_WORKOUT_API_KEY=%s\n' "$EXTERNAL_WORKOUT_API_KEY"
   printf 'MCP_DOMAIN=%s\n' "$MCP_DOMAIN"
   printf 'MCP_SERVER_URL=%s\n' "$MCP_SERVER_URL"
   printf 'MCP_ALLOWED_SUBJECT=%s\n' "$MCP_ALLOWED_SUBJECT"
@@ -943,6 +984,11 @@ say "Created ${ENV_FILE} with mode 600 (owner read/write only)."
   printf "      - VAPID_PUBLIC_KEY=\${VAPID_PUBLIC_KEY}\n"
   printf "      - VAPID_PRIVATE_KEY=\${VAPID_PRIVATE_KEY}\n"
   printf "      - VAPID_SUBJECT=\${VAPID_SUBJECT}\n"
+  printf "      - MCP_AUDIT_SECRET=\${MCP_AUDIT_SECRET}\n"
+  printf "      - OPENAI_API_KEY=\${OPENAI_API_KEY}\n"
+  printf "      - OPENAI_URL=\${OPENAI_URL}\n"
+  printf "      - OPENAI_MODEL=\${OPENAI_MODEL}\n"
+  printf "      - EXTERNAL_WORKOUT_API_KEY=\${EXTERNAL_WORKOUT_API_KEY}\n"
   if $USE_TRAEFIK; then
     printf "    networks:\n"
     printf "      - proxy\n"
@@ -974,6 +1020,8 @@ say "Created ${ENV_FILE} with mode 600 (owner read/write only)."
     printf "      - MCP_SERVER_URL=\${MCP_SERVER_URL}\n"
     printf "      - MCP_ALLOWED_SUBJECT=\${MCP_ALLOWED_SUBJECT}\n"
     printf "      - ALLOWED_USER_ID=\${ALLOWED_USER_ID}\n"
+    printf "      - MCP_AUDIT_ENDPOINT=\${MCP_AUDIT_ENDPOINT:-http://medtracker:8080/api/mcp-audit}\n"
+    printf "      - MCP_AUDIT_SECRET=\${MCP_AUDIT_SECRET}\n"
     printf "      - POCKET_ID_URL=\${POCKET_ID_URL}\n"
     printf "      - POCKET_ID_CLIENT_ID=\${POCKET_ID_CLIENT_ID}\n"
     printf "      - POCKET_ID_CLIENT_SECRET=\${POCKET_ID_CLIENT_SECRET}\n"
