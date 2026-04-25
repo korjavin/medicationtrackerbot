@@ -662,10 +662,16 @@
                 <span class="wg-section-label wg-workouts-exercise-modal__eyebrow">Workout exercise</span>
                 <span class="wg-mono-display wg-workouts-exercise-modal__title" id="workout-exercise-modal-title">Add Exercise</span>
             </div>
-            <button type="button" id="exercise-close-btn" class="wg-icon-btn wg-workouts-exercise-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-workouts-exercise-modal__header-actions">
+                <button type="button" id="exercise-close-btn" class="wg-icon-btn wg-workouts-exercise-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="exercise-cancel-btn"
+                    class="wg-gloss wg-workouts-exercise-modal__header-btn">Cancel</button>
+                <button type="button" id="exercise-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-exercise-modal__header-btn wg-workouts-exercise-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <div class="wg-workouts-exercise-modal__body">
@@ -720,13 +726,6 @@
                         min="0" placeholder="0 = first, 1 = second, etc.">
                 </div>
             </div>
-        </div>
-
-        <div class="wg-workouts-exercise-modal__actions">
-            <button type="button" id="exercise-cancel-btn"
-                class="wg-gloss wg-workouts-exercise-modal__action wg-workouts-exercise-modal__action--cancel">Cancel</button>
-            <button type="button" id="exercise-save-btn"
-                class="wg-gloss wg-gloss--sun wg-workouts-exercise-modal__action wg-workouts-exercise-modal__action--save">Save</button>
         </div>
     </mt-modal>
 
