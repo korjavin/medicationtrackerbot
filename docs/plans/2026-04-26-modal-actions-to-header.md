@@ -87,11 +87,11 @@ This continues the convention established for `WorkoutSessionModal` (reference: 
 - [x] `pnpm test` — must pass before Task 4 (new BP-header test + updated `modals.task4b.test.js` pass; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 4: EditWeightModal — actions to header
-- [ ] move `.wg-weight-modal__actions` buttons into a new `.wg-weight-modal__header-actions` inside `.wg-weight-modal__header` at `web/static/index.html:1363-1415`
-- [ ] delete the bottom `.wg-weight-modal__actions` block
-- [ ] update `web/static/css/styles.css` near line 4922
-- [ ] add `web/static/js/tests/modals.weight.header-actions.test.js`
-- [ ] `pnpm test` — must pass before Task 5
+- [x] move `.wg-weight-modal__actions` buttons into a new `.wg-weight-modal__header-actions` inside `.wg-weight-modal__header` at `web/static/index.html:1363-1415`
+- [x] delete the bottom `.wg-weight-modal__actions` block
+- [x] update `web/static/css/styles.css` near line 4922
+- [x] add `web/static/js/tests/modals.weight.header-actions.test.js`
+- [x] `pnpm test` — must pass before Task 5 (new weight-header test + updated `weight.modal.test.js` pass; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 5: EditNoteModal — actions to header
 - [ ] move `.wg-health-modal__actions` buttons into a new `.wg-health-modal__header-actions` inside the note-modal header at `web/static/index.html:1418-1446`

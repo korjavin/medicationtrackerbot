@@ -1362,10 +1362,16 @@
                 <span class="wg-section-label wg-weight-modal__eyebrow" id="weight-modal-eyebrow">New entry</span>
                 <span class="wg-mono-display wg-weight-modal__title" id="weight-modal-title">Weight</span>
             </div>
-            <button type="button" id="weight-modal-close-btn" class="wg-icon-btn wg-weight-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-weight-modal__header-actions">
+                <button type="button" id="weight-modal-close-btn" class="wg-icon-btn wg-weight-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="weight-modal-cancel-btn"
+                    class="wg-gloss wg-weight-modal__header-btn">Cancel</button>
+                <button type="submit" form="weight-form" id="weight-modal-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-weight-modal__header-btn wg-weight-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <form id="weight-form" class="wg-weight-modal__body">
@@ -1399,13 +1405,6 @@
                         class="wg-weight-modal__input wg-weight-modal__textarea" placeholder="Any notes..."
                         rows="2"></textarea>
                 </div>
-            </div>
-
-            <div class="wg-weight-modal__actions">
-                <button type="button" id="weight-modal-cancel-btn"
-                    class="wg-gloss wg-weight-modal__action wg-weight-modal__action--cancel">Cancel</button>
-                <button type="submit" id="weight-modal-save-btn" form="weight-form"
-                    class="wg-gloss wg-gloss--sun wg-weight-modal__action wg-weight-modal__action--save">Save</button>
             </div>
         </form>
     </mt-modal>

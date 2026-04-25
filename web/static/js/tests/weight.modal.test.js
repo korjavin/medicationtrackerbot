@@ -68,16 +68,18 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             const saveBtn = modal.querySelector('#weight-modal-save-btn');
             expect(cancelBtn).not.toBeNull();
             expect(saveBtn).not.toBeNull();
-            expect(cancelBtn.classList.contains('wg-weight-modal__action--cancel')).toBe(true);
-            expect(saveBtn.classList.contains('wg-weight-modal__action--save')).toBe(true);
+            expect(cancelBtn.classList.contains('wg-weight-modal__header-btn')).toBe(true);
+            expect(saveBtn.classList.contains('wg-weight-modal__header-btn')).toBe(true);
+            expect(saveBtn.classList.contains('wg-weight-modal__header-btn--save')).toBe(true);
             expect(saveBtn.getAttribute('type')).toBe('submit');
             expect(saveBtn.getAttribute('form')).toBe('weight-form');
         });
 
-        it('styles.css gives Save 2× flex vs. Cancel in the action bar', () => {
+        it('styles.css defines the header-actions row + header-btn sizing (Cancel/Save moved out of body footer to keep them above the mobile keyboard)', () => {
             const css = fs.readFileSync(CSS_PATH, 'utf8');
-            expect(css).toMatch(/\.wg-weight-modal__action--cancel\s*\{\s*flex:\s*1\s+1\s+0/);
-            expect(css).toMatch(/\.wg-weight-modal__action--save\s*\{\s*flex:\s*2\s+1\s+0/);
+            expect(css).toMatch(/\.wg-weight-modal__header-actions\s*\{[^}]*display:\s*flex/);
+            expect(css).toMatch(/\.wg-weight-modal__header-btn\s*\{[^}]*min-height:\s*36px/);
+            expect(css).toMatch(/\.wg-weight-modal__header-btn--save\s*\{[^}]*padding:/);
         });
 
         it('index.html does NOT declare the paper-era ruler / weight-display markup', () => {
