@@ -53,10 +53,11 @@ describe('BP modal — Task 4b audit', () => {
         expect(block).toMatch(/wg-gloss--inset[^"]*wg-bp-modal__input-wrap[\s\S]*?id="bp-site"/);
     });
 
-    it('styles.css gives Save 2× flex vs. Cancel in the BP action bar', () => {
+    it('styles.css defines the header-actions row + header-btn sizing (Cancel/Save moved out of body footer to keep them above the mobile keyboard)', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
-        expect(css).toMatch(/\.wg-bp-modal__action--cancel\s*\{\s*flex:\s*1\s+1\s+0/);
-        expect(css).toMatch(/\.wg-bp-modal__action--save\s*\{\s*flex:\s*2\s+1\s+0/);
+        expect(css).toMatch(/\.wg-bp-modal__header-actions\s*\{[^}]*display:\s*flex/);
+        expect(css).toMatch(/\.wg-bp-modal__header-btn\s*\{[^}]*min-height:\s*36px/);
+        expect(css).toMatch(/\.wg-bp-modal__header-btn--save\s*\{[^}]*padding:/);
     });
 
     it('close button is wired to closeBPRecordModal', () => {
