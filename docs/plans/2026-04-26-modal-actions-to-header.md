@@ -129,11 +129,11 @@ This continues the convention established for `WorkoutSessionModal` (reference: 
 - [x] `pnpm test` — must pass before Task 10 (new workouts-library-header test + updated `workout.exercises.test.js` pass; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 10: Workout LogSet modal — actions to header
-- [ ] move `.wg-workouts-log-set-modal__actions` buttons into `.wg-workouts-log-set-modal__header-actions` at `web/static/index.html:875-939`
-- [ ] delete the bottom `.wg-workouts-log-set-modal__actions` block
-- [ ] update `web/static/css/styles.css` near line 7080
-- [ ] update existing `web/static/js/tests/workout.modal.test.js` if it asserts the old button placement; otherwise add `web/static/js/tests/modals.workouts-log-set.header-actions.test.js`
-- [ ] `pnpm test` — must pass before Task 11
+- [x] move `.wg-workouts-log-set-modal__actions` buttons into `.wg-workouts-log-set-modal__header-actions` at `web/static/index.html:875-939`
+- [x] delete the bottom `.wg-workouts-log-set-modal__actions` block
+- [x] update `web/static/css/styles.css` near line 7080
+- [x] update existing `web/static/js/tests/workout.modal.test.js` if it asserts the old button placement; otherwise add `web/static/js/tests/modals.workouts-log-set.header-actions.test.js` (both done — updated existing assertion and added dedicated header-actions test file)
+- [x] `pnpm test` — must pass before Task 11 (new workouts-log-set-header test + updated `workout.modal.test.js` pass; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 11: Workout Start modal — promote to wg pattern + actions to header
 - [ ] at `web/static/index.html:1484-1498`, restructure the legacy `.actions` block: wrap with a `.wg-modal` shell using a new `wg-workouts-start-modal__header` containing `.wg-workouts-start-modal__heading` (eyebrow + title) and `.wg-workouts-start-modal__header-actions` (Cancel + Start)

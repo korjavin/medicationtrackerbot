@@ -879,10 +879,16 @@
                 <span class="wg-section-label wg-workouts-log-set-modal__eyebrow">Log set</span>
                 <span class="wg-mono-display wg-workouts-log-set-modal__title" id="workout-add-exercise-to-session-title">Add exercise</span>
             </div>
-            <button type="button" id="session-add-exercise-close-btn" class="wg-icon-btn wg-workouts-log-set-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-workouts-log-set-modal__header-actions">
+                <button type="button" id="session-add-exercise-close-btn" class="wg-icon-btn wg-workouts-log-set-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="session-add-exercise-cancel-btn"
+                    class="wg-gloss wg-workouts-log-set-modal__header-btn">Cancel</button>
+                <button type="button" id="session-add-exercise-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-log-set-modal__header-btn wg-workouts-log-set-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <div class="wg-workouts-log-set-modal__body">
@@ -929,13 +935,6 @@
                         placeholder="Optional notes">
                 </div>
             </div>
-        </div>
-
-        <div class="wg-workouts-log-set-modal__actions">
-            <button type="button" id="session-add-exercise-cancel-btn"
-                class="wg-gloss wg-workouts-log-set-modal__action wg-workouts-log-set-modal__action--cancel">Cancel</button>
-            <button type="button" id="session-add-exercise-save-btn"
-                class="wg-gloss wg-gloss--sun wg-workouts-log-set-modal__action wg-workouts-log-set-modal__action--save">Save</button>
         </div>
     </mt-modal>
 
