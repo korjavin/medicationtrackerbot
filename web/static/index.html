@@ -1129,10 +1129,16 @@
                 <span class="wg-section-label wg-meds-modal__eyebrow" id="med-modal-eyebrow">Medication</span>
                 <span class="wg-mono-display wg-meds-modal__title" id="med-modal-title">Add Medication</span>
             </div>
-            <button type="button" id="med-modal-close-btn" class="wg-icon-btn wg-meds-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-meds-modal__header-actions">
+                <button type="button" id="med-modal-close-btn" class="wg-icon-btn wg-meds-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="med-modal-cancel-btn"
+                    class="wg-gloss wg-meds-modal__header-btn">Cancel</button>
+                <button type="button" id="med-modal-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-meds-modal__header-btn wg-meds-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <div class="wg-meds-modal__body">
@@ -1261,12 +1267,6 @@
                 </div>
             </div>
 
-            <div class="wg-meds-modal__actions">
-                <button type="button" id="med-modal-cancel-btn"
-                    class="wg-gloss wg-meds-modal__action wg-meds-modal__action--cancel">Cancel</button>
-                <button type="button" id="med-modal-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-meds-modal__action wg-meds-modal__action--save">Save</button>
-            </div>
         </div>
     </mt-modal>
 

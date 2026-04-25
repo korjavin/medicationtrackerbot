@@ -73,11 +73,11 @@ This continues the convention established for `WorkoutSessionModal` (reference: 
 - [x] `pnpm test` — must pass before Task 2
 
 ### Task 2: TakeMedsModal / med-modal — actions to header
-- [ ] add `<div class="wg-meds-modal__header-actions">` inside `.wg-meds-modal__header` (after `.wg-meds-modal__heading`) at `web/static/index.html:1129-1274`, containing the two buttons currently in `.wg-meds-modal__actions`
-- [ ] delete the bottom `.wg-meds-modal__actions` block
-- [ ] update `web/static/css/styles.css` near line 6150: replace `.wg-meds-modal__actions` rules with `.wg-meds-modal__header-actions` and `.wg-meds-modal__header-btn`
-- [ ] add `web/static/js/tests/modals.meds.header-actions.test.js` asserting structure
-- [ ] `pnpm test` — must pass before Task 3
+- [x] add `<div class="wg-meds-modal__header-actions">` inside `.wg-meds-modal__header` (after `.wg-meds-modal__heading`) at `web/static/index.html:1129-1274`, containing the two buttons currently in `.wg-meds-modal__actions`
+- [x] delete the bottom `.wg-meds-modal__actions` block
+- [x] update `web/static/css/styles.css` near line 6150: replace `.wg-meds-modal__actions` rules with `.wg-meds-modal__header-actions` and `.wg-meds-modal__header-btn`
+- [x] add `web/static/js/tests/modals.meds.header-actions.test.js` asserting structure
+- [x] `pnpm test` — must pass before Task 3 (passes; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 3: LogBPModal — actions to header
 - [ ] move `.wg-bp-modal__actions` buttons (Cancel, Save) into a new `.wg-bp-modal__header-actions` inside `.wg-bp-modal__header` at `web/static/index.html:1277-1360`
