@@ -108,11 +108,11 @@ This continues the convention established for `WorkoutSessionModal` (reference: 
 - [x] `pnpm test` — must pass before Task 7 (new workouts-group-header test + updated `workout.groups.test.js` pass; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 7: Workout Variant modal — actions to header
-- [ ] move `.wg-workouts-variant-modal__actions` buttons into `.wg-workouts-variant-modal__header-actions`
-- [ ] delete the bottom `.wg-workouts-variant-modal__actions` block
-- [ ] update `web/static/css/styles.css` near line 6713
-- [ ] add `web/static/js/tests/modals.workouts-variant.header-actions.test.js`
-- [ ] `pnpm test` — must pass before Task 8
+- [x] move `.wg-workouts-variant-modal__actions` buttons into `.wg-workouts-variant-modal__header-actions`
+- [x] delete the bottom `.wg-workouts-variant-modal__actions` block
+- [x] update `web/static/css/styles.css` near line 6713
+- [x] add `web/static/js/tests/modals.workouts-variant.header-actions.test.js`
+- [x] `pnpm test` — must pass before Task 8 (new workouts-variant-header test + workout.design-parity / groups / crud pass; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 8: Workout Exercise modal — actions to header
 - [ ] move `.wg-workouts-exercise-modal__actions` buttons into `.wg-workouts-exercise-modal__header-actions`

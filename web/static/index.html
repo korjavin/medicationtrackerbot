@@ -601,10 +601,16 @@
                 <span class="wg-section-label wg-workouts-variant-modal__eyebrow">Workout variant</span>
                 <span class="wg-mono-display wg-workouts-variant-modal__title" id="workout-variant-modal-title">Add Variant</span>
             </div>
-            <button type="button" id="workout-variant-close-btn" class="wg-icon-btn wg-workouts-variant-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-workouts-variant-modal__header-actions">
+                <button type="button" id="workout-variant-close-btn" class="wg-icon-btn wg-workouts-variant-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="variant-cancel-btn"
+                    class="wg-gloss wg-workouts-variant-modal__header-btn">Cancel</button>
+                <button type="button" id="variant-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-variant-modal__header-btn wg-workouts-variant-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <div class="wg-workouts-variant-modal__body">
@@ -642,13 +648,6 @@
                     + Add exercise
                 </button>
             </div>
-        </div>
-
-        <div class="wg-workouts-variant-modal__actions">
-            <button type="button" id="variant-cancel-btn"
-                class="wg-gloss wg-workouts-variant-modal__action wg-workouts-variant-modal__action--cancel">Cancel</button>
-            <button type="button" id="variant-save-btn"
-                class="wg-gloss wg-gloss--sun wg-workouts-variant-modal__action wg-workouts-variant-modal__action--save">Save</button>
         </div>
     </mt-modal>
 

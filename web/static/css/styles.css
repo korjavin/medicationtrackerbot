@@ -6966,25 +6966,28 @@ textarea.wg-input {
     cursor: pointer;
 }
 
-.wg-workouts-variant-modal__actions {
+.wg-workouts-variant-modal__header-actions {
     display: flex;
-    gap: var(--wg-workouts-modal-action-gap);
-    margin-top: var(--space-md);
+    gap: var(--space-xs);
+    align-items: center;
+    flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
-.wg-workouts-variant-modal__action {
-    padding: var(--space-md);
+.wg-workouts-variant-modal__header-btn {
+    flex: 1 1 auto;
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
     font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    color: var(--wg-fg-1);
+    white-space: nowrap;
 }
 
-.wg-workouts-variant-modal__action--cancel {
-    flex: 1 1 0;
-}
-
-.wg-workouts-variant-modal__action--save {
-    flex: 2 1 0;
+.wg-workouts-variant-modal__header-btn--save {
+    flex: 2 1 auto;
 }
 
 /* Log-set modal (Phase 7, Task 8). Shares the generic `.wg-modal` shell for
