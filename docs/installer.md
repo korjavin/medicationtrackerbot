@@ -139,17 +139,49 @@ The installer will ask you a series of questions. **We generally recommend accep
 
 - **Action**: Paste the Token and ID you got in the Prerequisites section.
 
-### 6. Browser Login (Optional)
-> "Enable browser login (OIDC)? [y/N]"
+### 6. Let's Encrypt Email
+> "Email for Let's Encrypt [admin@example.com]:"
 
-- **Recommendation**: **Yes**.
-- **Pocket-ID**: The installer can set up [Pocket-ID](https://github.com/pocket-id/pocket-id) for you automatically.
+- **Action**: Enter a real email — it receives certificate-expiry warnings from Let's Encrypt.
+- Only asked when bundled Traefik is enabled.
 
-### 7. Litestream Backups (Optional)
-> "Enable Litestream backup to Cloudflare R2? [y/N]"
+### 7. Browser Login + MCP (Pocket-ID)
+> "Use Pocket-ID for browser login and MCP (recommended)? [Y/n]"
 
-- **What it is**: Real-time streaming backups.
+- **Recommendation**: **Yes** (default). The installer pulls and configures [Pocket-ID](https://github.com/pocket-id/pocket-id) automatically and points OIDC + the MCP server at it.
+- You'll then be asked for the Pocket-ID domain (e.g., `id.example.com`) and whether you already have OIDC client credentials. If not, the installer skips them now and you complete the setup in the Post-Installation steps below.
+
+### 8. Web Push (Optional)
+> "Enable web push (browser notifications)? [Y/n]"
+
+- **Recommendation**: **Yes** (default). Lets the PWA fire reminders even when the page is closed.
+- The installer offers to **auto-generate VAPID keys** — accept unless you already have a pair.
+
+### 9. AI Food & Activity Logging (Optional)
+> "Enable AI food/activity logging? [y/N]"
+
+- **What it is**: Lets `/food` and `/activity` parse natural-language entries via an OpenAI-compatible API.
+- If you say yes, you'll be asked for an API key, base URL (default `https://api.openai.com/v1`) and model (default `gpt-4o-mini`).
+- You can also point it at any OpenAI-compatible endpoint (Ollama, vLLM, OpenRouter…).
+
+### 10. External Workout Webhook (Optional)
+> "Enable external workout webhook (Mi Notify)? [y/N]"
+
+- **What it is**: Lets external sources (e.g. the Mi Notify Android app) push completed workouts to the bot via a shared API key.
+- The installer offers to auto-generate the key. Save the printed value — you'll need it on the sender side.
+
+### 11. Claude MCP Connector (Optional)
+> "Enable Claude MCP connector (optional)? [y/N]"
+
+- Only shown if you didn't already enable Pocket-ID in step 7 (otherwise MCP is wired up automatically).
+- Asks for the MCP domain (e.g., `mcp.example.com`) and Pocket-ID client credentials.
+
+### 12. Litestream Backups (Optional)
+> "Enable Litestream backup to Cloudflare R2 (optional)? [y/N]"
+
+- **What it is**: Real-time streaming backups to any S3-compatible storage (R2, S3, Wasabi, B2, MinIO).
 - **Why**: Keeps your data safe if the server fails.
+- ⚠️ Backups contain sensitive health data. Use a private bucket with restricted keys.
 
 ---
 
@@ -164,6 +196,7 @@ If you haven't already, go to your Domain Registrar (Namecheap, GoDaddy, Cloudfl
 |------|------|---------|
 | A | `meds` | `<your-server-ip>` |
 | A | `id` | `<your-server-ip>` (if using Pocket-ID) |
+| A | `mcp` | `<your-server-ip>` (if using the Claude MCP connector) |
 
 ### 2. Configure Telegram Bot
 You need to tell Telegram which domain your bot uses for its Web App.
@@ -212,7 +245,9 @@ Open that URL in your browser. It will log you in and allow you to **register yo
     OIDC_CLIENT_ID=<paste client id>
     OIDC_CLIENT_SECRET=<paste client secret>
     OIDC_ADMIN_EMAIL=<your email>
+    OIDC_ALLOWED_SUBJECT=<your Pocket-ID user subject (sub UUID)>
     ```
+    > Get the subject from your Pocket-ID user profile page (the **Subject** / `sub` field). At least one of `OIDC_ADMIN_EMAIL` or `OIDC_ALLOWED_SUBJECT` is required for the bot to accept logins.
 6.  Restart the stack: `docker compose up -d`
 
 *(Screenshots coming soon)*
@@ -235,4 +270,4 @@ Open that URL in your browser. It will log you in and allow you to **register yo
 - Check the issues on [GitHub](https://github.com/korjavin/medicationtrackerbot/issues).
 
 ---
-*Last Updated: 2026-02-20*
+*Last Updated: 2026-04-25*
