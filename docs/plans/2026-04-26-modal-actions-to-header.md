@@ -142,11 +142,11 @@ This continues the convention established for `WorkoutSessionModal` (reference: 
 - [x] `pnpm test` — must pass before Task 12 (new workouts-start-header test + existing app.weight-ruler-and-workout-start + app.unit pass; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 12: Verify acceptance criteria
-- [ ] grep `web/static/index.html` and `web/static/css/styles.css` for any remaining `*-modal__actions` selector — none should remain except the workouts-session reference (already correct) and out-of-scope legacy/`MedConfirm` modals (per Context section)
-- [ ] run full frontend test suite: `pnpm test` — all suites pass
-- [ ] run Go test suite: `go test ./...` — all suites pass (smoke check)
-- [ ] verify architecture tests still pass (no inline-style or new-global violations): tests under `web/static/js/tests/architecture.*.test.js`
-- [ ] confirm all 11 modals share consistent button order: `[Cancel]` left of `[Save]` (per Modal button order pattern from 2026-02-19)
+- [x] grep `web/static/index.html` and `web/static/css/styles.css` for any remaining `*-modal__actions` selector — none should remain except the workouts-session reference (already correct) and out-of-scope legacy/`MedConfirm` modals (per Context section) — HTML has zero per-modal `*-modal__actions`; CSS only retains the generic `.wg-modal__actions` primitive (used by `components.wg-modal` and `architecture.wg-primitives` tests, no HTML consumer)
+- [x] run full frontend test suite: `pnpm test` — 1514/1516 pass; the 2 failures are the pre-existing date-flaky `components.wg-sleep-chart` / `components.wg-steps-chart` "Today" label tests that have flaked across tasks 2–11 and are unrelated to this refactor
+- [x] run Go test suite: `go test ./...` — all suites pass (smoke check)
+- [x] verify architecture tests still pass (no inline-style or new-global violations): tests under `web/static/js/tests/architecture.*.test.js` — design-tokens, wg-primitives, chart-theme, toolbar-btn, globals, inline-styles, sw-precache all green
+- [x] confirm all 11 modals share consistent button order: `[Cancel]` left of `[Save]` (per Modal button order pattern from 2026-02-19) — verified in `index.html`: food (953/955), med (1137/1139), bp (1285/1287), weight (1370/1372), note (1424/1426), workout-group (511/513), variant (609/611), exercise (670/672), exercise-library (744/746), session-add-exercise/log-set (887/889), workout-start dismiss/now (1485/1487)
 
 ## Technical Details
 
