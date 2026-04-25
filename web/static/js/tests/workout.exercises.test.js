@@ -226,7 +226,7 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
 
         it('has Cancel + Save action buttons with Save as sun-glossed 2x-flex', () => {
             const { document } = env;
-            const actions = document.querySelector('#exercise-library-modal .wg-workouts-library-modal__actions');
+            const actions = document.querySelector('#exercise-library-modal .wg-workouts-library-modal__header-actions');
             expect(actions).not.toBeNull();
 
             const cancel = actions.querySelector('#exercise-library-cancel-btn');
@@ -235,11 +235,11 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
             expect(save).not.toBeNull();
 
             expect(cancel.classList.contains('wg-gloss')).toBe(true);
-            expect(cancel.classList.contains('wg-workouts-library-modal__action--cancel')).toBe(true);
+            expect(cancel.classList.contains('wg-workouts-library-modal__header-btn')).toBe(true);
 
             expect(save.classList.contains('wg-gloss')).toBe(true);
             expect(save.classList.contains('wg-gloss--sun')).toBe(true);
-            expect(save.classList.contains('wg-workouts-library-modal__action--save')).toBe(true);
+            expect(save.classList.contains('wg-workouts-library-modal__header-btn--save')).toBe(true);
         });
 
         it('preserves the preexisting ID hooks used by saveExerciseLibraryItem / showEditExerciseLibraryModal', () => {

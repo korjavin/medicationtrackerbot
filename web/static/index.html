@@ -736,10 +736,16 @@
                 <span class="wg-section-label wg-workouts-library-modal__eyebrow">Exercise library</span>
                 <span class="wg-mono-display wg-workouts-library-modal__title" id="exercise-library-modal-title">Add Exercise</span>
             </div>
-            <button type="button" id="exercise-library-close-btn" class="wg-icon-btn wg-workouts-library-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-workouts-library-modal__header-actions">
+                <button type="button" id="exercise-library-close-btn" class="wg-icon-btn wg-workouts-library-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="exercise-library-cancel-btn"
+                    class="wg-gloss wg-workouts-library-modal__header-btn">Cancel</button>
+                <button type="button" id="exercise-library-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-library-modal__header-btn wg-workouts-library-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <div class="wg-workouts-library-modal__body">
@@ -788,11 +794,6 @@
                     <input type="text" id="exercise-library-notes" class="wg-workouts-library-modal__input" placeholder="Form cues, variations, etc.">
                 </div>
             </div>
-        </div>
-
-        <div class="wg-workouts-library-modal__actions">
-            <button type="button" id="exercise-library-cancel-btn" class="wg-gloss wg-workouts-library-modal__action wg-workouts-library-modal__action--cancel">Cancel</button>
-            <button type="button" id="exercise-library-save-btn" class="wg-gloss wg-gloss--sun wg-workouts-library-modal__action wg-workouts-library-modal__action--save">Save</button>
         </div>
     </mt-modal>
 

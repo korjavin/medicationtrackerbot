@@ -122,11 +122,11 @@ This continues the convention established for `WorkoutSessionModal` (reference: 
 - [x] `pnpm test` — must pass before Task 9 (new workouts-exercise-header test + updated `workout.modal.test.js` pass; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 9: Workout Library modal — actions to header
-- [ ] move `.wg-workouts-library-modal__actions` buttons into `.wg-workouts-library-modal__header-actions`
-- [ ] delete the bottom `.wg-workouts-library-modal__actions` block
-- [ ] update `web/static/css/styles.css` near line 6964
-- [ ] add `web/static/js/tests/modals.workouts-library.header-actions.test.js`
-- [ ] `pnpm test` — must pass before Task 10
+- [x] move `.wg-workouts-library-modal__actions` buttons into `.wg-workouts-library-modal__header-actions`
+- [x] delete the bottom `.wg-workouts-library-modal__actions` block
+- [x] update `web/static/css/styles.css` near line 6964
+- [x] add `web/static/js/tests/modals.workouts-library.header-actions.test.js`
+- [x] `pnpm test` — must pass before Task 10 (new workouts-library-header test + updated `workout.exercises.test.js` pass; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 10: Workout LogSet modal — actions to header
 - [ ] move `.wg-workouts-log-set-modal__actions` buttons into `.wg-workouts-log-set-modal__header-actions` at `web/static/index.html:875-939`
