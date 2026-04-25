@@ -54,7 +54,7 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
             expect(m[0]).toMatch(/\bhidden\b/);
         });
 
-        it('renders mono header, close icon-btn, gloss-inset textarea wrap, and action bar', () => {
+        it('renders mono header, close icon-btn, gloss-inset textarea wrap, and header-actions row', () => {
             const { document } = env;
             const modal = document.getElementById('note-modal');
             expect(modal).not.toBeNull();
@@ -89,22 +89,29 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
             expect(saveBtn).not.toBeNull();
             expect(cancelBtn.classList.contains('wg-gloss')).toBe(true);
             expect(cancelBtn.classList.contains('wg-gloss--sun')).toBe(false);
+            expect(cancelBtn.classList.contains('wg-health-modal__header-btn')).toBe(true);
             expect(saveBtn.classList.contains('wg-gloss')).toBe(true);
             expect(saveBtn.classList.contains('wg-gloss--sun')).toBe(true);
+            expect(saveBtn.classList.contains('wg-health-modal__header-btn')).toBe(true);
+            expect(saveBtn.classList.contains('wg-health-modal__header-btn--save')).toBe(true);
             expect(saveBtn.getAttribute('type')).toBe('submit');
             expect(saveBtn.getAttribute('form')).toBe('note-form');
 
-            const actions = modal.querySelector('.wg-health-modal__actions');
+            const actions = modal.querySelector('.wg-health-modal__header-actions');
             expect(actions).not.toBeNull();
-            // Cancel left, Save right.
-            expect(actions.firstElementChild).toBe(cancelBtn);
-            expect(actions.lastElementChild).toBe(saveBtn);
+            // Cancel and Save live inside the header so they stay visible above a focused mobile keyboard.
+            expect(cancelBtn.parentElement).toBe(actions);
+            expect(saveBtn.parentElement).toBe(actions);
+            // Cancel left of Save.
+            const children = Array.from(actions.children);
+            expect(children.indexOf(cancelBtn)).toBeLessThan(children.indexOf(saveBtn));
         });
 
-        it('styles.css gives Save 2× flex vs. Cancel in the action bar', () => {
+        it('styles.css defines the header-actions row + header-btn sizing (Cancel/Save moved out of body footer to keep them above the mobile keyboard)', () => {
             const css = fs.readFileSync(CSS_PATH, 'utf8');
-            expect(css).toMatch(/\.wg-health-modal__action--cancel\s*\{\s*flex:\s*1\s+1\s+0/);
-            expect(css).toMatch(/\.wg-health-modal__action--save\s*\{\s*flex:\s*2\s+1\s+0/);
+            expect(css).toMatch(/\.wg-health-modal__header-actions\s*\{[^}]*display:\s*flex/);
+            expect(css).toMatch(/\.wg-health-modal__header-btn\s*\{[^}]*min-height:\s*36px/);
+            expect(css).toMatch(/\.wg-health-modal__header-btn--save\s*\{[^}]*padding:/);
         });
 
         it('styles.css registers the .wg-health-modal__* rules', () => {
@@ -115,7 +122,7 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
             expect(css).toMatch(/\.wg-health-modal__body\s*\{/);
             expect(css).toMatch(/\.wg-health-modal__input-wrap\s*\{/);
             expect(css).toMatch(/\.wg-health-modal__textarea\s*\{/);
-            expect(css).toMatch(/\.wg-health-modal__actions\s*\{/);
+            expect(css).toMatch(/\.wg-health-modal__header-actions\s*\{/);
         });
     });
 

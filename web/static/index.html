@@ -1416,10 +1416,16 @@
                 <span class="wg-section-label wg-health-modal__eyebrow" id="note-modal-eyebrow">Note</span>
                 <span class="wg-mono-display wg-health-modal__title" id="note-modal-title">Edit note</span>
             </div>
-            <button type="button" id="note-modal-close-btn" class="wg-icon-btn wg-health-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-health-modal__header-actions">
+                <button type="button" id="note-modal-close-btn" class="wg-icon-btn wg-health-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="note-modal-cancel-btn"
+                    class="wg-gloss wg-health-modal__header-btn">Cancel</button>
+                <button type="submit" id="note-modal-save-btn" form="note-form"
+                    class="wg-gloss wg-gloss--sun wg-health-modal__header-btn wg-health-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <form id="note-form" class="wg-health-modal__body">
@@ -1429,13 +1435,6 @@
                     <textarea id="note-modal-textarea" class="wg-health-modal__input wg-health-modal__textarea"
                         rows="6" maxlength="10000" placeholder="Note body..."></textarea>
                 </div>
-            </div>
-
-            <div class="wg-health-modal__actions">
-                <button type="button" id="note-modal-cancel-btn"
-                    class="wg-gloss wg-health-modal__action wg-health-modal__action--cancel">Cancel</button>
-                <button type="submit" id="note-modal-save-btn" form="note-form"
-                    class="wg-gloss wg-gloss--sun wg-health-modal__action wg-health-modal__action--save">Save</button>
             </div>
         </form>
     </mt-modal>

@@ -94,11 +94,11 @@ This continues the convention established for `WorkoutSessionModal` (reference: 
 - [x] `pnpm test` — must pass before Task 5 (new weight-header test + updated `weight.modal.test.js` pass; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 5: EditNoteModal — actions to header
-- [ ] move `.wg-health-modal__actions` buttons into a new `.wg-health-modal__header-actions` inside the note-modal header at `web/static/index.html:1418-1446`
-- [ ] delete the bottom `.wg-health-modal__actions` block (verify the class is not reused by sibling note components — if so, scope the rename to `.wg-note-modal__header-actions`)
-- [ ] update `web/static/css/styles.css` near line 7906
-- [ ] add `web/static/js/tests/modals.note.header-actions.test.js`
-- [ ] `pnpm test` — must pass before Task 6
+- [x] move `.wg-health-modal__actions` buttons into a new `.wg-health-modal__header-actions` inside the note-modal header at `web/static/index.html:1418-1446`
+- [x] delete the bottom `.wg-health-modal__actions` block (verify the class is not reused by sibling note components — if so, scope the rename to `.wg-note-modal__header-actions`) — class is only used by `#note-modal`, no rename needed
+- [x] update `web/static/css/styles.css` near line 7906
+- [x] add `web/static/js/tests/modals.note.header-actions.test.js`
+- [x] `pnpm test` — must pass before Task 6 (new note-header test + updated `health.modal.test.js` pass; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 6: Workout Group modal — actions to header
 - [ ] move `.wg-workouts-group-modal__actions` buttons into `.wg-workouts-group-modal__header-actions` inside the header at `web/static/index.html:500-590`
