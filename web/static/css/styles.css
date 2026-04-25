@@ -431,7 +431,6 @@
     --wg-food-modal-section-gap: 14px;
     --wg-food-modal-input-pad-y: 10px;
     --wg-food-modal-input-pad-x: 12px;
-    --wg-food-modal-action-gap: 8px;
 
     /* Food macro color aliases — Energy / Protein / Carbs / Fat map to the
        existing sun / mint / teal-sage / clay-soft palette so the macro-bar
@@ -504,7 +503,6 @@
     --wg-meds-modal-section-gap: 14px;
     --wg-meds-modal-input-pad-y: 10px;
     --wg-meds-modal-input-pad-x: 12px;
-    --wg-meds-modal-action-gap: 8px;
     --wg-meds-modal-pill-gap: 4px;
     --wg-meds-modal-pill-pad-y: 6px;
     --wg-meds-modal-pill-pad-x: 10px;
@@ -568,7 +566,6 @@
     --wg-weight-modal-unit-btn-size: 12px;
     --wg-weight-modal-unit-btn-min-w: 40px;
     --wg-weight-modal-label-size: 10.5px;
-    --wg-weight-modal-action-gap: 8px;
     --wg-weight-modal-weight-input-size: 20px;
 
     /* Record-BP modal tokens (Task 4b audit) — dual-line header, gloss-inset
@@ -583,7 +580,6 @@
     --wg-bp-modal-input-pad-x: 12px;
     --wg-bp-modal-label-size: 10.5px;
     --wg-bp-modal-reading-size: 20px;
-    --wg-bp-modal-action-gap: 8px;
 
     /* Take-meds (medication confirm) modal tokens (Task 4b audit) — dual-line
        header with a sun eyebrow, checkbox-style med rows (selected = green
@@ -662,7 +658,6 @@
     --wg-workouts-modal-input-pad-y: 10px;
     --wg-workouts-modal-input-pad-x: 12px;
     --wg-workouts-modal-label-size: 10.5px;
-    --wg-workouts-modal-action-gap: 8px;
 
     /* Rotation-slot semantic aliases (Phase 7, Task 1) — wrap the shared tag
        triplets so the rotation-slot classifier (PUSH / PULL / LEGS / REST /
@@ -745,7 +740,6 @@
     --wg-health-modal-input-pad-y: 10px;
     --wg-health-modal-input-pad-x: 12px;
     --wg-health-modal-label-size: 10.5px;
-    --wg-health-modal-action-gap: 8px;
 
     /* Sleep-stage color tokens (Phase 8, Task 1) — replace hardcoded hex in
        the sleep chart. deep / light / rem / awake drive stacked-bar fills;
@@ -8113,7 +8107,7 @@ textarea.wg-input {
 
 .wg-health-modal__header-actions {
     display: flex;
-    gap: var(--wg-health-modal-action-gap);
+    gap: var(--space-xs);
     align-items: center;
     flex-shrink: 0;
 }

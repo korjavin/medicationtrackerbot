@@ -224,7 +224,7 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
             expect(notesWrap.classList.contains('wg-gloss--inset')).toBe(true);
         });
 
-        it('has Cancel + Save action buttons with Save as sun-glossed 2x-flex', () => {
+        it('has Cancel + Save header-action buttons with Save as sun-glossed', () => {
             const { document } = env;
             const actions = document.querySelector('#exercise-library-modal .wg-workouts-library-modal__header-actions');
             expect(actions).not.toBeNull();

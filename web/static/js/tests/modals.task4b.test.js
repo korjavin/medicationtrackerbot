@@ -34,7 +34,7 @@ describe('BP modal — Task 4b audit', () => {
     it('lays out Systolic / Diastolic / Pulse as a single 3-up reading row', () => {
         const html = fs.readFileSync(INDEX_PATH, 'utf8');
         const block = html.match(/<mt-modal[^>]*id="bp-modal"[\s\S]*?<\/mt-modal>/)[0];
-        const rowMatch = block.match(/wg-bp-modal__row--readings[\s\S]*?(?=wg-bp-modal__row--meta|wg-bp-modal__actions)/);
+        const rowMatch = block.match(/wg-bp-modal__row--readings[\s\S]*?(?=wg-bp-modal__row--meta)/);
         expect(rowMatch, 'expected the sys/dia/pulse readings row').not.toBeNull();
         expect(rowMatch[0]).toMatch(/id="bp-systolic"/);
         expect(rowMatch[0]).toMatch(/id="bp-diastolic"/);

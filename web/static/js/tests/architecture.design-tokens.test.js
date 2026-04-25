@@ -398,7 +398,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-food-modal-section-gap',
     '--wg-food-modal-input-pad-y',
     '--wg-food-modal-input-pad-x',
-    '--wg-food-modal-action-gap',
 
     // Food macro color aliases — map Energy / Protein / Carbs / Fat variants
     // to existing sun / mint / teal-sage / clay-soft palette tokens.
@@ -468,7 +467,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-meds-modal-section-gap',
     '--wg-meds-modal-input-pad-y',
     '--wg-meds-modal-input-pad-x',
-    '--wg-meds-modal-action-gap',
     '--wg-meds-modal-pill-gap',
     '--wg-meds-modal-pill-pad-y',
     '--wg-meds-modal-pill-pad-x',
@@ -538,7 +536,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-weight-modal-unit-btn-size',
     '--wg-weight-modal-unit-btn-min-w',
     '--wg-weight-modal-label-size',
-    '--wg-weight-modal-action-gap',
     '--wg-weight-modal-weight-input-size',
 
     // Record-BP modal tokens (Task 4b audit) — dual-line header, gloss-inset
@@ -553,7 +550,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-bp-modal-input-pad-x',
     '--wg-bp-modal-label-size',
     '--wg-bp-modal-reading-size',
-    '--wg-bp-modal-action-gap',
 
     // Take-meds (medication confirm) modal tokens (Task 4b audit) — dual-line
     // sun-eyebrow header, subtitle, check-row geometry (selected = green tag
@@ -628,7 +624,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-workouts-modal-input-pad-y',
     '--wg-workouts-modal-input-pad-x',
     '--wg-workouts-modal-label-size',
-    '--wg-workouts-modal-action-gap',
 
     // Workouts rotation-slot aliases (Phase 7, Task 1) — wrap the shared
     // sun / normal / mint tag triplets so the rotation-slot classifier
@@ -707,7 +702,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-health-modal-input-pad-y',
     '--wg-health-modal-input-pad-x',
     '--wg-health-modal-label-size',
-    '--wg-health-modal-action-gap',
 
     // Sleep-stage color tokens (Phase 8, Task 1) — stacked-bar fills for
     // deep / light / rem / awake plus the HR overlay line + dot + label.

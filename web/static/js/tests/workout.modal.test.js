@@ -53,7 +53,7 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
         });
     });
 
-    it('has Cancel + Save header-action buttons with Save as sun-glossed 2x-flex', () => {
+    it('has Cancel + Save header-action buttons with Save as sun-glossed', () => {
         const { document } = env;
         const actions = document.querySelector('#workout-add-exercise-to-session-modal .wg-workouts-log-set-modal__header-actions');
         expect(actions).not.toBeNull();
@@ -226,7 +226,7 @@ describe('Edit-exercise modal shell (Phase 7, Task 8)', () => {
         });
     });
 
-    it('has Cancel + Save action buttons with Save as sun-glossed 2x-flex in the header', () => {
+    it('has Cancel + Save header-action buttons with Save as sun-glossed', () => {
         const { document } = env;
         const actions = document.querySelector('#workout-exercise-modal .wg-workouts-exercise-modal__header-actions');
         expect(actions).not.toBeNull();
