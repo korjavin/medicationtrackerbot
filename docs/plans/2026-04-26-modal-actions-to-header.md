@@ -66,11 +66,11 @@ This continues the convention established for `WorkoutSessionModal` (reference: 
 ## Implementation Steps
 
 ### Task 1: EditFoodModal — actions to header
-- [ ] in `web/static/index.html:942-1048`, append `<button id="food-modal-cancel-btn">Cancel</button>` and `<button id="food-modal-save-btn">Save entry</button>` (both with `wg-gloss` / `wg-gloss--sun` + new `wg-food-modal__header-btn*` classes) into the existing `.wg-food-modal__header-actions` container, just after the close-X button
-- [ ] delete the bottom `<div class="wg-food-modal__actions">…</div>` block (~lines 1040-1045)
-- [ ] in `web/static/css/styles.css` near line 4780+, replace `.wg-food-modal__actions` rules with `.wg-food-modal__header-actions { display: flex; gap: 8px; align-items: center; }` and `.wg-food-modal__header-btn` sizing matching `.wg-workouts-session-modal__header-btn`
-- [ ] add `web/static/js/tests/modals.food.header-actions.test.js` asserting Cancel + Save are inside `.wg-food-modal__header-actions` and body has no `.wg-food-modal__actions`
-- [ ] `pnpm test` — must pass before Task 2
+- [x] in `web/static/index.html:942-1048`, append `<button id="food-modal-cancel-btn">Cancel</button>` and `<button id="food-modal-save-btn">Save entry</button>` (both with `wg-gloss` / `wg-gloss--sun` + new `wg-food-modal__header-btn*` classes) into the existing `.wg-food-modal__header-actions` container, just after the close-X button
+- [x] delete the bottom `<div class="wg-food-modal__actions">…</div>` block (~lines 1040-1045)
+- [x] in `web/static/css/styles.css` near line 4780+, replace `.wg-food-modal__actions` rules with `.wg-food-modal__header-actions { display: flex; gap: 8px; align-items: center; }` and `.wg-food-modal__header-btn` sizing matching `.wg-workouts-session-modal__header-btn`
+- [x] add `web/static/js/tests/modals.food.header-actions.test.js` asserting Cancel + Save are inside `.wg-food-modal__header-actions` and body has no `.wg-food-modal__actions`
+- [x] `pnpm test` — must pass before Task 2
 
 ### Task 2: TakeMedsModal / med-modal — actions to header
 - [ ] add `<div class="wg-meds-modal__header-actions">` inside `.wg-meds-modal__header` (after `.wg-meds-modal__heading`) at `web/static/index.html:1129-1274`, containing the two buttons currently in `.wg-meds-modal__actions`

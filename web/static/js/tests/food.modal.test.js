@@ -136,10 +136,12 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         expect(dt.parentElement.classList.contains('wg-gloss--inset')).toBe(true);
     });
 
-    it('bottom action bar carries Cancel (.wg-gloss) and Save (.wg-gloss--sun)', () => {
+    it('header action row carries Cancel (.wg-gloss) and Save (.wg-gloss--sun)', () => {
         const { document } = env;
-        const actions = document.querySelector('#food-modal .wg-food-modal__actions');
+        const actions = document.querySelector('#food-modal .wg-food-modal__header-actions');
         expect(actions).not.toBeNull();
+        // Body footer action row no longer exists.
+        expect(document.querySelector('#food-modal .wg-food-modal__actions')).toBeNull();
 
         const cancelBtn = document.getElementById('food-modal-cancel-btn');
         const saveBtn = document.getElementById('food-modal-save-btn');
@@ -153,8 +155,10 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         expect(saveBtn.textContent).toContain('Save entry');
 
         // Cancel comes before Save (left/right convention).
-        expect(actions.firstElementChild).toBe(cancelBtn);
-        expect(actions.lastElementChild).toBe(saveBtn);
+        const cancelIdx = Array.from(actions.children).indexOf(cancelBtn);
+        const saveIdx = Array.from(actions.children).indexOf(saveBtn);
+        expect(cancelIdx).toBeGreaterThan(-1);
+        expect(saveIdx).toBeGreaterThan(cancelIdx);
     });
 
     it('per-100g checkbox stays checked by default and is wrapped in a label', () => {
@@ -224,7 +228,7 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         expect(document.getElementById('food-fat').value).toBe('3');
     });
 
-    it('cancel button (bottom) routes through closeFoodModal', () => {
+    it('cancel button (header) routes through closeFoodModal', () => {
         const { document, window } = env;
         window.showAddFoodModal();
         expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
