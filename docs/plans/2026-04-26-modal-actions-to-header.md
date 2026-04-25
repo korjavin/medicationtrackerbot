@@ -136,10 +136,10 @@ This continues the convention established for `WorkoutSessionModal` (reference: 
 - [x] `pnpm test` — must pass before Task 11 (new workouts-log-set-header test + updated `workout.modal.test.js` pass; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 11: Workout Start modal — promote to wg pattern + actions to header
-- [ ] at `web/static/index.html:1484-1498`, restructure the legacy `.actions` block: wrap with a `.wg-modal` shell using a new `wg-workouts-start-modal__header` containing `.wg-workouts-start-modal__heading` (eyebrow + title) and `.wg-workouts-start-modal__header-actions` (Cancel + Start)
-- [ ] add the corresponding CSS in `web/static/css/styles.css` (mirror the workouts-session-modal pattern)
-- [ ] add `web/static/js/tests/modals.workouts-start.header-actions.test.js`
-- [ ] `pnpm test` — must pass before Task 12
+- [x] at `web/static/index.html:1484-1498`, restructure the legacy `.actions` block: wrap with a `.wg-modal` shell using a new `wg-workouts-start-modal__header` containing `.wg-workouts-start-modal__heading` (eyebrow + title) and `.wg-workouts-start-modal__header-actions` (Cancel + Start)
+- [x] add the corresponding CSS in `web/static/css/styles.css` (mirror the workouts-session-modal pattern)
+- [x] add `web/static/js/tests/modals.workouts-start.header-actions.test.js`
+- [x] `pnpm test` — must pass before Task 12 (new workouts-start-header test + existing app.weight-ruler-and-workout-start + app.unit pass; pre-existing date-flaky sleep/steps chart tests unrelated to this task)
 
 ### Task 12: Verify acceptance criteria
 - [ ] grep `web/static/index.html` and `web/static/css/styles.css` for any remaining `*-modal__actions` selector — none should remain except the workouts-session reference (already correct) and out-of-scope legacy/`MedConfirm` modals (per Context section)

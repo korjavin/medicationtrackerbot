@@ -1475,19 +1475,29 @@
     </mt-modal>
 
     <!-- Modal for Workout Start (from Push) -->
-    <mt-modal id="workout-start-modal" class="hidden">
-        <h3 id="workout-start-title">Workout Time!</h3>
-        <p id="workout-start-subtitle" style="color: #666; margin-bottom: 20px;"></p>
-
-        <div class="actions" style="flex-direction: column; gap: 10px;">
-            <button id="workout-start-now-btn" class="btn btn-primary" style="width: 100%;">Start Workout</button>
-            <button id="workout-start-snooze-60-btn" class="btn btn-secondary" style="width: 100%;">Snooze 1 hour</button>
-            <button id="workout-start-snooze-120-btn" class="btn btn-secondary" style="width: 100%;">Snooze 2 hours</button>
-            <button id="workout-start-skip-btn" class="btn btn-danger-outline"
-                style="width: 100%;">Skip Workout</button>
+    <mt-modal id="workout-start-modal" class="hidden wg-modal wg-workouts-start-modal">
+        <div class="wg-workouts-start-modal__header">
+            <div class="wg-workouts-start-modal__heading">
+                <span class="wg-section-label wg-workouts-start-modal__eyebrow">Workout</span>
+                <span class="wg-mono-display wg-workouts-start-modal__title" id="workout-start-title">Workout Time!</span>
+            </div>
+            <div class="wg-workouts-start-modal__header-actions">
+                <button type="button" id="workout-start-dismiss-btn"
+                    class="wg-gloss wg-workouts-start-modal__header-btn">Cancel</button>
+                <button type="button" id="workout-start-now-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-start-modal__header-btn wg-workouts-start-modal__header-btn--save">Start</button>
+            </div>
         </div>
-        <div style="margin-top: 15px; text-align: center;">
-            <button id="workout-start-dismiss-btn" class="btn btn-ghost">Dismiss</button>
+        <div class="wg-workouts-start-modal__body">
+            <p id="workout-start-subtitle" class="wg-workouts-start-modal__subtitle"></p>
+            <div class="wg-workouts-start-modal__secondary-actions">
+                <button type="button" id="workout-start-snooze-60-btn"
+                    class="wg-gloss wg-workouts-start-modal__secondary-btn">Snooze 1 hour</button>
+                <button type="button" id="workout-start-snooze-120-btn"
+                    class="wg-gloss wg-workouts-start-modal__secondary-btn">Snooze 2 hours</button>
+                <button type="button" id="workout-start-skip-btn"
+                    class="wg-gloss wg-workouts-start-modal__secondary-btn wg-workouts-start-modal__secondary-btn--danger">Skip Workout</button>
+            </div>
         </div>
     </mt-modal>
 
