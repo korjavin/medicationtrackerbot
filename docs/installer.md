@@ -100,7 +100,7 @@ ssh root@<your-server-ip>
 Run this single command to start the interactive wizard:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/korjavin/medicationtrackerbot/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/korjavin/medicationtrackerbot/master/install.sh | bash
 ```
 
 <img src="img/step_curl.png" alt="Running the curl command" width="600" />
