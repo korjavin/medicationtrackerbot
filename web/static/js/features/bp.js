@@ -34,18 +34,9 @@ function setActiveBPRange(days) {
     try { window.localStorage.setItem(BP_RANGE_STORAGE_KEY, String(days)); } catch (_) { /* ignore */ }
 }
 
-function renderBPModalIcons() {
-    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
-    const closeGloss = document.querySelector('#bp-modal-close-btn .wg-gloss');
-    if (closeGloss && !closeGloss.querySelector('svg')) {
-        closeGloss.replaceChildren(window.WGIcons.iconSvg('close', { size: 14 }));
-    }
-}
-
 // Show BP recording modal
 function showBPRecordModal() {
     window.ModalManager.bp.open();
-    renderBPModalIcons();
     setBPModalEyebrow('New entry');
 
     // Set default datetime to now

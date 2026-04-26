@@ -1170,25 +1170,11 @@ async function handleEditNoteSubmit(event) {
     loadNotes();
 }
 
-function renderEditNoteModalIcons() {
-    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
-    const closeGloss = document.querySelector('#note-modal-close-btn .wg-gloss');
-    if (closeGloss && !closeGloss.querySelector('svg')) {
-        closeGloss.replaceChildren(window.WGIcons.iconSvg('close', { size: 14 }));
-    }
-}
-
 function bindEditNoteModalControls() {
-    renderEditNoteModalIcons();
     const cancel = document.getElementById('note-modal-cancel-btn');
     if (cancel && !cancel._wgBound) {
         cancel._wgBound = true;
         cancel.addEventListener('click', () => closeEditNoteModal());
-    }
-    const close = document.getElementById('note-modal-close-btn');
-    if (close && !close._wgBound) {
-        close._wgBound = true;
-        close.addEventListener('click', () => closeEditNoteModal());
     }
     const form = document.getElementById('note-form');
     if (form && !form._wgBound) {

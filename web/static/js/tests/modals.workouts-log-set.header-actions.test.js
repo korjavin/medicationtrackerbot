@@ -56,11 +56,8 @@ describe('WorkoutLogSetModal header-actions', () => {
         expect(saveIdx).toBeGreaterThan(cancelIdx);
     });
 
-    it('close-X button stays in the header next to Cancel/Save', () => {
+    it('redundant close-X button is removed from the header', () => {
         const { document } = env;
-        const headerActions = document.querySelector('#workout-add-exercise-to-session-modal .wg-workouts-log-set-modal__header-actions');
-        const closeBtn = document.getElementById('session-add-exercise-close-btn');
-        expect(closeBtn).not.toBeNull();
-        expect(closeBtn.parentElement).toBe(headerActions);
+        expect(document.getElementById('session-add-exercise-close-btn')).toBeNull();
     });
 });

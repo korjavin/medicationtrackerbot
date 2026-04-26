@@ -4811,10 +4811,6 @@ textarea.wg-input {
     line-height: 1.1;
 }
 
-.wg-weight-modal__close-btn {
-    flex-shrink: 0;
-}
-
 .wg-weight-modal__body {
     display: flex;
     flex-direction: column;
@@ -4971,10 +4967,6 @@ textarea.wg-input {
     font-size: var(--wg-bp-modal-title-size);
     color: var(--wg-fg-1);
     line-height: 1.1;
-}
-
-.wg-bp-modal__close-btn {
-    flex-shrink: 0;
 }
 
 .wg-bp-modal__body {
@@ -6455,10 +6447,6 @@ textarea.wg-input {
     line-height: 1.1;
 }
 
-.wg-workouts-group-modal__close-btn {
-    flex-shrink: 0;
-}
-
 .wg-workouts-group-modal__body {
     display: flex;
     flex-direction: column;
@@ -6744,10 +6732,6 @@ textarea.wg-input {
     line-height: 1.1;
 }
 
-.wg-workouts-library-modal__close-btn {
-    flex-shrink: 0;
-}
-
 .wg-workouts-library-modal__body {
     display: flex;
     flex-direction: column;
@@ -6862,10 +6846,6 @@ textarea.wg-input {
     line-height: 1.1;
 }
 
-.wg-workouts-exercise-modal__close-btn {
-    flex-shrink: 0;
-}
-
 .wg-workouts-exercise-modal__body {
     display: flex;
     flex-direction: column;
@@ -6977,10 +6957,6 @@ textarea.wg-input {
     font-size: var(--wg-workouts-modal-title-size);
     color: var(--wg-fg-1);
     line-height: 1.1;
-}
-
-.wg-workouts-variant-modal__close-btn {
-    flex-shrink: 0;
 }
 
 .wg-workouts-variant-modal__body {
@@ -7115,10 +7091,6 @@ textarea.wg-input {
     font-size: var(--wg-workouts-modal-title-size);
     color: var(--wg-fg-1);
     line-height: 1.1;
-}
-
-.wg-workouts-log-set-modal__close-btn {
-    flex-shrink: 0;
 }
 
 .wg-workouts-log-set-modal__body {
@@ -8040,10 +8012,6 @@ textarea.wg-input {
     line-height: 1.1;
 }
 
-.wg-health-modal__close-btn {
-    flex-shrink: 0;
-}
-
 .wg-health-modal__body {
     display: flex;
     flex-direction: column;
@@ -8831,10 +8799,6 @@ textarea.wg-input {
     line-height: 1.1;
 }
 
-.wg-food-modal__close-btn {
-    flex-shrink: 0;
-}
-
 .wg-food-modal__body {
     display: flex;
     flex-direction: column;
@@ -9026,10 +8990,6 @@ textarea.wg-input {
     font-size: var(--wg-meds-modal-title-size);
     color: var(--wg-fg-1);
     line-height: 1.1;
-}
-
-.wg-meds-modal__close-btn {
-    flex-shrink: 0;
 }
 
 .wg-meds-modal__body {

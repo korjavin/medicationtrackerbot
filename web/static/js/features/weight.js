@@ -151,7 +151,6 @@ function showWeightModal() {
     }
 
     attachWeightUnitToggleHandlers();
-    renderWeightModalIcons();
     focusWeightModalInput();
 }
 
@@ -193,14 +192,6 @@ async function readCachedLatestWeightKg() {
     } catch (_) { /* best-effort */ }
 
     return pickLatestKg(combined);
-}
-
-function renderWeightModalIcons() {
-    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
-    const closeGloss = document.querySelector('#weight-modal-close-btn .wg-gloss');
-    if (closeGloss && !closeGloss.querySelector('svg')) {
-        closeGloss.replaceChildren(window.WGIcons.iconSvg('close', { size: 14 }));
-    }
 }
 
 function focusWeightModalInput() {

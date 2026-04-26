@@ -105,22 +105,18 @@ function bindWorkoutControls() {
     bindClick('add-exercise-library-btn', () => showExerciseLibraryModal());
 
     bindClick('workout-group-cancel-btn', () => closeWorkoutGroupModal());
-    bindClick('workout-group-close-btn', () => closeWorkoutGroupModal());
     bindClick('workout-group-save-btn', () => saveWorkoutGroup());
     bindClick('add-variant-btn', () => showAddVariantModal());
     bindClick('add-flat-exercise-btn', () => showAddExerciseModalFromGroup());
 
     bindClick('variant-cancel-btn', () => closeVariantModal());
-    bindClick('workout-variant-close-btn', () => closeVariantModal());
     bindClick('variant-save-btn', () => saveVariant());
     bindClick('variant-add-exercise-btn', () => showAddExerciseModal());
 
     bindClick('exercise-cancel-btn', () => closeExerciseModal());
-    bindClick('exercise-close-btn', () => closeExerciseModal());
     bindClick('exercise-save-btn', () => saveExercise());
 
     bindClick('exercise-library-cancel-btn', () => closeExerciseLibraryModal());
-    bindClick('exercise-library-close-btn', () => closeExerciseLibraryModal());
     bindClick('exercise-library-save-btn', () => saveExerciseLibraryItem());
 
     bindClick('workout-session-delete-btn', () => deleteWorkoutSession());
@@ -128,7 +124,6 @@ function bindWorkoutControls() {
     bindClick('workout-session-save-btn', () => saveWorkoutSessionDetails());
 
     bindClick('session-add-exercise-cancel-btn', () => closeAddExerciseToSessionModal());
-    bindClick('session-add-exercise-close-btn', () => closeAddExerciseToSessionModal());
     bindClick('session-add-exercise-save-btn', () => saveNewSessionExercise());
 
     bindClick('miband-workout-cancel-btn', () => closeMiBandWorkoutModal());
@@ -154,29 +149,6 @@ function bindWorkoutControls() {
             onSessionExerciseSelect();
         });
     }
-
-    renderWorkoutModalCloseIcons();
-}
-
-// Hydrate the `.wg-gloss` span inside every workout modal's close button with
-// the shared close SVG. Mirrors the food.js `renderFoodModalIcons` pattern so
-// the Wandergeek close affordance isn't rendered as a blank pill.
-function renderWorkoutModalCloseIcons() {
-    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
-    const closeBtnIds = [
-        'workout-group-close-btn',
-        'workout-variant-close-btn',
-        'exercise-close-btn',
-        'exercise-library-close-btn',
-        'session-add-exercise-close-btn',
-    ];
-    closeBtnIds.forEach((id) => {
-        const btn = document.getElementById(id);
-        if (!btn) return;
-        const gloss = btn.querySelector('.wg-gloss');
-        if (!gloss || gloss.querySelector('svg')) return;
-        gloss.replaceChildren(window.WGIcons.iconSvg('close', { size: 14 }));
-    });
 }
 
 if (document.readyState === 'loading') {
