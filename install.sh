@@ -2,10 +2,12 @@
 set -euo pipefail
 
 # When invoked via `curl ... | bash`, stdin is the pipe carrying the script
-# body, so any `read` would consume script lines instead of user input and the
-# installer silently bails after a few prompts. Re-attach stdin to the TTY.
-if [ ! -t 0 ] && [ -e /dev/tty ]; then
-  exec </dev/tty
+# body, so any `read` would consume script lines instead of user input.
+# Route interactive reads through /dev/tty (set below) so prompts read the
+# user's keystrokes while bash keeps reading the script from the pipe.
+TTY_IN=""
+if { : </dev/tty; } 2>/dev/null; then
+  TTY_IN="/dev/tty"
 fi
 
 APP_NAME="medtracker"
@@ -34,7 +36,11 @@ prompt() {
   if "$USE_WHIPTAIL"; then
     value=$(whiptail --inputbox "$message" 10 78 "$default" 3>&1 1>&2 2>&3) || exit 1
   else
-    read -r -p "$message [$default]: " value
+    if [ -n "$TTY_IN" ]; then
+      read -r -p "$message [$default]: " value <"$TTY_IN"
+    else
+      read -r -p "$message [$default]: " value
+    fi
     value="${value:-$default}"
   fi
   printf '%s' "$value"
@@ -46,7 +52,11 @@ prompt_secret() {
   if "$USE_WHIPTAIL"; then
     value=$(whiptail --passwordbox "$message" 10 78 3>&1 1>&2 2>&3) || exit 1
   else
-    read -r -s -p "$message: " value
+    if [ -n "$TTY_IN" ]; then
+      read -r -s -p "$message: " value <"$TTY_IN"
+    else
+      read -r -s -p "$message: " value
+    fi
     printf '\n'
   fi
   printf '%s' "$value"
@@ -105,7 +115,11 @@ prompt_secret_state() {
         value=$(whiptail --passwordbox "$message" 10 78 3>&1 1>&2 2>&3) || exit 1
       fi
     else
-      read -r -s -p "$message (press Enter to keep existing): " value
+      if [ -n "$TTY_IN" ]; then
+        read -r -s -p "$message (press Enter to keep existing): " value <"$TTY_IN"
+      else
+        read -r -s -p "$message (press Enter to keep existing): " value
+      fi
       printf '\n'
       if [ -z "$value" ]; then
         value="$saved"
@@ -152,7 +166,11 @@ confirm() {
       prompt_suffix="[y/N]"
     fi
     local answer
-    read -r -p "$message $prompt_suffix " answer
+    if [ -n "$TTY_IN" ]; then
+      read -r -p "$message $prompt_suffix " answer <"$TTY_IN"
+    else
+      read -r -p "$message $prompt_suffix " answer
+    fi
     answer="${answer:-$default_yes}"
     case "$answer" in
       y|Y|yes|YES) result=0 ;;
