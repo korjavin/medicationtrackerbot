@@ -2,7 +2,7 @@
 
 ## Overview
 
-After moving Cancel/Save into the modal header, every form modal now has **two buttons that do the same thing**: a stand-alone close-X icon button on the left of the header, and a textual "Cancel" button on the right of the header. The X is redundant — it duplicates Cancel without adding any affordance the keyboard user or screen reader doesn't already have via Cancel + backdrop tap. Remove the X from all 11 `.wg-modal` form modals to reduce visual noise.
+After moving Cancel/Save into the modal header, every form modal now has **two buttons that do the same thing**: a stand-alone close-X icon button on the left of the header, and a textual "Cancel" button on the right of the header. The X is redundant — it duplicates Cancel without adding any affordance the keyboard user or screen reader doesn't already have via Cancel (back-navigation via the Telegram BackButton + popstate is handled separately). Remove the X from all 11 `.wg-modal` form modals to reduce visual noise.
 
 The reference modal (`WorkoutSessionModal`) already follows this — it has Delete/Cancel/Save in the header with no separate X. Bringing the other 11 modals in line restores the design intent shown in the handoff (`.local/medtrackerbot-ref/design_handoff_vitals/screenshots/05-08`), where the title + actions row is the only header element.
 
@@ -40,7 +40,7 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
 
 **CSS to remove:** `.wg-*-modal__close-btn` rules across `web/static/css/styles.css` (one per modal).
 
-**Dismiss affordances that REMAIN after removal:** Cancel button (in header), backdrop tap (handled by `<mt-modal>` core — see `web/static/js/components/mt-modal.js`), Esc key (if implemented).
+**Dismiss affordances that REMAIN after removal:** Cancel button (in header) is the only in-modal dismiss control for 9 of the 10 refactored modals. `MTModal` (`web/static/js/components/mt-elements.js`) only toggles `hidden`/`inert` — `ModalManager.open/close` does not wire a backdrop click handler on `#modal-overlay`. The exception is the Workout LogSet modal (`workout-add-exercise-to-session`, Task 10): its close-X is being removed, but it installs its own backdrop-click handler in `workout.js` (`closeAddExerciseToSessionModal`) that is retained — out of scope for this plan. The `workout-session` modal also has its own backdrop handler and is not being modified at all here. Back-navigation via Telegram BackButton + popstate is handled separately. Back-navigation is handled separately via Telegram BackButton + popstate.
 
 **Test infra:** Vitest + jsdom. Tests live in `web/static/js/tests/`. Existing per-modal header-actions tests added in the previous plan (e.g. `modals.food.header-actions.test.js`) — extend or add sibling tests asserting the close-X is gone.
 
@@ -48,7 +48,6 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
 
 - **Testing approach:** Regular (remove the X, then assert it's gone and Cancel still works).
 - One modal per task. Each task: HTML + JS handler removal + CSS cleanup + test update + run `pnpm test`.
-- Verify backdrop-tap dismissal still works after removal (covered by existing `core.modal-controller.test.js`; spot-check one modal manually).
 - No bot / Go changes expected.
 
 ## Testing Strategy
@@ -57,7 +56,7 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
   - `document.getElementById('<modal-id>').querySelector('#<modal>-close-btn')` returns `null`.
   - Cancel button still resolves and clicking it dismisses the modal (extend the existing per-modal `header-actions.test.js` or its companion).
 - **Architecture tests:** must continue to pass.
-- **Manual verification (post-completion):** open each modal in a touch device / mobile emulation, confirm Cancel is the only header dismiss control and backdrop tap still closes.
+- **Manual verification (post-completion):** open each modal in a touch device / mobile emulation, confirm Cancel is the only in-modal dismiss control and the header reads `[Title] [Cancel] [Save]`.
 
 ## Progress Tracking
 
@@ -69,7 +68,7 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
 ## What Goes Where
 
 - **Implementation Steps:** delete HTML in `web/static/index.html`, delete JS bindings/icon hydration in `web/static/js/`, delete CSS in `web/static/css/styles.css`, update tests in `web/static/js/tests/`.
-- **Post-Completion:** manual mobile pass to confirm Cancel + backdrop are sufficient dismiss affordances and the header looks balanced (no orphan flex gap).
+- **Post-Completion:** manual mobile pass to confirm Cancel is a sufficient in-modal dismiss affordance and the header looks balanced (no orphan flex gap).
 
 ## Implementation Steps
 
@@ -158,7 +157,7 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
 - [x] confirm `Workout Start modal` header has no X (`workout-start-close-btn` returns nothing in code)
 - [x] run `pnpm test` — 1516 tests pass across 144 files
 - [x] run `go test ./...` — all packages ok
-- [x] confirm backdrop-tap dismiss still works for one representative modal (covered by existing `core.modal-controller.test.js` — 6 tests pass)
+- [x] confirm Cancel is wired and dismisses each modal (covered by per-modal `*.header-actions.test.js` tests). Note on backdrop-tap: 9 of the 10 refactored modals rely solely on Cancel / Telegram BackButton — backdrop-tap is not wired. The Workout LogSet modal (`workout-add-exercise-to-session`, Task 10) keeps its existing backdrop handler in `workout.js` (out of scope for removal); the unrelated `workout-session` modal also keeps its backdrop handler and is not modified by this plan.
 
 ## Technical Details
 
@@ -186,12 +185,12 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
 **CSS removal pattern:**
 - Delete every `.wg-<name>-modal__close-btn` rule. If the rule is part of a comma-separated selector list with non-close-btn classes, prune just the close-btn entry.
 
-**Dismiss affordances retained:** `[Cancel]` button + `<mt-modal>` backdrop tap. No new code required to preserve them — both are already wired.
+**Dismiss affordances retained:** `[Cancel]` button only. `MTModal` does not wire backdrop click on these modals; back-navigation is handled separately via Telegram BackButton + popstate. No new code required.
 
 ## Post-Completion
 
 **Manual verification:**
-- Open each refactored modal on touch device / Chrome devtools mobile emulation; confirm dismissal works via Cancel and via backdrop tap, and the header reads as `[Title] [Cancel] [Save]` with no extra slot.
+- Open each refactored modal on touch device / Chrome devtools mobile emulation; confirm Cancel dismisses the modal and the header reads as `[Title] [Cancel] [Save]` with no extra slot.
 - Visual parity with `.local/medtrackerbot-ref/design_handoff_vitals/screenshots/05-08` (no X icon in any of the modal screenshots).
 
 **External system updates:** none.
