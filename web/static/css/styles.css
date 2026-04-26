@@ -4973,10 +4973,6 @@ textarea.wg-input {
     line-height: 1.1;
 }
 
-.wg-bp-modal__close-btn {
-    flex-shrink: 0;
-}
-
 .wg-bp-modal__body {
     display: flex;
     flex-direction: column;

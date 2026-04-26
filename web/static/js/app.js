@@ -1485,7 +1485,6 @@ function bindMeasurementControls() {
     // #add-bp-btn lives inside the dynamically-rendered #bp-range-selector
     // row (Phase 5, Task 5); its click handler is bound in renderRangeSelector.
     bindClick('bp-modal-cancel-btn', () => closeBPRecordModal());
-    bindClick('bp-modal-close-btn', () => closeBPRecordModal());
     bindClick('add-weight-btn', () => showWeightModal());
     bindClick('weight-modal-cancel-btn', () => closeWeightModal());
     bindClick('weight-modal-close-btn', () => closeWeightModal());
