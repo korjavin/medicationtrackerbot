@@ -503,10 +503,16 @@
                 <span class="wg-section-label wg-workouts-group-modal__eyebrow">Workout group</span>
                 <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-group-modal-title">Add Workout Group</span>
             </div>
-            <button type="button" id="workout-group-close-btn" class="wg-icon-btn wg-workouts-group-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-workouts-group-modal__header-actions">
+                <button type="button" id="workout-group-close-btn" class="wg-icon-btn wg-workouts-group-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="workout-group-cancel-btn"
+                    class="wg-gloss wg-workouts-group-modal__header-btn">Cancel</button>
+                <button type="button" id="workout-group-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-group-modal__header-btn wg-workouts-group-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <div class="wg-workouts-group-modal__body">
@@ -584,10 +590,6 @@
             </div>
         </div>
 
-        <div class="wg-workouts-group-modal__actions">
-            <button type="button" id="workout-group-cancel-btn" class="wg-gloss wg-workouts-group-modal__action wg-workouts-group-modal__action--cancel">Cancel</button>
-            <button type="button" id="workout-group-save-btn" class="wg-gloss wg-gloss--sun wg-workouts-group-modal__action wg-workouts-group-modal__action--save">Save</button>
-        </div>
     </mt-modal>
 
     <!-- Variant modal (Round-2, Task 6). Migrated to the shared .wg-modal
@@ -599,10 +601,16 @@
                 <span class="wg-section-label wg-workouts-variant-modal__eyebrow">Workout variant</span>
                 <span class="wg-mono-display wg-workouts-variant-modal__title" id="workout-variant-modal-title">Add Variant</span>
             </div>
-            <button type="button" id="workout-variant-close-btn" class="wg-icon-btn wg-workouts-variant-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-workouts-variant-modal__header-actions">
+                <button type="button" id="workout-variant-close-btn" class="wg-icon-btn wg-workouts-variant-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="variant-cancel-btn"
+                    class="wg-gloss wg-workouts-variant-modal__header-btn">Cancel</button>
+                <button type="button" id="variant-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-variant-modal__header-btn wg-workouts-variant-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <div class="wg-workouts-variant-modal__body">
@@ -641,13 +649,6 @@
                 </button>
             </div>
         </div>
-
-        <div class="wg-workouts-variant-modal__actions">
-            <button type="button" id="variant-cancel-btn"
-                class="wg-gloss wg-workouts-variant-modal__action wg-workouts-variant-modal__action--cancel">Cancel</button>
-            <button type="button" id="variant-save-btn"
-                class="wg-gloss wg-gloss--sun wg-workouts-variant-modal__action wg-workouts-variant-modal__action--save">Save</button>
-        </div>
     </mt-modal>
 
     <!-- Edit-exercise modal (Phase 7, Task 8). Adds or edits a planned exercise
@@ -661,10 +662,16 @@
                 <span class="wg-section-label wg-workouts-exercise-modal__eyebrow">Workout exercise</span>
                 <span class="wg-mono-display wg-workouts-exercise-modal__title" id="workout-exercise-modal-title">Add Exercise</span>
             </div>
-            <button type="button" id="exercise-close-btn" class="wg-icon-btn wg-workouts-exercise-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-workouts-exercise-modal__header-actions">
+                <button type="button" id="exercise-close-btn" class="wg-icon-btn wg-workouts-exercise-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="exercise-cancel-btn"
+                    class="wg-gloss wg-workouts-exercise-modal__header-btn">Cancel</button>
+                <button type="button" id="exercise-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-exercise-modal__header-btn wg-workouts-exercise-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <div class="wg-workouts-exercise-modal__body">
@@ -720,13 +727,6 @@
                 </div>
             </div>
         </div>
-
-        <div class="wg-workouts-exercise-modal__actions">
-            <button type="button" id="exercise-cancel-btn"
-                class="wg-gloss wg-workouts-exercise-modal__action wg-workouts-exercise-modal__action--cancel">Cancel</button>
-            <button type="button" id="exercise-save-btn"
-                class="wg-gloss wg-gloss--sun wg-workouts-exercise-modal__action wg-workouts-exercise-modal__action--save">Save</button>
-        </div>
     </mt-modal>
 
     <!-- Modal for Exercise Library -->
@@ -736,10 +736,16 @@
                 <span class="wg-section-label wg-workouts-library-modal__eyebrow">Exercise library</span>
                 <span class="wg-mono-display wg-workouts-library-modal__title" id="exercise-library-modal-title">Add Exercise</span>
             </div>
-            <button type="button" id="exercise-library-close-btn" class="wg-icon-btn wg-workouts-library-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-workouts-library-modal__header-actions">
+                <button type="button" id="exercise-library-close-btn" class="wg-icon-btn wg-workouts-library-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="exercise-library-cancel-btn"
+                    class="wg-gloss wg-workouts-library-modal__header-btn">Cancel</button>
+                <button type="button" id="exercise-library-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-library-modal__header-btn wg-workouts-library-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <div class="wg-workouts-library-modal__body">
@@ -788,11 +794,6 @@
                     <input type="text" id="exercise-library-notes" class="wg-workouts-library-modal__input" placeholder="Form cues, variations, etc.">
                 </div>
             </div>
-        </div>
-
-        <div class="wg-workouts-library-modal__actions">
-            <button type="button" id="exercise-library-cancel-btn" class="wg-gloss wg-workouts-library-modal__action wg-workouts-library-modal__action--cancel">Cancel</button>
-            <button type="button" id="exercise-library-save-btn" class="wg-gloss wg-gloss--sun wg-workouts-library-modal__action wg-workouts-library-modal__action--save">Save</button>
         </div>
     </mt-modal>
 
@@ -878,10 +879,16 @@
                 <span class="wg-section-label wg-workouts-log-set-modal__eyebrow">Log set</span>
                 <span class="wg-mono-display wg-workouts-log-set-modal__title" id="workout-add-exercise-to-session-title">Add exercise</span>
             </div>
-            <button type="button" id="session-add-exercise-close-btn" class="wg-icon-btn wg-workouts-log-set-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-workouts-log-set-modal__header-actions">
+                <button type="button" id="session-add-exercise-close-btn" class="wg-icon-btn wg-workouts-log-set-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="session-add-exercise-cancel-btn"
+                    class="wg-gloss wg-workouts-log-set-modal__header-btn">Cancel</button>
+                <button type="button" id="session-add-exercise-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-log-set-modal__header-btn wg-workouts-log-set-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <div class="wg-workouts-log-set-modal__body">
@@ -929,13 +936,6 @@
                 </div>
             </div>
         </div>
-
-        <div class="wg-workouts-log-set-modal__actions">
-            <button type="button" id="session-add-exercise-cancel-btn"
-                class="wg-gloss wg-workouts-log-set-modal__action wg-workouts-log-set-modal__action--cancel">Cancel</button>
-            <button type="button" id="session-add-exercise-save-btn"
-                class="wg-gloss wg-gloss--sun wg-workouts-log-set-modal__action wg-workouts-log-set-modal__action--save">Save</button>
-        </div>
     </mt-modal>
 
     <!-- Modal for Adding/Editing Food -->
@@ -950,6 +950,10 @@
                     aria-label="Close">
                     <span class="wg-gloss"></span>
                 </button>
+                <button type="button" id="food-modal-cancel-btn"
+                    class="wg-gloss wg-food-modal__header-btn">Cancel</button>
+                <button type="button" id="food-modal-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-food-modal__header-btn wg-food-modal__header-btn--save">Save entry</button>
             </div>
         </div>
         <input type="hidden" id="food-id">
@@ -1035,13 +1039,6 @@
                 <div class="wg-gloss--inset wg-food-modal__input-wrap">
                     <input type="datetime-local" id="food-datetime" class="wg-food-modal__input">
                 </div>
-            </div>
-
-            <div class="wg-food-modal__actions">
-                <button type="button" id="food-modal-cancel-btn"
-                    class="wg-gloss wg-food-modal__action wg-food-modal__action--cancel">Cancel</button>
-                <button type="button" id="food-modal-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-food-modal__action wg-food-modal__action--save">Save entry</button>
             </div>
         </div>
 
@@ -1132,10 +1129,16 @@
                 <span class="wg-section-label wg-meds-modal__eyebrow" id="med-modal-eyebrow">Medication</span>
                 <span class="wg-mono-display wg-meds-modal__title" id="med-modal-title">Add Medication</span>
             </div>
-            <button type="button" id="med-modal-close-btn" class="wg-icon-btn wg-meds-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-meds-modal__header-actions">
+                <button type="button" id="med-modal-close-btn" class="wg-icon-btn wg-meds-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="med-modal-cancel-btn"
+                    class="wg-gloss wg-meds-modal__header-btn">Cancel</button>
+                <button type="button" id="med-modal-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-meds-modal__header-btn wg-meds-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <div class="wg-meds-modal__body">
@@ -1264,12 +1267,6 @@
                 </div>
             </div>
 
-            <div class="wg-meds-modal__actions">
-                <button type="button" id="med-modal-cancel-btn"
-                    class="wg-gloss wg-meds-modal__action wg-meds-modal__action--cancel">Cancel</button>
-                <button type="button" id="med-modal-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-meds-modal__action wg-meds-modal__action--save">Save</button>
-            </div>
         </div>
     </mt-modal>
 
@@ -1280,10 +1277,16 @@
                 <span class="wg-section-label wg-bp-modal__eyebrow" id="bp-modal-eyebrow">New entry</span>
                 <span class="wg-mono-display wg-bp-modal__title" id="bp-modal-title">Blood pressure</span>
             </div>
-            <button type="button" id="bp-modal-close-btn" class="wg-icon-btn wg-bp-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-bp-modal__header-actions">
+                <button type="button" id="bp-modal-close-btn" class="wg-icon-btn wg-bp-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="bp-modal-cancel-btn"
+                    class="wg-gloss wg-bp-modal__header-btn">Cancel</button>
+                <button type="submit" form="bp-form" id="bp-modal-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-bp-modal__header-btn wg-bp-modal__header-btn--save">Save entry</button>
+            </div>
         </div>
 
         <form id="bp-form" class="wg-bp-modal__body">
@@ -1349,13 +1352,6 @@
                         placeholder="e.g. after coffee" rows="2"></textarea>
                 </div>
             </div>
-
-            <div class="wg-bp-modal__actions">
-                <button type="button" id="bp-modal-cancel-btn"
-                    class="wg-gloss wg-bp-modal__action wg-bp-modal__action--cancel">Cancel</button>
-                <button type="submit" form="bp-form"
-                    class="wg-gloss wg-gloss--sun wg-bp-modal__action wg-bp-modal__action--save">Save entry</button>
-            </div>
         </form>
     </mt-modal>
 
@@ -1366,10 +1362,16 @@
                 <span class="wg-section-label wg-weight-modal__eyebrow" id="weight-modal-eyebrow">New entry</span>
                 <span class="wg-mono-display wg-weight-modal__title" id="weight-modal-title">Weight</span>
             </div>
-            <button type="button" id="weight-modal-close-btn" class="wg-icon-btn wg-weight-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-weight-modal__header-actions">
+                <button type="button" id="weight-modal-close-btn" class="wg-icon-btn wg-weight-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="weight-modal-cancel-btn"
+                    class="wg-gloss wg-weight-modal__header-btn">Cancel</button>
+                <button type="submit" form="weight-form" id="weight-modal-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-weight-modal__header-btn wg-weight-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <form id="weight-form" class="wg-weight-modal__body">
@@ -1404,13 +1406,6 @@
                         rows="2"></textarea>
                 </div>
             </div>
-
-            <div class="wg-weight-modal__actions">
-                <button type="button" id="weight-modal-cancel-btn"
-                    class="wg-gloss wg-weight-modal__action wg-weight-modal__action--cancel">Cancel</button>
-                <button type="submit" id="weight-modal-save-btn" form="weight-form"
-                    class="wg-gloss wg-gloss--sun wg-weight-modal__action wg-weight-modal__action--save">Save</button>
-            </div>
         </form>
     </mt-modal>
 
@@ -1421,10 +1416,16 @@
                 <span class="wg-section-label wg-health-modal__eyebrow" id="note-modal-eyebrow">Note</span>
                 <span class="wg-mono-display wg-health-modal__title" id="note-modal-title">Edit note</span>
             </div>
-            <button type="button" id="note-modal-close-btn" class="wg-icon-btn wg-health-modal__close-btn"
-                aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
+            <div class="wg-health-modal__header-actions">
+                <button type="button" id="note-modal-close-btn" class="wg-icon-btn wg-health-modal__close-btn"
+                    aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
+                <button type="button" id="note-modal-cancel-btn"
+                    class="wg-gloss wg-health-modal__header-btn">Cancel</button>
+                <button type="submit" id="note-modal-save-btn" form="note-form"
+                    class="wg-gloss wg-gloss--sun wg-health-modal__header-btn wg-health-modal__header-btn--save">Save</button>
+            </div>
         </div>
 
         <form id="note-form" class="wg-health-modal__body">
@@ -1434,13 +1435,6 @@
                     <textarea id="note-modal-textarea" class="wg-health-modal__input wg-health-modal__textarea"
                         rows="6" maxlength="10000" placeholder="Note body..."></textarea>
                 </div>
-            </div>
-
-            <div class="wg-health-modal__actions">
-                <button type="button" id="note-modal-cancel-btn"
-                    class="wg-gloss wg-health-modal__action wg-health-modal__action--cancel">Cancel</button>
-                <button type="submit" id="note-modal-save-btn" form="note-form"
-                    class="wg-gloss wg-gloss--sun wg-health-modal__action wg-health-modal__action--save">Save</button>
             </div>
         </form>
     </mt-modal>
@@ -1481,19 +1475,29 @@
     </mt-modal>
 
     <!-- Modal for Workout Start (from Push) -->
-    <mt-modal id="workout-start-modal" class="hidden">
-        <h3 id="workout-start-title">Workout Time!</h3>
-        <p id="workout-start-subtitle" style="color: #666; margin-bottom: 20px;"></p>
-
-        <div class="actions" style="flex-direction: column; gap: 10px;">
-            <button id="workout-start-now-btn" class="btn btn-primary" style="width: 100%;">Start Workout</button>
-            <button id="workout-start-snooze-60-btn" class="btn btn-secondary" style="width: 100%;">Snooze 1 hour</button>
-            <button id="workout-start-snooze-120-btn" class="btn btn-secondary" style="width: 100%;">Snooze 2 hours</button>
-            <button id="workout-start-skip-btn" class="btn btn-danger-outline"
-                style="width: 100%;">Skip Workout</button>
+    <mt-modal id="workout-start-modal" class="hidden wg-modal wg-workouts-start-modal">
+        <div class="wg-workouts-start-modal__header">
+            <div class="wg-workouts-start-modal__heading">
+                <span class="wg-section-label wg-workouts-start-modal__eyebrow">Workout</span>
+                <span class="wg-mono-display wg-workouts-start-modal__title" id="workout-start-title">Workout Time!</span>
+            </div>
+            <div class="wg-workouts-start-modal__header-actions">
+                <button type="button" id="workout-start-dismiss-btn"
+                    class="wg-gloss wg-workouts-start-modal__header-btn">Cancel</button>
+                <button type="button" id="workout-start-now-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-start-modal__header-btn wg-workouts-start-modal__header-btn--save">Start</button>
+            </div>
         </div>
-        <div style="margin-top: 15px; text-align: center;">
-            <button id="workout-start-dismiss-btn" class="btn btn-ghost">Dismiss</button>
+        <div class="wg-workouts-start-modal__body">
+            <p id="workout-start-subtitle" class="wg-workouts-start-modal__subtitle"></p>
+            <div class="wg-workouts-start-modal__secondary-actions">
+                <button type="button" id="workout-start-snooze-60-btn"
+                    class="wg-gloss wg-workouts-start-modal__secondary-btn">Snooze 1 hour</button>
+                <button type="button" id="workout-start-snooze-120-btn"
+                    class="wg-gloss wg-workouts-start-modal__secondary-btn">Snooze 2 hours</button>
+                <button type="button" id="workout-start-skip-btn"
+                    class="wg-gloss wg-workouts-start-modal__secondary-btn wg-workouts-start-modal__secondary-btn--danger">Skip Workout</button>
+            </div>
         </div>
     </mt-modal>
 

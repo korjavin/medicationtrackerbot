@@ -237,9 +237,9 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
             expect(descWrap.classList.contains('wg-gloss--inset')).toBe(true);
         });
 
-        it('has Cancel + Save action buttons with Save as sun-glossed 2×-flex', () => {
+        it('has Cancel + Save action buttons with Save as sun-glossed inside the header', () => {
             const { document } = env;
-            const actions = document.querySelector('#workout-group-modal .wg-workouts-group-modal__actions');
+            const actions = document.querySelector('#workout-group-modal .wg-workouts-group-modal__header-actions');
             expect(actions).not.toBeNull();
 
             const cancel = actions.querySelector('#workout-group-cancel-btn');
@@ -248,11 +248,12 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
             expect(save).not.toBeNull();
 
             expect(cancel.classList.contains('wg-gloss')).toBe(true);
-            expect(cancel.classList.contains('wg-workouts-group-modal__action--cancel')).toBe(true);
+            expect(cancel.classList.contains('wg-workouts-group-modal__header-btn')).toBe(true);
 
             expect(save.classList.contains('wg-gloss')).toBe(true);
             expect(save.classList.contains('wg-gloss--sun')).toBe(true);
-            expect(save.classList.contains('wg-workouts-group-modal__action--save')).toBe(true);
+            expect(save.classList.contains('wg-workouts-group-modal__header-btn')).toBe(true);
+            expect(save.classList.contains('wg-workouts-group-modal__header-btn--save')).toBe(true);
         });
 
         it('preserves the preexisting ID hooks used by saveWorkoutGroup / showEditWorkoutGroupModal', () => {
