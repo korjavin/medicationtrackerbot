@@ -117,7 +117,6 @@ function bindWorkoutControls() {
     bindClick('exercise-save-btn', () => saveExercise());
 
     bindClick('exercise-library-cancel-btn', () => closeExerciseLibraryModal());
-    bindClick('exercise-library-close-btn', () => closeExerciseLibraryModal());
     bindClick('exercise-library-save-btn', () => saveExerciseLibraryItem());
 
     bindClick('workout-session-delete-btn', () => deleteWorkoutSession());
@@ -161,7 +160,6 @@ function bindWorkoutControls() {
 function renderWorkoutModalCloseIcons() {
     if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
     const closeBtnIds = [
-        'exercise-library-close-btn',
         'session-add-exercise-close-btn',
     ];
     closeBtnIds.forEach((id) => {

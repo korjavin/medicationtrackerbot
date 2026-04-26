@@ -56,11 +56,8 @@ describe('WorkoutLibraryModal header-actions', () => {
         expect(saveIdx).toBeGreaterThan(cancelIdx);
     });
 
-    it('close-X button stays in the header next to Cancel/Save', () => {
+    it('redundant close-X button has been removed (Cancel + backdrop tap remain)', () => {
         const { document } = env;
-        const headerActions = document.querySelector('#exercise-library-modal .wg-workouts-library-modal__header-actions');
-        const closeBtn = document.getElementById('exercise-library-close-btn');
-        expect(closeBtn).not.toBeNull();
-        expect(closeBtn.parentElement).toBe(headerActions);
+        expect(document.getElementById('exercise-library-close-btn')).toBeNull();
     });
 });

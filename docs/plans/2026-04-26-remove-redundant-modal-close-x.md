@@ -136,12 +136,12 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
 - [x] `pnpm test` — must pass before Task 9
 
 ### Task 9: Workout Library modal — remove close-X
-- [ ] delete `<button id="exercise-library-close-btn">` in `web/static/index.html:740`
-- [ ] in `web/static/js/features/workout.js:123`, delete the `bindClick('exercise-library-close-btn', ...)` line
-- [ ] in `web/static/js/features/workout.js:170`, remove `'exercise-library-close-btn'` from the `closeBtnIds` array
-- [ ] remove `.wg-workouts-library-modal__close-btn` rule(s) from `web/static/css/styles.css`
-- [ ] update `web/static/js/tests/modals.workouts-library.header-actions.test.js`
-- [ ] `pnpm test` — must pass before Task 10
+- [x] delete `<button id="exercise-library-close-btn">` in `web/static/index.html:740`
+- [x] in `web/static/js/features/workout.js:123`, delete the `bindClick('exercise-library-close-btn', ...)` line
+- [x] in `web/static/js/features/workout.js:170`, remove `'exercise-library-close-btn'` from the `closeBtnIds` array
+- [x] remove `.wg-workouts-library-modal__close-btn` rule(s) from `web/static/css/styles.css`
+- [x] update `web/static/js/tests/modals.workouts-library.header-actions.test.js`
+- [x] `pnpm test` — must pass before Task 10
 
 ### Task 10: Workout LogSet modal — remove close-X + drop dead helper
 - [ ] delete `<button id="session-add-exercise-close-btn">` in `web/static/index.html:883`
