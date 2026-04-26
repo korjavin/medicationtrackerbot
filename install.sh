@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# When invoked via `curl ... | bash`, stdin is the pipe carrying the script
+# body, so any `read` would consume script lines instead of user input and the
+# installer silently bails after a few prompts. Re-attach stdin to the TTY.
+if [ ! -t 0 ] && [ -e /dev/tty ]; then
+  exec </dev/tty
+fi
+
 APP_NAME="medtracker"
 DEFAULT_INSTALL_DIR="/opt/medtracker"
 COMPOSE_FILE="docker-compose.yml"
