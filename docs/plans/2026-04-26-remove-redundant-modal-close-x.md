@@ -120,12 +120,12 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
 - [x] `pnpm test` — must pass before Task 7
 
 ### Task 7: Workout Variant modal — remove close-X
-- [ ] delete `<button id="workout-variant-close-btn">` in `web/static/index.html:605`
-- [ ] in `web/static/js/features/workout.js:114`, delete the `bindClick('workout-variant-close-btn', ...)` line
-- [ ] in `web/static/js/features/workout.js:168`, remove `'workout-variant-close-btn'` from the `closeBtnIds` array
-- [ ] remove `.wg-workouts-variant-modal__close-btn` rule(s) from `web/static/css/styles.css`
-- [ ] update `web/static/js/tests/modals.workouts-variant.header-actions.test.js`
-- [ ] `pnpm test` — must pass before Task 8
+- [x] delete `<button id="workout-variant-close-btn">` in `web/static/index.html:605`
+- [x] in `web/static/js/features/workout.js:114`, delete the `bindClick('workout-variant-close-btn', ...)` line
+- [x] in `web/static/js/features/workout.js:168`, remove `'workout-variant-close-btn'` from the `closeBtnIds` array
+- [x] remove `.wg-workouts-variant-modal__close-btn` rule(s) from `web/static/css/styles.css`
+- [x] update `web/static/js/tests/modals.workouts-variant.header-actions.test.js`
+- [x] `pnpm test` — must pass before Task 8
 
 ### Task 8: Workout Exercise modal — remove close-X
 - [ ] delete `<button id="exercise-close-btn">` in `web/static/index.html:666`
