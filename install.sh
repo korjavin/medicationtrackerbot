@@ -50,7 +50,10 @@ get_state() {
   if [ -z "$STATE_FILE" ] || [ ! -f "$STATE_FILE" ]; then
     return 0
   fi
-  grep -m1 "^${key}=" "$STATE_FILE" | sed "s/^${key}=//"
+  # grep returns 1 on no match; under set -e + pipefail that aborts the
+  # whole script when called via $(...). Suppress so a missing key just
+  # yields empty output.
+  { grep -m1 "^${key}=" "$STATE_FILE" || true; } | sed "s/^${key}=//"
 }
 
 set_state() {
