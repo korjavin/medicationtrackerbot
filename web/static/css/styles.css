@@ -431,7 +431,6 @@
     --wg-food-modal-section-gap: 14px;
     --wg-food-modal-input-pad-y: 10px;
     --wg-food-modal-input-pad-x: 12px;
-    --wg-food-modal-action-gap: 8px;
 
     /* Food macro color aliases — Energy / Protein / Carbs / Fat map to the
        existing sun / mint / teal-sage / clay-soft palette so the macro-bar
@@ -504,7 +503,6 @@
     --wg-meds-modal-section-gap: 14px;
     --wg-meds-modal-input-pad-y: 10px;
     --wg-meds-modal-input-pad-x: 12px;
-    --wg-meds-modal-action-gap: 8px;
     --wg-meds-modal-pill-gap: 4px;
     --wg-meds-modal-pill-pad-y: 6px;
     --wg-meds-modal-pill-pad-x: 10px;
@@ -568,7 +566,6 @@
     --wg-weight-modal-unit-btn-size: 12px;
     --wg-weight-modal-unit-btn-min-w: 40px;
     --wg-weight-modal-label-size: 10.5px;
-    --wg-weight-modal-action-gap: 8px;
     --wg-weight-modal-weight-input-size: 20px;
 
     /* Record-BP modal tokens (Task 4b audit) — dual-line header, gloss-inset
@@ -583,7 +580,6 @@
     --wg-bp-modal-input-pad-x: 12px;
     --wg-bp-modal-label-size: 10.5px;
     --wg-bp-modal-reading-size: 20px;
-    --wg-bp-modal-action-gap: 8px;
 
     /* Take-meds (medication confirm) modal tokens (Task 4b audit) — dual-line
        header with a sun eyebrow, checkbox-style med rows (selected = green
@@ -662,7 +658,6 @@
     --wg-workouts-modal-input-pad-y: 10px;
     --wg-workouts-modal-input-pad-x: 12px;
     --wg-workouts-modal-label-size: 10.5px;
-    --wg-workouts-modal-action-gap: 8px;
 
     /* Rotation-slot semantic aliases (Phase 7, Task 1) — wrap the shared tag
        triplets so the rotation-slot classifier (PUSH / PULL / LEGS / REST /
@@ -745,7 +740,6 @@
     --wg-health-modal-input-pad-y: 10px;
     --wg-health-modal-input-pad-x: 12px;
     --wg-health-modal-label-size: 10.5px;
-    --wg-health-modal-action-gap: 8px;
 
     /* Sleep-stage color tokens (Phase 8, Task 1) — replace hardcoded hex in
        the sleep chart. deep / light / rem / awake drive stacked-bar fills;
@@ -1091,8 +1085,7 @@ h3 {
     z-index: var(--z-overlay);
 }
 
-#miband-workout-modal,
-#workout-start-modal {
+#miband-workout-modal {
     position: fixed;
     top: 50%;
     left: 50%;
@@ -4919,25 +4912,25 @@ textarea.wg-input {
     color: var(--wg-ink);
 }
 
-.wg-weight-modal__actions {
+.wg-weight-modal__header-actions {
     display: flex;
-    gap: var(--wg-weight-modal-action-gap);
-    margin-top: var(--space-md);
+    gap: var(--space-xs);
+    align-items: center;
+    flex-shrink: 0;
 }
 
-.wg-weight-modal__action {
-    padding: var(--space-md);
+.wg-weight-modal__header-btn {
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
     font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.wg-weight-modal__action--cancel {
-    flex: 1 1 0;
-}
-
-.wg-weight-modal__action--save {
-    flex: 2 1 0;
+.wg-weight-modal__header-btn--save {
+    padding: var(--space-xs) var(--space-md);
 }
 
 /* Record-BP modal (Task 4b audit) — shares the generic `.wg-modal` shell;
@@ -5056,25 +5049,25 @@ textarea.wg-input {
     min-width: 0;
 }
 
-.wg-bp-modal__actions {
+.wg-bp-modal__header-actions {
     display: flex;
-    gap: var(--wg-bp-modal-action-gap);
-    margin-top: var(--space-md);
+    gap: var(--space-xs);
+    align-items: center;
+    flex-shrink: 0;
 }
 
-.wg-bp-modal__action {
-    padding: var(--space-md);
+.wg-bp-modal__header-btn {
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
     font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.wg-bp-modal__action--cancel {
-    flex: 1 1 0;
-}
-
-.wg-bp-modal__action--save {
-    flex: 2 1 0;
+.wg-bp-modal__header-btn--save {
+    padding: var(--space-xs) var(--space-md);
 }
 
 /* BP screen — current-reading card, range selector, chart card (Phase 3, Task 3).
@@ -6204,7 +6197,6 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
     cursor: pointer;
-    color: var(--wg-fg-1);
     white-space: nowrap;
 }
 
@@ -6220,6 +6212,102 @@ textarea.wg-input {
     display: flex;
     flex-direction: column;
     gap: var(--space-md);
+}
+
+/* Workout-Start modal (Task 11 of header-actions refactor). The legacy
+   push-notification "Workout Time!" prompt was the last modal still using
+   the paper-era .actions block; this promotes it onto the wg-modal shell
+   and aligns the primary Cancel/Start pair to the header so they survive
+   a focused mobile keyboard. Mirrors .wg-workouts-session-modal__header*. */
+.wg-workouts-start-modal {
+    max-width: 420px;
+}
+
+.wg-workouts-start-modal__header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.wg-workouts-start-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-workouts-start-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-workouts-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-workouts-start-modal__eyebrow::before {
+    content: none;
+}
+
+.wg-workouts-start-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-workouts-start-modal__header-actions {
+    display: flex;
+    gap: var(--space-xs);
+    flex-wrap: wrap;
+}
+
+.wg-workouts-start-modal__header-btn {
+    flex: 1 1 auto;
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.wg-workouts-start-modal__header-btn--save {
+    flex: 2 1 auto;
+}
+
+.wg-workouts-start-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-workouts-start-modal__subtitle {
+    margin: 0;
+    color: var(--wg-fg-3);
+    font-size: var(--font-size-sm);
+}
+
+.wg-workouts-start-modal__secondary-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-workouts-start-modal__secondary-btn {
+    width: 100%;
+    min-height: 40px;
+    padding: var(--space-xs) var(--space-sm);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    color: var(--wg-fg-1);
+}
+
+.wg-workouts-start-modal__secondary-btn--danger {
+    color: var(--color-danger);
 }
 
 /* Workouts groups sub-tab (Phase 7, Task 5). Each group renders as a
@@ -6466,25 +6554,27 @@ textarea.wg-input {
     cursor: pointer;
 }
 
-.wg-workouts-group-modal__actions {
+.wg-workouts-group-modal__header-actions {
     display: flex;
-    gap: var(--wg-workouts-modal-action-gap);
-    margin-top: var(--space-md);
+    gap: var(--space-xs);
+    align-items: center;
+    flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
-.wg-workouts-group-modal__action {
-    padding: var(--space-md);
+.wg-workouts-group-modal__header-btn {
+    flex: 1 1 auto;
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
     font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.wg-workouts-group-modal__action--cancel {
-    flex: 1 1 0;
-}
-
-.wg-workouts-group-modal__action--save {
-    flex: 2 1 0;
+.wg-workouts-group-modal__header-btn--save {
+    flex: 2 1 auto;
 }
 
 /* Workouts exercises sub-tab (Phase 7, Task 6). Each exercise renders as
@@ -6710,25 +6800,27 @@ textarea.wg-input {
     color: var(--wg-fg-4);
 }
 
-.wg-workouts-library-modal__actions {
+.wg-workouts-library-modal__header-actions {
     display: flex;
-    gap: var(--wg-workouts-modal-action-gap);
-    margin-top: var(--space-md);
+    gap: var(--space-xs);
+    align-items: center;
+    flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
-.wg-workouts-library-modal__action {
-    padding: var(--space-md);
+.wg-workouts-library-modal__header-btn {
+    flex: 1 1 auto;
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
     font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.wg-workouts-library-modal__action--cancel {
-    flex: 1 1 0;
-}
-
-.wg-workouts-library-modal__action--save {
-    flex: 2 1 0;
+.wg-workouts-library-modal__header-btn--save {
+    flex: 2 1 auto;
 }
 
 /* Edit-exercise modal (Phase 7, Task 8). Shares the generic `.wg-modal` shell
@@ -6826,25 +6918,27 @@ textarea.wg-input {
     color: var(--wg-fg-4);
 }
 
-.wg-workouts-exercise-modal__actions {
+.wg-workouts-exercise-modal__header-actions {
     display: flex;
-    gap: var(--wg-workouts-modal-action-gap);
-    margin-top: var(--space-md);
+    gap: var(--space-xs);
+    align-items: center;
+    flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
-.wg-workouts-exercise-modal__action {
-    padding: var(--space-md);
+.wg-workouts-exercise-modal__header-btn {
+    flex: 1 1 auto;
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
     font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.wg-workouts-exercise-modal__action--cancel {
-    flex: 1 1 0;
-}
-
-.wg-workouts-exercise-modal__action--save {
-    flex: 2 1 0;
+.wg-workouts-exercise-modal__header-btn--save {
+    flex: 2 1 auto;
 }
 
 /* Edit-variant modal (Round-2, Task 6). Mirrors the group/exercise modal
@@ -6961,25 +7055,27 @@ textarea.wg-input {
     cursor: pointer;
 }
 
-.wg-workouts-variant-modal__actions {
+.wg-workouts-variant-modal__header-actions {
     display: flex;
-    gap: var(--wg-workouts-modal-action-gap);
-    margin-top: var(--space-md);
+    gap: var(--space-xs);
+    align-items: center;
+    flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
-.wg-workouts-variant-modal__action {
-    padding: var(--space-md);
+.wg-workouts-variant-modal__header-btn {
+    flex: 1 1 auto;
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
     font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.wg-workouts-variant-modal__action--cancel {
-    flex: 1 1 0;
-}
-
-.wg-workouts-variant-modal__action--save {
-    flex: 2 1 0;
+.wg-workouts-variant-modal__header-btn--save {
+    flex: 2 1 auto;
 }
 
 /* Log-set modal (Phase 7, Task 8). Shares the generic `.wg-modal` shell for
@@ -7077,25 +7173,27 @@ textarea.wg-input {
     color: var(--wg-fg-4);
 }
 
-.wg-workouts-log-set-modal__actions {
+.wg-workouts-log-set-modal__header-actions {
     display: flex;
-    gap: var(--wg-workouts-modal-action-gap);
-    margin-top: var(--space-md);
+    gap: var(--space-xs);
+    align-items: center;
+    flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
-.wg-workouts-log-set-modal__action {
-    padding: var(--space-md);
+.wg-workouts-log-set-modal__header-btn {
+    flex: 1 1 auto;
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
     font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.wg-workouts-log-set-modal__action--cancel {
-    flex: 1 1 0;
-}
-
-.wg-workouts-log-set-modal__action--save {
-    flex: 2 1 0;
+.wg-workouts-log-set-modal__header-btn--save {
+    flex: 2 1 auto;
 }
 
 /* Workouts stats sub-tab (Phase 7, Task 7). A `.wg-gloss--inset` range
@@ -7904,10 +8002,10 @@ textarea.wg-input {
 }
 
 /* Edit-note modal (Phase 8, Task 8). Shares the generic `.wg-modal` shell;
-   overlays a dual-line mono header, a gloss-inset textarea wrap, and a
-   Cancel + Save action bar where Save carries 2× flex per modal-button-order
-   convention. Every visual value resolves to `--wg-health-modal-*` or shared
-   `--wg-*` tokens. */
+   overlays a dual-line mono header with header-actions hosting the close
+   icon, Cancel, and Save buttons (kept visible above mobile keyboards), and
+   a gloss-inset textarea body. Every visual value resolves to
+   `--wg-health-modal-*` or shared `--wg-*` tokens. */
 .wg-health-modal__header {
     display: flex;
     align-items: flex-start;
@@ -7997,25 +8095,25 @@ textarea.wg-input {
     min-height: 120px;
 }
 
-.wg-health-modal__actions {
+.wg-health-modal__header-actions {
     display: flex;
-    gap: var(--wg-health-modal-action-gap);
-    margin-top: var(--space-md);
+    gap: var(--space-xs);
+    align-items: center;
+    flex-shrink: 0;
 }
 
-.wg-health-modal__action {
-    padding: var(--space-md);
+.wg-health-modal__header-btn {
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
     font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.wg-health-modal__action--cancel {
-    flex: 1 1 0;
-}
-
-.wg-health-modal__action--save {
-    flex: 2 1 0;
+.wg-health-modal__header-btn--save {
+    padding: var(--space-xs) var(--space-md);
 }
 
 /* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
@@ -8870,25 +8968,25 @@ textarea.wg-input {
     margin: 0;
 }
 
-.wg-food-modal__actions {
+.wg-food-modal__header-actions {
     display: flex;
-    gap: var(--wg-food-modal-action-gap);
-    margin-top: var(--space-md);
+    gap: var(--space-xs);
+    align-items: center;
+    flex-shrink: 0;
 }
 
-.wg-food-modal__action {
-    padding: var(--space-md);
+.wg-food-modal__header-btn {
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
     font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.wg-food-modal__action--cancel {
-    flex: 1 1 0;
-}
-
-.wg-food-modal__action--save {
-    flex: 2 1 0;
+.wg-food-modal__header-btn--save {
+    padding: var(--space-xs) var(--space-md);
 }
 
 /* Edit-medication modal (Phase 5, Task 7) — shares the generic `.wg-modal`
@@ -9139,25 +9237,25 @@ textarea.wg-input {
     width: auto;
 }
 
-.wg-meds-modal__actions {
+.wg-meds-modal__header-actions {
     display: flex;
-    gap: var(--wg-meds-modal-action-gap);
-    margin-top: var(--space-md);
+    gap: var(--space-xs);
+    align-items: center;
+    flex-shrink: 0;
 }
 
-.wg-meds-modal__action {
-    padding: var(--space-md);
+.wg-meds-modal__header-btn {
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
     font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-sm);
     border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.wg-meds-modal__action--cancel {
-    flex: 1 1 0;
-}
-
-.wg-meds-modal__action--save {
-    flex: 2 1 0;
+.wg-meds-modal__header-btn--save {
+    padding: var(--space-xs) var(--space-md);
 }
 
 /* Take-meds (medication confirm) modal (Task 4b audit) — shares the generic

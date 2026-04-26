@@ -205,9 +205,9 @@ describe('EditMedicationModal (Phase 5, Task 7)', () => {
         expect(tz.parentElement.classList.contains('wg-gloss--inset')).toBe(true);
     });
 
-    it('bottom action bar: Cancel (.wg-gloss) left, Save (.wg-gloss--sun) right', () => {
+    it('header action bar: Cancel (.wg-gloss) left, Save (.wg-gloss--sun) right', () => {
         const { document } = env;
-        const actions = document.querySelector('#med-modal .wg-meds-modal__actions');
+        const actions = document.querySelector('#med-modal .wg-meds-modal__header-actions');
         expect(actions).not.toBeNull();
 
         const cancelBtn = document.getElementById('med-modal-cancel-btn');
@@ -220,9 +220,10 @@ describe('EditMedicationModal (Phase 5, Task 7)', () => {
         expect(saveBtn.classList.contains('wg-gloss')).toBe(true);
         expect(saveBtn.classList.contains('wg-gloss--sun')).toBe(true);
 
-        // Cancel left, Save right
-        expect(actions.firstElementChild).toBe(cancelBtn);
-        expect(actions.lastElementChild).toBe(saveBtn);
+        // Cancel left of Save inside the header row
+        const children = Array.from(actions.children);
+        expect(children.indexOf(cancelBtn)).toBeGreaterThan(-1);
+        expect(children.indexOf(saveBtn)).toBeGreaterThan(children.indexOf(cancelBtn));
     });
 
     it('showAddModal opens the modal, sets header to "New medication", resets inputs', () => {

@@ -53,9 +53,9 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
         });
     });
 
-    it('has Cancel + Save action buttons with Save as sun-glossed 2x-flex', () => {
+    it('has Cancel + Save header-action buttons with Save as sun-glossed', () => {
         const { document } = env;
-        const actions = document.querySelector('#workout-add-exercise-to-session-modal .wg-workouts-log-set-modal__actions');
+        const actions = document.querySelector('#workout-add-exercise-to-session-modal .wg-workouts-log-set-modal__header-actions');
         expect(actions).not.toBeNull();
 
         const cancel = actions.querySelector('#session-add-exercise-cancel-btn');
@@ -64,10 +64,10 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
         expect(save).not.toBeNull();
 
         expect(cancel.classList.contains('wg-gloss')).toBe(true);
-        expect(cancel.classList.contains('wg-workouts-log-set-modal__action--cancel')).toBe(true);
+        expect(cancel.classList.contains('wg-workouts-log-set-modal__header-btn')).toBe(true);
         expect(save.classList.contains('wg-gloss')).toBe(true);
         expect(save.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(save.classList.contains('wg-workouts-log-set-modal__action--save')).toBe(true);
+        expect(save.classList.contains('wg-workouts-log-set-modal__header-btn--save')).toBe(true);
     });
 
     it('preserves the preexisting ID hooks used by saveNewSessionExercise + onSessionExerciseSelect', () => {
@@ -226,9 +226,9 @@ describe('Edit-exercise modal shell (Phase 7, Task 8)', () => {
         });
     });
 
-    it('has Cancel + Save action buttons with Save as sun-glossed 2x-flex', () => {
+    it('has Cancel + Save header-action buttons with Save as sun-glossed', () => {
         const { document } = env;
-        const actions = document.querySelector('#workout-exercise-modal .wg-workouts-exercise-modal__actions');
+        const actions = document.querySelector('#workout-exercise-modal .wg-workouts-exercise-modal__header-actions');
         expect(actions).not.toBeNull();
 
         const cancel = actions.querySelector('#exercise-cancel-btn');
@@ -237,10 +237,10 @@ describe('Edit-exercise modal shell (Phase 7, Task 8)', () => {
         expect(save).not.toBeNull();
 
         expect(cancel.classList.contains('wg-gloss')).toBe(true);
-        expect(cancel.classList.contains('wg-workouts-exercise-modal__action--cancel')).toBe(true);
+        expect(cancel.classList.contains('wg-workouts-exercise-modal__header-btn')).toBe(true);
         expect(save.classList.contains('wg-gloss')).toBe(true);
         expect(save.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(save.classList.contains('wg-workouts-exercise-modal__action--save')).toBe(true);
+        expect(save.classList.contains('wg-workouts-exercise-modal__header-btn--save')).toBe(true);
     });
 
     it('preserves the preexisting ID hooks used by saveExercise / showEditExerciseModal', () => {
