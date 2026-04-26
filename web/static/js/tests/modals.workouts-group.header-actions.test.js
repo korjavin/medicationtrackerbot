@@ -56,11 +56,9 @@ describe('WorkoutGroupModal header-actions', () => {
         expect(saveIdx).toBeGreaterThan(cancelIdx);
     });
 
-    it('close-X button stays in the header next to Cancel/Save', () => {
+    it('redundant close-X button is removed (Cancel + backdrop suffice)', () => {
         const { document } = env;
-        const headerActions = document.querySelector('#workout-group-modal .wg-workouts-group-modal__header-actions');
-        const closeBtn = document.getElementById('workout-group-close-btn');
-        expect(closeBtn).not.toBeNull();
-        expect(closeBtn.parentElement).toBe(headerActions);
+        expect(document.getElementById('workout-group-close-btn')).toBeNull();
+        expect(document.querySelector('#workout-group-modal .wg-workouts-group-modal__close-btn')).toBeNull();
     });
 });

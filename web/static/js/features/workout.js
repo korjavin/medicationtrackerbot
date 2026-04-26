@@ -105,7 +105,6 @@ function bindWorkoutControls() {
     bindClick('add-exercise-library-btn', () => showExerciseLibraryModal());
 
     bindClick('workout-group-cancel-btn', () => closeWorkoutGroupModal());
-    bindClick('workout-group-close-btn', () => closeWorkoutGroupModal());
     bindClick('workout-group-save-btn', () => saveWorkoutGroup());
     bindClick('add-variant-btn', () => showAddVariantModal());
     bindClick('add-flat-exercise-btn', () => showAddExerciseModalFromGroup());
@@ -164,7 +163,6 @@ function bindWorkoutControls() {
 function renderWorkoutModalCloseIcons() {
     if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
     const closeBtnIds = [
-        'workout-group-close-btn',
         'workout-variant-close-btn',
         'exercise-close-btn',
         'exercise-library-close-btn',

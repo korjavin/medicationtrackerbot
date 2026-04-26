@@ -6447,10 +6447,6 @@ textarea.wg-input {
     line-height: 1.1;
 }
 
-.wg-workouts-group-modal__close-btn {
-    flex-shrink: 0;
-}
-
 .wg-workouts-group-modal__body {
     display: flex;
     flex-direction: column;
