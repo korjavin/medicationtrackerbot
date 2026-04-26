@@ -8032,10 +8032,6 @@ textarea.wg-input {
     line-height: 1.1;
 }
 
-.wg-health-modal__close-btn {
-    flex-shrink: 0;
-}
-
 .wg-health-modal__body {
     display: flex;
     flex-direction: column;

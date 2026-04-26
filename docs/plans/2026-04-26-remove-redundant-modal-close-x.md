@@ -105,11 +105,11 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
 - [x] `pnpm test` — must pass before Task 5
 
 ### Task 5: EditNoteModal — remove close-X
-- [ ] delete `<button id="note-modal-close-btn">` in `web/static/index.html:1418-1446`
-- [ ] in `web/static/js/features/health.js`, delete the close-gloss icon hydration block (line ~1175) and the `getElementById('note-modal-close-btn')` handler block (line ~1188)
-- [ ] remove `.wg-health-modal__close-btn` (or `.wg-note-modal__close-btn`) rule(s) from `web/static/css/styles.css`
-- [ ] update `web/static/js/tests/modals.note.header-actions.test.js` to assert close-X is gone
-- [ ] `pnpm test` — must pass before Task 6
+- [x] delete `<button id="note-modal-close-btn">` in `web/static/index.html:1418-1446`
+- [x] in `web/static/js/features/health.js`, delete the close-gloss icon hydration block (line ~1175) and the `getElementById('note-modal-close-btn')` handler block (line ~1188)
+- [x] remove `.wg-health-modal__close-btn` (or `.wg-note-modal__close-btn`) rule(s) from `web/static/css/styles.css`
+- [x] update `web/static/js/tests/modals.note.header-actions.test.js` to assert close-X is gone
+- [x] `pnpm test` — must pass before Task 6
 
 ### Task 6: Workout Group modal — remove close-X
 - [ ] delete `<button id="workout-group-close-btn">` in `web/static/index.html:507`
