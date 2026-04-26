@@ -153,12 +153,12 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
 - [x] `pnpm test` — must pass before Task 11
 
 ### Task 11: Verify acceptance criteria
-- [ ] `grep -nE 'modal-close-btn|workout-group-close-btn|workout-variant-close-btn|exercise-close-btn|exercise-library-close-btn|session-add-exercise-close-btn' web/static/index.html web/static/js web/static/css` — no occurrences in scope (MedConfirmModal `wg-med-confirm-modal__close-btn` is intentionally retained)
-- [ ] `grep -n 'wg-.*-modal__close-btn' web/static/css/styles.css` — only the MedConfirm rule remains
-- [ ] confirm `Workout Start modal` header has no X (already restructured in prior plan; verify by grepping `workout-start-close-btn` returns nothing)
-- [ ] run `pnpm test` — all 1500+ tests pass
-- [ ] run `go test ./...` — smoke check
-- [ ] confirm backdrop-tap dismiss still works for one representative modal (covered by existing `core.modal-controller.test.js`)
+- [x] `grep -nE 'modal-close-btn|workout-group-close-btn|workout-variant-close-btn|exercise-close-btn|exercise-library-close-btn|session-add-exercise-close-btn' web/static/index.html web/static/js web/static/css` — no occurrences in scope (MedConfirmModal `wg-med-confirm-modal__close-btn` is intentionally retained); only test files reference the ids in `toBeNull()` assertions
+- [x] `grep -n 'wg-.*-modal__close-btn' web/static/css/styles.css` — only the MedConfirm rule remains (`.wg-med-confirm-modal__close-btn` at line 9267)
+- [x] confirm `Workout Start modal` header has no X (`workout-start-close-btn` returns nothing in code)
+- [x] run `pnpm test` — 1516 tests pass across 144 files
+- [x] run `go test ./...` — all packages ok
+- [x] confirm backdrop-tap dismiss still works for one representative modal (covered by existing `core.modal-controller.test.js` — 6 tests pass)
 
 ## Technical Details
 
