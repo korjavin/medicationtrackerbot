@@ -48,16 +48,14 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(m[0]).toMatch(/wg-weight-modal/);
         });
 
-        it('renders the mono header, close icon-btn, unit-toggle pill pair, and action bar', () => {
+        it('renders the mono header (close-X removed; Cancel + backdrop dismiss), unit-toggle pill pair, and action bar', () => {
             const { document } = env;
             const modal = document.getElementById('weight-modal');
             expect(modal).not.toBeNull();
 
             expect(modal.querySelector('.wg-weight-modal__header')).not.toBeNull();
             expect(modal.querySelector('.wg-weight-modal__title#weight-modal-title')).not.toBeNull();
-            const closeBtn = modal.querySelector('#weight-modal-close-btn');
-            expect(closeBtn).not.toBeNull();
-            expect(closeBtn.classList.contains('wg-icon-btn')).toBe(true);
+            expect(modal.querySelector('#weight-modal-close-btn')).toBeNull();
 
             const unitBtns = modal.querySelectorAll('.wg-weight-modal__unit-btn');
             expect(unitBtns.length).toBe(2);
@@ -407,32 +405,11 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(document.getElementById('weight-modal').classList.contains('hidden')).toBe(true);
         });
 
-        it('close icon-btn also closes the modal', () => {
-            const { window, document } = env;
-            window.showWeightModal();
-            expect(document.getElementById('weight-modal').classList.contains('hidden')).toBe(false);
-            document.getElementById('weight-modal-close-btn').click();
-            expect(document.getElementById('weight-modal').classList.contains('hidden')).toBe(true);
-        });
     });
 
-    // Round-2 defects Task 4 — #2 (close icon), #3 (last-logged seed), #4 (focus)
+    // Round-2 defects Task 4 — #3 (last-logged seed), #4 (focus)
+    // (#2 close-icon SVG hydration removed in Plan 2026-04-26 — close-X gone, Cancel + backdrop dismiss)
     describe('Round-2 Task 4: open-time polish', () => {
-        it('paints the Wandergeek close SVG into #weight-modal-close-btn on open (defect #2)', () => {
-            const { window, document } = env;
-            window.showWeightModal();
-
-            const closeBtn = document.getElementById('weight-modal-close-btn');
-            expect(closeBtn).not.toBeNull();
-            expect(closeBtn.classList.contains('wg-icon-btn')).toBe(true);
-
-            const gloss = closeBtn.querySelector('.wg-gloss');
-            expect(gloss).not.toBeNull();
-            const svg = gloss.querySelector('svg');
-            expect(svg, 'expected close SVG to be rendered on open').not.toBeNull();
-            expect(svg.getAttribute('data-wg-icon')).toBe('close');
-        });
-
         it('seeds the weight input from DataStore weight cache when no in-memory log exists (defect #3)', async () => {
             const { window, document } = env;
             const cachedPayload = {

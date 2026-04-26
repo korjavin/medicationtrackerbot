@@ -97,12 +97,12 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
 - [x] `pnpm test` — must pass before Task 4
 
 ### Task 4: EditWeightModal — remove close-X
-- [ ] delete `<button id="weight-modal-close-btn">` in `web/static/index.html:1363-1415`
-- [ ] in `web/static/js/app.js:1492`, delete the `bindClick('weight-modal-close-btn', ...)` line
-- [ ] in `web/static/js/features/weight.js:200`, delete the close-gloss icon hydration block
-- [ ] remove `.wg-weight-modal__close-btn` rule(s) from `web/static/css/styles.css`
-- [ ] update `web/static/js/tests/modals.weight.header-actions.test.js` to assert close-X is gone
-- [ ] `pnpm test` — must pass before Task 5
+- [x] delete `<button id="weight-modal-close-btn">` in `web/static/index.html:1363-1415`
+- [x] in `web/static/js/app.js:1492`, delete the `bindClick('weight-modal-close-btn', ...)` line
+- [x] in `web/static/js/features/weight.js:200`, delete the close-gloss icon hydration block
+- [x] remove `.wg-weight-modal__close-btn` rule(s) from `web/static/css/styles.css`
+- [x] update `web/static/js/tests/modals.weight.header-actions.test.js` to assert close-X is gone
+- [x] `pnpm test` — must pass before Task 5
 
 ### Task 5: EditNoteModal — remove close-X
 - [ ] delete `<button id="note-modal-close-btn">` in `web/static/index.html:1418-1446`
