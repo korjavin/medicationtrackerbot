@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# When invoked via `curl ... | bash`, stdin is the pipe carrying the script
-# body, so any `read` would consume script lines instead of user input.
-# Route interactive reads through /dev/tty (set below) so prompts read the
-# user's keystrokes while bash keeps reading the script from the pipe.
-TTY_IN=""
-if { : </dev/tty; } 2>/dev/null; then
-  TTY_IN="/dev/tty"
-fi
-
 APP_NAME="medtracker"
 DEFAULT_INSTALL_DIR="/opt/medtracker"
 COMPOSE_FILE="docker-compose.yml"
@@ -36,11 +27,7 @@ prompt() {
   if "$USE_WHIPTAIL"; then
     value=$(whiptail --inputbox "$message" 10 78 "$default" 3>&1 1>&2 2>&3) || exit 1
   else
-    if [ -n "$TTY_IN" ]; then
-      read -r -p "$message [$default]: " value <"$TTY_IN"
-    else
-      read -r -p "$message [$default]: " value
-    fi
+    read -r -p "$message [$default]: " value
     value="${value:-$default}"
   fi
   printf '%s' "$value"
@@ -52,11 +39,7 @@ prompt_secret() {
   if "$USE_WHIPTAIL"; then
     value=$(whiptail --passwordbox "$message" 10 78 3>&1 1>&2 2>&3) || exit 1
   else
-    if [ -n "$TTY_IN" ]; then
-      read -r -s -p "$message: " value <"$TTY_IN"
-    else
-      read -r -s -p "$message: " value
-    fi
+    read -r -s -p "$message: " value
     printf '\n'
   fi
   printf '%s' "$value"
@@ -115,11 +98,7 @@ prompt_secret_state() {
         value=$(whiptail --passwordbox "$message" 10 78 3>&1 1>&2 2>&3) || exit 1
       fi
     else
-      if [ -n "$TTY_IN" ]; then
-        read -r -s -p "$message (press Enter to keep existing): " value <"$TTY_IN"
-      else
-        read -r -s -p "$message (press Enter to keep existing): " value
-      fi
+      read -r -s -p "$message (press Enter to keep existing): " value
       printf '\n'
       if [ -z "$value" ]; then
         value="$saved"
@@ -166,11 +145,7 @@ confirm() {
       prompt_suffix="[y/N]"
     fi
     local answer
-    if [ -n "$TTY_IN" ]; then
-      read -r -p "$message $prompt_suffix " answer <"$TTY_IN"
-    else
-      read -r -p "$message $prompt_suffix " answer
-    fi
+    read -r -p "$message $prompt_suffix " answer
     answer="${answer:-$default_yes}"
     case "$answer" in
       y|Y|yes|YES) result=0 ;;
@@ -435,6 +410,25 @@ fi
 
 if [ -z "$COMPOSE_CMD" ]; then
   print_container_install_help
+  exit 1
+fi
+
+# Preflight required binaries. These are invoked deep inside `$(...)`
+# substitutions during prompts; if they're missing, `die` only exits the
+# subshell and the resulting set -e abort is easy to miss.
+missing_bins=()
+for bin in openssl curl mktemp; do
+  if ! has_cmd "$bin"; then
+    missing_bins+=("$bin")
+  fi
+done
+if [ "${#missing_bins[@]}" -gt 0 ]; then
+  say ""
+  say "Missing required commands: ${missing_bins[*]}"
+  say "Install them and re-run the installer. On Debian/Ubuntu:"
+  say "  sudo apt-get update && sudo apt-get install -y ${missing_bins[*]}"
+  say "On RHEL/Fedora:"
+  say "  sudo dnf install -y ${missing_bins[*]}"
   exit 1
 fi
 
