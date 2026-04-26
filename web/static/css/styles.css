@@ -9024,10 +9024,6 @@ textarea.wg-input {
     line-height: 1.1;
 }
 
-.wg-meds-modal__close-btn {
-    flex-shrink: 0;
-}
-
 .wg-meds-modal__body {
     display: flex;
     flex-direction: column;

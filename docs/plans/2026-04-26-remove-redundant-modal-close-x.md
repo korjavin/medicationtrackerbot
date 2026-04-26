@@ -81,12 +81,12 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
 - [x] `pnpm test` — must pass before Task 2
 
 ### Task 2: TakeMedsModal / med-modal — remove close-X
-- [ ] delete `<button id="med-modal-close-btn">` in `web/static/index.html:1129-1274`
-- [ ] in `web/static/js/app.js:1446`, delete the `bindClick('med-modal-close-btn', () => closeModal())` line
-- [ ] check for any med-modal close-icon hydration (grep `med-modal-close-btn`); remove if present
-- [ ] remove `.wg-meds-modal__close-btn` rule(s) from `web/static/css/styles.css`
-- [ ] update `web/static/js/tests/modals.meds.header-actions.test.js` to assert close-X is gone
-- [ ] `pnpm test` — must pass before Task 3
+- [x] delete `<button id="med-modal-close-btn">` in `web/static/index.html:1129-1274`
+- [x] in `web/static/js/app.js:1446`, delete the `bindClick('med-modal-close-btn', () => closeModal())` line
+- [x] check for any med-modal close-icon hydration (grep `med-modal-close-btn`); remove if present
+- [x] remove `.wg-meds-modal__close-btn` rule(s) from `web/static/css/styles.css`
+- [x] update `web/static/js/tests/modals.meds.header-actions.test.js` to assert close-X is gone
+- [x] `pnpm test` — must pass before Task 3
 
 ### Task 3: LogBPModal — remove close-X
 - [ ] delete `<button id="bp-modal-close-btn">` in `web/static/index.html:1277-1360`

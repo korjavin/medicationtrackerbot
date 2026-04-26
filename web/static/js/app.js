@@ -1443,7 +1443,6 @@ function bindMedicationControls() {
 
     bindClick('add-btn', () => showAddModal());
     bindClick('med-modal-cancel-btn', () => closeModal());
-    bindClick('med-modal-close-btn', () => closeModal());
     bindClick('med-modal-save-btn', () => saveMedication());
 
     bindChange('schedule-type', () => toggleScheduleFields());
