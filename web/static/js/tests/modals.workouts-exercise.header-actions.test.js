@@ -56,7 +56,7 @@ describe('WorkoutExerciseModal header-actions', () => {
         expect(saveIdx).toBeGreaterThan(cancelIdx);
     });
 
-    it('redundant close-X button has been removed (Cancel + backdrop tap remain)', () => {
+    it('redundant close-X button is removed from the header', () => {
         const { document } = env;
         expect(document.getElementById('exercise-close-btn')).toBeNull();
     });

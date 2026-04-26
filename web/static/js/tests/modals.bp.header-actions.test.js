@@ -68,7 +68,7 @@ describe('BPModal header-actions', () => {
         expect(viaLegacySelector).toBe(saveBtn);
     });
 
-    it('redundant close-X button is removed (Cancel + backdrop suffice)', () => {
+    it('redundant close-X button is removed from the header', () => {
         const { document } = env;
         expect(document.getElementById('bp-modal-close-btn')).toBeNull();
         expect(document.querySelector('#bp-modal .wg-bp-modal__close-btn')).toBeNull();

@@ -5,7 +5,7 @@
 //     dual-line eyebrow + mono title, gloss-inset textarea wrap, and a
 //     Cancel + Save action bar where Save carries 2× flex per
 //     modal-button-order convention. The legacy close-X icon was removed
-//     in Plan 2026-04-26 (Cancel + backdrop dismiss are sufficient).
+//     in Plan 2026-04-26 (Cancel button is the sole header dismiss control).
 //   • opening via editNote(note) populates the textarea, sets the title to
 //     "Edit note", and reveals the modal.
 //   • cancel button closes the modal (modal-controller history wiring
@@ -55,7 +55,7 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
             expect(m[0]).toMatch(/\bhidden\b/);
         });
 
-        it('renders mono header (close-X removed; Cancel + backdrop dismiss), gloss-inset textarea wrap, and header-actions row', () => {
+        it('renders mono header (close-X removed; Cancel dismisses), gloss-inset textarea wrap, and header-actions row', () => {
             const { document } = env;
             const modal = document.getElementById('note-modal');
             expect(modal).not.toBeNull();

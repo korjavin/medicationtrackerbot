@@ -48,7 +48,7 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(m[0]).toMatch(/wg-weight-modal/);
         });
 
-        it('renders the mono header (close-X removed; Cancel + backdrop dismiss), unit-toggle pill pair, and action bar', () => {
+        it('renders the mono header (close-X removed; Cancel dismisses), unit-toggle pill pair, and action bar', () => {
             const { document } = env;
             const modal = document.getElementById('weight-modal');
             expect(modal).not.toBeNull();
@@ -396,7 +396,7 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
         });
     });
 
-    describe('cancel + close wiring', () => {
+    describe('cancel wiring', () => {
         it('cancel button closes the modal (modal-controller history preserved)', () => {
             const { window, document } = env;
             window.showWeightModal();
@@ -408,7 +408,7 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
     });
 
     // Round-2 defects Task 4 — #3 (last-logged seed), #4 (focus)
-    // (#2 close-icon SVG hydration removed in Plan 2026-04-26 — close-X gone, Cancel + backdrop dismiss)
+    // (#2 close-icon SVG hydration removed in Plan 2026-04-26 — close-X gone, Cancel dismisses)
     describe('Round-2 Task 4: open-time polish', () => {
         it('seeds the weight input from DataStore weight cache when no in-memory log exists (defect #3)', async () => {
             const { window, document } = env;

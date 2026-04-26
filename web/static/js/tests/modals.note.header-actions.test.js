@@ -66,7 +66,7 @@ describe('NoteModal header-actions', () => {
         expect(saveBtn.getAttribute('type')).toBe('submit');
     });
 
-    it('redundant close-X button is removed (Cancel + backdrop suffice)', () => {
+    it('redundant close-X button is removed from the header', () => {
         const { document } = env;
         expect(document.getElementById('note-modal-close-btn')).toBeNull();
         expect(document.querySelector('#note-modal .wg-health-modal__close-btn')).toBeNull();

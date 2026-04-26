@@ -56,7 +56,7 @@ describe('WorkoutGroupModal header-actions', () => {
         expect(saveIdx).toBeGreaterThan(cancelIdx);
     });
 
-    it('redundant close-X button is removed (Cancel + backdrop suffice)', () => {
+    it('redundant close-X button is removed from the header', () => {
         const { document } = env;
         expect(document.getElementById('workout-group-close-btn')).toBeNull();
         expect(document.querySelector('#workout-group-modal .wg-workouts-group-modal__close-btn')).toBeNull();

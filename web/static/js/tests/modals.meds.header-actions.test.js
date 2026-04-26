@@ -58,7 +58,7 @@ describe('MedModal header-actions', () => {
         expect(saveIdx).toBeGreaterThan(cancelIdx);
     });
 
-    it('redundant close-X button is removed (Cancel + backdrop suffice)', () => {
+    it('redundant close-X button is removed from the header', () => {
         const { document } = env;
         expect(document.getElementById('med-modal-close-btn')).toBeNull();
         expect(document.querySelector('#med-modal .wg-meds-modal__close-btn')).toBeNull();

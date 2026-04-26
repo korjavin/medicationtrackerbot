@@ -58,7 +58,7 @@ describe('EditFoodModal header-actions', () => {
         expect(saveIdx).toBeGreaterThan(cancelIdx);
     });
 
-    it('redundant close-X button is removed (Cancel + backdrop suffice)', () => {
+    it('redundant close-X button is removed from the header', () => {
         const { document } = env;
         expect(document.getElementById('food-modal-close-btn')).toBeNull();
         expect(document.querySelector('#food-modal .wg-food-modal__close-btn')).toBeNull();

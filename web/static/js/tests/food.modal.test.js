@@ -49,7 +49,7 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         expect(modal.classList.contains('wg-food-modal')).toBe(true);
     });
 
-    it('header renders eyebrow + mono title (close-X removed; Cancel + backdrop dismiss)', () => {
+    it('header renders eyebrow + mono title (close-X removed; Cancel dismisses)', () => {
         const { document } = env;
         const header = document.querySelector('#food-modal .wg-food-modal__header');
         expect(header).not.toBeNull();

@@ -56,7 +56,7 @@ describe('WorkoutVariantModal header-actions', () => {
         expect(saveIdx).toBeGreaterThan(cancelIdx);
     });
 
-    it('redundant close-X button is removed (Cancel + backdrop suffice)', () => {
+    it('redundant close-X button is removed from the header', () => {
         const { document } = env;
         expect(document.getElementById('workout-variant-close-btn')).toBeNull();
         expect(document.querySelector('#workout-variant-modal .wg-workouts-variant-modal__close-btn')).toBeNull();
