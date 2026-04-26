@@ -2,13 +2,14 @@
 //
 // Covers the new `#note-modal` shell:
 //   • markup uses `.wg-modal` + `.wg-health-modal__*` wrappers with a
-//     dual-line eyebrow + mono title, top-right `.wg-icon-btn` close,
-//     gloss-inset textarea wrap, and a Cancel + Save action bar where Save
-//     carries 2× flex per modal-button-order convention.
+//     dual-line eyebrow + mono title, gloss-inset textarea wrap, and a
+//     Cancel + Save action bar where Save carries 2× flex per
+//     modal-button-order convention. The legacy close-X icon was removed
+//     in Plan 2026-04-26 (Cancel button is the sole header dismiss control).
 //   • opening via editNote(note) populates the textarea, sets the title to
 //     "Edit note", and reveals the modal.
-//   • cancel button + close icon both close the modal (modal-controller
-//     history wiring preserved via the modal-overlay class change).
+//   • cancel button closes the modal (modal-controller history wiring
+//     preserved via the modal-overlay class change).
 //   • submit POSTs the new content first, then DELETEs the original — the
 //     happy path closes the modal, invalidates the notes tag, and reloads.
 //   • a failed POST does NOT issue the DELETE and leaves the modal open so
@@ -54,7 +55,7 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
             expect(m[0]).toMatch(/\bhidden\b/);
         });
 
-        it('renders mono header, close icon-btn, gloss-inset textarea wrap, and header-actions row', () => {
+        it('renders mono header (close-X removed; Cancel dismisses), gloss-inset textarea wrap, and header-actions row', () => {
             const { document } = env;
             const modal = document.getElementById('note-modal');
             expect(modal).not.toBeNull();
@@ -72,10 +73,7 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
             expect(title.classList.contains('wg-mono-display')).toBe(true);
             expect(title.classList.contains('wg-health-modal__title')).toBe(true);
 
-            const close = document.getElementById('note-modal-close-btn');
-            expect(close).not.toBeNull();
-            expect(close.classList.contains('wg-icon-btn')).toBe(true);
-            expect(close.querySelector('.wg-gloss')).not.toBeNull();
+            expect(document.getElementById('note-modal-close-btn')).toBeNull();
 
             const textarea = document.getElementById('note-modal-textarea');
             expect(textarea).not.toBeNull();
@@ -144,20 +142,12 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
         });
     });
 
-    describe('cancel + close wiring', () => {
+    describe('cancel wiring', () => {
         it('cancel button closes the modal', () => {
             const { window, document } = env;
             window.editNote({ id: 1, content: 'hi' });
             expect(document.getElementById('note-modal').classList.contains('hidden')).toBe(false);
             document.getElementById('note-modal-cancel-btn').click();
-            expect(document.getElementById('note-modal').classList.contains('hidden')).toBe(true);
-        });
-
-        it('close icon-btn also closes the modal', () => {
-            const { window, document } = env;
-            window.editNote({ id: 1, content: 'hi' });
-            expect(document.getElementById('note-modal').classList.contains('hidden')).toBe(false);
-            document.getElementById('note-modal-close-btn').click();
             expect(document.getElementById('note-modal').classList.contains('hidden')).toBe(true);
         });
 

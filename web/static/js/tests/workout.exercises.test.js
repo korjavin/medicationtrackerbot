@@ -249,7 +249,7 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
             ['exercise-library-name', 'exercise-library-sets', 'exercise-library-reps-min',
              'exercise-library-reps-max', 'exercise-library-weight', 'exercise-library-notes',
              'exercise-library-modal-title', 'exercise-library-cancel-btn',
-             'exercise-library-save-btn', 'exercise-library-close-btn']
+             'exercise-library-save-btn']
                 .forEach((id) => {
                     expect(document.getElementById(id), `expected #${id} to exist`).not.toBeNull();
                 });

@@ -49,7 +49,7 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         expect(modal.classList.contains('wg-food-modal')).toBe(true);
     });
 
-    it('header renders eyebrow + mono title + .wg-icon-btn close affordance', () => {
+    it('header renders eyebrow + mono title (close-X removed; Cancel dismisses)', () => {
         const { document } = env;
         const header = document.querySelector('#food-modal .wg-food-modal__header');
         expect(header).not.toBeNull();
@@ -65,10 +65,7 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         expect(title.classList.contains('wg-mono-display')).toBe(true);
         expect(title.textContent.trim()).toBe('Food');
 
-        const close = document.getElementById('food-modal-close-btn');
-        expect(close).not.toBeNull();
-        expect(close.classList.contains('wg-icon-btn')).toBe(true);
-        expect(close.querySelector('.wg-gloss')).not.toBeNull();
+        expect(document.getElementById('food-modal-close-btn')).toBeNull();
     });
 
     it('Weight + Barcode row uses gloss-inset input wraps and a gloss Scan button', () => {
@@ -169,18 +166,15 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         expect(cb.parentElement.classList.contains('wg-food-modal__per100g')).toBe(true);
     });
 
-    it('renderFoodModalIcons populates the close + scan icons exactly once', () => {
+    it('renderFoodModalIcons populates the scan icon exactly once', () => {
         const { document, window } = env;
         // bindFoodControls already ran during harness load; icons should be in.
-        const closeSvg = document.querySelector('#food-modal-close-btn .wg-gloss svg');
         const scanSvg = document.querySelector('#food-scan-btn svg');
-        expect(closeSvg).not.toBeNull();
         expect(scanSvg).not.toBeNull();
 
         // Re-running should be idempotent (no duplicate svgs).
         if (typeof window.renderFoodModalIcons === 'function') {
             window.renderFoodModalIcons();
-            expect(document.querySelectorAll('#food-modal-close-btn .wg-gloss svg')).toHaveLength(1);
             expect(document.querySelectorAll('#food-scan-btn svg')).toHaveLength(1);
         }
     });
@@ -234,15 +228,6 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
 
         document.getElementById('food-modal-cancel-btn').click();
-        expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(true);
-    });
-
-    it('close icon (top-right) also routes through closeFoodModal', () => {
-        const { document, window } = env;
-        window.showAddFoodModal();
-        expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
-
-        document.getElementById('food-modal-close-btn').click();
         expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(true);
     });
 

@@ -66,4 +66,10 @@ describe('WeightModal header-actions', () => {
         expect(saveBtn.getAttribute('form')).toBe('weight-form');
         expect(saveBtn.getAttribute('type')).toBe('submit');
     });
+
+    it('redundant close-X button is removed from the header', () => {
+        const { document } = env;
+        expect(document.getElementById('weight-modal-close-btn')).toBeNull();
+        expect(document.querySelector('#weight-modal .wg-weight-modal__close-btn')).toBeNull();
+    });
 });

@@ -76,7 +76,7 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
          'session-add-exercise-sets', 'session-add-exercise-reps',
          'session-add-exercise-weight', 'session-add-exercise-notes',
          'session-add-exercise-cancel-btn', 'session-add-exercise-save-btn',
-         'session-add-exercise-close-btn', 'workout-add-exercise-to-session-title',
+         'workout-add-exercise-to-session-title',
          'unique-exercises-list']
             .forEach((id) => {
                 expect(document.getElementById(id), `expected #${id} to exist`).not.toBeNull();
@@ -249,7 +249,7 @@ describe('Edit-exercise modal shell (Phase 7, Task 8)', () => {
          'workout-exercise-reps-min', 'workout-exercise-reps-max',
          'workout-exercise-weight', 'workout-exercise-order',
          'workout-exercise-modal-title', 'exercise-cancel-btn',
-         'exercise-save-btn', 'exercise-close-btn']
+         'exercise-save-btn']
             .forEach((id) => {
                 expect(document.getElementById(id), `expected #${id} to exist`).not.toBeNull();
             });

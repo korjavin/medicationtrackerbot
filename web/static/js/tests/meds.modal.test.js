@@ -39,7 +39,7 @@ describe('EditMedicationModal (Phase 5, Task 7)', () => {
         expect(modal.classList.contains('wg-meds-modal')).toBe(true);
     });
 
-    it('header renders eyebrow + mono title + .wg-icon-btn close affordance', () => {
+    it('header renders eyebrow + mono title with no redundant close-X', () => {
         const { document } = env;
         const header = document.querySelector('#med-modal .wg-meds-modal__header');
         expect(header).not.toBeNull();
@@ -53,10 +53,7 @@ describe('EditMedicationModal (Phase 5, Task 7)', () => {
         expect(title).not.toBeNull();
         expect(title.classList.contains('wg-mono-display')).toBe(true);
 
-        const close = document.getElementById('med-modal-close-btn');
-        expect(close).not.toBeNull();
-        expect(close.classList.contains('wg-icon-btn')).toBe(true);
-        expect(close.querySelector('.wg-gloss')).not.toBeNull();
+        expect(document.getElementById('med-modal-close-btn')).toBeNull();
     });
 
     it('Name + Dosage row uses gloss-inset input wraps', () => {
@@ -271,15 +268,6 @@ describe('EditMedicationModal (Phase 5, Task 7)', () => {
         expect(document.getElementById('med-modal').classList.contains('hidden')).toBe(false);
 
         document.getElementById('med-modal-cancel-btn').click();
-        expect(document.getElementById('med-modal').classList.contains('hidden')).toBe(true);
-    });
-
-    it('close icon (top-right) also routes through closeModal', () => {
-        const { document, window } = env;
-        window.showAddModal();
-        expect(document.getElementById('med-modal').classList.contains('hidden')).toBe(false);
-
-        document.getElementById('med-modal-close-btn').click();
         expect(document.getElementById('med-modal').classList.contains('hidden')).toBe(true);
     });
 

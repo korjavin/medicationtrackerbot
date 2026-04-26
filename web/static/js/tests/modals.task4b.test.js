@@ -60,11 +60,11 @@ describe('BP modal — Task 4b audit', () => {
         expect(css).toMatch(/\.wg-bp-modal__header-btn--save\s*\{[^}]*padding:/);
     });
 
-    it('close button is wired to closeBPRecordModal', () => {
+    it('Cancel button is wired to closeBPRecordModal', () => {
         env.window.showBPRecordModal();
         const modal = env.document.getElementById('bp-modal');
         expect(modal.classList.contains('hidden')).toBe(false);
-        env.document.getElementById('bp-modal-close-btn').click();
+        env.document.getElementById('bp-modal-cancel-btn').click();
         expect(modal.classList.contains('hidden')).toBe(true);
     });
 });
