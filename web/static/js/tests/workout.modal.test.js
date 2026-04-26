@@ -249,7 +249,7 @@ describe('Edit-exercise modal shell (Phase 7, Task 8)', () => {
          'workout-exercise-reps-min', 'workout-exercise-reps-max',
          'workout-exercise-weight', 'workout-exercise-order',
          'workout-exercise-modal-title', 'exercise-cancel-btn',
-         'exercise-save-btn', 'exercise-close-btn']
+         'exercise-save-btn']
             .forEach((id) => {
                 expect(document.getElementById(id), `expected #${id} to exist`).not.toBeNull();
             });

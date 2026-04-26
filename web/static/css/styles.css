@@ -6850,10 +6850,6 @@ textarea.wg-input {
     line-height: 1.1;
 }
 
-.wg-workouts-exercise-modal__close-btn {
-    flex-shrink: 0;
-}
-
 .wg-workouts-exercise-modal__body {
     display: flex;
     flex-direction: column;
