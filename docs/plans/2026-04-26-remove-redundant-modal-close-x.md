@@ -74,11 +74,11 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
 ## Implementation Steps
 
 ### Task 1: EditFoodModal — remove close-X
-- [ ] in `web/static/index.html:942-1048`, delete the `<button id="food-modal-close-btn">` element (and its enclosing wrapper if it leaves an empty container)
-- [ ] in `web/static/js/features/food.js`, delete the `closeGloss = querySelector('#food-modal-close-btn .wg-gloss')` icon hydration block (line ~24) and the `bindClick('food-modal-close-btn', ...)` call (line ~168)
-- [ ] in `web/static/css/styles.css`, remove `.wg-food-modal__close-btn` rule(s)
-- [ ] update `web/static/js/tests/modals.food.header-actions.test.js` to assert `getElementById('food-modal-close-btn')` is `null`; verify Cancel still dismisses
-- [ ] `pnpm test` — must pass before Task 2
+- [x] in `web/static/index.html:942-1048`, delete the `<button id="food-modal-close-btn">` element (and its enclosing wrapper if it leaves an empty container)
+- [x] in `web/static/js/features/food.js`, delete the `closeGloss = querySelector('#food-modal-close-btn .wg-gloss')` icon hydration block (line ~24) and the `bindClick('food-modal-close-btn', ...)` call (line ~168)
+- [x] in `web/static/css/styles.css`, remove `.wg-food-modal__close-btn` rule(s)
+- [x] update `web/static/js/tests/modals.food.header-actions.test.js` to assert `getElementById('food-modal-close-btn')` is `null`; verify Cancel still dismisses
+- [x] `pnpm test` — must pass before Task 2
 
 ### Task 2: TakeMedsModal / med-modal — remove close-X
 - [ ] delete `<button id="med-modal-close-btn">` in `web/static/index.html:1129-1274`

@@ -8831,10 +8831,6 @@ textarea.wg-input {
     line-height: 1.1;
 }
 
-.wg-food-modal__close-btn {
-    flex-shrink: 0;
-}
-
 .wg-food-modal__body {
     display: flex;
     flex-direction: column;

@@ -57,4 +57,10 @@ describe('EditFoodModal header-actions', () => {
         expect(cancelIdx).toBeGreaterThan(-1);
         expect(saveIdx).toBeGreaterThan(cancelIdx);
     });
+
+    it('redundant close-X button is removed (Cancel + backdrop suffice)', () => {
+        const { document } = env;
+        expect(document.getElementById('food-modal-close-btn')).toBeNull();
+        expect(document.querySelector('#food-modal .wg-food-modal__close-btn')).toBeNull();
+    });
 });
