@@ -99,7 +99,20 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to generate oauth state", http.StatusInternalServerError)
 		return
 	}
-	u := s.oauthConfig.AuthCodeURL(oauthState)
+	// PKCE: generate a verifier, stash it in a cookie, send the S256 challenge
+	// in the authorize URL. Required by providers like Pocket-ID that mark the
+	// client as public / require PKCE.
+	verifier := oauth2.GenerateVerifier()
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauthverifier",
+		Value:    verifier,
+		Expires:  time.Now().Add(20 * time.Minute),
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/",
+	})
+	u := s.oauthConfig.AuthCodeURL(oauthState, oauth2.S256ChallengeOption(verifier))
 	http.Redirect(w, r, u, http.StatusTemporaryRedirect)
 }
 
@@ -124,9 +137,27 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Recover the PKCE verifier set during /auth/oidc/login. Required by
+	// providers that enforce PKCE (e.g. Pocket-ID public clients).
+	var exchangeOpts []oauth2.AuthCodeOption
+	if verifierCookie, vErr := r.Cookie("oauthverifier"); vErr == nil && verifierCookie.Value != "" {
+		exchangeOpts = append(exchangeOpts, oauth2.VerifierOption(verifierCookie.Value))
+		// Clear the verifier cookie now that we've consumed it.
+		http.SetCookie(w, &http.Cookie{
+			Name:     "oauthverifier",
+			Value:    "",
+			Expires:  time.Unix(0, 0),
+			MaxAge:   -1,
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+			Path:     "/",
+		})
+	}
+
 	// Exchange Code for Token
 	code := r.FormValue("code")
-	token, err := s.oauthConfig.Exchange(context.Background(), code)
+	token, err := s.oauthConfig.Exchange(context.Background(), code, exchangeOpts...)
 	if err != nil {
 		http.Error(w, "code exchange failed: "+err.Error(), http.StatusInternalServerError)
 		return
