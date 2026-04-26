@@ -144,13 +144,13 @@ The reference modal (`WorkoutSessionModal`) already follows this — it has Dele
 - [x] `pnpm test` — must pass before Task 10
 
 ### Task 10: Workout LogSet modal — remove close-X + drop dead helper
-- [ ] delete `<button id="session-add-exercise-close-btn">` in `web/static/index.html:883`
-- [ ] in `web/static/js/features/workout.js:131`, delete the `bindClick('session-add-exercise-close-btn', ...)` line
-- [ ] in `web/static/js/features/workout.js:171`, remove `'session-add-exercise-close-btn'` from the `closeBtnIds` array
-- [ ] verify the `closeBtnIds` array in `renderWorkoutModalCloseIcons()` is now empty — if so, delete the entire `renderWorkoutModalCloseIcons` function and any caller
-- [ ] remove `.wg-workouts-log-set-modal__close-btn` rule(s) from `web/static/css/styles.css`
-- [ ] update `web/static/js/tests/modals.workouts-log-set.header-actions.test.js` (or `web/static/js/tests/workout.modal.test.js` if the assertion lives there)
-- [ ] `pnpm test` — must pass before Task 11
+- [x] delete `<button id="session-add-exercise-close-btn">` in `web/static/index.html:883`
+- [x] in `web/static/js/features/workout.js:131`, delete the `bindClick('session-add-exercise-close-btn', ...)` line
+- [x] in `web/static/js/features/workout.js:171`, remove `'session-add-exercise-close-btn'` from the `closeBtnIds` array
+- [x] verify the `closeBtnIds` array in `renderWorkoutModalCloseIcons()` is now empty — if so, delete the entire `renderWorkoutModalCloseIcons` function and any caller
+- [x] remove `.wg-workouts-log-set-modal__close-btn` rule(s) from `web/static/css/styles.css`
+- [x] update `web/static/js/tests/modals.workouts-log-set.header-actions.test.js` (or `web/static/js/tests/workout.modal.test.js` if the assertion lives there)
+- [x] `pnpm test` — must pass before Task 11
 
 ### Task 11: Verify acceptance criteria
 - [ ] `grep -nE 'modal-close-btn|workout-group-close-btn|workout-variant-close-btn|exercise-close-btn|exercise-library-close-btn|session-add-exercise-close-btn' web/static/index.html web/static/js web/static/css` — no occurrences in scope (MedConfirmModal `wg-med-confirm-modal__close-btn` is intentionally retained)

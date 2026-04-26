@@ -7093,10 +7093,6 @@ textarea.wg-input {
     line-height: 1.1;
 }
 
-.wg-workouts-log-set-modal__close-btn {
-    flex-shrink: 0;
-}
-
 .wg-workouts-log-set-modal__body {
     display: flex;
     flex-direction: column;

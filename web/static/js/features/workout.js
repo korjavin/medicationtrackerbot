@@ -124,7 +124,6 @@ function bindWorkoutControls() {
     bindClick('workout-session-save-btn', () => saveWorkoutSessionDetails());
 
     bindClick('session-add-exercise-cancel-btn', () => closeAddExerciseToSessionModal());
-    bindClick('session-add-exercise-close-btn', () => closeAddExerciseToSessionModal());
     bindClick('session-add-exercise-save-btn', () => saveNewSessionExercise());
 
     bindClick('miband-workout-cancel-btn', () => closeMiBandWorkoutModal());
@@ -150,25 +149,6 @@ function bindWorkoutControls() {
             onSessionExerciseSelect();
         });
     }
-
-    renderWorkoutModalCloseIcons();
-}
-
-// Hydrate the `.wg-gloss` span inside every workout modal's close button with
-// the shared close SVG. Mirrors the food.js `renderFoodModalIcons` pattern so
-// the Wandergeek close affordance isn't rendered as a blank pill.
-function renderWorkoutModalCloseIcons() {
-    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
-    const closeBtnIds = [
-        'session-add-exercise-close-btn',
-    ];
-    closeBtnIds.forEach((id) => {
-        const btn = document.getElementById(id);
-        if (!btn) return;
-        const gloss = btn.querySelector('.wg-gloss');
-        if (!gloss || gloss.querySelector('svg')) return;
-        gloss.replaceChildren(window.WGIcons.iconSvg('close', { size: 14 }));
-    });
 }
 
 if (document.readyState === 'loading') {
