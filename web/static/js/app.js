@@ -1389,6 +1389,15 @@ async function loadToday() {
             if (isFeatureDisabled(spec.feature)) return false;
             return true;
         });
+        // Food can be written from outside this client (Telegram /food and /intake
+        // commands), and bootstrap advances the change cursor without including
+        // today's food log payload — so a bot write between sessions leaves a
+        // stale `food_<date>_day` cache that the change-poll never invalidates.
+        // Always refetch food while Today is mounted so calories stay in sync
+        // with the Food section (which already does true SWR).
+        if (!missing.includes(foodKey) && specs[foodKey] && !isFeatureDisabled(specs[foodKey].feature)) {
+            missing.push(foodKey);
+        }
         if (missing.length === 0) return;
         await Promise.allSettled(
             missing.map((k) => window.DataStore.fetchFresh(k, specs[k].fetch, specs[k].tags))
