@@ -102,6 +102,9 @@ func LoadConfigFromEnv() (*Config, error) {
 	if cfg.MCPServerURL == "" {
 		return nil, fmt.Errorf("MCP_SERVER_URL is required")
 	}
+	if cfg.AllowedSubject == "" {
+		return nil, fmt.Errorf("MCP_ALLOWED_SUBJECT is required")
+	}
 
 	return cfg, nil
 }
