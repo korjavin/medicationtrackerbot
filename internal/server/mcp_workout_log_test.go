@@ -478,6 +478,131 @@ func TestMCPWorkoutLog_DeleteRequiresSessionAndName(t *testing.T) {
 	}
 }
 
+func TestMCPWorkoutLog_DurationPersistedToNotes(t *testing.T) {
+	// Cardio-style payload: duration only, no sets/reps/weight. The schema has
+	// no duration column, so the handler must preserve the value via a notes
+	// prefix instead of silently dropping it.
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{
+		Operation: "log",
+		Exercises: []domain.ResolverInput{
+			{Name: "Running", DurationMinutes: intPtr(30), Notes: "easy pace"},
+		},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp MCPWorkoutLogResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Results) != 1 || resp.Results[0].Status != "logged" {
+		t.Fatalf("expected 1 logged result, got %+v", resp.Results)
+	}
+
+	logs, err := db.GetExerciseLogs(resp.SessionID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log persisted, got %d", len(logs))
+	}
+	if got := logs[0].Notes; got != "[duration: 30 min] easy pace" {
+		t.Errorf("notes = %q, want %q", got, "[duration: 30 min] easy pace")
+	}
+}
+
+func TestMCPWorkoutLog_DurationOnlyNotesPrefix(t *testing.T) {
+	// When the agent supplies duration with no extra notes, the prefix alone
+	// should land in the notes column.
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{
+		Operation: "log",
+		Exercises: []domain.ResolverInput{
+			{Name: "Running", DurationMinutes: intPtr(45)},
+		},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp MCPWorkoutLogResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	logs, err := db.GetExerciseLogs(resp.SessionID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 || logs[0].Notes != "[duration: 45 min]" {
+		t.Errorf("notes = %q, want %q", logs[0].Notes, "[duration: 45 min]")
+	}
+}
+
+func TestMCPWorkoutLog_LogRejectsForeignSession(t *testing.T) {
+	// A session belonging to another user must not be writable even when the
+	// caller holds a valid HMAC secret.
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	const otherUserID = 999999
+	day := time.Now()
+	foreign, err := db.CreateAdHocWorkoutSession(otherUserID, day, day.Format("15:04"))
+	if err != nil {
+		t.Fatalf("create foreign session: %v", err)
+	}
+
+	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{
+		Operation: "log",
+		SessionID: foreign.ID,
+		Exercises: []domain.ResolverInput{
+			{Name: "Squat", Sets: intPtr(3), Reps: intPtr(8), WeightKg: floatPtr(80)},
+		},
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for foreign session, got %d: %s", w.Code, w.Body.String())
+	}
+
+	logs, _ := db.GetExerciseLogs(foreign.ID)
+	if len(logs) != 0 {
+		t.Errorf("foreign session got %d logs written; expected 0", len(logs))
+	}
+}
+
+func TestMCPWorkoutLog_DeleteRejectsForeignSession(t *testing.T) {
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	const otherUserID = 999999
+	day := time.Now()
+	foreign, err := db.CreateAdHocWorkoutSession(otherUserID, day, day.Format("15:04"))
+	if err != nil {
+		t.Fatalf("create foreign session: %v", err)
+	}
+	if _, err := db.LogExerciseWithSource(foreign.ID, 0, "Squat", intPtr(3), intPtr(8), floatPtr(80), "completed", "", "library"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{
+		Operation:    "delete_exercise",
+		SessionID:    foreign.ID,
+		ExerciseName: "Squat",
+	})
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for foreign session, got %d: %s", w.Code, w.Body.String())
+	}
+
+	logs, _ := db.GetExerciseLogs(foreign.ID)
+	if len(logs) != 1 {
+		t.Errorf("foreign session log was deleted; expected 1 row to remain")
+	}
+}
+
 func TestMCPWorkoutLog_LogSessionRefLast(t *testing.T) {
 	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
 	defer db.Close()

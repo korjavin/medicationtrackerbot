@@ -175,6 +175,18 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 
 		switch plan.Status {
 		case domain.StatusResolved, domain.StatusCreateNew:
+			// workout_exercise_logs has no duration column; preserve duration in
+			// notes so cardio payloads (sets/reps/weight all nil, duration set)
+			// don't silently drop the only data they carried.
+			notes := plan.Notes
+			if plan.Applied.DurationMinutes != nil {
+				prefix := fmt.Sprintf("[duration: %d min]", *plan.Applied.DurationMinutes)
+				if notes == "" {
+					notes = prefix
+				} else {
+					notes = prefix + " " + notes
+				}
+			}
 			id, isNew, err := s.workouts.UpsertExerciseLogByName(
 				ctx,
 				session.ID,
@@ -183,7 +195,7 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 				plan.Applied.Reps,
 				plan.Applied.WeightKg,
 				"completed",
-				plan.Notes,
+				notes,
 				"agent",
 			)
 			if err != nil {
@@ -267,6 +279,17 @@ func (s *Server) mcpWorkoutDelete(w http.ResponseWriter, r *http.Request, req *M
 		return
 	}
 
+	sess, err := s.workouts.GetWorkoutSession(req.SessionID)
+	if err != nil {
+		slog.Error("[Server] MCP workout delete: get session failed", "session", req.SessionID, "error", err)
+		http.Error(w, "failed to load session", http.StatusInternalServerError)
+		return
+	}
+	if sess == nil || sess.UserID != s.allowedUserID {
+		http.Error(w, fmt.Sprintf("session %d not found", req.SessionID), http.StatusNotFound)
+		return
+	}
+
 	logs, err := s.workouts.GetExerciseLogs(req.SessionID)
 	if err != nil {
 		slog.Error("[Server] MCP workout delete: get logs failed", "session", req.SessionID, "error", err)
@@ -314,7 +337,7 @@ func (s *Server) resolveOrCreateSession(req *MCPWorkoutLogRequest) (*store.Worko
 		if err != nil {
 			return nil, time.Time{}, fmt.Errorf("load session: %w", err)
 		}
-		if sess == nil {
+		if sess == nil || sess.UserID != s.allowedUserID {
 			return nil, time.Time{}, fmt.Errorf("session %d not found", req.SessionID)
 		}
 		return sess, occurredAt, nil
