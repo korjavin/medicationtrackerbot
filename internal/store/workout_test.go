@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
@@ -803,3 +804,114 @@ func TestUpdateWorkoutVariant(t *testing.T) {
 }
 
 func intPtr(i int) *int { return &i }
+
+// TestListRecentExerciseLogsByName verifies the resolver helper returns matching
+// logs for a user, ordered newest-first, and ignores logs from other users.
+func TestListRecentExerciseLogsByName(t *testing.T) {
+	st := setupTestDB(t)
+	defer st.db.Close()
+
+	userA := int64(1)
+	userB := int64(2)
+
+	// Build a small history under user A: two logs for "Biceps Curls" on
+	// successive days, plus one for "Squat".
+	groupA, _ := st.CreateWorkoutGroup("A", "", false, userA, "[1]", "09:00", 15)
+	variantA, _ := st.CreateWorkoutVariant(groupA.ID, "Day A", nil, "")
+
+	dayOlder, _ := time.Parse("2006-01-02", "2026-04-01")
+	dayNewer, _ := time.Parse("2006-01-02", "2026-04-15")
+
+	sessOld, _ := st.CreateWorkoutSession(groupA.ID, variantA.ID, userA, dayOlder, "09:00")
+	sessNew, _ := st.CreateWorkoutSession(groupA.ID, variantA.ID, userA, dayNewer, "09:00")
+
+	sets, reps := 3, 10
+	w := 10.0
+	if _, err := st.LogExerciseWithSource(sessOld.ID, 0, "Biceps Curls", &sets, &reps, &w, "completed", "", "library"); err != nil {
+		t.Fatalf("seed log: %v", err)
+	}
+	sets2, reps2 := 4, 8
+	w2 := 12.5
+	if _, err := st.LogExerciseWithSource(sessNew.ID, 0, "biceps curls", &sets2, &reps2, &w2, "completed", "", "library"); err != nil {
+		t.Fatalf("seed log: %v", err)
+	}
+	if _, err := st.LogExerciseWithSource(sessNew.ID, 0, "Squat", &sets, &reps, &w, "completed", "", "library"); err != nil {
+		t.Fatalf("seed log: %v", err)
+	}
+
+	// User B logs the same exercise — should NOT appear in user A's results.
+	groupB, _ := st.CreateWorkoutGroup("B", "", false, userB, "[1]", "09:00", 15)
+	variantB, _ := st.CreateWorkoutVariant(groupB.ID, "Day B", nil, "")
+	sessB, _ := st.CreateWorkoutSession(groupB.ID, variantB.ID, userB, dayNewer, "09:00")
+	if _, err := st.LogExerciseWithSource(sessB.ID, 0, "Biceps Curls", &sets, &reps, &w, "completed", "", "library"); err != nil {
+		t.Fatalf("seed user B log: %v", err)
+	}
+
+	logs, err := st.ListRecentExerciseLogsByName(context.Background(), userA, "biceps curls", 5)
+	if err != nil {
+		t.Fatalf("ListRecentExerciseLogsByName: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("expected 2 logs, got %d", len(logs))
+	}
+	// Newest-first: the most recent log should be first.
+	if logs[0].SessionID != sessNew.ID {
+		t.Errorf("expected newest session %d first, got %d", sessNew.ID, logs[0].SessionID)
+	}
+	if *logs[0].WeightKg != 12.5 {
+		t.Errorf("newest log weight = %v, want 12.5", *logs[0].WeightKg)
+	}
+
+	// limit = 1 should truncate.
+	logs1, _ := st.ListRecentExerciseLogsByName(context.Background(), userA, "biceps curls", 1)
+	if len(logs1) != 1 {
+		t.Errorf("limit=1 returned %d logs", len(logs1))
+	}
+}
+
+// TestGetDistinctExerciseNamesForUser verifies the resolver catalog helper
+// merges exercise_library and historical workout_exercise_logs for the user.
+func TestGetDistinctExerciseNamesForUser(t *testing.T) {
+	st := setupTestDB(t)
+	defer st.db.Close()
+
+	userA := int64(1)
+	userB := int64(2)
+
+	// User A has a library entry plus a historical log of a different exercise.
+	if _, err := st.CreateExerciseLibraryItem(userA, "Bench Press", 3, 8, nil, nil, ""); err != nil {
+		t.Fatalf("seed library: %v", err)
+	}
+	groupA, _ := st.CreateWorkoutGroup("A", "", false, userA, "[1]", "09:00", 15)
+	variantA, _ := st.CreateWorkoutVariant(groupA.ID, "Day A", nil, "")
+	day, _ := time.Parse("2006-01-02", "2026-04-15")
+	sessA, _ := st.CreateWorkoutSession(groupA.ID, variantA.ID, userA, day, "09:00")
+	sets, reps := 3, 10
+	w := 10.0
+	if _, err := st.LogExerciseWithSource(sessA.ID, 0, "Squat", &sets, &reps, &w, "completed", "", "library"); err != nil {
+		t.Fatalf("seed log: %v", err)
+	}
+	// Same name in library and history → still a single entry after dedup.
+	if _, err := st.LogExerciseWithSource(sessA.ID, 0, "Bench Press", &sets, &reps, &w, "completed", "", "library"); err != nil {
+		t.Fatalf("seed log: %v", err)
+	}
+
+	// User B has their own library entry — should not leak to A.
+	if _, err := st.CreateExerciseLibraryItem(userB, "Deadlift", 1, 5, nil, nil, ""); err != nil {
+		t.Fatalf("seed library B: %v", err)
+	}
+
+	names, err := st.GetDistinctExerciseNamesForUser(context.Background(), userA)
+	if err != nil {
+		t.Fatalf("GetDistinctExerciseNamesForUser: %v", err)
+	}
+	want := map[string]bool{"Bench Press": true, "Squat": true}
+	if len(names) != len(want) {
+		t.Fatalf("got %v, want %v", names, want)
+	}
+	for _, n := range names {
+		if !want[n] {
+			t.Errorf("unexpected name %q (or user B leaked)", n)
+		}
+	}
+}

@@ -107,13 +107,13 @@ Files:
 - Modify (only if methods missing): `internal/store/workout.go` — add `ListRecentExerciseLogsByName(ctx, userID, name, limit)` and `GetDistinctExerciseNamesForUser(ctx, userID)`
 - Modify (matching): `internal/store/workout_test.go`
 
-- [ ] define `ResolverInput` (rich payload) and `ResolverPlan` (per-exercise status + applied values + source) types
-- [ ] implement `ResolveExercise(ctx, userID, input) (ResolverPlan, error)` with: exact match → substring → Levenshtein ≤ 2 over user catalog (exercise_library ∪ distinct historical names)
-- [ ] implement defaults inference from most-recent matching log; per-field `source` tracking
-- [ ] implement per-set aggregation: sets = len(per_set), reps = max(per_set.reps), weight_kg = max(per_set.weight_kg); when both flat fields and per_set are present, prefer per_set
-- [ ] add missing store helpers (only if not already present) with tests
-- [ ] write resolver unit tests covering: exact, substring, Levenshtein, ambiguous, no-match-with-defaults, no-match-no-defaults, per-set aggregation, mixed flat+per-set
-- [ ] run `go test ./internal/domain/... ./internal/store/...` — must pass before task 2
+- [x] define `ResolverInput` (rich payload) and `ResolverPlan` (per-exercise status + applied values + source) types
+- [x] implement `ResolveExercise(ctx, userID, input) (ResolverPlan, error)` with: exact match → substring → Levenshtein ≤ 2 over user catalog (exercise_library ∪ distinct historical names)
+- [x] implement defaults inference from most-recent matching log; per-field `source` tracking
+- [x] implement per-set aggregation: sets = len(per_set), reps = max(per_set.reps), weight_kg = max(per_set.weight_kg); when both flat fields and per_set are present, prefer per_set
+- [x] add missing store helpers (only if not already present) with tests
+- [x] write resolver unit tests covering: exact, substring, Levenshtein, ambiguous, no-match-with-defaults, no-match-no-defaults, per-set aggregation, mixed flat+per-set
+- [x] run `go test ./internal/domain/... ./internal/store/...` — must pass before task 2
 
 ### Task 2: Bot HTTP endpoint /api/mcp-workout-log
 
