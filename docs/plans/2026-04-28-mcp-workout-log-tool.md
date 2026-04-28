@@ -122,14 +122,14 @@ Files:
 - Create: `internal/server/mcp_workout_log_test.go`
 - Modify: `internal/server/server.go` — register route under same HMAC verification used by `/api/mcp-food-log`
 
-- [ ] copy HMAC verification pattern from existing `/api/mcp-food-log` handler
-- [ ] decode payload, fan out to resolver per exercise, call store upsert (`(session_id, resolved_name)` upsert via existing `LogExerciseWithSource` semantics; add a thin upsert helper if needed)
-- [ ] implement `operation: "log"` (with optional `session_id`/`session_ref`; create ad-hoc session via `store.CreateAdHocWorkoutSession` when both omitted)
-- [ ] implement `operation: "get"` (recent N sessions with their exercise logs by user)
-- [ ] implement `operation: "delete_exercise"` (delete log for `(session_id, exercise_name)`)
-- [ ] return aggregated response with per-exercise statuses; HTTP 200 even on partial success (only auth/transport errors return non-2xx)
-- [ ] tests: full payload happy path, partial success (mix of logged/ambiguous/missing_defaults), idempotent re-send, ad-hoc session creation, get, delete_exercise, HMAC failure
-- [ ] run `go test ./internal/server/...` — must pass before task 3
+- [x] copy HMAC verification pattern from existing `/api/mcp-food-log` handler
+- [x] decode payload, fan out to resolver per exercise, call store upsert (`(session_id, resolved_name)` upsert via existing `LogExerciseWithSource` semantics; add a thin upsert helper if needed)
+- [x] implement `operation: "log"` (with optional `session_id`/`session_ref`; create ad-hoc session via `store.CreateAdHocWorkoutSession` when both omitted)
+- [x] implement `operation: "get"` (recent N sessions with their exercise logs by user)
+- [x] implement `operation: "delete_exercise"` (delete log for `(session_id, exercise_name)`)
+- [x] return aggregated response with per-exercise statuses; HTTP 200 even on partial success (only auth/transport errors return non-2xx)
+- [x] tests: full payload happy path, partial success (mix of logged/ambiguous/missing_defaults), idempotent re-send, ad-hoc session creation, get, delete_exercise, HMAC failure
+- [x] run `go test ./internal/server/...` — must pass before task 3
 
 ### Task 3: MCP-side WorkoutWriter (HMAC HTTP client)
 
