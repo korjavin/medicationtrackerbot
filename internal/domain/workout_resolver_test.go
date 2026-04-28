@@ -281,6 +281,33 @@ func TestResolveExercise_PerSetWinsOverFlat(t *testing.T) {
 	}
 }
 
+func TestResolveExercise_PerSetBodyweight(t *testing.T) {
+	// Bodyweight exercises (pull-ups, push-ups, dips) are sent with weight_kg=0.
+	// per_set must be authoritative — zero weight is a valid value, not "missing".
+	s := &fakeWorkoutResolverStore{catalog: []string{"Pull Up"}}
+	r := NewWorkoutResolver(s)
+
+	plan, err := r.ResolveExercise(context.Background(), 1, ResolverInput{
+		Name: "Pull Up",
+		PerSet: []PerSetEntry{
+			{Reps: 10, WeightKg: 0},
+			{Reps: 8, WeightKg: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if plan.Status != StatusResolved {
+		t.Fatalf("status = %s, want resolved (bodyweight per_set)", plan.Status)
+	}
+	if plan.Applied.WeightKg == nil || *plan.Applied.WeightKg != 0 {
+		t.Errorf("weight should be 0 (explicit bodyweight), got %+v", plan.Applied.WeightKg)
+	}
+	if plan.Sources.WeightKg != SourcePerSet {
+		t.Errorf("weight source = %s, want per_set", plan.Sources.WeightKg)
+	}
+}
+
 func TestResolveExercise_DurationOnlyCardio(t *testing.T) {
 	// Cardio-style payload: only duration, no sets/reps/weight, no history.
 	s := &fakeWorkoutResolverStore{catalog: []string{"Running"}}

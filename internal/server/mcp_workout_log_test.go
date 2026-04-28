@@ -190,6 +190,100 @@ func TestMCPWorkoutLog_LogIdempotent(t *testing.T) {
 	if logs[0].SetsCompleted == nil || *logs[0].SetsCompleted != 4 {
 		t.Errorf("sets not updated, got %+v", logs[0].SetsCompleted)
 	}
+	if logs[0].WeightKg == nil || *logs[0].WeightKg != 15.0 {
+		t.Errorf("weight not updated, got %+v", logs[0].WeightKg)
+	}
+	if logs[0].Source != "agent" {
+		t.Errorf("source = %q, want %q", logs[0].Source, "agent")
+	}
+}
+
+func TestMCPWorkoutLog_LogRequiresExercises(t *testing.T) {
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{Operation: "log"})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty exercises, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestMCPWorkoutLog_SessionRefTodayAutoCreates(t *testing.T) {
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	// No session exists yet; session_ref:"today" should fall through to ad-hoc.
+	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{
+		Operation:  "log",
+		SessionRef: "today",
+		Exercises: []domain.ResolverInput{
+			{Name: "Squat", Sets: intPtr(3), Reps: intPtr(8), WeightKg: floatPtr(80)},
+		},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 with auto-created session, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp MCPWorkoutLogResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.SessionID == 0 {
+		t.Errorf("expected ad-hoc session created on session_ref:\"today\" with no match")
+	}
+	if len(resp.Results) != 1 || resp.Results[0].Status != "logged" {
+		t.Fatalf("expected 1 logged result, got %+v", resp.Results)
+	}
+}
+
+func TestMCPWorkoutLog_SessionRefDateNotFoundErrors(t *testing.T) {
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	// Explicit historical date with no match still errors (only "today" auto-creates).
+	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{
+		Operation:  "log",
+		SessionRef: "2020-01-01",
+		Exercises: []domain.ResolverInput{
+			{Name: "Squat", Sets: intPtr(3), Reps: intPtr(8), WeightKg: floatPtr(80)},
+		},
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing historical session, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestMCPWorkoutLog_PerSetBodyweightLogs(t *testing.T) {
+	// Bodyweight exercises must log successfully even when per_set weight is 0.
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{
+		Operation: "log",
+		Exercises: []domain.ResolverInput{
+			{
+				Name: "Pull Up",
+				PerSet: []domain.PerSetEntry{
+					{Reps: 10, WeightKg: 0},
+					{Reps: 8, WeightKg: 0},
+				},
+			},
+		},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp MCPWorkoutLogResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Results) != 1 || resp.Results[0].Status != "logged" {
+		t.Fatalf("expected 1 logged result, got %+v", resp.Results)
+	}
+	if resp.Results[0].Applied.WeightKg == nil || *resp.Results[0].Applied.WeightKg != 0 {
+		t.Errorf("expected applied weight 0 (bodyweight), got %+v", resp.Results[0].Applied.WeightKg)
+	}
 }
 
 func TestMCPWorkoutLog_PartialSuccess(t *testing.T) {
