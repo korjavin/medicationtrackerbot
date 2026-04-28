@@ -915,3 +915,77 @@ func TestGetDistinctExerciseNamesForUser(t *testing.T) {
 		}
 	}
 }
+
+// TestUpsertExerciseLogByName verifies the (session_id, exercise_name)
+// idempotency helper used by the MCP workout_log endpoint: first call
+// inserts, subsequent call with same name (case-insensitive) updates.
+func TestUpsertExerciseLogByName(t *testing.T) {
+	st := setupTestDB(t)
+	defer st.db.Close()
+
+	userA := int64(1)
+	groupA, _ := st.CreateWorkoutGroup("A", "", false, userA, "[1]", "09:00", 15)
+	variantA, _ := st.CreateWorkoutVariant(groupA.ID, "Day A", nil, "")
+	day, _ := time.Parse("2006-01-02", "2026-04-15")
+	sess, _ := st.CreateWorkoutSession(groupA.ID, variantA.ID, userA, day, "09:00")
+
+	ctx := context.Background()
+	sets, reps := 3, 10
+	w := 10.0
+
+	id1, isNew1, err := st.UpsertExerciseLogByName(ctx, sess.ID, "Biceps Curls", &sets, &reps, &w, "completed", "", "agent")
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	if !isNew1 {
+		t.Errorf("first upsert should be new, got isNew=false")
+	}
+
+	// Re-send with different name casing should update, not insert.
+	sets2, reps2 := 4, 8
+	w2 := 12.5
+	id2, isNew2, err := st.UpsertExerciseLogByName(ctx, sess.ID, "biceps curls", &sets2, &reps2, &w2, "completed", "agent re-send", "agent")
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if isNew2 {
+		t.Errorf("re-send should update, got isNew=true")
+	}
+	if id2 != id1 {
+		t.Errorf("expected same id, got %d vs %d", id2, id1)
+	}
+
+	logs, err := st.GetExerciseLogs(sess.ID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log after upsert, got %d", len(logs))
+	}
+	if logs[0].SetsCompleted == nil || *logs[0].SetsCompleted != 4 {
+		t.Errorf("sets not updated, got %+v", logs[0].SetsCompleted)
+	}
+	if logs[0].WeightKg == nil || *logs[0].WeightKg != 12.5 {
+		t.Errorf("weight not updated, got %+v", logs[0].WeightKg)
+	}
+	if logs[0].Notes != "agent re-send" {
+		t.Errorf("notes not updated, got %q", logs[0].Notes)
+	}
+
+	// A different exercise name → new row.
+	id3, isNew3, err := st.UpsertExerciseLogByName(ctx, sess.ID, "Squat", &sets, &reps, &w, "completed", "", "agent")
+	if err != nil {
+		t.Fatalf("third upsert: %v", err)
+	}
+	if !isNew3 {
+		t.Errorf("different name should be new, got isNew=false")
+	}
+	if id3 == id1 {
+		t.Errorf("different name should have different id")
+	}
+
+	logs2, _ := st.GetExerciseLogs(sess.ID)
+	if len(logs2) != 2 {
+		t.Errorf("expected 2 logs after second exercise, got %d", len(logs2))
+	}
+}

@@ -969,6 +969,59 @@ func (s *Store) DeleteExerciseLog(id int64) error {
 	return err
 }
 
+// UpsertExerciseLogByName idempotently writes an exercise log keyed by
+// (session_id, exercise_name) (case-insensitive). If a row with that name
+// already exists for the session it is updated in place; otherwise a new
+// row is inserted with exercise_id=0 (ad-hoc). The pair (id, isNew) lets
+// callers distinguish the two paths. Used by the MCP workout_log endpoint
+// where the agent re-sending the same exercise must not create duplicates.
+func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var existingID int64
+	err = tx.QueryRowContext(ctx, `
+		SELECT id FROM workout_exercise_logs
+		WHERE session_id = ? AND LOWER(exercise_name) = LOWER(?)
+		LIMIT 1`, sessionID, exerciseName).Scan(&existingID)
+	if err != nil && err != sql.ErrNoRows {
+		return 0, false, err
+	}
+
+	if err == sql.ErrNoRows {
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO workout_exercise_logs (session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, source)
+			VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)`,
+			sessionID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes, source)
+		if err != nil {
+			return 0, false, err
+		}
+		newID, err := res.LastInsertId()
+		if err != nil {
+			return 0, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return 0, false, err
+		}
+		return newID, true, nil
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE workout_exercise_logs
+		SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?, source = ?
+		WHERE id = ?`,
+		setsCompleted, repsCompleted, weightKg, status, notes, source, existingID); err != nil {
+		return 0, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, false, err
+	}
+	return existingID, false, nil
+}
+
 // SetExerciseLogSource updates the source field of an exercise log entry.
 // Valid values: "schedule" (from workout_exercises) or "library" (from exercise_library).
 func (s *Store) SetExerciseLogSource(id int64, source string) error {
