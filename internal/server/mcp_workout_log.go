@@ -131,14 +131,14 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 	ctx := r.Context()
 	resolver := domain.NewWorkoutResolver(s.workouts)
 
-	session, occurredAt, err := s.resolveOrCreateSession(req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if len(req.Exercises) == 0 {
+		http.Error(w, "exercises is required for operation \"log\"", http.StatusBadRequest)
 		return
 	}
 
-	if len(req.Exercises) == 0 {
-		http.Error(w, "exercises is required for operation \"log\"", http.StatusBadRequest)
+	session, occurredAt, err := s.resolveOrCreateSession(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -197,6 +197,7 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 				"completed",
 				notes,
 				"agent",
+				occurredAt,
 			)
 			if err != nil {
 				slog.Error("[Server] MCP upsert exercise log failed", "session", session.ID, "name", plan.ResolvedName, "error", err)

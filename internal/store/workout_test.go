@@ -933,7 +933,7 @@ func TestUpsertExerciseLogByName(t *testing.T) {
 	sets, reps := 3, 10
 	w := 10.0
 
-	id1, isNew1, err := st.UpsertExerciseLogByName(ctx, sess.ID, "Biceps Curls", &sets, &reps, &w, "completed", "", "agent")
+	id1, isNew1, err := st.UpsertExerciseLogByName(ctx, sess.ID, "Biceps Curls", &sets, &reps, &w, "completed", "", "agent", time.Time{})
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
@@ -944,7 +944,7 @@ func TestUpsertExerciseLogByName(t *testing.T) {
 	// Re-send with different name casing should update, not insert.
 	sets2, reps2 := 4, 8
 	w2 := 12.5
-	id2, isNew2, err := st.UpsertExerciseLogByName(ctx, sess.ID, "biceps curls", &sets2, &reps2, &w2, "completed", "agent re-send", "agent")
+	id2, isNew2, err := st.UpsertExerciseLogByName(ctx, sess.ID, "biceps curls", &sets2, &reps2, &w2, "completed", "agent re-send", "agent", time.Time{})
 	if err != nil {
 		t.Fatalf("second upsert: %v", err)
 	}
@@ -973,7 +973,7 @@ func TestUpsertExerciseLogByName(t *testing.T) {
 	}
 
 	// A different exercise name → new row.
-	id3, isNew3, err := st.UpsertExerciseLogByName(ctx, sess.ID, "Squat", &sets, &reps, &w, "completed", "", "agent")
+	id3, isNew3, err := st.UpsertExerciseLogByName(ctx, sess.ID, "Squat", &sets, &reps, &w, "completed", "", "agent", time.Time{})
 	if err != nil {
 		t.Fatalf("third upsert: %v", err)
 	}

@@ -1429,8 +1429,17 @@ func (s *Server) handleWorkoutLog(ctx context.Context, _ *mcp.CallToolRequest, i
 	}
 
 	if s.audit != nil {
+		var dataType string
+		switch op {
+		case "log":
+			dataType = "Workouts (write)"
+		case "delete_exercise":
+			dataType = "Workouts (delete)"
+		default:
+			dataType = "Workouts (read)"
+		}
 		s.audit.Record(AuditEvent{
-			DataType:  "Workouts (write)",
+			DataType:  dataType,
 			StartDate: time.Now(),
 			EndDate:   time.Now(),
 		})
