@@ -233,9 +233,9 @@ func TestResolveExercise_PerSetAggregation(t *testing.T) {
 	plan, err := r.ResolveExercise(context.Background(), 1, ResolverInput{
 		Name: "Bench Press",
 		PerSet: []PerSetEntry{
-			{Reps: 10, WeightKg: 40},
-			{Reps: 8, WeightKg: 50},
-			{Reps: 6, WeightKg: 55},
+			{Reps: intPtr(10), WeightKg: floatPtr(40)},
+			{Reps: intPtr(8), WeightKg: floatPtr(50)},
+			{Reps: intPtr(6), WeightKg: floatPtr(55)},
 		},
 	})
 	if err != nil {
@@ -269,8 +269,8 @@ func TestResolveExercise_PerSetWinsOverFlat(t *testing.T) {
 		Reps:     intPtr(99),
 		WeightKg: floatPtr(99),
 		PerSet: []PerSetEntry{
-			{Reps: 10, WeightKg: 40},
-			{Reps: 8, WeightKg: 50},
+			{Reps: intPtr(10), WeightKg: floatPtr(40)},
+			{Reps: intPtr(8), WeightKg: floatPtr(50)},
 		},
 	})
 	if err != nil {
@@ -290,8 +290,8 @@ func TestResolveExercise_PerSetBodyweight(t *testing.T) {
 	plan, err := r.ResolveExercise(context.Background(), 1, ResolverInput{
 		Name: "Pull Up",
 		PerSet: []PerSetEntry{
-			{Reps: 10, WeightKg: 0},
-			{Reps: 8, WeightKg: 0},
+			{Reps: intPtr(10), WeightKg: floatPtr(0)},
+			{Reps: intPtr(8), WeightKg: floatPtr(0)},
 		},
 	})
 	if err != nil {

@@ -972,14 +972,21 @@ func (s *Store) DeleteExerciseLog(id int64) error {
 // UpsertExerciseLogByName idempotently writes an exercise log keyed by
 // (session_id, exercise_name) (case-insensitive). If a row with that name
 // already exists for the session it is updated in place; otherwise a new
-// row is inserted with exercise_id=0 (ad-hoc). The pair (id, isNew) lets
-// callers distinguish the two paths. Used by the MCP workout_log endpoint
-// where the agent re-sending the same exercise must not create duplicates.
+// row is inserted with the supplied exerciseID (use 0 for ad-hoc). The
+// pair (id, isNew) lets callers distinguish the two paths. Used by the
+// MCP workout_log endpoint where the agent re-sending the same exercise
+// must not create duplicates.
 //
 // loggedAt sets the row's logged_at column (the agent's "occurred_at"). A
 // zero value falls back to CURRENT_TIMESTAMP on insert and leaves the
 // existing column untouched on update.
-func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string, loggedAt time.Time) (int64, bool, error) {
+//
+// On the update path the existing row's `source` is preserved. The agent
+// may enrich a row that originated from a scheduled or library-sourced
+// log, but it must not relabel it as "agent" — that would orphan the
+// planned exercise from the completion check (only schedule-sourced logs
+// satisfy planned exercise IDs, see domain.CheckCompletion).
+func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string, loggedAt time.Time) (int64, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, false, err
@@ -1001,13 +1008,13 @@ func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID int64, ex
 		if loggedAt.IsZero() {
 			res, execErr = tx.ExecContext(ctx, `
 				INSERT INTO workout_exercise_logs (session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, source)
-				VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)`,
-				sessionID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes, source)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				sessionID, exerciseID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes, source)
 		} else {
 			res, execErr = tx.ExecContext(ctx, `
 				INSERT INTO workout_exercise_logs (session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, source, logged_at)
-				VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				sessionID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes, source, loggedAt.UTC())
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				sessionID, exerciseID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes, source, loggedAt.UTC())
 		}
 		if execErr != nil {
 			return 0, false, execErr
@@ -1025,17 +1032,17 @@ func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID int64, ex
 	if loggedAt.IsZero() {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE workout_exercise_logs
-			SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?, source = ?
+			SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?
 			WHERE id = ?`,
-			setsCompleted, repsCompleted, weightKg, status, notes, source, existingID); err != nil {
+			setsCompleted, repsCompleted, weightKg, status, notes, existingID); err != nil {
 			return 0, false, err
 		}
 	} else {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE workout_exercise_logs
-			SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?, source = ?, logged_at = ?
+			SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?, logged_at = ?
 			WHERE id = ?`,
-			setsCompleted, repsCompleted, weightKg, status, notes, source, loggedAt.UTC(), existingID); err != nil {
+			setsCompleted, repsCompleted, weightKg, status, notes, loggedAt.UTC(), existingID); err != nil {
 			return 0, false, err
 		}
 	}
@@ -1424,7 +1431,9 @@ func (s *Store) GetActiveSessions(userID int64, date time.Time) ([]WorkoutSessio
 }
 
 // ListRecentExerciseLogsByName returns up to `limit` recent exercise logs for the
-// given user that match `exerciseName` (case-insensitive). The user is matched
+// given user that match `exerciseName` (case-insensitive). Only `completed`
+// logs are returned — skipped/missed rows aren't useful as inference sources
+// and would mask older completed history at limit=1. The user is matched
 // via the joined workout_sessions row. Logs are returned newest-first.
 // Used by the workout resolver to infer defaults for omitted sets/reps/weight.
 func (s *Store) ListRecentExerciseLogsByName(ctx context.Context, userID int64, exerciseName string, limit int) ([]WorkoutExerciseLog, error) {
@@ -1438,6 +1447,7 @@ func (s *Store) ListRecentExerciseLogsByName(ctx context.Context, userID int64, 
 		FROM workout_exercise_logs wel
 		JOIN workout_sessions ws ON ws.id = wel.session_id
 		WHERE ws.user_id = ? AND LOWER(wel.exercise_name) = LOWER(?)
+		  AND wel.status = 'completed'
 		ORDER BY wel.logged_at DESC, wel.id DESC
 		LIMIT ?`, userID, exerciseName, limit)
 	if err != nil {

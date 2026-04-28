@@ -127,6 +127,10 @@ func (s *Server) handleMCPWorkoutLog(w http.ResponseWriter, r *http.Request) {
 
 // mcpWorkoutLog handles the "log" operation: resolve each exercise, infer
 // missing defaults, then upsert per (session_id, exercise_name).
+//
+// Ad-hoc session creation is deferred until at least one exercise is
+// writable, so a request where every exercise is ambiguous / missing /
+// invalid does not leave behind an empty session.
 func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPWorkoutLogRequest) {
 	ctx := r.Context()
 	resolver := domain.NewWorkoutResolver(s.workouts)
@@ -136,14 +140,21 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 		return
 	}
 
-	session, occurredAt, err := s.resolveOrCreateSession(req)
+	session, occurredAt, mayCreateAdHoc, err := s.lookupSessionForLog(req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	// Pre-load planned exercises for scheduled sessions so a name-matched
+	// agent log can register against the schedule (exercise_id, source=schedule)
+	// and satisfy CheckCompletion. Loaded lazily — ad-hoc sessions skip this.
+	var plannedByName map[string]store.WorkoutExercise
+	if session != nil && session.VariantID != -1 {
+		plannedByName = s.loadPlannedExercisesByName(session.VariantID)
+	}
+
 	resp := MCPWorkoutLogResponse{
-		SessionID:  session.ID,
 		OccurredAt: occurredAt.Format("2006-01-02 15:04"),
 		Results:    make([]MCPWorkoutLogExerciseResult, 0, len(req.Exercises)),
 	}
@@ -151,6 +162,16 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 	var loggedCount, ambiguousCount, missingCount, errorCount int
 
 	for _, ex := range req.Exercises {
+		if hint := validateResolverInputValues(ex); hint != "" {
+			resp.Results = append(resp.Results, MCPWorkoutLogExerciseResult{
+				InputName: ex.Name,
+				Status:    "error",
+				Hint:      hint,
+			})
+			errorCount++
+			continue
+		}
+
 		plan, err := resolver.ResolveExercise(ctx, s.allowedUserID, ex)
 		if err != nil {
 			slog.Error("[Server] MCP resolve exercise failed", "name", ex.Name, "error", err)
@@ -175,6 +196,28 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 
 		switch plan.Status {
 		case domain.StatusResolved, domain.StatusCreateNew:
+			if session == nil {
+				if !mayCreateAdHoc {
+					// Should not happen: lookupSessionForLog returns nil session
+					// only when ad-hoc creation is allowed. Defensive guard.
+					result.Status = "error"
+					result.Hint = "no session available"
+					errorCount++
+					resp.Results = append(resp.Results, result)
+					continue
+				}
+				sess, err := s.workouts.CreateAdHocWorkoutSession(s.allowedUserID, occurredAt, occurredAt.Format("15:04"))
+				if err != nil {
+					slog.Error("[Server] MCP create ad-hoc session failed", "error", err)
+					result.Status = "error"
+					result.Hint = "failed to create session"
+					errorCount++
+					resp.Results = append(resp.Results, result)
+					continue
+				}
+				session = sess
+			}
+
 			// workout_exercise_logs has no duration column; preserve duration in
 			// notes so cardio payloads (sets/reps/weight all nil, duration set)
 			// don't silently drop the only data they carried.
@@ -187,16 +230,31 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 					notes = prefix + " " + notes
 				}
 			}
+
+			// If the session is scheduled and the resolved name matches a planned
+			// exercise, attach the schedule's exercise_id + source so a brand-new
+			// log row counts toward CheckCompletion. Otherwise fall back to
+			// ad-hoc (exercise_id=0, source=agent).
+			exerciseID := int64(0)
+			source := "agent"
+			if plannedByName != nil {
+				if planned, ok := plannedByName[strings.ToLower(plan.ResolvedName)]; ok {
+					exerciseID = planned.ID
+					source = "schedule"
+				}
+			}
+
 			id, isNew, err := s.workouts.UpsertExerciseLogByName(
 				ctx,
 				session.ID,
+				exerciseID,
 				plan.ResolvedName,
 				plan.Applied.Sets,
 				plan.Applied.Reps,
 				plan.Applied.WeightKg,
 				"completed",
 				notes,
-				"agent",
+				source,
 				occurredAt,
 			)
 			if err != nil {
@@ -223,6 +281,10 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 		resp.Results = append(resp.Results, result)
 	}
 
+	if session != nil {
+		resp.SessionID = session.ID
+	}
+
 	resp.Summary = fmt.Sprintf("%d logged, %d ambiguous, %d missing_defaults, %d error",
 		loggedCount, ambiguousCount, missingCount, errorCount)
 
@@ -231,6 +293,54 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		slog.Error("encode response", "error", err)
 	}
+}
+
+// loadPlannedExercisesByName returns the variant's planned exercises keyed by
+// lowercased name. Returns nil on lookup failure so callers fall back to the
+// ad-hoc (exercise_id=0, source=agent) write path — completion may not update,
+// but the log itself is preserved.
+func (s *Server) loadPlannedExercisesByName(variantID int64) map[string]store.WorkoutExercise {
+	exercises, err := s.workouts.ListExercisesByVariant(variantID)
+	if err != nil {
+		slog.Error("[Server] MCP list variant exercises failed", "variant", variantID, "error", err)
+		return nil
+	}
+	if len(exercises) == 0 {
+		return nil
+	}
+	byName := make(map[string]store.WorkoutExercise, len(exercises))
+	for _, ex := range exercises {
+		byName[strings.ToLower(ex.ExerciseName)] = ex
+	}
+	return byName
+}
+
+// validateResolverInputValues rejects payloads with negative numeric values
+// before they reach the resolver. The web update path enforces non-negative
+// sets/reps/weight; the MCP path must do the same so a stray "-1" doesn't
+// corrupt the database. Returns a hint string when invalid, empty otherwise.
+func validateResolverInputValues(ex domain.ResolverInput) string {
+	if ex.Sets != nil && *ex.Sets < 0 {
+		return "sets must be non-negative"
+	}
+	if ex.Reps != nil && *ex.Reps < 0 {
+		return "reps must be non-negative"
+	}
+	if ex.WeightKg != nil && *ex.WeightKg < 0 {
+		return "weight_kg must be non-negative"
+	}
+	if ex.DurationMinutes != nil && *ex.DurationMinutes < 0 {
+		return "duration_minutes must be non-negative"
+	}
+	for i, p := range ex.PerSet {
+		if p.Reps != nil && *p.Reps < 0 {
+			return fmt.Sprintf("per_set[%d].reps must be non-negative", i)
+		}
+		if p.WeightKg != nil && *p.WeightKg < 0 {
+			return fmt.Sprintf("per_set[%d].weight_kg must be non-negative", i)
+		}
+	}
+	return ""
 }
 
 // mcpWorkoutGet handles the "get" operation: most recent N sessions with
@@ -316,19 +426,25 @@ func (s *Server) mcpWorkoutDelete(w http.ResponseWriter, r *http.Request, req *M
 	}
 }
 
-// resolveOrCreateSession picks the workout session to write into, in order:
+// lookupSessionForLog resolves the workout session to write into, in order:
 //  1. explicit session_id
 //  2. session_ref ("last", "today", "YYYY-MM-DD")
-//  3. otherwise create a new ad-hoc session
+//  3. otherwise no session (caller creates ad-hoc lazily on first write)
+//
+// The returned mayCreateAdHoc flag tells the caller whether it is allowed
+// to create a brand-new ad-hoc session if `session` is nil. It is true
+// only when the request omitted both session_id and session_ref, or the
+// agent supplied session_ref:"today" with no existing match — neither
+// case is an error, but neither implies a session yet exists.
 //
 // The returned occurredAt is parsed from req.OccurredAt when present, falling
 // back to time.Now().
-func (s *Server) resolveOrCreateSession(req *MCPWorkoutLogRequest) (*store.WorkoutSession, time.Time, error) {
+func (s *Server) lookupSessionForLog(req *MCPWorkoutLogRequest) (*store.WorkoutSession, time.Time, bool, error) {
 	occurredAt := time.Now()
 	if strings.TrimSpace(req.OccurredAt) != "" {
 		t, err := parseOccurredAt(req.OccurredAt)
 		if err != nil {
-			return nil, time.Time{}, fmt.Errorf("invalid occurred_at: %w", err)
+			return nil, time.Time{}, false, fmt.Errorf("invalid occurred_at: %w", err)
 		}
 		occurredAt = t
 	}
@@ -336,36 +452,32 @@ func (s *Server) resolveOrCreateSession(req *MCPWorkoutLogRequest) (*store.Worko
 	if req.SessionID > 0 {
 		sess, err := s.workouts.GetWorkoutSession(req.SessionID)
 		if err != nil {
-			return nil, time.Time{}, fmt.Errorf("load session: %w", err)
+			return nil, time.Time{}, false, fmt.Errorf("load session: %w", err)
 		}
 		if sess == nil || sess.UserID != s.allowedUserID {
-			return nil, time.Time{}, fmt.Errorf("session %d not found", req.SessionID)
+			return nil, time.Time{}, false, fmt.Errorf("session %d not found", req.SessionID)
 		}
-		return sess, occurredAt, nil
+		return sess, occurredAt, false, nil
 	}
 
 	if ref := strings.TrimSpace(req.SessionRef); ref != "" {
 		sess, err := s.lookupSessionByRef(ref)
 		if err != nil {
-			return nil, time.Time{}, err
+			return nil, time.Time{}, false, err
 		}
 		if sess != nil {
-			return sess, occurredAt, nil
+			return sess, occurredAt, false, nil
 		}
 		// "today" with no existing session falls through to ad-hoc creation —
 		// the agent is documented to use session_ref:"today" for the natural
 		// "log today's workout" flow and shouldn't have to retry.
 		if ref != "today" {
-			return nil, time.Time{}, fmt.Errorf("no session matches session_ref %q", ref)
+			return nil, time.Time{}, false, fmt.Errorf("no session matches session_ref %q", ref)
 		}
 	}
 
-	// Default: create ad-hoc session at occurredAt.
-	sess, err := s.workouts.CreateAdHocWorkoutSession(s.allowedUserID, occurredAt, occurredAt.Format("15:04"))
-	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("create ad-hoc session: %w", err)
-	}
-	return sess, occurredAt, nil
+	// Defer ad-hoc creation to the first writable plan.
+	return nil, occurredAt, true, nil
 }
 
 // lookupSessionByRef resolves "last" / "today" / "YYYY-MM-DD" session_ref

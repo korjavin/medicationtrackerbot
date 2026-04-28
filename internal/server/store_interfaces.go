@@ -125,7 +125,7 @@ type WorkoutStore interface {
 	GetExerciseLogByID(id int64) (*store.WorkoutExerciseLog, error)
 	SetExerciseLogSource(id int64, source string) error
 	PropagateExerciseToSchedule(sessionID int64, exerciseID int64, exerciseName string, sets *int, reps *int, weight *float64) error
-	UpsertExerciseLogByName(ctx context.Context, sessionID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string, loggedAt time.Time) (int64, bool, error)
+	UpsertExerciseLogByName(ctx context.Context, sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string, loggedAt time.Time) (int64, bool, error)
 	GetDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error)
 	ListRecentExerciseLogsByName(ctx context.Context, userID int64, exerciseName string, limit int) ([]store.WorkoutExerciseLog, error)
 }

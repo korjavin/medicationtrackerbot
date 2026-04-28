@@ -264,8 +264,8 @@ func TestMCPWorkoutLog_PerSetBodyweightLogs(t *testing.T) {
 			{
 				Name: "Pull Up",
 				PerSet: []domain.PerSetEntry{
-					{Reps: 10, WeightKg: 0},
-					{Reps: 8, WeightKg: 0},
+					{Reps: intPtr(10), WeightKg: floatPtr(0)},
+					{Reps: intPtr(8), WeightKg: floatPtr(0)},
 				},
 			},
 		},
@@ -355,9 +355,9 @@ func TestMCPWorkoutLog_PerSetAggregation(t *testing.T) {
 			{
 				Name: "Biceps Curls",
 				PerSet: []domain.PerSetEntry{
-					{Reps: 10, WeightKg: 10},
-					{Reps: 8, WeightKg: 12.5},
-					{Reps: 6, WeightKg: 15},
+					{Reps: intPtr(10), WeightKg: floatPtr(10)},
+					{Reps: intPtr(8), WeightKg: floatPtr(12.5)},
+					{Reps: intPtr(6), WeightKg: floatPtr(15)},
 				},
 			},
 		},
@@ -600,6 +600,204 @@ func TestMCPWorkoutLog_DeleteRejectsForeignSession(t *testing.T) {
 	logs, _ := db.GetExerciseLogs(foreign.ID)
 	if len(logs) != 1 {
 		t.Errorf("foreign session log was deleted; expected 1 row to remain")
+	}
+}
+
+func TestMCPWorkoutLog_LogAllFailDoesNotCreateSession(t *testing.T) {
+	// When every exercise in a request is unresolvable, the handler must not
+	// leave behind an empty ad-hoc session.
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{
+		Operation: "log",
+		Exercises: []domain.ResolverInput{
+			{Name: "totally new exercise"}, // missing_defaults: no history, no values
+			{Name: ""},                     // missing_defaults: empty name
+		},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp MCPWorkoutLogResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.SessionID != 0 {
+		t.Errorf("expected SessionID=0 when no exercise was logged, got %d", resp.SessionID)
+	}
+	sessions, err := db.GetWorkoutHistory(123456, 50)
+	if err != nil {
+		t.Fatalf("GetWorkoutHistory: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Errorf("expected no sessions in DB, got %d", len(sessions))
+	}
+}
+
+func TestMCPWorkoutLog_LogRejectsNegativeValues(t *testing.T) {
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{
+		Operation: "log",
+		Exercises: []domain.ResolverInput{
+			{Name: "Squat", Sets: intPtr(-1), Reps: intPtr(8), WeightKg: floatPtr(80)},
+		},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp MCPWorkoutLogResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Results) != 1 || resp.Results[0].Status != "error" {
+		t.Fatalf("expected 1 error result for negative sets, got %+v", resp.Results)
+	}
+	if resp.SessionID != 0 {
+		t.Errorf("expected SessionID=0 when only invalid input was sent, got %d", resp.SessionID)
+	}
+}
+
+func TestMCPWorkoutLog_LogPreservesScheduleSourceOnUpdate(t *testing.T) {
+	// The agent re-logging an existing scheduled exercise must enrich the
+	// row with the new values but preserve source="schedule" so that
+	// CheckCompletion still treats the planned exercise as handled.
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	day := time.Now()
+	sess, _ := db.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
+	if _, err := db.LogExerciseWithSource(sess.ID, 42, "Bench Press", intPtr(3), intPtr(8), floatPtr(60), "completed", "scheduled", "schedule"); err != nil {
+		t.Fatalf("seed scheduled log: %v", err)
+	}
+
+	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{
+		Operation: "log",
+		SessionID: sess.ID,
+		Exercises: []domain.ResolverInput{
+			{Name: "Bench Press", Sets: intPtr(4), Reps: intPtr(6), WeightKg: floatPtr(70)},
+		},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	logs, err := db.GetExerciseLogs(sess.ID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+	if logs[0].Source != "schedule" {
+		t.Errorf("source = %q, want %q (must not be relabeled to agent)", logs[0].Source, "schedule")
+	}
+	if logs[0].SetsCompleted == nil || *logs[0].SetsCompleted != 4 {
+		t.Errorf("sets not updated, got %+v", logs[0].SetsCompleted)
+	}
+	if logs[0].WeightKg == nil || *logs[0].WeightKg != 70 {
+		t.Errorf("weight not updated, got %+v", logs[0].WeightKg)
+	}
+}
+
+func TestMCPWorkoutLog_LogScheduledSession_AttachesPlannedExerciseID(t *testing.T) {
+	// When the agent logs into a scheduled session and the resolved name
+	// matches a planned exercise (workout_exercises), the new log row must
+	// carry that exercise_id and source="schedule" — otherwise CheckCompletion
+	// (which counts only schedule-sourced planned IDs) would never mark the
+	// scheduled exercise as handled.
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	userID := int64(123456)
+	group, err := db.CreateWorkoutGroup("Push", "", false, userID, "[1]", "09:00", 15)
+	if err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	variant, err := db.CreateWorkoutVariant(group.ID, "Day A", nil, "")
+	if err != nil {
+		t.Fatalf("create variant: %v", err)
+	}
+	planned, err := db.AddExerciseToVariant(variant.ID, "Bench Press", 3, 8, intPtr(10), floatPtr(60), 0)
+	if err != nil {
+		t.Fatalf("add exercise: %v", err)
+	}
+	day := time.Now()
+	sess, err := db.CreateWorkoutSession(group.ID, variant.ID, userID, day, "09:00")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{
+		Operation: "log",
+		SessionID: sess.ID,
+		Exercises: []domain.ResolverInput{
+			{Name: "Bench Press", Sets: intPtr(3), Reps: intPtr(8), WeightKg: floatPtr(70)},
+		},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	logs, err := db.GetExerciseLogs(sess.ID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+	if logs[0].ExerciseID != planned.ID {
+		t.Errorf("exercise_id = %d, want %d (planned exercise)", logs[0].ExerciseID, planned.ID)
+	}
+	if logs[0].Source != "schedule" {
+		t.Errorf("source = %q, want %q", logs[0].Source, "schedule")
+	}
+}
+
+func TestMCPWorkoutLog_PerSetOmittedWeightInfersFromHistory(t *testing.T) {
+	// When per_set entries omit weight_kg entirely, the resolver must infer
+	// weight from history rather than treating omitted as explicit zero.
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	day := time.Now().AddDate(0, 0, -1)
+	prior, _ := db.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
+	if _, err := db.LogExerciseWithSource(prior.ID, 0, "Biceps Curls", intPtr(3), intPtr(10), floatPtr(12.5), "completed", "", "library"); err != nil {
+		t.Fatalf("seed history: %v", err)
+	}
+
+	w := postMCPWorkoutLog(t, srv, "test-secret", MCPWorkoutLogRequest{
+		Operation: "log",
+		Exercises: []domain.ResolverInput{
+			{
+				Name: "Biceps Curls",
+				PerSet: []domain.PerSetEntry{
+					{Reps: intPtr(10)}, // weight_kg omitted
+					{Reps: intPtr(8)},  // weight_kg omitted
+				},
+			},
+		},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp MCPWorkoutLogResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Results) != 1 || resp.Results[0].Status != "logged" {
+		t.Fatalf("expected logged, got %+v", resp.Results)
+	}
+	if resp.Results[0].Applied.WeightKg == nil || *resp.Results[0].Applied.WeightKg != 12.5 {
+		t.Errorf("weight should be inferred from history (12.5), got %+v", resp.Results[0].Applied.WeightKg)
+	}
+	if resp.Results[0].Sources.WeightKg != domain.SourceInferred {
+		t.Errorf("weight source = %s, want inferred", resp.Results[0].Sources.WeightKg)
 	}
 }
 

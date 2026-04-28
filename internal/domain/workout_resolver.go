@@ -15,10 +15,14 @@ type WorkoutResolverStore interface {
 	ListRecentExerciseLogsByName(ctx context.Context, userID int64, exerciseName string, limit int) ([]store.WorkoutExerciseLog, error)
 }
 
-// PerSetEntry is a single set inside a rich payload.
+// PerSetEntry is a single set inside a rich payload. Reps and WeightKg are
+// pointer-typed so an omitted field (nil) is distinguishable from explicit
+// zero — bodyweight exercises legitimately send weight_kg=0, but a payload
+// that omits weight_kg should let inference fill it from history rather
+// than corrupting stats with an unintended zero.
 type PerSetEntry struct {
-	Reps     int     `json:"reps"`
-	WeightKg float64 `json:"weight_kg"`
+	Reps     *int     `json:"reps,omitempty"`
+	WeightKg *float64 `json:"weight_kg,omitempty"`
 }
 
 // ResolverInput is one exercise as received from the agent.
@@ -268,6 +272,11 @@ func resolveName(input string, catalog []string) (resolved string, candidates []
 // mergePayloadValues combines flat fields and per_set arrays into applied values.
 // When per_set is present it wins for sets/reps/weight aggregation; the flat
 // fields are still consulted for duration_minutes (per_set has no duration).
+//
+// Within per_set, only entries that explicitly supplied a field contribute to
+// the max. If every entry omits reps (or weight_kg), the aggregate stays nil
+// so the inference step can fill it from history — distinguishing "omitted"
+// from "explicit zero" prevents corrupting stats for weighted exercises.
 func mergePayloadValues(input ResolverInput) (AppliedValues, FieldSources) {
 	var applied AppliedValues
 	var sources FieldSources
@@ -277,22 +286,36 @@ func mergePayloadValues(input ResolverInput) (AppliedValues, FieldSources) {
 		applied.Sets = &setsCount
 		sources.Sets = SourcePerSet
 
-		maxReps := 0
+		var maxReps int
 		var maxW float64
+		repsSeen, weightSeen := false, false
 		for _, e := range input.PerSet {
-			if e.Reps > maxReps {
-				maxReps = e.Reps
+			if e.Reps != nil {
+				if !repsSeen || *e.Reps > maxReps {
+					maxReps = *e.Reps
+				}
+				repsSeen = true
 			}
-			if e.WeightKg > maxW {
-				maxW = e.WeightKg
+			if e.WeightKg != nil {
+				if !weightSeen || *e.WeightKg > maxW {
+					maxW = *e.WeightKg
+				}
+				weightSeen = true
 			}
 		}
-		// per_set is authoritative when supplied: take max reps and weight as-is,
-		// even if zero (bodyweight exercises like pull-ups have weight_kg=0).
-		applied.Reps = &maxReps
-		sources.Reps = SourcePerSet
-		applied.WeightKg = &maxW
-		sources.WeightKg = SourcePerSet
+		// per_set is authoritative for the fields it supplies. Zero is allowed
+		// (bodyweight exercises send weight_kg=0); fully-omitted fields stay
+		// nil so the inference step can fill them.
+		if repsSeen {
+			r := maxReps
+			applied.Reps = &r
+			sources.Reps = SourcePerSet
+		}
+		if weightSeen {
+			wt := maxW
+			applied.WeightKg = &wt
+			sources.WeightKg = SourcePerSet
+		}
 	} else {
 		if input.Sets != nil {
 			v := *input.Sets
