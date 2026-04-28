@@ -3,8 +3,10 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -959,3 +961,285 @@ func TestHandleGetBloodPressure_ExcludeNotesOmitsContextNotes(t *testing.T) {
 	}
 }
 
+// --- handleWorkoutLog tests ---
+
+// fakeWorkoutLogServer captures the last request body and returns the canned
+// JSON response for any operation the handler forwards.
+func fakeWorkoutLogServer(t *testing.T, status int, respBody string) (*httptest.Server, *string) {
+	t.Helper()
+	captured := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		captured = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(respBody))
+	}))
+	return srv, &captured
+}
+
+func TestHandleWorkoutLog_HelpDoesNotCallWriter(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	// Intentionally leave workoutWriter nil — help must not require it.
+	_, out, err := s.handleWorkoutLog(context.Background(), nil, WorkoutLogInput{Operation: "help"})
+	if err != nil {
+		t.Fatalf("handleWorkoutLog help error: %v", err)
+	}
+	help, ok := out.(WorkoutLogHelpResponse)
+	if !ok {
+		t.Fatalf("expected WorkoutLogHelpResponse, got %T", out)
+	}
+	if help.HelpDoc == "" {
+		t.Fatal("expected non-empty help doc")
+	}
+	for _, want := range []string{"workout_log", "operation", "log", "get", "delete_exercise", "session_id", "ambiguous", "missing_defaults"} {
+		if !strings.Contains(help.HelpDoc, want) {
+			t.Errorf("help doc missing %q", want)
+		}
+	}
+}
+
+func TestHandleWorkoutLog_OperationRequired(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	_, _, err := s.handleWorkoutLog(context.Background(), nil, WorkoutLogInput{})
+	if err == nil {
+		t.Fatal("expected error when operation is empty")
+	}
+	if !strings.Contains(err.Error(), "operation is required") {
+		t.Errorf("expected 'operation is required' error, got %v", err)
+	}
+}
+
+func TestHandleWorkoutLog_UnknownOperation(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	_, _, err := s.handleWorkoutLog(context.Background(), nil, WorkoutLogInput{Operation: "frobnicate"})
+	if err == nil {
+		t.Fatal("expected error for unknown operation")
+	}
+	if !strings.Contains(err.Error(), "unknown operation") {
+		t.Errorf("expected 'unknown operation' error, got %v", err)
+	}
+}
+
+func TestHandleWorkoutLog_FeatureDisabled(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWorkoutEnabled(ctx, false); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+
+	// Even with a writer wired, a disabled feature should short-circuit.
+	srv, _ := fakeWorkoutLogServer(t, http.StatusOK, `{"ok":true}`)
+	defer srv.Close()
+	s.workoutWriter = NewWorkoutWriter(srv.URL, "secret")
+
+	_, _, err := s.handleWorkoutLog(ctx, nil, WorkoutLogInput{Operation: "log"})
+	if err == nil {
+		t.Fatal("expected error when workout feature is disabled")
+	}
+}
+
+func TestHandleWorkoutLog_WriterNotConfigured(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+
+	// workoutWriter is nil
+	_, _, err := s.handleWorkoutLog(ctx, nil, WorkoutLogInput{Operation: "log"})
+	if err == nil {
+		t.Fatal("expected error when workoutWriter is nil")
+	}
+	if !strings.Contains(err.Error(), "not configured") {
+		t.Errorf("expected 'not configured' error, got %v", err)
+	}
+}
+
+func TestHandleWorkoutLog_LogPassesThroughResponse(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+
+	respBody := `{"session_id":42,"occurred_at":"2026-04-28 18:30","results":[{"input_name":"biceps curls","resolved_name":"Biceps Curls","status":"logged","log_id":901}],"summary":"1 logged, 0 ambiguous, 0 missing_defaults"}`
+	srv, captured := fakeWorkoutLogServer(t, http.StatusOK, respBody)
+	defer srv.Close()
+	s.workoutWriter = NewWorkoutWriter(srv.URL, "secret")
+
+	sets, reps := 3, 10
+	weight := 12.5
+	_, out, err := s.handleWorkoutLog(ctx, nil, WorkoutLogInput{
+		Operation:  "log",
+		SessionID:  42,
+		OccurredAt: "2026-04-28 18:30",
+		Exercises: []WorkoutExerciseInput{
+			{Name: "biceps curls", Sets: &sets, Reps: &reps, WeightKg: &weight},
+		},
+	})
+	if err != nil {
+		t.Fatalf("handleWorkoutLog log error: %v", err)
+	}
+
+	// Forwarded payload should carry the operation and exercises.
+	var sent WorkoutLogInput
+	if err := json.Unmarshal([]byte(*captured), &sent); err != nil {
+		t.Fatalf("decode forwarded body: %v", err)
+	}
+	if sent.Operation != "log" {
+		t.Errorf("expected forwarded operation=log, got %q", sent.Operation)
+	}
+	if sent.SessionID != 42 {
+		t.Errorf("expected forwarded session_id=42, got %d", sent.SessionID)
+	}
+	if len(sent.Exercises) != 1 || sent.Exercises[0].Name != "biceps curls" {
+		t.Errorf("unexpected forwarded exercises: %+v", sent.Exercises)
+	}
+
+	// Response is the bot's body verbatim, decoded into a map.
+	got, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any out, got %T", out)
+	}
+	if got["session_id"].(float64) != 42 {
+		t.Errorf("expected session_id=42 in response, got %v", got["session_id"])
+	}
+	results, ok := got["results"].([]any)
+	if !ok || len(results) != 1 {
+		t.Fatalf("expected 1 result, got %v", got["results"])
+	}
+	first := results[0].(map[string]any)
+	if first["status"] != "logged" {
+		t.Errorf("expected status=logged, got %v", first["status"])
+	}
+}
+
+func TestHandleWorkoutLog_PartialSuccess_PassesThrough(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+
+	respBody := `{"session_id":1,"results":[{"input_name":"press","status":"ambiguous","candidates":["Bench Press","Inclined Press"]}],"summary":"0 logged, 1 ambiguous, 0 missing_defaults"}`
+	srv, _ := fakeWorkoutLogServer(t, http.StatusOK, respBody)
+	defer srv.Close()
+	s.workoutWriter = NewWorkoutWriter(srv.URL, "secret")
+
+	_, out, err := s.handleWorkoutLog(ctx, nil, WorkoutLogInput{
+		Operation: "log",
+		SessionID: 1,
+		Exercises: []WorkoutExerciseInput{{Name: "press"}},
+	})
+	if err != nil {
+		t.Fatalf("partial success should not be an error, got %v", err)
+	}
+	got := out.(map[string]any)
+	results := got["results"].([]any)
+	first := results[0].(map[string]any)
+	if first["status"] != "ambiguous" {
+		t.Errorf("expected ambiguous status, got %v", first["status"])
+	}
+}
+
+func TestHandleWorkoutLog_GetForwarded(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+
+	srv, captured := fakeWorkoutLogServer(t, http.StatusOK, `{"sessions":[]}`)
+	defer srv.Close()
+	s.workoutWriter = NewWorkoutWriter(srv.URL, "secret")
+
+	_, _, err := s.handleWorkoutLog(ctx, nil, WorkoutLogInput{Operation: "get", Limit: 5})
+	if err != nil {
+		t.Fatalf("handleWorkoutLog get error: %v", err)
+	}
+	var sent WorkoutLogInput
+	if err := json.Unmarshal([]byte(*captured), &sent); err != nil {
+		t.Fatalf("decode forwarded body: %v", err)
+	}
+	if sent.Operation != "get" || sent.Limit != 5 {
+		t.Errorf("expected operation=get limit=5, got %+v", sent)
+	}
+}
+
+func TestHandleWorkoutLog_DeleteExerciseForwarded(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+
+	srv, captured := fakeWorkoutLogServer(t, http.StatusOK, `{"deleted":1}`)
+	defer srv.Close()
+	s.workoutWriter = NewWorkoutWriter(srv.URL, "secret")
+
+	_, out, err := s.handleWorkoutLog(ctx, nil, WorkoutLogInput{
+		Operation:    "delete_exercise",
+		SessionID:    42,
+		ExerciseName: "Biceps Curls",
+	})
+	if err != nil {
+		t.Fatalf("handleWorkoutLog delete_exercise error: %v", err)
+	}
+	var sent WorkoutLogInput
+	if err := json.Unmarshal([]byte(*captured), &sent); err != nil {
+		t.Fatalf("decode forwarded body: %v", err)
+	}
+	if sent.Operation != "delete_exercise" || sent.SessionID != 42 || sent.ExerciseName != "Biceps Curls" {
+		t.Errorf("unexpected forwarded body: %+v", sent)
+	}
+	got := out.(map[string]any)
+	if got["deleted"].(float64) != 1 {
+		t.Errorf("expected deleted=1, got %v", got["deleted"])
+	}
+}
+
+func TestHandleWorkoutLog_WriterErrorPassThrough(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+
+	// Bot returns 401: writer surfaces this as an error and the handler must
+	// propagate it (not pretend success).
+	srv, _ := fakeWorkoutLogServer(t, http.StatusUnauthorized, "Invalid signature")
+	defer srv.Close()
+	s.workoutWriter = NewWorkoutWriter(srv.URL, "wrong-secret")
+
+	_, _, err := s.handleWorkoutLog(ctx, nil, WorkoutLogInput{
+		Operation: "log",
+		Exercises: []WorkoutExerciseInput{{Name: "squat"}},
+	})
+	if err == nil {
+		t.Fatal("expected writer error to propagate, got nil")
+	}
+	if !strings.Contains(err.Error(), "workout_log log failed") {
+		t.Errorf("expected wrapped writer error, got %v", err)
+	}
+}

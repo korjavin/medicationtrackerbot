@@ -534,6 +534,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/workout/external", s.externalAPIKeyMiddleware(s.handleExternalWorkout))
 	mux.HandleFunc("POST /api/mcp-audit", s.handleMCPAudit)
 	mux.HandleFunc("POST /api/mcp-food-log", s.handleMCPFoodLog)
+	mux.HandleFunc("POST /api/mcp-workout-log", s.handleMCPWorkoutLog)
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)

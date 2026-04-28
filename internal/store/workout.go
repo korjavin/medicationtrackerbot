@@ -1,8 +1,11 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -968,6 +971,102 @@ func (s *Store) DeleteExerciseLog(id int64) error {
 	return err
 }
 
+// UpsertExerciseLogByName idempotently writes an exercise log keyed by
+// (session_id, exercise_name) (case-insensitive). If a row with that name
+// already exists for the session it is updated in place; otherwise a new
+// row is inserted with the supplied exerciseID (use 0 for ad-hoc). The
+// pair (id, isNew) lets callers distinguish the two paths. Used by the
+// MCP workout_log endpoint where the agent re-sending the same exercise
+// must not create duplicates.
+//
+// loggedAt sets the row's logged_at column (the agent's "occurred_at"). A
+// zero value falls back to CURRENT_TIMESTAMP on insert and leaves the
+// existing column untouched on update.
+//
+// On the update path the existing row's `source` and `exercise_id` are
+// preserved when they already point to a scheduled/library exercise — the
+// agent may enrich a planned row, but it must not relabel it as "agent"
+// or zero out the planned ID (CheckCompletion only counts schedule-sourced
+// logs with non-zero exercise_id). When the existing row is itself ad-hoc
+// (exercise_id=0) and the new call carries a planned exercise_id (>0), we
+// promote both fields so a re-send after the session was attached to a
+// schedule still satisfies CheckCompletion.
+func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string, loggedAt time.Time) (int64, bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var existingID, existingExerciseID int64
+	var existingSource sql.NullString
+	err = tx.QueryRowContext(ctx, `
+		SELECT id, exercise_id, source FROM workout_exercise_logs
+		WHERE session_id = ? AND LOWER(exercise_name) = LOWER(?)
+		LIMIT 1`, sessionID, exerciseName).Scan(&existingID, &existingExerciseID, &existingSource)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return 0, false, err
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		var res sql.Result
+		var execErr error
+		if loggedAt.IsZero() {
+			res, execErr = tx.ExecContext(ctx, `
+				INSERT INTO workout_exercise_logs (session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, source)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				sessionID, exerciseID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes, source)
+		} else {
+			res, execErr = tx.ExecContext(ctx, `
+				INSERT INTO workout_exercise_logs (session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, source, logged_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				sessionID, exerciseID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes, source, loggedAt.UTC())
+		}
+		if execErr != nil {
+			return 0, false, execErr
+		}
+		newID, err := res.LastInsertId()
+		if err != nil {
+			return 0, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return 0, false, err
+		}
+		return newID, true, nil
+	}
+
+	// Promote ad-hoc rows to scheduled when the new call carries a planned
+	// exercise_id; otherwise preserve the existing identity (see func doc).
+	updateExerciseID := existingExerciseID
+	updateSource := existingSource.String
+	if existingExerciseID == 0 && exerciseID > 0 {
+		updateExerciseID = exerciseID
+		updateSource = source
+	}
+
+	if loggedAt.IsZero() {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE workout_exercise_logs
+			SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?, exercise_id = ?, source = ?
+			WHERE id = ?`,
+			setsCompleted, repsCompleted, weightKg, status, notes, updateExerciseID, updateSource, existingID); err != nil {
+			return 0, false, err
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE workout_exercise_logs
+			SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?, exercise_id = ?, source = ?, logged_at = ?
+			WHERE id = ?`,
+			setsCompleted, repsCompleted, weightKg, status, notes, updateExerciseID, updateSource, loggedAt.UTC(), existingID); err != nil {
+			return 0, false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, false, err
+	}
+	return existingID, false, nil
+}
+
 // SetExerciseLogSource updates the source field of an exercise log entry.
 // Valid values: "schedule" (from workout_exercises) or "library" (from exercise_library).
 func (s *Store) SetExerciseLogSource(id int64, source string) error {
@@ -1300,8 +1399,8 @@ func (s *Store) GetActiveSessions(userID int64, date time.Time) ([]WorkoutSessio
 
 	query := `
 		SELECT id, group_id, variant_id, user_id, scheduled_date, scheduled_time, status, started_at, completed_at, snoozed_until, snooze_count, notification_message_id, notes
-		FROM workout_sessions 
-		WHERE user_id = ? 
+		FROM workout_sessions
+		WHERE user_id = ?
 		  AND scheduled_date LIKE ?
 		  AND status IN ('notified', 'in_progress', 'pre_skipped')
 		ORDER BY scheduled_time ASC`
@@ -1344,4 +1443,99 @@ func (s *Store) GetActiveSessions(userID int64, date time.Time) ([]WorkoutSessio
 		sessions = append(sessions, ws)
 	}
 	return sessions, nil
+}
+
+// ListRecentExerciseLogsByName returns up to `limit` recent exercise logs for the
+// given user that match `exerciseName` (case-insensitive). Only `completed`
+// logs are returned — skipped/missed rows aren't useful as inference sources
+// and would mask older completed history at limit=1. The user is matched
+// via the joined workout_sessions row. Logs are returned newest-first.
+// Used by the workout resolver to infer defaults for omitted sets/reps/weight.
+func (s *Store) ListRecentExerciseLogsByName(ctx context.Context, userID int64, exerciseName string, limit int) ([]WorkoutExerciseLog, error) {
+	if limit <= 0 {
+		limit = 1
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT wel.id, wel.session_id, wel.exercise_id, wel.exercise_name,
+		       wel.sets_completed, wel.reps_completed, wel.weight_kg,
+		       wel.status, wel.notes, wel.logged_at, wel.source
+		FROM workout_exercise_logs wel
+		JOIN workout_sessions ws ON ws.id = wel.session_id
+		WHERE ws.user_id = ? AND LOWER(wel.exercise_name) = LOWER(?)
+		  AND wel.status = 'completed'
+		ORDER BY wel.logged_at DESC, wel.id DESC
+		LIMIT ?`, userID, exerciseName, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []WorkoutExerciseLog
+	for rows.Next() {
+		var log WorkoutExerciseLog
+		var setsCompleted, repsCompleted sql.NullInt64
+		var weightKg sql.NullFloat64
+		var notes sql.NullString
+		if err := rows.Scan(&log.ID, &log.SessionID, &log.ExerciseID, &log.ExerciseName,
+			&setsCompleted, &repsCompleted, &weightKg, &log.Status, &notes, &log.LoggedAt, &log.Source); err != nil {
+			return nil, err
+		}
+		if setsCompleted.Valid {
+			s := int(setsCompleted.Int64)
+			log.SetsCompleted = &s
+		}
+		if repsCompleted.Valid {
+			r := int(repsCompleted.Int64)
+			log.RepsCompleted = &r
+		}
+		if weightKg.Valid {
+			log.WeightKg = &weightKg.Float64
+		}
+		if notes.Valid {
+			log.Notes = notes.String
+		}
+		logs = append(logs, log)
+	}
+	return logs, nil
+}
+
+// GetDistinctExerciseNamesForUser returns the union of distinct exercise names
+// the user has access to: their exercise_library entries, names from their
+// workout_exercise_logs history, and names from currently-scheduled
+// workout_exercises (so a freshly-planned exercise with no log yet is still
+// in the resolver catalog). Names are deduplicated case-insensitively and
+// returned in alphabetical order.
+func (s *Store) GetDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT name FROM exercise_library WHERE user_id = ?
+		UNION
+		SELECT wel.exercise_name FROM workout_exercise_logs wel
+		JOIN workout_sessions ws ON ws.id = wel.session_id
+		WHERE ws.user_id = ?
+		UNION
+		SELECT we.exercise_name FROM workout_exercises we
+		JOIN workout_variants wv ON wv.id = we.variant_id
+		JOIN workout_groups wg ON wg.id = wv.group_id
+		WHERE wg.user_id = ?
+		ORDER BY 1 COLLATE NOCASE ASC`, userID, userID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	seen := make(map[string]bool)
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		key := strings.ToLower(n)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		names = append(names, n)
+	}
+	return names, nil
 }
