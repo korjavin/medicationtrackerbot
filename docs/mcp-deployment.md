@@ -36,6 +36,7 @@ Add a service to your `docker-compose.yml`:
       - POCKET_ID_URL=https://id.yourdomain.com
       - POCKET_ID_CLIENT_ID=your-client-id         # Comma-separated client IDs accepted in token audience
       - POCKET_ID_CLIENT_SECRET=your-client-secret
+      - MCP_ADMIN_PORT=8082                        # Loopback-only admin API for managing API tokens; set to 0 to disable
       - TZ=${TZ:-Europe/Berlin}
     networks:
       - default
@@ -81,9 +82,26 @@ For consumers that cannot complete the Pocket-ID OIDC flow (scripts, CI jobs, si
 
 Tokens are managed via a tiny admin HTTP API that listens on a loopback-only socket (`127.0.0.1:MCP_ADMIN_PORT`, default `8082`). The listener has no authentication of its own — protection comes from the OS-level binding. Do NOT proxy this port through Traefik or any reverse proxy. Set `MCP_ADMIN_PORT=0` to disable the admin API entirely.
 
+> **Important — `MCP_ALLOWED_SUBJECT` does not gate API tokens.** The allowlist applies only to JWT-authenticated requests. Any active API token authorizes a request regardless of `MCP_ALLOWED_SUBJECT`; the equivalent gate for API tokens is "the row exists in `api_tokens`" (so revoke = delete). If you need a per-token allowlist, manage it by which tokens you create.
+
 The plaintext token is returned ONCE at creation. Only `sha256(token)` is stored. If you lose the plaintext, delete the row and create a new token.
 
-Examples (run on the same host as `mcptool`):
+Because the admin listener is bound inside the container's network namespace, `127.0.0.1:8082` on the host is NOT the same socket. Pick one of:
+
+- Run the admin curl through `docker exec`, which enters the container's loopback:
+  ```bash
+  docker exec medtracker-mcp \
+    curl -s -X POST http://127.0.0.1:8082/admin/tokens \
+    -H 'Content-Type: application/json' -d '{"name":"home-automation"}'
+  ```
+- Or expose the admin port to the host's loopback only (never to `0.0.0.0`) by adding to the `mcp-server` compose service:
+  ```yaml
+      ports:
+        - "127.0.0.1:8082:8082"   # host loopback ↔ container loopback; never bind to 0.0.0.0
+  ```
+  After which the curl examples below run from the host as written.
+
+Examples (run from inside the container, or with the host-loopback port mapping above):
 
 ```bash
 # Create a token (plaintext returned ONCE — store it immediately)
@@ -111,7 +129,7 @@ When a request arrives with an `Authorization: Bearer mcp_...` header the OAuth 
 
 Read tools (`get_*`, `analyze_*`) query the SQLite database directly from the MCP process and return JSON.
 
-Write tools cannot mutate the read-only DB volume; instead they HMAC-sign a JSON payload and POST it to the main bot's HTTP server, which performs the write. Both processes share `MCP_AUDIT_ENDPOINT` / `MCP_AUDIT_SECRET`; the per-tool endpoint is derived from the audit endpoint's host (`/api/mcp-food-log`, `/api/mcp-workout-log`).
+Write tools route mutations through the main bot's HTTP server rather than writing the SQLite database directly: the MCP process HMAC-signs a JSON payload and POSTs it to the bot, which performs the write through its domain services (so audit fan-out, validation, and attribution stay centralized). Both processes share `MCP_AUDIT_ENDPOINT` / `MCP_AUDIT_SECRET`; the per-tool endpoint is derived from the audit endpoint's host (`/api/mcp-food-log`, `/api/mcp-workout-log`).
 
 ### `workout_log`
 

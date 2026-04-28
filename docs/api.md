@@ -71,7 +71,7 @@
 
 ## MCP Bridge
 
-These endpoints are called only by the MCP server process (`cmd/mcptool`) over the internal Docker network. Each request must carry an HMAC-SHA256 signature in `X-Signature` (hex-encoded) derived from `MCP_AUDIT_SECRET` over the raw request body. The MCP read tools query SQLite directly, but write tools route through these endpoints because the MCP container mounts the data volume read-only.
+These endpoints are called only by the MCP server process (`cmd/mcptool`) over the internal Docker network. Each request must carry an HMAC-SHA256 signature in `X-Signature` (hex-encoded) derived from `MCP_AUDIT_SECRET` over the raw request body. The MCP read tools query SQLite directly, but write tools route through these endpoints so the bot's domain services own all mutating writes (audit fan-out, validation, attribution).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
