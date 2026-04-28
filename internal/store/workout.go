@@ -975,7 +975,11 @@ func (s *Store) DeleteExerciseLog(id int64) error {
 // row is inserted with exercise_id=0 (ad-hoc). The pair (id, isNew) lets
 // callers distinguish the two paths. Used by the MCP workout_log endpoint
 // where the agent re-sending the same exercise must not create duplicates.
-func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, bool, error) {
+//
+// loggedAt sets the row's logged_at column (the agent's "occurred_at"). A
+// zero value falls back to CURRENT_TIMESTAMP on insert and leaves the
+// existing column untouched on update.
+func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string, loggedAt time.Time) (int64, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, false, err
@@ -992,12 +996,21 @@ func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID int64, ex
 	}
 
 	if err == sql.ErrNoRows {
-		res, err := tx.ExecContext(ctx, `
-			INSERT INTO workout_exercise_logs (session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, source)
-			VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)`,
-			sessionID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes, source)
-		if err != nil {
-			return 0, false, err
+		var res sql.Result
+		var execErr error
+		if loggedAt.IsZero() {
+			res, execErr = tx.ExecContext(ctx, `
+				INSERT INTO workout_exercise_logs (session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, source)
+				VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)`,
+				sessionID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes, source)
+		} else {
+			res, execErr = tx.ExecContext(ctx, `
+				INSERT INTO workout_exercise_logs (session_id, exercise_id, exercise_name, sets_completed, reps_completed, weight_kg, status, notes, source, logged_at)
+				VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				sessionID, exerciseName, setsCompleted, repsCompleted, weightKg, status, notes, source, loggedAt.UTC())
+		}
+		if execErr != nil {
+			return 0, false, execErr
 		}
 		newID, err := res.LastInsertId()
 		if err != nil {
@@ -1009,12 +1022,22 @@ func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID int64, ex
 		return newID, true, nil
 	}
 
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE workout_exercise_logs
-		SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?, source = ?
-		WHERE id = ?`,
-		setsCompleted, repsCompleted, weightKg, status, notes, source, existingID); err != nil {
-		return 0, false, err
+	if loggedAt.IsZero() {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE workout_exercise_logs
+			SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?, source = ?
+			WHERE id = ?`,
+			setsCompleted, repsCompleted, weightKg, status, notes, source, existingID); err != nil {
+			return 0, false, err
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE workout_exercise_logs
+			SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?, source = ?, logged_at = ?
+			WHERE id = ?`,
+			setsCompleted, repsCompleted, weightKg, status, notes, source, loggedAt.UTC(), existingID); err != nil {
+			return 0, false, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, false, err
