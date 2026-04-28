@@ -50,6 +50,38 @@ func TestLoadConfigFromEnv_AdminPort(t *testing.T) {
 	}
 }
 
+func TestLoadConfigFromEnv_AdminPortEqualsMainPort(t *testing.T) {
+	required := map[string]string{
+		"ALLOWED_USER_ID":   "1",
+		"MCP_DATABASE_PATH": "/tmp/x.db",
+		"POCKET_ID_URL":     "https://auth.example.com",
+		"MCP_SERVER_URL":    "https://mcp.example.com",
+	}
+	for k, v := range required {
+		t.Setenv(k, v)
+	}
+
+	// Setting MCP_PORT == MCP_ADMIN_PORT should fail validation rather than
+	// be discovered later as a confusing bind failure.
+	t.Setenv("MCP_PORT", "8082")
+	t.Setenv("MCP_ADMIN_PORT", "8082")
+	cfg, err := LoadConfigFromEnv()
+	if err == nil {
+		t.Fatalf("expected error for AdminPort == Port, got cfg=%+v", cfg)
+	}
+	if !strings.Contains(err.Error(), "MCP_ADMIN_PORT") {
+		t.Errorf("error should mention MCP_ADMIN_PORT, got: %v", err)
+	}
+
+	// AdminPort == 0 (disabled) must not collide even when Port also == 0
+	// (which the loader normalizes to its default 8081 — different from 0).
+	t.Setenv("MCP_PORT", "")
+	t.Setenv("MCP_ADMIN_PORT", "0")
+	if _, err := LoadConfigFromEnv(); err != nil {
+		t.Errorf("disabled admin port should not collide: %v", err)
+	}
+}
+
 func testServer(maxDays int) *Server {
 	return &Server{
 		config: &Config{

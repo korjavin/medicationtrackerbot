@@ -26,7 +26,7 @@ Add a service to your `docker-compose.yml`:
     restart: unless-stopped
     command: ["./mcptool"]  # Override default command
     volumes:
-      - medtracker_data:/app/data:ro  # Read-only access to data
+      - medtracker_data:/app/data  # Must be writable: goose runs migrations on startup, and the admin API writes to api_tokens
     environment:
       - MCP_PORT=8081
       - MCP_DATABASE_PATH=/app/data/meds.db
