@@ -76,6 +76,10 @@ func (h *AdminHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("name must be at most %d characters", maxAPITokenNameLen))
 		return
 	}
+	if !isValidAPITokenName(name) {
+		writeJSONError(w, http.StatusBadRequest, "name must contain only ASCII letters, digits, space, '-', '_', '.'")
+		return
+	}
 
 	plaintext, err := generateAPIToken()
 	if err != nil {
@@ -92,6 +96,7 @@ func (h *AdminHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "failed to create token")
 		return
 	}
+	slog.Info("[MCP/Admin] API token created", "id", id, "name", name)
 
 	writeJSON(w, http.StatusCreated, createTokenResponse{
 		ID:    id,
@@ -146,7 +151,27 @@ func (h *AdminHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete token")
 		return
 	}
+	slog.Info("[MCP/Admin] API token deleted", "id", id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// isValidAPITokenName allows ASCII letters, digits, space, '-', '_', '.'. The
+// restrictive charset avoids log forging via embedded newlines / control bytes
+// (the name is logged on every authorized request and forms the request
+// subject identifier "api-token:<name>").
+func isValidAPITokenName(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z':
+		case c >= 'A' && c <= 'Z':
+		case c >= '0' && c <= '9':
+		case c == ' ' || c == '-' || c == '_' || c == '.':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // generateAPIToken returns a fresh plaintext token of the form

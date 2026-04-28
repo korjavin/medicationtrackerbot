@@ -80,6 +80,9 @@ func LoadConfigFromEnv() (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid MCP_ADMIN_PORT %q: %w", raw, err)
 		}
+		if v < 0 || v > 65535 {
+			return nil, fmt.Errorf("MCP_ADMIN_PORT out of range (0-65535): %d", v)
+		}
 		adminPort = v
 	}
 
@@ -626,6 +629,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Optional admin API on a loopback-only listener.
 	var adminServer *http.Server
+	adminErrCh := make(chan error, 1)
 	if s.config.AdminPort > 0 && s.admin != nil {
 		adminAddr := fmt.Sprintf("127.0.0.1:%d", s.config.AdminPort)
 		adminServer = &http.Server{
@@ -634,34 +638,58 @@ func (s *Server) Run(ctx context.Context) error {
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       120 * time.Second,
 		}
+		slog.Info("[MCP/Admin] Admin API listening", "addr", adminAddr)
 		go func() {
-			slog.Info("[MCP/Admin] Admin API listening", "addr", adminAddr)
 			if err := adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				slog.Error("[MCP/Admin] admin server error", "error", err)
+				adminErrCh <- err
+				return
 			}
+			adminErrCh <- nil
 		}()
+	} else {
+		adminErrCh <- nil
 	}
 
-	// Graceful shutdown
+	shutdownAdmin := func() {
+		if adminServer == nil {
+			return
+		}
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := adminServer.Shutdown(shutdownCtx); err != nil {
+			slog.Error("[MCP/Admin] shutdown error", "error", err)
+		}
+	}
+
+	// Graceful shutdown on SIGINT/SIGTERM. Bring down both servers.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
+		signal.Stop(sigCh)
 		slog.Info("[MCP] Shutting down...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			slog.Error("[MCP] shutdown error", "error", err)
 		}
-		if adminServer != nil {
-			if err := adminServer.Shutdown(shutdownCtx); err != nil {
-				slog.Error("[MCP/Admin] shutdown error", "error", err)
-			}
-		}
+		shutdownAdmin()
 	}()
 
 	slog.Info("[MCP] Server starting", "addr", addr)
-	if err := server.ListenAndServe(); err != http.ErrServerClosed {
+	mainErr := server.ListenAndServe()
+	signal.Stop(sigCh)
+	if mainErr != http.ErrServerClosed {
+		// Main server crashed before graceful shutdown — bring admin down too.
+		shutdownAdmin()
+		<-adminErrCh
+		return mainErr
+	}
+	// Main shut down cleanly; ensure admin is also stopped and surface its
+	// error (e.g. early bind failure) instead of silently swallowing it.
+	shutdownAdmin()
+	if err := <-adminErrCh; err != nil {
 		return err
 	}
 	return nil
