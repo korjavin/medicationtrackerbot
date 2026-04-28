@@ -68,6 +68,7 @@
 | GET | `/auth/google/login` | Google login redirect |
 | GET | `/auth/google/callback` | Google callback |
 | GET/POST | `/auth/telegram/callback` | Telegram Login Widget auth (GET: redirect flow, 302; POST: JSON callback) |
+| GET | `/api/elevenlabs/signed-url` | Returns a signed conversation URL for the ElevenLabs convai widget on the Today screen. Requires `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID`; 503 if either is unset. |
 
 ## MCP Bridge
 

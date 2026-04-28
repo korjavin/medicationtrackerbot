@@ -28,6 +28,13 @@ ADMIN_EMAIL=you@gmail.com
 VAPID_PUBLIC_KEY=...
 VAPID_PRIVATE_KEY=...
 VAPID_SUBJECT=mailto:you@example.com
+
+# ElevenLabs voice agent (optional) — drives the "Call agent" card on Today.
+# Both must be set for the card's call action to succeed; otherwise
+# /api/elevenlabs/signed-url returns 503 and the card surfaces
+# "Voice agent is not configured on this server.".
+ELEVENLABS_API_KEY=...
+ELEVENLABS_AGENT_ID=agent_...
 ```
 
 ## MCP server (`cmd/mcptool`)
