@@ -1,43 +1,34 @@
-// ElevenLabs conversational agent — "Call agent" CTA on the Today screen.
+// ElevenLabs conversational agent — "Call agent" card on the Today screen.
 //
-// The card mounts a button. On click we:
-//   1. Hit /api/elevenlabs/signed-url so the API key never reaches the browser.
-//   2. Lazy-load the @elevenlabs/convai-widget-embed UMD bundle.
-//   3. Mount <elevenlabs-convai signed-url="…"> inside the card. The web
-//      component then renders and drives its own call UI (mic permission
-//      prompt, transcript, hang-up).
+// Uses the @elevenlabs/client SDK directly (loaded as ESM via esm.sh) so we
+// can drive the call from a single button: idle → connecting → in_call.
 //
-// We render the card in a "ready" state by default and only flip to
-// "unavailable" if the backend returns 503 on click.
+// State machine:
+//   idle       — primary button reads "Call agent"; click → startCall()
+//   connecting — button disabled, status line shows "Connecting…"
+//   in_call    — primary button reads "End call"; click → endCall()
+//                status line reflects agent mode (Listening… / Speaking…)
+//   error      — primary button reads "Try again"; click → startCall()
+//
+// The signed URL is fetched from /api/elevenlabs/signed-url, which keeps
+// ELEVENLABS_API_KEY server-side. The SDK handles WebRTC + AudioWorklets;
+// CSP must permit blob: + data: scripts and worker-src blob: for the
+// rawAudioProcessor / audioConcatProcessor worklets.
 
 (function () {
-    const WIDGET_SRC = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
-    let widgetScriptPromise = null;
+    const SDK_URL = 'https://esm.sh/@elevenlabs/client';
 
-    function loadWidgetScript() {
-        if (widgetScriptPromise) return widgetScriptPromise;
-        widgetScriptPromise = new Promise((resolve, reject) => {
-            const existing = document.querySelector(`script[src="${WIDGET_SRC}"]`);
-            if (existing) {
-                if (existing.dataset.loaded === '1') {
-                    resolve();
-                    return;
-                }
-                existing.addEventListener('load', () => resolve(), { once: true });
-                existing.addEventListener('error', () => reject(new Error('Failed to load ElevenLabs widget')), { once: true });
-                return;
-            }
-            const s = document.createElement('script');
-            s.src = WIDGET_SRC;
-            s.async = true;
-            s.addEventListener('load', () => {
-                s.dataset.loaded = '1';
-                resolve();
-            }, { once: true });
-            s.addEventListener('error', () => reject(new Error('Failed to load ElevenLabs widget')), { once: true });
-            document.head.appendChild(s);
-        });
-        return widgetScriptPromise;
+    let sdkPromise = null;
+    function loadSDK() {
+        if (!sdkPromise) {
+            sdkPromise = import(SDK_URL).catch((err) => {
+                sdkPromise = null;
+                const e = new Error('Failed to load ElevenLabs SDK');
+                e.cause = err;
+                throw e;
+            });
+        }
+        return sdkPromise;
     }
 
     async function fetchSignedURL() {
@@ -45,12 +36,8 @@
             ? window.offlineAwareApiCall
             : (typeof window.apiCallDirect === 'function' ? window.apiCallDirect : null);
         if (apiCall) {
-            // Wrappers signature: (endpoint, method, body). They return parsed
-            // JSON on success and throw an Error with `.status` on non-2xx.
             const data = await apiCall('/api/elevenlabs/signed-url', 'GET');
-            if (!data || !data.signed_url) {
-                throw new Error('Response missing signed_url');
-            }
+            if (!data || !data.signed_url) throw new Error('Response missing signed_url');
             return data.signed_url;
         }
         const resp = await fetch('/api/elevenlabs/signed-url', { method: 'GET' });
@@ -60,58 +47,85 @@
             throw err;
         }
         const data = await resp.json();
-        if (!data || !data.signed_url) {
-            throw new Error('Response missing signed_url');
-        }
+        if (!data || !data.signed_url) throw new Error('Response missing signed_url');
         return data.signed_url;
     }
 
-    function setStatus(card, message, variant) {
+    let activeConversation = null;
+
+    function setState(card, state, message) {
+        if (!card) return;
+        card.dataset.state = state;
+        const btn = card.querySelector('.wg-call-card__btn');
         const status = card.querySelector('.wg-call-card__status');
-        if (!status) return;
-        status.textContent = message || '';
-        status.classList.remove('wg-call-card__status--error', 'wg-call-card__status--ready', 'wg-call-card__status--connecting');
-        if (variant) status.classList.add(`wg-call-card__status--${variant}`);
-        status.hidden = !message;
+        if (btn) {
+            btn.disabled = state === 'connecting';
+            if (state === 'idle') btn.textContent = 'Call agent';
+            else if (state === 'connecting') btn.textContent = 'Connecting…';
+            else if (state === 'in_call') btn.textContent = 'End call';
+            else if (state === 'error') btn.textContent = 'Try again';
+        }
+        if (status) {
+            const variant = state === 'error' ? 'error' : (state === 'in_call' ? 'ready' : (state === 'connecting' ? 'connecting' : null));
+            status.classList.remove('wg-call-card__status--error', 'wg-call-card__status--ready', 'wg-call-card__status--connecting');
+            if (variant) status.classList.add(`wg-call-card__status--${variant}`);
+            status.textContent = message || '';
+            status.hidden = !message;
+        }
+    }
+
+    async function endCall() {
+        const conv = activeConversation;
+        activeConversation = null;
+        if (conv && typeof conv.endSession === 'function') {
+            try { await conv.endSession(); } catch (_) { /* ignore */ }
+        }
     }
 
     async function startCall(card) {
-        const btn = card.querySelector('.wg-call-card__btn');
-        if (btn) btn.disabled = true;
-        setStatus(card, 'Connecting…', 'connecting');
-
+        if (activeConversation) return;
+        setState(card, 'connecting', 'Connecting…');
         try {
-            const [signedUrl] = await Promise.all([
+            const [signedUrl, sdk] = await Promise.all([
                 fetchSignedURL(),
-                loadWidgetScript(),
+                loadSDK(),
             ]);
-
-            if (window.customElements && !window.customElements.get('elevenlabs-convai')) {
-                await window.customElements.whenDefined('elevenlabs-convai');
+            const Conversation = sdk && sdk.Conversation;
+            if (!Conversation || typeof Conversation.startSession !== 'function') {
+                throw new Error('ElevenLabs SDK missing Conversation.startSession');
             }
-
-            let widget = card.querySelector('elevenlabs-convai');
-            if (!widget) {
-                widget = document.createElement('elevenlabs-convai');
-                const slot = card.querySelector('.wg-call-card__widget');
-                if (slot) slot.appendChild(widget);
-            }
-            widget.setAttribute('signed-url', signedUrl);
-            setStatus(card, 'Connected — use the bubble below to talk', 'ready');
-            card.classList.add('wg-call-card--active');
+            activeConversation = await Conversation.startSession({
+                signedUrl,
+                onConnect: () => setState(card, 'in_call', 'Connected'),
+                onDisconnect: () => {
+                    activeConversation = null;
+                    setState(card, 'idle');
+                },
+                onError: (err) => {
+                    activeConversation = null;
+                    const msg = (err && (err.message || err.error)) || 'Call error';
+                    setState(card, 'error', msg);
+                },
+                onModeChange: (m) => {
+                    const mode = m && (m.mode || m);
+                    if (mode === 'speaking') setState(card, 'in_call', 'Agent speaking…');
+                    else if (mode === 'listening') setState(card, 'in_call', 'Listening…');
+                },
+            });
         } catch (err) {
+            activeConversation = null;
             const msg = err && err.status === 503
                 ? 'Voice agent is not configured on this server.'
                 : (err && err.message) || 'Failed to start call';
-            setStatus(card, msg, 'error');
-            if (btn) btn.disabled = false;
+            setState(card, 'error', msg);
         }
     }
 
     function buildCard() {
         const card = document.createElement('section');
         card.className = 'wg-card wg-call-card';
-        card.setAttribute('data-section', 'call-agent');
+        card.dataset.section = 'call-agent';
+        card.dataset.state = 'idle';
 
         const head = document.createElement('div');
         head.className = 'wg-call-card__head';
@@ -130,7 +144,13 @@
         btn.type = 'button';
         btn.className = 'wg-gloss wg-gloss--sun wg-call-card__btn';
         btn.textContent = 'Call agent';
-        btn.addEventListener('click', () => startCall(card));
+        btn.addEventListener('click', () => {
+            if (card.dataset.state === 'in_call') {
+                endCall();
+            } else {
+                startCall(card);
+            }
+        });
         card.appendChild(btn);
 
         const status = document.createElement('div');
@@ -138,10 +158,6 @@
         status.setAttribute('aria-live', 'polite');
         status.hidden = true;
         card.appendChild(status);
-
-        const widgetSlot = document.createElement('div');
-        widgetSlot.className = 'wg-call-card__widget';
-        card.appendChild(widgetSlot);
 
         return card;
     }
@@ -155,5 +171,5 @@
         return card;
     }
 
-    window.WGCallAgent = { mountCard, startCall, fetchSignedURL, loadWidgetScript };
+    window.WGCallAgent = { mountCard, startCall, endCall, fetchSignedURL };
 })();

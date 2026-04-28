@@ -4302,13 +4302,13 @@ textarea.wg-input {
     color: var(--wg-fg-1);
 }
 
-.wg-call-card__widget:empty {
-    display: none;
+.wg-call-card__status--connecting {
+    color: var(--wg-fg-2);
 }
 
-.wg-call-card__widget {
-    display: flex;
-    justify-content: center;
+.wg-call-card[data-state="in_call"] .wg-call-card__btn {
+    background: var(--color-danger);
+    color: var(--wg-paper);
 }
 
 /* Today meds card (Task 3) — header row (icon + kicker + "Take" CTA),
