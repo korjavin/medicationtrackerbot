@@ -59,6 +59,10 @@ Add a service to your `docker-compose.yml`:
     - **Type**: Streamable HTTP
     - **URL**: `https://mcp.yourdomain.com/mcp`
 
+### Legacy SSE transport (ElevenLabs, older clients)
+
+Clients that still use the 2024-11-05 SSE transport (e.g. ElevenLabs) can connect at `https://mcp.yourdomain.com/sse` instead. Same OAuth/api-token auth as `/mcp`. New integrations should prefer Streamable HTTP at `/mcp`.
+
 ### Alternative: local Stdio run
 
 You can also run the binary locally against a local DB copy:

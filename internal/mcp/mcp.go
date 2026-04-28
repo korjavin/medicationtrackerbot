@@ -597,7 +597,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// OAuth endpoints
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource", s.oauth.HandleProtectedResourceMetadata)
 
-	// MCP endpoint (with OAuth middleware)
+	// MCP endpoint — Streamable HTTP transport (2025-03-26 spec) at /mcp
 	streamableHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		return s.mcpServer
 	}, &mcp.StreamableHTTPOptions{
@@ -615,6 +615,21 @@ func (s *Server) Run(ctx context.Context) error {
 
 	mux.Handle("/mcp", maxBytesMiddleware)
 	mux.Handle("/mcp/{$}", maxBytesMiddleware)
+
+	// Legacy SSE transport (2024-11-05 spec) at /sse, for clients like
+	// ElevenLabs that haven't moved to Streamable HTTP yet.
+	sseHandler := mcp.NewSSEHandler(func(r *http.Request) *mcp.Server {
+		return s.mcpServer
+	}, nil)
+
+	sseAuthHandler := s.oauth.Middleware(sseHandler)
+	sseMaxBytes := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		sseAuthHandler.ServeHTTP(w, r)
+	})
+
+	mux.Handle("/sse", sseMaxBytes)
+	mux.Handle("/sse/{$}", sseMaxBytes)
 
 	// Health check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
