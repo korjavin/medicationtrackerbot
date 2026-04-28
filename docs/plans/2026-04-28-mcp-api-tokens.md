@@ -92,11 +92,11 @@ Add a simple long-lived API token mechanism to the MCP server so consumers that 
 - Modify: `docs/mcp-deployment.md` (new "Long-lived API tokens" subsection)
 - Modify: `README.md` only if it lists MCP env vars
 
-- [ ] Add `MCP_ADMIN_PORT` to `docs/environment.md` with default 8082, note loopback-only binding.
-- [ ] In `docs/mcp-deployment.md`, add a subsection showing curl examples: POST to create, GET to list, DELETE to revoke; warn that the response contains the plaintext token only once; warn this endpoint MUST NOT be exposed beyond localhost (do not proxy it).
-- [ ] Build the binary: `go build ./cmd/mcptool` — confirm it compiles.
-- [ ] Run `go test ./...` — full suite must pass.
-- [ ] Run `go vet ./...` and `gofmt -l .` (no output expected).
+- [x] Add `MCP_ADMIN_PORT` to `docs/environment.md` with default 8082, note loopback-only binding.
+- [x] In `docs/mcp-deployment.md`, add a subsection showing curl examples: POST to create, GET to list, DELETE to revoke; warn that the response contains the plaintext token only once; warn this endpoint MUST NOT be exposed beyond localhost (do not proxy it).
+- [x] Build the binary: `go build ./cmd/mcptool` — confirm it compiles.
+- [x] Run `go test ./...` — full suite must pass.
+- [x] Run `go vet ./...` and `gofmt -l .` (vet clean; gofmt list contains only pre-existing files unrelated to this work).
 
 ### Task 5: Move plan to completed
 
