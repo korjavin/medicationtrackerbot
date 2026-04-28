@@ -2932,3 +2932,101 @@ func (s *Store) BatchGetLastWeightLogs(ctx context.Context, userIDs []int64) (ma
 
 	return result, nil
 }
+
+// -- API Tokens --
+
+// APIToken represents a long-lived bearer token used by the MCP server's
+// API-token authentication path. The plaintext token is never stored — only
+// its sha256 hash. The plaintext is returned to the caller exactly once when
+// the token is created.
+type APIToken struct {
+	ID         int64        `json:"id"`
+	Name       string       `json:"name"`
+	CreatedAt  time.Time    `json:"created_at"`
+	LastUsedAt sql.NullTime `json:"last_used_at"`
+}
+
+// CreateAPIToken inserts a new token row and returns its id.
+func (s *Store) CreateAPIToken(ctx context.Context, name, tokenHash string) (int64, error) {
+	res, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO api_tokens (name, token_hash) VALUES (?, ?)`,
+		name, tokenHash,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// ListAPITokens returns all tokens ordered by id (oldest first). The
+// plaintext token and hash are never included.
+func (s *Store) ListAPITokens(ctx context.Context) ([]APIToken, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT id, name, created_at, last_used_at FROM api_tokens ORDER BY id`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tokens []APIToken
+	for rows.Next() {
+		var t APIToken
+		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt, &t.LastUsedAt); err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return tokens, nil
+}
+
+// DeleteAPIToken removes a token by id. Returns sql.ErrNoRows when the id is
+// not present so callers can map this to a 404.
+func (s *Store) DeleteAPIToken(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM api_tokens WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// FindAPITokenByHash looks up a token by its sha256 hash. Returns (nil, nil)
+// when no row matches so the OAuth middleware can cleanly fall through.
+func (s *Store) FindAPITokenByHash(ctx context.Context, hash string) (*APIToken, error) {
+	var t APIToken
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT id, name, created_at, last_used_at FROM api_tokens WHERE token_hash = ?`,
+		hash,
+	).Scan(&t.ID, &t.Name, &t.CreatedAt, &t.LastUsedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// TouchAPITokenLastUsed updates last_used_at to the current time. Best-effort
+// — callers should log but not block on errors.
+func (s *Store) TouchAPITokenLastUsed(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(
+		ctx,
+		`UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		id,
+	)
+	return err
+}
