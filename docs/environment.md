@@ -35,7 +35,7 @@ VAPID_SUBJECT=mailto:you@example.com
 ```bash
 MCP_PORT=3100
 MCP_DATABASE_PATH=/app/data/tracker.db
-MCP_POCKETID_URL=https://auth.example.com
+POCKET_ID_URL=https://auth.example.com
 MCP_MAX_QUERY_DAYS=90
 MCP_AUDIT_ENDPOINT=http://medtracker:8080/api/mcp-audit
 MCP_AUDIT_SECRET=secure-shared-secret

@@ -158,6 +158,46 @@ func TestFindAPITokenByHash_NotFound(t *testing.T) {
 	}
 }
 
+// TestFindAPITokenByHash_MultiRow ensures the lookup actually filters by
+// token_hash (not by id, name, or "first row") when multiple tokens exist.
+func TestFindAPITokenByHash_MultiRow(t *testing.T) {
+	ctx := context.Background()
+	db := newTestStore(t)
+
+	idA, err := db.CreateAPIToken(ctx, "alpha", "hash-A")
+	if err != nil {
+		t.Fatalf("create alpha: %v", err)
+	}
+	idB, err := db.CreateAPIToken(ctx, "beta", "hash-B")
+	if err != nil {
+		t.Fatalf("create beta: %v", err)
+	}
+
+	got, err := db.FindAPITokenByHash(ctx, "hash-B")
+	if err != nil {
+		t.Fatalf("find hash-B: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("expected to find beta")
+	}
+	if got.ID != idB || got.Name != "beta" {
+		t.Errorf("hash-B lookup returned id=%d name=%q, want id=%d name=%q",
+			got.ID, got.Name, idB, "beta")
+	}
+
+	got, err = db.FindAPITokenByHash(ctx, "hash-A")
+	if err != nil {
+		t.Fatalf("find hash-A: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("expected to find alpha")
+	}
+	if got.ID != idA || got.Name != "alpha" {
+		t.Errorf("hash-A lookup returned id=%d name=%q, want id=%d name=%q",
+			got.ID, got.Name, idA, "alpha")
+	}
+}
+
 func TestTouchAPITokenLastUsed(t *testing.T) {
 	ctx := context.Background()
 	db := newTestStore(t)

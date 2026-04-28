@@ -7,6 +7,49 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+func TestLoadConfigFromEnv_AdminPort(t *testing.T) {
+	required := map[string]string{
+		"ALLOWED_USER_ID":   "1",
+		"MCP_DATABASE_PATH": "/tmp/x.db",
+		"POCKET_ID_URL":     "https://auth.example.com",
+		"MCP_SERVER_URL":    "https://mcp.example.com",
+	}
+	for k, v := range required {
+		t.Setenv(k, v)
+	}
+
+	cases := []struct {
+		raw     string
+		want    int
+		wantErr bool
+	}{
+		{"", 8082, false},     // default
+		{"0", 0, false},       // explicit disable
+		{"9999", 9999, false}, // explicit value
+		{"abc", 0, true},      // not an integer
+		{"-1", 0, true},       // out of range
+		{"70000", 0, true},    // out of range
+	}
+	for _, tc := range cases {
+		t.Run("MCP_ADMIN_PORT="+tc.raw, func(t *testing.T) {
+			t.Setenv("MCP_ADMIN_PORT", tc.raw)
+			cfg, err := LoadConfigFromEnv()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got cfg=%+v", cfg)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.AdminPort != tc.want {
+				t.Errorf("AdminPort = %d, want %d", cfg.AdminPort, tc.want)
+			}
+		})
+	}
+}
+
 func testServer(maxDays int) *Server {
 	return &Server{
 		config: &Config{

@@ -168,6 +168,11 @@ func TestAdminHandler_CreateToken_BadInput(t *testing.T) {
 		{"whitespace name", `{"name":"   "}`},
 		{"name too long", fmt.Sprintf(`{"name":%q}`, strings.Repeat("a", maxAPITokenNameLen+1))},
 		{"malformed json", `{"name":`},
+		{"name with newline", `{"name":"foo\nbar"}`},
+		{"name with control byte", "{\"name\":\"foo\\u0001bar\"}"},
+		{"name with colon (would confuse subject parsing)", `{"name":"foo:bar"}`},
+		{"name with non-ascii", `{"name":"føø"}`},
+		{"name with slash", `{"name":"foo/bar"}`},
 	}
 
 	for _, tc := range cases {
@@ -315,4 +320,86 @@ func TestAdminHandler_TokensAreUnique(t *testing.T) {
 // Confirm *store.Store satisfies AdminStore at compile time.
 func TestStoreImplementsAdminStore(t *testing.T) {
 	var _ AdminStore = (*store.Store)(nil)
+}
+
+// TestAdminHandler_ListTokens_NeverIncludesPlaintext pins the security
+// invariant that GET /admin/tokens does not echo back the plaintext token —
+// the plaintext is shown only once at creation.
+func TestAdminHandler_ListTokens_NeverIncludesPlaintext(t *testing.T) {
+	fs := newFakeAdminStore()
+	mux := NewAdminHandler(fs).Mux()
+
+	createRR := doRequest(t, mux, http.MethodPost, "/admin/tokens", `{"name":"sensitive"}`)
+	if createRR.Code != http.StatusCreated {
+		t.Fatalf("create status = %d", createRR.Code)
+	}
+	var created createTokenResponse
+	if err := json.Unmarshal(createRR.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	if created.Token == "" {
+		t.Fatalf("create did not return plaintext")
+	}
+
+	listRR := doRequest(t, mux, http.MethodGet, "/admin/tokens", "")
+	if listRR.Code != http.StatusOK {
+		t.Fatalf("list status = %d", listRR.Code)
+	}
+	body := listRR.Body.String()
+	if strings.Contains(body, created.Token) {
+		t.Fatalf("list response leaked plaintext token: %s", body)
+	}
+	if strings.Contains(body, APITokenPrefix) {
+		t.Fatalf("list response contains %q prefix — plaintext leak suspected: %s",
+			APITokenPrefix, body)
+	}
+}
+
+// TestAdminHandler_StoreErrorPaths exercises the 500 branches that depend on
+// the underlying store returning errors, ensuring the response surfaces a
+// generic error message rather than leaking internal error text.
+func TestAdminHandler_StoreErrorPaths(t *testing.T) {
+	t.Run("create error", func(t *testing.T) {
+		fs := newFakeAdminStore()
+		fs.createErr = errors.New("simulated db failure: secret-internal-detail")
+		mux := NewAdminHandler(fs).Mux()
+		rr := doRequest(t, mux, http.MethodPost, "/admin/tokens", `{"name":"x"}`)
+		if rr.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", rr.Code)
+		}
+		if strings.Contains(rr.Body.String(), "secret-internal-detail") {
+			t.Errorf("response leaked internal error: %s", rr.Body.String())
+		}
+	})
+
+	t.Run("list error", func(t *testing.T) {
+		fs := newFakeAdminStore()
+		fs.listErr = errors.New("simulated db failure: another-secret")
+		mux := NewAdminHandler(fs).Mux()
+		rr := doRequest(t, mux, http.MethodGet, "/admin/tokens", "")
+		if rr.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", rr.Code)
+		}
+		if strings.Contains(rr.Body.String(), "another-secret") {
+			t.Errorf("response leaked internal error: %s", rr.Body.String())
+		}
+	})
+
+	t.Run("delete error (not ErrNoRows)", func(t *testing.T) {
+		fs := newFakeAdminStore()
+		// Pre-create a token so the path passes the not-found check, then
+		// trip the delete error.
+		if _, err := fs.CreateAPIToken(context.Background(), "x", "h"); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		fs.deleteErr = errors.New("simulated db failure: delete-secret")
+		mux := NewAdminHandler(fs).Mux()
+		rr := doRequest(t, mux, http.MethodDelete, "/admin/tokens/1", "")
+		if rr.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", rr.Code)
+		}
+		if strings.Contains(rr.Body.String(), "delete-secret") {
+			t.Errorf("response leaked internal error: %s", rr.Body.String())
+		}
+	})
 }
