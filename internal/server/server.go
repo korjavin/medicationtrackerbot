@@ -344,7 +344,13 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Strict-Transport-Security", "max-age=15552000; includeSubDomains")
 		// Note: 'unsafe-inline' is currently required in style-src because the application dynamically
 		// injects styles for various components (like charts, modals, and dynamic themes).
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://telegram.org https://api.us.elevenlabs.io https://api.elevenlabs.io wss://api.us.elevenlabs.io wss://api.elevenlabs.io; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'")
+		// blob:/data: in script-src and worker-src are required by the
+		// ElevenLabs convai widget — it instantiates AudioWorklet processors
+		// (rawAudioProcessor, audioConcatProcessor) from blob: and data: URLs,
+		// and Chrome falls back from worklet-src → worker-src → script-src.
+		// storage.googleapis.com supplies the widget's perlin-noise WebGL
+		// background image.
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org https://unpkg.com blob: data:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://storage.googleapis.com; media-src 'self' blob:; connect-src 'self' https://telegram.org https://api.us.elevenlabs.io https://api.elevenlabs.io wss://api.us.elevenlabs.io wss://api.elevenlabs.io; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'")
 		next.ServeHTTP(w, r)
 	})
 }

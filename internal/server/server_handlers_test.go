@@ -1314,7 +1314,7 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 		"Cross-Origin-Opener-Policy":   "same-origin-allow-popups",
 		"Cross-Origin-Resource-Policy": "same-site",
 		"Strict-Transport-Security":    "max-age=15552000; includeSubDomains",
-		"Content-Security-Policy":      "default-src 'self'; script-src 'self' https://telegram.org https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://telegram.org https://api.us.elevenlabs.io https://api.elevenlabs.io wss://api.us.elevenlabs.io wss://api.elevenlabs.io; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'",
+		"Content-Security-Policy":      "default-src 'self'; script-src 'self' https://telegram.org https://unpkg.com blob: data:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://storage.googleapis.com; media-src 'self' blob:; connect-src 'self' https://telegram.org https://api.us.elevenlabs.io https://api.elevenlabs.io wss://api.us.elevenlabs.io wss://api.elevenlabs.io; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'",
 	}
 
 	for header, expectedVal := range expectedHeaders {
