@@ -100,7 +100,7 @@ Add a simple long-lived API token mechanism to the MCP server so consumers that 
 
 ### Task 5: Move plan to completed
 
-- [ ] Move `docs/plans/2026-04-28-mcp-api-tokens.md` to `docs/plans/completed/`
+- [x] Move `docs/plans/2026-04-28-mcp-api-tokens.md` to `docs/plans/completed/`
 
 ## Post-completion (manual)
 
