@@ -287,14 +287,12 @@ func mergePayloadValues(input ResolverInput) (AppliedValues, FieldSources) {
 				maxW = e.WeightKg
 			}
 		}
-		if maxReps > 0 {
-			applied.Reps = &maxReps
-			sources.Reps = SourcePerSet
-		}
-		if maxW > 0 {
-			applied.WeightKg = &maxW
-			sources.WeightKg = SourcePerSet
-		}
+		// per_set is authoritative when supplied: take max reps and weight as-is,
+		// even if zero (bodyweight exercises like pull-ups have weight_kg=0).
+		applied.Reps = &maxReps
+		sources.Reps = SourcePerSet
+		applied.WeightKg = &maxW
+		sources.WeightKg = SourcePerSet
 	} else {
 		if input.Sets != nil {
 			v := *input.Sets

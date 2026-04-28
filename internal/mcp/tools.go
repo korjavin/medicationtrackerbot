@@ -1307,7 +1307,7 @@ Input shape:
     {"input_name":"curl","status":"missing_defaults","missing":["sets","reps","weight_kg"],
      "hint":"no prior log for this exercise; provide sets/reps/weight"}
   ],
-  "summary":"1 logged, 1 ambiguous, 1 missing_defaults"
+  "summary":"1 logged, 1 ambiguous, 1 missing_defaults, 0 error"
 }
 
 Resolution rules:
@@ -1328,6 +1328,7 @@ Idempotency:
 Session selection (for "log"):
   1. Explicit session_id wins.
   2. Otherwise session_ref ("last", "today", "YYYY-MM-DD") looks up an existing session.
+     "today" silently falls back to creating an ad-hoc session if none exists yet.
   3. If neither is provided, the server creates an ad-hoc session at occurred_at.
 
 Examples:

@@ -148,7 +148,7 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 		Results:    make([]MCPWorkoutLogExerciseResult, 0, len(req.Exercises)),
 	}
 
-	var loggedCount, ambiguousCount, missingCount int
+	var loggedCount, ambiguousCount, missingCount, errorCount int
 
 	for _, ex := range req.Exercises {
 		plan, err := resolver.ResolveExercise(ctx, s.allowedUserID, ex)
@@ -159,6 +159,7 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 				Status:    "error",
 				Hint:      "internal resolver error",
 			})
+			errorCount++
 			continue
 		}
 
@@ -189,6 +190,7 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 				slog.Error("[Server] MCP upsert exercise log failed", "session", session.ID, "name", plan.ResolvedName, "error", err)
 				result.Status = "error"
 				result.Hint = "failed to write log"
+				errorCount++
 			} else {
 				result.Status = "logged"
 				result.LogID = id
@@ -208,8 +210,8 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 		resp.Results = append(resp.Results, result)
 	}
 
-	resp.Summary = fmt.Sprintf("%d logged, %d ambiguous, %d missing_defaults",
-		loggedCount, ambiguousCount, missingCount)
+	resp.Summary = fmt.Sprintf("%d logged, %d ambiguous, %d missing_defaults, %d error",
+		loggedCount, ambiguousCount, missingCount, errorCount)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -326,7 +328,12 @@ func (s *Server) resolveOrCreateSession(req *MCPWorkoutLogRequest) (*store.Worko
 		if sess != nil {
 			return sess, occurredAt, nil
 		}
-		return nil, time.Time{}, fmt.Errorf("no session matches session_ref %q", ref)
+		// "today" with no existing session falls through to ad-hoc creation —
+		// the agent is documented to use session_ref:"today" for the natural
+		// "log today's workout" flow and shouldn't have to retry.
+		if ref != "today" {
+			return nil, time.Time{}, fmt.Errorf("no session matches session_ref %q", ref)
+		}
 	}
 
 	// Default: create ad-hoc session at occurredAt.
