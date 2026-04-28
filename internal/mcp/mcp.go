@@ -108,12 +108,13 @@ func LoadConfigFromEnv() (*Config, error) {
 
 // Server represents the MCP server
 type Server struct {
-	config      *Config
-	data        HealthDataReader
-	mcpServer   *mcp.Server
-	oauth       *OAuthHandler
-	audit       *AuditBuffer
-	foodWriter  *FoodWriter
+	config        *Config
+	data          HealthDataReader
+	mcpServer     *mcp.Server
+	oauth         *OAuthHandler
+	audit         *AuditBuffer
+	foodWriter    *FoodWriter
+	workoutWriter *WorkoutWriter
 }
 
 // NewServer creates a new MCP server
@@ -136,12 +137,16 @@ func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error
 	// Create OAuth handler
 	s.oauth = NewOAuthHandler(cfg)
 
-	// Wire food writer using the audit endpoint base URL
+	// Wire food + workout writers using the audit endpoint base URL.
 	if cfg.AuditEndpoint != "" && cfg.AuditSecret != "" {
-		u, err := url.Parse(cfg.AuditEndpoint)
-		if err == nil {
-			u.Path = path.Join(path.Dir(u.Path), "mcp-food-log")
-			s.foodWriter = NewFoodWriter(u.String(), cfg.AuditSecret)
+		if u, err := url.Parse(cfg.AuditEndpoint); err == nil {
+			foodURL := *u
+			foodURL.Path = path.Join(path.Dir(u.Path), "mcp-food-log")
+			s.foodWriter = NewFoodWriter(foodURL.String(), cfg.AuditSecret)
+
+			workoutURL := *u
+			workoutURL.Path = path.Join(path.Dir(u.Path), "mcp-workout-log")
+			s.workoutWriter = NewWorkoutWriter(workoutURL.String(), cfg.AuditSecret)
 		}
 	}
 
