@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -105,6 +106,10 @@ func LoadConfigFromEnv() (*Config, error) {
 		AuditEndpoint:  os.Getenv("MCP_AUDIT_ENDPOINT"),
 		AuditSecret:    os.Getenv("MCP_AUDIT_SECRET"),
 		AdminPort:      adminPort,
+	}
+
+	if cfg.AdminPort > 0 && cfg.AdminPort == cfg.Port {
+		return nil, fmt.Errorf("MCP_ADMIN_PORT (%d) must not equal MCP_PORT", cfg.AdminPort)
 	}
 
 	if cfg.DatabasePath == "" {
@@ -627,11 +632,17 @@ func (s *Server) Run(ctx context.Context) error {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	// Optional admin API on a loopback-only listener.
+	// Optional admin API on a loopback-only listener. Bind synchronously so a
+	// bind failure (e.g. EADDRINUSE) is surfaced before the main server starts,
+	// rather than being silently buffered until shutdown.
 	var adminServer *http.Server
 	adminErrCh := make(chan error, 1)
 	if s.config.AdminPort > 0 && s.admin != nil {
 		adminAddr := fmt.Sprintf("127.0.0.1:%d", s.config.AdminPort)
+		adminLn, err := net.Listen("tcp", adminAddr)
+		if err != nil {
+			return fmt.Errorf("admin listener bind failed: %w", err)
+		}
 		adminServer = &http.Server{
 			Addr:              adminAddr,
 			Handler:           NewAdminHandler(s.admin).Mux(),
@@ -640,7 +651,7 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		slog.Info("[MCP/Admin] Admin API listening", "addr", adminAddr)
 		go func() {
-			if err := adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := adminServer.Serve(adminLn); err != nil && err != http.ErrServerClosed {
 				slog.Error("[MCP/Admin] admin server error", "error", err)
 				adminErrCh <- err
 				return
