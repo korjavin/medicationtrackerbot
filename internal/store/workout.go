@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -1003,11 +1004,11 @@ func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID, exercise
 		SELECT id, exercise_id, source FROM workout_exercise_logs
 		WHERE session_id = ? AND LOWER(exercise_name) = LOWER(?)
 		LIMIT 1`, sessionID, exerciseName).Scan(&existingID, &existingExerciseID, &existingSource)
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, false, err
 	}
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		var res sql.Result
 		var execErr error
 		if loggedAt.IsZero() {
