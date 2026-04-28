@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -59,6 +60,7 @@ type Config struct {
 	UserID         int64  // The database user ID to query data for
 	AuditEndpoint  string
 	AuditSecret    string
+	AdminPort      int // Port for the loopback-only admin API (0 disables it)
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
@@ -71,6 +73,18 @@ func LoadConfigFromEnv() (*Config, error) {
 	maxQueryDays, _ := strconv.Atoi(os.Getenv("MCP_MAX_QUERY_DAYS"))
 	if maxQueryDays == 0 {
 		maxQueryDays = 90 // default 3 months
+	}
+
+	adminPort := 8082 // default
+	if raw := strings.TrimSpace(os.Getenv("MCP_ADMIN_PORT")); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid MCP_ADMIN_PORT %q: %w", raw, err)
+		}
+		if v < 0 || v > 65535 {
+			return nil, fmt.Errorf("MCP_ADMIN_PORT out of range (0-65535): %d", v)
+		}
+		adminPort = v
 	}
 
 	userID, _ := strconv.ParseInt(os.Getenv("ALLOWED_USER_ID"), 10, 64)
@@ -91,6 +105,11 @@ func LoadConfigFromEnv() (*Config, error) {
 		UserID:         userID,
 		AuditEndpoint:  os.Getenv("MCP_AUDIT_ENDPOINT"),
 		AuditSecret:    os.Getenv("MCP_AUDIT_SECRET"),
+		AdminPort:      adminPort,
+	}
+
+	if cfg.AdminPort > 0 && cfg.AdminPort == cfg.Port {
+		return nil, fmt.Errorf("MCP_ADMIN_PORT (%d) must not equal MCP_PORT", cfg.AdminPort)
 	}
 
 	if cfg.DatabasePath == "" {
@@ -108,12 +127,14 @@ func LoadConfigFromEnv() (*Config, error) {
 
 // Server represents the MCP server
 type Server struct {
-	config      *Config
-	data        HealthDataReader
-	mcpServer   *mcp.Server
-	oauth       *OAuthHandler
-	audit       *AuditBuffer
-	foodWriter  *FoodWriter
+	config        *Config
+	data          HealthDataReader
+	mcpServer     *mcp.Server
+	oauth         *OAuthHandler
+	audit         *AuditBuffer
+	foodWriter    *FoodWriter
+	workoutWriter *WorkoutWriter
+	admin         AdminStore
 }
 
 // NewServer creates a new MCP server
@@ -122,6 +143,7 @@ func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error
 		config: cfg,
 		data:   st,
 		audit:  audit,
+		admin:  st,
 	}
 
 	// Create MCP server instance
@@ -133,15 +155,20 @@ func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error
 		nil,
 	)
 
-	// Create OAuth handler
-	s.oauth = NewOAuthHandler(cfg)
+	// Create OAuth handler. The store satisfies APITokenStore so long-lived
+	// API tokens can be validated alongside JWTs.
+	s.oauth = NewOAuthHandler(cfg, st)
 
-	// Wire food writer using the audit endpoint base URL
+	// Wire food + workout writers using the audit endpoint base URL.
 	if cfg.AuditEndpoint != "" && cfg.AuditSecret != "" {
-		u, err := url.Parse(cfg.AuditEndpoint)
-		if err == nil {
-			u.Path = path.Join(path.Dir(u.Path), "mcp-food-log")
-			s.foodWriter = NewFoodWriter(u.String(), cfg.AuditSecret)
+		if u, err := url.Parse(cfg.AuditEndpoint); err == nil {
+			foodURL := *u
+			foodURL.Path = path.Join(path.Dir(u.Path), "mcp-food-log")
+			s.foodWriter = NewFoodWriter(foodURL.String(), cfg.AuditSecret)
+
+			workoutURL := *u
+			workoutURL.Path = path.Join(path.Dir(u.Path), "mcp-workout-log")
+			s.workoutWriter = NewWorkoutWriter(workoutURL.String(), cfg.AuditSecret)
 		}
 	}
 
@@ -386,6 +413,72 @@ func (s *Server) registerTools() {
 		s.handleLogFoodIntake,
 	)
 
+	// Workout Log Tool — call operation:"help" for the full protocol.
+	mcp.AddTool(s.mcpServer,
+		&mcp.Tool{
+			Name:        "workout_log",
+			Description: "Log, retrieve, and delete workout exercises. The 'operation' field selects one of: help (returns full protocol — call this first), log (append/upsert exercises to a session), get (recent N sessions with exercise logs), delete_exercise (remove an exercise log). Always call operation:\"help\" first to get input/response shapes, resolution rules, and idempotency semantics.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"required": ["operation"],
+				"properties": {
+					"operation": {
+						"type": "string",
+						"enum": ["help", "log", "get", "delete_exercise"],
+						"description": "Selects the operation. Call \"help\" first for the full protocol document."
+					},
+					"session_id": {
+						"type": "integer",
+						"description": "Workout session ID. Optional for log; required for delete_exercise."
+					},
+					"session_ref": {
+						"type": "string",
+						"description": "Alternative to session_id: \"last\", \"today\", or YYYY-MM-DD."
+					},
+					"occurred_at": {
+						"type": "string",
+						"description": "When the workout happened. \"YYYY-MM-DD HH:MM\" or RFC3339. Defaults to now for log."
+					},
+					"exercises": {
+						"type": "array",
+						"description": "Exercises to log. See operation:\"help\" for the per-exercise shape (sets/reps/weight_kg/duration_minutes/notes/per_set, all optional except name).",
+						"items": {
+							"type": "object",
+							"required": ["name"],
+							"properties": {
+								"name": {"type": "string"},
+								"sets": {"type": "integer"},
+								"reps": {"type": "integer"},
+								"weight_kg": {"type": "number"},
+								"duration_minutes": {"type": "integer"},
+								"notes": {"type": "string"},
+								"per_set": {
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"reps": {"type": "integer"},
+											"weight_kg": {"type": "number"}
+										}
+									}
+								}
+							}
+						}
+					},
+					"exercise_name": {
+						"type": "string",
+						"description": "For delete_exercise: the resolved exercise name to remove from the session."
+					},
+					"limit": {
+						"type": "integer",
+						"description": "For get: max number of recent sessions to return (default 10, max 50)."
+					}
+				}
+			}`),
+		},
+		s.handleWorkoutLog,
+	)
+
 	// Diary Notes Tool
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
@@ -539,21 +632,75 @@ func (s *Server) Run(ctx context.Context) error {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	// Graceful shutdown
+	// Optional admin API on a loopback-only listener. Bind synchronously so a
+	// bind failure (e.g. EADDRINUSE) is surfaced before the main server starts,
+	// rather than being silently buffered until shutdown.
+	var adminServer *http.Server
+	adminErrCh := make(chan error, 1)
+	if s.config.AdminPort > 0 && s.admin != nil {
+		adminAddr := fmt.Sprintf("127.0.0.1:%d", s.config.AdminPort)
+		adminLn, err := net.Listen("tcp", adminAddr)
+		if err != nil {
+			return fmt.Errorf("admin listener bind failed: %w", err)
+		}
+		adminServer = &http.Server{
+			Addr:              adminAddr,
+			Handler:           NewAdminHandler(s.admin).Mux(),
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		}
+		slog.Info("[MCP/Admin] Admin API listening", "addr", adminAddr)
+		go func() {
+			if err := adminServer.Serve(adminLn); err != nil && err != http.ErrServerClosed {
+				slog.Error("[MCP/Admin] admin server error", "error", err)
+				adminErrCh <- err
+				return
+			}
+			adminErrCh <- nil
+		}()
+	} else {
+		adminErrCh <- nil
+	}
+
+	shutdownAdmin := func() {
+		if adminServer == nil {
+			return
+		}
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := adminServer.Shutdown(shutdownCtx); err != nil {
+			slog.Error("[MCP/Admin] shutdown error", "error", err)
+		}
+	}
+
+	// Graceful shutdown on SIGINT/SIGTERM. Bring down both servers.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
+		signal.Stop(sigCh)
 		slog.Info("[MCP] Shutting down...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			slog.Error("[MCP] shutdown error", "error", err)
 		}
+		shutdownAdmin()
 	}()
 
 	slog.Info("[MCP] Server starting", "addr", addr)
-	if err := server.ListenAndServe(); err != http.ErrServerClosed {
+	mainErr := server.ListenAndServe()
+	signal.Stop(sigCh)
+	if mainErr != http.ErrServerClosed {
+		// Main server crashed before graceful shutdown — bring admin down too.
+		shutdownAdmin()
+		<-adminErrCh
+		return mainErr
+	}
+	// Main shut down cleanly; ensure admin is also stopped and surface its
+	// error (e.g. early bind failure) instead of silently swallowing it.
+	shutdownAdmin()
+	if err := <-adminErrCh; err != nil {
 		return err
 	}
 	return nil

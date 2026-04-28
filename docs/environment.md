@@ -35,10 +35,11 @@ VAPID_SUBJECT=mailto:you@example.com
 ```bash
 MCP_PORT=3100
 MCP_DATABASE_PATH=/app/data/tracker.db
-MCP_POCKETID_URL=https://auth.example.com
+POCKET_ID_URL=https://auth.example.com
 MCP_MAX_QUERY_DAYS=90
 MCP_AUDIT_ENDPOINT=http://medtracker:8080/api/mcp-audit
 MCP_AUDIT_SECRET=secure-shared-secret
+MCP_ADMIN_PORT=8082             # Admin API for long-lived API tokens; bound to 127.0.0.1 only. 0 disables. Default 8082.
 ```
 
 See [mcp-deployment.md](mcp-deployment.md) for full MCP deployment setup.

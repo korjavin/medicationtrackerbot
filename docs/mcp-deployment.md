@@ -26,7 +26,7 @@ Add a service to your `docker-compose.yml`:
     restart: unless-stopped
     command: ["./mcptool"]  # Override default command
     volumes:
-      - medtracker_data:/app/data:ro  # Read-only access to data
+      - medtracker_data:/app/data  # Must be writable: goose runs migrations on startup, and the admin API writes to api_tokens
     environment:
       - MCP_PORT=8081
       - MCP_DATABASE_PATH=/app/data/meds.db
@@ -36,6 +36,7 @@ Add a service to your `docker-compose.yml`:
       - POCKET_ID_URL=https://id.yourdomain.com
       - POCKET_ID_CLIENT_ID=your-client-id         # Comma-separated client IDs accepted in token audience
       - POCKET_ID_CLIENT_SECRET=your-client-secret
+      - MCP_ADMIN_PORT=8082                        # Loopback-only admin API for managing API tokens; set to 0 to disable
       - TZ=${TZ:-Europe/Berlin}
     networks:
       - default
@@ -75,11 +76,71 @@ You can also run the binary locally against a local DB copy:
 }
 ```
 
+## Long-lived API tokens
+
+For consumers that cannot complete the Pocket-ID OIDC flow (scripts, CI jobs, simple automations), the MCP server accepts long-lived bearer tokens prefixed `mcp_`. Tokens never expire; revocation is by deletion.
+
+Tokens are managed via a tiny admin HTTP API that listens on a loopback-only socket (`127.0.0.1:MCP_ADMIN_PORT`, default `8082`). The listener has no authentication of its own — protection comes from the OS-level binding. Do NOT proxy this port through Traefik or any reverse proxy. Set `MCP_ADMIN_PORT=0` to disable the admin API entirely.
+
+> **Important — `MCP_ALLOWED_SUBJECT` does not gate API tokens.** The allowlist applies only to JWT-authenticated requests. Any active API token authorizes a request regardless of `MCP_ALLOWED_SUBJECT`; the equivalent gate for API tokens is "the row exists in `api_tokens`" (so revoke = delete). If you need a per-token allowlist, manage it by which tokens you create.
+
+The plaintext token is returned ONCE at creation. Only `sha256(token)` is stored. If you lose the plaintext, delete the row and create a new token.
+
+Because the admin listener is bound inside the container's network namespace, `127.0.0.1:8082` on the host is NOT the same socket. The application image ships without `curl`, and Docker's published-port forwarding targets the container's external interface (not its loopback), so neither `docker exec medtracker-mcp curl ...` nor a `127.0.0.1:8082:8082` host port mapping will reach the admin server.
+
+The reliable way to talk to the admin API is to run a short-lived helper container that shares the MCP container's network namespace — its `127.0.0.1` then IS the MCP container's loopback:
+
+```bash
+# Create a token (plaintext returned ONCE — store it immediately)
+docker run --rm --network container:medtracker-mcp curlimages/curl:latest \
+  -s -X POST http://127.0.0.1:8082/admin/tokens \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"home-automation"}'
+# → {"id":1,"name":"home-automation","token":"mcp_<64 hex chars>"}
+
+# List tokens (no plaintext)
+docker run --rm --network container:medtracker-mcp curlimages/curl:latest \
+  -s http://127.0.0.1:8082/admin/tokens
+
+# Revoke a token
+docker run --rm --network container:medtracker-mcp curlimages/curl:latest \
+  -s -X DELETE http://127.0.0.1:8082/admin/tokens/1
+```
+
+For non-Docker deployments (running `mcptool` directly on a host), the admin API is reachable as `http://127.0.0.1:8082/admin/tokens` from the same host with any local HTTP client.
+
+Use the token to call the MCP endpoint:
+
+```bash
+curl -H "Authorization: Bearer mcp_<token>" https://mcp.yourdomain.com/mcp
+```
+
+When a request arrives with an `Authorization: Bearer mcp_...` header the OAuth middleware looks the token up by hash; on hit it sets the request subject to `api-token:<name>` and updates `last_used_at`. Bearer values without the `mcp_` prefix fall through to the standard JWT validation path.
+
+## Tools
+
+Read tools (`get_*`, `analyze_*`) query the SQLite database directly from the MCP process and return JSON.
+
+Write tools route mutations through the main bot's HTTP server rather than writing the SQLite database directly: the MCP process HMAC-signs a JSON payload and POSTs it to the bot, which performs the write through its domain services (so audit fan-out, validation, and attribution stay centralized). Both processes share `MCP_AUDIT_ENDPOINT` / `MCP_AUDIT_SECRET`; the per-tool endpoint is derived from the audit endpoint's host (`/api/mcp-food-log`, `/api/mcp-workout-log`).
+
+### `workout_log`
+
+Single entry point for workout logging. The static tool description is intentionally short — the agent calls `operation: "help"` first to fetch the full protocol document (input/response shape, resolution rules, idempotency semantics).
+
+Operations:
+- `help` — return the protocol document (no DB / network call)
+- `log` — append or upsert exercises into a workout session (creates an ad-hoc session when no `session_id`/`session_ref` is provided). Resolves fuzzy exercise names against the user's catalog (exact → substring → Levenshtein ≤ 2) and infers omitted sets/reps/weight from the most recent matching log. Returns per-exercise statuses (`logged` / `ambiguous` / `missing_defaults`) so partial successes are observable.
+- `get` — recent N sessions with their exercise logs
+- `delete_exercise` — remove the log for `(session_id, exercise_name)`
+
+Idempotency: upsert key is `(session_id, resolved_name)` — re-sending refines state instead of duplicating.
+
 ## Adding MCP Tools
 
 1. Add tool definition in `internal/mcp/tools.go` (granular) or a dedicated file (composite tools, e.g. `cardiovascular.go`, `fitness.go`)
 2. Implement handler function
 3. Register the tool in server initialization (`internal/mcp/mcp.go`)
 4. For read tools: include context notes via `notes_helper.go` (`fetchContextNotes` / `shouldIncludeNotes`); support `exclude_notes` parameter
-5. Update `.env.mcp.example` if new config is needed
-6. **Naming**: `get_*` for granular read tools, `log_*` for write tools, `analyze_*` for composite read tools
+5. For write tools: add a bot HTTP endpoint under `internal/server/` that verifies the HMAC header (mirror `/api/mcp-food-log` and `/api/mcp-workout-log`), then add an `internal/mcp/<tool>_writer.go` HMAC client mirroring `food_writer.go` / `workout_writer.go`, and wire it through `cmd/mcptool/main.go` and `internal/mcp/mcp.go`. Keep the static tool description short and route the protocol document through an `operation: "help"` branch so it doesn't consume agent context tokens on every call.
+6. Update `.env.mcp.example` if new config is needed
+7. **Naming**: `get_*` for granular read tools, `log_*` / `<noun>_log` for write tools, `analyze_*` for composite read tools

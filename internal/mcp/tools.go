@@ -1254,3 +1254,199 @@ func (s *Server) handleGetDiaryNotes(ctx context.Context, req *mcp.CallToolReque
 
 	return nil, response, nil
 }
+
+// workoutLogHelpDoc is the protocol reference for the workout_log tool. The
+// agent is expected to call workout_log with operation:"help" once at the
+// start of a session (or whenever it needs to refresh) and then drive the
+// other operations from this single source of truth. Keeping the protocol
+// out of the static tool description saves tokens on every tool list.
+const workoutLogHelpDoc = `workout_log — log, retrieve, and delete workouts and exercises.
+
+Operations (the "operation" field selects which one):
+
+  help              Returns this protocol document. No DB or HTTP work.
+  log               Append/upsert exercises to a workout session.
+  get               Return the most recent N sessions and their exercise logs.
+  delete_exercise   Remove an exercise log from a session.
+
+Input shape:
+{
+  "operation": "help" | "log" | "get" | "delete_exercise",
+  "session_id":  int64,                         // optional for log; required for delete_exercise
+  "session_ref": "last" | "today" | "YYYY-MM-DD", // alt to session_id for log/get
+  "occurred_at": "YYYY-MM-DD HH:MM" | RFC3339,  // optional for log; defaults to now
+  "exercises": [                                // for log
+    {
+      "name": "biceps curls",
+      "sets": 3,                                // optional — inferred from history if omitted
+      "reps": 10,                               // optional
+      "weight_kg": 12.5,                        // optional
+      "duration_minutes": 0,                    // optional, for cardio; recorded
+                                                // as a "[duration: N min]" prefix
+                                                // in the notes field (no dedicated
+                                                // column on workout_exercise_logs)
+      "notes": "",                              // optional
+      "per_set": [                              // optional rich form; aggregated as
+                                                // sets=len(per_set), reps=max(reps), weight_kg=max(weight_kg)
+        {"reps": 10, "weight_kg": 10},
+        {"reps": 8,  "weight_kg": 12.5}
+      ]
+    }
+  ],
+  "exercise_name": "string",                    // for delete_exercise
+  "limit": 10                                   // for get (default 10, max 50)
+}
+
+"log" response shape (always HTTP 200 from the bot; inspect per-exercise status):
+{
+  "session_id": 123,
+  "occurred_at": "2026-04-28 18:30",
+  "results": [
+    {"input_name":"biceps curls","resolved_name":"Biceps Curls","status":"logged","log_id":901,
+     "applied":{"sets":3,"reps":10,"weight_kg":12.5},
+     "sources":{"sets":"agent","reps":"agent","weight_kg":"agent"}},
+    {"input_name":"press","status":"ambiguous","candidates":["Bench Press","Inclined Press"],
+     "hint":"re-send with one of the candidate names"},
+    {"input_name":"curl","status":"missing_defaults","missing":["sets","reps","weight_kg"],
+     "hint":"no prior log for this exercise; provide sets/reps/weight"}
+  ],
+  "summary":"1 logged, 1 ambiguous, 1 missing_defaults, 0 error"
+}
+
+Resolution rules:
+  - Exact case-insensitive name match against the user's catalog -> resolved.
+  - Otherwise: substring containment + Levenshtein distance <= 2 against the catalog
+    (union of exercise_library entries and the user's distinct historical exercise names).
+    Exactly one match -> resolved. >1 -> "ambiguous" with candidates. 0 -> create new
+    exercise name (the literal trimmed input) when sets/reps/weight are present, else
+    "missing_defaults".
+  - Defaults inference: if any of sets/reps/weight is omitted and the resolved exercise
+    has at least one prior log, fill from the most recent log; the per-field "sources"
+    object marks each filled field as "inferred" (vs. "agent" or "per_set").
+
+Idempotency:
+  - Writes are upserts on (session_id, resolved_name). Re-sending the same payload
+    refines the existing row instead of creating a duplicate.
+
+Session selection (for "log"):
+  1. Explicit session_id wins.
+  2. Otherwise session_ref ("last", "today", "YYYY-MM-DD") looks up an existing session.
+     "today" silently falls back to creating an ad-hoc session if none exists yet.
+  3. If neither is provided, the server creates an ad-hoc session at occurred_at.
+
+Examples:
+
+  Minimal log with inference (assumes prior history for each name):
+    {"operation":"log","exercises":[{"name":"squat"},{"name":"bench press"}]}
+
+  Rich log with per-set:
+    {"operation":"log","session_ref":"today",
+     "exercises":[{"name":"deadlift","per_set":[{"reps":5,"weight_kg":100},
+                                                {"reps":5,"weight_kg":110}]}]}
+
+  Get the 5 most recent sessions:
+    {"operation":"get","limit":5}
+
+  Delete an exercise from a session:
+    {"operation":"delete_exercise","session_id":123,"exercise_name":"Biceps Curls"}
+`
+
+// WorkoutSetInput is one set inside the rich per_set form. Pointer fields
+// distinguish omitted (server may infer from history) from explicit zero
+// (e.g. bodyweight exercises with weight_kg=0).
+type WorkoutSetInput struct {
+	Reps     *int     `json:"reps,omitempty"`
+	WeightKg *float64 `json:"weight_kg,omitempty"`
+}
+
+// WorkoutExerciseInput is one exercise as the agent wants to log it.
+// Pointer numeric fields distinguish "omitted" (so the server may infer from
+// history) from "explicitly zero".
+type WorkoutExerciseInput struct {
+	Name            string            `json:"name"`
+	Sets            *int              `json:"sets,omitempty"`
+	Reps            *int              `json:"reps,omitempty"`
+	WeightKg        *float64          `json:"weight_kg,omitempty"`
+	DurationMinutes *int              `json:"duration_minutes,omitempty"`
+	Notes           string            `json:"notes,omitempty"`
+	PerSet          []WorkoutSetInput `json:"per_set,omitempty"`
+}
+
+// WorkoutLogInput is the unified input shape for the workout_log tool.
+type WorkoutLogInput struct {
+	Operation    string                 `json:"operation"`
+	SessionID    int64                  `json:"session_id,omitempty"`
+	SessionRef   string                 `json:"session_ref,omitempty"`
+	OccurredAt   string                 `json:"occurred_at,omitempty"`
+	Exercises    []WorkoutExerciseInput `json:"exercises,omitempty"`
+	ExerciseName string                 `json:"exercise_name,omitempty"`
+	Limit        int                    `json:"limit,omitempty"`
+}
+
+// WorkoutLogHelpResponse is the response for operation:"help".
+type WorkoutLogHelpResponse struct {
+	HelpDoc string `json:"help_doc"`
+}
+
+// handleWorkoutLog dispatches the workout_log tool to one of help/log/get/
+// delete_exercise. Help is served locally; the other three operations are
+// forwarded to the bot's /api/mcp-workout-log endpoint and the response body
+// is returned to the agent verbatim so it can act on per-exercise statuses
+// (ambiguous / missing_defaults / logged) without re-shaping by the writer.
+func (s *Server) handleWorkoutLog(ctx context.Context, _ *mcp.CallToolRequest, input WorkoutLogInput) (*mcp.CallToolResult, any, error) {
+	op := strings.TrimSpace(input.Operation)
+	if op == "" {
+		return nil, nil, fmt.Errorf("operation is required (one of: help, log, get, delete_exercise) - call operation:\"help\" for the full protocol")
+	}
+
+	if op == "help" {
+		return nil, WorkoutLogHelpResponse{HelpDoc: workoutLogHelpDoc}, nil
+	}
+
+	switch op {
+	case "log", "get", "delete_exercise":
+	default:
+		return nil, nil, fmt.Errorf("unknown operation %q - call operation:\"help\" for the full protocol", input.Operation)
+	}
+
+	if err := s.ensureFeatureEnabled(ctx, "workout"); err != nil {
+		return nil, nil, err
+	}
+
+	if s.workoutWriter == nil {
+		return nil, nil, fmt.Errorf("workout write-through not configured (MCP_AUDIT_ENDPOINT and MCP_AUDIT_SECRET required)")
+	}
+
+	raw, err := s.workoutWriter.Call(ctx, input)
+	if err != nil {
+		slog.Error("[MCP] workout_log call failed", "operation", op, "error", err)
+		return nil, nil, fmt.Errorf("workout_log %s failed: %w", op, err)
+	}
+
+	// Decode the bot's response so the SDK serializes it as structured
+	// content; the body is otherwise passed through unchanged.
+	var out any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, nil, fmt.Errorf("workout_log: decode response: %w", err)
+	}
+
+	if s.audit != nil {
+		var dataType string
+		switch op {
+		case "log":
+			dataType = "Workouts (write)"
+		case "delete_exercise":
+			dataType = "Workouts (delete)"
+		default:
+			dataType = "Workouts (read)"
+		}
+		s.audit.Record(AuditEvent{
+			DataType:  dataType,
+			StartDate: time.Now(),
+			EndDate:   time.Now(),
+		})
+	}
+
+	slog.Info("[MCP] workout_log forwarded", "operation", op)
+	return nil, out, nil
+}
