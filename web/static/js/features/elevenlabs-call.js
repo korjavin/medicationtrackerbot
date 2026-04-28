@@ -44,12 +44,19 @@
         const apiCall = (typeof window.offlineAwareApiCall === 'function')
             ? window.offlineAwareApiCall
             : (typeof window.apiCallDirect === 'function' ? window.apiCallDirect : null);
-        const fetcher = apiCall || ((url, opts) => fetch(url, opts));
-        const resp = await fetcher('/api/elevenlabs/signed-url', { method: 'GET' });
-        if (!resp || !resp.ok) {
-            const status = resp ? resp.status : 0;
-            const err = new Error(`Failed to get signed URL (${status})`);
-            err.status = status;
+        if (apiCall) {
+            // Wrappers signature: (endpoint, method, body). They return parsed
+            // JSON on success and throw an Error with `.status` on non-2xx.
+            const data = await apiCall('/api/elevenlabs/signed-url', 'GET');
+            if (!data || !data.signed_url) {
+                throw new Error('Response missing signed_url');
+            }
+            return data.signed_url;
+        }
+        const resp = await fetch('/api/elevenlabs/signed-url', { method: 'GET' });
+        if (!resp.ok) {
+            const err = new Error(`Failed to get signed URL (${resp.status})`);
+            err.status = resp.status;
             throw err;
         }
         const data = await resp.json();
