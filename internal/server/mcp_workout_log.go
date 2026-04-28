@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -140,10 +141,11 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 		return
 	}
 
-	occurredAt := time.Now()
+	loc := s.userLocation()
+	occurredAt := time.Now().In(loc)
 	occurredAtSupplied := strings.TrimSpace(req.OccurredAt) != ""
 	if occurredAtSupplied {
-		t, err := parseOccurredAt(req.OccurredAt)
+		t, err := parseOccurredAt(req.OccurredAt, loc)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("invalid occurred_at: %v", err), http.StatusBadRequest)
 			return
@@ -151,7 +153,7 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 		occurredAt = t
 	}
 
-	session, mayCreateAdHoc, err := s.lookupSessionForLog(req, occurredAt)
+	session, mayCreateAdHoc, err := s.lookupSessionForLog(req, occurredAt, loc)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -345,8 +347,13 @@ func validateResolverInputValues(ex domain.ResolverInput) string {
 	if ex.Reps != nil && *ex.Reps < 0 {
 		return "reps must be non-negative"
 	}
-	if ex.WeightKg != nil && *ex.WeightKg < 0 {
-		return "weight_kg must be non-negative"
+	if ex.WeightKg != nil {
+		if *ex.WeightKg < 0 {
+			return "weight_kg must be non-negative"
+		}
+		if math.IsNaN(*ex.WeightKg) || math.IsInf(*ex.WeightKg, 0) {
+			return "weight_kg must be a finite number"
+		}
 	}
 	if ex.DurationMinutes != nil && *ex.DurationMinutes < 0 {
 		return "duration_minutes must be non-negative"
@@ -355,8 +362,13 @@ func validateResolverInputValues(ex domain.ResolverInput) string {
 		if p.Reps != nil && *p.Reps < 0 {
 			return fmt.Sprintf("per_set[%d].reps must be non-negative", i)
 		}
-		if p.WeightKg != nil && *p.WeightKg < 0 {
-			return fmt.Sprintf("per_set[%d].weight_kg must be non-negative", i)
+		if p.WeightKg != nil {
+			if *p.WeightKg < 0 {
+				return fmt.Sprintf("per_set[%d].weight_kg must be non-negative", i)
+			}
+			if math.IsNaN(*p.WeightKg) || math.IsInf(*p.WeightKg, 0) {
+				return fmt.Sprintf("per_set[%d].weight_kg must be a finite number", i)
+			}
 		}
 	}
 	return ""
@@ -463,7 +475,10 @@ func (s *Server) mcpWorkoutDelete(w http.ResponseWriter, r *http.Request, req *M
 // occurredAt is the already-parsed reference timestamp (defaults to now);
 // "today" matches sessions on its calendar date so a backfill request with
 // occurred_at:"YYYY-MM-DD ..." resolves to that day's session, not today's.
-func (s *Server) lookupSessionForLog(req *MCPWorkoutLogRequest, occurredAt time.Time) (*store.WorkoutSession, bool, error) {
+// loc is the user's timezone (from settings, fallback time.Local) — date
+// comparisons happen in this zone so a UTC-hosted bot still matches the
+// user's calendar day.
+func (s *Server) lookupSessionForLog(req *MCPWorkoutLogRequest, occurredAt time.Time, loc *time.Location) (*store.WorkoutSession, bool, error) {
 	if req.SessionID > 0 {
 		sess, err := s.workouts.GetWorkoutSession(req.SessionID)
 		if err != nil {
@@ -476,7 +491,7 @@ func (s *Server) lookupSessionForLog(req *MCPWorkoutLogRequest, occurredAt time.
 	}
 
 	if ref := strings.TrimSpace(req.SessionRef); ref != "" {
-		sess, err := s.lookupSessionByRef(ref, occurredAt)
+		sess, err := s.lookupSessionByRef(ref, occurredAt, loc)
 		if err != nil {
 			return nil, false, err
 		}
@@ -498,10 +513,10 @@ func (s *Server) lookupSessionForLog(req *MCPWorkoutLogRequest, occurredAt time.
 // lookupSessionByRef resolves "last" / "today" / "YYYY-MM-DD" session_ref
 // values. Searches up to the 30 most recent sessions, which is plenty for an
 // agent that only references recent activity. refDate is the agent's
-// occurred_at (or now): "today" matches its calendar date in local TZ so a
+// occurred_at (or now); date comparisons format both sides in `loc` so a
 // stored ScheduledDate (possibly UTC after driver round-trip) compared at the
 // boundary midnight does not silently miss the matching session.
-func (s *Server) lookupSessionByRef(ref string, refDate time.Time) (*store.WorkoutSession, error) {
+func (s *Server) lookupSessionByRef(ref string, refDate time.Time, loc *time.Location) (*store.WorkoutSession, error) {
 	sessions, err := s.workouts.GetWorkoutHistory(s.allowedUserID, 30)
 	if err != nil {
 		return nil, fmt.Errorf("load history: %w", err)
@@ -515,9 +530,9 @@ func (s *Server) lookupSessionByRef(ref string, refDate time.Time) (*store.Worko
 		sess := sessions[0]
 		return &sess, nil
 	case "today":
-		target := refDate.In(time.Local).Format("2006-01-02")
+		target := refDate.In(loc).Format("2006-01-02")
 		for i := range sessions {
-			if sessions[i].ScheduledDate.In(time.Local).Format("2006-01-02") == target {
+			if sessions[i].ScheduledDate.In(loc).Format("2006-01-02") == target {
 				return &sessions[i], nil
 			}
 		}
@@ -528,7 +543,7 @@ func (s *Server) lookupSessionByRef(ref string, refDate time.Time) (*store.Worko
 			return nil, fmt.Errorf("session_ref must be \"last\", \"today\", or YYYY-MM-DD")
 		}
 		for i := range sessions {
-			if sessions[i].ScheduledDate.In(time.Local).Format("2006-01-02") == ref {
+			if sessions[i].ScheduledDate.In(loc).Format("2006-01-02") == ref {
 				return &sessions[i], nil
 			}
 		}
@@ -536,9 +551,29 @@ func (s *Server) lookupSessionByRef(ref string, refDate time.Time) (*store.Worko
 	}
 }
 
-// parseOccurredAt accepts "YYYY-MM-DD HH:MM" or RFC3339.
-func parseOccurredAt(s string) (time.Time, error) {
-	if t, err := time.ParseInLocation("2006-01-02 15:04", s, time.Local); err == nil {
+// userLocation returns the user's stored timezone (falls back to time.Local
+// if unset / lookup fails). The MCP path matches the rest of the server in
+// formatting "today" and parsing wall-clock occurred_at strings in the
+// user's calendar — a UTC-hosted bot would otherwise misalign at midnight.
+func (s *Server) userLocation() *time.Location {
+	if s.settings == nil {
+		return time.Local
+	}
+	tz, err := s.settings.GetCurrentTimezone()
+	if err != nil || tz == "" {
+		return time.Local
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return time.Local
+	}
+	return loc
+}
+
+// parseOccurredAt accepts "YYYY-MM-DD HH:MM" (interpreted in loc) or RFC3339
+// (which carries its own offset and ignores loc).
+func parseOccurredAt(s string, loc *time.Location) (time.Time, error) {
+	if t, err := time.ParseInLocation("2006-01-02 15:04", s, loc); err == nil {
 		return t, nil
 	}
 	if t, err := time.Parse(time.RFC3339, s); err == nil {

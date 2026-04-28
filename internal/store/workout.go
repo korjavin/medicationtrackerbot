@@ -982,11 +982,14 @@ func (s *Store) DeleteExerciseLog(id int64) error {
 // zero value falls back to CURRENT_TIMESTAMP on insert and leaves the
 // existing column untouched on update.
 //
-// On the update path the existing row's `source` is preserved. The agent
-// may enrich a row that originated from a scheduled or library-sourced
-// log, but it must not relabel it as "agent" — that would orphan the
-// planned exercise from the completion check (only schedule-sourced logs
-// satisfy planned exercise IDs, see domain.CheckCompletion).
+// On the update path the existing row's `source` and `exercise_id` are
+// preserved when they already point to a scheduled/library exercise — the
+// agent may enrich a planned row, but it must not relabel it as "agent"
+// or zero out the planned ID (CheckCompletion only counts schedule-sourced
+// logs with non-zero exercise_id). When the existing row is itself ad-hoc
+// (exercise_id=0) and the new call carries a planned exercise_id (>0), we
+// promote both fields so a re-send after the session was attached to a
+// schedule still satisfies CheckCompletion.
 func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string, loggedAt time.Time) (int64, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -994,11 +997,12 @@ func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID, exercise
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var existingID int64
+	var existingID, existingExerciseID int64
+	var existingSource sql.NullString
 	err = tx.QueryRowContext(ctx, `
-		SELECT id FROM workout_exercise_logs
+		SELECT id, exercise_id, source FROM workout_exercise_logs
 		WHERE session_id = ? AND LOWER(exercise_name) = LOWER(?)
-		LIMIT 1`, sessionID, exerciseName).Scan(&existingID)
+		LIMIT 1`, sessionID, exerciseName).Scan(&existingID, &existingExerciseID, &existingSource)
 	if err != nil && err != sql.ErrNoRows {
 		return 0, false, err
 	}
@@ -1030,20 +1034,29 @@ func (s *Store) UpsertExerciseLogByName(ctx context.Context, sessionID, exercise
 		return newID, true, nil
 	}
 
+	// Promote ad-hoc rows to scheduled when the new call carries a planned
+	// exercise_id; otherwise preserve the existing identity (see func doc).
+	updateExerciseID := existingExerciseID
+	updateSource := existingSource.String
+	if existingExerciseID == 0 && exerciseID > 0 {
+		updateExerciseID = exerciseID
+		updateSource = source
+	}
+
 	if loggedAt.IsZero() {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE workout_exercise_logs
-			SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?
+			SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?, exercise_id = ?, source = ?
 			WHERE id = ?`,
-			setsCompleted, repsCompleted, weightKg, status, notes, existingID); err != nil {
+			setsCompleted, repsCompleted, weightKg, status, notes, updateExerciseID, updateSource, existingID); err != nil {
 			return 0, false, err
 		}
 	} else {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE workout_exercise_logs
-			SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?, logged_at = ?
+			SET sets_completed = ?, reps_completed = ?, weight_kg = ?, status = ?, notes = ?, exercise_id = ?, source = ?, logged_at = ?
 			WHERE id = ?`,
-			setsCompleted, repsCompleted, weightKg, status, notes, loggedAt.UTC(), existingID); err != nil {
+			setsCompleted, repsCompleted, weightKg, status, notes, updateExerciseID, updateSource, loggedAt.UTC(), existingID); err != nil {
 			return 0, false, err
 		}
 	}
@@ -1486,10 +1499,11 @@ func (s *Store) ListRecentExerciseLogsByName(ctx context.Context, userID int64, 
 }
 
 // GetDistinctExerciseNamesForUser returns the union of distinct exercise names
-// the user has access to: their exercise_library entries plus any historical
-// names from their workout_exercise_logs. Names are deduplicated case-insensitively
-// and returned in alphabetical order. Used by the workout resolver to build the
-// fuzzy-match catalog.
+// the user has access to: their exercise_library entries, names from their
+// workout_exercise_logs history, and names from currently-scheduled
+// workout_exercises (so a freshly-planned exercise with no log yet is still
+// in the resolver catalog). Names are deduplicated case-insensitively and
+// returned in alphabetical order.
 func (s *Store) GetDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT name FROM exercise_library WHERE user_id = ?
@@ -1497,7 +1511,12 @@ func (s *Store) GetDistinctExerciseNamesForUser(ctx context.Context, userID int6
 		SELECT wel.exercise_name FROM workout_exercise_logs wel
 		JOIN workout_sessions ws ON ws.id = wel.session_id
 		WHERE ws.user_id = ?
-		ORDER BY 1 COLLATE NOCASE ASC`, userID, userID)
+		UNION
+		SELECT we.exercise_name FROM workout_exercises we
+		JOIN workout_variants wv ON wv.id = we.variant_id
+		JOIN workout_groups wg ON wg.id = wv.group_id
+		WHERE wg.user_id = ?
+		ORDER BY 1 COLLATE NOCASE ASC`, userID, userID, userID)
 	if err != nil {
 		return nil, err
 	}
