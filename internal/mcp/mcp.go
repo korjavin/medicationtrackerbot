@@ -391,6 +391,72 @@ func (s *Server) registerTools() {
 		s.handleLogFoodIntake,
 	)
 
+	// Workout Log Tool — call operation:"help" for the full protocol.
+	mcp.AddTool(s.mcpServer,
+		&mcp.Tool{
+			Name:        "workout_log",
+			Description: "Log, retrieve, and delete workout exercises. The 'operation' field selects one of: help (returns full protocol — call this first), log (append/upsert exercises to a session), get (recent N sessions with exercise logs), delete_exercise (remove an exercise log). Always call operation:\"help\" first to get input/response shapes, resolution rules, and idempotency semantics.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"required": ["operation"],
+				"properties": {
+					"operation": {
+						"type": "string",
+						"enum": ["help", "log", "get", "delete_exercise"],
+						"description": "Selects the operation. Call \"help\" first for the full protocol document."
+					},
+					"session_id": {
+						"type": "integer",
+						"description": "Workout session ID. Optional for log; required for delete_exercise."
+					},
+					"session_ref": {
+						"type": "string",
+						"description": "Alternative to session_id: \"last\", \"today\", or YYYY-MM-DD."
+					},
+					"occurred_at": {
+						"type": "string",
+						"description": "When the workout happened. \"YYYY-MM-DD HH:MM\" or RFC3339. Defaults to now for log."
+					},
+					"exercises": {
+						"type": "array",
+						"description": "Exercises to log. See operation:\"help\" for the per-exercise shape (sets/reps/weight_kg/duration_minutes/notes/per_set, all optional except name).",
+						"items": {
+							"type": "object",
+							"required": ["name"],
+							"properties": {
+								"name": {"type": "string"},
+								"sets": {"type": "integer"},
+								"reps": {"type": "integer"},
+								"weight_kg": {"type": "number"},
+								"duration_minutes": {"type": "integer"},
+								"notes": {"type": "string"},
+								"per_set": {
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"reps": {"type": "integer"},
+											"weight_kg": {"type": "number"}
+										}
+									}
+								}
+							}
+						}
+					},
+					"exercise_name": {
+						"type": "string",
+						"description": "For delete_exercise: the resolved exercise name to remove from the session."
+					},
+					"limit": {
+						"type": "integer",
+						"description": "For get: max number of recent sessions to return (default 10, max 50)."
+					}
+				}
+			}`),
+		},
+		s.handleWorkoutLog,
+	)
+
 	// Diary Notes Tool
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{

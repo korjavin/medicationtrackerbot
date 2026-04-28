@@ -151,12 +151,12 @@ Files:
 - Modify: `internal/mcp/mcp.go` — `registerTools()` add `mcp.AddTool(...)` for `workout_log`
 - Modify: `internal/mcp/tools_test.go` — handler tests
 
-- [ ] author the `workoutLogHelpDoc` constant (full protocol, examples, resolution rules; the same content as the Protocol section above) and return it verbatim under `operation: "help"` without calling the writer or DB
-- [ ] short tool description that mentions `operation: "help"` as the entry point and lists the four operations
-- [ ] dispatch on `operation`: validate, call `WorkoutWriter`, pass response through; on `help` return the doc; on unknown operation return an error suggesting `help`
-- [ ] feature gate via `ensureFeatureEnabled(ctx, "workouts")` (or current workout feature key — verify in code)
-- [ ] handler tests for each operation including help (no network call), invalid operation, writer error passthrough
-- [ ] run `go test ./internal/mcp/...` — must pass before task 5
+- [x] author the `workoutLogHelpDoc` constant (full protocol, examples, resolution rules; the same content as the Protocol section above) and return it verbatim under `operation: "help"` without calling the writer or DB
+- [x] short tool description that mentions `operation: "help"` as the entry point and lists the four operations
+- [x] dispatch on `operation`: validate, call `WorkoutWriter`, pass response through; on `help` return the doc; on unknown operation return an error suggesting `help`
+- [x] feature gate via `ensureFeatureEnabled(ctx, "workouts")` (or current workout feature key — verify in code)
+- [x] handler tests for each operation including help (no network call), invalid operation, writer error passthrough
+- [x] run `go test ./internal/mcp/...` — must pass before task 5
 
 ### Task 5: Verify acceptance criteria
 
