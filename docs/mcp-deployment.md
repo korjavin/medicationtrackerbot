@@ -86,36 +86,28 @@ Tokens are managed via a tiny admin HTTP API that listens on a loopback-only soc
 
 The plaintext token is returned ONCE at creation. Only `sha256(token)` is stored. If you lose the plaintext, delete the row and create a new token.
 
-Because the admin listener is bound inside the container's network namespace, `127.0.0.1:8082` on the host is NOT the same socket. Pick one of:
+Because the admin listener is bound inside the container's network namespace, `127.0.0.1:8082` on the host is NOT the same socket. The application image ships without `curl`, and Docker's published-port forwarding targets the container's external interface (not its loopback), so neither `docker exec medtracker-mcp curl ...` nor a `127.0.0.1:8082:8082` host port mapping will reach the admin server.
 
-- Run the admin curl through `docker exec`, which enters the container's loopback:
-  ```bash
-  docker exec medtracker-mcp \
-    curl -s -X POST http://127.0.0.1:8082/admin/tokens \
-    -H 'Content-Type: application/json' -d '{"name":"home-automation"}'
-  ```
-- Or expose the admin port to the host's loopback only (never to `0.0.0.0`) by adding to the `mcp-server` compose service:
-  ```yaml
-      ports:
-        - "127.0.0.1:8082:8082"   # host loopback ↔ container loopback; never bind to 0.0.0.0
-  ```
-  After which the curl examples below run from the host as written.
-
-Examples (run from inside the container, or with the host-loopback port mapping above):
+The reliable way to talk to the admin API is to run a short-lived helper container that shares the MCP container's network namespace — its `127.0.0.1` then IS the MCP container's loopback:
 
 ```bash
 # Create a token (plaintext returned ONCE — store it immediately)
-curl -s -X POST http://127.0.0.1:8082/admin/tokens \
+docker run --rm --network container:medtracker-mcp curlimages/curl:latest \
+  -s -X POST http://127.0.0.1:8082/admin/tokens \
   -H 'Content-Type: application/json' \
   -d '{"name":"home-automation"}'
 # → {"id":1,"name":"home-automation","token":"mcp_<64 hex chars>"}
 
 # List tokens (no plaintext)
-curl -s http://127.0.0.1:8082/admin/tokens
+docker run --rm --network container:medtracker-mcp curlimages/curl:latest \
+  -s http://127.0.0.1:8082/admin/tokens
 
 # Revoke a token
-curl -s -X DELETE http://127.0.0.1:8082/admin/tokens/1
+docker run --rm --network container:medtracker-mcp curlimages/curl:latest \
+  -s -X DELETE http://127.0.0.1:8082/admin/tokens/1
 ```
+
+For non-Docker deployments (running `mcptool` directly on a host), the admin API is reachable as `http://127.0.0.1:8082/admin/tokens` from the same host with any local HTTP client.
 
 Use the token to call the MCP endpoint:
 
