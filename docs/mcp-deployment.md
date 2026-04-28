@@ -75,6 +75,38 @@ You can also run the binary locally against a local DB copy:
 }
 ```
 
+## Long-lived API tokens
+
+For consumers that cannot complete the Pocket-ID OIDC flow (scripts, CI jobs, simple automations), the MCP server accepts long-lived bearer tokens prefixed `mcp_`. Tokens never expire; revocation is by deletion.
+
+Tokens are managed via a tiny admin HTTP API that listens on a loopback-only socket (`127.0.0.1:MCP_ADMIN_PORT`, default `8082`). The listener has no authentication of its own — protection comes from the OS-level binding. Do NOT proxy this port through Traefik or any reverse proxy. Set `MCP_ADMIN_PORT=0` to disable the admin API entirely.
+
+The plaintext token is returned ONCE at creation. Only `sha256(token)` is stored. If you lose the plaintext, delete the row and create a new token.
+
+Examples (run on the same host as `mcptool`):
+
+```bash
+# Create a token (plaintext returned ONCE — store it immediately)
+curl -s -X POST http://127.0.0.1:8082/admin/tokens \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"home-automation"}'
+# → {"id":1,"name":"home-automation","token":"mcp_<64 hex chars>"}
+
+# List tokens (no plaintext)
+curl -s http://127.0.0.1:8082/admin/tokens
+
+# Revoke a token
+curl -s -X DELETE http://127.0.0.1:8082/admin/tokens/1
+```
+
+Use the token to call the MCP endpoint:
+
+```bash
+curl -H "Authorization: Bearer mcp_<token>" https://mcp.yourdomain.com/mcp
+```
+
+When a request arrives with an `Authorization: Bearer mcp_...` header the OAuth middleware looks the token up by hash; on hit it sets the request subject to `api-token:<name>` and updates `last_used_at`. Bearer values without the `mcp_` prefix fall through to the standard JWT validation path.
+
 ## Tools
 
 Read tools (`get_*`, `analyze_*`) query the SQLite database directly from the MCP process and return JSON.
