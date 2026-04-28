@@ -1281,7 +1281,10 @@ Input shape:
       "sets": 3,                                // optional — inferred from history if omitted
       "reps": 10,                               // optional
       "weight_kg": 12.5,                        // optional
-      "duration_minutes": 0,                    // optional, for cardio
+      "duration_minutes": 0,                    // optional, for cardio; recorded
+                                                // as a "[duration: N min]" prefix
+                                                // in the notes field (no dedicated
+                                                // column on workout_exercise_logs)
       "notes": "",                              // optional
       "per_set": [                              // optional rich form; aggregated as
                                                 // sets=len(per_set), reps=max(reps), weight_kg=max(weight_kg)
