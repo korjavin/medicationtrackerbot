@@ -59,6 +59,7 @@ type Config struct {
 	UserID         int64  // The database user ID to query data for
 	AuditEndpoint  string
 	AuditSecret    string
+	AdminPort      int // Port for the loopback-only admin API (0 disables it)
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
@@ -71,6 +72,15 @@ func LoadConfigFromEnv() (*Config, error) {
 	maxQueryDays, _ := strconv.Atoi(os.Getenv("MCP_MAX_QUERY_DAYS"))
 	if maxQueryDays == 0 {
 		maxQueryDays = 90 // default 3 months
+	}
+
+	adminPort := 8082 // default
+	if raw := strings.TrimSpace(os.Getenv("MCP_ADMIN_PORT")); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid MCP_ADMIN_PORT %q: %w", raw, err)
+		}
+		adminPort = v
 	}
 
 	userID, _ := strconv.ParseInt(os.Getenv("ALLOWED_USER_ID"), 10, 64)
@@ -91,6 +101,7 @@ func LoadConfigFromEnv() (*Config, error) {
 		UserID:         userID,
 		AuditEndpoint:  os.Getenv("MCP_AUDIT_ENDPOINT"),
 		AuditSecret:    os.Getenv("MCP_AUDIT_SECRET"),
+		AdminPort:      adminPort,
 	}
 
 	if cfg.DatabasePath == "" {
@@ -115,6 +126,7 @@ type Server struct {
 	audit         *AuditBuffer
 	foodWriter    *FoodWriter
 	workoutWriter *WorkoutWriter
+	admin         AdminStore
 }
 
 // NewServer creates a new MCP server
@@ -123,6 +135,7 @@ func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error
 		config: cfg,
 		data:   st,
 		audit:  audit,
+		admin:  st,
 	}
 
 	// Create MCP server instance
@@ -611,6 +624,24 @@ func (s *Server) Run(ctx context.Context) error {
 		IdleTimeout:       120 * time.Second,
 	}
 
+	// Optional admin API on a loopback-only listener.
+	var adminServer *http.Server
+	if s.config.AdminPort > 0 && s.admin != nil {
+		adminAddr := fmt.Sprintf("127.0.0.1:%d", s.config.AdminPort)
+		adminServer = &http.Server{
+			Addr:              adminAddr,
+			Handler:           NewAdminHandler(s.admin).Mux(),
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		}
+		go func() {
+			slog.Info("[MCP/Admin] Admin API listening", "addr", adminAddr)
+			if err := adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				slog.Error("[MCP/Admin] admin server error", "error", err)
+			}
+		}()
+	}
+
 	// Graceful shutdown
 	go func() {
 		sigCh := make(chan os.Signal, 1)
@@ -621,6 +652,11 @@ func (s *Server) Run(ctx context.Context) error {
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			slog.Error("[MCP] shutdown error", "error", err)
+		}
+		if adminServer != nil {
+			if err := adminServer.Shutdown(shutdownCtx); err != nil {
+				slog.Error("[MCP/Admin] shutdown error", "error", err)
+			}
 		}
 	}()
 
