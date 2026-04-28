@@ -160,9 +160,9 @@ Files:
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] run `go test ./...` — full suite must pass
-- [ ] run `go vet ./...` and `gofmt -l .` — must be clean
-- [ ] confirm idempotency in tests: re-send same `log` payload, verify no duplicate rows in `workout_exercise_logs`
+- [x] run `go test ./...` — full suite must pass
+- [x] run `go vet ./...` and `gofmt -l .` — must be clean (vet clean; gofmt clean for files touched on this branch — pre-existing repo files unrelated to this iteration also need gofmt but are out of scope)
+- [x] confirm idempotency in tests: re-send same `log` payload, verify no duplicate rows in `workout_exercise_logs` (covered by `TestMCPWorkoutLog_LogIdempotent` in `internal/server/mcp_workout_log_test.go`)
 
 ### Task 6: Update documentation
 

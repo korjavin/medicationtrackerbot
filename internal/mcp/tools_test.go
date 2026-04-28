@@ -1243,4 +1243,3 @@ func TestHandleWorkoutLog_WriterErrorPassThrough(t *testing.T) {
 		t.Errorf("expected wrapped writer error, got %v", err)
 	}
 }
-
