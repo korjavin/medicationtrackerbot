@@ -28,7 +28,8 @@ func main() {
 		"maxQueryDays", cfg.MaxQueryDays,
 	)
 
-	// Initialize store (read-only access to the database)
+	// Initialize store. The MCP server needs write access for goose migrations
+	// on startup and for the loopback admin API that manages api_tokens.
 	st, err := store.New(cfg.DatabasePath)
 	if err != nil {
 		slog.Error("[MCP] Failed to initialize store", "error", err)

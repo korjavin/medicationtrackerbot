@@ -65,7 +65,7 @@ services:
     restart: unless-stopped
     command: ["./mcptool"]
     volumes:
-      - medtracker_data:/app/data:ro
+      - medtracker_data:/app/data
     environment:
       - MCP_PORT=${MCP_PORT:-8081}
       - MCP_DATABASE_PATH=${MCP_DATABASE_PATH:-/app/data/meds.db}
