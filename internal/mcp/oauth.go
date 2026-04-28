@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +17,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 // ctxKey is a context key type for user info
@@ -22,13 +25,26 @@ type ctxKey string
 
 const (
 	UserSubjectCtxKey ctxKey = "user_subject"
+
+	// APITokenPrefix marks long-lived static API tokens. Bearer values that
+	// begin with this prefix are looked up in the api_tokens table instead of
+	// being parsed as JWTs.
+	APITokenPrefix = "mcp_"
 )
+
+// APITokenStore is the subset of the store needed by the OAuth middleware to
+// support long-lived API tokens. Both *store.Store and test fakes implement it.
+type APITokenStore interface {
+	FindAPITokenByHash(ctx context.Context, hash string) (*store.APIToken, error)
+	TouchAPITokenLastUsed(ctx context.Context, id int64) error
+}
 
 // OAuthHandler handles OAuth-related endpoints and token validation
 type OAuthHandler struct {
 	config     *Config
 	jwksCache  *JWKSCache
 	httpClient *http.Client
+	tokens     APITokenStore
 }
 
 // JWKSCache caches JWKS (JSON Web Key Set) for token validation
@@ -39,8 +55,9 @@ type JWKSCache struct {
 	ttl        time.Duration
 }
 
-// NewOAuthHandler creates a new OAuth handler
-func NewOAuthHandler(cfg *Config) *OAuthHandler {
+// NewOAuthHandler creates a new OAuth handler. The tokens argument may be nil
+// — when nil, the API-token bypass is disabled and only JWT auth works.
+func NewOAuthHandler(cfg *Config, tokens APITokenStore) *OAuthHandler {
 	return &OAuthHandler{
 		config: cfg,
 		jwksCache: &JWKSCache{
@@ -62,6 +79,7 @@ func NewOAuthHandler(cfg *Config) *OAuthHandler {
 				ExpectContinueTimeout: 1 * time.Second,
 			},
 		},
+		tokens: tokens,
 	}
 }
 
@@ -102,6 +120,37 @@ func (h *OAuthHandler) Middleware(next http.Handler) http.Handler {
 		}
 
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+		// API token bypass: a Bearer value with the mcp_ prefix is looked up
+		// in the api_tokens table rather than parsed as a JWT.
+		if strings.HasPrefix(tokenString, APITokenPrefix) {
+			if h.tokens == nil {
+				slog.Warn("[MCP/OAuth] API token presented but token store is not configured")
+				h.sendUnauthorized(w, "invalid token")
+				return
+			}
+			sum := sha256.Sum256([]byte(tokenString))
+			hash := hex.EncodeToString(sum[:])
+			tok, err := h.tokens.FindAPITokenByHash(r.Context(), hash)
+			if err != nil {
+				slog.Error("[MCP/OAuth] API token lookup failed", "error", err)
+				h.sendUnauthorized(w, "invalid token")
+				return
+			}
+			if tok == nil {
+				slog.Warn("[MCP/OAuth] API token not recognized")
+				h.sendUnauthorized(w, "invalid token")
+				return
+			}
+			if err := h.tokens.TouchAPITokenLastUsed(r.Context(), tok.ID); err != nil {
+				slog.Warn("[MCP/OAuth] Failed to touch API token last_used_at", "error", err, "token_id", tok.ID)
+			}
+			subject := "api-token:" + tok.Name
+			slog.Info("[MCP/OAuth] API token authorized", "token_name", tok.Name)
+			ctx := context.WithValue(r.Context(), UserSubjectCtxKey, subject)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
 
 		// Validate the token
 		subject, err := h.validateToken(r.Context(), tokenString)
