@@ -134,8 +134,9 @@ func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error
 		nil,
 	)
 
-	// Create OAuth handler
-	s.oauth = NewOAuthHandler(cfg)
+	// Create OAuth handler. The store satisfies APITokenStore so long-lived
+	// API tokens can be validated alongside JWTs.
+	s.oauth = NewOAuthHandler(cfg, st)
 
 	// Wire food + workout writers using the audit endpoint base URL.
 	if cfg.AuditEndpoint != "" && cfg.AuditSecret != "" {

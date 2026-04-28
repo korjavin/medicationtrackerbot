@@ -58,13 +58,13 @@ Add a simple long-lived API token mechanism to the MCP server so consumers that 
 - Modify: `internal/mcp/oauth.go`
 - Create: `internal/mcp/oauth_apitoken_test.go`
 
-- [ ] Add `APITokenStore` interface to `oauth.go`: `FindAPITokenByHash` + `TouchAPITokenLastUsed` (so tests can inject a fake; `*store.Store` will satisfy it).
-- [ ] Plumb the store into `OAuthHandler`: extend `NewOAuthHandler` to accept it; update `mcp.NewServer` accordingly.
-- [ ] In Middleware, after parsing the Bearer value: if it starts with `"mcp_"`, compute sha256 hex, call `FindAPITokenByHash`. On hit: `TouchAPITokenLastUsed` (best-effort, log on error), set `UserSubjectCtxKey = "api-token:" + token.Name`, log `slog.Info("[MCP/OAuth] API token authorized", "token_name", token.Name)`, call next. On miss: send 401.
-- [ ] If the value does NOT start with `"mcp_"`, fall through to existing JWT validation path unchanged.
-- [ ] Add constant for the token prefix (`"mcp_"`) at top of `oauth.go`.
-- [ ] Write `oauth_apitoken_test.go` with table-driven cases: valid token → 200, unknown token (`mcp_` prefix but no DB row) → 401, malformed token → 401, JWT path still works (with stub validator if needed — or just verify `mcp_` prefix is preferred over JWT branch).
-- [ ] Run `go test ./internal/mcp/...`
+- [x] Add `APITokenStore` interface to `oauth.go`: `FindAPITokenByHash` + `TouchAPITokenLastUsed` (so tests can inject a fake; `*store.Store` will satisfy it).
+- [x] Plumb the store into `OAuthHandler`: extend `NewOAuthHandler` to accept it; update `mcp.NewServer` accordingly.
+- [x] In Middleware, after parsing the Bearer value: if it starts with `"mcp_"`, compute sha256 hex, call `FindAPITokenByHash`. On hit: `TouchAPITokenLastUsed` (best-effort, log on error), set `UserSubjectCtxKey = "api-token:" + token.Name`, log `slog.Info("[MCP/OAuth] API token authorized", "token_name", token.Name)`, call next. On miss: send 401.
+- [x] If the value does NOT start with `"mcp_"`, fall through to existing JWT validation path unchanged.
+- [x] Add constant for the token prefix (`"mcp_"`) at top of `oauth.go`.
+- [x] Write `oauth_apitoken_test.go` with table-driven cases: valid token → 200, unknown token (`mcp_` prefix but no DB row) → 401, malformed token → 401, JWT path still works (with stub validator if needed — or just verify `mcp_` prefix is preferred over JWT branch).
+- [x] Run `go test ./internal/mcp/...`
 
 ### Task 3: Admin HTTP API on a loopback-only listener
 

@@ -20,7 +20,7 @@ func TestNewOAuthHandler(t *testing.T) {
 		ClientID:       "test-client",
 	}
 
-	handler := NewOAuthHandler(cfg)
+	handler := NewOAuthHandler(cfg, nil)
 
 	if handler == nil {
 		t.Fatal("NewOAuthHandler returned nil")
@@ -179,7 +179,7 @@ func TestValidateToken_IssuerEnforcement(t *testing.T) {
 		MCPServerURL: "https://mcp.example.com",
 		ClientID:     "test-client",
 	}
-	h := NewOAuthHandler(cfg)
+	h := NewOAuthHandler(cfg, nil)
 	// Inject the public key into the cache
 	h.jwksCache.keys["test-kid"] = publicKey
 	h.jwksCache.lastUpdate = time.Now()
@@ -231,7 +231,7 @@ func TestHandleProtectedResourceMetadata(t *testing.T) {
 		MCPServerURL: "https://mcp.example.com",
 		PocketIDURL:  "https://auth.example.com",
 	}
-	h := NewOAuthHandler(cfg)
+	h := NewOAuthHandler(cfg, nil)
 
 	req, err := http.NewRequest("GET", "/.well-known/oauth-protected-resource", nil)
 	if err != nil {
