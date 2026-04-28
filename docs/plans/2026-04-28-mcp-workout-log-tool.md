@@ -139,10 +139,10 @@ Files:
 - Modify: `cmd/mcptool/main.go` — construct and inject `WorkoutWriter` (mirror food writer wiring; share same `MCP_AUDIT_ENDPOINT`/`MCP_AUDIT_SECRET` envs, derive `/api/mcp-workout-log` from base if present, otherwise allow override env)
 - Modify: `internal/mcp/mcp.go` — add `workoutWriter` field on `Server`, plumb through constructor
 
-- [ ] implement `WorkoutWriter.Call(ctx, payload) (rawJSON, error)` returning the bot's full response unchanged
-- [ ] envelope error responses (transport vs application) so handler can pass body through to the agent verbatim
-- [ ] tests using `httptest.Server` to verify HMAC header, body, status handling
-- [ ] run `go test ./internal/mcp/...` — must pass before task 4
+- [x] implement `WorkoutWriter.Call(ctx, payload) (rawJSON, error)` returning the bot's full response unchanged
+- [x] envelope error responses (transport vs application) so handler can pass body through to the agent verbatim
+- [x] tests using `httptest.Server` to verify HMAC header, body, status handling
+- [x] run `go test ./internal/mcp/...` — must pass before task 4
 
 ### Task 4: MCP tool handler + registration + help docs
 
