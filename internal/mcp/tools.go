@@ -1351,10 +1351,12 @@ Examples:
     {"operation":"delete_exercise","session_id":123,"exercise_name":"Biceps Curls"}
 `
 
-// WorkoutSetInput is one set inside the rich per_set form.
+// WorkoutSetInput is one set inside the rich per_set form. Pointer fields
+// distinguish omitted (server may infer from history) from explicit zero
+// (e.g. bodyweight exercises with weight_kg=0).
 type WorkoutSetInput struct {
-	Reps     int     `json:"reps"`
-	WeightKg float64 `json:"weight_kg"`
+	Reps     *int     `json:"reps,omitempty"`
+	WeightKg *float64 `json:"weight_kg,omitempty"`
 }
 
 // WorkoutExerciseInput is one exercise as the agent wants to log it.
