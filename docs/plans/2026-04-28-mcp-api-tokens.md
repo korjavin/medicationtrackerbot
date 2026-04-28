@@ -73,17 +73,17 @@ Add a simple long-lived API token mechanism to the MCP server so consumers that 
 - Create: `internal/mcp/admin.go`
 - Create: `internal/mcp/admin_test.go`
 
-- [ ] Add `Config.AdminPort` (int) and load `MCP_ADMIN_PORT` in `LoadConfigFromEnv` (default 8082; 0 means disabled).
-- [ ] Add `AdminStore` interface in `admin.go`: `CreateAPIToken`, `ListAPITokens`, `DeleteAPIToken` (mirrors what handlers need).
-- [ ] Implement `AdminHandler` with three routes:
+- [x] Add `Config.AdminPort` (int) and load `MCP_ADMIN_PORT` in `LoadConfigFromEnv` (default 8082; 0 means disabled).
+- [x] Add `AdminStore` interface in `admin.go`: `CreateAPIToken`, `ListAPITokens`, `DeleteAPIToken` (mirrors what handlers need).
+- [x] Implement `AdminHandler` with three routes:
   - `POST /admin/tokens` — body `{"name":"..."}`; generate plaintext token (prefix + `crypto/rand` 32 bytes hex); insert sha256 hash; respond `{"id":N,"name":"...","token":"mcp_..."}` (plaintext returned ONCE).
   - `GET  /admin/tokens` — return `[{"id","name","created_at","last_used_at"}, ...]`.
   - `DELETE /admin/tokens/{id}` — return 204 on success, 404 on missing id.
-- [ ] All responses `application/json`; use `http.StatusBadRequest` for empty/missing name; reject names > 100 chars; validate id is integer.
-- [ ] In `Server.Run`, if `cfg.AdminPort > 0` start a second `http.Server` bound to `fmt.Sprintf("127.0.0.1:%d", cfg.AdminPort)` with the AdminHandler mux. Goroutine + same graceful-shutdown signal handling as the main server.
-- [ ] Log `slog.Info("[MCP/Admin] Admin API listening", "addr", "127.0.0.1:...")` on startup.
-- [ ] Write `admin_test.go` covering create (verifies token starts with `mcp_`, length, hash stored matches), list (after creating two), delete (success + 404), bad input (empty name, name too long, non-integer id).
-- [ ] Run `go test ./internal/mcp/...`
+- [x] All responses `application/json`; use `http.StatusBadRequest` for empty/missing name; reject names > 100 chars; validate id is integer.
+- [x] In `Server.Run`, if `cfg.AdminPort > 0` start a second `http.Server` bound to `fmt.Sprintf("127.0.0.1:%d", cfg.AdminPort)` with the AdminHandler mux. Goroutine + same graceful-shutdown signal handling as the main server.
+- [x] Log `slog.Info("[MCP/Admin] Admin API listening", "addr", "127.0.0.1:...")` on startup.
+- [x] Write `admin_test.go` covering create (verifies token starts with `mcp_`, length, hash stored matches), list (after creating two), delete (success + 404), bad input (empty name, name too long, non-integer id).
+- [x] Run `go test ./internal/mcp/...`
 
 ### Task 4: End-to-end verification and docs
 
