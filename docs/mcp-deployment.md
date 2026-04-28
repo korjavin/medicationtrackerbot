@@ -75,11 +75,30 @@ You can also run the binary locally against a local DB copy:
 }
 ```
 
+## Tools
+
+Read tools (`get_*`, `analyze_*`) query the SQLite database directly from the MCP process and return JSON.
+
+Write tools cannot mutate the read-only DB volume; instead they HMAC-sign a JSON payload and POST it to the main bot's HTTP server, which performs the write. Both processes share `MCP_AUDIT_ENDPOINT` / `MCP_AUDIT_SECRET`; the per-tool endpoint is derived from the audit endpoint's host (`/api/mcp-food-log`, `/api/mcp-workout-log`).
+
+### `workout_log`
+
+Single entry point for workout logging. The static tool description is intentionally short — the agent calls `operation: "help"` first to fetch the full protocol document (input/response shape, resolution rules, idempotency semantics).
+
+Operations:
+- `help` — return the protocol document (no DB / network call)
+- `log` — append or upsert exercises into a workout session (creates an ad-hoc session when no `session_id`/`session_ref` is provided). Resolves fuzzy exercise names against the user's catalog (exact → substring → Levenshtein ≤ 2) and infers omitted sets/reps/weight from the most recent matching log. Returns per-exercise statuses (`logged` / `ambiguous` / `missing_defaults`) so partial successes are observable.
+- `get` — recent N sessions with their exercise logs
+- `delete_exercise` — remove the log for `(session_id, exercise_name)`
+
+Idempotency: upsert key is `(session_id, resolved_name)` — re-sending refines state instead of duplicating.
+
 ## Adding MCP Tools
 
 1. Add tool definition in `internal/mcp/tools.go` (granular) or a dedicated file (composite tools, e.g. `cardiovascular.go`, `fitness.go`)
 2. Implement handler function
 3. Register the tool in server initialization (`internal/mcp/mcp.go`)
 4. For read tools: include context notes via `notes_helper.go` (`fetchContextNotes` / `shouldIncludeNotes`); support `exclude_notes` parameter
-5. Update `.env.mcp.example` if new config is needed
-6. **Naming**: `get_*` for granular read tools, `log_*` for write tools, `analyze_*` for composite read tools
+5. For write tools: add a bot HTTP endpoint under `internal/server/` that verifies the HMAC header (mirror `/api/mcp-food-log` and `/api/mcp-workout-log`), then add an `internal/mcp/<tool>_writer.go` HMAC client mirroring `food_writer.go` / `workout_writer.go`, and wire it through `cmd/mcptool/main.go` and `internal/mcp/mcp.go`. Keep the static tool description short and route the protocol document through an `operation: "help"` branch so it doesn't consume agent context tokens on every call.
+6. Update `.env.mcp.example` if new config is needed
+7. **Naming**: `get_*` for granular read tools, `log_*` / `<noun>_log` for write tools, `analyze_*` for composite read tools

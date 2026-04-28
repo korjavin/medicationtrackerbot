@@ -166,7 +166,7 @@ Files:
 
 ### Task 6: Update documentation
 
-- [ ] update `docs/mcp-deployment.md` with the new tool name, brief operation summary, and a pointer to call `operation: "help"` for the full protocol
-- [ ] update `docs/api.md` with the `/api/mcp-workout-log` endpoint
-- [ ] update `CLAUDE.md` "Adding an MCP tool" cross-reference if the procedure changed
-- [ ] move this plan to `docs/plans/completed/`
+- [x] update `docs/mcp-deployment.md` with the new tool name, brief operation summary, and a pointer to call `operation: "help"` for the full protocol
+- [x] update `docs/api.md` with the `/api/mcp-workout-log` endpoint
+- [x] update `CLAUDE.md` "Adding an MCP tool" cross-reference if the procedure changed (anchor `#adding-mcp-tools` still resolves; expanded the linked section in `docs/mcp-deployment.md` rather than the cross-reference itself)
+- [x] move this plan to `docs/plans/completed/`

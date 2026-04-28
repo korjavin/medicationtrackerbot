@@ -68,3 +68,13 @@
 | GET | `/auth/google/login` | Google login redirect |
 | GET | `/auth/google/callback` | Google callback |
 | GET/POST | `/auth/telegram/callback` | Telegram Login Widget auth (GET: redirect flow, 302; POST: JSON callback) |
+
+## MCP Bridge
+
+These endpoints are called only by the MCP server process (`cmd/mcptool`) over the internal Docker network. Each request must carry an HMAC-SHA256 signature in `X-MCP-Signature` derived from `MCP_AUDIT_SECRET` over the raw request body. The MCP read tools query SQLite directly, but write tools route through these endpoints because the MCP container mounts the data volume read-only.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/mcp-audit` | Audit notification fan-out (Telegram message on tool use) |
+| POST | `/api/mcp-food-log` | Log food intake on behalf of an MCP write tool |
+| POST | `/api/mcp-workout-log` | Workout log dispatcher: `operation` ∈ {`log`, `get`, `delete_exercise`}. Performs fuzzy exercise-name resolution and defaults inference; idempotent upsert on `(session_id, resolved_name)`. Returns HTTP 200 with per-exercise statuses on partial success — only auth/transport errors return non-2xx. See `workout_log` tool's `operation: "help"` for the full protocol. |
