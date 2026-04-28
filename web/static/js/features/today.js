@@ -913,6 +913,11 @@
 
         let rendered = 0;
 
+        if (typeof window !== 'undefined' && window.WGCallAgent && typeof window.WGCallAgent.mountCard === 'function') {
+            window.WGCallAgent.mountCard(root);
+            rendered += 1;
+        }
+
         const shortcuts = renderShortcutRow(state, {
             onLogFood, onAddBp, onAddWeight
         });

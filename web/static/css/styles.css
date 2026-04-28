@@ -4245,6 +4245,72 @@ textarea.wg-input {
     font-weight: 600;
 }
 
+/* Today "Call agent" card — opens an ElevenLabs convai voice call. The card
+   stays on the Today stack; once the user starts a call, the embedded
+   <elevenlabs-convai> widget renders its own bubble UI inside the slot. */
+.wg-call-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--wg-tile-pad-block) var(--space-md);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+}
+
+.wg-call-card__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.wg-call-card__title {
+    margin: 0;
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+}
+
+.wg-call-card__copy {
+    margin: 0;
+    color: var(--wg-fg-2);
+    font-size: var(--font-size-sm);
+}
+
+.wg-call-card__btn {
+    align-self: flex-start;
+    padding: var(--space-xs) var(--space-md);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.wg-call-card__btn[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.wg-call-card__status {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+}
+
+.wg-call-card__status--error {
+    color: var(--danger-color, #ef4444);
+}
+
+.wg-call-card__status--ready {
+    color: var(--wg-fg-1);
+}
+
+.wg-call-card__widget:empty {
+    display: none;
+}
+
+.wg-call-card__widget {
+    display: flex;
+    justify-content: center;
+}
+
 /* Today meds card (Task 3) — header row (icon + kicker + "Take" CTA),
    then an optional list of scheduled med names. Lives at the bottom of
    the Today stack. */

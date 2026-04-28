@@ -338,13 +338,13 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
+		w.Header().Set("Permissions-Policy", "camera=(self), microphone=(self), geolocation=()")
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-site")
 		w.Header().Set("Strict-Transport-Security", "max-age=15552000; includeSubDomains")
 		// Note: 'unsafe-inline' is currently required in style-src because the application dynamically
 		// injects styles for various components (like charts, modals, and dynamic themes).
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; connect-src 'self' https://telegram.org; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://telegram.org https://api.us.elevenlabs.io https://api.elevenlabs.io wss://api.us.elevenlabs.io wss://api.elevenlabs.io; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -526,6 +526,9 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/tz-plan/{id}/approve", s.handleTZPlanApprove)
 	apiMux.HandleFunc("POST /api/tz-plan/{id}/reject", s.handleTZPlanReject)
 	apiMux.HandleFunc("GET /api/health/overview", s.handleGetHealthOverview)
+	// ElevenLabs conversational agent
+	apiMux.HandleFunc("GET /api/elevenlabs/signed-url", s.handleElevenLabsSignedURL)
+
 	apiMux.HandleFunc("GET /api/notes", s.handleListNotes)
 	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)
 	apiMux.HandleFunc("DELETE /api/notes/{id}", s.handleDeleteNote)
