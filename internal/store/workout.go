@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -1509,7 +1510,7 @@ func (s *Store) GetDistinctExerciseNamesForUser(ctx context.Context, userID int6
 		if err := rows.Scan(&n); err != nil {
 			return nil, err
 		}
-		key := lowerASCII(n)
+		key := strings.ToLower(n)
 		if seen[key] {
 			continue
 		}
@@ -1517,20 +1518,4 @@ func (s *Store) GetDistinctExerciseNamesForUser(ctx context.Context, userID int6
 		names = append(names, n)
 	}
 	return names, nil
-}
-
-// lowerASCII is an ASCII-only lower-caser used for case-insensitive dedup of
-// exercise names returned to the resolver. Full Unicode folding is done by
-// callers when needed; we stay ASCII here to avoid pulling strings into a file
-// that doesn't otherwise need it.
-func lowerASCII(s string) string {
-	b := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		b[i] = c
-	}
-	return string(b)
 }

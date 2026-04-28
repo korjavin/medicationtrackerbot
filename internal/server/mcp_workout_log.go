@@ -140,7 +140,18 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 		return
 	}
 
-	session, occurredAt, mayCreateAdHoc, err := s.lookupSessionForLog(req)
+	occurredAt := time.Now()
+	occurredAtSupplied := strings.TrimSpace(req.OccurredAt) != ""
+	if occurredAtSupplied {
+		t, err := parseOccurredAt(req.OccurredAt)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("invalid occurred_at: %v", err), http.StatusBadRequest)
+			return
+		}
+		occurredAt = t
+	}
+
+	session, mayCreateAdHoc, err := s.lookupSessionForLog(req, occurredAt)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -244,6 +255,14 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 				}
 			}
 
+			// Pass a zero time when the agent did not supply occurred_at so that
+			// idempotent re-sends update sets/reps/weight without overwriting the
+			// row's logged_at to "now". On insert, zero falls back to the column
+			// default (CURRENT_TIMESTAMP).
+			storeLoggedAt := time.Time{}
+			if occurredAtSupplied {
+				storeLoggedAt = occurredAt
+			}
 			id, isNew, err := s.workouts.UpsertExerciseLogByName(
 				ctx,
 				session.ID,
@@ -255,7 +274,7 @@ func (s *Server) mcpWorkoutLog(w http.ResponseWriter, r *http.Request, req *MCPW
 				"completed",
 				notes,
 				source,
-				occurredAt,
+				storeLoggedAt,
 			)
 			if err != nil {
 				slog.Error("[Server] MCP upsert exercise log failed", "session", session.ID, "name", plan.ResolvedName, "error", err)
@@ -362,8 +381,12 @@ func (s *Server) mcpWorkoutGet(w http.ResponseWriter, _ *http.Request, req *MCPW
 	for _, sess := range sessions {
 		logs, err := s.workouts.GetExerciseLogs(sess.ID)
 		if err != nil {
+			// Fail the whole request rather than silently omitting the session —
+			// the agent's caller would see fewer sessions than expected with no
+			// indication that anything went wrong.
 			slog.Error("[Server] MCP workout get logs failed", "session", sess.ID, "error", err)
-			continue
+			http.Error(w, "failed to load session exercises", http.StatusInternalServerError)
+			return
 		}
 		resp.Sessions = append(resp.Sessions, MCPWorkoutGetSession{
 			Session:   sess,
@@ -437,53 +460,48 @@ func (s *Server) mcpWorkoutDelete(w http.ResponseWriter, r *http.Request, req *M
 // agent supplied session_ref:"today" with no existing match — neither
 // case is an error, but neither implies a session yet exists.
 //
-// The returned occurredAt is parsed from req.OccurredAt when present, falling
-// back to time.Now().
-func (s *Server) lookupSessionForLog(req *MCPWorkoutLogRequest) (*store.WorkoutSession, time.Time, bool, error) {
-	occurredAt := time.Now()
-	if strings.TrimSpace(req.OccurredAt) != "" {
-		t, err := parseOccurredAt(req.OccurredAt)
-		if err != nil {
-			return nil, time.Time{}, false, fmt.Errorf("invalid occurred_at: %w", err)
-		}
-		occurredAt = t
-	}
-
+// occurredAt is the already-parsed reference timestamp (defaults to now);
+// "today" matches sessions on its calendar date so a backfill request with
+// occurred_at:"YYYY-MM-DD ..." resolves to that day's session, not today's.
+func (s *Server) lookupSessionForLog(req *MCPWorkoutLogRequest, occurredAt time.Time) (*store.WorkoutSession, bool, error) {
 	if req.SessionID > 0 {
 		sess, err := s.workouts.GetWorkoutSession(req.SessionID)
 		if err != nil {
-			return nil, time.Time{}, false, fmt.Errorf("load session: %w", err)
+			return nil, false, fmt.Errorf("load session: %w", err)
 		}
 		if sess == nil || sess.UserID != s.allowedUserID {
-			return nil, time.Time{}, false, fmt.Errorf("session %d not found", req.SessionID)
+			return nil, false, fmt.Errorf("session %d not found", req.SessionID)
 		}
-		return sess, occurredAt, false, nil
+		return sess, false, nil
 	}
 
 	if ref := strings.TrimSpace(req.SessionRef); ref != "" {
-		sess, err := s.lookupSessionByRef(ref)
+		sess, err := s.lookupSessionByRef(ref, occurredAt)
 		if err != nil {
-			return nil, time.Time{}, false, err
+			return nil, false, err
 		}
 		if sess != nil {
-			return sess, occurredAt, false, nil
+			return sess, false, nil
 		}
 		// "today" with no existing session falls through to ad-hoc creation —
 		// the agent is documented to use session_ref:"today" for the natural
 		// "log today's workout" flow and shouldn't have to retry.
 		if ref != "today" {
-			return nil, time.Time{}, false, fmt.Errorf("no session matches session_ref %q", ref)
+			return nil, false, fmt.Errorf("no session matches session_ref %q", ref)
 		}
 	}
 
 	// Defer ad-hoc creation to the first writable plan.
-	return nil, occurredAt, true, nil
+	return nil, true, nil
 }
 
 // lookupSessionByRef resolves "last" / "today" / "YYYY-MM-DD" session_ref
 // values. Searches up to the 30 most recent sessions, which is plenty for an
-// agent that only references recent activity.
-func (s *Server) lookupSessionByRef(ref string) (*store.WorkoutSession, error) {
+// agent that only references recent activity. refDate is the agent's
+// occurred_at (or now): "today" matches its calendar date in local TZ so a
+// stored ScheduledDate (possibly UTC after driver round-trip) compared at the
+// boundary midnight does not silently miss the matching session.
+func (s *Server) lookupSessionByRef(ref string, refDate time.Time) (*store.WorkoutSession, error) {
 	sessions, err := s.workouts.GetWorkoutHistory(s.allowedUserID, 30)
 	if err != nil {
 		return nil, fmt.Errorf("load history: %w", err)
@@ -497,9 +515,9 @@ func (s *Server) lookupSessionByRef(ref string) (*store.WorkoutSession, error) {
 		sess := sessions[0]
 		return &sess, nil
 	case "today":
-		today := time.Now().Format("2006-01-02")
+		target := refDate.In(time.Local).Format("2006-01-02")
 		for i := range sessions {
-			if sessions[i].ScheduledDate.Format("2006-01-02") == today {
+			if sessions[i].ScheduledDate.In(time.Local).Format("2006-01-02") == target {
 				return &sessions[i], nil
 			}
 		}
@@ -510,7 +528,7 @@ func (s *Server) lookupSessionByRef(ref string) (*store.WorkoutSession, error) {
 			return nil, fmt.Errorf("session_ref must be \"last\", \"today\", or YYYY-MM-DD")
 		}
 		for i := range sessions {
-			if sessions[i].ScheduledDate.Format("2006-01-02") == ref {
+			if sessions[i].ScheduledDate.In(time.Local).Format("2006-01-02") == ref {
 				return &sessions[i], nil
 			}
 		}

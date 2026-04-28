@@ -362,13 +362,15 @@ func missingFields(a AppliedValues) []string {
 	return missing
 }
 
-// levenshtein returns the edit distance between a and b. Implementation is
-// the classic two-row DP; small enough for inline use.
+// levenshtein returns the edit distance between a and b, measured in runes
+// (not bytes) so non-ASCII names — multi-byte UTF-8 codepoints — aren't
+// treated as several separate edits per character.
 func levenshtein(a, b string) int {
 	if a == b {
 		return 0
 	}
-	la, lb := len(a), len(b)
+	ra, rb := []rune(a), []rune(b)
+	la, lb := len(ra), len(rb)
 	if la == 0 {
 		return lb
 	}
@@ -384,7 +386,7 @@ func levenshtein(a, b string) int {
 		curr[0] = i
 		for j := 1; j <= lb; j++ {
 			cost := 1
-			if a[i-1] == b[j-1] {
+			if ra[i-1] == rb[j-1] {
 				cost = 0
 			}
 			del := prev[j] + 1
