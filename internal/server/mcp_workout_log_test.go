@@ -198,6 +198,56 @@ func TestMCPWorkoutLog_LogIdempotent(t *testing.T) {
 	}
 }
 
+// TestMCPWorkoutLog_LogIdempotent_PreservesLoggedAt asserts that re-sending
+// without occurred_at does not move the row's logged_at to "now". The agent's
+// idempotent-update flow promises to refine sets/reps/weight, not the
+// timestamp.
+func TestMCPWorkoutLog_LogIdempotent_PreservesLoggedAt(t *testing.T) {
+	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
+	defer db.Close()
+
+	day := time.Now()
+	sess, err := db.CreateAdHocWorkoutSession(123456, day, day.Format("15:04"))
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	payload := MCPWorkoutLogRequest{
+		Operation: "log",
+		SessionID: sess.ID,
+		Exercises: []domain.ResolverInput{
+			{Name: "Squat", Sets: intPtr(3), Reps: intPtr(8), WeightKg: floatPtr(80)},
+		},
+	}
+	if w := postMCPWorkoutLog(t, srv, "test-secret", payload); w.Code != http.StatusOK {
+		t.Fatalf("first call: got %d: %s", w.Code, w.Body.String())
+	}
+
+	logsBefore, err := db.GetExerciseLogs(sess.ID)
+	if err != nil || len(logsBefore) != 1 {
+		t.Fatalf("seed read: err=%v len=%d", err, len(logsBefore))
+	}
+	original := logsBefore[0].LoggedAt
+
+	// Sleep so a buggy implementation that overwrites logged_at with time.Now()
+	// produces a measurable diff.
+	time.Sleep(1100 * time.Millisecond)
+
+	payload.Exercises[0].WeightKg = floatPtr(85)
+	if w := postMCPWorkoutLog(t, srv, "test-secret", payload); w.Code != http.StatusOK {
+		t.Fatalf("second call: got %d: %s", w.Code, w.Body.String())
+	}
+
+	logsAfter, err := db.GetExerciseLogs(sess.ID)
+	if err != nil || len(logsAfter) != 1 {
+		t.Fatalf("post-update read: err=%v len=%d", err, len(logsAfter))
+	}
+	if !logsAfter[0].LoggedAt.Equal(original) {
+		t.Errorf("logged_at moved on idempotent re-send: before=%s after=%s",
+			original.Format(time.RFC3339Nano), logsAfter[0].LoggedAt.Format(time.RFC3339Nano))
+	}
+}
+
 func TestMCPWorkoutLog_LogRequiresExercises(t *testing.T) {
 	srv, db := createMCPWorkoutLogTestServer(t, "test-secret")
 	defer db.Close()
