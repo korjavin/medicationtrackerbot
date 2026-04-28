@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -1300,8 +1301,8 @@ func (s *Store) GetActiveSessions(userID int64, date time.Time) ([]WorkoutSessio
 
 	query := `
 		SELECT id, group_id, variant_id, user_id, scheduled_date, scheduled_time, status, started_at, completed_at, snoozed_until, snooze_count, notification_message_id, notes
-		FROM workout_sessions 
-		WHERE user_id = ? 
+		FROM workout_sessions
+		WHERE user_id = ?
 		  AND scheduled_date LIKE ?
 		  AND status IN ('notified', 'in_progress', 'pre_skipped')
 		ORDER BY scheduled_time ASC`
@@ -1344,4 +1345,106 @@ func (s *Store) GetActiveSessions(userID int64, date time.Time) ([]WorkoutSessio
 		sessions = append(sessions, ws)
 	}
 	return sessions, nil
+}
+
+// ListRecentExerciseLogsByName returns up to `limit` recent exercise logs for the
+// given user that match `exerciseName` (case-insensitive). The user is matched
+// via the joined workout_sessions row. Logs are returned newest-first.
+// Used by the workout resolver to infer defaults for omitted sets/reps/weight.
+func (s *Store) ListRecentExerciseLogsByName(ctx context.Context, userID int64, exerciseName string, limit int) ([]WorkoutExerciseLog, error) {
+	if limit <= 0 {
+		limit = 1
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT wel.id, wel.session_id, wel.exercise_id, wel.exercise_name,
+		       wel.sets_completed, wel.reps_completed, wel.weight_kg,
+		       wel.status, wel.notes, wel.logged_at, wel.source
+		FROM workout_exercise_logs wel
+		JOIN workout_sessions ws ON ws.id = wel.session_id
+		WHERE ws.user_id = ? AND LOWER(wel.exercise_name) = LOWER(?)
+		ORDER BY wel.logged_at DESC, wel.id DESC
+		LIMIT ?`, userID, exerciseName, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []WorkoutExerciseLog
+	for rows.Next() {
+		var log WorkoutExerciseLog
+		var setsCompleted, repsCompleted sql.NullInt64
+		var weightKg sql.NullFloat64
+		var notes sql.NullString
+		if err := rows.Scan(&log.ID, &log.SessionID, &log.ExerciseID, &log.ExerciseName,
+			&setsCompleted, &repsCompleted, &weightKg, &log.Status, &notes, &log.LoggedAt, &log.Source); err != nil {
+			return nil, err
+		}
+		if setsCompleted.Valid {
+			s := int(setsCompleted.Int64)
+			log.SetsCompleted = &s
+		}
+		if repsCompleted.Valid {
+			r := int(repsCompleted.Int64)
+			log.RepsCompleted = &r
+		}
+		if weightKg.Valid {
+			log.WeightKg = &weightKg.Float64
+		}
+		if notes.Valid {
+			log.Notes = notes.String
+		}
+		logs = append(logs, log)
+	}
+	return logs, nil
+}
+
+// GetDistinctExerciseNamesForUser returns the union of distinct exercise names
+// the user has access to: their exercise_library entries plus any historical
+// names from their workout_exercise_logs. Names are deduplicated case-insensitively
+// and returned in alphabetical order. Used by the workout resolver to build the
+// fuzzy-match catalog.
+func (s *Store) GetDistinctExerciseNamesForUser(ctx context.Context, userID int64) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT name FROM exercise_library WHERE user_id = ?
+		UNION
+		SELECT wel.exercise_name FROM workout_exercise_logs wel
+		JOIN workout_sessions ws ON ws.id = wel.session_id
+		WHERE ws.user_id = ?
+		ORDER BY 1 COLLATE NOCASE ASC`, userID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	seen := make(map[string]bool)
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		key := lowerASCII(n)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		names = append(names, n)
+	}
+	return names, nil
+}
+
+// lowerASCII is an ASCII-only lower-caser used for case-insensitive dedup of
+// exercise names returned to the resolver. Full Unicode folding is done by
+// callers when needed; we stay ASCII here to avoid pulling strings into a file
+// that doesn't otherwise need it.
+func lowerASCII(s string) string {
+	b := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b[i] = c
+	}
+	return string(b)
 }
