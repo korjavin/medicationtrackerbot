@@ -2320,6 +2320,29 @@ func (s *Store) SetTabOrder(ctx context.Context, order string) error {
 	return err
 }
 
+func (s *Store) GetWeightUnitPreference(ctx context.Context) (string, error) {
+	var unit string
+	err := s.db.QueryRowContext(ctx, "SELECT weight_unit_preference FROM settings WHERE id = 1").Scan(&unit)
+	if err == sql.ErrNoRows {
+		return "kg", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if unit != "kg" && unit != "lb" {
+		return "kg", nil
+	}
+	return unit, nil
+}
+
+func (s *Store) SetWeightUnitPreference(ctx context.Context, unit string) error {
+	if unit != "kg" && unit != "lb" {
+		return fmt.Errorf("invalid weight unit %q: must be 'kg' or 'lb'", unit)
+	}
+	_, err := s.db.ExecContext(ctx, "UPDATE settings SET weight_unit_preference = ? WHERE id = 1", unit)
+	return err
+}
+
 // allowedSettingsBoolColumns is the allowlist of valid boolean column names in the settings table.
 
 var allowedSettingsBoolColumns = map[string]bool{
