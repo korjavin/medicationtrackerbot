@@ -168,14 +168,14 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Modify: `docker-compose.yml`
 - Modify: `Dockerfile` (or coordinate base image)
 
-- [ ] implement an MVP long-lived execution service in Go that spawns subprocesses with per-run isolation
-- [ ] add `docker/runner/Dockerfile` for the runner image: non-root user, read-only root FS in deployment, only the `medtracker` helper baked in, no `pip` at runtime
-- [ ] configure compose network so the runner can reach only the local API proxy
-- [ ] set CPU and memory limits in compose (use defaults from Task 1)
-- [ ] ensure the MCP container does not mount the Docker socket
-- [ ] add health/startup checks for the execution service
-- [ ] tests: service start/stop, run isolation, run failure does not crash service, max concurrent runs respected
-- [ ] run `go test ./internal/mcp/...` — must pass before Task 10
+- [x] implement an MVP long-lived execution service in Go that spawns subprocesses with per-run isolation
+- [x] add `docker/runner/Dockerfile` for the runner image: non-root user, read-only root FS in deployment, only the `medtracker` helper baked in, no `pip` at runtime
+- [x] configure compose network so the runner can reach only the local API proxy
+- [x] set CPU and memory limits in compose (use defaults from Task 1)
+- [x] ensure the MCP container does not mount the Docker socket
+- [x] add health/startup checks for the execution service
+- [x] tests: service start/stop, run isolation, run failure does not crash service, max concurrent runs respected
+- [x] run `go test ./internal/mcp/...` — must pass before Task 10
 
 ### Task 10: Read-only workout vertical slice
 
