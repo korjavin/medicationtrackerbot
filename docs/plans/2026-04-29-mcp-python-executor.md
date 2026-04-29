@@ -270,13 +270,13 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Modify: `README.md`
 - Modify: `docs/features.md`
 
-- [ ] keep granular tools while the executor is experimental (no deletions)
-- [ ] keep `workout_log` while its inference is better than raw orchestration
-- [ ] stop adding new composite tools unless there is a clear stable use case (note this in docs)
-- [ ] evaluate whether `analyze_fitness` and `analyze_cardiovascular` become compatibility tools after executor coverage is broad — record decision in docs (no removal yet)
-- [ ] update README/features docs when the stable MCP recommendation changes
-- [ ] tests: existing MCP tool registration tests still pass (`./internal/mcp/...`)
-- [ ] run `go test ./...` — must pass before Task 16
+- [x] keep granular tools while the executor is experimental (no deletions)
+- [x] keep `workout_log` while its inference is better than raw orchestration
+- [x] stop adding new composite tools unless there is a clear stable use case (note this in docs)
+- [x] evaluate whether `analyze_fitness` and `analyze_cardiovascular` become compatibility tools after executor coverage is broad — record decision in docs (no removal yet)
+- [x] update README/features docs when the stable MCP recommendation changes
+- [x] tests: existing MCP tool registration tests still pass (`./internal/mcp/...`)
+- [x] run `go test ./...` — must pass before Task 16
 
 ### Task 16: Verify acceptance criteria
 
