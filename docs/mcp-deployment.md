@@ -141,6 +141,45 @@ Operations:
 
 Idempotency: upsert key is `(session_id, resolved_name)` — re-sending refines state instead of duplicating.
 
+## Python Executor Service
+
+The `mcp_execute` and `mcp_help` tools require a separate Python runner service. The runner is a long-lived side container that accepts script-run requests from the MCP server, executes them in per-run isolated subprocesses, and returns structured output.
+
+**Where it lives**: `docker/runner/` (Dockerfile) and `internal/mcp/executor/` (Go execution service). See `docs/mcp-python-executor.md` for the full architecture decision record.
+
+**Docker Compose sketch** (placeholder until Task 14 documents final values):
+
+```yaml
+  mcp-runner:
+    image: ghcr.io/korjavin/medicationtrackerbot-runner:latest
+    container_name: medtracker-mcp-runner
+    restart: unless-stopped
+    networks:
+      - mcp_internal   # isolated network: can reach mcp-server bridge only
+    environment:
+      - RUNNER_BRIDGE_URL=http://mcp-server:8081/internal/mcp/bridge
+      - RUNNER_HMAC_SECRET=${MCP_INTERNAL_HMAC_SECRET}
+      - RUNNER_MAX_CONCURRENT=4
+      - RUNNER_TIMEOUT_MS=30000
+      - RUNNER_MAX_MEMORY_MB=1024
+      - RUNNER_MAX_RESULT_MB=100
+      - RUNNER_MAX_API_CALLS=100
+```
+
+**Environment variables** (names are tentative until Task 14):
+
+| Variable | Default | Description |
+|---|---|---|
+| `RUNNER_BRIDGE_URL` | (required) | URL of the internal HMAC-protected bridge endpoint on the main app |
+| `RUNNER_HMAC_SECRET` | (required) | Shared HMAC secret between runner and main-app bridge; same as `MCP_INTERNAL_HMAC_SECRET` |
+| `RUNNER_MAX_CONCURRENT` | `4` | Maximum simultaneous script runs |
+| `RUNNER_TIMEOUT_MS` | `30000` | Default wall-clock timeout per run |
+| `RUNNER_MAX_MEMORY_MB` | `1024` | RSS limit per run subprocess |
+| `RUNNER_MAX_RESULT_MB` | `100` | Maximum serialized `output(...)` size |
+| `RUNNER_MAX_API_CALLS` | `100` | Maximum proxied API calls per run |
+
+The runner container must NOT mount the Docker socket. Its network must be isolated to the internal bridge — it should not be reachable from the public internet. All outbound requests from scripts go through `RUNNER_BRIDGE_URL` only.
+
 ## Adding MCP Tools
 
 1. Add tool definition in `internal/mcp/tools.go` (granular) or a dedicated file (composite tools, e.g. `cardiovascular.go`, `fitness.go`)
