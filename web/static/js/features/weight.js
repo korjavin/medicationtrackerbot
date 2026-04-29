@@ -211,20 +211,30 @@ function setWeightModalEyebrow(text) {
     if (el) el.textContent = text;
 }
 
+function getPreferredWeightUnit() {
+    return (typeof window !== 'undefined' && window.weightUnitPreference === 'lb') ? 'lb' : 'kg';
+}
+
 function resetWeightUnitToggle() {
-    weightModalUnit = 'kg';
-    // Restore the kg input bounds so a previous lb toggle doesn't leak stale
-    // min/max across modal close/reopen — setWeightModalUnit('kg') would
-    // no-op because weightModalUnit is already kg.
+    const preferred = getPreferredWeightUnit();
+    weightModalUnit = preferred;
+    // Restore the input bounds so a previous lb/kg toggle doesn't leak stale
+    // min/max across modal close/reopen — setWeightModalUnit() would no-op
+    // when weightModalUnit already matches the preferred unit.
     const input = document.getElementById('weight-value');
     if (input) {
-        input.min = '30';
-        input.max = '300';
+        if (preferred === 'kg') {
+            input.min = '30';
+            input.max = '300';
+        } else {
+            input.min = '66';
+            input.max = '660';
+        }
     }
     const toggle = document.querySelector('#weight-modal .wg-weight-modal__unit-toggle');
     if (!toggle) return;
     toggle.querySelectorAll('.wg-weight-modal__unit-btn').forEach((btn) => {
-        const isActive = btn.getAttribute('data-unit') === 'kg';
+        const isActive = btn.getAttribute('data-unit') === preferred;
         btn.classList.toggle('wg-weight-modal__unit-btn--active', isActive);
         btn.classList.toggle('wg-gloss--sun', isActive);
         btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
@@ -334,6 +344,28 @@ async function handleWeightSubmit(event) {
             await apiCall(`/api/weight/${editing.id}`, 'DELETE');
         }
         editingWeightLog = null;
+    }
+
+    // Smart unit-preference inference: if the user submitted in a different
+    // unit than their saved preference, persist the new unit so the next open
+    // (and other surfaces — Today tile, history) honors it. Stays best-effort:
+    // if the PATCH fails the local write still succeeded.
+    const submittedUnit = weightModalUnit;
+    if ((submittedUnit === 'kg' || submittedUnit === 'lb')
+        && submittedUnit !== getPreferredWeightUnit()) {
+        const patchRes = await apiCall('/api/settings/weight-unit', 'PATCH', { unit: submittedUnit });
+        if (patchRes) {
+            window.weightUnitPreference = submittedUnit;
+            if (window.DataStore && typeof window.DataStore.getCached === 'function') {
+                try {
+                    const cached = await window.DataStore.getCached('settings_bundle');
+                    if (cached) {
+                        cached.weightUnitPreference = submittedUnit;
+                        await window.DataStore.setCached('settings_bundle', cached);
+                    }
+                } catch (_) { /* best-effort */ }
+            }
+        }
     }
 
     await window.DataStore.invalidateTags(['weight']);
@@ -1013,7 +1045,10 @@ function editWeightLog(log) {
     const notesInput = document.getElementById('weight-notes');
     const weightNum = Number(log.weight);
     if (valueInput && Number.isFinite(weightNum)) {
-        valueInput.value = weightNum.toFixed(1);
+        // Stored weight is always kg; route through setWeightValue so the
+        // displayed value is converted into the user's preferred unit when
+        // the modal opens in lb.
+        setWeightValue(weightNum);
     }
     if (dtInput && log.measured_at) {
         const d = new Date(log.measured_at);
