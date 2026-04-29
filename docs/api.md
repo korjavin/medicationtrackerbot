@@ -61,6 +61,7 @@
 | GET | `/auth/status` | Check if session is authenticated (returns `{"authenticated": bool}`) |
 | GET | `/api/settings` | User settings (returns `{"timezone": "..."}`) |
 | POST | `/api/settings` | Update settings (accepts optional `timezone` IANA name; 400 on invalid values) |
+| PATCH | `/api/settings/weight-unit` | Set the user's preferred weight unit. Accepts `{"unit":"kg"\|"lb"}`; 400 on any other value. Storage of weight logs is always kg — this only affects the input default and rendered unit in the web app and bot. The preference is also returned by `/api/bootstrap` under `settings.weight_unit_preference` (defaults to `"kg"` for new users). |
 | POST | `/api/push/subscribe` | Register push subscription |
 | POST | `/api/push/unsubscribe` | Remove push subscription |
 | GET | `/auth/oidc/login` | OIDC login redirect |

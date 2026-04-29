@@ -127,6 +127,8 @@ Read tools (`get_*`, `analyze_*`) query the SQLite database directly from the MC
 
 Write tools route mutations through the main bot's HTTP server rather than writing the SQLite database directly: the MCP process HMAC-signs a JSON payload and POSTs it to the bot, which performs the write through its domain services (so audit fan-out, validation, and attribution stay centralized). Both processes share `MCP_AUDIT_ENDPOINT` / `MCP_AUDIT_SECRET`; the per-tool endpoint is derived from the audit endpoint's host (`/api/mcp-food-log`, `/api/mcp-workout-log`).
 
+**Weight unit contract**: all MCP responses involving weight are emitted in kilograms with explicit `_kg`-suffixed field names (`weight_kg`, `current_kg`, `trend_kg`, `change_kg`). The user's web/bot weight unit preference (`weight_unit_preference`, kg or lb) lives only on the user-facing surface and never leaks into MCP — `get_weight` and `analyze_fitness` always return kg even after the user switches their UI preference to lb. This keeps the agent contract unambiguous; agents can convert at the presentation layer if needed.
+
 ### `workout_log`
 
 Single entry point for workout logging. The static tool description is intentionally short — the agent calls `operation: "help"` first to fetch the full protocol document (input/response shape, resolution rules, idempotency semantics).

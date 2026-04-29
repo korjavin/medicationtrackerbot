@@ -140,7 +140,7 @@ Track each user's preferred weight unit (KG or LB) by remembering the last unit 
 
 ### Task 9: Update documentation
 
-- [ ] update `docs/features.md` weight section noting unit preference behavior
-- [ ] update `docs/api.md` with the new `PATCH /api/settings/weight-unit` endpoint and the bootstrap field
-- [ ] add a short note in `docs/mcp-deployment.md` (or wherever MCP tools are documented) stating that MCP weight responses are always in kg and unaffected by user preference
-- [ ] move this plan to `docs/plans/completed/`
+- [x] update `docs/features.md` weight section noting unit preference behavior
+- [x] update `docs/api.md` with the new `PATCH /api/settings/weight-unit` endpoint and the bootstrap field
+- [x] add a short note in `docs/mcp-deployment.md` (or wherever MCP tools are documented) stating that MCP weight responses are always in kg and unaffected by user preference
+- [x] move this plan to `docs/plans/completed/`
