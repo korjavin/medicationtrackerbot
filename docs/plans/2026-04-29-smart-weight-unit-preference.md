@@ -134,9 +134,9 @@ Track each user's preferred weight unit (KG or LB) by remembering the last unit 
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] run full test suite: `go test ./...` and `pnpm test`
-- [ ] verify no hardcoded "kg" literals remain in user-facing weight display paths (grep `web/static/js`)
-- [ ] verify MCP response field names only use `_kg`-suffixed weight keys (grep `internal/mcp`)
+- [x] run full test suite: `go test ./...` and `pnpm test`
+- [x] verify no hardcoded "kg" literals remain in user-facing weight display paths (grep `web/static/js`)
+- [x] verify MCP response field names only use `_kg`-suffixed weight keys (grep `internal/mcp`)
 
 ### Task 9: Update documentation
 
