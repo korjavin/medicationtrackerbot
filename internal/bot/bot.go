@@ -1286,39 +1286,46 @@ func (b *Bot) handleBPStatsCommand(msgConfig *tgbotapi.MessageConfig) {
 // -- Weight Tracking Commands --
 
 func (b *Bot) handleWeightCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.MessageConfig) {
+	ctx := context.Background()
 	args := msg.CommandArguments()
 	if args == "" {
 		msgConfig.Text = `**Weight Logging**
 
-Usage: /weight <weight_in_kg>
+Usage: /weight <weight>[unit]
 
 Examples:
-  /weight 75.5 - Log weight 75.5 kg
-  /weight 80.2 - Log weight 80.2 kg
+  /weight 75.5 - Log 75.5 in your preferred unit
+  /weight 150lb - Log 150 pounds (also sets your unit preference to lb)
+  /weight 70kg - Log 70 kilograms (also sets your unit preference to kg)
 
 The system will automatically calculate your weight trend over time.`
 		msgConfig.ParseMode = "Markdown"
 		return
 	}
 
-	parts := strings.Fields(args)
-	if len(parts) < 1 {
-		msgConfig.Text = "❌ Invalid format. Use: /weight <weight_in_kg>"
+	pref, err := b.weight.GetWeightUnitPreference(ctx)
+	if err != nil {
+		slog.Error("Error getting weight unit preference", "error", err)
+		pref = "kg"
+	}
+
+	parsed, err := domain.ParseWeightInput(args, pref)
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrInvalidWeightUnit):
+			msgConfig.Text = "❌ Invalid weight unit. Use kg, lb, lbs, pound, or pounds."
+		case errors.Is(err, domain.ErrInvalidWeight):
+			msgConfig.Text = "❌ Invalid weight value (30-300 kg)"
+		default:
+			msgConfig.Text = "❌ Invalid format. Use: /weight <weight>[unit]"
+		}
 		return
 	}
 
-	weight, err := strconv.ParseFloat(parts[0], 64)
-	if err != nil {
-		msgConfig.Text = "❌ Invalid weight value (30-300 kg)"
-		return
-	}
-	if err := domain.ValidateWeight(weight); err != nil {
-		msgConfig.Text = "❌ Invalid weight value (30-300 kg)"
-		return
-	}
+	weight := parsed.WeightKg
 
 	// Get last weight log to calculate trend
-	lastLog, err := b.weight.GetLastWeightLog(context.Background(), b.allowedUserID)
+	lastLog, err := b.weight.GetLastWeightLog(ctx, b.allowedUserID)
 	if err != nil {
 		slog.Error("Error getting last weight log", "error", err)
 	}
@@ -1337,25 +1344,44 @@ The system will automatically calculate your weight trend over time.`
 		WeightTrend: &weightTrend,
 	}
 
-	_, err = b.weight.CreateWeightLog(context.Background(), wLog)
+	_, err = b.weight.CreateWeightLog(ctx, wLog)
 	if err != nil {
 		slog.Error("Error creating weight log", "error", err)
 		msgConfig.Text = "❌ Error saving weight log."
 		return
 	}
 
+	if parsed.ExplicitSuffix && parsed.Unit != pref {
+		if err := b.weight.SetWeightUnitPreference(ctx, parsed.Unit); err != nil {
+			slog.Error("Error saving weight unit preference", "error", err)
+		} else {
+			pref = parsed.Unit
+		}
+	}
+
+	displayUnit := pref
 	trendInfo := ""
 	if lastLog != nil {
 		diff := weight - lastLog.Weight
 		trendDiff := weightTrend - *lastLog.WeightTrend
+		if displayUnit == "lb" {
+			diff /= domain.KgPerLb
+			trendDiff /= domain.KgPerLb
+		}
 		if diff > 0 {
-			trendInfo = fmt.Sprintf("\n📈 Change: +%.1f kg (trend: %+.1f kg)", diff, trendDiff)
+			trendInfo = fmt.Sprintf("\n📈 Change: +%.1f %s (trend: %+.1f %s)", diff, displayUnit, trendDiff, displayUnit)
 		} else if diff < 0 {
-			trendInfo = fmt.Sprintf("\n📉 Change: %.1f kg (trend: %.1f kg)", diff, trendDiff)
+			trendInfo = fmt.Sprintf("\n📉 Change: %.1f %s (trend: %.1f %s)", diff, displayUnit, trendDiff, displayUnit)
 		}
 	}
 
-	msgConfig.Text = fmt.Sprintf("✅ Weight recorded: %.1f kg\n📊 Trend: %.1f kg%s", weight, weightTrend, trendInfo)
+	primary := domain.FormatWeightForDisplay(weight, displayUnit)
+	trendPrimary := domain.FormatWeightForDisplay(weightTrend, displayUnit)
+	if displayUnit == "lb" {
+		msgConfig.Text = fmt.Sprintf("✅ Weight recorded: %s (%.1f kg)\n📊 Trend: %s (%.1f kg)%s", primary, weight, trendPrimary, weightTrend, trendInfo)
+	} else {
+		msgConfig.Text = fmt.Sprintf("✅ Weight recorded: %s\n📊 Trend: %s%s", primary, trendPrimary, trendInfo)
+	}
 }
 
 func (b *Bot) handleWeightHistoryCommand(msgConfig *tgbotapi.MessageConfig) {

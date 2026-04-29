@@ -44,6 +44,8 @@ type WeightStore interface {
 	SetWeightGoal(weight float64, targetDate time.Time) error
 	SnoozeWeightReminder(userID int64) error
 	DontBugMeWeightReminder(userID int64) error
+	GetWeightUnitPreference(ctx context.Context) (string, error)
+	SetWeightUnitPreference(ctx context.Context, unit string) error
 }
 
 // WorkoutStore is the read-only subset of store operations needed for workout bot commands.
