@@ -56,3 +56,22 @@ function downloadBlobAsFile(blob, filename) {
     window.URL.revokeObjectURL(url);
     document.body.removeChild(link);
 }
+
+// Convert a stored kg weight into the user's preferred display unit. Storage
+// is always kg; this is purely a render-time helper so display surfaces
+// (Today tile, goal card, history list, chart legend) share a single
+// rounding + label convention.
+const KG_PER_LB = 0.45359237;
+
+function formatWeight(kg, unit) {
+    const u = unit === 'lb' ? 'lb' : 'kg';
+    const num = Number(kg);
+    if (!Number.isFinite(num)) return { value: NaN, label: u };
+    const display = u === 'lb' ? num / KG_PER_LB : num;
+    return { value: Math.round(display * 10) / 10, label: u };
+}
+
+function readWeightUnitPreference() {
+    if (typeof window === 'undefined') return 'kg';
+    return window.weightUnitPreference === 'lb' ? 'lb' : 'kg';
+}

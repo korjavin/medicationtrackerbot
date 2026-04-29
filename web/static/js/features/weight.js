@@ -442,7 +442,9 @@ function renderWeightGoalCard(logs, goalData) {
 
     const value = document.createElement('div');
     value.className = 'wg-mono-display wg-weight-goal-card__value';
-    value.textContent = `${goalValue.toFixed(1)} kg`;
+    const preferredUnit = getPreferredWeightUnit();
+    const goalDisplay = formatWeight(goalValue, preferredUnit);
+    value.textContent = `${goalDisplay.value.toFixed(1)} ${goalDisplay.label}`;
     container.appendChild(value);
 
     // Progress bar. Uses the gloss-inset track primitive and a neutral
@@ -493,7 +495,8 @@ function renderWeightGoalCard(logs, goalData) {
             delta.textContent = 'At goal';
         } else {
             const sign = diff > 0 ? '+' : '\u2212';
-            delta.textContent = `${sign}${Math.abs(diff).toFixed(1)} kg to goal`;
+            const diffDisplay = formatWeight(Math.abs(diff), preferredUnit);
+            delta.textContent = `${sign}${diffDisplay.value.toFixed(1)} ${diffDisplay.label} to goal`;
         }
     }
     container.appendChild(delta);
@@ -549,10 +552,11 @@ function renderWeightChartLegend(goalData) {
     container.hidden = false;
     container.replaceChildren();
 
+    const goalDisplay = formatWeight(goalValue, getPreferredWeightUnit());
     const items = [
         { label: 'Actual', swatch: 'actual' },
         { label: 'Plan', swatch: 'plan' },
-        { label: `Goal ${goalValue.toFixed(1)} kg`, swatch: 'goal' },
+        { label: `Goal ${goalDisplay.value.toFixed(1)} ${goalDisplay.label}`, swatch: 'goal' },
     ];
     items.forEach((item) => {
         const li = document.createElement('span');
@@ -638,7 +642,8 @@ function renderWeightPrognosisCard(logs, goalData) {
     rightValue.className = `wg-weight-prognosis-card__trend-value wg-weight-prognosis-card__trend-value--${variant}`;
     if (Number.isFinite(perWeek)) {
         const sign = perWeek > 0 ? '+' : (perWeek < 0 ? '−' : '');
-        rightValue.textContent = `${sign}${Math.abs(perWeek).toFixed(1)} kg/week`;
+        const perWeekDisplay = formatWeight(Math.abs(perWeek), getPreferredWeightUnit());
+        rightValue.textContent = `${sign}${perWeekDisplay.value.toFixed(1)} ${perWeekDisplay.label}/week`;
     } else {
         rightValue.textContent = '—';
     }
@@ -700,13 +705,14 @@ function buildWeightChartCurrentBadge(logs) {
     label.textContent = 'Current';
     wrap.appendChild(label);
 
+    const display = formatWeight(weight, getPreferredWeightUnit());
     const value = document.createElement('span');
     value.className = 'wg-weight-chart-panel__current-value';
-    value.textContent = weight.toFixed(1);
+    value.textContent = display.value.toFixed(1);
 
     const unit = document.createElement('span');
     unit.className = 'wg-weight-chart-panel__current-unit';
-    unit.textContent = 'kg';
+    unit.textContent = display.label;
     value.appendChild(unit);
 
     wrap.appendChild(value);
@@ -944,10 +950,11 @@ function buildWeightHistoryRow(log) {
     const weightSpan = document.createElement('span');
     weightSpan.className = 'wg-weight-history-row__weight';
     const weightNum = Number(log.weight);
-    weightSpan.textContent = Number.isFinite(weightNum) ? weightNum.toFixed(1) : '—';
+    const display = formatWeight(weightNum, getPreferredWeightUnit());
+    weightSpan.textContent = Number.isFinite(display.value) ? display.value.toFixed(1) : '—';
     const unitSpan = document.createElement('span');
     unitSpan.className = 'wg-weight-history-row__unit';
-    unitSpan.textContent = 'kg';
+    unitSpan.textContent = display.label;
     value.appendChild(weightSpan);
     value.appendChild(unitSpan);
     body.appendChild(value);
