@@ -99,5 +99,46 @@ output(result)`,
 			Example: `result = api.call("workouts.stats.read")
 output(result)`,
 		},
+		{
+			ID:     "workouts.exercises.update",
+			Topic:  "workouts",
+			Method: "PUT",
+			Path:   "/api/workout/exercises/update",
+			Risk:   RiskWrite,
+			ParamsSchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["id"],
+  "properties": {
+    "id": {"type": "integer", "description": "Workout exercise ID to update"}
+  }
+}`),
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["exercise_name", "target_sets", "target_reps_min", "order_index"],
+  "properties": {
+    "exercise_name":    {"type": "string"},
+    "target_sets":      {"type": "integer"},
+    "target_reps_min":  {"type": "integer"},
+    "target_reps_max":  {"type": ["integer", "null"]},
+    "target_weight_kg": {"type": ["number", "null"]},
+    "order_index":      {"type": "integer"}
+  }
+}`),
+			Description:     "Update the configuration of a workout exercise (name, target sets/reps, weight, ordering). Goes through backend domain validation; the existing exercise must belong to a variant the user owns.",
+			ResponseSummary: "Empty body on success (HTTP 200); 4xx with error message on validation failure.",
+			Example: `api.call(
+    "workouts.exercises.update",
+    params={"id": 42},
+    body={
+        "exercise_name": "Bench Press",
+        "target_sets": 4,
+        "target_reps_min": 6,
+        "target_reps_max": 8,
+        "target_weight_kg": 65.0,
+        "order_index": 0,
+    },
+)
+output({"updated": 42})`,
+		},
 	}
 }

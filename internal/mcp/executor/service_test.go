@@ -313,6 +313,9 @@ func TestExecute_PayloadContainsConfig(t *testing.T) {
 	if rt, ok := payload["run_token"].(string); !ok || len(rt) < 16 {
 		t.Errorf("expected non-empty run_token, got %v", payload["run_token"])
 	}
+	if intent, ok := payload["intent"].(string); !ok || intent != "edit a workout" {
+		t.Errorf("expected intent=%q, got %v", "edit a workout", payload["intent"])
+	}
 }
 
 // --- Error envelope mapping ---

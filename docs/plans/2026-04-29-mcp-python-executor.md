@@ -200,14 +200,14 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Modify: `internal/mcp/registry/operations_workouts.go`
 - Modify: `internal/mcp/executor/e2e_workouts_test.go`
 
-- [ ] enable `mode: "write"` end-to-end in `mcp_execute`
-- [ ] require non-empty `intent` for every write run; include `intent` in audit metadata
-- [ ] reject writes in `read_only` mode at the proxy layer (already wired in Task 4 — verify and test)
-- [ ] add the first write op to the registry (low-risk workout op, e.g. `workouts.exercises.update`)
-- [ ] require operation-level write classification in the registry before any mutating route can be exposed
-- [ ] assert writes flow through backend domain validation and existing change/audit behavior
-- [ ] tests: write succeeds in write mode, accidental write attempt in read-only mode is rejected with `proxy_denied`, missing intent rejected, audit contains intent
-- [ ] run `go test ./...` — must pass before Task 12
+- [x] enable `mode: "write"` end-to-end in `mcp_execute`
+- [x] require non-empty `intent` for every write run; include `intent` in audit metadata
+- [x] reject writes in `read_only` mode at the proxy layer (already wired in Task 4 — verify and test)
+- [x] add the first write op to the registry (low-risk workout op, e.g. `workouts.exercises.update`)
+- [x] require operation-level write classification in the registry before any mutating route can be exposed
+- [x] assert writes flow through backend domain validation and existing change/audit behavior
+- [x] tests: write succeeds in write mode, accidental write attempt in read-only mode is rejected with `proxy_denied`, missing intent rejected, audit contains intent
+- [x] run `go test ./...` — must pass before Task 12
 
 ### Task 12: Expand domain coverage
 
