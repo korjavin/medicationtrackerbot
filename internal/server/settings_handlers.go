@@ -293,6 +293,12 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		slog.Error("bootstrap timezone query failed", "error", err)
 	}
 
+	weightUnitPreference, err := s.settings.GetWeightUnitPreference(ctx)
+	if err != nil {
+		slog.Error("bootstrap weight unit preference query failed", "error", err)
+		weightUnitPreference = "kg"
+	}
+
 	response := map[string]any{
 		"cursor":          bootstrapCursor,
 		"features":        features,
@@ -312,6 +318,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 			"bp_reminder_status":     bpReminderStatus,
 			"weight_reminder_status": weightReminderStatus,
 			"timezone":               currentTimezone,
+			"weight_unit_preference": weightUnitPreference,
 		},
 	}
 	// Only include tab_order when the read succeeded. If it errored, omit the
@@ -522,6 +529,32 @@ func (s *Server) handleSetTabOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// handleSetWeightUnitPreference handles PATCH /api/settings/weight-unit.
+// It accepts {"unit":"kg"} or {"unit":"lb"} and persists the user's preferred
+// weight unit. Storage is always kg; this only affects the input default and
+// display in the web app and bot replies.
+func (s *Server) handleSetWeightUnitPreference(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Unit string `json:"unit"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Unit != "kg" && req.Unit != "lb" {
+		http.Error(w, "unit must be 'kg' or 'lb'", http.StatusBadRequest)
+		return
+	}
+	if err := s.settings.SetWeightUnitPreference(r.Context(), req.Unit); err != nil {
+		slog.Error("set weight unit preference failed", "error", err, "unit", req.Unit)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"unit": req.Unit})
 }
 
 // handleTZPlanApprove handles POST /api/tz-plan/{id}/approve.

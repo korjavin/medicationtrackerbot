@@ -58,11 +58,11 @@ Track each user's preferred weight unit (KG or LB) by remembering the last unit 
 - Modify: `internal/server/server.go` (route registration)
 - Create: `internal/server/weight_unit_preference_test.go`
 
-- [ ] include `weight_unit_preference` in the bootstrap JSON response
-- [ ] add `PATCH /api/settings/weight-unit` handler accepting `{"unit":"kg"|"lb"}`
-- [ ] auth-protect like other settings endpoints
-- [ ] write handler tests: bootstrap default, bootstrap after set, PATCH kg, PATCH lb, PATCH invalid rejected (400), unauthenticated rejected
-- [ ] run `go test ./internal/server/...`
+- [x] include `weight_unit_preference` in the bootstrap JSON response
+- [x] add `PATCH /api/settings/weight-unit` handler accepting `{"unit":"kg"|"lb"}`
+- [x] auth-protect like other settings endpoints
+- [x] write handler tests: bootstrap default, bootstrap after set, PATCH kg, PATCH lb, PATCH invalid rejected (400), unauthenticated rejected
+- [x] run `go test ./internal/server/...`
 
 ### Task 3: MCP contract - keep kg explicit, lock the boundary
 
