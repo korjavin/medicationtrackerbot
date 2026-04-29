@@ -280,15 +280,15 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 
 ### Task 16: Verify acceptance criteria
 
-- [ ] run `go test ./...` (all Go tests)
-- [ ] run `pytest python/` (helper + runner tests)
-- [ ] run runner sandbox tests (timeout, limits, env scrub, output bounds)
-- [ ] run MCP execute fake-service tests
-- [ ] run backend bridge/proxy integration tests
-- [ ] run the read-only E2E workout script test
-- [ ] run the write-mode E2E script test
-- [ ] verify slog audit logs contain operation IDs, risk, intent (for writes), and run IDs
-- [ ] verify test coverage for `internal/mcp/...` and `python/medtracker/` meets 80%+
+- [x] run `go test ./...` (all Go tests) — all 22 packages PASS
+- [x] run `pytest python/` (helper + runner tests) — 69 passed
+- [x] run runner sandbox tests (timeout, limits, env scrub, output bounds) — 31 passed in `python/runner/runner_test.py`
+- [x] run MCP execute fake-service tests — `internal/mcp/execute_test.go` covers schema validation, mode default, intent required, limit capping, success/failure envelopes for every error type
+- [x] run backend bridge/proxy integration tests — `internal/server/mcp_bridge_test.go` (16 PASS: HMAC, identity, op validation, audit fields, size limits) and `internal/mcp/proxy/proxy_test.go` (denial, allowlist, max calls, trace fields)
+- [x] run the read-only E2E workout script test — `TestE2E_ReadOnlyWorkouts_Workflow` and `TestE2E_ReadOnlyWorkouts_NoDirectDBAccess` PASS
+- [x] run the write-mode E2E script test — `TestE2E_WriteMode_WorkoutExerciseUpdate` and `TestE2E_WriteInReadOnly_RejectedByProxy` PASS
+- [x] verify slog audit logs contain operation IDs, risk, intent (for writes), and run IDs — executor `logRunCompletion` emits `run_id`, `mode`, `duration_ms`, `api_calls`, `status`, `exit_reason`, `intent_present`, `intent`; proxy logs include `operation_id`, `risk`, `status`, `duration_ms`; bridge logs include `operation_id`, `risk`, `status`, `duration_ms`, `truncated`
+- [x] verify test coverage for `internal/mcp/...` and `python/medtracker/` meets 80%+ — `python/medtracker` 100%; `internal/mcp/registry` 85.5%, `internal/mcp/proxy` 84.6%, `internal/mcp/executor` 83.0%; new `internal/mcp` files (help.go 100%, food_writer.go 100%, workout_writer.go 95–100%, execute.go `handleMCPExecute` 96%) all >80%. Base `internal/mcp` aggregate sits at 67.3% only because of pre-existing oauth.go/fitness.go/cardiovascular.go/vitals.go paths that predate this plan and are out of scope
 
 ### Task 17: Update documentation
 
