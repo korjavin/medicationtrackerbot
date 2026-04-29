@@ -312,9 +312,11 @@ async function applyBootstrapPayload(res) {
     // SW BOOTSTRAP_UPDATED (server fetch pre-dates a successful local PATCH),
     // overwrite its unit with the locally-committed truth so loadSettings can't
     // later read the stale value back from the cache.
-    settingsBundle.weightUnitPreference = reconcileAuthoritativeUnit(settingsBundle.weightUnitPreference);
-    commitAuthoritativeWeightUnit(settingsBundle.weightUnitPreference);
-    applyWeightUnitSegmentedState(settingsBundle.weightUnitPreference);
+    const effectiveBootstrapUnit = commitAuthoritativeWeightUnit(settingsBundle.weightUnitPreference);
+    if (effectiveBootstrapUnit) {
+        settingsBundle.weightUnitPreference = effectiveBootstrapUnit;
+        applyWeightUnitSegmentedState(effectiveBootstrapUnit);
+    }
     await cacheApiSnapshot('settings_bundle', settingsBundle, ['settings', 'food_targets', 'feature_settings']);
 
     return true;
@@ -383,8 +385,8 @@ function hydrateFeatureSettingsFromBundle(bundle) {
     if (!bundle || typeof bundle !== 'object') return;
     const cachedUnit = bundle.weightUnitPreference === 'lb' ? 'lb' : (bundle.weightUnitPreference === 'kg' ? 'kg' : null);
     if (cachedUnit) {
-        commitAuthoritativeWeightUnit(cachedUnit);
-        applyWeightUnitSegmentedState(cachedUnit);
+        const effective = commitAuthoritativeWeightUnit(cachedUnit);
+        if (effective) applyWeightUnitSegmentedState(effective);
     }
     const cachedFeatures = bundle.featureSettings;
     if (!cachedFeatures || typeof cachedFeatures !== 'object') return;
@@ -1245,8 +1247,8 @@ async function _todayReadCaches(foodKey) {
                 const cachedUnit = bundleM.data.weightUnitPreference;
                 if (cachedUnit === 'kg' || cachedUnit === 'lb') {
                     if (window.weightUnitPreference !== cachedUnit) {
-                        commitAuthoritativeWeightUnit(cachedUnit);
-                        applyWeightUnitSegmentedState(cachedUnit);
+                        const effective = commitAuthoritativeWeightUnit(cachedUnit);
+                        if (effective) applyWeightUnitSegmentedState(effective);
                     }
                 }
             }
@@ -1285,8 +1287,8 @@ async function _todayReadCaches(foodKey) {
                 const cachedUnit = bundle.weightUnitPreference;
                 if (cachedUnit === 'kg' || cachedUnit === 'lb') {
                     if (window.weightUnitPreference !== cachedUnit) {
-                        commitAuthoritativeWeightUnit(cachedUnit);
-                        applyWeightUnitSegmentedState(cachedUnit);
+                        const effective = commitAuthoritativeWeightUnit(cachedUnit);
+                        if (effective) applyWeightUnitSegmentedState(effective);
                     }
                 }
             }
@@ -1639,8 +1641,8 @@ async function loadSettings() {
         window.featureSettings = featureSettings;
         window.featureSettingsLoaded = true;
         window.AppStore && window.AppStore.set('featureSettings', featureSettings);
-        commitAuthoritativeWeightUnit(bundle.weightUnitPreference);
-        applyWeightUnitSegmentedState(bundle.weightUnitPreference);
+        const effectiveBundleUnit = commitAuthoritativeWeightUnit(bundle.weightUnitPreference);
+        if (effectiveBundleUnit) applyWeightUnitSegmentedState(effectiveBundleUnit);
         updateFeatureToggles();
         updateFeatureTabVisibility();
 
@@ -1794,18 +1796,23 @@ function reconcileAuthoritativeUnit(unit) {
 // cache hydration, and out-of-band PATCHes (modal-side inference) all need
 // to nudge weightUnitLastCommitted forward — otherwise a later Settings
 // PATCH that fails will revert UI to a stale unit even though the server
-// has long since moved on.
+// has long since moved on. Returns the effective unit that was applied
+// (after reconciliation) so callers can keep applyWeightUnitSegmentedState
+// in sync — passing the raw incoming value would let the toggle visually
+// flip to a stale unit while window.weightUnitPreference correctly held
+// the locally-committed truth.
 function commitAuthoritativeWeightUnit(unit) {
     const effective = reconcileAuthoritativeUnit(unit);
-    if (effective !== 'kg' && effective !== 'lb') return;
+    if (effective !== 'kg' && effective !== 'lb') return null;
     window.weightUnitPreference = effective;
     // While Settings PATCHes are queued/in-flight, leave the rollback baseline
-    // alone — the queue's own line 1792 advance is authoritative, and stale
-    // hydration could otherwise overwrite a just-committed success with the
-    // pre-PATCH server value before the next queued PATCH resolves.
+    // alone — the queue's own advance is authoritative, and stale hydration
+    // could otherwise overwrite a just-committed success with the pre-PATCH
+    // server value before the next queued PATCH resolves.
     if (weightUnitPendingPatches === 0) {
         weightUnitLastCommitted = effective;
     }
+    return effective;
 }
 window.commitAuthoritativeWeightUnit = commitAuthoritativeWeightUnit;
 
@@ -1816,6 +1823,12 @@ async function setWeightUnitPreference(unit, opts = {}) {
         weightUnitLastCommitted = window.weightUnitPreference === 'lb' ? 'lb' : 'kg';
     }
     if (unit === window.weightUnitPreference) return true;
+    // PATCH has no offline-queue fallback in sync.js (offlineAwareApiCall
+    // only queues POST/PUT/DELETE), so an offline attempt would surface a
+    // "needs internet" alert via apiCall after a useless network round-trip.
+    // Treat offline clicks as a silent no-op: the UI stays on the committed
+    // unit, mirroring the modal-submit path.
+    if (window.SyncManager && window.SyncManager.isOnline === false) return false;
 
     // Optimistically commit so a fast follow-up click compares against the
     // latest intended unit, not the still-in-flight previous value.
