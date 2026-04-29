@@ -292,9 +292,9 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 
 ### Task 17: Update documentation
 
-- [ ] update `README.md` if user-facing changes (mention `mcp_help` / `mcp_execute`)
-- [ ] update `CLAUDE.md` if internal patterns changed (registry/proxy/bridge layering)
-- [ ] move this plan to `docs/plans/completed/`
+- [x] update `README.md` if user-facing changes (mention `mcp_help` / `mcp_execute`) — already done in Task 15; README lines 76–82 describe `mcp_help` / `mcp_execute` as the recommended entry point alongside the granular tools
+- [x] update `CLAUDE.md` if internal patterns changed (registry/proxy/bridge layering) — `internal/mcp` sub-packages and `python/` layout listed in Code Layout; "Adding an MCP tool" now points at the registry-first path
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 Expected final state:
