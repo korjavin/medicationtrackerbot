@@ -76,6 +76,48 @@ func TestMCPHelp_TopicFilter(t *testing.T) {
 	}
 }
 
+// TestMCPHelp_WorkoutsTopicHasExamples covers the Task 10 contract: the
+// workouts topic response is useful as a starting point for a script —
+// the catalog must include the operations the read-only vertical slice
+// needs and each entry must carry an executable Python example.
+func TestMCPHelp_WorkoutsTopicHasExamples(t *testing.T) {
+	s := testServerWithRegistry(t)
+	resp, err := callHelp(t, s, HelpInput{Topic: "workouts"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	required := []string{
+		"workouts.groups.list",
+		"workouts.variants.list",
+		"workouts.exercises.list",
+		"workouts.sessions.list",
+		"workouts.stats.read",
+	}
+	seen := make(map[string]bool)
+	for _, op := range resp.Operations {
+		seen[op.ID] = true
+		if op.Example == "" {
+			t.Errorf("op %s missing example snippet", op.ID)
+		}
+		if !strings.Contains(op.Example, "api.call") {
+			t.Errorf("op %s example should call api.call, got: %s", op.ID, op.Example)
+		}
+		if !strings.Contains(op.Example, "output(") {
+			t.Errorf("op %s example should call output(), got: %s", op.ID, op.Example)
+		}
+	}
+	for _, id := range required {
+		if !seen[id] {
+			t.Errorf("workouts topic missing required op: %s", id)
+		}
+	}
+
+	if !strings.Contains(resp.PythonUsage, "from medtracker import api, output") {
+		t.Errorf("PythonUsage should describe the medtracker import, got: %s", resp.PythonUsage)
+	}
+}
+
 func TestMCPHelp_OperationIDLookup(t *testing.T) {
 	s := testServerWithRegistry(t)
 	resp, err := callHelp(t, s, HelpInput{OperationID: "workouts.groups.list"})

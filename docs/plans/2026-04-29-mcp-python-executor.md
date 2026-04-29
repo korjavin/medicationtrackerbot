@@ -184,13 +184,13 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Create: `internal/mcp/executor/e2e_workouts_test.go`
 - Create: `python/examples/workouts_overview.py`
 
-- [ ] expose read-only workout operation entries: groups, variants, exercises, sessions, stats
-- [ ] verify `mcp_help(topic="workouts")` returns useful docs and the example script
-- [ ] add an `mcp_execute` E2E test that lists groups, finds a variant, lists exercises, and returns a summary
-- [ ] assert the same workflow works without direct DB access from the script
-- [ ] assert audit/call trace contains every proxied operation ID
-- [ ] add a Python example script under `python/examples/`
-- [ ] run `go test ./internal/mcp/...` and `pytest python/` — must pass before Task 11
+- [x] expose read-only workout operation entries: groups, variants, exercises, sessions, stats
+- [x] verify `mcp_help(topic="workouts")` returns useful docs and the example script
+- [x] add an `mcp_execute` E2E test that lists groups, finds a variant, lists exercises, and returns a summary
+- [x] assert the same workflow works without direct DB access from the script
+- [x] assert audit/call trace contains every proxied operation ID
+- [x] add a Python example script under `python/examples/`
+- [x] run `go test ./internal/mcp/...` and `pytest python/` — must pass before Task 11
 
 ### Task 11: Write mode
 
