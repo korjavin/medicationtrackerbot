@@ -150,14 +150,14 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Create: `python/runner/runner_test.py`
 - Create: `python/runner/limits.py`
 
-- [ ] runner entrypoint that receives script + run config (timeout, max_api_calls, mode, topic_allowlist) over stdin or local socket
-- [ ] execute scripts with a hard wall-clock timeout
-- [ ] capture bounded stdout and stderr (limits from Task 1)
-- [ ] collect final `output(...)` value via the helper
-- [ ] strip secrets from the env passed to script (only proxy URL + run token reach the script)
-- [ ] document runner-side prohibitions: arbitrary HTTP, package installs, filesystem writes outside scratch, long-running loops
-- [ ] tests: timeout kills script, stdout/stderr truncation, env scrubbed, single-output enforced, proxy URL is the only network knob
-- [ ] run `pytest python/` — must pass before Task 9
+- [x] runner entrypoint that receives script + run config (timeout, max_api_calls, mode, topic_allowlist) over stdin or local socket
+- [x] execute scripts with a hard wall-clock timeout
+- [x] capture bounded stdout and stderr (limits from Task 1)
+- [x] collect final `output(...)` value via the helper
+- [x] strip secrets from the env passed to script (only proxy URL + run token reach the script)
+- [x] document runner-side prohibitions: arbitrary HTTP, package installs, filesystem writes outside scratch, long-running loops
+- [x] tests: timeout kills script, stdout/stderr truncation, env scrubbed, single-output enforced, proxy URL is the only network knob
+- [x] run `pytest python/` — must pass before Task 9
 
 ### Task 9: Side container / execution service
 

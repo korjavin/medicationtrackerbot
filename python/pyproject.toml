@@ -16,5 +16,6 @@ dev = ["pytest>=8.0"]
 where = ["."]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "runner"]
 pythonpath = ["."]
+python_files = ["test_*.py", "*_test.py"]
