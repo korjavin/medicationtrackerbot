@@ -45,11 +45,11 @@ Track each user's preferred weight unit (KG or LB) by remembering the last unit 
 - Modify: `internal/store/store.go`
 - Modify: `internal/store/store_weight_test.go` (or new `store_settings_test.go`)
 
-- [ ] add migration: `ALTER TABLE settings ADD COLUMN weight_unit_preference TEXT NOT NULL DEFAULT 'kg' CHECK (weight_unit_preference IN ('kg','lb'))`
-- [ ] add `GetWeightUnitPreference(ctx)` returning 'kg' or 'lb' (default 'kg' on no-row)
-- [ ] add `SetWeightUnitPreference(ctx, unit string)` with validation (reject anything other than 'kg'/'lb')
-- [ ] write store tests covering default, set kg, set lb, set-invalid-rejected, persistence across reads
-- [ ] run `go test ./internal/store/...`
+- [x] add migration: `ALTER TABLE settings ADD COLUMN weight_unit_preference TEXT NOT NULL DEFAULT 'kg' CHECK (weight_unit_preference IN ('kg','lb'))`
+- [x] add `GetWeightUnitPreference(ctx)` returning 'kg' or 'lb' (default 'kg' on no-row)
+- [x] add `SetWeightUnitPreference(ctx, unit string)` with validation (reject anything other than 'kg'/'lb')
+- [x] write store tests covering default, set kg, set lb, set-invalid-rejected, persistence across reads
+- [x] run `go test ./internal/store/...`
 
 ### Task 2: Expose preference via bootstrap and PATCH endpoint
 
