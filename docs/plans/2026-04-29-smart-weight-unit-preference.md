@@ -113,12 +113,12 @@ Track each user's preferred weight unit (KG or LB) by remembering the last unit 
 - Modify: `internal/domain/` (add a small parser helper if it keeps bot thin)
 - Modify: bot/domain tests
 
-- [ ] parse trailing `kg`, `lb`, `lbs`, `pound`, `pounds` (case-insensitive) from `/weight 150lb`; default to user's saved preference if no suffix
-- [ ] convert to kg before validation/storage (storage stays in kg)
-- [ ] when an explicit suffix was used, persist it as the new preference via the store method from Task 1
-- [ ] update reply to confirm in the user's preferred unit, with kg shown in parentheses (e.g. `Weight recorded: 154.3 lb (70.0 kg)`)
-- [ ] write tests: bare number uses preference, "150lb" sets preference to lb, "70kg" sets to kg, invalid suffix rejected, reply format matches preference
-- [ ] run `go test ./internal/bot/... ./internal/domain/...`
+- [x] parse trailing `kg`, `lb`, `lbs`, `pound`, `pounds` (case-insensitive) from `/weight 150lb`; default to user's saved preference if no suffix
+- [x] convert to kg before validation/storage (storage stays in kg)
+- [x] when an explicit suffix was used, persist it as the new preference via the store method from Task 1
+- [x] update reply to confirm in the user's preferred unit, with kg shown in parentheses (e.g. `Weight recorded: 154.3 lb (70.0 kg)`)
+- [x] write tests: bare number uses preference, "150lb" sets preference to lb, "70kg" sets to kg, invalid suffix rejected, reply format matches preference
+- [x] run `go test ./internal/bot/... ./internal/domain/...`
 
 ### Task 7: Settings UI - explicit override toggle
 
