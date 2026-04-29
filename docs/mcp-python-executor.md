@@ -62,6 +62,15 @@ MCP client
                                      -> main app backend/domain services
 ```
 
+## Non-Negotiable Constraints
+
+These rules cannot be relaxed without a new decision record:
+
+1. **No user authority in the script.** The script never receives the real user OAuth token, API token, session cookie, or HMAC secret. The runner env contains only the local proxy URL and a per-run one-time token scoped to the current invocation.
+2. **Proxy-only API access.** The runner has no outbound network except the local API proxy endpoint. All backend calls go through the operation registry allowlist.
+3. **Bounded execution.** Every run has a hard wall-clock timeout and hard resource limits. There is no override mechanism available to the script itself.
+4. **Explicit write mode.** Mutating operations require `mode: "write"` from the caller and a non-empty `intent` string. Read-only is the default. The proxy enforces this independently of the script's declared intent.
+
 ## Security Boundary
 
 The sandbox is useful only if authority remains outside the script. These rules are non-negotiable for the initial design:
@@ -70,11 +79,26 @@ The sandbox is useful only if authority remains outside the script. These rules 
 - The runner has no outbound network except the local API proxy.
 - The runner has a read-only root filesystem and only a small temporary work directory if needed.
 - The runner uses a non-root user, dropped Linux capabilities, CPU/memory limits, and a hard wall-clock timeout.
-- The runner has bounded stdout, stderr, result size, request body size, response body size, and API call count.
+- The runner has bounded stdout, stderr, result size, request body size, response body size, and API call count (see Runtime Limits below).
 - No Docker socket is mounted into the MCP or runner container.
 - No `pip install` or arbitrary dependency download inside a run.
 - Writes require explicit `mode: "write"` and must still pass the proxy allowlist.
 - The proxy records every API call with operation ID, read/write risk level, status, duration, and truncated error details.
+
+## Runtime Limits
+
+These defaults apply when the caller does not override them. Server configuration caps caller-provided values.
+
+| Limit | Default | Notes |
+|---|---|---|
+| Wall-clock timeout | 30 s | Hard kill; not graceful shutdown |
+| Memory | 1 GB | RSS limit via cgroup or ulimit |
+| Result size (`output(...)` value) | 100 MB | Serialized JSON bytes |
+| Max API calls per run | 100 | Counted by the proxy |
+| stdout capture | 1 MB | Excess bytes are truncated and flagged in `warnings` |
+| stderr capture | 256 KB | Excess bytes are truncated and flagged in `warnings` |
+| Backend response body (per call) | 10 MB | Response bodies larger than this are truncated before returning to the script |
+| Request body (per call) | 1 MB | Script-provided body payload; rejected if exceeded |
 
 ## Operation Registry
 
