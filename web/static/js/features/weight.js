@@ -681,6 +681,7 @@ function renderWeightChart(logs, goalData) {
         logs: list,
         range: activeRange,
         goal: goalData || null,
+        unit: getPreferredWeightUnit(),
     });
     if (node) container.appendChild(node);
 }

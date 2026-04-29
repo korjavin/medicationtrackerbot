@@ -309,6 +309,7 @@ async function applyBootstrapPayload(res) {
         weight_reminder_status: res.settings?.weight_reminder_status
     });
     window.weightUnitPreference = settingsBundle.weightUnitPreference;
+    applyWeightUnitSegmentedState(settingsBundle.weightUnitPreference);
     await cacheApiSnapshot('settings_bundle', settingsBundle, ['settings', 'food_targets', 'feature_settings']);
 
     return true;
