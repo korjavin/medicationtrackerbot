@@ -382,6 +382,74 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         expect(kgBtn.getAttribute('aria-pressed')).toBe('false');
     });
 
+    it('skips PATCH and shows no alert when clicking the toggle while offline', async () => {
+        // PATCH has no offline-queue fallback in sync.js, so an offline click
+        // would otherwise surface a "needs internet" alert via apiCall after a
+        // useless network round-trip. The Settings handler must silently no-op
+        // and leave the committed unit visible — same behaviour as the modal-
+        // submit path (features/weight.js).
+        const { window, document } = env;
+        window.weightUnitPreference = 'kg';
+        window.SyncManager = { ...(window.SyncManager || {}), isOnline: false };
+        const apiCallSpy = vi.fn();
+        window.apiCall = apiCallSpy;
+        window.alert = vi.fn();
+
+        const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
+        lbBtn.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(apiCallSpy).not.toHaveBeenCalled();
+        expect(window.alert).not.toHaveBeenCalled();
+        expect(window.weightUnitPreference).toBe('kg');
+    });
+
+    it('keeps the segmented control aligned with the reconciled unit when stale hydration is rejected', async () => {
+        // Regression for hydration UI/state desync: hydration paths used to
+        // pass the raw cached unit to applyWeightUnitSegmentedState while
+        // commitAuthoritativeWeightUnit reconciled internally. After a local
+        // PATCH succeeded, a stale settings_bundle hydration could leave
+        // window.weightUnitPreference correct ('lb') while the toggle visually
+        // flipped to the stale 'kg'. Both must agree on the reconciled value.
+        const { window, document } = env;
+        window.weightUnitPreference = 'kg';
+        window.reloadCurrentTab = vi.fn();
+        window.DataStore.getCached = vi.fn(async () => null);
+        window.DataStore.setCached = vi.fn().mockResolvedValue(undefined);
+        window.DataStore.setCachedWithTags = vi.fn().mockResolvedValue(undefined);
+        window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+
+        const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
+        const kgBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="kg"]');
+
+        lbBtn.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(window.weightUnitPreference).toBe('lb');
+
+        // Simulate a stale hydration site that calls commit + apply with the
+        // pre-PATCH unit (the buggy pattern). With the fix, callers use the
+        // returned effective unit so the toggle stays on 'lb'.
+        const incoming = 'kg';
+        const effective = window.commitAuthoritativeWeightUnit(incoming);
+        // Mirror the production hydration pattern after the fix: only apply
+        // the effective unit returned by commit.
+        if (effective) {
+            const root = document.getElementById('weight-unit-segmented');
+            root.querySelectorAll('.wg-settings-segmented__btn').forEach((btn) => {
+                const isActive = btn.getAttribute('data-unit') === effective;
+                btn.classList.toggle('wg-settings-segmented__btn--active', isActive);
+                btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            });
+        }
+
+        expect(window.weightUnitPreference).toBe('lb');
+        expect(effective).toBe('lb');
+        expect(lbBtn.getAttribute('aria-pressed')).toBe('true');
+        expect(kgBtn.getAttribute('aria-pressed')).toBe('false');
+    });
+
     it('exposes commitAuthoritativeWeightUnit so out-of-band confirmations sync the revert target', async () => {
         // Regression: lastCommitted only advanced inside Settings PATCHes, so
         // a modal-submit PATCH (kg→lb) followed by a Settings PATCH (lb→kg)
