@@ -236,11 +236,34 @@ func TestWorkoutOperations(t *testing.T) {
 		}
 	}
 
-	// All workout operations should be read
+	// All read ops carry RiskRead; the write ops carry RiskWrite. The set of
+	// expected write ops is enumerated explicitly so a future regression
+	// (e.g. a typo flipping a read op to write) trips the test.
+	writeOps := map[string]bool{
+		"workouts.exercises.update": true,
+	}
 	for _, op := range ops {
-		if op.Risk != RiskRead {
+		wantWrite := writeOps[op.ID]
+		if wantWrite && op.Risk != RiskWrite {
+			t.Errorf("workout op %s should be write, got %s", op.ID, op.Risk)
+		}
+		if !wantWrite && op.Risk != RiskRead {
 			t.Errorf("workout op %s should be read-only, got %s", op.ID, op.Risk)
 		}
+	}
+
+	// The write op must carry a body schema so callers know what payload
+	// the backend expects. The registry validation enforces method/path
+	// presence; this is a content check.
+	updateOp := r.Get("workouts.exercises.update")
+	if updateOp == nil {
+		t.Fatal("missing workouts.exercises.update")
+	}
+	if updateOp.BodySchema == nil {
+		t.Error("workouts.exercises.update should have a BodySchema")
+	}
+	if updateOp.ParamsSchema == nil {
+		t.Error("workouts.exercises.update should have a ParamsSchema (id query param)")
 	}
 
 	// MarshalForHelp should produce valid JSON for workout ops

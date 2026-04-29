@@ -129,6 +129,7 @@ func (s *Server) handleMCPExecute(
 		"max_api_calls", apiCalls,
 		"topic_count", len(input.TopicAllowlist),
 		"has_intent", input.Intent != "",
+		"intent", truncateIntentForAudit(input.Intent),
 	)
 
 	execReq := ExecutionRequest{
@@ -154,6 +155,18 @@ func (s *Server) handleMCPExecute(
 		Stderr:   result.Stderr,
 		Warnings: result.Warnings,
 	}, nil
+}
+
+// truncateIntentForAudit caps the freeform intent string at a safe length
+// before it lands in audit logs. Same idea as the executor's truncate helper;
+// kept local to this package so the MCP-side log line doesn't depend on
+// the executor implementation.
+func truncateIntentForAudit(intent string) string {
+	const maxIntentAuditLen = 200
+	if len(intent) <= maxIntentAuditLen {
+		return intent
+	}
+	return intent[:maxIntentAuditLen] + "..."
 }
 
 func (s *Server) executorMaxTimeoutMS() int64 {

@@ -304,6 +304,7 @@ func (s *Service) Execute(ctx context.Context, req mcp.ExecutionRequest) (*mcp.E
 		"timeout_s":       timeoutS,
 		"max_api_calls":   req.MaxAPICalls,
 		"topic_allowlist": req.TopicAllowlist,
+		"intent":          req.Intent,
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -335,6 +336,7 @@ func (s *Service) Execute(ctx context.Context, req mcp.ExecutionRequest) (*mcp.E
 		"duration_ms", duration.Milliseconds(),
 		"api_calls", apiCalls,
 		"intent_present", req.Intent != "",
+		"intent", truncateIntent(req.Intent),
 	)
 
 	if spawnErr != nil {
@@ -537,6 +539,18 @@ func (e *execCmdSpawner) Spawn(ctx context.Context, payload []byte) ([]byte, err
 		return nil, fmt.Errorf("%w (stderr: %s)", err, stderr.String())
 	}
 	return stdout.Bytes(), err
+}
+
+// truncateIntent caps the freeform intent string before it lands in audit
+// logs. Intent is caller-supplied, so we keep enough to be useful for review
+// without unbounded payload size. The cap is generous; intent is meant to be
+// a human-readable sentence, not a paragraph.
+func truncateIntent(intent string) string {
+	const maxIntentAuditLen = 200
+	if len(intent) <= maxIntentAuditLen {
+		return intent
+	}
+	return intent[:maxIntentAuditLen] + "..."
 }
 
 func newToken(nbytes int) string {
