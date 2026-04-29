@@ -349,10 +349,15 @@ async function handleWeightSubmit(event) {
     // Smart unit-preference inference: if the user submitted in a different
     // unit than their saved preference, persist the new unit so the next open
     // (and other surfaces — Today tile, history) honors it. Stays best-effort:
-    // if the PATCH fails the local write still succeeded.
+    // if the PATCH fails the local write still succeeded. Skip entirely when
+    // offline — PATCH has no offline fallback in sync.js, so it would surface
+    // a confusing "needs internet" alert immediately after the weight POST
+    // succeeded via the offline-write path.
     const submittedUnit = weightModalUnit;
+    const isOffline = window.SyncManager && window.SyncManager.isOnline === false;
     if ((submittedUnit === 'kg' || submittedUnit === 'lb')
-        && submittedUnit !== getPreferredWeightUnit()) {
+        && submittedUnit !== getPreferredWeightUnit()
+        && !isOffline) {
         const patchRes = await apiCall('/api/settings/weight-unit', 'PATCH', { unit: submittedUnit });
         if (patchRes) {
             window.weightUnitPreference = submittedUnit;
