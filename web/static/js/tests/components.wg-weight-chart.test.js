@@ -279,4 +279,41 @@ describe('WGWeightChart.render', () => {
         expect(cx).toBeGreaterThan(28);
         expect(cx).toBeLessThan(358 - 14);
     });
+
+    it('renders Y bounds and goal label in lb when unit is "lb"', () => {
+        // Logs around 80 kg ≈ 176 lb; goal 70 kg ≈ 154.3 lb. The Y-axis
+        // bounds and goal-line label must reflect the lb conversion so the
+        // chart agrees with the rest of the dashboard for lb users.
+        const svg = env.api.render({
+            logs: makeLogs({ days: 14, startWeight: 80, step: 0 }),
+            goal: 70,
+            unit: 'lb',
+        });
+        const yMin = Number(svg.dataset.weightYMin);
+        const yMax = Number(svg.dataset.weightYMax);
+        // 80 kg ≈ 176.4 lb sits inside [yMin, yMax].
+        expect(yMin).toBeLessThanOrEqual(176);
+        expect(yMax).toBeGreaterThanOrEqual(177);
+        // Goal stored on the line still reflects the converted (display) value.
+        const goal = svg.querySelector('line.wg-weight-chart__goal');
+        expect(goal).not.toBeNull();
+        const goalDisplay = Number(goal.dataset.weightGoal);
+        expect(goalDisplay).toBeGreaterThan(154);
+        expect(goalDisplay).toBeLessThan(155);
+        const label = svg.querySelector('text.wg-weight-chart__goal-label');
+        expect(label).not.toBeNull();
+        expect(label.textContent).toMatch(/GOAL · 154\.\d lb/);
+    });
+
+    it('keeps Y bounds and goal label in kg when unit is omitted', () => {
+        // Sanity-check: existing kg behavior is preserved when no unit option
+        // is passed. Logs around 80 kg, goal 70 kg → integer kg label.
+        const svg = env.api.render({
+            logs: makeLogs({ days: 14, startWeight: 80, step: 0 }),
+            goal: 70,
+        });
+        const label = svg.querySelector('text.wg-weight-chart__goal-label');
+        expect(label).not.toBeNull();
+        expect(label.textContent).toBe('GOAL · 70 kg');
+    });
 });

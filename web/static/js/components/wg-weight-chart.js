@@ -38,6 +38,7 @@
     const Y_FLOOR = 20;
     const Y_CEIL = 400;
     const LAST_POINT_RADIUS = 4;
+    const KG_PER_LB = 0.45359237;
 
     const RANGE_DAYS = {
         '7d': 7,
@@ -242,12 +243,22 @@
         const rawLogs = Array.isArray(options.logs) ? options.logs : [];
         if (rawLogs.length === 0) return makeEmptyCard(range);
 
+        const displayUnit = (typeof options.unit === 'string' && options.unit.toLowerCase() === 'lb')
+            ? 'lb' : 'kg';
+        const toDisplay = displayUnit === 'lb'
+            ? (kg) => kg / KG_PER_LB
+            : (kg) => kg;
+
         const normalized = rawLogs.map(normalize).filter(Boolean);
         if (normalized.length === 0) return makeEmptyCard(range);
 
         normalized.sort((a, b) => a.date - b.date);
         const filtered = filterByRange(normalized, range);
         if (filtered.length === 0) return makeEmptyCard(range);
+
+        for (const d of filtered) {
+            d.weight = toDisplay(d.weight);
+        }
 
         const width = finiteOrDefault(options.width, DEFAULT_WIDTH);
         const height = finiteOrDefault(options.height, DEFAULT_HEIGHT);
@@ -257,7 +268,8 @@
         const data = downsample(filtered, plotW);
         if (data.length === 0) return makeEmptyCard(range);
 
-        const goalValue = extractGoal(options.goal);
+        const goalValueKg = extractGoal(options.goal);
+        const goalValue = goalValueKg != null ? toDisplay(goalValueKg) : null;
 
         const firstTime = data[0].date.getTime();
         const lastTime = data[data.length - 1].date.getTime();
@@ -344,14 +356,15 @@
 
         if (goalValue != null) {
             svg.appendChild(makeGoalLine(PAD_L, width - PAD_R, yOf(goalValue), goalValue));
-            const goalUnit = (typeof options.unit === 'string' && options.unit.toLowerCase() === 'lb')
-                ? 'lb' : 'kg';
             const goalY = Math.max(PAD_T + 10, yOf(goalValue) - 5);
+            const goalLabel = displayUnit === 'lb'
+                ? `GOAL · ${goalValue.toFixed(1)} lb`
+                : `GOAL · ${goalValue} kg`;
             svg.appendChild(
                 makeTickText(
                     width - PAD_R - 4,
                     goalY,
-                    `GOAL · ${goalValue} ${goalUnit}`,
+                    goalLabel,
                     'wg-weight-chart__goal-label',
                     'end',
                 ),

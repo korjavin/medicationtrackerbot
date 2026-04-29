@@ -84,6 +84,7 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.ModalManager` | `core/modal-manager.js` | app.js |
 | `window.apiCallDirect` | `core/api.js` | data-store.js (change polling) |
 | `window.userInitData` | `app.js` | feature files (bp.js, weight.js) |
+| `window.weightUnitPreference` | `app.js` (hydrated from `/api/bootstrap`) | `features/weight.js`, `features/today.js`, `core/utils.js`; `'kg'` or `'lb'`, written back via `PATCH /api/settings/weight-unit` |
 | `window.onDataStoreUnauthorized` | `app.js` | data-store.js callback |
 | `window.requestTabRefresh` | `app.js` | data-store.js change detection |
 | `window.reloadCurrentTab` | `app.js` | data-store.js + sync.js |

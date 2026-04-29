@@ -7,7 +7,8 @@ import (
 	"strings"
 )
 
-const kgPerLb = 0.45359237
+// KgPerLb is the exact kilogram value of one international avoirdupois pound.
+const KgPerLb = 0.45359237
 
 var (
 	ErrInvalidWeightInput = errors.New("invalid weight input")
@@ -63,7 +64,7 @@ func ParseWeightInput(raw string, defaultUnit string) (WeightInput, error) {
 
 	weightKg := value
 	if unit == "lb" {
-		weightKg = value * kgPerLb
+		weightKg = value * KgPerLb
 	}
 
 	if err := ValidateWeight(weightKg); err != nil {
@@ -104,7 +105,7 @@ func normalizeWeightUnit(suffix string) (string, bool) {
 // converting from kg if needed. Used for bot replies.
 func FormatWeightForDisplay(weightKg float64, unit string) string {
 	if unit == "lb" {
-		return fmt.Sprintf("%.1f lb", weightKg/kgPerLb)
+		return fmt.Sprintf("%.1f lb", weightKg/KgPerLb)
 	}
 	return fmt.Sprintf("%.1f kg", weightKg)
 }

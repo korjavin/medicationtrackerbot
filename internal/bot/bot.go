@@ -1365,19 +1365,13 @@ The system will automatically calculate your weight trend over time.`
 		diff := weight - lastLog.Weight
 		trendDiff := weightTrend - *lastLog.WeightTrend
 		if displayUnit == "lb" {
-			diffLb := diff / kgPerLbBot
-			trendDiffLb := trendDiff / kgPerLbBot
-			if diff > 0 {
-				trendInfo = fmt.Sprintf("\n📈 Change: +%.1f lb (trend: %+.1f lb)", diffLb, trendDiffLb)
-			} else if diff < 0 {
-				trendInfo = fmt.Sprintf("\n📉 Change: %.1f lb (trend: %.1f lb)", diffLb, trendDiffLb)
-			}
-		} else {
-			if diff > 0 {
-				trendInfo = fmt.Sprintf("\n📈 Change: +%.1f kg (trend: %+.1f kg)", diff, trendDiff)
-			} else if diff < 0 {
-				trendInfo = fmt.Sprintf("\n📉 Change: %.1f kg (trend: %.1f kg)", diff, trendDiff)
-			}
+			diff /= domain.KgPerLb
+			trendDiff /= domain.KgPerLb
+		}
+		if diff > 0 {
+			trendInfo = fmt.Sprintf("\n📈 Change: +%.1f %s (trend: %+.1f %s)", diff, displayUnit, trendDiff, displayUnit)
+		} else if diff < 0 {
+			trendInfo = fmt.Sprintf("\n📉 Change: %.1f %s (trend: %.1f %s)", diff, displayUnit, trendDiff, displayUnit)
 		}
 	}
 
@@ -1389,9 +1383,6 @@ The system will automatically calculate your weight trend over time.`
 		msgConfig.Text = fmt.Sprintf("✅ Weight recorded: %s\n📊 Trend: %s%s", primary, trendPrimary, trendInfo)
 	}
 }
-
-// kgPerLbBot mirrors domain.kgPerLb for delta formatting in this package.
-const kgPerLbBot = 0.45359237
 
 func (b *Bot) handleWeightHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
 	since := time.Now().AddDate(0, 0, -30)
