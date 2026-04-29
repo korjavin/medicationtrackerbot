@@ -384,12 +384,18 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	weightUnitPreference, err := s.settings.GetWeightUnitPreference(r.Context())
+	if err != nil {
+		slog.Error("get settings weight unit preference failed", "error", err)
+		weightUnitPreference = "kg"
+	}
 	now := time.Now()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"timezone":        tz,
-		"server_time":     now.Format(time.RFC3339),
-		"server_timezone": formatServerTimezone(now),
+		"timezone":               tz,
+		"server_time":            now.Format(time.RFC3339),
+		"server_timezone":        formatServerTimezone(now),
+		"weight_unit_preference": weightUnitPreference,
 	})
 }
 

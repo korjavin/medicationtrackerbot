@@ -248,6 +248,10 @@
         const toDisplay = displayUnit === 'lb'
             ? (kg) => kg / KG_PER_LB
             : (kg) => kg;
+        // Y bounds are kg-based constants; convert them so lb users above ~400 lb
+        // (≈181 kg) aren't clipped at the chart top.
+        const yFloor = toDisplay(Y_FLOOR);
+        const yCeil = toDisplay(Y_CEIL);
 
         const normalized = rawLogs.map(normalize).filter(Boolean);
         if (normalized.length === 0) return makeEmptyCard(range);
@@ -297,10 +301,10 @@
             dataMin -= 2;
             dataMax += 2;
         }
-        const boundedMin = Math.max(Y_FLOOR, Math.min(Y_CEIL, dataMin));
-        const boundedMax = Math.max(Y_FLOOR, Math.min(Y_CEIL, dataMax));
-        const yMin = Math.max(Y_FLOOR, Math.floor((boundedMin - 2) / 2) * 2);
-        const yMax = Math.min(Y_CEIL, Math.ceil((boundedMax + 2) / 2) * 2);
+        const boundedMin = Math.max(yFloor, Math.min(yCeil, dataMin));
+        const boundedMax = Math.max(yFloor, Math.min(yCeil, dataMax));
+        const yMin = Math.max(yFloor, Math.floor((boundedMin - 2) / 2) * 2);
+        const yMax = Math.min(yCeil, Math.ceil((boundedMax + 2) / 2) * 2);
         const yRange = (yMax - yMin) || 1;
         const yOf = (v) => {
             const clamped = v < yMin ? yMin : v > yMax ? yMax : v;

@@ -353,23 +353,27 @@ async function handleWeightSubmit(event) {
     // offline — PATCH has no offline fallback in sync.js, so it would surface
     // a confusing "needs internet" alert immediately after the weight POST
     // succeeded via the offline-write path.
+    //
+    // Route through window.setWeightUnitPreference (app.js) rather than issuing
+    // an inline PATCH so this modal-side write shares the Settings serial queue.
+    // Two consequences: (a) a Settings click whose PATCH is still in flight no
+    // longer races this one — the server sees PATCHes in click order; (b) the
+    // helper performs the post-cache re-commit that protects window.weightUnitPreference
+    // / weightUnitLastCommitted from a stale loadSettings() hydration landing in
+    // the await window. We pass reload:false because the modal already calls
+    // loadWeightLogs() (and conditionally loadToday()) after closing.
     const submittedUnit = weightModalUnit;
     const isOffline = window.SyncManager && window.SyncManager.isOnline === false;
     if ((submittedUnit === 'kg' || submittedUnit === 'lb')
         && submittedUnit !== getPreferredWeightUnit()
         && !isOffline) {
-        const patchRes = await apiCall('/api/settings/weight-unit', 'PATCH', { unit: submittedUnit });
-        if (patchRes) {
-            window.weightUnitPreference = submittedUnit;
-            if (window.DataStore && typeof window.DataStore.getCached === 'function') {
-                try {
-                    const cached = await window.DataStore.getCached('settings_bundle');
-                    if (cached) {
-                        cached.weightUnitPreference = submittedUnit;
-                        await window.DataStore.setCached('settings_bundle', cached);
-                    }
-                } catch (_) { /* best-effort */ }
-            }
+        if (typeof window.setWeightUnitPreference === 'function') {
+            await window.setWeightUnitPreference(submittedUnit, { reload: false });
+        } else {
+            // Early-boot fallback: helper hasn't loaded yet. Direct PATCH only;
+            // the queue and post-cache re-commit aren't available pre-app.js.
+            const patchRes = await apiCall('/api/settings/weight-unit', 'PATCH', { unit: submittedUnit });
+            if (patchRes) window.weightUnitPreference = submittedUnit;
         }
     }
 
