@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -379,6 +380,114 @@ func TestAnalyzeFitness_AuditLogging(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected audit event for FitnessAnalysis")
+	}
+}
+
+// TestAnalyzeFitness_WeightUnitPreferenceDoesNotLeak verifies that the user's
+// weight unit preference (set via SetWeightUnitPreference) does NOT influence
+// the WeightSection of the analyze_fitness response. The MCP boundary is
+// fixed at kg with _kg-suffixed field names regardless of user preference.
+func TestAnalyzeFitness_WeightUnitPreferenceDoesNotLeak(t *testing.T) {
+	s, st := setupFitnessTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	userID := int64(123456)
+
+	if err := st.SetWorkoutEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWorkoutEnabled: %v", err)
+	}
+	if err := st.SetFoodIntakeEnabled(ctx, true); err != nil {
+		t.Fatalf("SetFoodIntakeEnabled: %v", err)
+	}
+	if err := st.SetWeightEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWeightEnabled: %v", err)
+	}
+	// Flip the user's unit preference to lb. The analyze_fitness response must
+	// remain in kg.
+	if err := st.SetWeightUnitPreference(ctx, "lb"); err != nil {
+		t.Fatalf("SetWeightUnitPreference: %v", err)
+	}
+
+	if _, err := st.CreateWeightLog(ctx, &store.WeightLog{
+		UserID:     userID,
+		MeasuredAt: time.Date(2026, 3, 10, 8, 0, 0, 0, time.Local),
+		Weight:     80.0, // stored in kg
+	}); err != nil {
+		t.Fatalf("CreateWeightLog: %v", err)
+	}
+	if _, err := st.CreateWeightLog(ctx, &store.WeightLog{
+		UserID:     userID,
+		MeasuredAt: time.Date(2026, 3, 15, 8, 0, 0, 0, time.Local),
+		Weight:     79.5, // stored in kg
+	}); err != nil {
+		t.Fatalf("CreateWeightLog: %v", err)
+	}
+
+	req := &sdkmcp.CallToolRequest{}
+	input := AnalyzeFitnessInput{
+		StartDate: "2026-03-09",
+		EndDate:   time.Now().AddDate(0, 0, 1).Format("2006-01-02"),
+	}
+
+	_, resp, err := s.handleAnalyzeFitness(ctx, req, input)
+	if err != nil {
+		t.Fatalf("handleAnalyzeFitness: %v", err)
+	}
+
+	if resp.Weight == nil {
+		t.Fatal("expected weight section to be present")
+	}
+	if resp.Weight.CurrentKg == nil {
+		t.Fatal("expected current_kg to be set")
+	}
+	// Numeric values must remain in kg, not lb-converted.
+	if *resp.Weight.CurrentKg != 79.5 {
+		t.Errorf("expected current_kg 79.5 (kg, unchanged by user lb preference), got %f", *resp.Weight.CurrentKg)
+	}
+	if resp.Weight.ChangeKg == nil {
+		t.Fatal("expected change_kg to be set")
+	}
+
+	// Marshal and inspect the JSON to assert field names use _kg suffixes and
+	// no plain "current" / "change" / "weight" / "unit" fields are exposed.
+	body, err := json.Marshal(resp.Weight)
+	if err != nil {
+		t.Fatalf("marshal weight section: %v", err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatalf("unmarshal weight section: %v", err)
+	}
+	if _, ok := raw["current_kg"]; !ok {
+		t.Error("expected 'current_kg' field in WeightSection JSON")
+	}
+	if _, ok := raw["change_kg"]; !ok {
+		t.Error("expected 'change_kg' field in WeightSection JSON")
+	}
+	for _, banned := range []string{"current", "change", "current_lb", "change_lb", "weight", "unit"} {
+		if _, ok := raw[banned]; ok {
+			t.Errorf("MCP WeightSection must not expose %q field — boundary is fixed at kg", banned)
+		}
+	}
+
+	// Inspect each log entry for the same kg-only contract.
+	var logs []map[string]json.RawMessage
+	if err := json.Unmarshal(raw["logs"], &logs); err != nil {
+		t.Fatalf("unmarshal logs array: %v", err)
+	}
+	if len(logs) == 0 {
+		t.Fatal("expected at least one log entry")
+	}
+	for i, log := range logs {
+		if _, ok := log["weight_kg"]; !ok {
+			t.Errorf("log[%d]: expected 'weight_kg' field", i)
+		}
+		for _, banned := range []string{"weight", "weight_lb", "unit"} {
+			if _, ok := log[banned]; ok {
+				t.Errorf("log[%d]: MCP must not expose %q field", i, banned)
+			}
+		}
 	}
 }
 

@@ -680,21 +680,29 @@
 
     function renderWeightTile(latest, trend, onDeeplink, nowMs) {
         if (!latest || latest.status === 'disabled') return null;
+        const preferredUnit = (typeof window !== 'undefined' && window.weightUnitPreference === 'lb') ? 'lb' : 'kg';
+        const fmt = (typeof formatWeight === 'function')
+            ? formatWeight
+            : (kg, u) => ({ value: Number(kg), label: u });
         let value = '—';
-        let unit = 'kg';
+        let unit = preferredUnit;
         let tag = null;
         let points = null;
         if (latest.status === 'missing' || !latest.value) {
             unit = 'Log your weight';
         } else {
             const v = latest.value;
-            value = String(v.weight);
-            unit = `kg · ${relativeDayLabel(v.measured_at, nowMs) || 'today'}`;
+            const display = fmt(v.weight, preferredUnit);
+            value = String(display.value);
+            unit = `${display.label} · ${relativeDayLabel(v.measured_at, nowMs) || 'today'}`;
             if (trend && trend.status === 'ok' && trend.value) {
-                const sign = trend.value.delta > 0 ? '+' : '';
+                const deltaDisplay = fmt(Math.abs(trend.value.delta), preferredUnit);
+                const signedDelta = trend.value.delta > 0
+                    ? `+${deltaDisplay.value}`
+                    : (trend.value.delta < 0 ? `-${deltaDisplay.value}` : `${deltaDisplay.value}`);
                 const label = trend.value.direction === 'flat'
                     ? '7d flat'
-                    : `7d ${sign}${trend.value.delta}`;
+                    : `7d ${signedDelta}`;
                 tag = statusTag('normal', label);
                 if (Array.isArray(trend.value.points)) points = trend.value.points;
             }

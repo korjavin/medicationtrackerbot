@@ -38,6 +38,7 @@
     const Y_FLOOR = 20;
     const Y_CEIL = 400;
     const LAST_POINT_RADIUS = 4;
+    const KG_PER_LB = 0.45359237;
 
     const RANGE_DAYS = {
         '7d': 7,
@@ -242,12 +243,26 @@
         const rawLogs = Array.isArray(options.logs) ? options.logs : [];
         if (rawLogs.length === 0) return makeEmptyCard(range);
 
+        const displayUnit = (typeof options.unit === 'string' && options.unit.toLowerCase() === 'lb')
+            ? 'lb' : 'kg';
+        const toDisplay = displayUnit === 'lb'
+            ? (kg) => kg / KG_PER_LB
+            : (kg) => kg;
+        // Y bounds are kg-based constants; convert them so lb users above ~400 lb
+        // (≈181 kg) aren't clipped at the chart top.
+        const yFloor = toDisplay(Y_FLOOR);
+        const yCeil = toDisplay(Y_CEIL);
+
         const normalized = rawLogs.map(normalize).filter(Boolean);
         if (normalized.length === 0) return makeEmptyCard(range);
 
         normalized.sort((a, b) => a.date - b.date);
         const filtered = filterByRange(normalized, range);
         if (filtered.length === 0) return makeEmptyCard(range);
+
+        for (const d of filtered) {
+            d.weight = toDisplay(d.weight);
+        }
 
         const width = finiteOrDefault(options.width, DEFAULT_WIDTH);
         const height = finiteOrDefault(options.height, DEFAULT_HEIGHT);
@@ -257,7 +272,8 @@
         const data = downsample(filtered, plotW);
         if (data.length === 0) return makeEmptyCard(range);
 
-        const goalValue = extractGoal(options.goal);
+        const goalValueKg = extractGoal(options.goal);
+        const goalValue = goalValueKg != null ? toDisplay(goalValueKg) : null;
 
         const firstTime = data[0].date.getTime();
         const lastTime = data[data.length - 1].date.getTime();
@@ -285,10 +301,10 @@
             dataMin -= 2;
             dataMax += 2;
         }
-        const boundedMin = Math.max(Y_FLOOR, Math.min(Y_CEIL, dataMin));
-        const boundedMax = Math.max(Y_FLOOR, Math.min(Y_CEIL, dataMax));
-        const yMin = Math.max(Y_FLOOR, Math.floor((boundedMin - 2) / 2) * 2);
-        const yMax = Math.min(Y_CEIL, Math.ceil((boundedMax + 2) / 2) * 2);
+        const boundedMin = Math.max(yFloor, Math.min(yCeil, dataMin));
+        const boundedMax = Math.max(yFloor, Math.min(yCeil, dataMax));
+        const yMin = Math.max(yFloor, Math.floor((boundedMin - 2) / 2) * 2);
+        const yMax = Math.min(yCeil, Math.ceil((boundedMax + 2) / 2) * 2);
         const yRange = (yMax - yMin) || 1;
         const yOf = (v) => {
             const clamped = v < yMin ? yMin : v > yMax ? yMax : v;
@@ -344,14 +360,15 @@
 
         if (goalValue != null) {
             svg.appendChild(makeGoalLine(PAD_L, width - PAD_R, yOf(goalValue), goalValue));
-            const goalUnit = (typeof options.unit === 'string' && options.unit.toLowerCase() === 'lb')
-                ? 'lb' : 'kg';
             const goalY = Math.max(PAD_T + 10, yOf(goalValue) - 5);
+            const goalLabel = displayUnit === 'lb'
+                ? `GOAL · ${goalValue.toFixed(1)} lb`
+                : `GOAL · ${goalValue} kg`;
             svg.appendChild(
                 makeTickText(
                     width - PAD_R - 4,
                     goalY,
-                    `GOAL · ${goalValue} ${goalUnit}`,
+                    goalLabel,
                     'wg-weight-chart__goal-label',
                     'end',
                 ),

@@ -168,6 +168,8 @@ type SettingsStore interface {
 	SetTabOrder(ctx context.Context, order string) error
 	GetCurrentTimezone() (string, error)
 	RecordTimezone(tz string) error
+	GetWeightUnitPreference(ctx context.Context) (string, error)
+	SetWeightUnitPreference(ctx context.Context, unit string) error
 }
 
 // HealthStore is the subset of store operations needed for health/vitals handlers.

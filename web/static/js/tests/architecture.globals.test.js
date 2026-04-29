@@ -89,6 +89,9 @@ const ALLOWED_GLOBALS = new Set([
     'window.loadFoodLogs',              // features/settings.js — triggers food log reload after target save
     'window.toggleFeatureSetting',      // features/settings.js — toggles a single feature flag via API
     'window.loadSettings',              // features/settings.js — loads all settings subsections in parallel
+    'window.weightUnitPreference',      // app.js / features/weight.js — user's preferred weight display unit ('kg' or 'lb'); hydrated from /api/bootstrap, read synchronously by the weight modal on open, written back via PATCH /api/settings/weight-unit when the user submits in a different unit
+    'window.commitAuthoritativeWeightUnit', // app.js — keeps window.weightUnitPreference and the Settings PATCH failure-revert target in sync; called by features/weight.js after an out-of-band modal-side PATCH succeeds so a later Settings PATCH failure doesn't revert UI to a stale unit
+    'window.setWeightUnitPreference',   // app.js — serial-queued PATCH /api/settings/weight-unit helper; features/weight.js modal-submit routes through it (with reload:false) so a concurrent Settings click and modal inference cannot land at the server in arrival order opposite to the user's click order
 ]);
 
 /**

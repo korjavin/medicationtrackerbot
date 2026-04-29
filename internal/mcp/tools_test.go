@@ -1243,3 +1243,75 @@ func TestHandleWorkoutLog_WriterErrorPassThrough(t *testing.T) {
 		t.Errorf("expected wrapped writer error, got %v", err)
 	}
 }
+
+// TestHandleGetWeight_UnitPreferenceDoesNotLeak verifies that the user's
+// weight unit preference (set via SetWeightUnitPreference) does NOT influence
+// the MCP get_weight response. The MCP boundary is fixed at kg with _kg-
+// suffixed field names so AI agents always see one canonical unit.
+func TestHandleGetWeight_UnitPreferenceDoesNotLeak(t *testing.T) {
+	s, st := setupFoodMCPTestServer(t)
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.SetWeightEnabled(ctx, true); err != nil {
+		t.Fatalf("SetWeightEnabled: %v", err)
+	}
+	// Flip the user's unit preference to lb. The MCP response must remain in kg.
+	if err := st.SetWeightUnitPreference(ctx, "lb"); err != nil {
+		t.Fatalf("SetWeightUnitPreference: %v", err)
+	}
+
+	_, err := st.CreateWeightLog(ctx, &store.WeightLog{
+		UserID:     123456,
+		MeasuredAt: time.Date(2026, 2, 18, 8, 0, 0, 0, time.UTC),
+		Weight:     75.5, // stored in kg
+	})
+	if err != nil {
+		t.Fatalf("CreateWeightLog: %v", err)
+	}
+
+	_, resp, err := s.handleGetWeight(ctx, nil, DateRangeInput{
+		StartDate: "2026-02-17",
+		EndDate:   "2026-02-19",
+	})
+	if err != nil {
+		t.Fatalf("handleGetWeight error: %v", err)
+	}
+
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 weight log, got %d", resp.Count)
+	}
+	// The numeric value must still be the kg-stored value, NOT lb-converted.
+	if resp.Logs[0].Weight != 75.5 {
+		t.Errorf("expected weight 75.5 (kg, unchanged by user lb preference), got %f", resp.Logs[0].Weight)
+	}
+
+	// Marshal and inspect the JSON to assert field names use _kg-suffix and no
+	// plain "weight" / "trend" / "unit" field has been added.
+	body, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	var raw struct {
+		Logs []map[string]json.RawMessage `json:"logs"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatalf("unmarshal response logs: %v", err)
+	}
+	if len(raw.Logs) != 1 {
+		t.Fatalf("expected 1 log in raw json, got %d", len(raw.Logs))
+	}
+	log := raw.Logs[0]
+	if _, ok := log["weight_kg"]; !ok {
+		t.Error("expected 'weight_kg' field in log JSON")
+	}
+	if _, ok := log["weight"]; ok {
+		t.Error("MCP response must not include unit-less 'weight' field")
+	}
+	if _, ok := log["unit"]; ok {
+		t.Error("MCP response must not expose a 'unit' field")
+	}
+	if _, ok := log["weight_lb"]; ok {
+		t.Error("MCP response must never include 'weight_lb' field — boundary is fixed at kg")
+	}
+}

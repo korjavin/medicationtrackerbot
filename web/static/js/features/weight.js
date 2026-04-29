@@ -211,20 +211,30 @@ function setWeightModalEyebrow(text) {
     if (el) el.textContent = text;
 }
 
+function getPreferredWeightUnit() {
+    return (typeof window !== 'undefined' && window.weightUnitPreference === 'lb') ? 'lb' : 'kg';
+}
+
 function resetWeightUnitToggle() {
-    weightModalUnit = 'kg';
-    // Restore the kg input bounds so a previous lb toggle doesn't leak stale
-    // min/max across modal close/reopen — setWeightModalUnit('kg') would
-    // no-op because weightModalUnit is already kg.
+    const preferred = getPreferredWeightUnit();
+    weightModalUnit = preferred;
+    // Restore the input bounds so a previous lb/kg toggle doesn't leak stale
+    // min/max across modal close/reopen — setWeightModalUnit() would no-op
+    // when weightModalUnit already matches the preferred unit.
     const input = document.getElementById('weight-value');
     if (input) {
-        input.min = '30';
-        input.max = '300';
+        if (preferred === 'kg') {
+            input.min = '30';
+            input.max = '300';
+        } else {
+            input.min = '66';
+            input.max = '660';
+        }
     }
     const toggle = document.querySelector('#weight-modal .wg-weight-modal__unit-toggle');
     if (!toggle) return;
     toggle.querySelectorAll('.wg-weight-modal__unit-btn').forEach((btn) => {
-        const isActive = btn.getAttribute('data-unit') === 'kg';
+        const isActive = btn.getAttribute('data-unit') === preferred;
         btn.classList.toggle('wg-weight-modal__unit-btn--active', isActive);
         btn.classList.toggle('wg-gloss--sun', isActive);
         btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
@@ -336,6 +346,37 @@ async function handleWeightSubmit(event) {
         editingWeightLog = null;
     }
 
+    // Smart unit-preference inference: if the user submitted in a different
+    // unit than their saved preference, persist the new unit so the next open
+    // (and other surfaces — Today tile, history) honors it. Stays best-effort:
+    // if the PATCH fails the local write still succeeded. Skip entirely when
+    // offline — PATCH has no offline fallback in sync.js, so it would surface
+    // a confusing "needs internet" alert immediately after the weight POST
+    // succeeded via the offline-write path.
+    //
+    // Route through window.setWeightUnitPreference (app.js) rather than issuing
+    // an inline PATCH so this modal-side write shares the Settings serial queue.
+    // Two consequences: (a) a Settings click whose PATCH is still in flight no
+    // longer races this one — the server sees PATCHes in click order; (b) the
+    // helper performs the post-cache re-commit that protects window.weightUnitPreference
+    // / weightUnitLastCommitted from a stale loadSettings() hydration landing in
+    // the await window. We pass reload:false because the modal already calls
+    // loadWeightLogs() (and conditionally loadToday()) after closing.
+    const submittedUnit = weightModalUnit;
+    const isOffline = window.SyncManager && window.SyncManager.isOnline === false;
+    if ((submittedUnit === 'kg' || submittedUnit === 'lb')
+        && submittedUnit !== getPreferredWeightUnit()
+        && !isOffline) {
+        if (typeof window.setWeightUnitPreference === 'function') {
+            await window.setWeightUnitPreference(submittedUnit, { reload: false });
+        } else {
+            // Early-boot fallback: helper hasn't loaded yet. Direct PATCH only;
+            // the queue and post-cache re-commit aren't available pre-app.js.
+            const patchRes = await apiCall('/api/settings/weight-unit', 'PATCH', { unit: submittedUnit });
+            if (patchRes) window.weightUnitPreference = submittedUnit;
+        }
+    }
+
     await window.DataStore.invalidateTags(['weight']);
     // Belt-and-suspenders: tagToKeys is in-memory, so if bootstrap was
     // skipped (cached-auth fast path, or bootstrap fetch failed) the
@@ -410,7 +451,9 @@ function renderWeightGoalCard(logs, goalData) {
 
     const value = document.createElement('div');
     value.className = 'wg-mono-display wg-weight-goal-card__value';
-    value.textContent = `${goalValue.toFixed(1)} kg`;
+    const preferredUnit = getPreferredWeightUnit();
+    const goalDisplay = formatWeight(goalValue, preferredUnit);
+    value.textContent = `${goalDisplay.value.toFixed(1)} ${goalDisplay.label}`;
     container.appendChild(value);
 
     // Progress bar. Uses the gloss-inset track primitive and a neutral
@@ -461,7 +504,8 @@ function renderWeightGoalCard(logs, goalData) {
             delta.textContent = 'At goal';
         } else {
             const sign = diff > 0 ? '+' : '\u2212';
-            delta.textContent = `${sign}${Math.abs(diff).toFixed(1)} kg to goal`;
+            const diffDisplay = formatWeight(Math.abs(diff), preferredUnit);
+            delta.textContent = `${sign}${diffDisplay.value.toFixed(1)} ${diffDisplay.label} to goal`;
         }
     }
     container.appendChild(delta);
@@ -517,10 +561,11 @@ function renderWeightChartLegend(goalData) {
     container.hidden = false;
     container.replaceChildren();
 
+    const goalDisplay = formatWeight(goalValue, getPreferredWeightUnit());
     const items = [
         { label: 'Actual', swatch: 'actual' },
         { label: 'Plan', swatch: 'plan' },
-        { label: `Goal ${goalValue.toFixed(1)} kg`, swatch: 'goal' },
+        { label: `Goal ${goalDisplay.value.toFixed(1)} ${goalDisplay.label}`, swatch: 'goal' },
     ];
     items.forEach((item) => {
         const li = document.createElement('span');
@@ -606,7 +651,8 @@ function renderWeightPrognosisCard(logs, goalData) {
     rightValue.className = `wg-weight-prognosis-card__trend-value wg-weight-prognosis-card__trend-value--${variant}`;
     if (Number.isFinite(perWeek)) {
         const sign = perWeek > 0 ? '+' : (perWeek < 0 ? '−' : '');
-        rightValue.textContent = `${sign}${Math.abs(perWeek).toFixed(1)} kg/week`;
+        const perWeekDisplay = formatWeight(Math.abs(perWeek), getPreferredWeightUnit());
+        rightValue.textContent = `${sign}${perWeekDisplay.value.toFixed(1)} ${perWeekDisplay.label}/week`;
     } else {
         rightValue.textContent = '—';
     }
@@ -644,6 +690,7 @@ function renderWeightChart(logs, goalData) {
         logs: list,
         range: activeRange,
         goal: goalData || null,
+        unit: getPreferredWeightUnit(),
     });
     if (node) container.appendChild(node);
 }
@@ -668,13 +715,14 @@ function buildWeightChartCurrentBadge(logs) {
     label.textContent = 'Current';
     wrap.appendChild(label);
 
+    const display = formatWeight(weight, getPreferredWeightUnit());
     const value = document.createElement('span');
     value.className = 'wg-weight-chart-panel__current-value';
-    value.textContent = weight.toFixed(1);
+    value.textContent = display.value.toFixed(1);
 
     const unit = document.createElement('span');
     unit.className = 'wg-weight-chart-panel__current-unit';
-    unit.textContent = 'kg';
+    unit.textContent = display.label;
     value.appendChild(unit);
 
     wrap.appendChild(value);
@@ -912,10 +960,11 @@ function buildWeightHistoryRow(log) {
     const weightSpan = document.createElement('span');
     weightSpan.className = 'wg-weight-history-row__weight';
     const weightNum = Number(log.weight);
-    weightSpan.textContent = Number.isFinite(weightNum) ? weightNum.toFixed(1) : '—';
+    const display = formatWeight(weightNum, getPreferredWeightUnit());
+    weightSpan.textContent = Number.isFinite(display.value) ? display.value.toFixed(1) : '—';
     const unitSpan = document.createElement('span');
     unitSpan.className = 'wg-weight-history-row__unit';
-    unitSpan.textContent = 'kg';
+    unitSpan.textContent = display.label;
     value.appendChild(weightSpan);
     value.appendChild(unitSpan);
     body.appendChild(value);
@@ -1013,7 +1062,10 @@ function editWeightLog(log) {
     const notesInput = document.getElementById('weight-notes');
     const weightNum = Number(log.weight);
     if (valueInput && Number.isFinite(weightNum)) {
-        valueInput.value = weightNum.toFixed(1);
+        // Stored weight is always kg; route through setWeightValue so the
+        // displayed value is converted into the user's preferred unit when
+        // the modal opens in lb.
+        setWeightValue(weightNum);
     }
     if (dtInput && log.measured_at) {
         const d = new Date(log.measured_at);
