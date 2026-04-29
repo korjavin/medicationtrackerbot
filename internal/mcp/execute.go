@@ -9,6 +9,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/proxy"
+	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
 )
 
 const (
@@ -49,6 +50,19 @@ type ExecutionResult struct {
 // ExecutionService runs sandboxed Python scripts. Implemented by the executor service (Task 9).
 type ExecutionService interface {
 	Execute(ctx context.Context, req ExecutionRequest) (*ExecutionResult, error)
+}
+
+// SetExecutor wires an execution service into the server. Called from main
+// after constructing the server, since the executor lives in a child package
+// (`internal/mcp/executor`) that imports this package.
+func (s *Server) SetExecutor(exec ExecutionService) {
+	s.executor = exec
+}
+
+// Registry returns the operation registry. Used by main to wire the executor's
+// proxy against the same registry the help/execute tools reference.
+func (s *Server) Registry() *registry.Registry {
+	return s.reg
 }
 
 // ExecuteInput is the JSON-decoded input for the mcp_execute tool.

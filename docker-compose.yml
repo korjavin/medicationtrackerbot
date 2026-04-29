@@ -68,6 +68,9 @@ services:
     command: ["./mcptool"]
     volumes:
       - medtracker_data:/app/data
+    # Do NOT mount the Docker socket here. The MCP container must not be
+    # able to spawn arbitrary containers; subprocess sandboxing happens via
+    # the runner image / process isolation, not container-in-container.
     environment:
       - MCP_PORT=${MCP_PORT:-8081}
       - MCP_DATABASE_PATH=${MCP_DATABASE_PATH:-/app/data/meds.db}
@@ -77,6 +80,13 @@ services:
       - ALLOWED_USER_ID=${ALLOWED_USER_ID}
       - MCP_AUDIT_ENDPOINT=${MCP_AUDIT_ENDPOINT:-http://medtracker:8080/api/mcp-audit}
       - MCP_AUDIT_SECRET=${MCP_AUDIT_SECRET}
+      # Executor (Python sandbox) caps. The MCP server enforces these
+      # before forwarding to the runner; defaults match docs/mcp-python-executor.md.
+      - MCP_EXECUTOR_MAX_TIMEOUT_MS=${MCP_EXECUTOR_MAX_TIMEOUT_MS:-30000}
+      - MCP_EXECUTOR_MAX_API_CALLS=${MCP_EXECUTOR_MAX_API_CALLS:-100}
+      - MCP_EXECUTOR_MAX_CONCURRENT=${MCP_EXECUTOR_MAX_CONCURRENT:-4}
+      # Loopback proxy URL the runner uses for medtracker.api.call.
+      - MCP_EXECUTOR_PROXY_URL=${MCP_EXECUTOR_PROXY_URL:-http://127.0.0.1:8090/call}
       # Pocket-ID
       - POCKET_ID_URL=${POCKET_ID_URL}
       - POCKET_ID_CLIENT_ID=${POCKET_ID_CLIENT_ID}
@@ -84,6 +94,14 @@ services:
       - POCKET_ID_JWKS_JSON=${POCKET_ID_JWKS_JSON}
       - SKIP_PERMS_FIX=true
       - TZ=${TZ:-Europe/Berlin}
+    # Memory and CPU caps mirror the per-run sandbox limits (1 GB / 1 CPU).
+    # The MCP container itself stays small; per-run isolation is enforced by
+    # the executor service.
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
     networks:
       - default
       - traefik_net
@@ -94,6 +112,39 @@ services:
       - "traefik.http.routers.medtracker-mcp-${INSTANCE}.entrypoints=websecure"
       - "traefik.http.routers.medtracker-mcp-${INSTANCE}.tls.certresolver=myresolver"
       - "traefik.http.services.medtracker-mcp-${INSTANCE}.loadbalancer.server.port=${MCP_PORT:-8081}"
+
+  # Side container that hosts the Python sandbox runtime. The MCP server's
+  # execution service spawns scripts using the runner image; this service
+  # exists to vendor the image build/pin and keep the runner toolchain on a
+  # network that can ONLY reach the medtracker backend bridge (no Internet).
+  mcp-runner:
+    build:
+      context: .
+      dockerfile: docker/runner/Dockerfile
+    image: ghcr.io/korjavin/medicationtrackerbot-runner:latest
+    container_name: medtracker-mcp-runner-${INSTANCE}
+    # The runner is invoked as a one-shot subprocess; do not auto-start.
+    # `command: tail -f /dev/null` would defeat that pattern. Instead, the
+    # MCP server uses `docker run` semantics or the local execCmdSpawner.
+    # For the MVP we keep this stopped by default and rely on the in-process
+    # spawner; the build entry pins the image for future side-container use.
+    restart: "no"
+    profiles: ["build-only"]
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+    networks:
+      # runner_net is internal-only: no egress to the public Internet.
+      - runner_net
 
   # Local Telegram Bot API Server - removes 20MB file download limit
   telegram-bot-api:
@@ -194,6 +245,12 @@ networks:
   traefik_net:
     external: true
     name: ${NETWORK_NAME}
+  # Internal-only network for the runner sandbox. No external connectivity;
+  # the runner reaches the MCP server's loopback proxy URL only via the
+  # default network when explicitly attached to it.
+  runner_net:
+    driver: bridge
+    internal: true
 
 volumes:
   medtracker_data:

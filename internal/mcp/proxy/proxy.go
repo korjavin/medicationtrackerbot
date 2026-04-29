@@ -222,6 +222,13 @@ func (p *Proxy) ResetCallCount() {
 	p.callCount.Store(0)
 }
 
+// CallCount returns the total number of API calls attempted on this proxy.
+// Includes successful calls and bridge non-200 responses; excludes proxy-level
+// rejections (unknown op, write blocked, max calls exceeded, topic not allowed).
+func (p *Proxy) CallCount() int64 {
+	return p.callCount.Load()
+}
+
 func sign(body []byte, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
