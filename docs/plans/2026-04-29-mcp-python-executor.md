@@ -235,14 +235,14 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Modify: `internal/mcp/execute.go`
 - Modify: `internal/server/mcp_bridge.go`
 
-- [ ] structured slog logs for run ID, mode, duration, exit reason, API call count
-- [ ] audit fan-out for write runs (and optionally read runs, behind config)
-- [ ] redact secrets and large payloads from logs (truncate bodies, redact bearer/HMAC headers)
-- [ ] stable error codes for common failures (string constants reused across envelope and tests)
-- [ ] max concurrent runs enforced (config + slog)
-- [ ] cleanup for abandoned/timeout runner processes
-- [ ] tests: log fields present, redaction works, max-concurrency rejection, abandoned run cleaned up
-- [ ] run `go test ./...` — must pass before Task 14
+- [x] structured slog logs for run ID, mode, duration, exit reason, API call count
+- [x] audit fan-out for write runs (and optionally read runs, behind config)
+- [x] redact secrets and large payloads from logs (truncate bodies, redact bearer/HMAC headers)
+- [x] stable error codes for common failures (string constants reused across envelope and tests)
+- [x] max concurrent runs enforced (config + slog)
+- [x] cleanup for abandoned/timeout runner processes
+- [x] tests: log fields present, redaction works, max-concurrency rejection, abandoned run cleaned up
+- [x] run `go test ./...` — must pass before Task 14
 
 ### Task 14: Deployment and user docs
 
