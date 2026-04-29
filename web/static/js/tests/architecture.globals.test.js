@@ -89,6 +89,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.loadFoodLogs',              // features/settings.js — triggers food log reload after target save
     'window.toggleFeatureSetting',      // features/settings.js — toggles a single feature flag via API
     'window.loadSettings',              // features/settings.js — loads all settings subsections in parallel
+    'window.weightUnitPreference',      // app.js / features/weight.js — user's preferred weight display unit ('kg' or 'lb'); hydrated from /api/bootstrap, read synchronously by the weight modal on open, written back via PATCH /api/settings/weight-unit when the user submits in a different unit
 ]);
 
 /**

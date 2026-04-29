@@ -52,6 +52,8 @@ function normalizeSettingsBundle(raw) {
     const bpReminderRaw = raw?.bpReminderStatus || raw?.bp_reminder_status || raw?.settings?.bp_reminder_status || {};
     const weightReminderRaw = raw?.weightReminderStatus || raw?.weight_reminder_status || raw?.settings?.weight_reminder_status || {};
     const tabOrderRaw = raw?.tabOrder || raw?.tab_order || raw?.settings?.tab_order || null;
+    const weightUnitRaw = raw?.weightUnitPreference || raw?.weight_unit_preference || raw?.settings?.weight_unit_preference || 'kg';
+    const weightUnit = weightUnitRaw === 'lb' ? 'lb' : 'kg';
 
     return {
         featureSettings: raw?.featureSettings || raw?.features || {},
@@ -59,6 +61,7 @@ function normalizeSettingsBundle(raw) {
         timezone: raw?.timezone || raw?.settings?.timezone || '',
         serverTime: raw?.serverTime || raw?.server_time || raw?.settings?.server_time || '',
         serverTimezone: raw?.serverTimezone || raw?.server_timezone || raw?.settings?.server_timezone || '',
+        weightUnitPreference: weightUnit,
         foodTargets: {
             calories: Number(foodTargetsRaw.calories) || 0,
             carbs: Number(foodTargetsRaw.carbs) || 0,
@@ -305,6 +308,7 @@ async function applyBootstrapPayload(res) {
         bp_reminder_status: res.settings?.bp_reminder_status,
         weight_reminder_status: res.settings?.weight_reminder_status
     });
+    window.weightUnitPreference = settingsBundle.weightUnitPreference;
     await cacheApiSnapshot('settings_bundle', settingsBundle, ['settings', 'food_targets', 'feature_settings']);
 
     return true;
@@ -896,6 +900,15 @@ let featureSettingsLoaded = false;
 window.featureSettings = featureSettings;
 window.featureSettingsLoaded = featureSettingsLoaded;
 window.AppStore && window.AppStore.set('featureSettings', featureSettings);
+
+// Default weight-unit preference. Hydrated from /api/bootstrap into a window
+// property so weight.js can seed the modal toggle synchronously on open.
+// 'kg' is the storage canon and the conservative default before bootstrap
+// resolves; persisted in IndexedDB via settings_bundle for offline reload.
+if (typeof window.weightUnitPreference !== 'string'
+    || (window.weightUnitPreference !== 'kg' && window.weightUnitPreference !== 'lb')) {
+    window.weightUnitPreference = 'kg';
+}
 var formatDate = (dateStr) => {
     if (!dateStr) return '';
     const d = new Date(dateStr);
@@ -1582,6 +1595,7 @@ async function loadSettings() {
         window.featureSettings = featureSettings;
         window.featureSettingsLoaded = true;
         window.AppStore && window.AppStore.set('featureSettings', featureSettings);
+        window.weightUnitPreference = bundle.weightUnitPreference;
         updateFeatureToggles();
         updateFeatureTabVisibility();
 
@@ -1625,6 +1639,7 @@ async function loadSettings() {
             timezone: settingsRes?.timezone || '',
             serverTime: settingsRes?.server_time || '',
             serverTimezone: settingsRes?.server_timezone || '',
+            weightUnitPreference: settingsRes?.weight_unit_preference || window.weightUnitPreference || 'kg',
             foodTargets: {
                 calories: foodTargetsRes?.calories || 0,
                 carbs: foodTargetsRes?.carbs || 0,

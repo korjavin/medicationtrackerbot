@@ -86,11 +86,11 @@ Track each user's preferred weight unit (KG or LB) by remembering the last unit 
 - Modify: `web/static/js/features/weight.js`
 - Modify: `tests/` (Vitest spec for weight.js)
 
-- [ ] on modal open, default `weightModalUnit` to the user's saved preference from bootstrap (instead of always 'kg')
-- [ ] on successful weight submit, if the chosen unit differs from saved preference, PATCH `/api/settings/weight-unit` and update local cache
-- [ ] keep modal-internal toggle behavior unchanged
-- [ ] write Vitest test: modal opens in saved unit; submit-with-changed-unit triggers PATCH; submit-same-unit does not PATCH
-- [ ] run `pnpm test`
+- [x] on modal open, default `weightModalUnit` to the user's saved preference from bootstrap (instead of always 'kg')
+- [x] on successful weight submit, if the chosen unit differs from saved preference, PATCH `/api/settings/weight-unit` and update local cache
+- [x] keep modal-internal toggle behavior unchanged
+- [x] write Vitest test: modal opens in saved unit; submit-with-changed-unit triggers PATCH; submit-same-unit does not PATCH
+- [x] run `pnpm test`
 
 ### Task 5: Frontend - render all weight values in preferred unit
 
