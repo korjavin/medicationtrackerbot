@@ -59,11 +59,12 @@ go run cmd/genvapid/main.go                                   # VAPID keys for w
 - `internal/domain` — business logic services (medication, exercise, reminder, food, food_ai)
 - `internal/workout` — workout session service (reference service pattern)
 - `internal/scheduler` — notification scheduler
-- `internal/mcp` — MCP server
+- `internal/mcp` — MCP server. Sub-packages: `registry/` (allowlisted operation catalog), `proxy/` (in-process API proxy used by the executor), `executor/` (Python runner orchestration). The bridge endpoint that the proxy talks to lives in `internal/server/mcp_bridge.go`.
 - `internal/rxnorm` — drug interaction checks
 - `internal/webpush` — web push
 - `internal/tzlookup` — geo-to-timezone (tzf, offline)
 - `web/static/` — vanilla JS frontend, Dexie.js, Service Worker
+- `python/` — `medtracker` helper package, sandboxed runner, and example scripts used by the `mcp_execute` tool. Tests live in `python/tests/` and `python/runner/`.
 
 ## Documentation Index
 
@@ -94,7 +95,7 @@ go run cmd/genvapid/main.go                                   # VAPID keys for w
 
 ### Adding an MCP tool
 
-See [docs/mcp-deployment.md](docs/mcp-deployment.md#adding-mcp-tools).
+For most new backend capabilities, prefer adding an entry to the operation registry (`internal/mcp/registry/`) so it becomes reachable from `mcp_execute` Python scripts via the proxy → bridge path — no new MCP tool registration required. Only add a top-level MCP tool when a granular tool has a clear standalone use case (e.g., `workout_log`'s natural-language inference). See [docs/mcp-deployment.md](docs/mcp-deployment.md#adding-mcp-tools) and [docs/mcp-python-executor.md](docs/mcp-python-executor.md).
 
 ### Modifying workout rotation
 
