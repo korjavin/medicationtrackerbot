@@ -78,6 +78,8 @@ type Server struct {
 	tzPlanner           tzreschedule.PlannerService
 	tzPlanStore         TZPlanStore
 	nonces              NonceStore
+	mcpRegistry         MCPRegistry
+	internalMux         http.Handler
 }
 
 type rateLimiter struct {
@@ -538,11 +540,15 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/notes", s.handleCreateNote)
 	apiMux.HandleFunc("DELETE /api/notes/{id}", s.handleDeleteNote)
 
+	// Store the raw apiMux for internal bridge calls (no auth required there).
+	s.internalMux = apiMux
+
 	// External routes (bypass AuthMiddleware)
 	mux.HandleFunc("POST /api/workout/external", s.externalAPIKeyMiddleware(s.handleExternalWorkout))
 	mux.HandleFunc("POST /api/mcp-audit", s.handleMCPAudit)
 	mux.HandleFunc("POST /api/mcp-food-log", s.handleMCPFoodLog)
 	mux.HandleFunc("POST /api/mcp-workout-log", s.handleMCPWorkoutLog)
+	mux.HandleFunc("POST /internal/mcp/bridge", s.handleMCPBridge)
 
 	// Apply Middleware to API
 	authMW := AuthMiddleware(s.botToken, s.sessionSecret, s.allowedUserID)

@@ -67,15 +67,15 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Create: `internal/server/mcp_bridge_test.go`
 - Modify: `internal/server/router.go` (or wherever HTTP routes are registered)
 
-- [ ] create an internal HMAC-protected endpoint `/internal/mcp/bridge` (separate from public browser auth)
-- [ ] reuse existing HMAC verification pattern from current MCP write tools
-- [ ] execute calls as the configured allowed user; reject any attempt to override user identity in the request
-- [ ] route only operation-registry calls through this bridge (validate op ID against registry)
-- [ ] normalize backend responses into a JSON envelope: `{status, body, headers_subset, duration_ms}`
-- [ ] enforce request and response body size limits (use values from Task 1)
-- [ ] emit slog audit metadata: operation ID, risk, status, duration, truncated error
-- [ ] tests: HMAC required, identity cannot be spoofed, unknown op rejected, size limits enforced, audit fields present
-- [ ] run `go test ./internal/server/...` and `go test ./internal/mcp/...` — must pass before Task 4
+- [x] create an internal HMAC-protected endpoint `/internal/mcp/bridge` (separate from public browser auth)
+- [x] reuse existing HMAC verification pattern from current MCP write tools
+- [x] execute calls as the configured allowed user; reject any attempt to override user identity in the request
+- [x] route only operation-registry calls through this bridge (validate op ID against registry)
+- [x] normalize backend responses into a JSON envelope: `{status, body, headers_subset, duration_ms}`
+- [x] enforce request and response body size limits (use values from Task 1)
+- [x] emit slog audit metadata: operation ID, risk, status, duration, truncated error
+- [x] tests: HMAC required, identity cannot be spoofed, unknown op rejected, size limits enforced, audit fields present
+- [x] run `go test ./internal/server/...` and `go test ./internal/mcp/...` — must pass before Task 4
 
 ### Task 4: API proxy boundary
 
