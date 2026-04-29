@@ -24,6 +24,15 @@ const (
 	ExecuteStatusProxyDenied           = "proxy_denied"
 	ExecuteStatusBackendAppError       = "backend_application_error"
 	ExecuteStatusBackendTransportError = "backend_transport_error"
+
+	// ExecuteErr* are stable error code strings embedded in the Error field of
+	// the response envelope. They are used as a prefix so callers (including
+	// tests) can match on a stable token regardless of the human-readable
+	// suffix that follows.
+	ExecuteErrMaxConcurrent  = "max_concurrent_runs"
+	ExecuteErrInvalidEnvelope = "invalid_runner_envelope"
+	ExecuteErrSpawnFailed    = "spawn_failed"
+	ExecuteErrConfigMarshal  = "marshal_run_config"
 )
 
 // ExecutionRequest is passed to the ExecutionService.

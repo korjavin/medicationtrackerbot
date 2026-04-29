@@ -197,8 +197,13 @@ func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, par
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		trace.Error = fmt.Sprintf("bridge returned %d: %s", resp.StatusCode, string(respBytes))
-		slog.Warn("[Proxy] bridge non-200", "operation_id", operationID, "status", resp.StatusCode)
+		preview := truncateForLog(string(respBytes), maxBridgeBodyLogLen)
+		trace.Error = fmt.Sprintf("bridge returned %d: %s", resp.StatusCode, preview)
+		slog.Warn("[Proxy] bridge non-200",
+			"operation_id", operationID,
+			"status", resp.StatusCode,
+			"body_preview", truncateForLog(string(respBytes), 128),
+		)
 		return &CallResult{Trace: trace}, nil
 	}
 
@@ -233,4 +238,19 @@ func sign(body []byte, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// maxBridgeBodyLogLen caps the bridge response body included in the trace
+// error string. Backend errors should remain short and informative, not dump
+// arbitrary payloads (which may contain user data) into proxy traces.
+const maxBridgeBodyLogLen = 1024
+
+// truncateForLog caps an arbitrary string before it lands in slog or in the
+// CallTrace.Error returned to scripts. Keeps log/audit volume bounded even
+// when the backend returns a verbose error body.
+func truncateForLog(s string, maxLen int) string {
+	if maxLen <= 0 || len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "...(truncated)"
 }

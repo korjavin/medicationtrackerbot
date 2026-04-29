@@ -22,6 +22,10 @@ const (
 	bridgeRequestBodyLimit = 1 * 1024 * 1024
 	// bridgeResponseBodyLimit caps per-call backend response bodies (10 MB).
 	bridgeResponseBodyLimit = 10 * 1024 * 1024
+	// bridgeBodyLogPreview caps how much of a body is ever included in slog
+	// audit lines. Bodies may contain user data; we keep just enough to
+	// triage failures.
+	bridgeBodyLogPreview = 256
 )
 
 // MCPOperation is the bridge's view of a registered operation.
@@ -45,6 +49,16 @@ type RegistryAdapter struct {
 // NewRegistryAdapter wraps r so it satisfies the MCPRegistry interface.
 func NewRegistryAdapter(r *opregistry.Registry) MCPRegistry {
 	return &RegistryAdapter{r: r}
+}
+
+// truncateString caps an arbitrary string at maxLen runes for safe inclusion
+// in slog audit lines. Used so backend bodies and free-form errors don't dump
+// arbitrary payloads into logs.
+func truncateString(s string, maxLen int) string {
+	if maxLen <= 0 || len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "...(truncated)"
 }
 
 func (a *RegistryAdapter) Get(id string) *MCPOperation {
@@ -186,13 +200,21 @@ func (s *Server) handleMCPBridge(w http.ResponseWriter, r *http.Request) {
 		truncated = true
 	}
 
-	slog.Info("[Bridge] proxied operation",
+	logFields := []any{
 		"operation_id", req.OperationID,
 		"risk", op.Risk,
 		"status", rec.Code,
 		"duration_ms", durationMS,
 		"truncated", truncated,
-	)
+	}
+	// Add a small body preview only on backend errors, so success paths don't
+	// leak user data. Even on errors, the preview is capped and clearly
+	// labelled. Bearer tokens / HMAC headers are never logged: the bridge
+	// reads the X-Signature header but never includes it in slog fields.
+	if rec.Code >= 400 {
+		logFields = append(logFields, "body_preview", truncateString(string(respBody), bridgeBodyLogPreview))
+	}
+	slog.Info("[Bridge] proxied operation", logFields...)
 
 	headersSubset := map[string]string{}
 	if ct := rec.Header().Get("Content-Type"); ct != "" {

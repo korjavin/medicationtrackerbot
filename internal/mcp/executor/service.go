@@ -53,6 +53,12 @@ const (
 	defaultListenerAddr   = "127.0.0.1:0"
 	defaultProxyTimeout   = 60 * time.Second
 	defaultRequestSizeMax = 2 * 1024 * 1024 // 2 MiB request body cap on /call
+
+	// defaultAbandonedTimeout is how long a runState may sit in the runs map
+	// before the janitor considers it abandoned and prunes it. Set generously
+	// past any realistic backstop.
+	defaultAbandonedTimeout = 10 * time.Minute
+	defaultCleanupInterval  = 1 * time.Minute
 )
 
 // Spawner runs a single Python sandbox subprocess.
@@ -63,6 +69,31 @@ const (
 type Spawner interface {
 	Spawn(ctx context.Context, payload []byte) ([]byte, error)
 }
+
+// RunSummary is the structured record of a finished run handed to AuditHook
+// implementations. Fields are stable so external auditors can rely on them.
+type RunSummary struct {
+	RunID      string
+	Mode       proxy.Mode
+	Intent     string
+	DurationMS int64
+	APICalls   int
+	Status     string // matches mcp.ExecuteStatus*
+	ExitReason string // raw runner exit_reason; "rejected" for pre-spawn rejections
+	Error      string // truncated/redacted error detail; empty on success
+}
+
+// AuditHook receives a RunSummary after every audited run. Implementations
+// must be safe for concurrent use; the service may call OnRun from multiple
+// goroutines.
+type AuditHook interface {
+	OnRun(ctx context.Context, summary RunSummary)
+}
+
+// AuditHookFunc adapts a plain function to the AuditHook interface.
+type AuditHookFunc func(ctx context.Context, summary RunSummary)
+
+func (f AuditHookFunc) OnRun(ctx context.Context, summary RunSummary) { f(ctx, summary) }
 
 // Options configures a Service. Required: Registry, BridgeURL, HMACSecret.
 // All other fields fall back to sensible defaults.
@@ -94,6 +125,20 @@ type Options struct {
 	// DisableListener skips starting the loopback proxy. Tests that don't
 	// exercise the runner-side proxy path can set this to true.
 	DisableListener bool
+	// Audit, when non-nil, receives a RunSummary after every audited run.
+	// Writes are always audited; reads are only audited when AuditAllRuns
+	// is true.
+	Audit AuditHook
+	// AuditAllRuns includes read-only runs in audit fan-out. Default false
+	// (only writes are audited).
+	AuditAllRuns bool
+	// AbandonedRunTimeout is how long a runState may persist in the runs
+	// map before the janitor prunes it. Default: 10m. Set to a small value
+	// in tests to exercise cleanup.
+	AbandonedRunTimeout time.Duration
+	// CleanupInterval controls how often the janitor scans for abandoned
+	// runs. Default: 1m. Set to 0 to disable the janitor.
+	CleanupInterval time.Duration
 }
 
 // Service is the long-lived execution service.
@@ -112,15 +157,22 @@ type Service struct {
 	activeCount atomic.Int64
 	started     atomic.Bool
 	stopped     atomic.Bool
+
+	cleanupStop   chan struct{}
+	cleanupDoneCh chan struct{}
+	abandonedRuns atomic.Int64
 }
 
 // runState is the per-run record stored while a run is in flight. The
 // loopback /call handler looks up runs by token to forward calls through
-// the right per-run proxy and RunConfig.
+// the right per-run proxy and RunConfig. startedAt is consulted by the
+// janitor to prune abandoned runs.
 type runState struct {
-	runID string
-	cfg   proxy.RunConfig
-	p     *proxy.Proxy
+	runID     string
+	cfg       proxy.RunConfig
+	p         *proxy.Proxy
+	startedAt time.Time
+	cancel    context.CancelFunc // cancels the run's context on cleanup
 }
 
 // Compile-time check that Service satisfies the MCP execution interface.
@@ -149,6 +201,14 @@ func New(opts Options) (*Service, error) {
 	if opts.HTTPClient == nil {
 		opts.HTTPClient = &http.Client{Timeout: defaultProxyTimeout}
 	}
+	if opts.AbandonedRunTimeout <= 0 {
+		opts.AbandonedRunTimeout = defaultAbandonedTimeout
+	}
+	if opts.CleanupInterval < 0 {
+		opts.CleanupInterval = 0
+	} else if opts.CleanupInterval == 0 {
+		opts.CleanupInterval = defaultCleanupInterval
+	}
 
 	sp := opts.Spawner
 	if sp == nil {
@@ -163,10 +223,12 @@ func New(opts Options) (*Service, error) {
 	}
 
 	return &Service{
-		opts:    opts,
-		sem:     make(chan struct{}, opts.MaxConcurrent),
-		spawner: sp,
-		runs:    make(map[string]*runState),
+		opts:          opts,
+		sem:           make(chan struct{}, opts.MaxConcurrent),
+		spawner:       sp,
+		runs:          make(map[string]*runState),
+		cleanupStop:   make(chan struct{}),
+		cleanupDoneCh: make(chan struct{}),
 	}, nil
 }
 
@@ -177,8 +239,13 @@ func (s *Service) Start(ctx context.Context) error {
 		return errors.New("executor: service already started")
 	}
 
+	s.startJanitor()
+
 	if s.opts.DisableListener {
-		slog.Info("[Executor] started without loopback listener", "max_concurrent", s.opts.MaxConcurrent)
+		slog.Info("[Executor] started without loopback listener",
+			"max_concurrent", s.opts.MaxConcurrent,
+			"abandoned_timeout_ms", s.opts.AbandonedRunTimeout.Milliseconds(),
+		)
 		return nil
 	}
 
@@ -209,7 +276,11 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	}()
 
-	slog.Info("[Executor] started", "proxy_url", s.proxyURL, "max_concurrent", s.opts.MaxConcurrent)
+	slog.Info("[Executor] started",
+		"proxy_url", s.proxyURL,
+		"max_concurrent", s.opts.MaxConcurrent,
+		"abandoned_timeout_ms", s.opts.AbandonedRunTimeout.Milliseconds(),
+	)
 	return nil
 }
 
@@ -220,11 +291,86 @@ func (s *Service) Shutdown(ctx context.Context) error {
 	if !s.stopped.CompareAndSwap(false, true) {
 		return nil
 	}
+	s.stopJanitor()
 	if s.httpServer == nil {
 		return nil
 	}
 	return s.httpServer.Shutdown(ctx)
 }
+
+// startJanitor launches the abandoned-run cleanup goroutine. No-op if the
+// cleanup interval is zero (disabled) or the janitor was already started.
+func (s *Service) startJanitor() {
+	if s.opts.CleanupInterval <= 0 {
+		close(s.cleanupDoneCh)
+		return
+	}
+	go func() {
+		defer close(s.cleanupDoneCh)
+		ticker := time.NewTicker(s.opts.CleanupInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-s.cleanupStop:
+				return
+			case <-ticker.C:
+				s.cleanupAbandoned()
+			}
+		}
+	}()
+}
+
+// stopJanitor signals the cleanup goroutine to exit and waits for it to
+// finish. Safe to call when the janitor was never started or already stopped.
+func (s *Service) stopJanitor() {
+	select {
+	case <-s.cleanupStop:
+		// Already closed.
+	default:
+		close(s.cleanupStop)
+	}
+	<-s.cleanupDoneCh
+}
+
+// cleanupAbandoned removes runState entries whose startedAt is older than
+// AbandonedRunTimeout. The matching run's context is cancelled to unblock
+// any spawner that's still hanging. Returns the number of entries removed.
+func (s *Service) cleanupAbandoned() int {
+	cutoff := time.Now().Add(-s.opts.AbandonedRunTimeout)
+	var (
+		stale  []string
+		toFree []context.CancelFunc
+	)
+	s.mu.Lock()
+	for tok, rs := range s.runs {
+		if rs.startedAt.Before(cutoff) {
+			stale = append(stale, tok)
+			toFree = append(toFree, rs.cancel)
+		}
+	}
+	for _, tok := range stale {
+		delete(s.runs, tok)
+	}
+	s.mu.Unlock()
+
+	for _, cancel := range toFree {
+		if cancel != nil {
+			cancel()
+		}
+	}
+	if len(stale) > 0 {
+		s.abandonedRuns.Add(int64(len(stale)))
+		slog.Warn("[Executor] pruned abandoned runs",
+			"count", len(stale),
+			"abandoned_timeout_ms", s.opts.AbandonedRunTimeout.Milliseconds(),
+		)
+	}
+	return len(stale)
+}
+
+// AbandonedRunsTotal returns the cumulative number of runs the janitor has
+// pruned since the service started. Intended for tests and metrics.
+func (s *Service) AbandonedRunsTotal() int64 { return s.abandonedRuns.Load() }
 
 // HealthCheck returns nil if the service can accept new runs.
 func (s *Service) HealthCheck() error {
@@ -262,10 +408,24 @@ func (s *Service) Execute(ctx context.Context, req mcp.ExecutionRequest) (*mcp.E
 	case s.sem <- struct{}{}:
 		defer func() { <-s.sem }()
 	default:
-		slog.Warn("[Executor] max concurrent runs reached", "max", s.opts.MaxConcurrent)
+		current := s.activeCount.Load()
+		slog.Warn("[Executor] max concurrent runs reached",
+			"max", s.opts.MaxConcurrent,
+			"current", current,
+			"mode", req.Mode,
+			"err_code", mcp.ExecuteErrMaxConcurrent,
+		)
+		errMsg := fmt.Sprintf("%s: max concurrent runs (%d) reached", mcp.ExecuteErrMaxConcurrent, s.opts.MaxConcurrent)
+		s.fanOutAudit(ctx, RunSummary{
+			Mode:       req.Mode,
+			Intent:     req.Intent,
+			Status:     mcp.ExecuteStatusSandboxStartupFailure,
+			ExitReason: "rejected",
+			Error:      errMsg,
+		})
 		return &mcp.ExecutionResult{
 			Status: mcp.ExecuteStatusSandboxStartupFailure,
-			Error:  fmt.Sprintf("max concurrent runs (%d) reached", s.opts.MaxConcurrent),
+			Error:  errMsg,
 		}, nil
 	}
 
@@ -282,8 +442,10 @@ func (s *Service) Execute(ctx context.Context, req mcp.ExecutionRequest) (*mcp.E
 	}
 	p := proxy.NewWithHTTPClient(s.opts.Registry, s.opts.BridgeURL, s.opts.HMACSecret, s.opts.HTTPClient)
 
+	// Wall-clock backstop is established below; we register the cancel func
+	// in runState so the janitor can cut off a wedged spawner if necessary.
 	s.mu.Lock()
-	s.runs[runToken] = &runState{runID: runID, cfg: runCfg, p: p}
+	s.runs[runToken] = &runState{runID: runID, cfg: runCfg, p: p, startedAt: time.Now()}
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
@@ -308,9 +470,19 @@ func (s *Service) Execute(ctx context.Context, req mcp.ExecutionRequest) (*mcp.E
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
+		errMsg := fmt.Sprintf("%s: %v", mcp.ExecuteErrConfigMarshal, err)
+		s.logRunCompletion(runID, req, 0, 0, mcp.ExecuteStatusSandboxStartupFailure, "marshal_failed", errMsg)
+		s.fanOutAudit(ctx, RunSummary{
+			RunID:      runID,
+			Mode:       req.Mode,
+			Intent:     req.Intent,
+			Status:     mcp.ExecuteStatusSandboxStartupFailure,
+			ExitReason: "marshal_failed",
+			Error:      errMsg,
+		})
 		return &mcp.ExecutionResult{
 			Status: mcp.ExecuteStatusSandboxStartupFailure,
-			Error:  fmt.Sprintf("marshal run config: %v", err),
+			Error:  errMsg,
 		}, nil
 	}
 
@@ -324,39 +496,109 @@ func (s *Service) Execute(ctx context.Context, req mcp.ExecutionRequest) (*mcp.E
 	runCtx, cancel := context.WithTimeout(ctx, backstop)
 	defer cancel()
 
+	// Register cancel so the janitor can free a hung spawner during cleanup.
+	s.mu.Lock()
+	if rs, ok := s.runs[runToken]; ok {
+		rs.cancel = cancel
+	}
+	s.mu.Unlock()
+
 	started := time.Now()
 	out, spawnErr := s.spawner.Spawn(runCtx, payloadBytes)
 	duration := time.Since(started)
 
 	apiCalls := int(p.CallCount())
 
-	slog.Info("[Executor] run completed",
-		"run_id", runID,
-		"mode", req.Mode,
-		"duration_ms", duration.Milliseconds(),
-		"api_calls", apiCalls,
-		"intent_present", req.Intent != "",
-		"intent", truncateIntent(req.Intent),
-	)
-
 	if spawnErr != nil {
+		errMsg := fmt.Sprintf("%s: %v", mcp.ExecuteErrSpawnFailed, spawnErr)
+		s.logRunCompletion(runID, req, duration.Milliseconds(), apiCalls, mcp.ExecuteStatusSandboxStartupFailure, "spawn_failed", errMsg)
+		s.fanOutAudit(ctx, RunSummary{
+			RunID:      runID,
+			Mode:       req.Mode,
+			Intent:     req.Intent,
+			DurationMS: duration.Milliseconds(),
+			APICalls:   apiCalls,
+			Status:     mcp.ExecuteStatusSandboxStartupFailure,
+			ExitReason: "spawn_failed",
+			Error:      errMsg,
+		})
 		return &mcp.ExecutionResult{
 			Status:   mcp.ExecuteStatusSandboxStartupFailure,
-			Error:    fmt.Sprintf("spawn failed: %v", spawnErr),
+			Error:    errMsg,
 			APICalls: apiCalls,
 		}, nil
 	}
 
 	envelope, parseErr := parseRunnerEnvelope(out)
 	if parseErr != nil {
+		errMsg := fmt.Sprintf("%s: %v", mcp.ExecuteErrInvalidEnvelope, parseErr)
+		s.logRunCompletion(runID, req, duration.Milliseconds(), apiCalls, mcp.ExecuteStatusSandboxStartupFailure, "invalid_envelope", errMsg)
+		s.fanOutAudit(ctx, RunSummary{
+			RunID:      runID,
+			Mode:       req.Mode,
+			Intent:     req.Intent,
+			DurationMS: duration.Milliseconds(),
+			APICalls:   apiCalls,
+			Status:     mcp.ExecuteStatusSandboxStartupFailure,
+			ExitReason: "invalid_envelope",
+			Error:      errMsg,
+		})
 		return &mcp.ExecutionResult{
 			Status:   mcp.ExecuteStatusSandboxStartupFailure,
-			Error:    fmt.Sprintf("invalid runner envelope: %v", parseErr),
+			Error:    errMsg,
 			APICalls: apiCalls,
 		}, nil
 	}
 
-	return mapEnvelope(envelope, apiCalls), nil
+	result := mapEnvelope(envelope, apiCalls)
+	s.logRunCompletion(runID, req, duration.Milliseconds(), apiCalls, result.Status, envelope.ExitReason, result.Error)
+	s.fanOutAudit(ctx, RunSummary{
+		RunID:      runID,
+		Mode:       req.Mode,
+		Intent:     req.Intent,
+		DurationMS: duration.Milliseconds(),
+		APICalls:   apiCalls,
+		Status:     result.Status,
+		ExitReason: envelope.ExitReason,
+		Error:      truncateForLog(result.Error, 256),
+	})
+	return result, nil
+}
+
+// logRunCompletion emits the canonical post-run slog entry. Centralizing this
+// means every exit path produces the same structured fields, which keeps log
+// queries consistent.
+func (s *Service) logRunCompletion(runID string, req mcp.ExecutionRequest, durationMS int64, apiCalls int, status, exitReason, errMsg string) {
+	slog.Info("[Executor] run completed",
+		"run_id", runID,
+		"mode", req.Mode,
+		"duration_ms", durationMS,
+		"api_calls", apiCalls,
+		"status", status,
+		"exit_reason", exitReason,
+		"intent_present", req.Intent != "",
+		"intent", truncateIntent(req.Intent),
+		"error", truncateForLog(errMsg, 256),
+	)
+}
+
+// fanOutAudit dispatches the run summary to the configured AuditHook subject
+// to the AuditAllRuns gate. Writes are always audited; reads only when the
+// flag is set. Hooks run synchronously so audit ordering is preserved across
+// runs that share the service.
+func (s *Service) fanOutAudit(ctx context.Context, summary RunSummary) {
+	if s.opts.Audit == nil {
+		return
+	}
+	if summary.Mode != proxy.ModeWrite && !s.opts.AuditAllRuns {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("[Executor] audit hook panic", "panic", fmt.Sprintf("%v", r), "run_id", summary.RunID)
+		}
+	}()
+	s.opts.Audit.OnRun(ctx, summary)
 }
 
 // runnerEnvelope mirrors the JSON shape returned by python/runner/runner.py.
@@ -551,6 +793,16 @@ func truncateIntent(intent string) string {
 		return intent
 	}
 	return intent[:maxIntentAuditLen] + "..."
+}
+
+// truncateForLog caps an arbitrary string before it lands in slog/audit. The
+// runner stderr, error messages, and bridge response previews can grow large;
+// keep them small enough that a noisy script can't overwhelm logs.
+func truncateForLog(s string, maxLen int) string {
+	if maxLen <= 0 || len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "...(truncated)"
 }
 
 func newToken(nbytes int) string {

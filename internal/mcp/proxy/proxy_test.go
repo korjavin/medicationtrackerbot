@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
@@ -261,6 +262,36 @@ func TestProxy_BridgeNon200_TraceHasError(t *testing.T) {
 	}
 	if result.Trace.Error == "" {
 		t.Error("expected error in trace for non-200 bridge response")
+	}
+}
+
+func TestProxy_BridgeNon200_BodyTruncatedInTrace(t *testing.T) {
+	reg := buildRegistry(t)
+	bigBody := strings.Repeat("X", maxBridgeBodyLogLen*4)
+	srv := fakeBridgeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, bigBody, http.StatusInternalServerError)
+	})
+
+	p := newProxy(reg, srv.URL)
+	result, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "workouts.groups.list", nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.Trace.Error, "(truncated)") {
+		t.Errorf("expected trace error to be truncated, got %q", result.Trace.Error)
+	}
+	// trace.Error: "bridge returned 500: " + maxBridgeBodyLogLen + "...(truncated)"
+	if len(result.Trace.Error) > maxBridgeBodyLogLen+128 {
+		t.Errorf("trace error length %d should be bounded near maxBridgeBodyLogLen=%d", len(result.Trace.Error), maxBridgeBodyLogLen)
+	}
+}
+
+func TestTruncateForLog_ProxyHelper(t *testing.T) {
+	if got := truncateForLog("abcd", 100); got != "abcd" {
+		t.Errorf("short string passthrough failed: %q", got)
+	}
+	if got := truncateForLog("abcdefghij", 4); got != "abcd...(truncated)" {
+		t.Errorf("expected truncation, got %q", got)
 	}
 }
 

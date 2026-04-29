@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -319,6 +320,108 @@ func TestNewRegistryAdapter(t *testing.T) {
 	}
 	if op2 := adapter.Get("nonexistent"); op2 != nil {
 		t.Error("expected nil for nonexistent operation ID")
+	}
+}
+
+func TestBridge_SuccessLogOmitsBodyPreview(t *testing.T) {
+	// Capture slog so we can verify success paths never log a body preview.
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"sensitive":"value"}`))
+	})
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"safe.op": {Method: "GET", Path: "/api/safe", Risk: "read"},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+
+	body, _ := json.Marshal(BridgeRequest{OperationID: "safe.op"})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	out := logBuf.String()
+	if strings.Contains(out, "sensitive") {
+		t.Errorf("success log must not include response body preview, got: %s", out)
+	}
+	if !strings.Contains(out, `"operation_id":"safe.op"`) {
+		t.Errorf("expected operation_id in slog, got: %s", out)
+	}
+}
+
+func TestBridge_ErrorLogIncludesTruncatedPreview(t *testing.T) {
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	bigErr := strings.Repeat("E", bridgeBodyLogPreview*4)
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, bigErr, http.StatusInternalServerError)
+	})
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"err.op": {Method: "GET", Path: "/api/err", Risk: "read"},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+
+	body, _ := json.Marshal(BridgeRequest{OperationID: "err.op"})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 envelope status, got %d", rec.Code)
+	}
+	out := logBuf.String()
+	if !strings.Contains(out, "body_preview") {
+		t.Errorf("error log should include body_preview, got: %s", out)
+	}
+	if !strings.Contains(out, "(truncated)") {
+		t.Errorf("body preview should be truncated, got: %s", out)
+	}
+}
+
+func TestBridge_HMACSignatureNotLogged(t *testing.T) {
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	})
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"sig.op": {Method: "GET", Path: "/api/sig", Risk: "read"},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+
+	body, _ := json.Marshal(BridgeRequest{OperationID: "sig.op"})
+	sig := signBridgeBody(body, testBridgeSecret)
+	rec := doPost(t, s.handleMCPBridge, body, sig)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	out := logBuf.String()
+	if strings.Contains(out, sig) {
+		t.Errorf("slog must not include the HMAC signature, got: %s", out)
+	}
+	if strings.Contains(out, "X-Signature") {
+		t.Errorf("slog must not log X-Signature header, got: %s", out)
+	}
+}
+
+func TestTruncateString_BridgeHelper(t *testing.T) {
+	if got := truncateString("hello", 100); got != "hello" {
+		t.Errorf("short string passthrough failed: %q", got)
+	}
+	if got := truncateString("hello world", 5); got != "hello...(truncated)" {
+		t.Errorf("expected truncation, got %q", got)
+	}
+	if got := truncateString("any", 0); got != "any" {
+		t.Errorf("non-positive maxLen should pass through, got %q", got)
 	}
 }
 
