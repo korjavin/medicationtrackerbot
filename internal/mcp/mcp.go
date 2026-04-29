@@ -59,9 +59,11 @@ type Config struct {
 	MCPServerURL   string // The public URL of this MCP server (for OAuth audience validation)
 	JWKSJSON       string // Optional fallback JWKS JSON content
 	UserID         int64  // The database user ID to query data for
-	AuditEndpoint  string
-	AuditSecret    string
-	AdminPort      int // Port for the loopback-only admin API (0 disables it)
+	AuditEndpoint        string
+	AuditSecret          string
+	AdminPort            int   // Port for the loopback-only admin API (0 disables it)
+	MaxExecutorTimeoutMS int64 // cap for caller-provided timeout_ms; default 30000 (30s)
+	MaxExecutorAPICalls  int   // cap for caller-provided max_api_calls; default 100
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
@@ -93,20 +95,25 @@ func LoadConfigFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("ALLOWED_USER_ID is required")
 	}
 
+	maxExecTimeoutMS, _ := strconv.ParseInt(os.Getenv("MCP_EXECUTOR_MAX_TIMEOUT_MS"), 10, 64)
+	maxExecAPICalls, _ := strconv.Atoi(os.Getenv("MCP_EXECUTOR_MAX_API_CALLS"))
+
 	cfg := &Config{
-		Port:           port,
-		DatabasePath:   os.Getenv("MCP_DATABASE_PATH"),
-		PocketIDURL:    os.Getenv("POCKET_ID_URL"),
-		ClientID:       os.Getenv("POCKET_ID_CLIENT_ID"),
-		ClientSecret:   os.Getenv("POCKET_ID_CLIENT_SECRET"),
-		AllowedSubject: os.Getenv("MCP_ALLOWED_SUBJECT"),
-		MaxQueryDays:   maxQueryDays,
-		MCPServerURL:   os.Getenv("MCP_SERVER_URL"),
-		JWKSJSON:       os.Getenv("POCKET_ID_JWKS_JSON"),
-		UserID:         userID,
-		AuditEndpoint:  os.Getenv("MCP_AUDIT_ENDPOINT"),
-		AuditSecret:    os.Getenv("MCP_AUDIT_SECRET"),
-		AdminPort:      adminPort,
+		Port:                 port,
+		DatabasePath:         os.Getenv("MCP_DATABASE_PATH"),
+		PocketIDURL:          os.Getenv("POCKET_ID_URL"),
+		ClientID:             os.Getenv("POCKET_ID_CLIENT_ID"),
+		ClientSecret:         os.Getenv("POCKET_ID_CLIENT_SECRET"),
+		AllowedSubject:       os.Getenv("MCP_ALLOWED_SUBJECT"),
+		MaxQueryDays:         maxQueryDays,
+		MCPServerURL:         os.Getenv("MCP_SERVER_URL"),
+		JWKSJSON:             os.Getenv("POCKET_ID_JWKS_JSON"),
+		UserID:               userID,
+		AuditEndpoint:        os.Getenv("MCP_AUDIT_ENDPOINT"),
+		AuditSecret:          os.Getenv("MCP_AUDIT_SECRET"),
+		AdminPort:            adminPort,
+		MaxExecutorTimeoutMS: maxExecTimeoutMS,
+		MaxExecutorAPICalls:  maxExecAPICalls,
 	}
 
 	if cfg.AdminPort > 0 && cfg.AdminPort == cfg.Port {
@@ -137,6 +144,7 @@ type Server struct {
 	workoutWriter *WorkoutWriter
 	admin         AdminStore
 	reg           *registry.Registry
+	executor      ExecutionService
 }
 
 // NewServer creates a new MCP server
@@ -209,6 +217,47 @@ func (s *Server) registerTools() {
 			}`),
 		},
 		s.handleMCPHelp,
+	)
+
+	// mcp_execute: run a sandboxed Python script against backend APIs
+	mcp.AddTool(s.mcpServer,
+		&mcp.Tool{
+			Name:        "mcp_execute",
+			Description: "Run a sandboxed Python script against backend APIs. Scripts call api.call(operation_id, params, body) and record a final result with output(value). Use mcp_help to discover available operations and their schemas before writing scripts.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"required": ["script"],
+				"properties": {
+					"script": {
+						"type": "string",
+						"description": "Python script to execute. Must call output(value) exactly once to record the result."
+					},
+					"mode": {
+						"type": "string",
+						"enum": ["read_only", "write"],
+						"description": "Execution mode. Defaults to 'read_only'. Write operations require mode='write' and a non-empty intent."
+					},
+					"intent": {
+						"type": "string",
+						"description": "Human-readable description of what the script intends to change. Required when mode='write'."
+					},
+					"timeout_ms": {
+						"type": "integer",
+						"description": "Wall-clock timeout in milliseconds. Capped by server config (default 30000)."
+					},
+					"max_api_calls": {
+						"type": "integer",
+						"description": "Maximum number of API calls the script may make. Capped by server config (default 100)."
+					},
+					"topic_allowlist": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Optional list of topics the script may access (e.g. ['workouts']). Empty means all topics allowed."
+					}
+				}
+			}`),
+		},
+		s.handleMCPExecute,
 	)
 
 	// Blood Pressure Tool

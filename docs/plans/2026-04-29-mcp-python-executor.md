@@ -115,15 +115,15 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Create: `internal/mcp/execute_test.go`
 - Modify: `internal/mcp/mcp.go` (register tool)
 
-- [ ] register `mcp_execute` in the MCP server
-- [ ] define input schema: `script`, `mode` (`read_only`|`write`), `intent`, `timeout_ms`, `max_api_calls`, `topic_allowlist`
-- [ ] default `mode` to `read_only`
-- [ ] require `intent` when `mode == "write"`; non-empty string
-- [ ] cap caller-provided limits by server config; defaults: 30s, 1 GB memory, 100 MB result, 100 API calls
-- [ ] return structured success envelope: `{status, result, api_calls, stdout, stderr, warnings}`
-- [ ] return structured failure envelope distinguishing: `script_error`, `timeout`, `sandbox_startup_failure`, `proxy_denied`, `backend_application_error`, `backend_transport_error`
-- [ ] integration tests using a fake execution service: schema validation, mode defaulting, intent required for write, limit capping, success/failure envelope shapes for each error type
-- [ ] run `go test ./internal/mcp/...` — must pass before Task 7
+- [x] register `mcp_execute` in the MCP server
+- [x] define input schema: `script`, `mode` (`read_only`|`write`), `intent`, `timeout_ms`, `max_api_calls`, `topic_allowlist`
+- [x] default `mode` to `read_only`
+- [x] require `intent` when `mode == "write"`; non-empty string
+- [x] cap caller-provided limits by server config; defaults: 30s, 1 GB memory, 100 MB result, 100 API calls
+- [x] return structured success envelope: `{status, result, api_calls, stdout, stderr, warnings}`
+- [x] return structured failure envelope distinguishing: `script_error`, `timeout`, `sandbox_startup_failure`, `proxy_denied`, `backend_application_error`, `backend_transport_error`
+- [x] integration tests using a fake execution service: schema validation, mode defaulting, intent required for write, limit capping, success/failure envelope shapes for each error type
+- [x] run `go test ./internal/mcp/...` — must pass before Task 7
 
 ### Task 7: Python helper package `medtracker`
 
