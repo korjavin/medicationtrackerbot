@@ -117,17 +117,29 @@ services:
   # execution service spawns scripts using the runner image; this service
   # exists to vendor the image build/pin and keep the runner toolchain on a
   # network that can ONLY reach the medtracker backend bridge (no Internet).
+  #
+  # The MVP wires the executor as an in-process spawner inside `mcp-server`
+  # (see internal/mcp/executor/service.go), so `mcp-runner` ships with
+  # `profiles: ["build-only"]` — `docker compose up` does NOT start it.
+  # `docker compose --profile build-only build mcp-runner` builds and pins
+  # the image for future side-container use; flip the profile when the
+  # executor switches to spawning the standalone container.
+  #
+  # Hardening assumptions for production deploys (do not relax without
+  # updating docs/mcp-python-executor.md):
+  #   - read_only: true                    -> root FS is read-only; scripts can only write to /tmp tmpfs
+  #   - cap_drop: [ALL]                    -> no Linux capabilities; the runner needs none
+  #   - no-new-privileges:true             -> setuid binaries cannot escalate
+  #   - tmpfs /tmp                         -> bounded scratch, gone on container restart
+  #   - networks: [runner_net]             -> internal: true, no Internet egress
+  #   - no Docker socket bind mount        -> scripts cannot spawn containers
+  #   - no environment secrets             -> proxy URL + run token are the only knobs
   mcp-runner:
     build:
       context: .
       dockerfile: docker/runner/Dockerfile
     image: ghcr.io/korjavin/medicationtrackerbot-runner:latest
     container_name: medtracker-mcp-runner-${INSTANCE}
-    # The runner is invoked as a one-shot subprocess; do not auto-start.
-    # `command: tail -f /dev/null` would defeat that pattern. Instead, the
-    # MCP server uses `docker run` semantics or the local execCmdSpawner.
-    # For the MVP we keep this stopped by default and rely on the in-process
-    # spawner; the build entry pins the image for future side-container use.
     restart: "no"
     profiles: ["build-only"]
     read_only: true

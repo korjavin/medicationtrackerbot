@@ -49,4 +49,28 @@ MCP_AUDIT_SECRET=secure-shared-secret
 MCP_ADMIN_PORT=8082             # Admin API for long-lived API tokens; bound to 127.0.0.1 only. 0 disables. Default 8082.
 ```
 
+### Python executor (`mcp_execute` / `mcp_help`)
+
+These variables tune the sandboxed Python runner that backs `mcp_execute`. Defaults match the limits documented in [mcp-python-executor.md](mcp-python-executor.md#runtime-limits). The same `MCP_AUDIT_SECRET` is reused as the HMAC secret on the internal bridge endpoint — there is no separate runner secret. Scripts never see this value.
+
+```bash
+# Caller-provided limits in mcp_execute are capped by these server-side values.
+MCP_EXECUTOR_MAX_TIMEOUT_MS=30000   # Default 30s. Hard wall-clock cap per run.
+MCP_EXECUTOR_MAX_API_CALLS=100      # Default 100. Counted by the proxy per run.
+MCP_EXECUTOR_MAX_CONCURRENT=4       # Default 4. Runs above this are rejected with sandbox_startup_failure.
+
+# Loopback URL the runner subprocess uses for medtracker.api.call. Stays on
+# 127.0.0.1; the runner never reaches anything else by design.
+MCP_EXECUTOR_PROXY_URL=http://127.0.0.1:8090/call
+```
+
+Variables exposed inside the sandbox (set per run by the executor service, never by the operator):
+
+| Variable | Purpose |
+|---|---|
+| `MEDTRACKER_PROXY_URL` | Loopback URL of the per-run proxy listener. Set by the executor; equals `MCP_EXECUTOR_PROXY_URL`. |
+| `MEDTRACKER_RUN_TOKEN` | One-time token scoping the run. Sent in `X-Run-Token` on every proxy call. Rotated each run. |
+
+The runner image must NOT be configured with `OPENAI_API_KEY`, `MCP_AUDIT_SECRET`, `POCKET_ID_*`, or any other authority-bearing secret. The executor scrubs the env before exec; setting these in `docker-compose.yml` for the runner service would defeat that boundary.
+
 See [mcp-deployment.md](mcp-deployment.md) for full MCP deployment setup.

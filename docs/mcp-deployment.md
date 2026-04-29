@@ -143,42 +143,89 @@ Idempotency: upsert key is `(session_id, resolved_name)` — re-sending refines 
 
 ## Python Executor Service
 
-The `mcp_execute` and `mcp_help` tools require a separate Python runner service. The runner is a long-lived side container that accepts script-run requests from the MCP server, executes them in per-run isolated subprocesses, and returns structured output.
+The `mcp_execute` and `mcp_help` tools require a sandboxed Python runner. The runner is invoked from the MCP server as a per-run subprocess (see `internal/mcp/executor/service.go`); the runner image is built from `docker/runner/Dockerfile` and ships with the `medtracker` Python helper baked in. There is no `pip install` at runtime.
 
-**Where it lives**: `docker/runner/` (Dockerfile) and `internal/mcp/executor/` (Go execution service). See `docs/mcp-python-executor.md` for the full architecture decision record.
+**Architecture**:
 
-**Docker Compose sketch** (placeholder until Task 14 documents final values):
+- `internal/mcp/registry/` — operation allowlist (read/write classification, JSON Schema).
+- `internal/server/mcp_bridge.go` — HMAC-protected bridge endpoint at `/internal/mcp/bridge` on the main app. Executes the operation as the configured `ALLOWED_USER_ID`; identity is never spoofable from the request.
+- `internal/mcp/proxy/proxy.go` — in-process Go proxy used by the executor. Validates the operation ID, applies per-run topic/mode/call-count limits, signs the bridge call.
+- `internal/mcp/executor/service.go` — long-lived service that spawns the runner subprocess, hosts a loopback `/call` listener for the script, and tracks per-run state.
+- `python/runner/runner.py` — sandbox entrypoint. Reads run config on stdin, scrubs the env, runs the script with bounded stdout/stderr, returns a result envelope on stdout.
+- `python/medtracker/` — narrow helper exposing only `api.call(...)` and `output(...)`. It is the only network surface scripts get.
+
+See `docs/mcp-python-executor.md` for the full architecture decision record.
+
+### Configuration
+
+The MCP server-side caps for `mcp_execute` are configured in `docker-compose.yml` on the `mcp-server` service:
 
 ```yaml
-  mcp-runner:
-    image: ghcr.io/korjavin/medicationtrackerbot-runner:latest
-    container_name: medtracker-mcp-runner
-    restart: unless-stopped
-    networks:
-      - mcp_internal   # isolated network: can reach mcp-server bridge only
-    environment:
-      - RUNNER_BRIDGE_URL=http://mcp-server:8081/internal/mcp/bridge
-      - RUNNER_HMAC_SECRET=${MCP_INTERNAL_HMAC_SECRET}
-      - RUNNER_MAX_CONCURRENT=4
-      - RUNNER_TIMEOUT_MS=30000
-      - RUNNER_MAX_MEMORY_MB=1024
-      - RUNNER_MAX_RESULT_MB=100
-      - RUNNER_MAX_API_CALLS=100
+- MCP_EXECUTOR_MAX_TIMEOUT_MS=30000        # Hard wall-clock cap per run
+- MCP_EXECUTOR_MAX_API_CALLS=100           # Counted by the proxy per run
+- MCP_EXECUTOR_MAX_CONCURRENT=4            # Runs above this are rejected with sandbox_startup_failure
+- MCP_EXECUTOR_PROXY_URL=http://127.0.0.1:8090/call   # Loopback URL the runner uses
 ```
 
-**Environment variables** (names are tentative until Task 14):
+The HMAC secret on the bridge endpoint is the existing `MCP_AUDIT_SECRET` — the executor reuses it instead of introducing a parallel secret. See [environment.md](environment.md#python-executor-mcp_execute--mcp_help) for the full table including the per-run env vars (`MEDTRACKER_PROXY_URL`, `MEDTRACKER_RUN_TOKEN`) that the executor sets inside the sandbox.
 
-| Variable | Default | Description |
-|---|---|---|
-| `RUNNER_BRIDGE_URL` | (required) | URL of the internal HMAC-protected bridge endpoint on the main app |
-| `RUNNER_HMAC_SECRET` | (required) | Shared HMAC secret between runner and main-app bridge; same as `MCP_INTERNAL_HMAC_SECRET` |
-| `RUNNER_MAX_CONCURRENT` | `4` | Maximum simultaneous script runs |
-| `RUNNER_TIMEOUT_MS` | `30000` | Default wall-clock timeout per run |
-| `RUNNER_MAX_MEMORY_MB` | `1024` | RSS limit per run subprocess |
-| `RUNNER_MAX_RESULT_MB` | `100` | Maximum serialized `output(...)` size |
-| `RUNNER_MAX_API_CALLS` | `100` | Maximum proxied API calls per run |
+### Local development
 
-The runner container must NOT mount the Docker socket. Its network must be isolated to the internal bridge — it should not be reachable from the public internet. All outbound requests from scripts go through `RUNNER_BRIDGE_URL` only.
+The executor runs in-process inside `cmd/mcptool` for the MVP, so local dev does not require Docker:
+
+```bash
+# 1. Run the main bot in one terminal so the bridge endpoint is reachable.
+ALLOWED_USER_ID=... DB_PATH=meds.db MCP_AUDIT_SECRET=dev-secret \
+  go run ./cmd/bot
+
+# 2. Run the MCP server in a second terminal pointing at the same DB and secret.
+ALLOWED_USER_ID=... MCP_DATABASE_PATH=meds.db POCKET_ID_URL=http://localhost \
+  MCP_SERVER_URL=http://localhost:8081 MCP_AUDIT_SECRET=dev-secret \
+  MCP_AUDIT_ENDPOINT=http://localhost:8080/api/mcp-audit \
+  MCP_EXECUTOR_PROXY_URL=http://127.0.0.1:8090/call \
+  go run ./cmd/mcptool
+
+# 3. Drive mcp_help / mcp_execute from a Streamable-HTTP-compatible MCP client
+#    pointed at http://localhost:8081/mcp.
+```
+
+The runner subprocess uses whatever `python3` is on `$PATH`. To test the runner image without spawning real subprocesses, the unit tests under `internal/mcp/executor/` use a fake `Spawner`. Python-side tests live in `python/tests/` and `python/runner/runner_test.py`:
+
+```bash
+go test ./internal/mcp/...
+pytest python/
+```
+
+To exercise the production build of the runner image:
+
+```bash
+docker compose --profile build-only build mcp-runner
+docker run --rm -i --network none ghcr.io/korjavin/medicationtrackerbot-runner:latest \
+  < tests/runner-payload.json
+```
+
+### Production hardening
+
+These assumptions are non-negotiable for the production runner deployment (they are encoded in `docker-compose.yml` for `mcp-runner`, but operators should verify after any compose edits):
+
+- **Read-only root filesystem.** `read_only: true` on the runner service. The only writable surface is the `/tmp` tmpfs mount.
+- **No Docker socket.** Neither `mcp-server` nor `mcp-runner` mounts `/var/run/docker.sock`. Scripts cannot spawn containers.
+- **Capability drop.** `cap_drop: [ALL]` plus `security_opt: [no-new-privileges:true]`.
+- **Network isolation.** `mcp-runner` attaches only to `runner_net`, which is `internal: true`. The runner can reach the loopback proxy URL; it cannot reach the public Internet.
+- **No authority secrets in the runner env.** The executor scrubs the env before exec — only `MEDTRACKER_PROXY_URL` and a per-run `MEDTRACKER_RUN_TOKEN` reach the script. Do not add `OPENAI_API_KEY`, `MCP_AUDIT_SECRET`, or `POCKET_ID_*` to the runner service.
+- **Resource caps.** `deploy.resources.limits` pins the runner to 1 GB / 1 CPU; per-run timeouts and call counts are enforced server-side by the executor service before forwarding to the runner.
+- **No `pip install` at runtime.** The image bakes in only the `medtracker` helper (stdlib-only). The runtime container has no writable site-packages.
+
+### Why scripts use `medtracker.api.call` instead of raw HTTP
+
+The Python script never holds user authority. The helper enforces this:
+
+- **No bearer token, session cookie, or backend hostname is exposed.** `api.call` reads only `MEDTRACKER_PROXY_URL` (loopback) and `MEDTRACKER_RUN_TOKEN` (a per-run nonce that the proxy validates before forwarding).
+- **No generic HTTP client is exported.** `medtracker` deliberately omits `requests`, `httpx`, and any "open URL" primitive. The script cannot bypass the proxy by importing those modules — the runner network is internal-only, so even a `urllib.urlopen("https://...")` cannot leave the sandbox.
+- **The proxy is the authority boundary.** It validates the operation ID against the registry, classifies risk (`read`/`write`), enforces `mode == "write"` and a non-empty `intent` for mutations, applies per-run call counters, and HMAC-signs the bridge call. None of that logic lives in the script.
+- **Audit trail.** Every proxied call records operation ID, risk, status, and duration in the call trace returned from `mcp_execute`, and write runs fan out an audit notification with the caller-provided `intent`.
+
+A "raw HTTP" path would lose every one of these guarantees and turn the runner into a generic exfiltration surface. Keep scripts on `medtracker.api.call`; if a needed operation is missing, add it to the registry instead of working around the helper.
 
 ## Adding MCP Tools
 

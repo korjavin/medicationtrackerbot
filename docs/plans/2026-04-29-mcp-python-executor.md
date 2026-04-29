@@ -254,13 +254,13 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Create: `python/examples/food_log.py`
 - Create: `python/examples/workout_plan_edit.py`
 
-- [ ] document new env vars and defaults (proxy URL, HMAC key var, runner image, limits)
-- [ ] update Docker Compose with the runner/proxy pieces
-- [ ] document local development setup
-- [ ] document production hardening assumptions (read-only root FS, no Docker socket, capability drops, network isolation)
-- [ ] add example scripts for read-only analysis, workout inspection, workout plan editing, and food logging
-- [ ] explain why scripts use `medtracker.api.call` instead of raw HTTP
-- [ ] run `go test ./...` and `pytest python/` — must pass before Task 15
+- [x] document new env vars and defaults (proxy URL, HMAC key var, runner image, limits)
+- [x] update Docker Compose with the runner/proxy pieces
+- [x] document local development setup
+- [x] document production hardening assumptions (read-only root FS, no Docker socket, capability drops, network isolation)
+- [x] add example scripts for read-only analysis, workout inspection, workout plan editing, and food logging
+- [x] explain why scripts use `medtracker.api.call` instead of raw HTTP
+- [x] run `go test ./...` and `pytest python/` — must pass before Task 15
 
 ### Task 15: Transition strategy for existing tools
 
