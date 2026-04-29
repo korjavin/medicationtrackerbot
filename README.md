@@ -72,10 +72,13 @@ For when you want the bigger picture. Trends, history, editing, meal planning, w
 
 Want your assistant to analyze your blood pressure against your sleep and medications? Want a fitness summary that blends workouts, steps, nutrition, weight, and your own notes?
 
-Run the optional MCP server. It is a separate process, OAuth-protected via Pocket-ID, and exposes tools for every category — plus two composite analysis tools that return cross-domain snapshots in a single call:
+Run the optional MCP server. It is a separate process, OAuth-protected via Pocket-ID, and exposes:
 
-- `analyze_cardiovascular` — BP + medications + sleep + HR + SpO2 + diary notes
-- `analyze_fitness` — workouts + steps + daily nutrition + weight + diary notes
+- `mcp_help` and `mcp_execute` — the recommended entry point. The assistant discovers backend operations with `mcp_help` and runs sandboxed Python scripts against them with `mcp_execute`, so multi-step analyses ("look up my last workout, then summarize the week") are one call instead of many.
+- Granular read tools per category (`get_blood_pressure`, `get_weight`, `get_medication_intake`, …) and the `workout_log` write tool for clients that don't run scripts.
+- Two composite analysis tools that return cross-domain snapshots in a single call:
+  - `analyze_cardiovascular` — BP + medications + sleep + HR + SpO2 + diary notes
+  - `analyze_fitness` — workouts + steps + daily nutrition + weight + diary notes
 
 Your diary notes ride along as context on every read, so the AI understands *why* a week looked the way it did.
 

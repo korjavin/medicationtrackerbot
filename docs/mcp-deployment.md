@@ -236,3 +236,12 @@ A "raw HTTP" path would lose every one of these guarantees and turn the runner i
 5. For write tools: add a bot HTTP endpoint under `internal/server/` that verifies the HMAC header (mirror `/api/mcp-food-log` and `/api/mcp-workout-log`), then add an `internal/mcp/<tool>_writer.go` HMAC client mirroring `food_writer.go` / `workout_writer.go`, and wire it through `cmd/mcptool/main.go` and `internal/mcp/mcp.go`. Keep the static tool description short and route the protocol document through an `operation: "help"` branch so it doesn't consume agent context tokens on every call.
 6. Update `.env.mcp.example` if new config is needed
 7. **Naming**: `get_*` for granular read tools, `log_*` / `<noun>_log` for write tools, `analyze_*` for composite read tools
+
+## Transition Strategy: granular tools vs. `mcp_execute`
+
+The `mcp_help` / `mcp_execute` pair is the long-term direction: one entry point that lets a capable model compose multi-step backend workflows from the operation registry, instead of growing the tool list every time a new domain is exposed. While the executor is experimental, the existing granular and composite tools stay in place — both paths are supported and tested.
+
+- **Granular read tools (`get_*`) and `workout_log` are kept.** They are stable, cheap, and well covered by clients that can't run scripted workflows. `workout_log`'s name resolution and exercise-default inference is currently richer than what an agent can reasonably reconstruct from raw registry calls; keep it as a first-class tool until that gap closes.
+- **Stop adding new composite tools.** Cross-domain analyses that today would have become an `analyze_*` tool should instead be expressed as an `mcp_execute` script that calls registry operations. New composites only land if there is a clear, stable, agent-independent use case that justifies hard-coding the workflow.
+- **`analyze_cardiovascular` and `analyze_fitness` stay registered.** No removal is planned in this round. Once the operation registry covers their inputs end to end and we have evidence that scripted equivalents perform as well, they will be downgraded to compatibility shims (still callable, no longer the recommended path) — that decision will be recorded in this section before any behavior change.
+- **Recommended path for new MCP clients:** start with `mcp_help` to discover operations, then drive workflows with `mcp_execute`. Fall back to the granular tools for clients without script execution support, and for the two composite analyses listed above.
