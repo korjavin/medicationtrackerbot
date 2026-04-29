@@ -52,13 +52,13 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Create: `internal/mcp/registry/registry_test.go`
 - Create: `internal/mcp/registry/operations_workouts.go`
 
-- [ ] define Go data model for an operation entry: ID, topic, method, path, risk (`read`/`write`), params schema, body schema, response summary
-- [ ] add validation: unique IDs across registry; risk must be `read` or `write`; method/path non-empty; topic non-empty
-- [ ] add lookup helpers: `Get(id)`, `ByTopic(topic)`, `All()`
-- [ ] populate initial `workouts` registry entries: groups list, variant list, exercise list, session list, stats read
-- [ ] add `MarshalForHelp()` that returns compact docs serialization for `mcp_help`
-- [ ] write tests: registration validation (duplicate ID, bad risk), `Get`, `ByTopic`, `MarshalForHelp` shape
-- [ ] run `go test ./internal/mcp/...` — must pass before Task 3
+- [x] define Go data model for an operation entry: ID, topic, method, path, risk (`read`/`write`), params schema, body schema, response summary
+- [x] add validation: unique IDs across registry; risk must be `read` or `write`; method/path non-empty; topic non-empty
+- [x] add lookup helpers: `Get(id)`, `ByTopic(topic)`, `All()`
+- [x] populate initial `workouts` registry entries: groups list, variant list, exercise list, session list, stats read
+- [x] add `MarshalForHelp()` that returns compact docs serialization for `mcp_help`
+- [x] write tests: registration validation (duplicate ID, bad risk), `Get`, `ByTopic`, `MarshalForHelp` shape
+- [x] run `go test ./internal/mcp/...` — must pass before Task 3
 
 ### Task 3: Backend bridge for proxied API calls
 
