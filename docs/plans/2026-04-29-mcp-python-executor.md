@@ -100,13 +100,13 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Create: `internal/mcp/help_test.go`
 - Modify: `internal/mcp/mcp.go` (register tool)
 
-- [ ] register `mcp_help` in the MCP server tool list
-- [ ] support `topic` filter (default: `all`)
-- [ ] support `operation_id` exact lookup
-- [ ] include compact Python examples using `from medtracker import api, output`
-- [ ] keep static MCP tool description short; put detailed docs in the tool response
-- [ ] tests: full catalog, topic filter, operation_id lookup, unknown topic, unknown operation ID
-- [ ] run `go test ./internal/mcp/...` — must pass before Task 6
+- [x] register `mcp_help` in the MCP server tool list
+- [x] support `topic` filter (default: `all`)
+- [x] support `operation_id` exact lookup
+- [x] include compact Python examples using `from medtracker import api, output`
+- [x] keep static MCP tool description short; put detailed docs in the tool response
+- [x] tests: full catalog, topic filter, operation_id lookup, unknown topic, unknown operation ID
+- [x] run `go test ./internal/mcp/...` — must pass before Task 6
 
 ### Task 6: `mcp_execute` request handling
 
