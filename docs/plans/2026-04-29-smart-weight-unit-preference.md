@@ -127,10 +127,10 @@ Track each user's preferred weight unit (KG or LB) by remembering the last unit 
 - Modify: corresponding HTML/template if applicable
 - Modify: Vitest spec for settings
 
-- [ ] add Weight Unit segmented control (KG / LB) in Settings, bound to bootstrap value
-- [ ] on change, PATCH `/api/settings/weight-unit` and refresh in-memory state so dashboards rerender
-- [ ] write Vitest test: toggle dispatches PATCH and updates display state
-- [ ] run `pnpm test`
+- [x] add Weight Unit segmented control (KG / LB) in Settings, bound to bootstrap value
+- [x] on change, PATCH `/api/settings/weight-unit` and refresh in-memory state so dashboards rerender
+- [x] write Vitest test: toggle dispatches PATCH and updates display state
+- [x] run `pnpm test`
 
 ### Task 8: Verify acceptance criteria
 

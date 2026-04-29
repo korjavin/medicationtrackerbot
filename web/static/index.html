@@ -447,6 +447,28 @@
                 </div>
             </section>
 
+            <section class="wg-card wg-settings-section wg-settings-units">
+                <h3 class="wg-settings-section__title">Units</h3>
+                <p class="wg-settings-section__desc">Display preferences for measurements</p>
+                <div class="wg-settings-row-list">
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title">Weight</div>
+                            <div class="wg-settings-row__desc">Stored in kilograms; only display and input default change</div>
+                        </div>
+                        <div class="wg-settings-row__control">
+                            <div class="wg-gloss--inset wg-settings-segmented" role="radiogroup" aria-label="Weight unit"
+                                id="weight-unit-segmented">
+                                <button type="button" class="wg-gloss wg-settings-segmented__btn wg-settings-segmented__btn--active wg-gloss--sun"
+                                    data-unit="kg" aria-pressed="true">kg</button>
+                                <button type="button" class="wg-gloss wg-settings-segmented__btn"
+                                    data-unit="lb" aria-pressed="false">lb</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <section id="food-target-settings" class="wg-card wg-settings-section wg-settings-food-targets">
                 <h3 class="wg-settings-section__title">Food Targets</h3>
                 <p class="wg-settings-section__desc">Daily targets for calories and macronutrients</p>
