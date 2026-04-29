@@ -136,12 +136,12 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Create: `python/tests/test_output.py`
 - Create: `python/pyproject.toml`
 
-- [ ] implement `api.call(operation_id, params=None, body=None)` posting to the local proxy URL from env
-- [ ] implement `output(value)` recording the final result; reject non-JSON-serializable input
-- [ ] define typed exceptions: `ProxyDenied`, `BackendError`, `TimeoutError`, `SerializationError`
-- [ ] expose no raw token, host, secret, or generic HTTP client
-- [ ] tests with a mocked proxy: success, params/body, proxy 4xx denial, backend 5xx, non-serializable output, single `output(...)` enforced
-- [ ] run `pytest python/` — must pass before Task 8
+- [x] implement `api.call(operation_id, params=None, body=None)` posting to the local proxy URL from env
+- [x] implement `output(value)` recording the final result; reject non-JSON-serializable input
+- [x] define typed exceptions: `ProxyDenied`, `BackendError`, `TimeoutError`, `SerializationError`
+- [x] expose no raw token, host, secret, or generic HTTP client
+- [x] tests with a mocked proxy: success, params/body, proxy 4xx denial, backend 5xx, non-serializable output, single `output(...)` enforced
+- [x] run `pytest python/` — must pass before Task 8
 
 ### Task 8: Sandboxed runner
 
