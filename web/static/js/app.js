@@ -834,6 +834,18 @@ document.getElementById('save-food-targets-btn').addEventListener('click', async
     await saveFoodTargets();
 });
 
+(function bindWeightUnitSegmented() {
+    const root = document.getElementById('weight-unit-segmented');
+    if (!root) return;
+    root.addEventListener('click', async (event) => {
+        const btn = event.target.closest('.wg-settings-segmented__btn');
+        if (!btn || !root.contains(btn)) return;
+        const unit = btn.getAttribute('data-unit');
+        if (unit !== 'kg' && unit !== 'lb') return;
+        await setWeightUnitPreference(unit);
+    });
+})();
+
 // Weight Reminders Toggle Handler
 document.getElementById('weight-reminders-toggle').addEventListener('change', async function () {
     const enabled = this.checked;
@@ -1596,6 +1608,7 @@ async function loadSettings() {
         window.featureSettingsLoaded = true;
         window.AppStore && window.AppStore.set('featureSettings', featureSettings);
         window.weightUnitPreference = bundle.weightUnitPreference;
+        applyWeightUnitSegmentedState(bundle.weightUnitPreference);
         updateFeatureToggles();
         updateFeatureTabVisibility();
 
@@ -1675,6 +1688,45 @@ function updateFeatureToggles() {
     document.getElementById('health-feature-toggle').checked = !!featureSettings.health;
     document.getElementById('medication-feature-toggle').checked = !!featureSettings.medication;
     document.getElementById('workout-feature-toggle').checked = !!featureSettings.workout;
+}
+
+function applyWeightUnitSegmentedState(unit) {
+    const root = document.getElementById('weight-unit-segmented');
+    if (!root) return;
+    const target = unit === 'lb' ? 'lb' : 'kg';
+    root.querySelectorAll('.wg-settings-segmented__btn').forEach((btn) => {
+        const isActive = btn.getAttribute('data-unit') === target;
+        btn.classList.toggle('wg-settings-segmented__btn--active', isActive);
+        btn.classList.toggle('wg-gloss--sun', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+async function setWeightUnitPreference(unit) {
+    if (unit !== 'kg' && unit !== 'lb') return false;
+    const previous = window.weightUnitPreference === 'lb' ? 'lb' : 'kg';
+    if (unit === previous) return true;
+
+    applyWeightUnitSegmentedState(unit);
+    const result = await apiCall('/api/settings/weight-unit', 'PATCH', { unit });
+    if (!result) {
+        applyWeightUnitSegmentedState(previous);
+        return false;
+    }
+
+    window.weightUnitPreference = unit;
+    if (window.DataStore && typeof window.DataStore.getCached === 'function') {
+        try {
+            const cached = await window.DataStore.getCached('settings_bundle');
+            if (cached) {
+                cached.weightUnitPreference = unit;
+                await window.DataStore.setCached('settings_bundle', cached);
+            }
+        } catch (_) { /* best-effort */ }
+    }
+
+    reloadCurrentTab();
+    return true;
 }
 
 function updateFoodTargetsVisibility() {
