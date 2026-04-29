@@ -100,11 +100,11 @@ Track each user's preferred weight unit (KG or LB) by remembering the last unit 
 - Modify: any module rendering literal "kg" (search for "kg" in `web/static/js`)
 - Create or modify: `web/static/js/lib/format.js` (or wherever shared formatters live) for the helper
 
-- [ ] add a single `formatWeight(kg, unit)` helper returning `{value, label}` (e.g. `{value: 154.3, label: 'lb'}`)
-- [ ] route every weight display through it: Today tile, goal card, delta-to-goal, chart legend, history list
-- [ ] keep stored values in kg; convert only at render time
-- [ ] write Vitest tests: kg passthrough, lb conversion, rounding, label correctness
-- [ ] run `pnpm test`
+- [x] add a single `formatWeight(kg, unit)` helper returning `{value, label}` (e.g. `{value: 154.3, label: 'lb'}`)
+- [x] route every weight display through it: Today tile, goal card, delta-to-goal, chart legend, history list
+- [x] keep stored values in kg; convert only at render time
+- [x] write Vitest tests: kg passthrough, lb conversion, rounding, label correctness
+- [x] run `pnpm test`
 
 ### Task 6: Bot - parse unit suffix and update preference
 
