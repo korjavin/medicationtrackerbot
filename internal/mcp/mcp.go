@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -135,6 +136,7 @@ type Server struct {
 	foodWriter    *FoodWriter
 	workoutWriter *WorkoutWriter
 	admin         AdminStore
+	reg           *registry.Registry
 }
 
 // NewServer creates a new MCP server
@@ -154,6 +156,13 @@ func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error
 		},
 		nil,
 	)
+
+	// Build the default operation registry.
+	reg := registry.New()
+	if err := reg.Register(registry.WorkoutOperations()...); err != nil {
+		return nil, fmt.Errorf("operation registry: %w", err)
+	}
+	s.reg = reg
 
 	// Create OAuth handler. The store satisfies APITokenStore so long-lived
 	// API tokens can be validated alongside JWTs.
@@ -180,6 +189,28 @@ func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error
 
 // registerTools registers all MCP tools
 func (s *Server) registerTools() {
+	// mcp_help: catalog of allowed backend operations for mcp_execute scripts
+	mcp.AddTool(s.mcpServer,
+		&mcp.Tool{
+			Name:        "mcp_help",
+			Description: "List available backend operations for use in mcp_execute scripts. Filter by topic or look up a single operation_id. Each entry includes params, body schema, and a Python example.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"topic": {
+						"type": "string",
+						"description": "Domain to filter by (e.g. 'workouts', 'food', 'health'). Omit or pass 'all' for the full catalog."
+					},
+					"operation_id": {
+						"type": "string",
+						"description": "Exact operation ID for a single-entry lookup (e.g. 'workouts.groups.list'). Takes precedence over topic."
+					}
+				}
+			}`),
+		},
+		s.handleMCPHelp,
+	)
+
 	// Blood Pressure Tool
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
