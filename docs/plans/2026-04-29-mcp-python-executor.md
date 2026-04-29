@@ -83,15 +83,15 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Create: `internal/mcp/proxy/proxy.go`
 - Create: `internal/mcp/proxy/proxy_test.go`
 
-- [ ] add a proxy component used by the executor service; in-process Go component that talks to the bridge over HTTP+HMAC
-- [ ] reject unknown operation IDs (registry lookup)
-- [ ] reject write operations when run mode is `read_only`
-- [ ] enforce per-run max API calls (counter passed in run context)
-- [ ] enforce optional `topic_allowlist` per run
-- [ ] forward allowed calls to the backend bridge with internal auth (HMAC)
-- [ ] return structured call traces: `{operation_id, risk, status, duration_ms, error?}`
-- [ ] tests with a fake bridge: unknown op rejected, write blocked in read-only, max-calls enforcement, topic-allowlist enforcement, trace fields populated
-- [ ] run `go test ./internal/mcp/...` — must pass before Task 5
+- [x] add a proxy component used by the executor service; in-process Go component that talks to the bridge over HTTP+HMAC
+- [x] reject unknown operation IDs (registry lookup)
+- [x] reject write operations when run mode is `read_only`
+- [x] enforce per-run max API calls (counter passed in run context)
+- [x] enforce optional `topic_allowlist` per run
+- [x] forward allowed calls to the backend bridge with internal auth (HMAC)
+- [x] return structured call traces: `{operation_id, risk, status, duration_ms, error?}`
+- [x] tests with a fake bridge: unknown op rejected, write blocked in read-only, max-calls enforcement, topic-allowlist enforcement, trace fields populated
+- [x] run `go test ./internal/mcp/...` — must pass before Task 5
 
 ### Task 5: `mcp_help` tool
 
