@@ -167,7 +167,7 @@ func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error
 
 	// Build the default operation registry.
 	reg := registry.New()
-	if err := reg.Register(registry.WorkoutOperations()...); err != nil {
+	if err := reg.Register(registry.DefaultOperations()...); err != nil {
 		return nil, fmt.Errorf("operation registry: %w", err)
 	}
 	s.reg = reg

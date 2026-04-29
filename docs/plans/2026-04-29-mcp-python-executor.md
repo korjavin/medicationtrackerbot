@@ -218,14 +218,14 @@ Build a new MCP execution path that lets an agent run constrained Python scripts
 - Modify: `internal/mcp/registry/registry.go` (wire new topics)
 - Modify: `internal/mcp/registry/registry_test.go`
 
-- [ ] add food read operations
-- [ ] add food write operations (where backend validation is already strong)
-- [ ] add health read operations: BP, weight, sleep, vitals, steps, notes
-- [ ] add medication read/write operations only after user identity and write audit behavior are confirmed (gate behind a verification subtask)
-- [ ] add workout plan mutation operations needed for group, variant, and exercise editing
-- [ ] keep operation docs concise enough for agent context
-- [ ] tests: each new topic appears in `mcp_help`, lookup by ID works, write ops carry `risk: "write"`, schemas validate
-- [ ] run `go test ./...` — must pass before Task 13
+- [x] add food read operations
+- [x] add food write operations (where backend validation is already strong)
+- [x] add health read operations: BP, weight, sleep, vitals, steps, notes
+- [x] add medication read/write operations only after user identity and write audit behavior are confirmed (gate behind a verification subtask)
+- [x] add workout plan mutation operations needed for group, variant, and exercise editing
+- [x] keep operation docs concise enough for agent context
+- [x] tests: each new topic appears in `mcp_help`, lookup by ID works, write ops carry `risk: "write"`, schemas validate
+- [x] run `go test ./...` — must pass before Task 13
 
 ### Task 13: Observability and failure handling
 

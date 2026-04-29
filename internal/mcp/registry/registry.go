@@ -156,6 +156,18 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 	return entries
 }
 
+// DefaultOperations returns every operation defined across the registry's
+// per-topic files. Used by the MCP server bootstrap and by tests that need a
+// representative registry.
+func DefaultOperations() []*Operation {
+	var ops []*Operation
+	ops = append(ops, WorkoutOperations()...)
+	ops = append(ops, FoodOperations()...)
+	ops = append(ops, HealthOperations()...)
+	ops = append(ops, MedicationOperations()...)
+	return ops
+}
+
 func validate(op *Operation) error {
 	if op.ID == "" {
 		return fmt.Errorf("ID must be non-empty")

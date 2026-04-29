@@ -140,5 +140,182 @@ output(result)`,
 )
 output({"updated": 42})`,
 		},
+
+		// --- Plan mutation operations: groups, variants, exercises CRUD ---
+		{
+			ID:     "workouts.groups.create",
+			Topic:  "workouts",
+			Method: "POST",
+			Path:   "/api/workout/groups/create",
+			Risk:   RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "name":                         {"type": "string"},
+    "description":                  {"type": "string"},
+    "is_rotating":                  {"type": "boolean", "description": "If true, variants rotate through scheduled days"},
+    "days_of_week":                 {"type": "string", "description": "JSON array of weekday indices, e.g. \"[1,3,5]\""},
+    "scheduled_time":               {"type": "string", "description": "HH:MM 24-hour clock"},
+    "notification_advance_minutes": {"type": "integer"}
+  }
+}`),
+			Description:     "Create a workout group (named collection of variants).",
+			ResponseSummary: "WorkoutGroup object with id, name, description, is_rotating, days_of_week, scheduled_time (HTTP 201).",
+			Example: `result = api.call(
+    "workouts.groups.create",
+    body={
+        "name": "Home Workout",
+        "description": "Bodyweight rotation",
+        "is_rotating": True,
+        "days_of_week": "[1,3,5]",
+        "scheduled_time": "07:00",
+        "notification_advance_minutes": 15,
+    },
+)
+output(result)`,
+		},
+		{
+			ID:     "workouts.groups.update",
+			Topic:  "workouts",
+			Method: "PUT",
+			Path:   "/api/workout/groups/update",
+			Risk:   RiskWrite,
+			ParamsSchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["id"],
+  "properties": {
+    "id": {"type": "integer", "description": "Workout group ID to update"}
+  }
+}`),
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "name":                         {"type": "string"},
+    "description":                  {"type": "string"},
+    "is_rotating":                  {"type": "boolean"},
+    "days_of_week":                 {"type": "string"},
+    "scheduled_time":               {"type": "string"},
+    "notification_advance_minutes": {"type": "integer"},
+    "active":                       {"type": "boolean"}
+  }
+}`),
+			Description:     "Update a workout group's name, schedule, rotation settings, or active flag.",
+			ResponseSummary: "Empty body on success (HTTP 200).",
+			Example: `api.call(
+    "workouts.groups.update",
+    params={"id": 1},
+    body={"name": "Gym A", "scheduled_time": "06:30", "active": True},
+)
+output({"updated": 1})`,
+		},
+		{
+			ID:     "workouts.variants.create",
+			Topic:  "workouts",
+			Method: "POST",
+			Path:   "/api/workout/variants/create",
+			Risk:   RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["group_id", "name"],
+  "properties": {
+    "group_id":       {"type": "integer"},
+    "name":           {"type": "string"},
+    "rotation_order": {"type": ["integer", "null"], "description": "Slot in the rotation; null for non-rotating groups"},
+    "description":    {"type": "string"}
+  }
+}`),
+			Description:     "Create a workout variant within a group (e.g. 'Push Day').",
+			ResponseSummary: "WorkoutVariant object with id, group_id, name, rotation_order, description (HTTP 201).",
+			Example: `result = api.call(
+    "workouts.variants.create",
+    body={"group_id": 1, "name": "Push Day", "rotation_order": 0},
+)
+output(result)`,
+		},
+		{
+			ID:     "workouts.variants.update",
+			Topic:  "workouts",
+			Method: "PUT",
+			Path:   "/api/workout/variants/update",
+			Risk:   RiskWrite,
+			ParamsSchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["id"],
+  "properties": {
+    "id": {"type": "integer", "description": "Variant ID to update"}
+  }
+}`),
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "name":           {"type": "string"},
+    "rotation_order": {"type": ["integer", "null"]},
+    "description":    {"type": "string"}
+  }
+}`),
+			Description:     "Update a workout variant's name, rotation slot, or description.",
+			ResponseSummary: "Empty body on success (HTTP 200).",
+			Example: `api.call(
+    "workouts.variants.update",
+    params={"id": 5},
+    body={"name": "Pull Day", "rotation_order": 1},
+)
+output({"updated": 5})`,
+		},
+		{
+			ID:     "workouts.exercises.create",
+			Topic:  "workouts",
+			Method: "POST",
+			Path:   "/api/workout/exercises/create",
+			Risk:   RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["variant_id", "exercise_name", "target_sets", "target_reps_min", "order_index"],
+  "properties": {
+    "variant_id":       {"type": "integer"},
+    "exercise_name":    {"type": "string"},
+    "target_sets":      {"type": "integer"},
+    "target_reps_min":  {"type": "integer"},
+    "target_reps_max":  {"type": ["integer", "null"]},
+    "target_weight_kg": {"type": ["number", "null"]},
+    "order_index":      {"type": "integer"}
+  }
+}`),
+			Description:     "Add a new exercise to a workout variant.",
+			ResponseSummary: "Empty body on success (HTTP 200/201) with the created exercise persisted.",
+			Example: `api.call(
+    "workouts.exercises.create",
+    body={
+        "variant_id": 5,
+        "exercise_name": "Pull-ups",
+        "target_sets": 3,
+        "target_reps_min": 8,
+        "target_reps_max": 12,
+        "order_index": 0,
+    },
+)
+output({"created": "Pull-ups"})`,
+		},
+		{
+			ID:     "workouts.exercises.delete",
+			Topic:  "workouts",
+			Method: "DELETE",
+			Path:   "/api/workout/exercises/delete",
+			Risk:   RiskWrite,
+			ParamsSchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["id"],
+  "properties": {
+    "id": {"type": "integer", "description": "Exercise ID to delete"}
+  }
+}`),
+			Description:     "Delete an exercise from a workout variant. The exercise must belong to a variant the user owns.",
+			ResponseSummary: "Empty body on success (HTTP 200).",
+			Example: `api.call("workouts.exercises.delete", params={"id": 42})
+output({"deleted": 42})`,
+		},
 	}
 }
