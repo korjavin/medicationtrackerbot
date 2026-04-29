@@ -72,13 +72,13 @@ Track each user's preferred weight unit (KG or LB) by remembering the last unit 
 - Modify: `internal/mcp/fitness.go` (audit and confirm `WeightSection` field tags use `_kg`)
 - Modify: `internal/mcp/tools_test.go` and `internal/mcp/fitness_test.go`
 
-- [ ] update `get_weight` tool description to explicitly say "All weights are returned in kilograms (kg)" so AI agents know the unit unambiguously
-- [ ] update `analyze_fitness` description to explicitly say weight is in kilograms
-- [ ] confirm response structs only expose `weight_kg`, `trend_kg`, `current_kg`, `change_kg` (no plain `weight` field) — fix any field tag that drops the unit
-- [ ] add a regression test that calls `handleGetWeight` after `SetWeightUnitPreference(ctx, "lb")` and asserts the response is still in kg with `_kg` field names (i.e. user preference does NOT leak into MCP)
-- [ ] add equivalent assertion in fitness test for `WeightSection`
-- [ ] do NOT add unit input parameter, do NOT add a unit field in the response, do NOT add a write-weight MCP tool
-- [ ] run `go test ./internal/mcp/...`
+- [x] update `get_weight` tool description to explicitly say "All weights are returned in kilograms (kg)" so AI agents know the unit unambiguously
+- [x] update `analyze_fitness` description to explicitly say weight is in kilograms
+- [x] confirm response structs only expose `weight_kg`, `trend_kg`, `current_kg`, `change_kg` (no plain `weight` field) — fix any field tag that drops the unit
+- [x] add a regression test that calls `handleGetWeight` after `SetWeightUnitPreference(ctx, "lb")` and asserts the response is still in kg with `_kg` field names (i.e. user preference does NOT leak into MCP)
+- [x] add equivalent assertion in fitness test for `WeightSection`
+- [x] do NOT add unit input parameter, do NOT add a unit field in the response, do NOT add a write-weight MCP tool
+- [x] run `go test ./internal/mcp/...`
 
 ### Task 4: Frontend - persist last-used unit on weight entry
 

@@ -210,7 +210,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "get_weight",
-			Description: "Retrieve weight logs for a date range. Returns weight, trend, and body fat if available. Includes diary notes from the same period for context. Pass exclude_notes=true to suppress. Maximum 90 days per query.",
+			Description: "Retrieve weight logs for a date range. Returns weight, trend, and body fat if available. All weights are returned in kilograms (kg) and the response field names use the _kg suffix (weight_kg, trend_kg). The user's display unit preference does not affect this tool. Includes diary notes from the same period for context. Pass exclude_notes=true to suppress. Maximum 90 days per query.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
