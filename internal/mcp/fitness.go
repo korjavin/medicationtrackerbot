@@ -441,7 +441,7 @@ func registerFitnessTool(mcpServer *sdkmcp.Server, s *Server) {
 	sdkmcp.AddTool(mcpServer,
 		&sdkmcp.Tool{
 			Name:        "analyze_fitness",
-			Description: "Comprehensive fitness and nutrition analysis. Returns workout sessions (gym and outdoor), daily step counts, daily calorie/protein/carb/fat totals (food names omitted for privacy), weight trend, and personal diary notes — all in one call. Maximum 90 days per query. Use this for questions about training, nutrition balance, weight progress, or activity levels.",
+			Description: "Comprehensive fitness and nutrition analysis. Returns workout sessions (gym and outdoor), daily step counts, daily calorie/protein/carb/fat totals (food names omitted for privacy), weight trend, and personal diary notes — all in one call. All weights are returned in kilograms (kg) — fields use the _kg suffix (current_kg, change_kg, weight_kg, trend_kg). The user's display unit preference does not affect this tool. Maximum 90 days per query. Use this for questions about training, nutrition balance, weight progress, or activity levels.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
