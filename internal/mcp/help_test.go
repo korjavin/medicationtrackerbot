@@ -11,8 +11,8 @@ import (
 func testServerWithRegistry(t *testing.T) *Server {
 	t.Helper()
 	reg := registry.New()
-	if err := reg.Register(registry.WorkoutOperations()...); err != nil {
-		t.Fatalf("register workout ops: %v", err)
+	if err := reg.Register(registry.DefaultOperations()...); err != nil {
+		t.Fatalf("register default ops: %v", err)
 	}
 	s := testServer(90)
 	s.reg = reg
@@ -100,6 +100,9 @@ func TestMCPHelp_WorkoutsTopicHasExamples(t *testing.T) {
 		if op.Example == "" {
 			t.Errorf("op %s missing example snippet", op.ID)
 		}
+		if !strings.Contains(op.Example, "from medtracker import api, output") {
+			t.Errorf("op %s example missing imports, got: %s", op.ID, op.Example)
+		}
 		if !strings.Contains(op.Example, "api.call") {
 			t.Errorf("op %s example should call api.call, got: %s", op.ID, op.Example)
 		}
@@ -134,23 +137,61 @@ func TestMCPHelp_OperationIDLookup(t *testing.T) {
 
 func TestMCPHelp_UnknownTopic(t *testing.T) {
 	s := testServerWithRegistry(t)
-	_, err := callHelp(t, s, HelpInput{Topic: "nonexistent-topic"})
-	if err == nil {
-		t.Fatal("expected error for unknown topic")
+	resp, err := callHelp(t, s, HelpInput{Topic: "nonexistent-topic"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("unexpected error: %v", err)
+	if resp.Count != 0 {
+		t.Errorf("expected count 0, got %d", resp.Count)
+	}
+	if !strings.Contains(resp.NextStep, "not found") {
+		t.Errorf("expected NextStep to mention not found, got: %s", resp.NextStep)
+	}
+	if len(resp.Topics) == 0 {
+		t.Error("expected topics list to be populated for suggestions")
 	}
 }
 
 func TestMCPHelp_UnknownOperationID(t *testing.T) {
 	s := testServerWithRegistry(t)
-	_, err := callHelp(t, s, HelpInput{OperationID: "does.not.exist"})
-	if err == nil {
-		t.Fatal("expected error for unknown operation_id")
+	resp, err := callHelp(t, s, HelpInput{OperationID: "does.not.exist"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("unexpected error: %v", err)
+	if resp.Count != 0 {
+		t.Errorf("expected count 0, got %d", resp.Count)
+	}
+	if !strings.Contains(resp.NextStep, "not found") {
+		t.Errorf("expected NextStep to mention not found, got: %s", resp.NextStep)
+	}
+}
+
+func TestMCPHelp_GoalOrientedFields(t *testing.T) {
+	s := testServerWithRegistry(t)
+	tests := []struct {
+		topic        string
+		wantNextStep string
+	}{
+		{"workouts", "workout groups"},
+		{"food", "Search for a food item"},
+		{"health", "List vital logs"},
+		{"medications", "medication schedule"},
+		{"", "Pick a topic"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.topic, func(t *testing.T) {
+			resp, err := callHelp(t, s, HelpInput{Topic: tc.topic})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !strings.Contains(resp.NextStep, tc.wantNextStep) {
+				t.Errorf("NextStep mismatch for topic %q:\nwant: %s\ngot:  %s", tc.topic, tc.wantNextStep, resp.NextStep)
+			}
+			if len(resp.NextTools) == 0 || resp.NextTools[0] != "mcp_execute" {
+				t.Errorf("NextTools mismatch for topic %q: expected [mcp_execute], got %v", tc.topic, resp.NextTools)
+			}
+		})
 	}
 }
 
