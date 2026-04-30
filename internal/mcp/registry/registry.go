@@ -3,6 +3,7 @@ package registry
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -150,6 +151,16 @@ func (r *Registry) Topics() []string {
 func MarshalForHelp(ops []*Operation) []HelpEntry {
 	entries := make([]HelpEntry, 0, len(ops))
 	for _, op := range ops {
+		example := op.Example
+		if example != "" {
+			if !strings.Contains(example, "from medtracker") {
+				example = "from medtracker import api, output\n\n" + example
+			}
+			if !strings.Contains(example, "output(") {
+				example = example + "\noutput(result)"
+			}
+		}
+
 		entries = append(entries, HelpEntry{
 			ID:              op.ID,
 			Topic:           op.Topic,
@@ -160,7 +171,7 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 			ResponseSummary: op.ResponseSummary,
 			ParamsSchema:    decodeSchema(op.ParamsSchema),
 			BodySchema:      decodeSchema(op.BodySchema),
-			Example:         op.Example,
+			Example:         example,
 		})
 	}
 	return entries

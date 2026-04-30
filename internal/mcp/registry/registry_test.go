@@ -140,6 +140,50 @@ func TestAll(t *testing.T) {
 	}
 }
 
+func TestMarshalForHelp_Examples(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "empty example",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "simple call",
+			input:    `result = api.call("t.read")`,
+			expected: "from medtracker import api, output\n\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "already has import",
+			input:    "from medtracker import api, output\nresult = api.call(\"t.read\")",
+			expected: "from medtracker import api, output\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "already has output",
+			input:    "result = api.call(\"t.read\")\noutput(result)",
+			expected: "from medtracker import api, output\n\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "already has both",
+			input:    "from medtracker import api, output\nresult = api.call(\"t.read\")\noutput(result)",
+			expected: "from medtracker import api, output\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := []*Operation{{Example: tc.input}}
+			entries := MarshalForHelp(ops)
+			if entries[0].Example != tc.expected {
+				t.Errorf("expected:\n%s\ngot:\n%s", tc.expected, entries[0].Example)
+			}
+		})
+	}
+}
+
 func TestMarshalForHelp_Shape(t *testing.T) {
 	ops := []*Operation{
 		{
