@@ -80,7 +80,7 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 			Operations: registry.MarshalForHelp(ops),
 			Count:      len(ops),
 			Topics:     s.reg.Topics(),
-			Note:       "Pick a topic to filter operations, or use an operation_id to see details and examples.",
+			Note:       "The full operation catalog is shown below.",
 			NextStep:   nextStep,
 			NextTools:  []string{"mcp_execute"},
 		}, nil
