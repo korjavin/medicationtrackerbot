@@ -17,19 +17,6 @@ import (
 	opregistry "github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
 )
 
-// mockRegistry implements MCPRegistry for tests.
-type mockRegistry struct {
-	ops map[string]*MCPOperation
-}
-
-func newMockRegistry(ops ...*MCPOperation) *mockRegistry {
-	m := &mockRegistry{ops: make(map[string]*MCPOperation)}
-	for _, op := range ops {
-		m.ops[op.Path] = op // keyed by path here; Get is by ID in the interface
-	}
-	return m
-}
-
 // mockRegistryByID lets tests set up ops by operation ID.
 type mockRegistryByID struct {
 	ops map[string]*MCPOperation

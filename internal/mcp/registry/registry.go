@@ -170,19 +170,19 @@ func DefaultOperations() []*Operation {
 
 func validate(op *Operation) error {
 	if op.ID == "" {
-		return fmt.Errorf("ID must be non-empty")
+		return fmt.Errorf("id must be non-empty")
 	}
 	if op.Topic == "" {
-		return fmt.Errorf("Topic must be non-empty")
+		return fmt.Errorf("topic must be non-empty")
 	}
 	if op.Method == "" {
-		return fmt.Errorf("Method must be non-empty")
+		return fmt.Errorf("method must be non-empty")
 	}
 	if op.Path == "" {
-		return fmt.Errorf("Path must be non-empty")
+		return fmt.Errorf("path must be non-empty")
 	}
 	if op.Risk != RiskRead && op.Risk != RiskWrite {
-		return fmt.Errorf("Risk must be %q or %q, got %q", RiskRead, RiskWrite, op.Risk)
+		return fmt.Errorf("risk must be %q or %q, got %q", RiskRead, RiskWrite, op.Risk)
 	}
 	return nil
 }
