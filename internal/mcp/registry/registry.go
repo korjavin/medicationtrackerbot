@@ -41,17 +41,23 @@ type Operation struct {
 }
 
 // HelpEntry is the compact representation returned by MarshalForHelp.
+//
+// ParamsSchema and BodySchema are typed `any` rather than json.RawMessage so
+// the MCP SDK's reflection-based output-schema inference (jsonschema-go) emits
+// an unrestricted schema for them. json.RawMessage's underlying type is
+// []byte, which infers to {"types": ["null", "array"]} and rejects the actual
+// object payload at validation time.
 type HelpEntry struct {
-	ID              string          `json:"id"`
-	Topic           string          `json:"topic"`
-	Method          string          `json:"method"`
-	Path            string          `json:"path"`
-	Risk            Risk            `json:"risk"`
-	Description     string          `json:"description"`
-	ResponseSummary string          `json:"response_summary"`
-	ParamsSchema    json.RawMessage `json:"params_schema,omitempty"`
-	BodySchema      json.RawMessage `json:"body_schema,omitempty"`
-	Example         string          `json:"example,omitempty"`
+	ID              string `json:"id"`
+	Topic           string `json:"topic"`
+	Method          string `json:"method"`
+	Path            string `json:"path"`
+	Risk            Risk   `json:"risk"`
+	Description     string `json:"description"`
+	ResponseSummary string `json:"response_summary"`
+	ParamsSchema    any    `json:"params_schema,omitempty"`
+	BodySchema      any    `json:"body_schema,omitempty"`
+	Example         string `json:"example,omitempty"`
 }
 
 // Registry holds the complete set of allowed operations.
@@ -137,6 +143,10 @@ func (r *Registry) Topics() []string {
 
 // MarshalForHelp returns a JSON-serializable slice of HelpEntry values for the
 // given set of operations. It is used by mcp_help to produce compact documentation.
+//
+// The stored ParamsSchema/BodySchema are json.RawMessage; they are decoded into
+// generic values here so the help output is a real JSON object (not a base64
+// string) and so the MCP SDK's output-schema validator accepts it.
 func MarshalForHelp(ops []*Operation) []HelpEntry {
 	entries := make([]HelpEntry, 0, len(ops))
 	for _, op := range ops {
@@ -148,12 +158,26 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 			Risk:            op.Risk,
 			Description:     op.Description,
 			ResponseSummary: op.ResponseSummary,
-			ParamsSchema:    op.ParamsSchema,
-			BodySchema:      op.BodySchema,
+			ParamsSchema:    decodeSchema(op.ParamsSchema),
+			BodySchema:      decodeSchema(op.BodySchema),
 			Example:         op.Example,
 		})
 	}
 	return entries
+}
+
+// decodeSchema returns the JSON-decoded schema or nil if raw is empty or
+// malformed. A malformed schema is silently dropped — schema validity is
+// enforced separately by tests (schemasParse).
+func decodeSchema(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil
+	}
+	return v
 }
 
 // DefaultOperations returns every operation defined across the registry's
