@@ -69,7 +69,7 @@ This plan implements "Tao of Mac" (ToM) design principles to improve the `mcp_he
 
 ### Task 5: Finalize and Documentation
 
-- [ ] Verify `pythonUsageSnippet` in `help.go` is still useful or update it if it feels redundant with the new complete examples.
-- [ ] Run linter: `golangci-lint run ./internal/mcp/...`
-- [ ] Update `README.md` if any user-facing help behavior changed significantly.
-- [ ] Move this plan to `docs/plans/completed/`.
+- [x] Verify `pythonUsageSnippet` in `help.go` is still useful or update it if it feels redundant with the new complete examples.
+- [x] Run linter: `golangci-lint run ./internal/mcp/...`
+- [x] Update `README.md` if any user-facing help behavior changed significantly.
+- [x] Move this plan to `docs/plans/completed/`.
