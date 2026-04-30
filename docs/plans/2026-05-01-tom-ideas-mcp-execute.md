@@ -62,10 +62,10 @@ This plan implements "Tao of Mac" (ToM) design principles to improve the `mcp_he
 - Modify: `internal/mcp/help_test.go`
 - Modify: `internal/mcp/registry/registry_test.go`
 
-- [ ] Update `TestMCPHelp_UnknownTopic` and `TestMCPHelp_UnknownOperationID` in `internal/mcp/help_test.go` to expect success with suggestions instead of an error.
-- [ ] Add new test cases to verify `NextStep` and `NextTools` are populated correctly for different topics.
-- [ ] Update `TestMCPHelp_WorkoutsTopicHasExamples` to verify the examples now include the boilerplate imports and output call.
-- [ ] Run full test suite: `go test ./internal/mcp/... ./internal/mcp/registry/...`
+- [x] Update `TestMCPHelp_UnknownTopic` and `TestMCPHelp_UnknownOperationID` in `internal/mcp/help_test.go` to expect success with suggestions instead of an error.
+- [x] Add new test cases to verify `NextStep` and `NextTools` are populated correctly for different topics.
+- [x] Update `TestMCPHelp_WorkoutsTopicHasExamples` to verify the examples now include the boilerplate imports and output call.
+- [x] Run full test suite: `go test ./internal/mcp/... ./internal/mcp/registry/...`
 
 ### Task 5: Finalize and Documentation
 
