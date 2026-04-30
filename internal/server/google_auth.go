@@ -67,7 +67,7 @@ func (s *Server) initOAUTH() {
 
 // Generate random state
 func generateStateOauthCookie(w http.ResponseWriter) (string, error) {
-	var expiration = time.Now().Add(20 * time.Minute)
+	expiration := time.Now().Add(20 * time.Minute)
 
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {

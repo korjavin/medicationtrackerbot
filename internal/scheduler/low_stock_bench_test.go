@@ -41,11 +41,11 @@ func BenchmarkLowStockChecker(b *testing.B) {
 			return time.Date(2023, 1, 1, 11, 0, 0, 0, time.UTC)
 		},
 	}
-    checker.notifiers = nil
+	checker.notifiers = nil
 
-    b.ResetTimer()
-    for i := 0; i < b.N; i++ {
-        checker.lastCheck = time.Time{} // Force check every loop
-        checker.Check(context.Background())
-    }
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		checker.lastCheck = time.Time{} // Force check every loop
+		checker.Check(context.Background())
+	}
 }

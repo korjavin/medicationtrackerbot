@@ -103,14 +103,16 @@ Returns `active_weeks` (count of weeks with at least one completed session) and 
 
 ## MCP Server
 
-- **Purpose**: read-only access to health data for AI assistants (Claude)
-- **Transport**: Streamable HTTP (2025-03-26 spec) via `mcp.NewStreamableHTTPHandler`
-- **Authentication**: OAuth via Pocket-ID
-- **Tools**: 13 granular tools (`get_blood_pressure`, `get_weight`, `get_medication_intake`, …) + 2 composite analysis tools
-- **Composite Tools**:
+- **Purpose**: AI-assistant access to health data, including scripted multi-step workflows
+- **Transport**: Streamable HTTP (2025-03-26 spec) via `mcp.NewStreamableHTTPHandler`; legacy SSE at `/sse`
+- **Authentication**: OAuth via Pocket-ID, plus long-lived `mcp_*` API tokens for non-interactive clients
+- **Recommended path**: `mcp_help` (discover operations) + `mcp_execute` (run a sandboxed Python script that calls those operations through a local proxy). The helper exposes only `medtracker.api.call` / `output`; the runner env passed to the script is scrubbed of authority secrets and outbound network knobs. In the long-term `mcp-runner` side-container deployment those become enforced boundaries; in the MVP in-process executor they are operational shields and not full sandboxing — see the [MVP gap note](mcp-python-executor.md#known-mvp-gap-in-process-executor-isolation). Modes: `read_only` (default) and `write` (requires non-empty `intent`).
+- **Granular tools (kept, not deprecated)**: `get_blood_pressure`, `get_weight`, `get_medication_intake`, `get_workout_history`, `get_sleep_logs`, `get_food_intake`, `get_step_history`, `get_diary_notes`, plus vitals and health-overview tools. `log_food_intake` and `workout_log` cover the write path for clients without script execution.
+- **Composite analysis tools (kept for now)**:
   - `analyze_cardiovascular` — BP + meds + sleep + HR + SpO2 + notes
   - `analyze_fitness` — workouts + steps + nutrition totals + weight + notes
-- **Context Notes**: all read tools automatically include diary notes from the queried date range. Pass `exclude_notes=true` to suppress.
-- **Configuration**: separate from main bot, runs on different port
+  - No new `analyze_*` tools are planned; cross-domain analyses are expected to move to `mcp_execute` scripts. The two existing ones will be downgraded to compatibility shims once the registry fully covers their inputs.
+- **Context Notes**: all granular read tools automatically include diary notes from the queried date range. Pass `exclude_notes=true` to suppress.
+- **Configuration**: separate from main bot, runs on a different port; the executor side spawns a sandboxed runner subprocess (see [mcp-deployment.md](mcp-deployment.md#python-executor-service))
 
-See [mcp-deployment.md](mcp-deployment.md) for deployment details.
+See [mcp-deployment.md](mcp-deployment.md) for deployment details and [docs/mcp-python-executor.md](mcp-python-executor.md) for the executor architecture decision record.

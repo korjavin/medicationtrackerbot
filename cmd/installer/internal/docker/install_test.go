@@ -43,7 +43,7 @@ NAME="Fedora Linux"
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			tmpFile := filepath.Join(tmpDir, "os-release")
-			if err := os.WriteFile(tmpFile, []byte(tt.content), 0644); err != nil {
+			if err := os.WriteFile(tmpFile, []byte(tt.content), 0o644); err != nil {
 				t.Fatal(err)
 			}
 

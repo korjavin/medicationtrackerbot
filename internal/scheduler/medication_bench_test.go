@@ -18,6 +18,7 @@ func (m *mockMedStoreBench) GetCurrentTimezone() (string, error)                
 func (m *mockMedStoreBench) GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error) {
 	return nil, nil
 }
+
 func (m *mockMedStoreBench) ListMedications(archived bool) ([]store.Medication, error) {
 	meds := make([]store.Medication, 1000)
 	for i := range meds {
@@ -34,13 +35,16 @@ func (m *mockMedStoreBench) BatchGetIntakesBySchedule(schedules []store.Medicati
 	m.getIntakesBySchedCalls++
 	return make(map[store.MedicationSchedule]*store.IntakeLog), nil
 }
+
 func (m *mockMedStoreBench) GetIntakeBySchedule(medID int64, scheduledAt time.Time) (*store.IntakeLog, error) {
 	m.getIntakesBySchedCalls++
 	return nil, nil // Not found
 }
+
 func (m *mockMedStoreBench) CreateIntake(medID, userID int64, scheduledAt time.Time) (int64, error) {
 	return int64(medID), nil
 }
+
 func (m *mockMedStoreBench) GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
 	return nil, nil
 }

@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
-
 	"sync"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"

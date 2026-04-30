@@ -86,7 +86,8 @@ func (s *Server) handleGetHealthOverview(w http.ResponseWriter, r *http.Request)
 	bucketVitals := func(logs []struct {
 		DateTime time.Time
 		Value    int
-	}, cutoff time.Time) []VitalStat {
+	}, cutoff time.Time,
+	) []VitalStat {
 		type acc struct {
 			sum, count, min, max int
 		}
