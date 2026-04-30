@@ -92,12 +92,15 @@ func (r *Registry) Register(ops ...*Operation) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for _, op := range ops {
+	for _, opPtr := range ops {
+		// Clone to avoid mutating the original struct.
+		op := *opPtr
+
 		// Normalize ID and Topic to lowercase.
 		op.ID = strings.ToLower(strings.TrimSpace(op.ID))
 		op.Topic = strings.ToLower(strings.TrimSpace(op.Topic))
 
-		if err := validate(op); err != nil {
+		if err := validate(&op); err != nil {
 			return fmt.Errorf("operation %q: %w", op.ID, err)
 		}
 		if _, exists := r.operations[op.ID]; exists {
@@ -108,8 +111,8 @@ func (r *Registry) Register(ops ...*Operation) error {
 			r.topicOrder = append(r.topicOrder, op.Topic)
 		}
 
-		r.operations[op.ID] = op
-		r.byTopic[op.Topic] = append(r.byTopic[op.Topic], op)
+		r.operations[op.ID] = &op
+		r.byTopic[op.Topic] = append(r.byTopic[op.Topic], &op)
 	}
 	return nil
 }
@@ -176,49 +179,70 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 	for _, op := range ops {
 		example := op.Example
 		if example != "" {
-			// Import check: only prepend if no medtracker import is present.
-			hasImport := strings.Contains(example, "import medtracker") || strings.Contains(example, "from medtracker")
-			if !hasImport {
-				example = "from medtracker import api, output\n\n" + example
+			// 1. Ensure imports.
+			// We check for both 'from medtracker' and specifically if 'output' is imported.
+			hasImportMedtracker := strings.Contains(example, "import medtracker") || strings.Contains(example, "from medtracker")
+			hasImportOutput := strings.Contains(example, "import output") || (hasImportMedtracker && strings.Contains(example, "output"))
+
+			if !hasImportOutput {
+				// If we have "from medtracker import api", we need to change it to "from medtracker import api, output"
+				if strings.Contains(example, "from medtracker import api") && !strings.Contains(example, "import api, output") {
+					example = strings.Replace(example, "from medtracker import api", "from medtracker import api, output", 1)
+				} else if !hasImportMedtracker {
+					example = "from medtracker import api, output\n\n" + example
+				}
 			}
 
-			// Output check: look for output() call at the start of any line.
-			hasOutput := false
+			// 2. Ensure output(result).
 			lines := strings.Split(example, "\n")
+			hasOutput := false
 			for _, line := range lines {
-				if strings.HasPrefix(strings.TrimSpace(line), "output(") {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "output(") {
 					hasOutput = true
 					break
 				}
 			}
 
 			if !hasOutput {
-				// Ensure result is defined if we're going to output(result).
-				// We only transform "api.call(" if it's at the start of a line (after whitespace)
-				// AND not already part of an assignment or other expression on that line.
-				hasResultVar := strings.Contains(example, "result =")
-				if !hasResultVar {
-					newLines := make([]string, len(lines))
-					transformed := false
-					for i, line := range lines {
-						trimmed := strings.TrimSpace(line)
-						if strings.HasPrefix(trimmed, "api.call(") && !transformed {
-							// Replace only the first occurrence at start of line
+				// Try to find the variable name capturing api.call.
+				varName := ""
+				transformed := false
+				newLines := make([]string, len(lines))
+
+				for i, line := range lines {
+					trimmed := strings.TrimSpace(line)
+					newLines[i] = line
+
+					// Skip comments.
+					if strings.HasPrefix(trimmed, "#") {
+						continue
+					}
+
+					if varName == "" {
+						// Case 1: result = api.call(...)
+						if idx := strings.Index(trimmed, "= api.call("); idx > 0 {
+							potentialVar := strings.TrimSpace(trimmed[:idx])
+							// Basic check for valid variable name (no spaces, only alphanumeric/underscore)
+							if !strings.Contains(potentialVar, " ") && potentialVar != "" {
+								varName = potentialVar
+							}
+						}
+
+						// Case 2: api.call(...) at start of line
+						if varName == "" && strings.HasPrefix(trimmed, "api.call(") {
+							varName = "result"
 							newLines[i] = strings.Replace(line, "api.call(", "result = api.call(", 1)
 							transformed = true
-							hasResultVar = true
-						} else {
-							newLines[i] = line
 						}
-					}
-					if transformed {
-						example = strings.Join(newLines, "\n")
 					}
 				}
 
-				// Append output(result) if result variable is used in the example.
-				if hasResultVar {
-					example = strings.TrimRight(example, " \n\t") + "\noutput(result)"
+				if varName != "" {
+					if transformed {
+						example = strings.Join(newLines, "\n")
+					}
+					example = strings.TrimRight(example, " \n\t") + "\noutput(" + varName + ")"
 				}
 			}
 		}
