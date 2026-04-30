@@ -295,6 +295,59 @@ func TestTruncateForLog_ProxyHelper(t *testing.T) {
 	}
 }
 
+func TestProxy_ClampsListParamsBeforeForward(t *testing.T) {
+	r := registry.New()
+	if err := r.Register(&registry.Operation{
+		ID:              "health.bp.list",
+		Topic:           "health",
+		Method:          "GET",
+		Path:            "/api/bp",
+		Risk:            registry.RiskRead,
+		ResponseSummary: "list",
+		Description:     "list",
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	var capturedParams map[string]string
+	srv := fakeBridgeServer(t, func(w http.ResponseWriter, req *http.Request) {
+		var br BridgeRequest
+		if err := json.NewDecoder(req.Body).Decode(&br); err != nil {
+			t.Errorf("decode bridge request: %v", err)
+		}
+		capturedParams = br.Params
+		w.Header().Set("Content-Type", "application/json")
+		resp := BridgeResponse{Status: 200, Body: json.RawMessage(`[]`)}
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode bridge response: %v", err)
+		}
+	})
+
+	p := NewWithHTTPClient(r, srv.URL, "test-secret", http.DefaultClient)
+	p.SetMaxQueryDays(90)
+
+	// Caller tries to bypass the data window.
+	_, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly}, "health.bp.list", map[string]string{"days": "0", "limit": "0"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedParams["days"] != "30" {
+		t.Errorf("expected proxy to clamp days to 30, bridge saw %q", capturedParams["days"])
+	}
+	if capturedParams["limit"] != "100" {
+		t.Errorf("expected proxy to clamp limit to 100, bridge saw %q", capturedParams["limit"])
+	}
+
+	// Caller tries to overshoot the data window cap.
+	_, err = p.Call(context.Background(), RunConfig{Mode: ModeReadOnly}, "health.bp.list", map[string]string{"days": "9999"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedParams["days"] != "90" {
+		t.Errorf("expected proxy to clamp days to 90, bridge saw %q", capturedParams["days"])
+	}
+}
+
 func TestProxy_MaxAPICalls_Zero_Unlimited(t *testing.T) {
 	reg := buildRegistry(t)
 	srv := successBridge(t)

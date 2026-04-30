@@ -10,11 +10,11 @@ import (
 
 // mockTZPlanCallbackStore implements TZPlanCallbackStore for testing.
 type mockTZPlanCallbackStore struct {
-	approvedAt  *time.Time
-	updatedID   int64
-	rejectedID  int64
-	approveErr  error
-	rejectErr   error
+	approvedAt *time.Time
+	updatedID  int64
+	rejectedID int64
+	approveErr error
+	rejectErr  error
 }
 
 func (m *mockTZPlanCallbackStore) SetTZTransitionPlanApproved(id int64, at time.Time) (bool, error) {

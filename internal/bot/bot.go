@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"log/slog"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -20,12 +20,12 @@ import (
 
 // pendingExercise holds the metadata needed to send a deferred exercise prompt.
 type pendingExercise struct {
-	Index        int      // 1-based display index
-	ExerciseID   int64
-	ExerciseName string
-	TargetSets   int
-	TargetRepsMin int
-	TargetRepsMax *int
+	Index          int // 1-based display index
+	ExerciseID     int64
+	ExerciseName   string
+	TargetSets     int
+	TargetRepsMin  int
+	TargetRepsMax  *int
 	TargetWeightKg *float64
 }
 

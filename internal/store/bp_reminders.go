@@ -396,7 +396,6 @@ func (s *Store) BatchGetBPReminderStates(ctx context.Context, userIDs []int64) (
 	return result, nil
 }
 
-
 // BatchGetLastBPReadings retrieves the most recent BP reading for multiple users efficiently.
 func (s *Store) BatchGetLastBPReadings(ctx context.Context, userIDs []int64) (map[int64]*BloodPressure, error) {
 	result := make(map[int64]*BloodPressure)

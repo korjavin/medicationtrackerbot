@@ -223,7 +223,6 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 		}
 		return publicKey, nil
 	}, jwt.WithExpirationRequired(), jwt.WithIssuer(issuer))
-
 	if err != nil {
 		// Debug logging for claims comparison
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {

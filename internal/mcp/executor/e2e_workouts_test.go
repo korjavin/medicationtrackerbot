@@ -514,8 +514,10 @@ func TestE2E_WriteInReadOnly_RejectedByProxy(t *testing.T) {
 
 		// Surface as a script error so the executor's mapping path is exercised.
 		// In real life medtracker.api.call would raise ProxyDenied; here we
-		// fabricate the equivalent envelope.
-		return envelopeError("script_error", "ProxyDenied", "write_blocked: operation requires write mode"), nil
+		// fabricate the equivalent envelope. The runner records the fully
+		// qualified type so the executor can distinguish the helper exception
+		// from a same-name user class.
+		return envelopeError("script_error", "medtracker.exceptions.ProxyDenied", "write_blocked: operation requires write mode"), nil
 	}}
 
 	o := Options{

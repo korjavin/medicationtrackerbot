@@ -25,3 +25,8 @@ coverage/
 # Local-only design reference (mockups, chat transcripts, screenshots with personal data)
 # Referenced read-only by docs/plans/ — never commit.
 .local/
+
+# Python bytecode and coverage artifacts
+__pycache__/
+*.pyc
+.coverage

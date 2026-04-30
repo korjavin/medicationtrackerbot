@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"log/slog"
 
 	"github.com/korjavin/medicationtrackerbot/internal/mcp"
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/proxy"
@@ -521,4 +520,3 @@ func TestSlog_ExecutorStartLogIncludesAbandonedTimeout(t *testing.T) {
 		t.Errorf("expected start slog to include abandoned_timeout_ms, got: %s", out)
 	}
 }
-

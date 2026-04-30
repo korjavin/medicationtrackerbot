@@ -49,12 +49,18 @@ type BridgeRequest struct {
 }
 
 // BridgeResponse mirrors the envelope returned by the backend bridge.
+//
+// PolicyDenial, when non-empty, indicates the bridge rejected the call before
+// forwarding to the backend (e.g. a feature flag is disabled). The executor
+// uses this to surface a proxy-level rejection to the script instead of
+// misclassifying it as a transport error.
 type BridgeResponse struct {
 	Status        int               `json:"status"`
 	Body          json.RawMessage   `json:"body"`
 	HeadersSubset map[string]string `json:"headers_subset"`
 	DurationMS    int64             `json:"duration_ms"`
 	Truncated     bool              `json:"truncated,omitempty"`
+	PolicyDenial  string            `json:"policy_denial,omitempty"`
 }
 
 // CallResult is the full result of a proxy call.
@@ -66,10 +72,11 @@ type CallResult struct {
 // Proxy is an in-process component that validates and forwards API calls to the
 // backend bridge endpoint on behalf of the script executor.
 type Proxy struct {
-	reg        *registry.Registry
-	bridgeURL  string
-	hmacSecret string
-	httpClient *http.Client
+	reg          *registry.Registry
+	bridgeURL    string
+	hmacSecret   string
+	httpClient   *http.Client
+	maxQueryDays int
 
 	callCount atomic.Int64
 }
@@ -92,6 +99,16 @@ func NewWithHTTPClient(reg *registry.Registry, bridgeURL, hmacSecret string, cli
 		hmacSecret: hmacSecret,
 		httpClient: client,
 	}
+}
+
+// SetMaxQueryDays caps the lookback window for list operations whose schema
+// bounds the read window (e.g. health.bp.list, health.weight.list). Set to 0
+// to disable clamping (test/legacy default). Must be set before Call.
+func (p *Proxy) SetMaxQueryDays(days int) {
+	if days < 0 {
+		days = 0
+	}
+	p.maxQueryDays = days
 }
 
 // CallError represents a proxy-level rejection before the bridge is contacted.
@@ -149,6 +166,13 @@ func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, par
 			return nil, &CallError{Code: ErrTopicNotAllowed, Message: fmt.Sprintf("topic %q not in allowlist", op.Topic)}
 		}
 	}
+
+	// Mirror Server.MaxQueryDays in the granular MCP tools: clamp the lookback
+	// window and row caps for list operations whose backend handlers treat
+	// days<=0/limit<=0 as "unlimited". Without this, a script could pull all
+	// BP/weight history via mcp_execute even though the granular path enforces
+	// the configured cap.
+	params = clampListParams(operationID, params, p.maxQueryDays)
 
 	bridgeReq := BridgeRequest{
 		OperationID: operationID,

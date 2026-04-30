@@ -49,21 +49,29 @@ type HealthDataReader interface {
 
 // Config holds MCP server configuration
 type Config struct {
-	Port           int
-	DatabasePath   string
-	PocketIDURL    string
-	ClientID       string
-	ClientSecret   string // #nosec G117 -- OAuth client secret, loaded from env var
-	AllowedSubject string
-	MaxQueryDays   int
-	MCPServerURL   string // The public URL of this MCP server (for OAuth audience validation)
-	JWKSJSON       string // Optional fallback JWKS JSON content
-	UserID         int64  // The database user ID to query data for
+	Port                 int
+	DatabasePath         string
+	PocketIDURL          string
+	ClientID             string
+	ClientSecret         string // #nosec G117 -- OAuth client secret, loaded from env var
+	AllowedSubject       string
+	MaxQueryDays         int
+	MCPServerURL         string // The public URL of this MCP server (for OAuth audience validation)
+	JWKSJSON             string // Optional fallback JWKS JSON content
+	UserID               int64  // The database user ID to query data for
 	AuditEndpoint        string
 	AuditSecret          string
 	AdminPort            int   // Port for the loopback-only admin API (0 disables it)
 	MaxExecutorTimeoutMS int64 // cap for caller-provided timeout_ms; default 30000 (30s)
 	MaxExecutorAPICalls  int   // cap for caller-provided max_api_calls; default 100
+	// Python executor wiring. The executor service hosts a loopback /call
+	// listener for the runner subprocess and forwards each call to the bot's
+	// HMAC-protected bridge endpoint.
+	ExecutorBridgeURL     string // URL of the bot's /internal/mcp/bridge endpoint
+	ExecutorProxyURL      string // Loopback URL the runner subprocess uses (e.g. http://127.0.0.1:8090/call)
+	ExecutorRunnerScript  string // Absolute path to python/runner/runner.py
+	ExecutorRunnerCwd     string // Working dir passed to python (typically the python/ directory)
+	ExecutorMaxConcurrent int    // Max concurrent runs (default 4)
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
@@ -97,23 +105,36 @@ func LoadConfigFromEnv() (*Config, error) {
 
 	maxExecTimeoutMS, _ := strconv.ParseInt(os.Getenv("MCP_EXECUTOR_MAX_TIMEOUT_MS"), 10, 64)
 	maxExecAPICalls, _ := strconv.Atoi(os.Getenv("MCP_EXECUTOR_MAX_API_CALLS"))
+	maxExecConcurrent, _ := strconv.Atoi(os.Getenv("MCP_EXECUTOR_MAX_CONCURRENT"))
+
+	// MCP_EXECUTOR_BRIDGE_URL is the explicit opt-in for the in-process Python
+	// executor. We deliberately do NOT derive this from MCP_AUDIT_ENDPOINT:
+	// upgrading deployments that already wired audit notifications would
+	// otherwise silently enable mcp_execute, which contradicts the documented
+	// behavior and the MVP isolation gap warning in docs/mcp-deployment.md.
+	executorBridgeURL := strings.TrimSpace(os.Getenv("MCP_EXECUTOR_BRIDGE_URL"))
 
 	cfg := &Config{
-		Port:                 port,
-		DatabasePath:         os.Getenv("MCP_DATABASE_PATH"),
-		PocketIDURL:          os.Getenv("POCKET_ID_URL"),
-		ClientID:             os.Getenv("POCKET_ID_CLIENT_ID"),
-		ClientSecret:         os.Getenv("POCKET_ID_CLIENT_SECRET"),
-		AllowedSubject:       os.Getenv("MCP_ALLOWED_SUBJECT"),
-		MaxQueryDays:         maxQueryDays,
-		MCPServerURL:         os.Getenv("MCP_SERVER_URL"),
-		JWKSJSON:             os.Getenv("POCKET_ID_JWKS_JSON"),
-		UserID:               userID,
-		AuditEndpoint:        os.Getenv("MCP_AUDIT_ENDPOINT"),
-		AuditSecret:          os.Getenv("MCP_AUDIT_SECRET"),
-		AdminPort:            adminPort,
-		MaxExecutorTimeoutMS: maxExecTimeoutMS,
-		MaxExecutorAPICalls:  maxExecAPICalls,
+		Port:                  port,
+		DatabasePath:          os.Getenv("MCP_DATABASE_PATH"),
+		PocketIDURL:           os.Getenv("POCKET_ID_URL"),
+		ClientID:              os.Getenv("POCKET_ID_CLIENT_ID"),
+		ClientSecret:          os.Getenv("POCKET_ID_CLIENT_SECRET"),
+		AllowedSubject:        os.Getenv("MCP_ALLOWED_SUBJECT"),
+		MaxQueryDays:          maxQueryDays,
+		MCPServerURL:          os.Getenv("MCP_SERVER_URL"),
+		JWKSJSON:              os.Getenv("POCKET_ID_JWKS_JSON"),
+		UserID:                userID,
+		AuditEndpoint:         os.Getenv("MCP_AUDIT_ENDPOINT"),
+		AuditSecret:           os.Getenv("MCP_AUDIT_SECRET"),
+		AdminPort:             adminPort,
+		MaxExecutorTimeoutMS:  maxExecTimeoutMS,
+		MaxExecutorAPICalls:   maxExecAPICalls,
+		ExecutorBridgeURL:     executorBridgeURL,
+		ExecutorProxyURL:      strings.TrimSpace(os.Getenv("MCP_EXECUTOR_PROXY_URL")),
+		ExecutorRunnerScript:  strings.TrimSpace(os.Getenv("MCP_EXECUTOR_RUNNER_SCRIPT")),
+		ExecutorRunnerCwd:     strings.TrimSpace(os.Getenv("MCP_EXECUTOR_RUNNER_CWD")),
+		ExecutorMaxConcurrent: maxExecConcurrent,
 	}
 
 	if cfg.AdminPort > 0 && cfg.AdminPort == cfg.Port {
@@ -146,6 +167,11 @@ type Server struct {
 	reg           *registry.Registry
 	executor      ExecutionService
 }
+
+// AuditBuffer returns the audit buffer used by granular tools. The executor
+// wiring in cmd/mcptool/main.go reads this so write runs of mcp_execute can
+// fan out into the same Telegram audit notification path.
+func (s *Server) AuditBuffer() *AuditBuffer { return s.audit }
 
 // NewServer creates a new MCP server
 func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error) {

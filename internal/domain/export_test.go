@@ -101,8 +101,6 @@ func TestGenerateWeightCSV(t *testing.T) {
 	}
 }
 
-
-
 type errorWriter struct {
 	err error
 }
@@ -149,7 +147,6 @@ func TestGenerateWeightCSV_Error(t *testing.T) {
 		t.Error("expected error writing CSV")
 	}
 }
-
 
 func TestGenerateWeightCSVEmpty(t *testing.T) {
 	data, err := GenerateWeightCSV(nil)

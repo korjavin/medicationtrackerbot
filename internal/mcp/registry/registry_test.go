@@ -358,8 +358,8 @@ func TestFoodOperations(t *testing.T) {
 	}
 
 	writeOps := map[string]bool{
-		"food.log.create":   true,
-		"food.targets.set":  true,
+		"food.log.create":  true,
+		"food.targets.set": true,
 	}
 	for _, op := range ops {
 		want := writeOps[op.ID]

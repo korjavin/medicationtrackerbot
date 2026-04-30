@@ -104,7 +104,7 @@ func TestGeneratePlan_WeeklyIncludedForStrict(t *testing.T) {
 		Medications: []store.Medication{
 			med(4, "WeeklyMed", weeklySchedule([]int{1}, "09:00"), "strict"),
 		},
-		OldTZ: "Europe/London",  // UTC+0 in Jan
+		OldTZ: "Europe/London",    // UTC+0 in Jan
 		NewTZ: "America/New_York", // UTC-5 in Jan → delta = -5h
 		Now:   baseNow,
 	}
@@ -127,9 +127,9 @@ func TestGeneratePlan_FlexibleSingleStep(t *testing.T) {
 		Medications: []store.Medication{
 			med(5, "Lisinopril", dailySchedule("08:00"), "flexible"),
 		},
-		OldTZ: "Europe/London",  // UTC+0 Jan
-		NewTZ: "Asia/Dhaka",     // UTC+6 Jan → +6h eastbound
-		Now:   baseNow,
+		OldTZ:                   "Europe/London", // UTC+0 Jan
+		NewTZ:                   "Asia/Dhaka",    // UTC+6 Jan → +6h eastbound
+		Now:                     baseNow,
 		LastIntakePerMedication: map[int64]time.Time{5: lastIntake},
 	}
 	steps, summary, err := tzreschedule.GeneratePlan(input)
@@ -151,9 +151,9 @@ func TestGeneratePlan_MediumEastbound6h(t *testing.T) {
 		Medications: []store.Medication{
 			med(6, "Metoprolol", dailySchedule("08:00"), "medium"),
 		},
-		OldTZ: "Europe/London",
-		NewTZ: "Asia/Dhaka", // UTC+6
-		Now:   baseNow,
+		OldTZ:                   "Europe/London",
+		NewTZ:                   "Asia/Dhaka", // UTC+6
+		Now:                     baseNow,
 		LastIntakePerMedication: map[int64]time.Time{6: lastIntake},
 	}
 	steps, summary, err := tzreschedule.GeneratePlan(input)
@@ -175,9 +175,9 @@ func TestGeneratePlan_StrictEastbound6h(t *testing.T) {
 		Medications: []store.Medication{
 			med(7, "Warfarin", dailySchedule("08:00"), "strict"),
 		},
-		OldTZ: "Europe/London",
-		NewTZ: "Asia/Dhaka", // UTC+6
-		Now:   baseNow,
+		OldTZ:                   "Europe/London",
+		NewTZ:                   "Asia/Dhaka", // UTC+6
+		Now:                     baseNow,
 		LastIntakePerMedication: map[int64]time.Time{7: lastIntake},
 	}
 	steps, _, err := tzreschedule.GeneratePlan(input)
@@ -196,9 +196,9 @@ func TestGeneratePlan_StrictWestbound6h(t *testing.T) {
 		Medications: []store.Medication{
 			med(8, "Amlodipine", dailySchedule("08:00"), "strict"),
 		},
-		OldTZ: "Asia/Dhaka",    // UTC+6
-		NewTZ: "Europe/London", // UTC+0 → -6h westbound
-		Now:   baseNow,
+		OldTZ:                   "Asia/Dhaka",    // UTC+6
+		NewTZ:                   "Europe/London", // UTC+0 → -6h westbound
+		Now:                     baseNow,
 		LastIntakePerMedication: map[int64]time.Time{8: lastIntake},
 	}
 	steps, summary, err := tzreschedule.GeneratePlan(input)
@@ -221,9 +221,9 @@ func TestGeneratePlan_HardConstraintMinInterval(t *testing.T) {
 		Medications: []store.Medication{
 			med(9, "Digoxin", dailySchedule("08:00"), "strict"),
 		},
-		OldTZ: "Europe/London",
-		NewTZ: "Asia/Dhaka", // +6h
-		Now:   baseNow,
+		OldTZ:                   "Europe/London",
+		NewTZ:                   "Asia/Dhaka", // +6h
+		Now:                     baseNow,
 		LastIntakePerMedication: map[int64]time.Time{9: lastIntake},
 	}
 	steps, _, err := tzreschedule.GeneratePlan(input)
@@ -253,9 +253,9 @@ func TestGeneratePlan_HardConstraintMaxInterval(t *testing.T) {
 		Medications: []store.Medication{
 			med(10, "Ramipril", dailySchedule("08:00"), "flexible"),
 		},
-		OldTZ: "Asia/Dhaka",    // UTC+6
-		NewTZ: "Europe/London", // UTC+0 → -6h
-		Now:   baseNow,
+		OldTZ:                   "Asia/Dhaka",    // UTC+6
+		NewTZ:                   "Europe/London", // UTC+0 → -6h
+		Now:                     baseNow,
 		LastIntakePerMedication: map[int64]time.Time{10: lastIntake},
 	}
 	steps, _, err := tzreschedule.GeneratePlan(input)

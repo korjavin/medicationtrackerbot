@@ -94,14 +94,27 @@ func buildRegistry(t *testing.T) *registry.Registry {
 // also exercise the loopback /call route.
 func newTestService(t *testing.T, sp Spawner, opts ...func(*Options)) (*Service, *httptest.Server) {
 	t.Helper()
-	bridge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return newTestServiceWith(t, sp, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		resp := proxy.BridgeResponse{
 			Status: 200,
 			Body:   json.RawMessage(`{"groups":[{"id":1,"name":"a"}]}`),
 		}
 		_ = json.NewEncoder(w).Encode(resp)
-	}))
+	}, opts...)
+}
+
+// newTestServiceWithBridge wires a Service whose loopback proxy targets a
+// caller-supplied bridge handler. Lets tests trigger backend application or
+// transport errors so the executor's per-run outcome counters fire.
+func newTestServiceWithBridge(t *testing.T, sp Spawner, bridgeHandler http.HandlerFunc, opts ...func(*Options)) (*Service, *httptest.Server) {
+	t.Helper()
+	return newTestServiceWith(t, sp, bridgeHandler, opts...)
+}
+
+func newTestServiceWith(t *testing.T, sp Spawner, bridgeHandler http.HandlerFunc, opts ...func(*Options)) (*Service, *httptest.Server) {
+	t.Helper()
+	bridge := httptest.NewServer(bridgeHandler)
 	t.Cleanup(bridge.Close)
 
 	o := Options{
@@ -124,6 +137,19 @@ func newTestService(t *testing.T, sp Spawner, opts ...func(*Options)) (*Service,
 		_ = svc.Shutdown(context.Background())
 	})
 	return svc, bridge
+}
+
+// mustField pulls a top-level string field out of the spawner payload. The
+// payload is the JSON config the executor passes on stdin to the runner.
+func mustField(payload []byte, key string) string {
+	var m map[string]any
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return ""
+	}
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
 }
 
 // --- Construction / lifecycle ---
@@ -352,11 +378,18 @@ func TestExecute_ScriptErrorMapping(t *testing.T) {
 }
 
 func TestExecute_ProxyDeniedMapping(t *testing.T) {
-	sp := &fakeSpawner{fn: func(_ context.Context, _ []byte) ([]byte, error) {
-		return envelopeError("script_error", "ProxyDenied", "write_blocked"), nil
+	// A real proxy denial triggers the outcome counter; the runner reports
+	// medtracker.exceptions.ProxyDenied; the executor maps to proxy_denied.
+	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
+		// Trigger a genuine proxy denial: call a write op in read_only mode.
+		// The proxy returns *CallError, the loopback handler increments the
+		// per-run proxyDenials counter.
+		_, _, _ = loopbackCallStatus(ctx, mustField(payload, "proxy_url"), mustField(payload, "run_token"),
+			"workouts.sessions.create", nil, map[string]any{"x": 1})
+		return envelopeError("script_error", "medtracker.exceptions.ProxyDenied", "write_blocked"), nil
 	}}
 	svc, _ := newTestService(t, sp)
-	res, err := svc.Execute(context.Background(), mcp.ExecutionRequest{Script: "x", TimeoutMS: 1000})
+	res, err := svc.Execute(context.Background(), mcp.ExecutionRequest{Script: "x", Mode: proxy.ModeReadOnly, TimeoutMS: 1000})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -366,16 +399,130 @@ func TestExecute_ProxyDeniedMapping(t *testing.T) {
 }
 
 func TestExecute_BackendErrorMapping(t *testing.T) {
-	sp := &fakeSpawner{fn: func(_ context.Context, _ []byte) ([]byte, error) {
-		return envelopeError("script_error", "BackendError", "Backend error (500)"), nil
+	// Real backend application error: bridge returns 200 envelope wrapping a
+	// non-2xx upstream status. Loopback handler counts this as a backend app
+	// error; runner reports medtracker.exceptions.BackendError.
+	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
+		_, _, _ = loopbackCallStatus(ctx, mustField(payload, "proxy_url"), mustField(payload, "run_token"),
+			"workouts.groups.list", nil, nil)
+		return envelopeError("script_error", "medtracker.exceptions.BackendError", "Backend error (500)"), nil
 	}}
-	svc, _ := newTestService(t, sp)
+	svc, _ := newTestServiceWithBridge(t, sp, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{Status: 500, Body: json.RawMessage(`{"error":"upstream"}`)})
+	})
 	res, err := svc.Execute(context.Background(), mcp.ExecutionRequest{Script: "x", TimeoutMS: 1000})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 	if res.Status != mcp.ExecuteStatusBackendAppError {
 		t.Errorf("expected %q, got %q", mcp.ExecuteStatusBackendAppError, res.Status)
+	}
+}
+
+func TestExecute_BackendTransportErrorMapping(t *testing.T) {
+	// Bridge unreachable: proxy returns transport error → loopback handler
+	// counts a backend transport outcome → mapping returns
+	// backend_transport_error for the helper exception class.
+	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
+		_, _, _ = loopbackCallStatus(ctx, mustField(payload, "proxy_url"), mustField(payload, "run_token"),
+			"workouts.groups.list", nil, nil)
+		return envelopeError("script_error", "medtracker.exceptions.BackendTransportError", "Backend transport error (502)"), nil
+	}}
+	svc, _ := newTestServiceWithBridge(t, sp, func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "bridge down", http.StatusBadGateway)
+	})
+	res, err := svc.Execute(context.Background(), mcp.ExecutionRequest{Script: "x", TimeoutMS: 1000})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusBackendTransportError {
+		t.Errorf("expected %q, got %q", mcp.ExecuteStatusBackendTransportError, res.Status)
+	}
+}
+
+func TestExecute_BackendResponseTruncatedMapping(t *testing.T) {
+	// Bridge truncates the upstream body at its per-call cap: loopback handler
+	// counts a backend transport outcome and tags X-MCP-Outcome=backend_response_truncated.
+	// Runner reports medtracker.exceptions.BackendResponseTruncated → mapping
+	// must return backend_transport_error so callers see a transport-class
+	// failure rather than a generic script_error.
+	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
+		_, _, _ = loopbackCallStatus(ctx, mustField(payload, "proxy_url"), mustField(payload, "run_token"),
+			"workouts.groups.list", nil, nil)
+		return envelopeError("script_error", "medtracker.exceptions.BackendResponseTruncated", "Backend response truncated (502)"), nil
+	}}
+	svc, _ := newTestServiceWithBridge(t, sp, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{
+			Status:    http.StatusOK,
+			Body:      json.RawMessage(`"<truncated bytes>"`),
+			Truncated: true,
+		})
+	})
+	res, err := svc.Execute(context.Background(), mcp.ExecutionRequest{Script: "x", TimeoutMS: 1000})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusBackendTransportError {
+		t.Errorf("expected %q, got %q", mcp.ExecuteStatusBackendTransportError, res.Status)
+	}
+}
+
+func TestExecute_UserClassDoesNotSpoofMapping(t *testing.T) {
+	// A user script that defines `class ProxyDenied(Exception): pass` and
+	// raises it must not be reclassified as a helper-raised proxy denial.
+	// The runner records the fully-qualified type, so a user class lives
+	// under "__main__" / "<module>.ProxyDenied" rather than
+	// "medtracker.exceptions.ProxyDenied".
+	sp := &fakeSpawner{fn: func(_ context.Context, _ []byte) ([]byte, error) {
+		return envelopeError("script_error", "ProxyDenied", "spoofed"), nil
+	}}
+	svc, _ := newTestService(t, sp)
+	res, err := svc.Execute(context.Background(), mcp.ExecutionRequest{Script: "x", TimeoutMS: 1000})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusScriptError {
+		t.Errorf("user-defined ProxyDenied must surface as script error, got %q", res.Status)
+	}
+}
+
+func TestExecute_HelperExceptionWithoutOutcomeNotSpoofable(t *testing.T) {
+	// A script can `from medtracker.exceptions import ProxyDenied; raise ProxyDenied("x")`
+	// or rewrite __module__ on a user class. The runner reports the fully
+	// qualified helper type, but the proxy never recorded a denial — the
+	// executor must fall back to script_error rather than letting the script
+	// fabricate a proxy_denied / backend_* MCP status.
+	cases := []struct {
+		name      string
+		errorType string
+	}{
+		{"proxy_denied_spoof", "medtracker.exceptions.ProxyDenied"},
+		{"backend_error_spoof", "medtracker.exceptions.BackendError"},
+		{"backend_transport_spoof", "medtracker.exceptions.BackendTransportError"},
+		{"backend_response_truncated_spoof", "medtracker.exceptions.BackendResponseTruncated"},
+		{"timeout_spoof", "medtracker.exceptions.TimeoutError"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sp := &fakeSpawner{fn: func(_ context.Context, _ []byte) ([]byte, error) {
+				return envelopeError("script_error", tc.errorType, "fabricated"), nil
+			}}
+			svc, _ := newTestService(t, sp)
+			res, err := svc.Execute(context.Background(), mcp.ExecutionRequest{Script: "x", TimeoutMS: 1000})
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if res.Status != mcp.ExecuteStatusScriptError {
+				t.Errorf("%s without matching proxy outcome must map to script_error, got %q", tc.errorType, res.Status)
+			}
+			// The original exception type/message must still be visible to
+			// callers via the error field.
+			if !strings.Contains(res.Error, tc.errorType) {
+				t.Errorf("error message must preserve exception type %q, got %q", tc.errorType, res.Error)
+			}
+		})
 	}
 }
 
@@ -656,8 +803,10 @@ func TestLoopbackCall_UnknownTokenRejected(t *testing.T) {
 
 func TestLoopbackCall_ProxyDeniedReturns403(t *testing.T) {
 	// Spawner forwards a write op while the run is in read_only mode — proxy
-	// denies it; listener should return 403 so the helper raises ProxyDenied.
+	// denies it; listener should return 403 with X-MCP-Outcome: proxy_denied
+	// so the helper raises ProxyDenied (not BackendError).
 	var observedStatus int
+	var observedOutcome string
 	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
 		var p map[string]any
 		_ = json.Unmarshal(payload, &p)
@@ -673,6 +822,7 @@ func TestLoopbackCall_ProxyDeniedReturns403(t *testing.T) {
 		}
 		defer resp.Body.Close()
 		observedStatus = resp.StatusCode
+		observedOutcome = resp.Header.Get("X-MCP-Outcome")
 		return envelopeOK(`null`), nil
 	}}
 
@@ -687,6 +837,274 @@ func TestLoopbackCall_ProxyDeniedReturns403(t *testing.T) {
 	}
 	if observedStatus != http.StatusForbidden {
 		t.Errorf("expected 403 for proxy-denied write in read_only mode, got %d", observedStatus)
+	}
+	if observedOutcome != "proxy_denied" {
+		t.Errorf("expected X-MCP-Outcome=proxy_denied for proxy denial, got %q", observedOutcome)
+	}
+}
+
+func TestLoopbackCall_NonStringParamsAccepted(t *testing.T) {
+	// Scripts pass JSON numbers/booleans through medtracker.api.call without
+	// stringifying. The /call handler must accept them and forward stringified
+	// values to the bridge.
+	var capturedParams map[string]string
+	bridge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var br proxy.BridgeRequest
+		_ = json.Unmarshal(body, &br)
+		capturedParams = br.Params
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{Status: 200, Body: json.RawMessage(`null`)})
+	}))
+	t.Cleanup(bridge.Close)
+
+	var observedStatus int
+	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
+		var p map[string]any
+		_ = json.Unmarshal(payload, &p)
+		token := p["run_token"].(string)
+		proxyURL := p["proxy_url"].(string)
+
+		// Numbers, booleans, and strings — all valid JSON scalars a script
+		// may pass through medtracker.api.call.
+		body := []byte(`{"operation_id":"workouts.groups.list","params":{"group_id":42,"flag":true,"name":"Gym A"}}`)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, proxyURL, strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Run-Token", token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		observedStatus = resp.StatusCode
+		return envelopeOK(`null`), nil
+	}}
+
+	svc, _ := newTestService(t, sp, func(o *Options) { o.BridgeURL = bridge.URL })
+	if _, err := svc.Execute(context.Background(), mcp.ExecutionRequest{
+		Script:    "x",
+		Mode:      proxy.ModeReadOnly,
+		TimeoutMS: 5000,
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if observedStatus != http.StatusOK {
+		t.Fatalf("expected 200 from /call, got %d", observedStatus)
+	}
+	if capturedParams["group_id"] != "42" {
+		t.Errorf("expected group_id=42, got %q", capturedParams["group_id"])
+	}
+	if capturedParams["flag"] != "true" {
+		t.Errorf("expected flag=true, got %q", capturedParams["flag"])
+	}
+	if capturedParams["name"] != "Gym A" {
+		t.Errorf("expected name=Gym A, got %q", capturedParams["name"])
+	}
+}
+
+func TestLoopbackCall_PropagatesUpstreamBackendStatus(t *testing.T) {
+	// When the backend returns a 4xx/5xx response, the bridge wraps it in a
+	// BridgeResponse envelope with HTTP 200; the executor must surface that
+	// upstream status to the runner. The X-MCP-Outcome header MUST NOT be set
+	// for backend errors so the helper raises BackendError (not ProxyDenied).
+	bridge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{
+			Status: http.StatusBadRequest,
+			Body:   json.RawMessage(`{"error":"invalid input"}`),
+		})
+	}))
+	t.Cleanup(bridge.Close)
+
+	var observedStatus int
+	var observedBody []byte
+	var observedOutcome string
+	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
+		var p map[string]any
+		_ = json.Unmarshal(payload, &p)
+		token := p["run_token"].(string)
+		proxyURL := p["proxy_url"].(string)
+
+		body := []byte(`{"operation_id":"workouts.groups.list"}`)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, proxyURL, strings.NewReader(string(body)))
+		req.Header.Set("X-Run-Token", token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		observedStatus = resp.StatusCode
+		observedOutcome = resp.Header.Get("X-MCP-Outcome")
+		observedBody, _ = io.ReadAll(resp.Body)
+		return envelopeOK(`null`), nil
+	}}
+
+	svc, _ := newTestService(t, sp, func(o *Options) { o.BridgeURL = bridge.URL })
+	if _, err := svc.Execute(context.Background(), mcp.ExecutionRequest{
+		Script:    "x",
+		Mode:      proxy.ModeReadOnly,
+		TimeoutMS: 5000,
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if observedStatus != http.StatusBadRequest {
+		t.Errorf("expected upstream 400 to propagate, got %d (body: %s)", observedStatus, observedBody)
+	}
+	if observedOutcome != "" {
+		t.Errorf("backend 4xx must not set X-MCP-Outcome (would mask as proxy_denied), got %q", observedOutcome)
+	}
+	if !strings.Contains(string(observedBody), "invalid input") {
+		t.Errorf("expected upstream body forwarded, got %s", observedBody)
+	}
+}
+
+func TestLoopbackCall_BridgeTransportErrorSetsOutcomeHeader(t *testing.T) {
+	// Bridge unreachable: the loopback /call must set
+	// X-MCP-Outcome: backend_transport_error so the helper can raise a
+	// distinct BackendTransportError instead of conflating with an upstream
+	// 5xx via plain BackendError.
+	var observedStatus int
+	var observedOutcome string
+	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
+		var p map[string]any
+		_ = json.Unmarshal(payload, &p)
+		token := p["run_token"].(string)
+		proxyURL := p["proxy_url"].(string)
+
+		body := []byte(`{"operation_id":"workouts.groups.list"}`)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, proxyURL, strings.NewReader(string(body)))
+		req.Header.Set("X-Run-Token", token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		observedStatus = resp.StatusCode
+		observedOutcome = resp.Header.Get("X-MCP-Outcome")
+		return envelopeOK(`null`), nil
+	}}
+
+	// Point BridgeURL at a closed port so proxy.Call returns a transport error.
+	svc, _ := newTestService(t, sp, func(o *Options) { o.BridgeURL = "http://127.0.0.1:1" })
+	if _, err := svc.Execute(context.Background(), mcp.ExecutionRequest{
+		Script:    "x",
+		Mode:      proxy.ModeReadOnly,
+		TimeoutMS: 5000,
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if observedStatus != http.StatusBadGateway {
+		t.Errorf("expected 502 from /call on bridge transport failure, got %d", observedStatus)
+	}
+	if observedOutcome != "backend_transport_error" {
+		t.Errorf("expected X-MCP-Outcome=backend_transport_error, got %q", observedOutcome)
+	}
+}
+
+func TestLoopbackCall_PolicyDenialFromBridge(t *testing.T) {
+	// Bridge wraps a feature-flag rejection as an envelope (HTTP 200 with
+	// envelope.PolicyDenial set). The executor must surface this as a
+	// proxy_denied outcome — not backend_transport_error — so the helper
+	// raises ProxyDenied instead of misclassifying a policy denial as a
+	// bridge outage.
+	bridge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{
+			Status:       http.StatusForbidden,
+			Body:         json.RawMessage(`"food feature is disabled in settings"`),
+			PolicyDenial: "feature_disabled:food",
+		})
+	}))
+	t.Cleanup(bridge.Close)
+
+	var observedStatus int
+	var observedOutcome string
+	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
+		var p map[string]any
+		_ = json.Unmarshal(payload, &p)
+		token := p["run_token"].(string)
+		proxyURL := p["proxy_url"].(string)
+
+		body := []byte(`{"operation_id":"workouts.groups.list"}`)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, proxyURL, strings.NewReader(string(body)))
+		req.Header.Set("X-Run-Token", token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		observedStatus = resp.StatusCode
+		observedOutcome = resp.Header.Get("X-MCP-Outcome")
+		return envelopeOK(`null`), nil
+	}}
+
+	svc, _ := newTestService(t, sp, func(o *Options) { o.BridgeURL = bridge.URL })
+	if _, err := svc.Execute(context.Background(), mcp.ExecutionRequest{
+		Script:    "x",
+		Mode:      proxy.ModeReadOnly,
+		TimeoutMS: 5000,
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if observedStatus != http.StatusForbidden {
+		t.Errorf("expected 403 from /call on bridge policy denial, got %d", observedStatus)
+	}
+	if observedOutcome != "proxy_denied" {
+		t.Errorf("expected X-MCP-Outcome=proxy_denied for bridge policy denial, got %q", observedOutcome)
+	}
+}
+
+func TestLoopbackCall_TruncatedResponseSurfacesAsTransportError(t *testing.T) {
+	// When the bridge truncates the upstream body at its 10 MB cap, the body
+	// is already wrapped as a JSON string; passing it to the script silently
+	// would mask partial data as a successful response. The executor must
+	// surface this with a dedicated outcome so the helper raises
+	// BackendResponseTruncated instead of returning a string where a
+	// list/object was expected.
+	bridge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{
+			Status:    http.StatusOK,
+			Body:      json.RawMessage(`"<truncated bytes>"`),
+			Truncated: true,
+		})
+	}))
+	t.Cleanup(bridge.Close)
+
+	var observedStatus int
+	var observedOutcome string
+	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
+		var p map[string]any
+		_ = json.Unmarshal(payload, &p)
+		token := p["run_token"].(string)
+		proxyURL := p["proxy_url"].(string)
+
+		body := []byte(`{"operation_id":"workouts.groups.list"}`)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, proxyURL, strings.NewReader(string(body)))
+		req.Header.Set("X-Run-Token", token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		observedStatus = resp.StatusCode
+		observedOutcome = resp.Header.Get("X-MCP-Outcome")
+		return envelopeOK(`null`), nil
+	}}
+
+	svc, _ := newTestService(t, sp, func(o *Options) { o.BridgeURL = bridge.URL })
+	if _, err := svc.Execute(context.Background(), mcp.ExecutionRequest{
+		Script:    "x",
+		Mode:      proxy.ModeReadOnly,
+		TimeoutMS: 5000,
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if observedStatus != http.StatusBadGateway {
+		t.Errorf("expected 502 from /call on truncated bridge response, got %d", observedStatus)
+	}
+	if observedOutcome != "backend_response_truncated" {
+		t.Errorf("expected X-MCP-Outcome=backend_response_truncated, got %q", observedOutcome)
 	}
 }
 

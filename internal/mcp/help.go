@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // HelpInput is the input for the mcp_help tool.

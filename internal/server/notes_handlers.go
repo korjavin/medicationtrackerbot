@@ -30,7 +30,14 @@ func (s *Server) handleListNotes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	notes, err := s.notesSvc.ListNotes(r.Context(), userID, time.Time{}, time.Time{}, limit, beforeID)
+	var since time.Time
+	if dStr := r.URL.Query().Get("days"); dStr != "" {
+		if d, err := strconv.Atoi(dStr); err == nil && d > 0 {
+			since = time.Now().AddDate(0, 0, -d)
+		}
+	}
+
+	notes, err := s.notesSvc.ListNotes(r.Context(), userID, since, time.Time{}, limit, beforeID)
 	if err != nil {
 		slog.Error("list diary notes", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)

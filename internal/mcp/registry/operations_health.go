@@ -19,8 +19,8 @@ func HealthOperations() []*Operation {
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "days":  {"type": "integer", "description": "Look back this many days (default 30; 0 returns all)"},
-    "limit": {"type": "integer", "description": "Cap rows returned (default 100)"}
+    "days":  {"type": "integer", "minimum": 1, "description": "Look back this many days (default 30; capped by MCP_MAX_QUERY_DAYS)"},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 5000, "description": "Cap rows returned (default 100, max 5000)"}
   }
 }`),
 			Description:     "List blood pressure readings, newest first. Use days/limit to constrain the window.",
@@ -29,23 +29,23 @@ func HealthOperations() []*Operation {
 output(result)`,
 		},
 		{
-			ID:             "health.bp.stats",
-			Topic:          "health",
-			Method:         "GET",
-			Path:           "/api/bp/stats",
-			Risk:           RiskRead,
-			Description:    "Daily-weighted BP statistics over the user's recent history.",
+			ID:              "health.bp.stats",
+			Topic:           "health",
+			Method:          "GET",
+			Path:            "/api/bp/stats",
+			Risk:            RiskRead,
+			Description:     "Daily-weighted BP statistics over the user's recent history.",
 			ResponseSummary: "Stats object with arrays of date, mean systolic, mean diastolic, mean pulse, sample counts.",
 			Example: `result = api.call("health.bp.stats")
 output(result)`,
 		},
 		{
-			ID:             "health.bp.goal.read",
-			Topic:          "health",
-			Method:         "GET",
-			Path:           "/api/bp/goal",
-			Risk:           RiskRead,
-			Description:    "Get the user's BP goal (target systolic/diastolic).",
+			ID:              "health.bp.goal.read",
+			Topic:           "health",
+			Method:          "GET",
+			Path:            "/api/bp/goal",
+			Risk:            RiskRead,
+			Description:     "Get the user's BP goal (target systolic/diastolic).",
 			ResponseSummary: "BPGoal object with target_systolic, target_diastolic and optional updated_at.",
 			Example: `result = api.call("health.bp.goal.read")
 output(result)`,
@@ -95,8 +95,8 @@ output(result)`,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "days":  {"type": "integer", "description": "Look back this many days (default 30; 0 returns all)"},
-    "limit": {"type": "integer", "description": "Cap rows returned (default 100)"}
+    "days":  {"type": "integer", "minimum": 1, "description": "Look back this many days (default 30; capped by MCP_MAX_QUERY_DAYS)"},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 5000, "description": "Cap rows returned (default 100, max 5000)"}
   }
 }`),
 			Description:     "List weight log entries, newest first.",
@@ -105,12 +105,12 @@ output(result)`,
 output(result)`,
 		},
 		{
-			ID:             "health.weight.goal.read",
-			Topic:          "health",
-			Method:         "GET",
-			Path:           "/api/weight/goal",
-			Risk:           RiskRead,
-			Description:    "Get the user's weight goal (target weight in kg).",
+			ID:              "health.weight.goal.read",
+			Topic:           "health",
+			Method:          "GET",
+			Path:            "/api/weight/goal",
+			Risk:            RiskRead,
+			Description:     "Get the user's weight goal (target weight in kg).",
 			ResponseSummary: "WeightGoal object with target_weight (kg) and optional updated_at.",
 			Example: `result = api.call("health.weight.goal.read")
 output(result)`,
@@ -151,6 +151,7 @@ output(result)`,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
+    "days":      {"type": "integer", "minimum": 1, "description": "Look back this many days (default 30; capped by MCP_MAX_QUERY_DAYS)"},
     "limit":     {"type": "integer", "description": "Max notes (1..200, default 50)"},
     "before_id": {"type": "integer", "description": "Pagination cursor: only notes with id < this value"}
   }

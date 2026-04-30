@@ -117,10 +117,18 @@ func GenerateWeightCSV(logs []WeightExportLog) ([]byte, error) {
 func writeWeightCSV(w io.Writer, logs []WeightExportLog) error {
 	writer := csv.NewWriter(w)
 
-	if err := writer.Write([]string{"#Version: 6"}); err != nil { return err }
-	if err := writer.Write([]string{"#Units: kg"}); err != nil { return err }
-	if err := writer.Write([]string{""}); err != nil { return err }
-	if err := writer.Write([]string{"#date;weight;weight trend;body fat;body fat trend;muscle mass;muscle mass trend;log"}); err != nil { return err }
+	if err := writer.Write([]string{"#Version: 6"}); err != nil {
+		return err
+	}
+	if err := writer.Write([]string{"#Units: kg"}); err != nil {
+		return err
+	}
+	if err := writer.Write([]string{""}); err != nil {
+		return err
+	}
+	if err := writer.Write([]string{"#date;weight;weight trend;body fat;body fat trend;muscle mass;muscle mass trend;log"}); err != nil {
+		return err
+	}
 
 	for _, w := range logs {
 		dateTime := w.MeasuredAt.Format("2006-01-02T15:04:05.000Z")

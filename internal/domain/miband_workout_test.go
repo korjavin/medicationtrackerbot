@@ -21,7 +21,8 @@ func createMiBandTestDB(t *testing.T, workouts []struct {
 	tsMs          int64
 	lat, lon, alt float64
 	pause         int
-}) string {
+},
+) string {
 	t.Helper()
 
 	f, err := os.CreateTemp("", "miband-test-*.db")

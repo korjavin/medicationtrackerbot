@@ -446,7 +446,6 @@ func TestWorkoutStatistics(t *testing.T) {
 	var streak int
 
 	for _, session := range sessions {
-
 		switch session.Status {
 		case "completed":
 			completedSessions++

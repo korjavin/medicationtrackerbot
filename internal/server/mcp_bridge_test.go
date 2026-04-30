@@ -254,6 +254,61 @@ func TestBridge_ResponseBodyTruncation(t *testing.T) {
 	}
 }
 
+func TestBridge_ResponseCappedDuringWrite(t *testing.T) {
+	// The bridge must enforce its 10 MB response cap while the backend handler
+	// is writing, not after — buffering arbitrary multi-MB payloads in the bot
+	// process would defeat the documented availability bound. This test writes
+	// 5x the cap in 1 MB chunks and asserts the recorder never holds more than
+	// the cap, even though the handler's Write returns success for every chunk.
+	const chunkBytes = 1 * 1024 * 1024
+	const chunks = bridgeResponseBodyLimit/chunkBytes + 5
+	maxObservedBuffer := 0
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		chunk := make([]byte, chunkBytes)
+		for i := range chunk {
+			chunk[i] = 'z'
+		}
+		for i := 0; i < chunks; i++ {
+			n, err := w.Write(chunk)
+			if err != nil {
+				t.Errorf("chunk %d write error: %v", i, err)
+				return
+			}
+			if n != len(chunk) {
+				t.Errorf("chunk %d short write: %d", i, n)
+				return
+			}
+			if cap, ok := w.(*cappedResponseWriter); ok {
+				if cap.buf.Len() > maxObservedBuffer {
+					maxObservedBuffer = cap.buf.Len()
+				}
+			}
+		}
+	})
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"flood.op": {Method: "GET", Path: "/api/flood", Risk: "read"},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+
+	body, _ := json.Marshal(BridgeRequest{OperationID: "flood.op"})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 envelope, got %d", rec.Code)
+	}
+	if maxObservedBuffer > bridgeResponseBodyLimit {
+		t.Errorf("buffer exceeded cap: max observed %d > limit %d", maxObservedBuffer, bridgeResponseBodyLimit)
+	}
+
+	var resp BridgeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid envelope: %v", err)
+	}
+	if !resp.Truncated {
+		t.Error("expected Truncated=true on capped response")
+	}
+}
+
 func TestBridge_RequestBodySizeLimit(t *testing.T) {
 	reg := newMockRegistryByID(map[string]*MCPOperation{
 		"test.op": {Method: "GET", Path: "/api/test", Risk: "read"},
@@ -296,6 +351,140 @@ func TestBridge_AuditFieldsLogged(t *testing.T) {
 	}
 }
 
+// fakeSettings is a SettingsStore that returns canned feature flag values.
+// Only the feature-flag getters are exercised by bridge tests; the rest
+// panic so an accidental call surfaces in CI rather than silently passing.
+type fakeSettings struct {
+	bp, weight, medication, workout, food, health bool
+}
+
+func (f *fakeSettings) GetBloodPressureEnabled(ctx context.Context) (bool, error) {
+	return f.bp, nil
+}
+
+func (f *fakeSettings) SetBloodPressureEnabled(ctx context.Context, enabled bool) error {
+	return nil
+}
+func (f *fakeSettings) GetWeightEnabled(ctx context.Context) (bool, error)       { return f.weight, nil }
+func (f *fakeSettings) SetWeightEnabled(ctx context.Context, enabled bool) error { return nil }
+func (f *fakeSettings) GetMedicationEnabled(ctx context.Context) (bool, error) {
+	return f.medication, nil
+}
+func (f *fakeSettings) SetMedicationEnabled(ctx context.Context, enabled bool) error { return nil }
+func (f *fakeSettings) GetWorkoutEnabled(ctx context.Context) (bool, error)          { return f.workout, nil }
+func (f *fakeSettings) SetWorkoutEnabled(ctx context.Context, enabled bool) error    { return nil }
+func (f *fakeSettings) GetFoodIntakeEnabled(ctx context.Context) (bool, error)       { return f.food, nil }
+func (f *fakeSettings) SetFoodIntakeEnabled(ctx context.Context, enabled bool) error { return nil }
+func (f *fakeSettings) GetHealthEnabled(ctx context.Context) (bool, error)           { return f.health, nil }
+func (f *fakeSettings) SetHealthEnabled(ctx context.Context, enabled bool) error     { return nil }
+func (f *fakeSettings) GetTabOrder(ctx context.Context) (string, error)              { return "", nil }
+func (f *fakeSettings) SetTabOrder(ctx context.Context, order string) error          { return nil }
+func (f *fakeSettings) GetCurrentTimezone() (string, error)                          { return "", nil }
+func (f *fakeSettings) RecordTimezone(tz string) error                               { return nil }
+func (f *fakeSettings) GetWeightUnitPreference(ctx context.Context) (string, error) {
+	return "kg", nil
+}
+func (f *fakeSettings) SetWeightUnitPreference(ctx context.Context, unit string) error { return nil }
+
+func TestBridge_FeatureDisabledBlocksOperation(t *testing.T) {
+	internalCalled := false
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		internalCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"food.log.list": {ID: "food.log.list", Topic: "food", Method: "GET", Path: "/api/food/log", Risk: "read"},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+	s.settings = &fakeSettings{food: false, bp: true, weight: true, workout: true, medication: true}
+
+	body, _ := json.Marshal(BridgeRequest{OperationID: "food.log.list"})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	// Policy denials are returned as a normalized envelope (HTTP 200 with
+	// envelope.Status=403 and PolicyDenial set) so the proxy/executor can tell
+	// them apart from bridge transport errors and surface ProxyDenied to the
+	// script.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected envelope HTTP 200 when food feature disabled, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	if internalCalled {
+		t.Error("internal mux must not be invoked when feature is gated off")
+	}
+	var resp BridgeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("envelope is not valid JSON: %v\nbody=%s", err, rec.Body.String())
+	}
+	if resp.Status != http.StatusForbidden {
+		t.Errorf("expected envelope.Status=403 for policy denial, got %d", resp.Status)
+	}
+	if resp.PolicyDenial != "feature_disabled:food" {
+		t.Errorf("expected PolicyDenial=feature_disabled:food, got %q", resp.PolicyDenial)
+	}
+}
+
+func TestBridge_FeatureEnabledAllowsOperation(t *testing.T) {
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true}`))
+	})
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"workouts.groups.list": {ID: "workouts.groups.list", Topic: "workouts", Method: "GET", Path: "/api/workout/groups", Risk: "read"},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+	s.settings = &fakeSettings{workout: true}
+
+	body, _ := json.Marshal(BridgeRequest{OperationID: "workouts.groups.list"})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 when workout feature enabled, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBridge_HealthNotesOpsBypassFeatureGate(t *testing.T) {
+	// health.notes.* is foundational (covers diary, sleep, vitals, steps) and
+	// is intentionally not tied to any feature flag. Even when bp/weight are
+	// disabled, notes operations must still pass.
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[]`))
+	})
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"health.notes.list": {ID: "health.notes.list", Topic: "health", Method: "GET", Path: "/api/notes", Risk: "read"},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+	s.settings = &fakeSettings{bp: false, weight: false}
+
+	body, _ := json.Marshal(BridgeRequest{OperationID: "health.notes.list"})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for ungated notes op, got %d", rec.Code)
+	}
+}
+
+func TestFeatureKeyForOperation(t *testing.T) {
+	cases := []struct {
+		id    string
+		topic string
+		want  string
+	}{
+		{"workouts.groups.list", "workouts", "workout"},
+		{"food.log.list", "food", "food"},
+		{"medications.list", "medications", "medication"},
+		{"health.bp.list", "health", "bp"},
+		{"health.weight.list", "health", "weight"},
+		{"health.notes.list", "health", ""},
+		{"unknown.op", "unknown", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id, func(t *testing.T) {
+			op := &MCPOperation{ID: tc.id, Topic: tc.topic}
+			if got := featureKeyForOperation(op); got != tc.want {
+				t.Errorf("featureKeyForOperation(%q,%q) = %q, want %q", tc.id, tc.topic, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNewRegistryAdapter(t *testing.T) {
 	r := opregistry.New()
 	if err := r.Register(&opregistry.Operation{
@@ -317,6 +506,9 @@ func TestNewRegistryAdapter(t *testing.T) {
 	}
 	if op.Method != "GET" || op.Path != "/api/test" || op.Risk != "read" {
 		t.Errorf("unexpected operation fields: %+v", op)
+	}
+	if op.ID != "test.adapter" || op.Topic != "test" {
+		t.Errorf("expected ID/Topic to be propagated, got ID=%q Topic=%q", op.ID, op.Topic)
 	}
 	if op2 := adapter.Get("nonexistent"); op2 != nil {
 		t.Error("expected nil for nonexistent operation ID")
@@ -422,6 +614,127 @@ func TestTruncateString_BridgeHelper(t *testing.T) {
 	}
 	if got := truncateString("any", 0); got != "any" {
 		t.Errorf("non-positive maxLen should pass through, got %q", got)
+	}
+}
+
+func TestBridge_EmptyBackendBody(t *testing.T) {
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK) // no body, mirrors handlers like SetFoodTargets
+	})
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"empty.op": {Method: "POST", Path: "/api/empty", Risk: "write"},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+
+	body, _ := json.Marshal(BridgeRequest{OperationID: "empty.op"})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 envelope, got %d", rec.Code)
+	}
+	var resp BridgeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("envelope is not valid JSON: %v\nbody=%s", err, rec.Body.String())
+	}
+	if resp.Status != http.StatusOK {
+		t.Errorf("expected upstream status 200, got %d", resp.Status)
+	}
+	if string(resp.Body) != "null" {
+		t.Errorf("expected body=null for empty backend body, got %s", resp.Body)
+	}
+}
+
+func TestBridge_NonJSONBackendBody(t *testing.T) {
+	// http.Error writes a plain-text body. The bridge must not let that
+	// break envelope encoding — it should wrap as a JSON string while
+	// still propagating the upstream status code.
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+	})
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"deny.op": {Method: "GET", Path: "/api/deny", Risk: "read"},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+
+	body, _ := json.Marshal(BridgeRequest{OperationID: "deny.op"})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 envelope, got %d", rec.Code)
+	}
+	var resp BridgeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("envelope is not valid JSON: %v\nbody=%s", err, rec.Body.String())
+	}
+	if resp.Status != http.StatusForbidden {
+		t.Errorf("expected upstream status 403, got %d", resp.Status)
+	}
+	var decoded string
+	if err := json.Unmarshal(resp.Body, &decoded); err != nil {
+		t.Fatalf("expected body to be a JSON string, got %s: %v", resp.Body, err)
+	}
+	if !strings.Contains(decoded, "Forbidden") {
+		t.Errorf("expected wrapped body to contain 'Forbidden', got %q", decoded)
+	}
+}
+
+func TestNormalizeBridgeBody(t *testing.T) {
+	cases := []struct {
+		name      string
+		body      []byte
+		truncated bool
+		want      string
+	}{
+		{"nil", nil, false, "null"},
+		{"empty", []byte{}, false, "null"},
+		{"valid_json_object", []byte(`{"a":1}`), false, `{"a":1}`},
+		{"valid_json_array", []byte(`[1,2,3]`), false, `[1,2,3]`},
+		{"plain_text", []byte("Bad Request\n"), false, `"Bad Request\n"`},
+		{"truncated", []byte("xxxx"), true, `"xxxx"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizeBridgeBody(tc.body, tc.truncated)
+			if string(got) != tc.want {
+				t.Errorf("normalizeBridgeBody(%q,%v): got %s, want %s", tc.body, tc.truncated, got, tc.want)
+			}
+			// Result must be valid JSON.
+			if !json.Valid(got) {
+				t.Errorf("result not valid JSON: %s", got)
+			}
+		})
+	}
+}
+
+func TestBridge_StreamingHandler(t *testing.T) {
+	// food.products.search and similar endpoints type-assert http.Flusher and
+	// fail with 500 if the writer doesn't implement it. The bridge's capped
+	// recorder must satisfy http.Flusher (no-op flush) so these handlers
+	// run through the bridge without a 500.
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`[]` + "\n"))
+		flusher.Flush()
+	})
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"food.products.search": {Method: "GET", Path: "/api/food/products/search", Risk: "read"},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+
+	body, _ := json.Marshal(BridgeRequest{OperationID: "food.products.search"})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 envelope, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp BridgeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("envelope is not valid JSON: %v", err)
+	}
+	if resp.Status != http.StatusOK {
+		t.Errorf("expected upstream 200, got %d (handler likely rejected non-Flusher writer)", resp.Status)
 	}
 }
 

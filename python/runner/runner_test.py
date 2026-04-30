@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import textwrap
+import time
 
 import pytest
 
@@ -27,6 +29,7 @@ from runner.runner import (
     EXIT_SCRIPT_ERROR,
     EXIT_TIMEOUT,
     RunConfig,
+    _enable_child_subreaper,
     run,
     scrub_env,
     truncate_bytes,
@@ -121,6 +124,20 @@ class TestRunSuccess:
         assert result["status"] == "ok"
         assert result["result"] is None
         assert result["output_set"] is False
+        assert "output() was not called" in result["warnings"]
+
+    def test_output_none_does_not_warn(self):
+        # output(None) is a deliberate signal that the script ran to completion
+        # with no payload; it must NOT trigger the missing-output warning.
+        config = _config("""
+            from medtracker import output
+            output(None)
+        """)
+        result = run(config)
+        assert result["status"] == "ok"
+        assert result["result"] is None
+        assert result["output_set"] is True
+        assert "output() was not called" not in result["warnings"]
 
     def test_stdout_captured(self):
         config = _config("""
@@ -178,6 +195,102 @@ class TestTimeoutKillsScript:
         result = run(config)
         assert result["exit_reason"] == EXIT_TIMEOUT
         assert result["result"] is None
+
+
+class TestDescendantCleanup:
+    @pytest.fixture(autouse=True)
+    def _ensure_subreaper(self):
+        # The CLI entrypoint (runner.runner.main) sets PR_SET_CHILD_SUBREAPER
+        # before spawning the bootstrap so escaped grandchildren reparent to
+        # the runner instead of init. These tests call run() directly, so they
+        # must claim subreaper status themselves; otherwise _kill_descendants's
+        # /proc walk from os.getpid() can't find a process whose parent has
+        # been reaped to PID 1.
+        _enable_child_subreaper()
+
+    @pytest.mark.skipif(not sys.platform.startswith("linux"),
+                        reason="descendant sweep relies on /proc + PR_SET_CHILD_SUBREAPER")
+    def test_session_subprocess_killed_after_run(self, tmp_path):
+        # A user script can call subprocess.Popen(start_new_session=True) which
+        # creates a process in a new session — escaping the runner's PGID
+        # cleanup. With the subreaper + /proc sweep in place, the runner must
+        # still kill that process before returning, otherwise the wall-clock
+        # bound is unenforceable for misbehaving scripts.
+        marker = tmp_path / "alive.pid"
+        config = _config(
+            f"""
+            import os, subprocess, sys, time
+            from medtracker import output
+
+            child = subprocess.Popen(
+                [sys.executable, "-c",
+                 "import os, time; open({str(marker)!r}, 'w').write(str(os.getpid())); time.sleep(60)"],
+                start_new_session=True,
+            )
+            # Give the grandchild a moment to write its PID before output().
+            for _ in range(50):
+                if os.path.exists({str(marker)!r}):
+                    break
+                time.sleep(0.05)
+            output({{"child_pid": child.pid}})
+            """
+        )
+        result = run(config)
+        assert result["status"] == "ok"
+        assert os.path.exists(str(marker)), "test setup failed: marker never written"
+        pid = int(marker.read_text().strip())
+
+        # Poll briefly: the sweep runs in run()'s finally block but the kernel
+        # may take a few ms to fully tear down the process.
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.05)
+        # Final attempt: if still alive, the sweep failed. Try to clean up the
+        # leak so the test machine doesn't accumulate background sleepers.
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            return
+        pytest.fail(f"escaped subprocess pid={pid} survived the runner cleanup")
+
+    @pytest.mark.skipif(not sys.platform.startswith("linux"),
+                        reason="descendant sweep relies on /proc + PR_SET_CHILD_SUBREAPER")
+    def test_timeout_returns_promptly_when_escaped_child_inherits_pipes(self):
+        # An escaped subprocess (start_new_session=True) that inherits the
+        # child interpreter's stdout/stderr keeps those pipes open after the
+        # user-script PGID is killed. Without sweeping descendants before the
+        # pipe-reader joins, the runner would block the full 5s join budget
+        # twice — pushing total cleanup past the Go-side backstop and turning
+        # a timeout into spawn_failed. Verify the timeout envelope still comes
+        # back well within the wall-clock margin.
+        config = _config(
+            """
+            import subprocess, sys, time
+            from medtracker import output
+            output("partial")
+            # New-session subprocess inherits this process's stdout/stderr by
+            # default, so it would keep the runner's pipe readers blocked.
+            subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                start_new_session=True,
+            )
+            while True:
+                time.sleep(0.05)
+            """,
+            timeout_s=0.5,
+        )
+        started = time.monotonic()
+        result = run(config)
+        elapsed = time.monotonic() - started
+        assert result["exit_reason"] == EXIT_TIMEOUT
+        # Worst case without the descendant sweep: 5s + 5s of blocked joins on
+        # top of timeout_s. Allow generous slack for slow CI but still well
+        # under the unfixed worst case.
+        assert elapsed < 6.0, f"runner took {elapsed:.2f}s to surface timeout"
 
 
 class TestStdoutStderrTruncation:
@@ -335,7 +448,9 @@ class TestScriptErrors:
         """)
         result = run(config)
         assert result["status"] == "error"
-        assert result["error_type"] == "SerializationError"
+        # Helper-raised exceptions are reported with the fully-qualified type
+        # so the executor can distinguish them from same-name user classes.
+        assert result["error_type"] == "medtracker.exceptions.SerializationError"
 
 
 class TestResultSizeLimit:
@@ -348,6 +463,45 @@ class TestResultSizeLimit:
         result = run(config)
         assert result["status"] == "error"
         assert result["exit_reason"] == EXIT_RESULT_TOO_LARGE
+
+    def test_oversized_envelope_rejected_before_load(self, monkeypatch):
+        # Cap the value limit aggressively so a moderately-sized envelope
+        # trips the pre-read size check in _read_envelope rather than the
+        # post-load json.dumps cap. Without the pre-read guard, the runner
+        # parent would json.load the entire file into memory before noticing
+        # the value exceeds the cap.
+        monkeypatch.setattr(limits, "RESULT_SIZE_LIMIT_BYTES", 256)
+        config = _config("""
+            from medtracker import output
+            output({"data": "x" * (4 * 1024 * 1024)})
+        """)
+        result = run(config)
+        assert result["status"] == "error"
+        assert result["exit_reason"] == EXIT_RESULT_TOO_LARGE
+
+
+class TestStrictJSONOutput:
+    def test_nan_output_rejected_at_validation(self):
+        # Default json.dumps allows NaN/Infinity but Go's encoding/json does
+        # not. The script-side validation must reject these at output() so the
+        # failure surfaces as a clean SerializationError instead of an
+        # invalid_runner_envelope on the executor.
+        config = _config("""
+            from medtracker import output
+            output(float('nan'))
+        """)
+        result = run(config)
+        assert result["status"] == "error"
+        assert result["error_type"] == "medtracker.exceptions.SerializationError"
+
+    def test_infinity_output_rejected_at_validation(self):
+        config = _config("""
+            from medtracker import output
+            output(float('inf'))
+        """)
+        result = run(config)
+        assert result["status"] == "error"
+        assert result["error_type"] == "medtracker.exceptions.SerializationError"
 
 
 class TestRunConfigFromDict:
