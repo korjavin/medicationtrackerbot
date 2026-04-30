@@ -13,10 +13,10 @@ import (
 )
 
 type weightScenarioInput struct {
-	TimeNow        string `json:"time_now"`
-	Snoozed        bool   `json:"snoozed"`
-	DontBugMe      bool   `json:"dont_bug_me"`
-	ReadingsRecent int    `json:"readings_recent"`
+	TimeNow          string `json:"time_now"`
+	Snoozed          bool   `json:"snoozed"`
+	DontBugMe        bool   `json:"dont_bug_me"`
+	ReadingsRecent   int    `json:"readings_recent"`
 	NotifiedRecently bool   `json:"notified_recently"`
 }
 

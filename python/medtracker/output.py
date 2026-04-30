@@ -14,7 +14,12 @@ def output(value) -> None:
     if _state["set"]:
         raise RuntimeError("output() can only be called once per script")
     try:
-        json.dumps(value)
+        # allow_nan=False rejects NaN/Infinity at the boundary. Default
+        # json.dumps accepts them, but Go's encoding/json does not, so a
+        # script that returned non-finite floats would surface as an
+        # invalid_runner_envelope on the executor instead of a clean
+        # SerializationError on the script side.
+        json.dumps(value, allow_nan=False)
     except (TypeError, ValueError) as e:
         raise exc.SerializationError(
             f"Value is not JSON-serializable: {e}"

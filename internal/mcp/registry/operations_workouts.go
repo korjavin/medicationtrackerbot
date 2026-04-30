@@ -6,12 +6,12 @@ import "encoding/json"
 func WorkoutOperations() []*Operation {
 	return []*Operation{
 		{
-			ID:          "workouts.groups.list",
-			Topic:       "workouts",
-			Method:      "GET",
-			Path:        "/api/workout/groups",
-			Risk:        RiskRead,
-			Description: "List all workout groups for the current user. A group is a named collection of workout variants (e.g. 'Gym A' or 'Home Workout').",
+			ID:              "workouts.groups.list",
+			Topic:           "workouts",
+			Method:          "GET",
+			Path:            "/api/workout/groups",
+			Risk:            RiskRead,
+			Description:     "List all workout groups for the current user. A group is a named collection of workout variants (e.g. 'Gym A' or 'Home Workout').",
 			ResponseSummary: "JSON array of workout group objects with id, name, description, is_rotating, days_of_week, scheduled_time.",
 			Example: `result = api.call("workouts.groups.list")
 output(result)`,
@@ -61,11 +61,10 @@ output(result)`,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "limit": {"type": "integer", "description": "Max sessions to return (default 20)"},
-    "group_id": {"type": "integer", "description": "Filter by group ID (optional)"}
+    "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "Max sessions to return (default 30, max 500)"}
   }
 }`),
-			Description:     "List recent workout sessions. Sessions represent a scheduled or ad-hoc workout that was completed or skipped.",
+			Description:     "List recent workout sessions. Sessions represent a scheduled or ad-hoc workout that was completed or skipped. Returned sessions span every group; filter client-side on the returned group_id field if needed.",
 			ResponseSummary: "JSON array of session objects with id, group_id, variant_id, scheduled_date, status, started_at, completed_at.",
 			Example: `result = api.call("workouts.sessions.list", params={"limit": 10})
 output(result)`,
@@ -78,23 +77,23 @@ output(result)`,
 			Risk:   RiskRead,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
-  "required": ["session_id"],
+  "required": ["id"],
   "properties": {
-    "session_id": {"type": "integer", "description": "Workout session ID"}
+    "id": {"type": "integer", "description": "Workout session ID"}
   }
 }`),
 			Description:     "Get detailed information for a specific workout session including all exercise logs.",
 			ResponseSummary: "Session object with exercise_logs array containing sets, reps, weight_kg, status, notes per exercise.",
-			Example: `result = api.call("workouts.sessions.details", params={"session_id": 42})
+			Example: `result = api.call("workouts.sessions.details", params={"id": 42})
 output(result)`,
 		},
 		{
-			ID:          "workouts.stats.read",
-			Topic:       "workouts",
-			Method:      "GET",
-			Path:        "/api/workout/stats",
-			Risk:        RiskRead,
-			Description: "Get aggregated workout statistics including total sessions, completion rate, and per-group summaries.",
+			ID:              "workouts.stats.read",
+			Topic:           "workouts",
+			Method:          "GET",
+			Path:            "/api/workout/stats",
+			Risk:            RiskRead,
+			Description:     "Get aggregated workout statistics including total sessions, completion rate, and per-group summaries.",
 			ResponseSummary: "Stats object with total_sessions, completed_sessions, skipped_sessions, completion_rate, and per-group breakdowns.",
 			Example: `result = api.call("workouts.stats.read")
 output(result)`,
@@ -190,7 +189,7 @@ output(result)`,
 }`),
 			BodySchema: json.RawMessage(`{
   "type": "object",
-  "required": ["name"],
+  "required": ["name", "description", "is_rotating", "days_of_week", "scheduled_time", "notification_advance_minutes", "active"],
   "properties": {
     "name":                         {"type": "string"},
     "description":                  {"type": "string"},
@@ -201,14 +200,25 @@ output(result)`,
     "active":                       {"type": "boolean"}
   }
 }`),
-			Description:     "Update a workout group's name, schedule, rotation settings, or active flag.",
+			Description:     "Update a workout group. This is a full replacement: every field in the body overwrites the stored value, so omitted fields decode to zero values (false / empty string / 0) and would clear or deactivate the group. To change a single field, first fetch the current group via workouts.groups.list and send the merged object back.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
-			Example: `api.call(
+			Example: `groups = api.call("workouts.groups.list")
+current = next(g for g in groups if g["id"] == 1)
+current["scheduled_time"] = "06:30"
+api.call(
     "workouts.groups.update",
-    params={"id": 1},
-    body={"name": "Gym A", "scheduled_time": "06:30", "active": True},
+    params={"id": current["id"]},
+    body={
+        "name":                         current["name"],
+        "description":                  current.get("description", ""),
+        "is_rotating":                  current["is_rotating"],
+        "days_of_week":                 current["days_of_week"],
+        "scheduled_time":               current["scheduled_time"],
+        "notification_advance_minutes": current.get("notification_advance_minutes", 0),
+        "active":                       current.get("active", True),
+    },
 )
-output({"updated": 1})`,
+output({"updated": current["id"]})`,
 		},
 		{
 			ID:     "workouts.variants.create",
@@ -249,21 +259,28 @@ output(result)`,
 }`),
 			BodySchema: json.RawMessage(`{
   "type": "object",
-  "required": ["name"],
+  "required": ["name", "rotation_order", "description"],
   "properties": {
     "name":           {"type": "string"},
     "rotation_order": {"type": ["integer", "null"]},
     "description":    {"type": "string"}
   }
 }`),
-			Description:     "Update a workout variant's name, rotation slot, or description.",
+			Description:     "Update a workout variant. This is a full replacement: every field in the body overwrites the stored value, so omitted fields decode to zero values (empty string / null) and would clear the existing rotation slot or description. To change a single field, first fetch the current variant via workouts.variants.list and send the merged object back.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
-			Example: `api.call(
+			Example: `variants = api.call("workouts.variants.list", params={"group_id": 1})
+current = next(v for v in variants if v["id"] == 5)
+current["name"] = "Pull Day"
+api.call(
     "workouts.variants.update",
-    params={"id": 5},
-    body={"name": "Pull Day", "rotation_order": 1},
+    params={"id": current["id"]},
+    body={
+        "name":           current["name"],
+        "rotation_order": current.get("rotation_order"),
+        "description":    current.get("description", ""),
+    },
 )
-output({"updated": 5})`,
+output({"updated": current["id"]})`,
 		},
 		{
 			ID:     "workouts.exercises.create",

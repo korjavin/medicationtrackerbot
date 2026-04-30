@@ -13,6 +13,7 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/bot"
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
+	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/scheduler"
 	"github.com/korjavin/medicationtrackerbot/internal/server"
@@ -183,6 +184,16 @@ func main() {
 
 	if mcpAuditSecret := os.Getenv("MCP_AUDIT_SECRET"); mcpAuditSecret != "" {
 		srv.SetMCPAuditSecret(mcpAuditSecret)
+
+		// The /internal/mcp/bridge endpoint that the Python executor proxies
+		// through requires an operation registry; without it every bridge call
+		// 503s. Register the same default catalog the MCP server exposes.
+		reg := registry.New()
+		if err := reg.Register(registry.DefaultOperations()...); err != nil {
+			slog.Error("Failed to build MCP operation registry", "error", err)
+			os.Exit(1)
+		}
+		srv.SetMCPRegistry(server.NewRegistryAdapter(reg))
 	}
 
 	// Wire the timezone transition planner so that timezone changes trigger plan generation.

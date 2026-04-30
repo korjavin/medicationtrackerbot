@@ -108,9 +108,9 @@ func (m *mockPlannerStore) CreateTZTransitionPlanWithSteps(plan *store.TZTransit
 
 func dailyMed(id int64, name, times string, policy string) store.Medication {
 	return store.Medication{
-		ID:           id,
-		Name:         name,
-		Schedule:     `{"type":"daily","times":["` + times + `"]}`,
+		ID:            id,
+		Name:          name,
+		Schedule:      `{"type":"daily","times":["` + times + `"]}`,
 		TZShiftPolicy: policy,
 	}
 }

@@ -85,6 +85,12 @@ services:
       - MCP_EXECUTOR_MAX_TIMEOUT_MS=${MCP_EXECUTOR_MAX_TIMEOUT_MS:-30000}
       - MCP_EXECUTOR_MAX_API_CALLS=${MCP_EXECUTOR_MAX_API_CALLS:-100}
       - MCP_EXECUTOR_MAX_CONCURRENT=${MCP_EXECUTOR_MAX_CONCURRENT:-4}
+      # Explicit opt-in for the Python executor. Leave unset to disable
+      # mcp_execute; set to the bot's bridge endpoint (e.g.
+      # http://medtracker:8080/internal/mcp/bridge) to enable. See
+      # docs/mcp-deployment.md "MVP in-process isolation tradeoff" before
+      # turning this on.
+      - MCP_EXECUTOR_BRIDGE_URL=${MCP_EXECUTOR_BRIDGE_URL}
       # Loopback proxy URL the runner uses for medtracker.api.call.
       - MCP_EXECUTOR_PROXY_URL=${MCP_EXECUTOR_PROXY_URL:-http://127.0.0.1:8090/call}
       # Pocket-ID

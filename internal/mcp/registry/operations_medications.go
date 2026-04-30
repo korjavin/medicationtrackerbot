@@ -46,7 +46,7 @@ output(result)`,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "days":   {"type": "integer", "description": "Look back this many days (default 3)"},
+    "days":   {"type": "integer", "minimum": 1, "description": "Look back this many days (default 3; capped by MCP_MAX_QUERY_DAYS)"},
     "med_id": {"type": "integer", "description": "Filter to a single medication by id"}
   }
 }`),
@@ -56,12 +56,12 @@ output(result)`,
 output(result)`,
 		},
 		{
-			ID:             "medications.next_intake",
-			Topic:          "medications",
-			Method:         "GET",
-			Path:           "/api/medications/next-intake",
-			Risk:           RiskRead,
-			Description:    "Compute the next scheduled intake across all active medications, in the user's timezone.",
+			ID:              "medications.next_intake",
+			Topic:           "medications",
+			Method:          "GET",
+			Path:            "/api/medications/next-intake",
+			Risk:            RiskRead,
+			Description:     "Compute the next scheduled intake across all active medications, in the user's timezone.",
 			ResponseSummary: "Object with scheduled_at (RFC3339) and medication_ids/names; empty fields when nothing is upcoming.",
 			Example: `result = api.call("medications.next_intake")
 output(result)`,

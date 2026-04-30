@@ -7,13 +7,13 @@ import (
 	"log/slog"
 	"strings"
 
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/proxy"
 	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
-	defaultExecutorTimeoutMS  = int64(30_000)
+	defaultExecutorTimeoutMS   = int64(30_000)
 	defaultExecutorMaxAPICalls = 100
 
 	// ExecuteStatus* are the stable status codes used in the response envelope and tests.
@@ -29,10 +29,10 @@ const (
 	// the response envelope. They are used as a prefix so callers (including
 	// tests) can match on a stable token regardless of the human-readable
 	// suffix that follows.
-	ExecuteErrMaxConcurrent  = "max_concurrent_runs"
+	ExecuteErrMaxConcurrent   = "max_concurrent_runs"
 	ExecuteErrInvalidEnvelope = "invalid_runner_envelope"
-	ExecuteErrSpawnFailed    = "spawn_failed"
-	ExecuteErrConfigMarshal  = "marshal_run_config"
+	ExecuteErrSpawnFailed     = "spawn_failed"
+	ExecuteErrConfigMarshal   = "marshal_run_config"
 )
 
 // ExecutionRequest is passed to the ExecutionService.

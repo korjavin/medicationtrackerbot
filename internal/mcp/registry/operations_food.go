@@ -18,7 +18,7 @@ func FoodOperations() []*Operation {
   "type": "object",
   "properties": {
     "date":      {"type": "string", "description": "YYYY-MM-DD; defaults to today in user's timezone"},
-    "days":      {"type": "integer", "description": "Number of days to include (default 1)"},
+    "days":      {"type": "integer", "minimum": 1, "description": "Number of days to include (default 1; capped by MCP_MAX_QUERY_DAYS)"},
     "tz":        {"type": "string", "description": "IANA timezone name (e.g. America/Los_Angeles)"},
     "tz_offset": {"type": "integer", "description": "Fallback offset minutes west of UTC"}
   }
@@ -38,7 +38,7 @@ output(result)`,
   "type": "object",
   "properties": {
     "date":      {"type": "string", "description": "YYYY-MM-DD anchor date; defaults to today"},
-    "days":      {"type": "integer", "description": "Window length in days (default 7)"},
+    "days":      {"type": "integer", "minimum": 1, "description": "Window length in days (default 7; capped by MCP_MAX_QUERY_DAYS)"},
     "tz":        {"type": "string"},
     "tz_offset": {"type": "integer"}
   }
@@ -49,12 +49,12 @@ output(result)`,
 output(result)`,
 		},
 		{
-			ID:             "food.targets.read",
-			Topic:          "food",
-			Method:         "GET",
-			Path:           "/api/food/settings/targets",
-			Risk:           RiskRead,
-			Description:    "Get the user's daily nutrition targets (calories, carbs, protein, fat).",
+			ID:              "food.targets.read",
+			Topic:           "food",
+			Method:          "GET",
+			Path:            "/api/food/settings/targets",
+			Risk:            RiskRead,
+			Description:     "Get the user's daily nutrition targets (calories, carbs, protein, fat).",
 			ResponseSummary: "Object with calories, carbs, protein, fat (all integers in their respective units).",
 			Example: `result = api.call("food.targets.read")
 output(result)`,
@@ -72,9 +72,9 @@ output(result)`,
   }
 }`),
 			Description:     "List the user's saved food products (used as templates when logging).",
-			ResponseSummary: "JSON array of products with id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, is_meal.",
+			ResponseSummary: "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, is_meal}) and 'total' (int).",
 			Example: `result = api.call("food.products.list")
-output(result)`,
+output({"count": result["total"], "products": result["products"]})`,
 		},
 		{
 			ID:     "food.products.search",

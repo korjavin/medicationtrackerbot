@@ -64,19 +64,19 @@ MCP client
 
 ## Non-Negotiable Constraints
 
-These rules cannot be relaxed without a new decision record:
+These rules cannot be relaxed without a new decision record. They describe the long-term posture; see *Known MVP gap* below for the in-process executor caveats that apply today.
 
-1. **No user authority in the script.** The script never receives the real user OAuth token, API token, session cookie, or HMAC secret. The runner env contains only the local proxy URL and a per-run one-time token scoped to the current invocation.
-2. **Proxy-only API access.** The runner has no outbound network except the local API proxy endpoint. All backend calls go through the operation registry allowlist.
+1. **No user authority is *handed* to the script.** The runner env passed to the script contains only the local proxy URL and a per-run one-time token scoped to the current invocation. The real user OAuth token, API token, session cookie, and HMAC secret are never injected into the script's environment or globals.
+2. **Proxy-only API access is the only documented contract.** The helper exposes only `medtracker.api.call`, which routes through the local API proxy and the operation registry allowlist. The runner image is built without external network configuration.
 3. **Bounded execution.** Every run has a hard wall-clock timeout and hard resource limits. There is no override mechanism available to the script itself.
 4. **Explicit write mode.** Mutating operations require `mode: "write"` from the caller and a non-empty `intent` string. Read-only is the default. The proxy enforces this independently of the script's declared intent.
 
 ## Security Boundary
 
-The sandbox is useful only if authority remains outside the script. These rules are non-negotiable for the initial design:
+The sandbox is useful only if authority remains outside the script. The properties below describe the **target** posture (full container isolation via the dedicated `mcp-runner` side container) and are also the operational shield in the MVP. The MVP gap section that follows lists where these are usability shields, not enforced boundaries, until the side-container deployment lands.
 
-- The script never receives the real user OAuth token, API token, session cookie, or HMAC secret.
-- The runner has no outbound network except the local API proxy.
+- The script does not receive the real user OAuth token, API token, session cookie, or HMAC secret as an input.
+- The runner image is built without outbound network configuration except the local API proxy.
 - The runner has a read-only root filesystem and only a small temporary work directory if needed.
 - The runner uses a non-root user, dropped Linux capabilities, CPU/memory limits, and a hard wall-clock timeout.
 - The runner has bounded stdout, stderr, result size, request body size, response body size, and API call count (see Runtime Limits below).
@@ -85,6 +85,14 @@ The sandbox is useful only if authority remains outside the script. These rules 
 - Writes require explicit `mode: "write"` and must still pass the proxy allowlist.
 - The proxy records every API call with operation ID, read/write risk level, status, duration, and truncated error details.
 
+### Known MVP gap: in-process executor isolation
+
+The MVP wires the executor in-process inside `mcp-server` instead of in the dedicated `mcp-runner` side container. In that mode the Python child runs as the same UID as the parent and shares its filesystem, network namespace, and `/proc/<parent>` view. The runner-side env scrub is a usability shield (the script's own `os.environ` is empty), not a boundary: a determined script can read `/proc/<parent>/environ` to recover `MCP_AUDIT_SECRET` and call the bridge directly, or read the SQLite DB straight off disk. The proxy's read-only / topic / call-count enforcement is only effective for scripts that play by the rules.
+
+Memory isolation in the MVP is also limited to the child process's address space via `RLIMIT_AS` (set in `subprocess.Popen.preexec_fn`). The cap kills a single hungry script before it exhausts its own address space, but it is *not* a container-level cap: the parent `mcp-server` shares the host kernel and any per-container memory limit set in `docker-compose.yml` applies to the whole container, not the individual run. The dedicated `mcp-runner` side container closes this gap by adding a cgroup memory limit on the runner itself.
+
+This is acceptable for the MVP because the MCP entry point is already authenticated (OIDC or API token) and the principal calling `mcp_execute` is the same one that holds full app authority through other MCP tools. It is **not** the long-term posture: closing this gap is the motivation for keeping `mcp-runner` build-pinned and ready to switch on. See `docs/mcp-deployment.md` § *MVP in-process isolation tradeoff* for the operator-facing version of this note.
+
 ## Runtime Limits
 
 These defaults apply when the caller does not override them. Server configuration caps caller-provided values.
@@ -92,7 +100,7 @@ These defaults apply when the caller does not override them. Server configuratio
 | Limit | Default | Notes |
 |---|---|---|
 | Wall-clock timeout | 30 s | Hard kill; not graceful shutdown |
-| Memory | 1 GB | RSS limit via cgroup or ulimit |
+| Memory | 1 GB | Address-space cap via `RLIMIT_AS` on the child interpreter (best-effort; production deployment also applies a cgroup memory limit on the runner container) |
 | Result size (`output(...)` value) | 100 MB | Serialized JSON bytes |
 | Max API calls per run | 100 | Counted by the proxy |
 | stdout capture | 1 MB | Excess bytes are truncated and flagged in `warnings` |

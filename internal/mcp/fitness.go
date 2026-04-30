@@ -42,9 +42,9 @@ type NutritionDailyTotal struct {
 }
 
 type NutritionSection struct {
-	DailyTotals     []NutritionDailyTotal `json:"daily_totals"`
-	AvgDailyCalories int                  `json:"avg_daily_calories"`
-	AvgDailyProtein  int                  `json:"avg_daily_protein"`
+	DailyTotals      []NutritionDailyTotal `json:"daily_totals"`
+	AvgDailyCalories int                   `json:"avg_daily_calories"`
+	AvgDailyProtein  int                   `json:"avg_daily_protein"`
 }
 
 type WeightSection struct {

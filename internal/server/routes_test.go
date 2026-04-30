@@ -35,13 +35,13 @@ func TestRoutesRegistration(t *testing.T) {
 	testIconsDir := filepath.Join(testStaticDir, "icons")
 
 	// Create directories if they don't exist
-	if err := os.MkdirAll(testIconsDir, 0755); err != nil {
+	if err := os.MkdirAll(testIconsDir, 0o755); err != nil {
 		t.Fatalf("failed to create mock static directories: %v", err)
 	}
 
 	// Helper function to create mock files
 	createMockFile := func(path string) {
-		if err := os.WriteFile(path, []byte("mock data"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("mock data"), 0o644); err != nil {
 			t.Fatalf("failed to write mock file %s: %v", path, err)
 		}
 	}

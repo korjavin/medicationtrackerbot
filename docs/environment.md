@@ -51,13 +51,21 @@ MCP_ADMIN_PORT=8082             # Admin API for long-lived API tokens; bound to 
 
 ### Python executor (`mcp_execute` / `mcp_help`)
 
-These variables tune the sandboxed Python runner that backs `mcp_execute`. Defaults match the limits documented in [mcp-python-executor.md](mcp-python-executor.md#runtime-limits). The same `MCP_AUDIT_SECRET` is reused as the HMAC secret on the internal bridge endpoint — there is no separate runner secret. Scripts never see this value.
+These variables tune the sandboxed Python runner that backs `mcp_execute`. Defaults match the limits documented in [mcp-python-executor.md](mcp-python-executor.md#runtime-limits). The same `MCP_AUDIT_SECRET` is reused as the HMAC secret on the internal bridge endpoint — there is no separate runner secret. The runner scrubs this value out of the child env before spawning user scripts, so a script's own `os.environ` does not contain it; in the MVP in-process deployment that scrub is a usability shield rather than an enforced boundary (the child shares UID/PID/namespace with the parent — see the [MVP gap note](mcp-python-executor.md#known-mvp-gap-in-process-executor-isolation)).
 
 ```bash
 # Caller-provided limits in mcp_execute are capped by these server-side values.
 MCP_EXECUTOR_MAX_TIMEOUT_MS=30000   # Default 30s. Hard wall-clock cap per run.
 MCP_EXECUTOR_MAX_API_CALLS=100      # Default 100. Counted by the proxy per run.
 MCP_EXECUTOR_MAX_CONCURRENT=4       # Default 4. Runs above this are rejected with sandbox_startup_failure.
+
+# Explicit opt-in for the Python executor. Leave unset and mcp_execute
+# short-circuits with "execution service not configured" — useful for
+# deployments that want the granular MCP tools without the sandboxed runner.
+# Set to the bot's bridge endpoint (e.g. http://medtracker:8080/internal/mcp/bridge)
+# to enable. Read docs/mcp-deployment.md "MVP in-process isolation tradeoff"
+# before turning this on.
+MCP_EXECUTOR_BRIDGE_URL=http://medtracker:8080/internal/mcp/bridge
 
 # Loopback URL the runner subprocess uses for medtracker.api.call. Stays on
 # 127.0.0.1; the runner never reaches anything else by design.

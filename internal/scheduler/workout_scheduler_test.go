@@ -14,13 +14,13 @@ import (
 )
 
 type workoutScenarioInput struct {
-	TimeNow            string `json:"time_now"`
-	AlreadyNotified    bool   `json:"already_notified"`
-	ScheduleTime       string `json:"schedule_time"`
-	RotationState      string `json:"rotation_state"`
-	InProgress         bool   `json:"in_progress"`
-	StaleDurationHours int    `json:"stale_duration_hours"`
-	SnoozeDurationHours int   `json:"snooze_duration_hours"`
+	TimeNow             string `json:"time_now"`
+	AlreadyNotified     bool   `json:"already_notified"`
+	ScheduleTime        string `json:"schedule_time"`
+	RotationState       string `json:"rotation_state"`
+	InProgress          bool   `json:"in_progress"`
+	StaleDurationHours  int    `json:"stale_duration_hours"`
+	SnoozeDurationHours int    `json:"snooze_duration_hours"`
 }
 
 type workoutScenarioExpected struct {

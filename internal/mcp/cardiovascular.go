@@ -35,15 +35,15 @@ type ActiveMedicationResult struct {
 }
 
 type MedicationsSection struct {
-	Active        []ActiveMedicationResult     `json:"active"`
-	IntakeLog     []MedicationIntakeResult     `json:"intake_log"`
-	AdherenceRate float64                      `json:"adherence_rate"`
+	Active        []ActiveMedicationResult `json:"active"`
+	IntakeLog     []MedicationIntakeResult `json:"intake_log"`
+	AdherenceRate float64                  `json:"adherence_rate"`
 }
 
 type SleepSection struct {
-	Logs             []SleepLogResult `json:"logs"`
-	AvgDurationMin   int              `json:"avg_duration_minutes"`
-	AvgDeepMin       int              `json:"avg_deep_minutes"`
+	Logs           []SleepLogResult `json:"logs"`
+	AvgDurationMin int              `json:"avg_duration_minutes"`
+	AvgDeepMin     int              `json:"avg_deep_minutes"`
 }
 
 type HeartRateSection struct {
@@ -61,14 +61,14 @@ type SpO2Section struct {
 
 // AnalyzeCardiovascularResponse is the response for the analyze_cardiovascular tool
 type AnalyzeCardiovascularResponse struct {
-	Period        string             `json:"period"`
-	BloodPressure *BPSection         `json:"blood_pressure,omitempty"`
+	Period        string              `json:"period"`
+	BloodPressure *BPSection          `json:"blood_pressure,omitempty"`
 	Medications   *MedicationsSection `json:"medications,omitempty"`
-	Sleep         *SleepSection      `json:"sleep,omitempty"`
-	HeartRate     *HeartRateSection  `json:"heart_rate,omitempty"`
-	SpO2          *SpO2Section       `json:"spo2,omitempty"`
-	DiaryNotes    []ContextNote      `json:"diary_notes,omitempty"`
-	Warning       string             `json:"warning,omitempty"`
+	Sleep         *SleepSection       `json:"sleep,omitempty"`
+	HeartRate     *HeartRateSection   `json:"heart_rate,omitempty"`
+	SpO2          *SpO2Section        `json:"spo2,omitempty"`
+	DiaryNotes    []ContextNote       `json:"diary_notes,omitempty"`
+	Warning       string              `json:"warning,omitempty"`
 }
 
 // handleAnalyzeCardiovascular handles the analyze_cardiovascular composite tool
@@ -451,4 +451,3 @@ func registerCardiovascularTool(mcpServer *sdkmcp.Server, s *Server) {
 		s.handleAnalyzeCardiovascular,
 	)
 }
-
