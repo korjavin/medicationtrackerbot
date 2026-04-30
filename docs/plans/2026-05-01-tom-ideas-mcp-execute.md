@@ -50,11 +50,11 @@ This plan implements "Tao of Mac" (ToM) design principles to improve the `mcp_he
 **Files:**
 - Modify: `internal/mcp/help.go`
 
-- [ ] Update `handleMCPHelp` to handle unknown `topic` or `operation_id` without returning a hard Go `error`:
+- [x] Update `handleMCPHelp` to handle unknown `topic` or `operation_id` without returning a hard Go `error`:
     - Return a `HelpResponse` with `Count: 0`.
     - Populate `Topics` with all available topics from the registry.
     - Set `NextStep` to a message like "Topic '[name]' not found. Try one of the available topics listed below."
-- [ ] Ensure this "success-with-error-message" pattern correctly informs the model without stopping its execution flow.
+- [x] Ensure this "success-with-error-message" pattern correctly informs the model without stopping its execution flow.
 
 ### Task 4: Verify and Update Tests
 
