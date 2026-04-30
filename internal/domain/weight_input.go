@@ -48,7 +48,7 @@ func ParseWeightInput(raw string, defaultUnit string) (WeightInput, error) {
 
 	value, err := strconv.ParseFloat(numPart, 64)
 	if err != nil {
-		return WeightInput{}, fmt.Errorf("%w: %s", ErrInvalidWeightInput, err)
+		return WeightInput{}, fmt.Errorf("%w: %w", ErrInvalidWeightInput, err)
 	}
 
 	unit := defaultUnit
