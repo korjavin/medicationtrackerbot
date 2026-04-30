@@ -3,6 +3,7 @@ package registry
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -64,10 +65,11 @@ type HelpEntry struct {
 
 // Registry holds the complete set of allowed operations.
 type Registry struct {
-	mu         sync.RWMutex
-	operations map[string]*Operation
-	byTopic    map[string][]*Operation
-	topicOrder []string
+	mu          sync.RWMutex
+	operations  map[string]*Operation
+	byTopic     map[string][]*Operation
+	topicOrder  []string
+	suggestions map[string]string
 }
 
 // New returns an empty registry.
@@ -75,6 +77,12 @@ func New() *Registry {
 	return &Registry{
 		operations: make(map[string]*Operation),
 		byTopic:    make(map[string][]*Operation),
+		suggestions: map[string]string{
+			"workouts":    "List the available workout groups to see what you can track.",
+			"food":        "Search for a food item or list recent logs to see your nutrition summary.",
+			"health":      "List vital logs (weight, blood pressure) to see your progress.",
+			"medications": "List your medication schedule to see what is due or check specific medication details.",
+		},
 	}
 }
 
@@ -85,6 +93,10 @@ func (r *Registry) Register(ops ...*Operation) error {
 	defer r.mu.Unlock()
 
 	for _, op := range ops {
+		// Normalize ID and Topic to lowercase.
+		op.ID = strings.ToLower(strings.TrimSpace(op.ID))
+		op.Topic = strings.ToLower(strings.TrimSpace(op.Topic))
+
 		if err := validate(op); err != nil {
 			return fmt.Errorf("operation %q: %w", op.ID, err)
 		}
@@ -106,7 +118,7 @@ func (r *Registry) Register(ops ...*Operation) error {
 func (r *Registry) Get(id string) *Operation {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.operations[id]
+	return r.operations[strings.ToLower(id)]
 }
 
 // ByTopic returns all operations for the given topic in registration order.
@@ -114,7 +126,7 @@ func (r *Registry) Get(id string) *Operation {
 func (r *Registry) ByTopic(topic string) []*Operation {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	ops := r.byTopic[topic]
+	ops := r.byTopic[strings.ToLower(topic)]
 	if len(ops) == 0 {
 		return nil
 	}
@@ -146,6 +158,13 @@ func (r *Registry) Topics() []string {
 	return result
 }
 
+// Suggestion returns a goal-oriented next step for the given topic.
+func (r *Registry) Suggestion(topic string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.suggestions[strings.ToLower(topic)]
+}
+
 // MarshalForHelp returns a JSON-serializable slice of HelpEntry values for the
 // given set of operations. It is used by mcp_help to produce compact documentation.
 //
@@ -165,7 +184,8 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 
 			// Output check: look for output() call at the start of any line.
 			hasOutput := false
-			for _, line := range strings.Split(example, "\n") {
+			lines := strings.Split(example, "\n")
+			for _, line := range lines {
 				if strings.HasPrefix(strings.TrimSpace(line), "output(") {
 					hasOutput = true
 					break
@@ -174,11 +194,30 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 
 			if !hasOutput {
 				// Ensure result is defined if we're going to output(result).
-				if strings.Contains(example, "api.call(") && !strings.Contains(example, "result =") {
-					example = strings.Replace(example, "api.call(", "result = api.call(", 1)
+				// We only transform "api.call(" if it's at the start of a line (after whitespace)
+				// AND not already part of an assignment or other expression on that line.
+				hasResultVar := strings.Contains(example, "result =")
+				if !hasResultVar {
+					newLines := make([]string, len(lines))
+					transformed := false
+					for i, line := range lines {
+						trimmed := strings.TrimSpace(line)
+						if strings.HasPrefix(trimmed, "api.call(") && !transformed {
+							// Replace only the first occurrence at start of line
+							newLines[i] = strings.Replace(line, "api.call(", "result = api.call(", 1)
+							transformed = true
+							hasResultVar = true
+						} else {
+							newLines[i] = line
+						}
+					}
+					if transformed {
+						example = strings.Join(newLines, "\n")
+					}
 				}
+
 				// Append output(result) if result variable is used in the example.
-				if strings.Contains(example, "result =") {
+				if hasResultVar {
 					example = strings.TrimRight(example, " \n\t") + "\noutput(result)"
 				}
 			}
@@ -209,7 +248,7 @@ func decodeSchema(raw json.RawMessage) any {
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		fmt.Printf("registry: failed to decode schema: %v\n", err)
+		slog.Error("registry: failed to decode schema", "error", err)
 		return nil
 	}
 	return v
