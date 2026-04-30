@@ -3,6 +3,7 @@ package registry
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -122,7 +123,7 @@ func (r *Registry) ByTopic(topic string) []*Operation {
 	return result
 }
 
-// All returns all registered operations in an unspecified order.
+// All returns all registered operations sorted by ID.
 func (r *Registry) All() []*Operation {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -130,6 +131,9 @@ func (r *Registry) All() []*Operation {
 	for _, op := range r.operations {
 		result = append(result, op)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
 	return result
 }
 
@@ -153,12 +157,30 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 	for _, op := range ops {
 		example := op.Example
 		if example != "" {
-			trimmed := strings.TrimSpace(example)
-			if !strings.HasPrefix(trimmed, "from medtracker") && !strings.HasPrefix(trimmed, "import medtracker") {
+			// Import check: only prepend if no medtracker import is present.
+			hasImport := strings.Contains(example, "import medtracker") || strings.Contains(example, "from medtracker")
+			if !hasImport {
 				example = "from medtracker import api, output\n\n" + example
 			}
-			if !strings.Contains(example, "output(") {
-				example = example + "\noutput(result)"
+
+			// Output check: look for output() call at the start of any line.
+			hasOutput := false
+			for _, line := range strings.Split(example, "\n") {
+				if strings.HasPrefix(strings.TrimSpace(line), "output(") {
+					hasOutput = true
+					break
+				}
+			}
+
+			if !hasOutput {
+				// Ensure result is defined if we're going to output(result).
+				if strings.Contains(example, "api.call(") && !strings.Contains(example, "result =") {
+					example = strings.Replace(example, "api.call(", "result = api.call(", 1)
+				}
+				// Append output(result) if result variable is used in the example.
+				if strings.Contains(example, "result =") {
+					example = strings.TrimRight(example, " \n\t") + "\noutput(result)"
+				}
 			}
 		}
 

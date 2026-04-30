@@ -71,8 +71,8 @@ func TestMCPHelp_TopicFilter(t *testing.T) {
 			t.Errorf("expected topic 'workouts', got %q for op %s", op.Topic, op.ID)
 		}
 	}
-	if !strings.Contains(resp.Note, "workouts") {
-		t.Errorf("note should mention topic, got: %s", resp.Note)
+	if !strings.Contains(strings.ToLower(resp.NextStep), "workout") {
+		t.Errorf("NextStep should mention topic, got: %s", resp.NextStep)
 	}
 }
 
