@@ -195,6 +195,11 @@ func TestMarshalForHelp_Examples(t *testing.T) {
 			input:    "from medtracker import api, output\nresult = api.call(\"t.read\")\noutput(result)",
 			expected: "from medtracker import api, output\nresult = api.call(\"t.read\")\noutput(result)",
 		},
+		{
+			name:     "transform api.call to result =",
+			input:    `api.call("t.read")`,
+			expected: "from medtracker import api, output\n\nresult = api.call(\"t.read\")\noutput(result)",
+		},
 	}
 
 	for _, tc := range tests {

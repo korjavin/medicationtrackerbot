@@ -27,7 +27,8 @@ type HelpResponse struct {
 	NextTools   []string             `json:"next_tools,omitempty"`
 }
 
-const pythonUsageSnippet = `from medtracker import api, output
+const (
+	pythonUsageSnippet = `from medtracker import api, output
 
 # Call an operation:
 result = api.call("workouts.groups.list")
@@ -37,13 +38,16 @@ output(result)
 result = api.call("workouts.sessions.list", params={"limit": 10})
 output(result)`
 
+	defaultNextStep = "Pick a topic (e.g., 'workouts') or lookup an operation by ID to start building a script."
+)
+
 func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest, input HelpInput) (*sdkmcp.CallToolResult, HelpResponse, error) {
 	if s.reg == nil {
 		return nil, HelpResponse{}, fmt.Errorf("operation registry not initialized")
 	}
 
-	topic := strings.TrimSpace(input.Topic)
-	opID := strings.TrimSpace(input.OperationID)
+	topic := strings.ToLower(strings.TrimSpace(input.Topic))
+	opID := strings.ToLower(strings.TrimSpace(input.OperationID))
 
 	slog.Info("[MCP] mcp_help called", "topic", topic, "operation_id", opID)
 
@@ -55,7 +59,7 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 		"medications": "List your medication schedule to see what is due or check specific medication details.",
 	}
 
-	nextStep := "Pick a topic (e.g., 'workouts') or lookup an operation by ID to start building a script."
+	nextStep := defaultNextStep
 	if suggestion, ok := suggestions[topic]; ok {
 		nextStep = suggestion
 	}
@@ -95,7 +99,6 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 			Count:       len(ops),
 			Topics:      s.reg.Topics(),
 			PythonUsage: pythonUsageSnippet,
-			Note:        "Pick a topic to filter operations, or lookup by ID. Use mcp_execute to run scripts.",
 			NextStep:    nextStep,
 			NextTools:   []string{"mcp_execute"},
 		}, nil
@@ -112,7 +115,7 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 	}
 
 	// If the topic is valid but we don't have a specific suggestion, use a generic one.
-	if nextStep == "Pick a topic (e.g., 'workouts') or lookup an operation by ID to start building a script." {
+	if nextStep == defaultNextStep {
 		nextStep = fmt.Sprintf("Explore the available operations for topic %q below.", topic)
 	}
 
@@ -120,7 +123,6 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 		Operations:  registry.MarshalForHelp(ops),
 		Count:       len(ops),
 		PythonUsage: pythonUsageSnippet,
-		Note:        fmt.Sprintf("Help for topic %q.", topic),
 		NextStep:    nextStep,
 		NextTools:   []string{"mcp_execute"},
 	}, nil
