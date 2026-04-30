@@ -260,6 +260,21 @@ func TestMarshalForHelp_Examples(t *testing.T) {
 			input:    "from medtracker import api\nresult = api.call(\"t.read\")",
 			expected: "from medtracker import api, output\nresult = api.call(\"t.read\")\noutput(result)",
 		},
+		{
+			name:     "false positive import detection in comments",
+			input:    "from medtracker import api\n# Check the output\nresult = api.call(\"t.read\")",
+			expected: "from medtracker import api, output\n# Check the output\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "capture last api.call",
+			input:    "result = api.call(\"t.one\")\nresult = api.call(\"t.two\")",
+			expected: "from medtracker import api, output\n\nresult = api.call(\"t.one\")\nresult = api.call(\"t.two\")\noutput(result)",
+		},
+		{
+			name:     "capture last api.call with different variables",
+			input:    "one = api.call(\"t.one\")\ntwo = api.call(\"t.two\")",
+			expected: "from medtracker import api, output\n\none = api.call(\"t.one\")\ntwo = api.call(\"t.two\")\noutput(two)",
+		},
 	}
 
 	for _, tc := range tests {

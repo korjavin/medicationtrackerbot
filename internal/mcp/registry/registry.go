@@ -179,71 +179,75 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 	for _, op := range ops {
 		example := op.Example
 		if example != "" {
-			// 1. Ensure imports.
-			// We check for both 'from medtracker' and specifically if 'output' is imported.
-			hasImportMedtracker := strings.Contains(example, "import medtracker") || strings.Contains(example, "from medtracker")
-			hasImportOutput := strings.Contains(example, "import output") || (hasImportMedtracker && strings.Contains(example, "output"))
+			lines := strings.Split(example, "\n")
 
+			// 1. Analyze existing content (ignoring comments)
+			var (
+				hasImportMedtracker bool
+				hasImportOutput     bool
+				hasOutputCall       bool
+				lastVarName         string
+				lastCallLineIdx     = -1
+				transformed         bool
+			)
+
+			for i, line := range lines {
+				trimmed := strings.TrimSpace(line)
+				if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+					continue
+				}
+
+				if strings.Contains(trimmed, "import medtracker") || strings.Contains(trimmed, "from medtracker") {
+					hasImportMedtracker = true
+				}
+				if strings.Contains(trimmed, "import output") || (hasImportMedtracker && strings.Contains(trimmed, "output")) {
+					hasImportOutput = true
+				}
+				if strings.HasPrefix(trimmed, "output(") {
+					hasOutputCall = true
+				}
+
+				// Look for api.call(...)
+				// Case 1: result = api.call(...)
+				if idx := strings.Index(trimmed, "= api.call("); idx > 0 {
+					potentialVar := strings.TrimSpace(trimmed[:idx])
+					// Basic check for valid variable name (no spaces, only alphanumeric/underscore)
+					if !strings.Contains(potentialVar, " ") && potentialVar != "" {
+						lastVarName = potentialVar
+						lastCallLineIdx = i
+						transformed = false // No transformation needed for this line
+					}
+				} else if strings.HasPrefix(trimmed, "api.call(") {
+					// Case 2: api.call(...) at start of line
+					lastVarName = "result"
+					lastCallLineIdx = i
+					transformed = true
+				}
+			}
+
+			// 2. Patch lines for api.call transformation
+			if !hasOutputCall && lastCallLineIdx >= 0 && transformed {
+				lines[lastCallLineIdx] = strings.Replace(lines[lastCallLineIdx], "api.call(", "result = api.call(", 1)
+			}
+			example = strings.Join(lines, "\n")
+
+			// 3. Patch imports
 			if !hasImportOutput {
 				// If we have "from medtracker import api", we need to change it to "from medtracker import api, output"
 				if strings.Contains(example, "from medtracker import api") && !strings.Contains(example, "import api, output") {
 					example = strings.Replace(example, "from medtracker import api", "from medtracker import api, output", 1)
 				} else if !hasImportMedtracker {
 					example = "from medtracker import api, output\n\n" + example
+				} else {
+					// Has medtracker but not output, and not the specific 'from' line we know how to patch.
+					// Prepend a separate import.
+					example = "from medtracker import output\n" + example
 				}
 			}
 
-			// 2. Ensure output(result).
-			lines := strings.Split(example, "\n")
-			hasOutput := false
-			for _, line := range lines {
-				trimmed := strings.TrimSpace(line)
-				if strings.HasPrefix(trimmed, "output(") {
-					hasOutput = true
-					break
-				}
-			}
-
-			if !hasOutput {
-				// Try to find the variable name capturing api.call.
-				varName := ""
-				transformed := false
-				newLines := make([]string, len(lines))
-
-				for i, line := range lines {
-					trimmed := strings.TrimSpace(line)
-					newLines[i] = line
-
-					// Skip comments.
-					if strings.HasPrefix(trimmed, "#") {
-						continue
-					}
-
-					if varName == "" {
-						// Case 1: result = api.call(...)
-						if idx := strings.Index(trimmed, "= api.call("); idx > 0 {
-							potentialVar := strings.TrimSpace(trimmed[:idx])
-							// Basic check for valid variable name (no spaces, only alphanumeric/underscore)
-							if !strings.Contains(potentialVar, " ") && potentialVar != "" {
-								varName = potentialVar
-							}
-						}
-
-						// Case 2: api.call(...) at start of line
-						if varName == "" && strings.HasPrefix(trimmed, "api.call(") {
-							varName = "result"
-							newLines[i] = strings.Replace(line, "api.call(", "result = api.call(", 1)
-							transformed = true
-						}
-					}
-				}
-
-				if varName != "" {
-					if transformed {
-						example = strings.Join(newLines, "\n")
-					}
-					example = strings.TrimRight(example, " \n\t") + "\noutput(" + varName + ")"
-				}
+			// 4. Patch output call
+			if !hasOutputCall && lastCallLineIdx >= 0 {
+				example = strings.TrimRight(example, " \n\t") + "\noutput(" + lastVarName + ")"
 			}
 		}
 
