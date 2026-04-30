@@ -64,7 +64,12 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 	if opID != "" {
 		op := s.reg.Get(opID)
 		if op == nil {
-			return nil, HelpResponse{}, fmt.Errorf("operation %q not found", opID)
+			return nil, HelpResponse{
+				Count:     0,
+				Topics:    s.reg.Topics(),
+				NextStep:  fmt.Sprintf("Operation %q not found. Pick a topic (e.g., 'workouts') or use a valid operation ID.", opID),
+				NextTools: []string{"mcp_execute"},
+			}, nil
 		}
 		entries := registry.MarshalForHelp([]*registry.Operation{op})
 
@@ -98,8 +103,12 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 
 	ops := s.reg.ByTopic(topic)
 	if ops == nil {
-		available := strings.Join(s.reg.Topics(), ", ")
-		return nil, HelpResponse{}, fmt.Errorf("topic %q not found; available topics: %s", topic, available)
+		return nil, HelpResponse{
+			Count:     0,
+			Topics:    s.reg.Topics(),
+			NextStep:  fmt.Sprintf("Topic %q not found. Try one of the available topics listed below.", topic),
+			NextTools: []string{"mcp_execute"},
+		}, nil
 	}
 
 	return nil, HelpResponse{
