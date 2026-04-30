@@ -140,6 +140,37 @@ func TestAll(t *testing.T) {
 	}
 }
 
+func TestNormalization(t *testing.T) {
+	r := New()
+	op := &Operation{ID: "FOO.Bar", Topic: "Workouts", Method: "GET", Path: "/p", Risk: RiskRead}
+	if err := r.Register(op); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	// Normalization during Register
+	if op.ID != "foo.bar" {
+		t.Errorf("expected ID to be normalized to foo.bar, got %s", op.ID)
+	}
+	if op.Topic != "workouts" {
+		t.Errorf("expected Topic to be normalized to workouts, got %s", op.Topic)
+	}
+
+	// Normalization during Get
+	if r.Get("FOO.BAR") == nil {
+		t.Error("Get should be case-insensitive")
+	}
+
+	// Normalization during ByTopic
+	if len(r.ByTopic("WORKOUTS")) == 0 {
+		t.Error("ByTopic should be case-insensitive")
+	}
+
+	// Normalization during Suggestion
+	if r.Suggestion("WORKOUTS") == "" {
+		t.Error("Suggestion should be case-insensitive")
+	}
+}
+
 func TestTopics_Order(t *testing.T) {
 	r := New()
 	ops := []*Operation{
@@ -199,6 +230,11 @@ func TestMarshalForHelp_Examples(t *testing.T) {
 			name:     "transform api.call to result =",
 			input:    `api.call("t.read")`,
 			expected: "from medtracker import api, output\n\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "nested api.call should not be transformed",
+			input:    `print(api.call("t.read"))`,
+			expected: "from medtracker import api, output\n\nprint(api.call(\"t.read\"))",
 		},
 	}
 

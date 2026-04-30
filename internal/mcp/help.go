@@ -51,16 +51,8 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 
 	slog.Info("[MCP] mcp_help called", "topic", topic, "operation_id", opID)
 
-	// Goal-oriented suggestions.
-	suggestions := map[string]string{
-		"workouts":    "List the available workout groups to see what you can track.",
-		"food":        "Search for a food item or list recent logs to see your nutrition summary.",
-		"health":      "List vital logs (weight, blood pressure) to see your progress.",
-		"medications": "List your medication schedule to see what is due or check specific medication details.",
-	}
-
 	nextStep := defaultNextStep
-	if suggestion, ok := suggestions[topic]; ok {
+	if suggestion := s.reg.Suggestion(topic); suggestion != "" {
 		nextStep = suggestion
 	}
 
@@ -78,7 +70,7 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 		entries := registry.MarshalForHelp([]*registry.Operation{op})
 
 		// Use topic suggestion if possible even for exact ID lookup.
-		if suggestion, ok := suggestions[op.Topic]; ok {
+		if suggestion := s.reg.Suggestion(op.Topic); suggestion != "" {
 			nextStep = suggestion
 		}
 
