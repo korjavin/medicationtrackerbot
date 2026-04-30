@@ -21,9 +21,9 @@ type Action struct {
 
 // Notification describes a notification to be sent through any channel.
 type Notification struct {
-	Text     string                 // Markdown-formatted text
-	Actions  []Action               // Action buttons
-	Tag      string                 // For grouping (WebPush uses, Telegram ignores)
+	Text     string         // Markdown-formatted text
+	Actions  []Action       // Action buttons
+	Tag      string         // For grouping (WebPush uses, Telegram ignores)
 	Metadata map[string]any // Extra data (WebPush Data field, Telegram ignores)
 }
 
@@ -39,8 +39,10 @@ type Notifier interface {
 	CloseNotification(ctx context.Context, userID int64, tag string) error
 }
 
-var boldRegexp = regexp.MustCompile(`\*\*(.+?)\*\*`)
-var italicRegexp = regexp.MustCompile(`\*(.+?)\*`)
+var (
+	boldRegexp   = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	italicRegexp = regexp.MustCompile(`\*(.+?)\*`)
+)
 
 // StripMarkdown removes basic Markdown formatting for plain-text channels.
 func StripMarkdown(s string) string {

@@ -1304,7 +1304,6 @@ func (s *Server) handleAddExerciseToSession(w http.ResponseWriter, r *http.Reque
 		req.Notes,
 		source,
 	)
-
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

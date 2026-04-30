@@ -3,9 +3,14 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/mcp"
+	"github.com/korjavin/medicationtrackerbot/internal/mcp/executor"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -56,6 +61,37 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Wire the Python executor that backs mcp_execute. Without this the
+	// mcp_execute tool short-circuits with "execution service not configured"
+	// — the MVP keeps the executor in-process inside this binary.
+	execSvc, err := buildExecutor(cfg, server)
+	if err != nil {
+		slog.Error("[MCP] Failed to build executor", "error", err)
+		os.Exit(1)
+	}
+	if execSvc != nil {
+		ctx := context.Background()
+		if err := execSvc.Start(ctx); err != nil {
+			slog.Error("[MCP] Failed to start executor", "error", err)
+			os.Exit(1)
+		}
+		defer func() {
+			shutdownCtx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if err := execSvc.Shutdown(shutdownCtx); err != nil {
+				slog.Error("[MCP] Executor shutdown error", "error", err)
+			}
+		}()
+		server.SetExecutor(execSvc)
+		slog.Info("[MCP] Python executor wired",
+			"bridge_url", cfg.ExecutorBridgeURL,
+			"proxy_url", execSvc.ProxyURL(),
+			"max_concurrent", cfg.ExecutorMaxConcurrent,
+		)
+	} else {
+		slog.Warn("[MCP] mcp_execute disabled: configuration incomplete (set MCP_AUDIT_ENDPOINT/MCP_EXECUTOR_BRIDGE_URL and MCP_AUDIT_SECRET)")
+	}
+
 	slog.Info("[MCP] Server initialized, starting HTTP listener...")
 
 	if err := server.Run(context.Background()); err != nil {
@@ -64,4 +100,89 @@ func main() {
 	}
 
 	slog.Info("[MCP] Server stopped")
+}
+
+// buildExecutor returns nil when the executor cannot be configured (missing
+// bridge URL or HMAC secret) so the rest of the server still starts; the
+// mcp_execute tool will report "execution service not configured" until the
+// operator supplies the env. Other startup paths fail fast with an error.
+func buildExecutor(cfg *mcp.Config, server *mcp.Server) (*executor.Service, error) {
+	if cfg.ExecutorBridgeURL == "" || cfg.AuditSecret == "" {
+		return nil, nil
+	}
+
+	runnerScript := cfg.ExecutorRunnerScript
+	if runnerScript == "" {
+		runnerScript = "/app/python/runner/runner.py"
+	}
+	runnerCwd := cfg.ExecutorRunnerCwd
+	if runnerCwd == "" {
+		runnerCwd = filepath.Dir(filepath.Dir(runnerScript))
+	}
+
+	listenAddr := ""
+	if cfg.ExecutorProxyURL != "" {
+		if u, err := url.Parse(cfg.ExecutorProxyURL); err == nil && u.Host != "" {
+			listenAddr = u.Host
+		}
+	}
+
+	opts := executor.Options{
+		Registry:      server.Registry(),
+		BridgeURL:     cfg.ExecutorBridgeURL,
+		HMACSecret:    cfg.AuditSecret,
+		RunnerScript:  runnerScript,
+		RunnerCwd:     runnerCwd,
+		MaxConcurrent: cfg.ExecutorMaxConcurrent,
+		ListenerAddr:  listenAddr,
+		MaxQueryDays:  cfg.MaxQueryDays,
+	}
+
+	// Wire the executor's per-run AuditHook into the same AuditBuffer the
+	// granular MCP tools use. Without this the deployment doc's promise that
+	// write runs fan out an audit notification with the caller-provided intent
+	// is just slog — there is no Telegram-side notification. The hook records
+	// a synthesized AuditEvent so write runs surface in the next periodic
+	// /api/mcp-audit flush. Only writes are audited (matching the documented
+	// default; switch AuditAllRuns on in code if reads need fan-out too).
+	if server.AuditBuffer() != nil {
+		opts.Audit = newRunAudit(server.AuditBuffer())
+	}
+
+	if !strings.HasSuffix(runnerScript, ".py") {
+		slog.Warn("[MCP] runner script does not look like a .py file", "path", runnerScript)
+	}
+
+	return executor.New(opts)
+}
+
+// newRunAudit returns an executor.AuditHook that records a RunSummary into
+// the existing AuditBuffer so writes show up in the user-facing Telegram
+// audit notification. The intent is included (truncated) in the label so the
+// flushed payload tells the user *why* a script ran, not just that one did.
+func newRunAudit(buf *mcp.AuditBuffer) executor.AuditHook {
+	return executor.AuditHookFunc(func(_ context.Context, s executor.RunSummary) {
+		now := time.Now().UTC()
+		buf.Record(mcp.AuditEvent{
+			DataType:  formatRunAuditLabel(s),
+			StartDate: now,
+			EndDate:   now,
+		})
+	})
+}
+
+// formatRunAuditLabel builds the DataType label shown in the Telegram audit
+// notification for an executor run. Intent is truncated so a verbose script
+// description doesn't blow up the notification or the buffer's merge map
+// (each unique label becomes a separate flushed entry).
+func formatRunAuditLabel(s executor.RunSummary) string {
+	const maxLabelIntent = 80
+	intent := strings.TrimSpace(s.Intent)
+	if len(intent) > maxLabelIntent {
+		intent = intent[:maxLabelIntent] + "…"
+	}
+	if intent == "" {
+		return "MCP script (write)"
+	}
+	return "MCP script (write): " + intent
 }

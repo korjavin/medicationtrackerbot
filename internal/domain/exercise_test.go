@@ -17,9 +17,9 @@ type mockExerciseStore struct {
 	nextLogID    int64
 
 	// call tracking
-	logExerciseCalls         []logExerciseCall
-	updateExerciseLogCalls   []updateExerciseLogCall
-	updateStatusCalls        []updateStatusCall
+	logExerciseCalls       []logExerciseCall
+	updateExerciseLogCalls []updateExerciseLogCall
+	updateStatusCalls      []updateStatusCall
 }
 
 type logExerciseCall struct {

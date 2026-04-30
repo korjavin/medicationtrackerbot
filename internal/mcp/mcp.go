@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/mcp/registry"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -48,19 +49,29 @@ type HealthDataReader interface {
 
 // Config holds MCP server configuration
 type Config struct {
-	Port           int
-	DatabasePath   string
-	PocketIDURL    string
-	ClientID       string
-	ClientSecret   string // #nosec G117 -- OAuth client secret, loaded from env var
-	AllowedSubject string
-	MaxQueryDays   int
-	MCPServerURL   string // The public URL of this MCP server (for OAuth audience validation)
-	JWKSJSON       string // Optional fallback JWKS JSON content
-	UserID         int64  // The database user ID to query data for
-	AuditEndpoint  string
-	AuditSecret    string
-	AdminPort      int // Port for the loopback-only admin API (0 disables it)
+	Port                 int
+	DatabasePath         string
+	PocketIDURL          string
+	ClientID             string
+	ClientSecret         string // #nosec G117 -- OAuth client secret, loaded from env var
+	AllowedSubject       string
+	MaxQueryDays         int
+	MCPServerURL         string // The public URL of this MCP server (for OAuth audience validation)
+	JWKSJSON             string // Optional fallback JWKS JSON content
+	UserID               int64  // The database user ID to query data for
+	AuditEndpoint        string
+	AuditSecret          string
+	AdminPort            int   // Port for the loopback-only admin API (0 disables it)
+	MaxExecutorTimeoutMS int64 // cap for caller-provided timeout_ms; default 30000 (30s)
+	MaxExecutorAPICalls  int   // cap for caller-provided max_api_calls; default 100
+	// Python executor wiring. The executor service hosts a loopback /call
+	// listener for the runner subprocess and forwards each call to the bot's
+	// HMAC-protected bridge endpoint.
+	ExecutorBridgeURL     string // URL of the bot's /internal/mcp/bridge endpoint
+	ExecutorProxyURL      string // Loopback URL the runner subprocess uses (e.g. http://127.0.0.1:8090/call)
+	ExecutorRunnerScript  string // Absolute path to python/runner/runner.py
+	ExecutorRunnerCwd     string // Working dir passed to python (typically the python/ directory)
+	ExecutorMaxConcurrent int    // Max concurrent runs (default 4)
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
@@ -92,20 +103,38 @@ func LoadConfigFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("ALLOWED_USER_ID is required")
 	}
 
+	maxExecTimeoutMS, _ := strconv.ParseInt(os.Getenv("MCP_EXECUTOR_MAX_TIMEOUT_MS"), 10, 64)
+	maxExecAPICalls, _ := strconv.Atoi(os.Getenv("MCP_EXECUTOR_MAX_API_CALLS"))
+	maxExecConcurrent, _ := strconv.Atoi(os.Getenv("MCP_EXECUTOR_MAX_CONCURRENT"))
+
+	// MCP_EXECUTOR_BRIDGE_URL is the explicit opt-in for the in-process Python
+	// executor. We deliberately do NOT derive this from MCP_AUDIT_ENDPOINT:
+	// upgrading deployments that already wired audit notifications would
+	// otherwise silently enable mcp_execute, which contradicts the documented
+	// behavior and the MVP isolation gap warning in docs/mcp-deployment.md.
+	executorBridgeURL := strings.TrimSpace(os.Getenv("MCP_EXECUTOR_BRIDGE_URL"))
+
 	cfg := &Config{
-		Port:           port,
-		DatabasePath:   os.Getenv("MCP_DATABASE_PATH"),
-		PocketIDURL:    os.Getenv("POCKET_ID_URL"),
-		ClientID:       os.Getenv("POCKET_ID_CLIENT_ID"),
-		ClientSecret:   os.Getenv("POCKET_ID_CLIENT_SECRET"),
-		AllowedSubject: os.Getenv("MCP_ALLOWED_SUBJECT"),
-		MaxQueryDays:   maxQueryDays,
-		MCPServerURL:   os.Getenv("MCP_SERVER_URL"),
-		JWKSJSON:       os.Getenv("POCKET_ID_JWKS_JSON"),
-		UserID:         userID,
-		AuditEndpoint:  os.Getenv("MCP_AUDIT_ENDPOINT"),
-		AuditSecret:    os.Getenv("MCP_AUDIT_SECRET"),
-		AdminPort:      adminPort,
+		Port:                  port,
+		DatabasePath:          os.Getenv("MCP_DATABASE_PATH"),
+		PocketIDURL:           os.Getenv("POCKET_ID_URL"),
+		ClientID:              os.Getenv("POCKET_ID_CLIENT_ID"),
+		ClientSecret:          os.Getenv("POCKET_ID_CLIENT_SECRET"),
+		AllowedSubject:        os.Getenv("MCP_ALLOWED_SUBJECT"),
+		MaxQueryDays:          maxQueryDays,
+		MCPServerURL:          os.Getenv("MCP_SERVER_URL"),
+		JWKSJSON:              os.Getenv("POCKET_ID_JWKS_JSON"),
+		UserID:                userID,
+		AuditEndpoint:         os.Getenv("MCP_AUDIT_ENDPOINT"),
+		AuditSecret:           os.Getenv("MCP_AUDIT_SECRET"),
+		AdminPort:             adminPort,
+		MaxExecutorTimeoutMS:  maxExecTimeoutMS,
+		MaxExecutorAPICalls:   maxExecAPICalls,
+		ExecutorBridgeURL:     executorBridgeURL,
+		ExecutorProxyURL:      strings.TrimSpace(os.Getenv("MCP_EXECUTOR_PROXY_URL")),
+		ExecutorRunnerScript:  strings.TrimSpace(os.Getenv("MCP_EXECUTOR_RUNNER_SCRIPT")),
+		ExecutorRunnerCwd:     strings.TrimSpace(os.Getenv("MCP_EXECUTOR_RUNNER_CWD")),
+		ExecutorMaxConcurrent: maxExecConcurrent,
 	}
 
 	if cfg.AdminPort > 0 && cfg.AdminPort == cfg.Port {
@@ -135,7 +164,14 @@ type Server struct {
 	foodWriter    *FoodWriter
 	workoutWriter *WorkoutWriter
 	admin         AdminStore
+	reg           *registry.Registry
+	executor      ExecutionService
 }
+
+// AuditBuffer returns the audit buffer used by granular tools. The executor
+// wiring in cmd/mcptool/main.go reads this so write runs of mcp_execute can
+// fan out into the same Telegram audit notification path.
+func (s *Server) AuditBuffer() *AuditBuffer { return s.audit }
 
 // NewServer creates a new MCP server
 func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error) {
@@ -154,6 +190,13 @@ func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error
 		},
 		nil,
 	)
+
+	// Build the default operation registry.
+	reg := registry.New()
+	if err := reg.Register(registry.DefaultOperations()...); err != nil {
+		return nil, fmt.Errorf("operation registry: %w", err)
+	}
+	s.reg = reg
 
 	// Create OAuth handler. The store satisfies APITokenStore so long-lived
 	// API tokens can be validated alongside JWTs.
@@ -180,6 +223,69 @@ func NewServer(cfg *Config, st *store.Store, audit *AuditBuffer) (*Server, error
 
 // registerTools registers all MCP tools
 func (s *Server) registerTools() {
+	// mcp_help: catalog of allowed backend operations for mcp_execute scripts
+	mcp.AddTool(s.mcpServer,
+		&mcp.Tool{
+			Name:        "mcp_help",
+			Description: "List available backend operations for use in mcp_execute scripts. Filter by topic or look up a single operation_id. Each entry includes params, body schema, and a Python example.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"topic": {
+						"type": "string",
+						"description": "Domain to filter by (e.g. 'workouts', 'food', 'health'). Omit or pass 'all' for the full catalog."
+					},
+					"operation_id": {
+						"type": "string",
+						"description": "Exact operation ID for a single-entry lookup (e.g. 'workouts.groups.list'). Takes precedence over topic."
+					}
+				}
+			}`),
+		},
+		s.handleMCPHelp,
+	)
+
+	// mcp_execute: run a sandboxed Python script against backend APIs
+	mcp.AddTool(s.mcpServer,
+		&mcp.Tool{
+			Name:        "mcp_execute",
+			Description: "Run a sandboxed Python script against backend APIs. Scripts call api.call(operation_id, params, body) and record a final result with output(value). Use mcp_help to discover available operations and their schemas before writing scripts.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"required": ["script"],
+				"properties": {
+					"script": {
+						"type": "string",
+						"description": "Python script to execute. Must call output(value) exactly once to record the result."
+					},
+					"mode": {
+						"type": "string",
+						"enum": ["read_only", "write"],
+						"description": "Execution mode. Defaults to 'read_only'. Write operations require mode='write' and a non-empty intent."
+					},
+					"intent": {
+						"type": "string",
+						"description": "Human-readable description of what the script intends to change. Required when mode='write'."
+					},
+					"timeout_ms": {
+						"type": "integer",
+						"description": "Wall-clock timeout in milliseconds. Capped by server config (default 30000)."
+					},
+					"max_api_calls": {
+						"type": "integer",
+						"description": "Maximum number of API calls the script may make. Capped by server config (default 100)."
+					},
+					"topic_allowlist": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Optional list of topics the script may access (e.g. ['workouts']). Empty means all topics allowed."
+					}
+				}
+			}`),
+		},
+		s.handleMCPExecute,
+	)
+
 	// Blood Pressure Tool
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{

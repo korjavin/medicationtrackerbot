@@ -24,7 +24,7 @@ type PlanInput struct {
 
 // TransitionStep describes a single dose event during a timezone transition.
 type TransitionStep struct {
-	PlanID       int64         // filled in by the caller (planner) after plan persisted
+	PlanID       int64 // filled in by the caller (planner) after plan persisted
 	MedicationID int64
 	MedName      string
 	StepNumber   int
@@ -35,9 +35,9 @@ type TransitionStep struct {
 
 // PlanSummary carries observability information about the generated plan.
 type PlanSummary struct {
-	Direction          string        // "eastbound", "westbound", or "no-change"
-	OffsetDelta        time.Duration // newOffset - oldOffset (signed)
-	MaxShiftUsed       time.Duration
+	Direction           string        // "eastbound", "westbound", or "no-change"
+	OffsetDelta         time.Duration // newOffset - oldOffset (signed)
+	MaxShiftUsed        time.Duration
 	ViolationsPrevented []string
 }
 

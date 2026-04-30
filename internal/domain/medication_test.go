@@ -159,9 +159,11 @@ func TestCancelIntake(t *testing.T) {
 		{
 			name: "happy path cancels taken intake",
 			store: &mockMedicationStore{
-				getIntakeFn:     func(id int64) (*store.IntakeLog, error) { return takenIntake(id, 10), nil },
-				getMedicationFn: func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Name: "Aspirin", Dosage: "100mg"}, nil },
-				updateIntakeFn:  func(id int64, takenAt time.Time, status string) error { return nil },
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) { return takenIntake(id, 10), nil },
+				getMedicationFn: func(id int64) (*store.Medication, error) {
+					return &store.Medication{ID: id, Name: "Aspirin", Dosage: "100mg"}, nil
+				},
+				updateIntakeFn: func(id int64, takenAt time.Time, status string) error { return nil },
 			},
 			intakeID:      42,
 			wantMedName:   "Aspirin",
@@ -215,8 +217,10 @@ func TestCancelIntake(t *testing.T) {
 		{
 			name: "DecrementInventory error is non-fatal",
 			store: &mockMedicationStore{
-				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return takenIntake(id, 10), nil },
-				getMedicationFn:      func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Name: "Aspirin", Dosage: "100mg"}, nil },
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) { return takenIntake(id, 10), nil },
+				getMedicationFn: func(id int64) (*store.Medication, error) {
+					return &store.Medication{ID: id, Name: "Aspirin", Dosage: "100mg"}, nil
+				},
 				updateIntakeFn:       func(id int64, takenAt time.Time, status string) error { return nil },
 				decrementInventoryFn: func(medID int64, qty int) error { return errors.New("inventory error") },
 			},
@@ -289,13 +293,13 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 	takenAt := time.Now()
 
 	tests := []struct {
-		name              string
-		store             *mockMedicationStore
-		intakeID          int64
-		wantReminderIDs   []int
-		wantIsSupplement  bool
-		wantErr           error
-		wantErrContains   string
+		name             string
+		store            *mockMedicationStore
+		intakeID         int64
+		wantReminderIDs  []int
+		wantIsSupplement bool
+		wantErr          error
+		wantErrContains  string
 	}{
 		{
 			name: "pending intake returns reminder IDs",
@@ -404,7 +408,6 @@ func TestConfirmIntakeWithCleanup(t *testing.T) {
 }
 
 func TestSkipIntake(t *testing.T) {
-
 	tests := []struct {
 		name            string
 		store           *mockMedicationStore
@@ -491,7 +494,6 @@ func TestSkipIntake(t *testing.T) {
 }
 
 func TestLogMedicationNow(t *testing.T) {
-
 	tests := []struct {
 		name            string
 		store           *mockMedicationStore
@@ -525,7 +527,7 @@ func TestLogMedicationNow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			err := svc.LogMedicationNow( 1, 10)
+			err := svc.LogMedicationNow(1, 10)
 
 			if tt.wantErrContains != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
@@ -565,8 +567,10 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 					}
 					return []int{200}, nil
 				},
-				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) { return []int64{1, 2}, nil },
-				decrementInventoryFn:       func(medID int64, qty int) error { return nil },
+				confirmIntakesByScheduleFn: func(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
+					return []int64{1, 2}, nil
+				},
+				decrementInventoryFn: func(medID int64, qty int) error { return nil },
 			},
 			wantReminderIDs: []int{100, 101, 200},
 		},
@@ -631,7 +635,7 @@ func TestConfirmScheduleWithCleanup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewMedicationService(tt.store)
-			ids, err := svc.ConfirmScheduleWithCleanup( 1, scheduledAt)
+			ids, err := svc.ConfirmScheduleWithCleanup(1, scheduledAt)
 
 			if tt.wantErrContains != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
@@ -658,13 +662,13 @@ func TestConfirmMedicationByMedID(t *testing.T) {
 	takenAt := time.Now()
 
 	tests := []struct {
-		name               string
-		store              *mockMedicationStore
-		medID              int64
-		wantReminderIDs    []int
-		wantErr            error
-		wantErrContains    string
-		wantConfirmedID    int64
+		name            string
+		store           *mockMedicationStore
+		medID           int64
+		wantReminderIDs []int
+		wantErr         error
+		wantErrContains string
+		wantConfirmedID int64
 	}{
 		{
 			name:  "no pending intake returns ErrNotPending",

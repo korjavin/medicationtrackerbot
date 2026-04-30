@@ -188,7 +188,6 @@ func ValidateTelegramLoginWidget(token string, data TelegramLoginData) (bool, *T
 func AuthMiddleware(botToken string, sessionSecret string, allowedUserID int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 			// 1. Check for OIDC Session Cookie
 			cookie, err := r.Cookie("auth_session")
 			if err == nil {

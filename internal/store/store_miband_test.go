@@ -1,9 +1,8 @@
 package store
 
 import (
-	"database/sql"
-
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 )
