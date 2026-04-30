@@ -47,6 +47,19 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 
 	slog.Info("[MCP] mcp_help called", "topic", topic, "operation_id", opID)
 
+	// Goal-oriented suggestions.
+	suggestions := map[string]string{
+		"workouts":    "List the available workout groups to see what you can track.",
+		"food":        "Search for a food item or list recent logs to see your nutrition summary.",
+		"health":      "List vital logs (weight, blood pressure) to see your progress.",
+		"medications": "List your medication schedule to see what is due or check specific medication details.",
+	}
+
+	nextStep := "Pick a topic (e.g., 'workouts') or lookup an operation by ID to start building a script."
+	if s, ok := suggestions[topic]; ok {
+		nextStep = s
+	}
+
 	// Exact operation_id lookup takes precedence.
 	if opID != "" {
 		op := s.reg.Get(opID)
@@ -54,10 +67,18 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 			return nil, HelpResponse{}, fmt.Errorf("operation %q not found", opID)
 		}
 		entries := registry.MarshalForHelp([]*registry.Operation{op})
+
+		// Use topic suggestion if possible even for exact ID lookup.
+		if s, ok := suggestions[op.Topic]; ok {
+			nextStep = s
+		}
+
 		return nil, HelpResponse{
 			Operations:  entries,
 			Count:       1,
 			PythonUsage: pythonUsageSnippet,
+			NextStep:    nextStep,
+			NextTools:   []string{"mcp_execute"},
 		}, nil
 	}
 
@@ -69,7 +90,9 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 			Count:       len(ops),
 			Topics:      s.reg.Topics(),
 			PythonUsage: pythonUsageSnippet,
-			Note:        "Use topic=<name> to filter by domain, or operation_id=<id> for a single entry. Run scripts with mcp_execute.",
+			Note:        "Pick a topic to filter operations, or lookup by ID. Use mcp_execute to run scripts.",
+			NextStep:    nextStep,
+			NextTools:   []string{"mcp_execute"},
 		}, nil
 	}
 
@@ -83,6 +106,8 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 		Operations:  registry.MarshalForHelp(ops),
 		Count:       len(ops),
 		PythonUsage: pythonUsageSnippet,
-		Note:        fmt.Sprintf("Showing %d operation(s) for topic %q.", len(ops), topic),
+		Note:        fmt.Sprintf("Help for topic %q.", topic),
+		NextStep:    nextStep,
+		NextTools:   []string{"mcp_execute"},
 	}, nil
 }
