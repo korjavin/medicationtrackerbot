@@ -56,8 +56,8 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 	}
 
 	nextStep := "Pick a topic (e.g., 'workouts') or lookup an operation by ID to start building a script."
-	if s, ok := suggestions[topic]; ok {
-		nextStep = s
+	if suggestion, ok := suggestions[topic]; ok {
+		nextStep = suggestion
 	}
 
 	// Exact operation_id lookup takes precedence.
@@ -74,8 +74,8 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 		entries := registry.MarshalForHelp([]*registry.Operation{op})
 
 		// Use topic suggestion if possible even for exact ID lookup.
-		if s, ok := suggestions[op.Topic]; ok {
-			nextStep = s
+		if suggestion, ok := suggestions[op.Topic]; ok {
+			nextStep = suggestion
 		}
 
 		return nil, HelpResponse{
@@ -109,6 +109,11 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 			NextStep:  fmt.Sprintf("Topic %q not found. Try one of the available topics listed below.", topic),
 			NextTools: []string{"mcp_execute"},
 		}, nil
+	}
+
+	// If the topic is valid but we don't have a specific suggestion, use a generic one.
+	if nextStep == "Pick a topic (e.g., 'workouts') or lookup an operation by ID to start building a script." {
+		nextStep = fmt.Sprintf("Explore the available operations for topic %q below.", topic)
 	}
 
 	return nil, HelpResponse{

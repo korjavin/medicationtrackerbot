@@ -140,6 +140,30 @@ func TestAll(t *testing.T) {
 	}
 }
 
+func TestTopics_Order(t *testing.T) {
+	r := New()
+	ops := []*Operation{
+		{ID: "c.a", Topic: "c", Method: "GET", Path: "/c", Risk: RiskRead},
+		{ID: "a.a", Topic: "a", Method: "GET", Path: "/a", Risk: RiskRead},
+		{ID: "b.a", Topic: "b", Method: "GET", Path: "/b", Risk: RiskRead},
+		{ID: "a.b", Topic: "a", Method: "GET", Path: "/a2", Risk: RiskRead},
+	}
+	if err := r.Register(ops...); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	got := r.Topics()
+	want := []string{"c", "a", "b"}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d topics, got %d", len(want), len(got))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("topic at index %d mismatch: want %q, got %q", i, want[i], got[i])
+		}
+	}
+}
+
 func TestMarshalForHelp_Examples(t *testing.T) {
 	tests := []struct {
 		name     string

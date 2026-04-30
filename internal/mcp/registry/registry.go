@@ -66,6 +66,7 @@ type Registry struct {
 	mu         sync.RWMutex
 	operations map[string]*Operation
 	byTopic    map[string][]*Operation
+	topicOrder []string
 }
 
 // New returns an empty registry.
@@ -89,6 +90,11 @@ func (r *Registry) Register(ops ...*Operation) error {
 		if _, exists := r.operations[op.ID]; exists {
 			return fmt.Errorf("operation %q: duplicate ID", op.ID)
 		}
+
+		if _, exists := r.byTopic[op.Topic]; !exists {
+			r.topicOrder = append(r.topicOrder, op.Topic)
+		}
+
 		r.operations[op.ID] = op
 		r.byTopic[op.Topic] = append(r.byTopic[op.Topic], op)
 	}
@@ -131,15 +137,9 @@ func (r *Registry) All() []*Operation {
 func (r *Registry) Topics() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	seen := make(map[string]struct{})
-	var topics []string
-	for _, op := range r.operations {
-		if _, ok := seen[op.Topic]; !ok {
-			seen[op.Topic] = struct{}{}
-			topics = append(topics, op.Topic)
-		}
-	}
-	return topics
+	result := make([]string, len(r.topicOrder))
+	copy(result, r.topicOrder)
+	return result
 }
 
 // MarshalForHelp returns a JSON-serializable slice of HelpEntry values for the
@@ -153,7 +153,8 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 	for _, op := range ops {
 		example := op.Example
 		if example != "" {
-			if !strings.Contains(example, "from medtracker") {
+			trimmed := strings.TrimSpace(example)
+			if !strings.HasPrefix(trimmed, "from medtracker") && !strings.HasPrefix(trimmed, "import medtracker") {
 				example = "from medtracker import api, output\n\n" + example
 			}
 			if !strings.Contains(example, "output(") {
@@ -186,6 +187,7 @@ func decodeSchema(raw json.RawMessage) any {
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
+		fmt.Printf("registry: failed to decode schema: %v\n", err)
 		return nil
 	}
 	return v
