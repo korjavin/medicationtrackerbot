@@ -34,12 +34,6 @@ func TestMCPHelp_FullCatalog(t *testing.T) {
 	if len(resp.Topics) == 0 {
 		t.Error("expected topics list in full catalog response")
 	}
-	if resp.PythonUsage == "" {
-		t.Error("expected python_usage in response")
-	}
-	if !strings.Contains(resp.PythonUsage, "from medtracker import api, output") {
-		t.Errorf("python_usage missing import line, got: %s", resp.PythonUsage)
-	}
 }
 
 func TestMCPHelp_TopicAll(t *testing.T) {
@@ -114,10 +108,6 @@ func TestMCPHelp_WorkoutsTopicHasExamples(t *testing.T) {
 		if !seen[id] {
 			t.Errorf("workouts topic missing required op: %s", id)
 		}
-	}
-
-	if !strings.Contains(resp.PythonUsage, "from medtracker import api, output") {
-		t.Errorf("PythonUsage should describe the medtracker import, got: %s", resp.PythonUsage)
 	}
 }
 

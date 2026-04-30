@@ -28,16 +28,6 @@ type HelpResponse struct {
 }
 
 const (
-	pythonUsageSnippet = `from medtracker import api, output
-
-# Call an operation:
-result = api.call("workouts.groups.list")
-output(result)
-
-# With params:
-result = api.call("workouts.sessions.list", params={"limit": 10})
-output(result)`
-
 	defaultNextStep = "Pick a topic (e.g., 'workouts') or lookup an operation by ID to start building a script."
 )
 
@@ -75,11 +65,11 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 		}
 
 		return nil, HelpResponse{
-			Operations:  entries,
-			Count:       1,
-			PythonUsage: pythonUsageSnippet,
-			NextStep:    nextStep,
-			NextTools:   []string{"mcp_execute"},
+			Operations: entries,
+			Count:      1,
+			Note:       fmt.Sprintf("Showing details for operation %q. Use mcp_execute to run the example script.", opID),
+			NextStep:   nextStep,
+			NextTools:  []string{"mcp_execute"},
 		}, nil
 	}
 
@@ -87,12 +77,12 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 	if topic == "" || topic == "all" {
 		ops := s.reg.All()
 		return nil, HelpResponse{
-			Operations:  registry.MarshalForHelp(ops),
-			Count:       len(ops),
-			Topics:      s.reg.Topics(),
-			PythonUsage: pythonUsageSnippet,
-			NextStep:    nextStep,
-			NextTools:   []string{"mcp_execute"},
+			Operations: registry.MarshalForHelp(ops),
+			Count:      len(ops),
+			Topics:     s.reg.Topics(),
+			Note:       "Pick a topic to filter operations, or use an operation_id to see details and examples.",
+			NextStep:   nextStep,
+			NextTools:  []string{"mcp_execute"},
 		}, nil
 	}
 
@@ -112,10 +102,10 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 	}
 
 	return nil, HelpResponse{
-		Operations:  registry.MarshalForHelp(ops),
-		Count:       len(ops),
-		PythonUsage: pythonUsageSnippet,
-		NextStep:    nextStep,
-		NextTools:   []string{"mcp_execute"},
+		Operations: registry.MarshalForHelp(ops),
+		Count:      len(ops),
+		Note:       fmt.Sprintf("Showing %d operation(s) for topic %q.", len(ops), topic),
+		NextStep:   nextStep,
+		NextTools:  []string{"mcp_execute"},
 	}, nil
 }

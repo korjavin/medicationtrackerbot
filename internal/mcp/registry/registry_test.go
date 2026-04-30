@@ -148,11 +148,20 @@ func TestNormalization(t *testing.T) {
 	}
 
 	// Normalization during Register
-	if op.ID != "foo.bar" {
-		t.Errorf("expected ID to be normalized to foo.bar, got %s", op.ID)
+	storedOp := r.Get("foo.bar")
+	if storedOp == nil {
+		t.Fatal("expected operation to be found via normalized ID")
 	}
-	if op.Topic != "workouts" {
-		t.Errorf("expected Topic to be normalized to workouts, got %s", op.Topic)
+	if storedOp.ID != "foo.bar" {
+		t.Errorf("expected ID to be normalized to foo.bar, got %s", storedOp.ID)
+	}
+	if storedOp.Topic != "workouts" {
+		t.Errorf("expected Topic to be normalized to workouts, got %s", storedOp.Topic)
+	}
+
+	// Verify original struct was NOT mutated
+	if op.ID != "FOO.Bar" {
+		t.Errorf("expected original ID to be FOO.Bar, got %s", op.ID)
 	}
 
 	// Normalization during Get
@@ -235,6 +244,21 @@ func TestMarshalForHelp_Examples(t *testing.T) {
 			name:     "nested api.call should not be transformed",
 			input:    `print(api.call("t.read"))`,
 			expected: "from medtracker import api, output\n\nprint(api.call(\"t.read\"))",
+		},
+		{
+			name:     "commented out assignment should be ignored",
+			input:    "# result = api.call(\"t.read\")\napi.call(\"t.read\")",
+			expected: "from medtracker import api, output\n\n# result = api.call(\"t.read\")\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "custom variable name",
+			input:    "my_data = api.call(\"t.read\")",
+			expected: "from medtracker import api, output\n\nmy_data = api.call(\"t.read\")\noutput(my_data)",
+		},
+		{
+			name:     "missing output in from import",
+			input:    "from medtracker import api\nresult = api.call(\"t.read\")",
+			expected: "from medtracker import api, output\nresult = api.call(\"t.read\")\noutput(result)",
 		},
 	}
 
