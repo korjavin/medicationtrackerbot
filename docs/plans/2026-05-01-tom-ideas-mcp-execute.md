@@ -36,14 +36,14 @@ This plan implements "Tao of Mac" (ToM) design principles to improve the `mcp_he
 **Files:**
 - Modify: `internal/mcp/help.go`
 
-- [ ] Define a mapping in `handleMCPHelp` to provide context-aware `NextStep` suggestions based on the requested topic:
+- [x] Define a mapping in `handleMCPHelp` to provide context-aware `NextStep` suggestions based on the requested topic:
     - `workouts`: "List the available workout groups to see what you can track."
     - `food`: "Search for a food item or list recent logs to see your nutrition summary."
     - `health`: "List vital logs (weight, blood pressure) to see your progress."
     - `medications`: "List your medication schedule to see what is due or check specific medication details."
     - `all` / empty: "Pick a topic (e.g., 'workouts') or lookup an operation by ID to start building a script."
-- [ ] Set `NextTools` to `["mcp_execute"]` for all successful help responses.
-- [ ] Update the meta-instructional `Note` to be less about tool usage and more about the specific requested topic.
+- [x] Set `NextTools` to `["mcp_execute"]` for all successful help responses.
+- [x] Update the meta-instructional `Note` to be less about tool usage and more about the specific requested topic.
 
 ### Task 3: Graceful Handling for Unknown Topics/Operations
 
