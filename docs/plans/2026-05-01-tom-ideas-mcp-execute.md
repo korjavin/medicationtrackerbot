@@ -26,10 +26,10 @@ This plan implements "Tao of Mac" (ToM) design principles to improve the `mcp_he
 - Modify: `internal/mcp/help.go`
 - Modify: `internal/mcp/registry/registry.go`
 
-- [ ] Add `NextStep` (string) and `NextTools` ([]string) to `HelpResponse` struct in `internal/mcp/help.go`.
-- [ ] Update `MarshalForHelp` in `internal/mcp/registry/registry.go` to prepend `from medtracker import api, output\n\n` and append `\noutput(result)` (if not already present) to every non-empty `Example` field to make it a complete script.
-- [ ] Ensure `MarshalForHelp` does not add redundant imports if they are somehow already present in the source operation.
-- [ ] Verify `MarshalForHelp` logic with a small test case in `internal/mcp/registry/registry_test.go`.
+- [x] Add `NextStep` (string) and `NextTools` ([]string) to `HelpResponse` struct in `internal/mcp/help.go`.
+- [x] Update `MarshalForHelp` in `internal/mcp/registry/registry.go` to prepend `from medtracker import api, output\n\n` and append `\noutput(result)` (if not already present) to every non-empty `Example` field to make it a complete script.
+- [x] Ensure `MarshalForHelp` does not add redundant imports if they are somehow already present in the source operation.
+- [x] Verify `MarshalForHelp` logic with a small test case in `internal/mcp/registry/registry_test.go`.
 
 ### Task 2: Implement Goal-Oriented Responses
 

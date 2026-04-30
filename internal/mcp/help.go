@@ -23,6 +23,8 @@ type HelpResponse struct {
 	Topics      []string             `json:"topics,omitempty"`
 	PythonUsage string               `json:"python_usage,omitempty"`
 	Note        string               `json:"note,omitempty"`
+	NextStep    string               `json:"next_step,omitempty"`
+	NextTools   []string             `json:"next_tools,omitempty"`
 }
 
 const pythonUsageSnippet = `from medtracker import api, output
