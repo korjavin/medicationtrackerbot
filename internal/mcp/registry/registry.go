@@ -3,6 +3,9 @@ package registry
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"sort"
+	"strings"
 	"sync"
 )
 
@@ -62,9 +65,11 @@ type HelpEntry struct {
 
 // Registry holds the complete set of allowed operations.
 type Registry struct {
-	mu         sync.RWMutex
-	operations map[string]*Operation
-	byTopic    map[string][]*Operation
+	mu          sync.RWMutex
+	operations  map[string]*Operation
+	byTopic     map[string][]*Operation
+	topicOrder  []string
+	suggestions map[string]string
 }
 
 // New returns an empty registry.
@@ -72,6 +77,12 @@ func New() *Registry {
 	return &Registry{
 		operations: make(map[string]*Operation),
 		byTopic:    make(map[string][]*Operation),
+		suggestions: map[string]string{
+			"workouts":    "List the available workout groups to see what you can track.",
+			"food":        "Search for a food item or list recent logs to see your nutrition summary.",
+			"health":      "List vital logs (weight, blood pressure) to see your progress.",
+			"medications": "List your medication schedule to see what is due or check specific medication details.",
+		},
 	}
 }
 
@@ -81,12 +92,32 @@ func (r *Registry) Register(ops ...*Operation) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for _, op := range ops {
-		if err := validate(op); err != nil {
+	var toRegister []*Operation
+	for _, opPtr := range ops {
+		// Clone to avoid mutating the original struct.
+		op := *opPtr
+
+		// Normalize ID and Topic to lowercase.
+		op.ID = strings.ToLower(strings.TrimSpace(op.ID))
+		op.Topic = strings.ToLower(strings.TrimSpace(op.Topic))
+
+		if err := validate(&op); err != nil {
 			return fmt.Errorf("operation %q: %w", op.ID, err)
 		}
 		if _, exists := r.operations[op.ID]; exists {
 			return fmt.Errorf("operation %q: duplicate ID", op.ID)
+		}
+		for _, pending := range toRegister {
+			if pending.ID == op.ID {
+				return fmt.Errorf("operation %q: duplicate ID in batch", op.ID)
+			}
+		}
+		toRegister = append(toRegister, &op)
+	}
+
+	for _, op := range toRegister {
+		if _, exists := r.byTopic[op.Topic]; !exists {
+			r.topicOrder = append(r.topicOrder, op.Topic)
 		}
 		r.operations[op.ID] = op
 		r.byTopic[op.Topic] = append(r.byTopic[op.Topic], op)
@@ -98,7 +129,7 @@ func (r *Registry) Register(ops ...*Operation) error {
 func (r *Registry) Get(id string) *Operation {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.operations[id]
+	return r.operations[strings.ToLower(id)]
 }
 
 // ByTopic returns all operations for the given topic in registration order.
@@ -106,7 +137,7 @@ func (r *Registry) Get(id string) *Operation {
 func (r *Registry) ByTopic(topic string) []*Operation {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	ops := r.byTopic[topic]
+	ops := r.byTopic[strings.ToLower(topic)]
 	if len(ops) == 0 {
 		return nil
 	}
@@ -115,7 +146,7 @@ func (r *Registry) ByTopic(topic string) []*Operation {
 	return result
 }
 
-// All returns all registered operations in an unspecified order.
+// All returns all registered operations sorted by ID.
 func (r *Registry) All() []*Operation {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -123,6 +154,9 @@ func (r *Registry) All() []*Operation {
 	for _, op := range r.operations {
 		result = append(result, op)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
 	return result
 }
 
@@ -130,15 +164,16 @@ func (r *Registry) All() []*Operation {
 func (r *Registry) Topics() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	seen := make(map[string]struct{})
-	var topics []string
-	for _, op := range r.operations {
-		if _, ok := seen[op.Topic]; !ok {
-			seen[op.Topic] = struct{}{}
-			topics = append(topics, op.Topic)
-		}
-	}
-	return topics
+	result := make([]string, len(r.topicOrder))
+	copy(result, r.topicOrder)
+	return result
+}
+
+// Suggestion returns a goal-oriented next step for the given topic.
+func (r *Registry) Suggestion(topic string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.suggestions[strings.ToLower(topic)]
 }
 
 // MarshalForHelp returns a JSON-serializable slice of HelpEntry values for the
@@ -150,6 +185,80 @@ func (r *Registry) Topics() []string {
 func MarshalForHelp(ops []*Operation) []HelpEntry {
 	entries := make([]HelpEntry, 0, len(ops))
 	for _, op := range ops {
+		example := op.Example
+		if example != "" {
+			lines := strings.Split(example, "\n")
+
+			// 1. Analyze existing content (ignoring comments)
+			var (
+				hasImportMedtracker bool
+				hasImportOutput     bool
+				hasOutputCall       bool
+				lastVarName         string
+				lastCallLineIdx     = -1
+				transformed         bool
+			)
+
+			for i, line := range lines {
+				trimmed := strings.TrimSpace(line)
+				if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+					continue
+				}
+
+				if strings.Contains(trimmed, "import medtracker") || strings.Contains(trimmed, "from medtracker") {
+					hasImportMedtracker = true
+				}
+				if (strings.HasPrefix(trimmed, "import ") || strings.HasPrefix(trimmed, "from ")) && strings.Contains(trimmed, "output") {
+					hasImportOutput = true
+				}
+				if strings.HasPrefix(trimmed, "output(") {
+					hasOutputCall = true
+				}
+
+				// Look for api.call(...)
+				// Case 1: result = api.call(...)
+				if idx := strings.Index(trimmed, "= api.call("); idx > 0 {
+					potentialVar := strings.TrimSpace(trimmed[:idx])
+					// Basic check for valid variable name (no spaces, only alphanumeric/underscore)
+					if !strings.Contains(potentialVar, " ") && potentialVar != "" {
+						lastVarName = potentialVar
+						lastCallLineIdx = i
+						transformed = false // No transformation needed for this line
+					}
+				} else if strings.HasPrefix(trimmed, "api.call(") {
+					// Case 2: api.call(...) at start of line
+					lastVarName = "result"
+					lastCallLineIdx = i
+					transformed = true
+				}
+			}
+
+			// 2. Patch lines for api.call transformation
+			if !hasOutputCall && lastCallLineIdx >= 0 && transformed {
+				lines[lastCallLineIdx] = strings.Replace(lines[lastCallLineIdx], "api.call(", "result = api.call(", 1)
+			}
+			example = strings.Join(lines, "\n")
+
+			// 3. Patch imports
+			if !hasImportOutput {
+				// If we have "from medtracker import api", we need to change it to "from medtracker import api, output"
+				if strings.Contains(example, "from medtracker import api") && !strings.Contains(example, "import api, output") {
+					example = strings.Replace(example, "from medtracker import api", "from medtracker import api, output", 1)
+				} else if !hasImportMedtracker {
+					example = "from medtracker import api, output\n\n" + example
+				} else {
+					// Has medtracker but not output, and not the specific 'from' line we know how to patch.
+					// Prepend a separate import.
+					example = "from medtracker import output\n" + example
+				}
+			}
+
+			// 4. Patch output call
+			if !hasOutputCall && lastCallLineIdx >= 0 {
+				example = strings.TrimRight(example, " \n\t") + "\noutput(" + lastVarName + ")"
+			}
+		}
+
 		entries = append(entries, HelpEntry{
 			ID:              op.ID,
 			Topic:           op.Topic,
@@ -160,7 +269,7 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 			ResponseSummary: op.ResponseSummary,
 			ParamsSchema:    decodeSchema(op.ParamsSchema),
 			BodySchema:      decodeSchema(op.BodySchema),
-			Example:         op.Example,
+			Example:         example,
 		})
 	}
 	return entries
@@ -175,6 +284,7 @@ func decodeSchema(raw json.RawMessage) any {
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
+		slog.Error("registry: failed to decode schema", "error", err)
 		return nil
 	}
 	return v

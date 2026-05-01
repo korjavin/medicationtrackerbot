@@ -140,6 +140,154 @@ func TestAll(t *testing.T) {
 	}
 }
 
+func TestNormalization(t *testing.T) {
+	r := New()
+	op := &Operation{ID: "FOO.Bar", Topic: "Workouts", Method: "GET", Path: "/p", Risk: RiskRead}
+	if err := r.Register(op); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	// Normalization during Register
+	storedOp := r.Get("foo.bar")
+	if storedOp == nil {
+		t.Fatal("expected operation to be found via normalized ID")
+	}
+	if storedOp.ID != "foo.bar" {
+		t.Errorf("expected ID to be normalized to foo.bar, got %s", storedOp.ID)
+	}
+	if storedOp.Topic != "workouts" {
+		t.Errorf("expected Topic to be normalized to workouts, got %s", storedOp.Topic)
+	}
+
+	// Verify original struct was NOT mutated
+	if op.ID != "FOO.Bar" {
+		t.Errorf("expected original ID to be FOO.Bar, got %s", op.ID)
+	}
+
+	// Normalization during Get
+	if r.Get("FOO.BAR") == nil {
+		t.Error("Get should be case-insensitive")
+	}
+
+	// Normalization during ByTopic
+	if len(r.ByTopic("WORKOUTS")) == 0 {
+		t.Error("ByTopic should be case-insensitive")
+	}
+
+	// Normalization during Suggestion
+	if r.Suggestion("WORKOUTS") == "" {
+		t.Error("Suggestion should be case-insensitive")
+	}
+}
+
+func TestTopics_Order(t *testing.T) {
+	r := New()
+	ops := []*Operation{
+		{ID: "c.a", Topic: "c", Method: "GET", Path: "/c", Risk: RiskRead},
+		{ID: "a.a", Topic: "a", Method: "GET", Path: "/a", Risk: RiskRead},
+		{ID: "b.a", Topic: "b", Method: "GET", Path: "/b", Risk: RiskRead},
+		{ID: "a.b", Topic: "a", Method: "GET", Path: "/a2", Risk: RiskRead},
+	}
+	if err := r.Register(ops...); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	got := r.Topics()
+	want := []string{"c", "a", "b"}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d topics, got %d", len(want), len(got))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("topic at index %d mismatch: want %q, got %q", i, want[i], got[i])
+		}
+	}
+}
+
+func TestMarshalForHelp_Examples(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "empty example",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "simple call",
+			input:    `result = api.call("t.read")`,
+			expected: "from medtracker import api, output\n\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "already has import",
+			input:    "from medtracker import api, output\nresult = api.call(\"t.read\")",
+			expected: "from medtracker import api, output\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "already has output",
+			input:    "result = api.call(\"t.read\")\noutput(result)",
+			expected: "from medtracker import api, output\n\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "already has both",
+			input:    "from medtracker import api, output\nresult = api.call(\"t.read\")\noutput(result)",
+			expected: "from medtracker import api, output\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "transform api.call to result =",
+			input:    `api.call("t.read")`,
+			expected: "from medtracker import api, output\n\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "nested api.call should not be transformed",
+			input:    `print(api.call("t.read"))`,
+			expected: "from medtracker import api, output\n\nprint(api.call(\"t.read\"))",
+		},
+		{
+			name:     "commented out assignment should be ignored",
+			input:    "# result = api.call(\"t.read\")\napi.call(\"t.read\")",
+			expected: "from medtracker import api, output\n\n# result = api.call(\"t.read\")\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "custom variable name",
+			input:    "my_data = api.call(\"t.read\")",
+			expected: "from medtracker import api, output\n\nmy_data = api.call(\"t.read\")\noutput(my_data)",
+		},
+		{
+			name:     "missing output in from import",
+			input:    "from medtracker import api\nresult = api.call(\"t.read\")",
+			expected: "from medtracker import api, output\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "false positive import detection in comments",
+			input:    "from medtracker import api\n# Check the output\nresult = api.call(\"t.read\")",
+			expected: "from medtracker import api, output\n# Check the output\nresult = api.call(\"t.read\")\noutput(result)",
+		},
+		{
+			name:     "capture last api.call",
+			input:    "result = api.call(\"t.one\")\nresult = api.call(\"t.two\")",
+			expected: "from medtracker import api, output\n\nresult = api.call(\"t.one\")\nresult = api.call(\"t.two\")\noutput(result)",
+		},
+		{
+			name:     "capture last api.call with different variables",
+			input:    "one = api.call(\"t.one\")\ntwo = api.call(\"t.two\")",
+			expected: "from medtracker import api, output\n\none = api.call(\"t.one\")\ntwo = api.call(\"t.two\")\noutput(two)",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := []*Operation{{Example: tc.input}}
+			entries := MarshalForHelp(ops)
+			if entries[0].Example != tc.expected {
+				t.Errorf("expected:\n%s\ngot:\n%s", tc.expected, entries[0].Example)
+			}
+		})
+	}
+}
+
 func TestMarshalForHelp_Shape(t *testing.T) {
 	ops := []*Operation{
 		{

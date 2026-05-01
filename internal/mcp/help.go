@@ -23,39 +23,48 @@ type HelpResponse struct {
 	Topics      []string             `json:"topics,omitempty"`
 	PythonUsage string               `json:"python_usage,omitempty"`
 	Note        string               `json:"note,omitempty"`
+	NextStep    string               `json:"next_step,omitempty"`
+	NextTools   []string             `json:"next_tools,omitempty"`
 }
 
-const pythonUsageSnippet = `from medtracker import api, output
-
-# Call an operation:
-result = api.call("workouts.groups.list")
-output(result)
-
-# With params:
-result = api.call("workouts.sessions.list", params={"limit": 10})
-output(result)`
+const (
+	defaultNextStep = "Pick a topic (e.g., 'workouts') or lookup an operation by ID to start building a script."
+)
 
 func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest, input HelpInput) (*sdkmcp.CallToolResult, HelpResponse, error) {
 	if s.reg == nil {
 		return nil, HelpResponse{}, fmt.Errorf("operation registry not initialized")
 	}
 
-	topic := strings.TrimSpace(input.Topic)
-	opID := strings.TrimSpace(input.OperationID)
+	topic := strings.ToLower(strings.TrimSpace(input.Topic))
+	opID := strings.ToLower(strings.TrimSpace(input.OperationID))
 
 	slog.Info("[MCP] mcp_help called", "topic", topic, "operation_id", opID)
+
+	nextStep := defaultNextStep
+	if suggestion := s.reg.Suggestion(topic); suggestion != "" {
+		nextStep = suggestion
+	}
 
 	// Exact operation_id lookup takes precedence.
 	if opID != "" {
 		op := s.reg.Get(opID)
 		if op == nil {
-			return nil, HelpResponse{}, fmt.Errorf("operation %q not found", opID)
+			return nil, HelpResponse{
+				Count:     0,
+				Topics:    s.reg.Topics(),
+				NextStep:  fmt.Sprintf("Operation %q not found. Pick a topic (e.g., 'workouts') or use a valid operation ID.", opID),
+				NextTools: []string{"mcp_help"},
+			}, nil
 		}
 		entries := registry.MarshalForHelp([]*registry.Operation{op})
+
 		return nil, HelpResponse{
-			Operations:  entries,
-			Count:       1,
-			PythonUsage: pythonUsageSnippet,
+			Operations: entries,
+			Count:      1,
+			Note:       fmt.Sprintf("Showing details for operation %q. Use mcp_execute to run the example script.", opID),
+			NextStep:   "Review the operation details and use mcp_execute to run it.",
+			NextTools:  []string{"mcp_execute"},
 		}, nil
 	}
 
@@ -63,24 +72,35 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 	if topic == "" || topic == "all" {
 		ops := s.reg.All()
 		return nil, HelpResponse{
-			Operations:  registry.MarshalForHelp(ops),
-			Count:       len(ops),
-			Topics:      s.reg.Topics(),
-			PythonUsage: pythonUsageSnippet,
-			Note:        "Use topic=<name> to filter by domain, or operation_id=<id> for a single entry. Run scripts with mcp_execute.",
+			Operations: registry.MarshalForHelp(ops),
+			Count:      len(ops),
+			Topics:     s.reg.Topics(),
+			Note:       "The full operation catalog is shown below.",
+			NextStep:   nextStep,
+			NextTools:  []string{"mcp_execute"},
 		}, nil
 	}
 
 	ops := s.reg.ByTopic(topic)
 	if ops == nil {
-		available := strings.Join(s.reg.Topics(), ", ")
-		return nil, HelpResponse{}, fmt.Errorf("topic %q not found; available topics: %s", topic, available)
+		return nil, HelpResponse{
+			Count:     0,
+			Topics:    s.reg.Topics(),
+			NextStep:  fmt.Sprintf("Topic %q not found. Try one of the available topics listed below.", topic),
+			NextTools: []string{"mcp_execute"},
+		}, nil
+	}
+
+	// If the topic is valid but we don't have a specific suggestion, use a generic one.
+	if nextStep == defaultNextStep {
+		nextStep = fmt.Sprintf("Explore the available operations for topic %q below.", topic)
 	}
 
 	return nil, HelpResponse{
-		Operations:  registry.MarshalForHelp(ops),
-		Count:       len(ops),
-		PythonUsage: pythonUsageSnippet,
-		Note:        fmt.Sprintf("Showing %d operation(s) for topic %q.", len(ops), topic),
+		Operations: registry.MarshalForHelp(ops),
+		Count:      len(ops),
+		Note:       fmt.Sprintf("Showing %d operation(s) for topic %q.", len(ops), topic),
+		NextStep:   nextStep,
+		NextTools:  []string{"mcp_execute"},
 	}, nil
 }
