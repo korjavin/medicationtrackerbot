@@ -92,6 +92,7 @@ func (r *Registry) Register(ops ...*Operation) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	var toRegister []*Operation
 	for _, opPtr := range ops {
 		// Clone to avoid mutating the original struct.
 		op := *opPtr
@@ -106,13 +107,20 @@ func (r *Registry) Register(ops ...*Operation) error {
 		if _, exists := r.operations[op.ID]; exists {
 			return fmt.Errorf("operation %q: duplicate ID", op.ID)
 		}
+		for _, pending := range toRegister {
+			if pending.ID == op.ID {
+				return fmt.Errorf("operation %q: duplicate ID in batch", op.ID)
+			}
+		}
+		toRegister = append(toRegister, &op)
+	}
 
+	for _, op := range toRegister {
 		if _, exists := r.byTopic[op.Topic]; !exists {
 			r.topicOrder = append(r.topicOrder, op.Topic)
 		}
-
-		r.operations[op.ID] = &op
-		r.byTopic[op.Topic] = append(r.byTopic[op.Topic], &op)
+		r.operations[op.ID] = op
+		r.byTopic[op.Topic] = append(r.byTopic[op.Topic], op)
 	}
 	return nil
 }

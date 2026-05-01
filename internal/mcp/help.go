@@ -54,21 +54,16 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 				Count:     0,
 				Topics:    s.reg.Topics(),
 				NextStep:  fmt.Sprintf("Operation %q not found. Pick a topic (e.g., 'workouts') or use a valid operation ID.", opID),
-				NextTools: []string{"mcp_execute"},
+				NextTools: []string{"mcp_help"},
 			}, nil
 		}
 		entries := registry.MarshalForHelp([]*registry.Operation{op})
-
-		// Use topic suggestion if possible even for exact ID lookup.
-		if suggestion := s.reg.Suggestion(op.Topic); suggestion != "" {
-			nextStep = suggestion
-		}
 
 		return nil, HelpResponse{
 			Operations: entries,
 			Count:      1,
 			Note:       fmt.Sprintf("Showing details for operation %q. Use mcp_execute to run the example script.", opID),
-			NextStep:   nextStep,
+			NextStep:   "Review the operation details and use mcp_execute to run it.",
 			NextTools:  []string{"mcp_execute"},
 		}, nil
 	}
