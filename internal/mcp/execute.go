@@ -86,13 +86,13 @@ type ExecuteInput struct {
 
 // ExecuteResponse is the output envelope returned by mcp_execute.
 type ExecuteResponse struct {
-	Status   string          `json:"status"`
-	Result   json.RawMessage `json:"result,omitempty"`
-	Error    string          `json:"error,omitempty"`
-	APICalls int             `json:"api_calls"`
-	Stdout   string          `json:"stdout,omitempty"`
-	Stderr   string          `json:"stderr,omitempty"`
-	Warnings []string        `json:"warnings,omitempty"`
+	Status   string   `json:"status"`
+	Result   any      `json:"result,omitempty"`
+	Error    string   `json:"error,omitempty"`
+	APICalls int      `json:"api_calls"`
+	Stdout   string   `json:"stdout,omitempty"`
+	Stderr   string   `json:"stderr,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func (s *Server) handleMCPExecute(
@@ -155,9 +155,16 @@ func (s *Server) handleMCPExecute(
 		return nil, ExecuteResponse{}, fmt.Errorf("executor: %w", err)
 	}
 
+	var resultVal any
+	if len(result.Result) > 0 {
+		if err := json.Unmarshal(result.Result, &resultVal); err != nil {
+			resultVal = string(result.Result)
+		}
+	}
+
 	return nil, ExecuteResponse{
 		Status:   result.Status,
-		Result:   result.Result,
+		Result:   resultVal,
 		Error:    result.Error,
 		APICalls: result.APICalls,
 		Stdout:   result.Stdout,
