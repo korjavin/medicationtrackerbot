@@ -200,7 +200,7 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 				if strings.Contains(trimmed, "import medtracker") || strings.Contains(trimmed, "from medtracker") {
 					hasImportMedtracker = true
 				}
-				if strings.Contains(trimmed, "import output") || (hasImportMedtracker && strings.Contains(trimmed, "output")) {
+				if (strings.HasPrefix(trimmed, "import ") || strings.HasPrefix(trimmed, "from ")) && strings.Contains(trimmed, "output") {
 					hasImportOutput = true
 				}
 				if strings.HasPrefix(trimmed, "output(") {
