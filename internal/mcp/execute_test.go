@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -275,8 +276,15 @@ func TestMCPExecute_SuccessEnvelope(t *testing.T) {
 	if resp.Status != ExecuteStatusOK {
 		t.Errorf("expected status %q, got %q", ExecuteStatusOK, resp.Status)
 	}
-	if string(resp.Result) != string(result) {
-		t.Errorf("result mismatch: got %s", resp.Result)
+	resultBytes, err := json.Marshal(resp.Result)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	var wantNorm, gotNorm bytes.Buffer
+	_ = json.Compact(&wantNorm, result)
+	_ = json.Compact(&gotNorm, resultBytes)
+	if wantNorm.String() != gotNorm.String() {
+		t.Errorf("result mismatch: got %s", resultBytes)
 	}
 	if resp.APICalls != 1 {
 		t.Errorf("expected api_calls=1, got %d", resp.APICalls)
