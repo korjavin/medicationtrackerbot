@@ -45,6 +45,7 @@ type RunConfig struct {
 type BridgeRequest struct {
 	OperationID string            `json:"operation_id"`
 	Params      map[string]string `json:"params,omitempty"`
+	PathParams  map[string]string `json:"path_params,omitempty"`
 	Body        json.RawMessage   `json:"body,omitempty"`
 }
 
@@ -131,7 +132,11 @@ const (
 // Call performs a single operation call subject to run constraints.
 // It returns a CallResult (always populated on success) or a *CallError for
 // proxy-level rejections, or a plain error for transport/encoding failures.
-func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, params map[string]string, body json.RawMessage) (*CallResult, error) {
+//
+// pathParams supplies values for {name} placeholders declared in
+// op.PathParams; the bridge does the actual substitution. Pass nil if the
+// operation has no placeholders.
+func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, params map[string]string, pathParams map[string]string, body json.RawMessage) (*CallResult, error) {
 	op := p.reg.Get(operationID)
 	if op == nil {
 		slog.Warn("[Proxy] unknown operation", "operation_id", operationID)
@@ -177,6 +182,7 @@ func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, par
 	bridgeReq := BridgeRequest{
 		OperationID: operationID,
 		Params:      params,
+		PathParams:  pathParams,
 		Body:        body,
 	}
 	reqBody, err := json.Marshal(bridgeReq)

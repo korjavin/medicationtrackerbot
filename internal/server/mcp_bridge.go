@@ -31,11 +31,12 @@ const (
 
 // MCPOperation is the bridge's view of a registered operation.
 type MCPOperation struct {
-	ID     string
-	Topic  string
-	Method string
-	Path   string
-	Risk   string
+	ID         string
+	Topic      string
+	Method     string
+	Path       string
+	PathParams []string
+	Risk       string
 }
 
 // MCPRegistry is satisfied by any type that can look up an operation by ID.
@@ -208,11 +209,12 @@ func (a *RegistryAdapter) Get(id string) *MCPOperation {
 		return nil
 	}
 	return &MCPOperation{
-		ID:     op.ID,
-		Topic:  op.Topic,
-		Method: op.Method,
-		Path:   op.Path,
-		Risk:   string(op.Risk),
+		ID:         op.ID,
+		Topic:      op.Topic,
+		Method:     op.Method,
+		Path:       op.Path,
+		PathParams: append([]string(nil), op.PathParams...),
+		Risk:       string(op.Risk),
 	}
 }
 
@@ -225,6 +227,7 @@ func (s *Server) SetMCPRegistry(r MCPRegistry) {
 type BridgeRequest struct {
 	OperationID string            `json:"operation_id"`
 	Params      map[string]string `json:"params,omitempty"`
+	PathParams  map[string]string `json:"path_params,omitempty"`
 	Body        json.RawMessage   `json:"body,omitempty"`
 }
 
@@ -337,9 +340,16 @@ func (s *Server) handleMCPBridge(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 
-	internalURL, err := url.Parse(op.Path)
+	resolvedPath, err := opregistry.SubstitutePath(op.Path, op.PathParams, req.PathParams)
 	if err != nil {
-		slog.Error("[Bridge] invalid operation path", "operation_id", req.OperationID, "path", op.Path, "error", err)
+		slog.Warn("[Bridge] path_params validation failed", "operation_id", req.OperationID, "error", err)
+		http.Error(w, "invalid path_params: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	internalURL, err := url.Parse(resolvedPath)
+	if err != nil {
+		slog.Error("[Bridge] invalid operation path", "operation_id", req.OperationID, "path", resolvedPath, "error", err)
 		http.Error(w, "invalid operation path", http.StatusInternalServerError)
 		return
 	}

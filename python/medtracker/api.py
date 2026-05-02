@@ -7,8 +7,21 @@ import urllib.request
 import medtracker.exceptions as exc
 
 
-def call(operation_id: str, params: dict = None, body=None) -> dict:
+def call(
+    operation_id: str,
+    params: dict = None,
+    body=None,
+    path_params: dict = None,
+) -> dict:
     """Call a registered backend operation through the local proxy.
+
+    params: query string values (URL ?key=value).
+    path_params: values for {name} placeholders in the operation's URL path
+                 (e.g. medications.update has Path "/api/medications/{id}",
+                 so call with path_params={"id": 7}). Look up which placeholders
+                 an operation needs via mcp_help — its path_params field lists
+                 the required keys.
+    body:   JSON request body (dict or list).
 
     Returns the parsed response dict on success.
     Raises ProxyDenied for proxy-level rejections (write_blocked, unknown_op, …).
@@ -27,6 +40,8 @@ def call(operation_id: str, params: dict = None, body=None) -> dict:
     payload: dict = {"operation_id": operation_id}
     if params is not None:
         payload["params"] = params
+    if path_params is not None:
+        payload["path_params"] = path_params
     if body is not None:
         payload["body"] = body
 

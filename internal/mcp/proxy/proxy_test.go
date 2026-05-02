@@ -79,7 +79,7 @@ func TestProxy_UnknownOperationRejected(t *testing.T) {
 	srv := successBridge(t)
 
 	p := newProxy(reg, srv.URL)
-	_, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "nonexistent.op", nil, nil)
+	_, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "nonexistent.op", nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown operation")
 	}
@@ -97,7 +97,7 @@ func TestProxy_WriteBlockedInReadOnly(t *testing.T) {
 	srv := successBridge(t)
 
 	p := newProxy(reg, srv.URL)
-	_, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "workouts.sessions.create", nil, nil)
+	_, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "workouts.sessions.create", nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for write in read-only mode")
 	}
@@ -115,7 +115,7 @@ func TestProxy_WriteAllowedInWriteMode(t *testing.T) {
 	srv := successBridge(t)
 
 	p := newProxy(reg, srv.URL)
-	result, err := p.Call(context.Background(), RunConfig{Mode: ModeWrite, MaxAPICalls: 10}, "workouts.sessions.create", nil, nil)
+	result, err := p.Call(context.Background(), RunConfig{Mode: ModeWrite, MaxAPICalls: 10}, "workouts.sessions.create", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -135,13 +135,13 @@ func TestProxy_MaxCallsEnforced(t *testing.T) {
 	cfg := RunConfig{Mode: ModeReadOnly, MaxAPICalls: 2}
 
 	for i := 0; i < 2; i++ {
-		_, err := p.Call(context.Background(), cfg, "workouts.groups.list", nil, nil)
+		_, err := p.Call(context.Background(), cfg, "workouts.groups.list", nil, nil, nil)
 		if err != nil {
 			t.Fatalf("call %d unexpectedly failed: %v", i+1, err)
 		}
 	}
 
-	_, err := p.Call(context.Background(), cfg, "workouts.groups.list", nil, nil)
+	_, err := p.Call(context.Background(), cfg, "workouts.groups.list", nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error after max calls exceeded")
 	}
@@ -162,13 +162,13 @@ func TestProxy_TopicAllowlistEnforced(t *testing.T) {
 	cfg := RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10, TopicAllowlist: []string{"workouts"}}
 
 	// workouts topic allowed
-	_, err := p.Call(context.Background(), cfg, "workouts.groups.list", nil, nil)
+	_, err := p.Call(context.Background(), cfg, "workouts.groups.list", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("expected workouts topic to be allowed: %v", err)
 	}
 
 	// food topic not in allowlist
-	_, err = p.Call(context.Background(), cfg, "food.logs.list", nil, nil)
+	_, err = p.Call(context.Background(), cfg, "food.logs.list", nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for topic not in allowlist")
 	}
@@ -188,7 +188,7 @@ func TestProxy_TopicAllowlistEmpty_AllTopicsAllowed(t *testing.T) {
 	p := newProxy(reg, srv.URL)
 	cfg := RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10, TopicAllowlist: nil}
 
-	_, err := p.Call(context.Background(), cfg, "food.logs.list", nil, nil)
+	_, err := p.Call(context.Background(), cfg, "food.logs.list", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("expected food topic allowed when allowlist is nil: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestProxy_TraceFieldsPopulated(t *testing.T) {
 	srv := successBridge(t)
 
 	p := newProxy(reg, srv.URL)
-	result, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "workouts.groups.list", map[string]string{"limit": "5"}, nil)
+	result, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "workouts.groups.list", map[string]string{"limit": "5"}, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestProxy_HMACSignatureForwarded(t *testing.T) {
 	})
 
 	p := NewWithHTTPClient(reg, srv.URL, "my-secret", http.DefaultClient)
-	_, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "workouts.groups.list", nil, nil)
+	_, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "workouts.groups.list", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestProxy_BridgeNon200_TraceHasError(t *testing.T) {
 	})
 
 	p := newProxy(reg, srv.URL)
-	result, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "workouts.groups.list", nil, nil)
+	result, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "workouts.groups.list", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestProxy_BridgeNon200_BodyTruncatedInTrace(t *testing.T) {
 	})
 
 	p := newProxy(reg, srv.URL)
-	result, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "workouts.groups.list", nil, nil)
+	result, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly, MaxAPICalls: 10}, "workouts.groups.list", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -327,7 +327,7 @@ func TestProxy_ClampsListParamsBeforeForward(t *testing.T) {
 	p.SetMaxQueryDays(90)
 
 	// Caller tries to bypass the data window.
-	_, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly}, "health.bp.list", map[string]string{"days": "0", "limit": "0"}, nil)
+	_, err := p.Call(context.Background(), RunConfig{Mode: ModeReadOnly}, "health.bp.list", map[string]string{"days": "0", "limit": "0"}, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestProxy_ClampsListParamsBeforeForward(t *testing.T) {
 	}
 
 	// Caller tries to overshoot the data window cap.
-	_, err = p.Call(context.Background(), RunConfig{Mode: ModeReadOnly}, "health.bp.list", map[string]string{"days": "9999"}, nil)
+	_, err = p.Call(context.Background(), RunConfig{Mode: ModeReadOnly}, "health.bp.list", map[string]string{"days": "9999"}, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -356,7 +356,7 @@ func TestProxy_MaxAPICalls_Zero_Unlimited(t *testing.T) {
 	cfg := RunConfig{Mode: ModeReadOnly, MaxAPICalls: 0} // 0 means unlimited
 
 	for i := 0; i < 5; i++ {
-		_, err := p.Call(context.Background(), cfg, "workouts.groups.list", nil, nil)
+		_, err := p.Call(context.Background(), cfg, "workouts.groups.list", nil, nil, nil)
 		if err != nil {
 			t.Fatalf("call %d failed (MaxAPICalls=0 should be unlimited): %v", i+1, err)
 		}

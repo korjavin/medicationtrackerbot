@@ -194,6 +194,90 @@ func TestMCPHelp_NilRegistry(t *testing.T) {
 	}
 }
 
+// TestMCPHelp_FullCatalogIncludesCapabilities verifies that the empty-args
+// landing response carries a per-topic capability map; this is the entry-point
+// the agent reads to decide which topic can satisfy the user's request.
+func TestMCPHelp_FullCatalogIncludesCapabilities(t *testing.T) {
+	s := testServerWithRegistry(t)
+	resp, err := callHelp(t, s, HelpInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Capabilities) == 0 {
+		t.Fatal("expected capabilities map in landing response")
+	}
+
+	wantTopics := map[string]bool{"workouts": false, "food": false, "health": false, "medications": false}
+	for _, cap := range resp.Capabilities {
+		if _, ok := wantTopics[cap.Topic]; ok {
+			wantTopics[cap.Topic] = true
+		}
+		if cap.ReadCount == 0 && cap.WriteCount == 0 {
+			t.Errorf("topic %q reports zero ops", cap.Topic)
+		}
+		if cap.Suggestion == "" {
+			t.Errorf("topic %q missing Suggestion", cap.Topic)
+		}
+	}
+	for topic, seen := range wantTopics {
+		if !seen {
+			t.Errorf("capabilities missing topic %q", topic)
+		}
+	}
+
+	// The landing note must point the agent at mcp_execute and path_params.
+	if !strings.Contains(strings.ToLower(resp.Note), "mcp_execute") {
+		t.Errorf("note should reference mcp_execute, got: %s", resp.Note)
+	}
+	if !strings.Contains(strings.ToLower(resp.Note), "path_params") {
+		t.Errorf("note should reference path_params, got: %s", resp.Note)
+	}
+}
+
+// TestMCPHelp_MedicationsTopicAdvertisesCRUD verifies the medications topic
+// surfaces full CRUD via mcp_help so an agent looking for "create a medication"
+// finds medications.create instead of giving up like the transcripts showed.
+func TestMCPHelp_MedicationsTopicAdvertisesCRUD(t *testing.T) {
+	s := testServerWithRegistry(t)
+	resp, err := callHelp(t, s, HelpInput{Topic: "medications"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	required := []string{"medications.create", "medications.update", "medications.delete", "medications.restock"}
+	seen := make(map[string]bool)
+	for _, op := range resp.Operations {
+		seen[op.ID] = true
+	}
+	for _, id := range required {
+		if !seen[id] {
+			t.Errorf("medications topic missing required op: %s", id)
+		}
+	}
+	// The medications NextStep / Suggestion must mention writing-side actions.
+	if !strings.Contains(strings.ToLower(resp.NextStep), "medications.create") {
+		t.Errorf("medications next_step should advertise medications.create, got: %s", resp.NextStep)
+	}
+}
+
+// TestMCPHelp_PathParamsAdvertised checks that ops with {placeholders} expose
+// their path_params in HelpEntry, so the agent knows exactly what keys to pass
+// in api.call(path_params=...). This is the only signal the agent has when
+// composing a script that hits a path-templated route.
+func TestMCPHelp_PathParamsAdvertised(t *testing.T) {
+	s := testServerWithRegistry(t)
+	resp, err := callHelp(t, s, HelpInput{OperationID: "medications.update"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 op, got %d", resp.Count)
+	}
+	op := resp.Operations[0]
+	if len(op.PathParams) != 1 || op.PathParams[0] != "id" {
+		t.Errorf("expected path_params=[id], got %v", op.PathParams)
+	}
+}
+
 // callHelp is a test helper that invokes handleMCPHelp directly.
 func callHelp(t *testing.T, s *Server, input HelpInput) (HelpResponse, error) {
 	t.Helper()

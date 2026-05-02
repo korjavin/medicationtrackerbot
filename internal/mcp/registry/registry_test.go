@@ -617,6 +617,18 @@ func TestMedicationOperations(t *testing.T) {
 		"medications.history",
 		"medications.next_intake",
 		"medications.log_past",
+		"medications.create",
+		"medications.update",
+		"medications.delete",
+		"medications.snooze",
+		"medications.skip",
+		"medications.cancel_intake",
+		"medications.trigger_next_intake",
+		"medications.confirm_schedule",
+		"medications.intake.update",
+		"medications.restock",
+		"medications.restocks.list",
+		"medications.inventory.low",
 	}
 	for _, id := range required {
 		if r.Get(id) == nil {
@@ -625,7 +637,23 @@ func TestMedicationOperations(t *testing.T) {
 	}
 
 	writeOps := map[string]bool{
-		"medications.log_past": true,
+		"medications.log_past":            true,
+		"medications.create":              true,
+		"medications.update":              true,
+		"medications.delete":              true,
+		"medications.snooze":              true,
+		"medications.skip":                true,
+		"medications.cancel_intake":       true,
+		"medications.trigger_next_intake": true,
+		"medications.confirm_schedule":    true,
+		"medications.intake.update":       true,
+		"medications.restock":             true,
+	}
+	bodyOptional := map[string]bool{
+		// trigger_next_intake takes no body — the handler uses no input.
+		"medications.trigger_next_intake": true,
+		// delete is body-less; controlled via path_params only.
+		"medications.delete": true,
 	}
 	for _, op := range ops {
 		want := writeOps[op.ID]
@@ -635,7 +663,7 @@ func TestMedicationOperations(t *testing.T) {
 		if !want && op.Risk != RiskRead {
 			t.Errorf("medication op %s should be read, got %s", op.ID, op.Risk)
 		}
-		if want && op.BodySchema == nil {
+		if want && !bodyOptional[op.ID] && op.BodySchema == nil {
 			t.Errorf("medication write op %s missing BodySchema", op.ID)
 		}
 	}
@@ -683,5 +711,119 @@ func TestDefaultOperations(t *testing.T) {
 	}
 	if _, err := json.Marshal(entries); err != nil {
 		t.Errorf("default ops marshal failed: %v", err)
+	}
+}
+
+func TestRegister_PathParamsMustMatchPlaceholders(t *testing.T) {
+	tests := []struct {
+		name    string
+		op      *Operation
+		wantErr bool
+	}{
+		{
+			name: "no placeholders, no path_params",
+			op:   &Operation{ID: "x.a", Topic: "t", Method: "GET", Path: "/api/x", Risk: RiskRead},
+		},
+		{
+			name: "placeholder declared",
+			op:   &Operation{ID: "x.b", Topic: "t", Method: "GET", Path: "/api/x/{id}", PathParams: []string{"id"}, Risk: RiskRead},
+		},
+		{
+			name:    "placeholder undeclared",
+			op:      &Operation{ID: "x.c", Topic: "t", Method: "GET", Path: "/api/x/{id}", Risk: RiskRead},
+			wantErr: true,
+		},
+		{
+			name:    "path_params with no placeholder in path",
+			op:      &Operation{ID: "x.d", Topic: "t", Method: "GET", Path: "/api/x", PathParams: []string{"id"}, Risk: RiskRead},
+			wantErr: true,
+		},
+		{
+			name:    "duplicate name",
+			op:      &Operation{ID: "x.e", Topic: "t", Method: "GET", Path: "/api/x/{id}", PathParams: []string{"id", "id"}, Risk: RiskRead},
+			wantErr: true,
+		},
+		{
+			name:    "uppercase name rejected",
+			op:      &Operation{ID: "x.f", Topic: "t", Method: "GET", Path: "/api/x/{ID}", PathParams: []string{"ID"}, Risk: RiskRead},
+			wantErr: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := New().Register(tc.op)
+			if tc.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestSubstitutePath(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		allowed []string
+		values  map[string]string
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "no placeholder",
+			path: "/api/x", want: "/api/x",
+		},
+		{
+			name:    "single id",
+			path:    "/api/medications/{id}",
+			allowed: []string{"id"},
+			values:  map[string]string{"id": "42"},
+			want:    "/api/medications/42",
+		},
+		{
+			name:    "two placeholders",
+			path:    "/api/medications/{id}/restocks/{rid}",
+			allowed: []string{"id", "rid"},
+			values:  map[string]string{"id": "1", "rid": "2"},
+			want:    "/api/medications/1/restocks/2",
+		},
+		{
+			name:    "missing value",
+			path:    "/api/medications/{id}",
+			allowed: []string{"id"},
+			wantErr: true,
+		},
+		{
+			name:    "extra key rejected",
+			path:    "/api/medications",
+			values:  map[string]string{"id": "42"},
+			wantErr: true,
+		},
+		{
+			name:    "slash escaped",
+			path:    "/api/medications/{id}",
+			allowed: []string{"id"},
+			values:  map[string]string{"id": "1/2"},
+			want:    "/api/medications/1%2F2",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := SubstitutePath(tc.path, tc.allowed, tc.values)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got %q", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
