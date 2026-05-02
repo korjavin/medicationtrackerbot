@@ -22,6 +22,7 @@ type MedicationStore interface {
 	GetIntake(id int64) (*store.IntakeLog, error)
 	GetMedication(id int64) (*store.Medication, error)
 	GetIntakeReminders(intakeID int64) ([]int, error)
+	GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, error)
 	GetPendingIntakes() ([]store.IntakeLog, error)
 	GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]store.IntakeLog, error)
 	ConfirmIntake(id int64, takenAt time.Time) error
