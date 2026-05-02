@@ -875,6 +875,54 @@ func (s *Store) GetIntakeReminders(intakeID int64) ([]int, error) {
 	return ids, nil
 }
 
+func (s *Store) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, error) {
+	if len(intakeIDs) == 0 {
+		return make(map[int64][]int), nil
+	}
+
+	result := make(map[int64][]int)
+
+	chunkSize := 500
+	for i := 0; i < len(intakeIDs); i += chunkSize {
+		end := i + chunkSize
+		if end > len(intakeIDs) {
+			end = len(intakeIDs)
+		}
+		chunk := intakeIDs[i:end]
+
+		args := make([]interface{}, len(chunk))
+		placeholders := make([]string, len(chunk))
+		for j, id := range chunk {
+			args[j] = id
+			placeholders[j] = "?"
+		}
+
+		query := fmt.Sprintf("SELECT intake_id, message_id FROM intake_reminders WHERE intake_id IN (%s)", strings.Join(placeholders, ","))
+		rows, err := s.db.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var intakeID int64
+			var msgID int
+			if err := rows.Scan(&intakeID, &msgID); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			result[intakeID] = append(result[intakeID], msgID)
+		}
+
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	return result, nil
+}
+
 func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
 	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status, snoozed_until FROM intake_log WHERE user_id = ? AND scheduled_at = ? AND status = 'PENDING'", userID, scheduledAt)
 	if err != nil {

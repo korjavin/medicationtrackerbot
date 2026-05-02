@@ -44,6 +44,20 @@ func (m *mockMedicationStore) GetIntake(id int64) (*store.IntakeLog, error) {
 	return nil, nil
 }
 
+func (m *mockMedicationStore) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, error) {
+	result := make(map[int64][]int)
+	for _, id := range intakeIDs {
+		reminders, err := m.GetIntakeReminders(id)
+		if err != nil {
+			return nil, err
+		}
+		if len(reminders) > 0 {
+			result[id] = reminders
+		}
+	}
+	return result, nil
+}
+
 func (m *mockMedicationStore) GetMedication(id int64) (*store.Medication, error) {
 	if m.getMedicationFn != nil {
 		return m.getMedicationFn(id)
