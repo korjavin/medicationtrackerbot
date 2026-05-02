@@ -942,3 +942,33 @@ func TestDeleteIntake(t *testing.T) {
 		t.Errorf("expected nil after deletion, got %+v", intake)
 	}
 }
+
+func TestGetBatchIntakeReminders(t *testing.T) {
+	db := setupTestStore(t)
+
+	// Create some medications and intakes
+	med1, _ := db.CreateMedication("Med1", "5mg", `{"type":"daily","times":["09:00"]}`, nil, nil, "", "", "")
+
+	scheduled := time.Date(2026, 2, 28, 9, 0, 0, 0, time.UTC)
+	intake1, _ := db.CreateIntake(med1, 12345, scheduled)
+	intake2, _ := db.CreateIntake(med1, 12345, scheduled.Add(24*time.Hour))
+
+	// Add reminders
+	_, _ = db.db.Exec("INSERT INTO intake_reminders (intake_id, message_id) VALUES (?, ?), (?, ?)", intake1, 101, intake1, 102)
+	_, _ = db.db.Exec("INSERT INTO intake_reminders (intake_id, message_id) VALUES (?, ?)", intake2, 201)
+
+	reminders, err := db.GetBatchIntakeReminders([]int64{intake1, intake2})
+	if err != nil {
+		t.Fatalf("GetBatchIntakeReminders failed: %v", err)
+	}
+
+	if len(reminders) != 2 {
+		t.Fatalf("Expected 2 intakes in map, got %d", len(reminders))
+	}
+	if len(reminders[intake1]) != 2 {
+		t.Errorf("Expected 2 reminders for intake1, got %d", len(reminders[intake1]))
+	}
+	if len(reminders[intake2]) != 1 {
+		t.Errorf("Expected 1 reminder for intake2, got %d", len(reminders[intake2]))
+	}
+}
