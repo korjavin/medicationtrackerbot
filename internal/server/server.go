@@ -80,6 +80,10 @@ type Server struct {
 	nonces              NonceStore
 	mcpRegistry         MCPRegistry
 	internalMux         http.Handler
+	// routesRecorded captures every route registered during Routes() via the
+	// recordingMux wrapper, so the MCP coverage guard test can assert that
+	// every route is either covered by a registry op or in mcpCoverageExempt.
+	routesRecorded []RouteSpec
 }
 
 type rateLimiter struct {
@@ -356,7 +360,8 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 }
 
 func (s *Server) Routes() http.Handler {
-	mux := http.NewServeMux()
+	s.routesRecorded = nil
+	mux := newRecordingMux(&s.routesRecorded)
 
 	// Service Worker with special headers (must be at root scope)
 	mux.HandleFunc("/static/sw.js", s.serveServiceWorker)
@@ -400,7 +405,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("/auth/telegram/callback", authLimit(http.HandlerFunc(s.handleTelegramCallback)))
 
 	// API
-	apiMux := http.NewServeMux()
+	apiMux := newRecordingMux(&s.routesRecorded)
 	apiMux.HandleFunc("GET /api/medications", s.handleListMedications)
 	apiMux.HandleFunc("POST /api/medications", s.handleCreateMedication)
 	apiMux.HandleFunc("POST /api/medications/{id}", s.handleUpdateMedication)

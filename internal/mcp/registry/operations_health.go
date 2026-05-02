@@ -51,6 +51,80 @@ output(result)`,
 output(result)`,
 		},
 		{
+			ID:         "health.bp.delete",
+			Topic:      "health",
+			Method:     "DELETE",
+			Path:       "/api/bp/{id}",
+			PathParams: []string{"id"},
+			Risk:       RiskWrite,
+			Description:     "Delete a single blood pressure reading by id.",
+			ResponseSummary: "Empty body on success (HTTP 200/204).",
+			Example: `api.call("health.bp.delete", path_params={"id": 7})
+output({"deleted": 7})`,
+		},
+		{
+			ID:              "health.bp.reminder.status",
+			Topic:           "health",
+			Method:          "GET",
+			Path:            "/api/bp/reminder/status",
+			Risk:            RiskRead,
+			Description:     "Get the BP reminder state: enabled flag, snooze-until timestamp, dontbug-until timestamp, last/next reminder times.",
+			ResponseSummary: "ReminderState object with enabled, snoozed_until, dontbug_until, last_reminded_at, next_reminder_at.",
+			Example: `result = api.call("health.bp.reminder.status")
+output(result)`,
+		},
+		{
+			ID:     "health.bp.reminder.toggle",
+			Topic:  "health",
+			Method: "POST",
+			Path:   "/api/bp/reminder/toggle",
+			Risk:   RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["enabled"],
+  "properties": {
+    "enabled": {"type": "boolean", "description": "true to enable BP reminders, false to turn them off"}
+  }
+}`),
+			Description:     "Enable or disable the daily BP measurement reminder.",
+			ResponseSummary: "Object {enabled, status:\"success\"}.",
+			Example: `api.call("health.bp.reminder.toggle", body={"enabled": True})
+output({"enabled": True})`,
+		},
+		{
+			ID:              "health.bp.reminder.snooze",
+			Topic:           "health",
+			Method:          "POST",
+			Path:            "/api/bp/reminder/snooze",
+			Risk:            RiskWrite,
+			Description:     "Snooze the BP reminder for 2 hours and clear any pending notification.",
+			ResponseSummary: "Object {status:\"success\", message}.",
+			Example: `api.call("health.bp.reminder.snooze")
+output({"snoozed": True})`,
+		},
+		{
+			ID:              "health.bp.reminder.dontbug",
+			Topic:           "health",
+			Method:          "POST",
+			Path:            "/api/bp/reminder/dontbug",
+			Risk:            RiskWrite,
+			Description:     "Suppress BP reminders until the user re-enables them; clears any pending notification.",
+			ResponseSummary: "Object {status:\"success\"}.",
+			Example: `api.call("health.bp.reminder.dontbug")
+output({"silenced": True})`,
+		},
+		{
+			ID:              "health.bp.reminder.test",
+			Topic:           "health",
+			Method:          "POST",
+			Path:            "/api/bp/reminder/test",
+			Risk:            RiskWrite,
+			Description:     "Send a test BP reminder notification through the configured channels (Telegram + web push). Useful for validating notification setup.",
+			ResponseSummary: "Object {status:\"success\"}.",
+			Example: `api.call("health.bp.reminder.test")
+output({"sent": True})`,
+		},
+		{
 			ID:     "health.bp.create",
 			Topic:  "health",
 			Method: "POST",
@@ -116,6 +190,69 @@ output(result)`,
 output(result)`,
 		},
 		{
+			ID:         "health.weight.delete",
+			Topic:      "health",
+			Method:     "DELETE",
+			Path:       "/api/weight/{id}",
+			PathParams: []string{"id"},
+			Risk:       RiskWrite,
+			Description:     "Delete a single weight log entry by id.",
+			ResponseSummary: "Empty body on success (HTTP 200/204).",
+			Example: `api.call("health.weight.delete", path_params={"id": 11})
+output({"deleted": 11})`,
+		},
+		{
+			ID:              "health.weight.reminder.status",
+			Topic:           "health",
+			Method:          "GET",
+			Path:            "/api/weight/reminder/status",
+			Risk:            RiskRead,
+			Description:     "Get the weight reminder state: enabled flag, snooze-until, dontbug-until, last/next reminder times.",
+			ResponseSummary: "ReminderState object with enabled, snoozed_until, dontbug_until, last_reminded_at, next_reminder_at.",
+			Example: `result = api.call("health.weight.reminder.status")
+output(result)`,
+		},
+		{
+			ID:     "health.weight.reminder.toggle",
+			Topic:  "health",
+			Method: "POST",
+			Path:   "/api/weight/reminder/toggle",
+			Risk:   RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["enabled"],
+  "properties": {
+    "enabled": {"type": "boolean", "description": "true to enable weight reminders, false to turn them off"}
+  }
+}`),
+			Description:     "Enable or disable the weight measurement reminder.",
+			ResponseSummary: "Object {enabled, status:\"success\"}.",
+			Example: `api.call("health.weight.reminder.toggle", body={"enabled": True})
+output({"enabled": True})`,
+		},
+		{
+			ID:              "health.weight.reminder.snooze",
+			Topic:           "health",
+			Method:          "POST",
+			Path:            "/api/weight/reminder/snooze",
+			Risk:            RiskWrite,
+			Description:     "Snooze the weight reminder and clear any pending notification.",
+			ResponseSummary: "Object {status:\"success\", message}.",
+			Example: `api.call("health.weight.reminder.snooze")
+output({"snoozed": True})`,
+		},
+		{
+			ID:              "health.weight.reminder.dontbug",
+			Topic:           "health",
+			Method:          "POST",
+			Path:            "/api/weight/reminder/dontbug",
+			Risk:            RiskWrite,
+			Description:     "Suppress weight reminders until the user re-enables them; clears any pending notification.",
+			ResponseSummary: "Object {status:\"success\"}.",
+			Example: `api.call("health.weight.reminder.dontbug")
+output({"silenced": True})`,
+		},
+		{
 			ID:     "health.weight.create",
 			Topic:  "health",
 			Method: "POST",
@@ -141,6 +278,19 @@ output(result)`,
 output(result)`,
 		},
 
+		// --- Cross-domain dashboard ---
+		{
+			ID:              "health.overview",
+			Topic:           "health",
+			Method:          "GET",
+			Path:            "/api/health/overview",
+			Risk:            RiskRead,
+			Description:     "Aggregate dashboard read: recent BP/weight summaries plus medication adherence over a default window. Useful for a single-call \"how am I doing\" snapshot.",
+			ResponseSummary: "Aggregate object with bp summary, weight summary, medication adherence stats.",
+			Example: `result = api.call("health.overview")
+output(result)`,
+		},
+
 		// --- Diary notes (covers sleep, vitals, steps via tag) ---
 		{
 			ID:     "health.notes.list",
@@ -161,6 +311,18 @@ output(result)`,
 			Example: `result = api.call("health.notes.list", params={"limit": 100})
 sleep_notes = [n for n in result if n.get("tag") == "SLEEP"]
 output(sleep_notes)`,
+		},
+		{
+			ID:         "health.notes.delete",
+			Topic:      "health",
+			Method:     "DELETE",
+			Path:       "/api/notes/{id}",
+			PathParams: []string{"id"},
+			Risk:       RiskWrite,
+			Description:     "Delete a diary note by id. Use when the user asks to remove a sleep/vitals/notes entry.",
+			ResponseSummary: "Empty body on success (HTTP 200).",
+			Example: `api.call("health.notes.delete", path_params={"id": 11})
+output({"deleted": 11})`,
 		},
 		{
 			ID:     "health.notes.create",
