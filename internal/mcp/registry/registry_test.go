@@ -395,13 +395,33 @@ func TestWorkoutOperations(t *testing.T) {
 	// expected write ops is enumerated explicitly so a future regression
 	// (e.g. a typo flipping a read op to write) trips the test.
 	writeOps := map[string]bool{
-		"workouts.exercises.update": true,
-		"workouts.groups.create":    true,
-		"workouts.groups.update":    true,
-		"workouts.variants.create":  true,
-		"workouts.variants.update":  true,
-		"workouts.exercises.create": true,
-		"workouts.exercises.delete": true,
+		"workouts.exercises.update":         true,
+		"workouts.groups.create":            true,
+		"workouts.groups.update":            true,
+		"workouts.groups.delete":            true,
+		"workouts.variants.create":          true,
+		"workouts.variants.update":          true,
+		"workouts.variants.delete":          true,
+		"workouts.exercises.create":         true,
+		"workouts.exercises.delete":         true,
+		"workouts.exercise_library.create":  true,
+		"workouts.exercise_library.update":  true,
+		"workouts.exercise_library.delete":  true,
+		"workouts.miband.update":            true,
+		"workouts.miband.delete":            true,
+		"workouts.rotation.initialize":      true,
+		"workouts.sessions.adhoc":           true,
+		"workouts.sessions.delete":          true,
+		"workouts.sessions.snooze":          true,
+		"workouts.sessions.skip":            true,
+		"workouts.sessions.preskip":         true,
+		"workouts.sessions.cancel_preskip":  true,
+		"workouts.sessions.next_variant":    true,
+		"workouts.sessions.start":           true,
+		"workouts.sessions.logs.create":     true,
+		"workouts.sessions.logs.update":     true,
+		"workouts.sessions.logs.delete":     true,
+		"workouts.sessions.status":          true,
 	}
 	for _, op := range ops {
 		wantWrite := writeOps[op.ID]
@@ -494,10 +514,15 @@ func TestFoodOperations(t *testing.T) {
 	required := []string{
 		"food.log.list",
 		"food.log.create",
+		"food.log.update",
+		"food.log.delete",
 		"food.stats.read",
 		"food.targets.read",
 		"food.targets.set",
 		"food.products.search",
+		"food.products.update",
+		"food.products.delete",
+		"food.products.from_logs",
 	}
 	for _, id := range required {
 		if r.Get(id) == nil {
@@ -506,8 +531,17 @@ func TestFoodOperations(t *testing.T) {
 	}
 
 	writeOps := map[string]bool{
-		"food.log.create":  true,
-		"food.targets.set": true,
+		"food.log.create":         true,
+		"food.log.update":         true,
+		"food.log.delete":         true,
+		"food.targets.set":        true,
+		"food.products.update":    true,
+		"food.products.delete":    true,
+		"food.products.from_logs": true,
+	}
+	bodyOptional := map[string]bool{
+		"food.log.delete":      true,
+		"food.products.delete": true,
 	}
 	for _, op := range ops {
 		want := writeOps[op.ID]
@@ -517,7 +551,7 @@ func TestFoodOperations(t *testing.T) {
 		if !want && op.Risk != RiskRead {
 			t.Errorf("food op %s should be read, got %s", op.ID, op.Risk)
 		}
-		if want && op.BodySchema == nil {
+		if want && !bodyOptional[op.ID] && op.BodySchema == nil {
 			t.Errorf("food write op %s missing BodySchema", op.ID)
 		}
 	}
@@ -550,11 +584,22 @@ func TestHealthOperations(t *testing.T) {
 	required := []string{
 		"health.bp.list",
 		"health.bp.create",
+		"health.bp.delete",
 		"health.bp.stats",
 		"health.bp.goal.read",
+		"health.bp.reminder.status",
+		"health.bp.reminder.toggle",
+		"health.bp.reminder.snooze",
+		"health.bp.reminder.dontbug",
+		"health.bp.reminder.test",
 		"health.weight.list",
 		"health.weight.create",
+		"health.weight.delete",
 		"health.weight.goal.read",
+		"health.weight.reminder.status",
+		"health.weight.reminder.toggle",
+		"health.weight.reminder.snooze",
+		"health.weight.reminder.dontbug",
 		"health.notes.list",
 		"health.notes.create",
 	}
@@ -565,9 +610,30 @@ func TestHealthOperations(t *testing.T) {
 	}
 
 	writeOps := map[string]bool{
-		"health.bp.create":     true,
-		"health.weight.create": true,
-		"health.notes.create":  true,
+		"health.bp.create":               true,
+		"health.bp.delete":               true,
+		"health.bp.reminder.toggle":      true,
+		"health.bp.reminder.snooze":      true,
+		"health.bp.reminder.dontbug":     true,
+		"health.bp.reminder.test":        true,
+		"health.weight.create":           true,
+		"health.weight.delete":           true,
+		"health.weight.reminder.toggle":  true,
+		"health.weight.reminder.snooze":  true,
+		"health.weight.reminder.dontbug": true,
+		"health.notes.create":            true,
+		"health.notes.delete":            true,
+	}
+	// These write ops have no body — only path_params or fixed effect.
+	bodyOptional := map[string]bool{
+		"health.bp.delete":               true,
+		"health.bp.reminder.snooze":      true,
+		"health.bp.reminder.dontbug":     true,
+		"health.bp.reminder.test":        true,
+		"health.weight.delete":           true,
+		"health.weight.reminder.snooze":  true,
+		"health.weight.reminder.dontbug": true,
+		"health.notes.delete":            true,
 	}
 	for _, op := range ops {
 		want := writeOps[op.ID]
@@ -577,7 +643,7 @@ func TestHealthOperations(t *testing.T) {
 		if !want && op.Risk != RiskRead {
 			t.Errorf("health op %s should be read, got %s", op.ID, op.Risk)
 		}
-		if want && op.BodySchema == nil {
+		if want && !bodyOptional[op.ID] && op.BodySchema == nil {
 			t.Errorf("health write op %s missing BodySchema", op.ID)
 		}
 	}
@@ -648,12 +714,16 @@ func TestMedicationOperations(t *testing.T) {
 		"medications.confirm_schedule":    true,
 		"medications.intake.update":       true,
 		"medications.restock":             true,
+		"medications.tz_plan.approve":     true,
+		"medications.tz_plan.reject":      true,
 	}
 	bodyOptional := map[string]bool{
 		// trigger_next_intake takes no body — the handler uses no input.
 		"medications.trigger_next_intake": true,
 		// delete is body-less; controlled via path_params only.
-		"medications.delete": true,
+		"medications.delete":          true,
+		"medications.tz_plan.approve": true,
+		"medications.tz_plan.reject":  true,
 	}
 	for _, op := range ops {
 		want := writeOps[op.ID]

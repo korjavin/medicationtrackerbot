@@ -133,6 +133,120 @@ output(result)`,
 output(result)`,
 		},
 		{
+			ID:         "food.log.update",
+			Topic:      "food",
+			Method:     "PUT",
+			Path:       "/api/food/log/{id}",
+			PathParams: []string{"id"},
+			Risk:       RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["eaten_at", "weight", "calories"],
+  "properties": {
+    "eaten_at":   {"type": "string", "description": "ISO8601 timestamp (RFC3339 preferred)"},
+    "weight":     {"type": "integer", "description": "Grams consumed (>= 0)"},
+    "carbs":      {"type": "integer"},
+    "protein":    {"type": "integer"},
+    "fat":        {"type": "integer"},
+    "calories":   {"type": "integer"},
+    "name":       {"type": "string"},
+    "product_id": {"type": ["integer", "null"]},
+    "barcode":    {"type": "string"},
+    "per_100g":   {"type": "boolean", "description": "If true, server scales the macros by weight"}
+  }
+}`),
+			Description:     "Update an existing food log entry. The body shape mirrors food.log.create; this is a full replacement, so always read the existing log via food.log.list and send the merged object back.",
+			ResponseSummary: "Updated FoodLog object.",
+			Example: `api.call(
+    "food.log.update",
+    path_params={"id": 42},
+    body={
+        "eaten_at": "2026-04-29T12:30:00Z",
+        "weight": 250,
+        "calories": 280,
+        "carbs": 42, "protein": 9, "fat": 6,
+        "name": "Oatmeal with banana",
+    },
+)
+output({"updated": 42})`,
+		},
+		{
+			ID:         "food.log.delete",
+			Topic:      "food",
+			Method:     "DELETE",
+			Path:       "/api/food/log/{id}",
+			PathParams: []string{"id"},
+			Risk:       RiskWrite,
+			Description:     "Delete a food log entry by id.",
+			ResponseSummary: "Empty body on success (HTTP 200).",
+			Example: `api.call("food.log.delete", path_params={"id": 42})
+output({"deleted": 42})`,
+		},
+		{
+			ID:         "food.products.update",
+			Topic:      "food",
+			Method:     "PUT",
+			Path:       "/api/food/products/{id}",
+			PathParams: []string{"id"},
+			Risk:       RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "name":             {"type": "string"},
+    "barcode":          {"type": "string"},
+    "carbs_100g":       {"type": "number"},
+    "protein_100g":     {"type": "number"},
+    "fat_100g":         {"type": "number"},
+    "energy_kcal_100g": {"type": "number"},
+    "is_meal":          {"type": "boolean"},
+    "total_weight_g":   {"type": "integer", "description": "Reference weight for is_meal=true entries"}
+  }
+}`),
+			Description:     "Update a saved food product. Full-replacement semantics: omitted fields decode to zero values. Read the product via food.products.list/search before sending.",
+			ResponseSummary: "Updated FoodProduct object.",
+			Example: `api.call(
+    "food.products.update",
+    path_params={"id": 7},
+    body={"name": "Oatmeal", "carbs_100g": 60, "protein_100g": 12, "fat_100g": 7, "energy_kcal_100g": 360},
+)
+output({"updated": 7})`,
+		},
+		{
+			ID:         "food.products.delete",
+			Topic:      "food",
+			Method:     "DELETE",
+			Path:       "/api/food/products/{id}",
+			PathParams: []string{"id"},
+			Risk:       RiskWrite,
+			Description:     "Delete a saved food product by id.",
+			ResponseSummary: "Empty body on success (HTTP 200).",
+			Example: `api.call("food.products.delete", path_params={"id": 7})
+output({"deleted": 7})`,
+		},
+		{
+			ID:     "food.products.from_logs",
+			Topic:  "food",
+			Method: "POST",
+			Path:   "/api/food/products/from-logs",
+			Risk:   RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["name", "log_ids"],
+  "properties": {
+    "name":    {"type": "string", "description": "Display name for the new meal product"},
+    "log_ids": {"type": "array", "items": {"type": "integer"}, "minItems": 1, "description": "Food log entries to aggregate into the meal"}
+  }
+}`),
+			Description:     "Promote a set of food log entries into a saved meal product (so the user can re-log the meal later by reference).",
+			ResponseSummary: "Created FoodProduct object with is_meal=true.",
+			Example: `result = api.call(
+    "food.products.from_logs",
+    body={"name": "Sunday Brunch", "log_ids": [101, 102, 103]},
+)
+output(result)`,
+		},
+		{
 			ID:     "food.targets.set",
 			Topic:  "food",
 			Method: "POST",
