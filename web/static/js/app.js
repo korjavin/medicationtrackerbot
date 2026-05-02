@@ -2452,29 +2452,6 @@ function escapeHtml(text) {
 
 // loadMeds(), populateMedFilter(), saveMedication(), deleteMed() moved to features/meds.js (Phase 5 Task 1)
 
-async function _archiveMedApi(id) {
-    // Fetch current med data first to preserve other fields
-    const med = medications.find(m => m.id === id);
-    if (!med) return;
-
-    const payload = {
-        name: med.name,
-        dosage: med.dosage,
-        schedule: med.schedule,
-        supplement: !!med.supplement,
-        archived: true // Set archived to true
-    };
-
-    const res = await apiCall(`/api/medications/${id}`, 'POST', payload);
-    if (res === null) return; // Offline or error — apiCall already alerted if needed
-    if (res && res.warning) {
-        safeAlert("⚠️ " + res.warning);
-    }
-    await window.DataStore.invalidateTags(['medications', 'history']);
-    await window.DataStore.invalidateKey('next_intake');
-    loadMeds();
-}
-
 async function loadHistory() {
     // Ensure medications are loaded for name resolution
     // populateMedFilter() is called inside loadMeds(), so only call it explicitly
