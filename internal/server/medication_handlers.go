@@ -250,14 +250,23 @@ func (s *Server) handleUpdateMedication(w http.ResponseWriter, r *http.Request) 
 	if req.Archived {
 		pending, err := s.meds.GetPendingIntakesForMedication(id)
 		if err == nil {
+			var intakeIDs []int64
 			for _, p := range pending {
-				// 1. Delete notification messages
-				msgIDs, err := s.meds.GetIntakeReminders(p.ID)
-				if err == nil {
+				intakeIDs = append(intakeIDs, p.ID)
+			}
+
+			remindersMap, err := s.meds.GetBatchIntakeReminders(intakeIDs)
+			if err != nil {
+				slog.Error("GetBatchIntakeReminders failed", "error", err)
+			} else {
+				for _, msgIDs := range remindersMap {
 					for _, msgID := range msgIDs {
 						s.deleteNotification(r.Context(), msgID)
 					}
 				}
+			}
+
+			for _, p := range pending {
 				// 2. Delete the pending intake
 				if err := s.meds.DeleteIntake(p.ID); err != nil {
 					slog.Error("delete intake failed", "intakeID", p.ID, "error", err)
