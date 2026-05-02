@@ -201,7 +201,7 @@ describe('app.js medication modal CRUD and history edge branches', () => {
     }
   });
 
-  it('deleteMed and _archiveMedApi cover Telegram confirm fallback and archive warning path', async () => {
+  it('deleteMed covers Telegram confirm fallback and archive warning path', async () => {
     const { window, cleanup } = loadFrontendEnv({ telegramInitData: 'token=abc' });
 
     try {
@@ -215,24 +215,28 @@ describe('app.js medication modal CRUD and history edge branches', () => {
         }
       ]);
 
-      const archiveSpy = vi.spyOn(window, '_archiveMedApi').mockResolvedValue(undefined);
+      window.apiCall = vi.fn().mockResolvedValue(null); // success but no warning for first call
       window.Telegram.WebApp.showConfirm = vi.fn((_msg, cb) => cb(true));
-      window.deleteMed(1);
-      expect(archiveSpy).toHaveBeenCalledWith(1);
+      await window.deleteMed(1);
+      expect(window.apiCall).toHaveBeenCalledWith('/api/medications/1', 'POST', expect.objectContaining({
+        archived: true
+      }));
 
+      window.apiCall.mockClear();
       window.Telegram.WebApp.showConfirm = vi.fn(() => { throw new Error('unsupported'); });
       window.confirm = vi.fn().mockReturnValue(true);
-      window.deleteMed(1);
+      await window.deleteMed(1);
       expect(window.confirm).toHaveBeenCalledWith('Archive this medication?');
 
-      archiveSpy.mockRestore();
       window.Telegram.WebApp.showAlert = vi.fn();
       window.apiCall = vi.fn().mockResolvedValue({ warning: 'already archived' });
       window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
       window.DataStore.invalidateKey = vi.fn().mockResolvedValue(undefined);
       window.loadMeds = vi.fn();
 
-      await window._archiveMedApi(1);
+      window.Telegram.WebApp.showConfirm = vi.fn((_msg, cb) => cb(true));
+      await window.deleteMed(1);
+
       expect(window.apiCall).toHaveBeenCalledWith('/api/medications/1', 'POST', expect.objectContaining({
         archived: true
       }));
