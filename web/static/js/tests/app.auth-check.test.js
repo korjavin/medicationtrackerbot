@@ -27,7 +27,10 @@ describe('app.js checkAuth behavior', () => {
 
       expect(authorized).toBe(true);
       expect(window.fetch).toHaveBeenNthCalledWith(1, '/auth/status', { method: 'GET', credentials: 'same-origin' });
-      expect(window.fetch).toHaveBeenCalledWith('/api/bootstrap', { method: 'GET' });
+      expect(window.fetch).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/api\/bootstrap\?(tz=|tz_offset=)/),
+        { method: 'GET' }
+      );
 
       const cachedAuth = JSON.parse(window.localStorage.getItem(AUTH_CACHE_KEY));
       expect(cachedAuth.authenticated).toBe(true);

@@ -127,6 +127,58 @@ func TestHandleBootstrap(t *testing.T) {
 	}
 }
 
+func TestHandleBootstrap_IncludesTodayFood(t *testing.T) {
+	srv, db := createBPTestServer(t)
+	defer db.Close()
+
+	// Pre-existing food row eaten earlier today, in UTC.
+	if _, err := db.CreateFoodLog(context.Background(), &store.FoodLog{
+		UserID:   123456,
+		EatenAt:  time.Now().UTC().Add(-2 * time.Hour),
+		Weight:   100,
+		Calories: 250,
+		Carbs:    30,
+		Protein:  10,
+		Fat:      5,
+		Name:     "bootstrap test meal",
+	}); err != nil {
+		t.Fatalf("CreateFoodLog: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/bootstrap?tz=UTC", nil)
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+	srv.handleBootstrap(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+
+	var payload map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&payload); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	food, ok := payload["food"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected food object in bootstrap payload, got %T (%v)", payload["food"], payload["food"])
+	}
+	dateStr, ok := food["date"].(string)
+	if !ok || dateStr == "" {
+		t.Fatalf("Expected food.date string, got %v", food["date"])
+	}
+	if got := time.Now().UTC().Format("2006-01-02"); dateStr != got {
+		t.Fatalf("Expected food.date=%s, got %s", got, dateStr)
+	}
+	groups, ok := food["groups"].([]any)
+	if !ok {
+		t.Fatalf("Expected food.groups array, got %T", food["groups"])
+	}
+	if len(groups) == 0 {
+		t.Fatalf("Expected at least one food group for today's eaten log")
+	}
+}
+
 func TestHandleChanges(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
