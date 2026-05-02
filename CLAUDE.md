@@ -75,6 +75,7 @@ go run cmd/genvapid/main.go                                   # VAPID keys for w
 | API endpoints | [docs/api.md](docs/api.md) |
 | Environment variables | [docs/environment.md](docs/environment.md) |
 | MCP server deployment (Pocket-ID, Docker, Claude config) | [docs/mcp-deployment.md](docs/mcp-deployment.md) |
+| MCP coverage policy (every route covered by registry op or allowlist) | [docs/mcp-coverage.md](docs/mcp-coverage.md) |
 | Frontend architecture, load order, globals, design tokens, data flow | [docs/frontend.md](docs/frontend.md) |
 | Technical decisions (polling, offline writes, 5xx-as-offline, vanilla JS) | [docs/technical-decisions.md](docs/technical-decisions.md) |
 | Installer | [docs/installer.md](docs/installer.md) |
@@ -95,7 +96,11 @@ go run cmd/genvapid/main.go                                   # VAPID keys for w
 
 ### Adding an MCP tool
 
-For most new backend capabilities, prefer adding an entry to the operation registry (`internal/mcp/registry/`) so it becomes reachable from `mcp_execute` Python scripts via the proxy → bridge path — no new MCP tool registration required. Only add a top-level MCP tool when a granular tool has a clear standalone use case (e.g., `workout_log`'s natural-language inference). See [docs/mcp-deployment.md](docs/mcp-deployment.md#adding-mcp-tools) and [docs/mcp-python-executor.md](docs/mcp-python-executor.md).
+For most new backend capabilities, prefer adding an entry to the operation registry (`internal/mcp/registry/`) so it becomes reachable from `mcp_execute` Python scripts via the proxy → bridge path — no new MCP tool registration required. Only add a top-level MCP tool when a granular tool has a clear standalone use case (e.g., `workout_log`'s natural-language inference). See [docs/mcp-deployment.md](docs/mcp-deployment.md#adding-mcp-tools), [docs/mcp-python-executor.md](docs/mcp-python-executor.md), and [docs/mcp-coverage.md](docs/mcp-coverage.md).
+
+### Adding a new HTTP route
+
+Every backend route registered on the server MUST be either reachable via the MCP operation registry OR explicitly listed in `internal/server/mcp_coverage_exempt.go` with a `Reason`. The guard test `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` enforces this — adding a new `apiMux.HandleFunc(...)` line and shipping without one of these will fail CI. For routes that are user-actionable, register an `Operation` (with description + schemas + path_params if applicable) in `internal/mcp/registry/operations_<topic>.go`. For routes that are UI shell, auth, bootstrap/sync, web-push subscription, settings/feature toggles, or internal MCP plumbing, add an entry to `mcpCoverageExempt`. See [docs/mcp-coverage.md](docs/mcp-coverage.md) for the full policy.
 
 ### Modifying workout rotation
 

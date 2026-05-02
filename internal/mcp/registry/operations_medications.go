@@ -339,6 +339,37 @@ output({"confirmed": 123})`,
 )
 output({"updated": 123})`,
 		},
+		// --- Timezone transition plans ---
+		// When the user changes their timezone in settings, the scheduler creates
+		// a TZ transition plan describing how each active medication's schedule
+		// should be reconciled. The plan stays PENDING until the user explicitly
+		// approves or rejects it. The plan_id comes from a UI surface or a
+		// Telegram notification — agents can't list pending plans (no list
+		// endpoint), but they can act on a plan_id surfaced elsewhere.
+		{
+			ID:         "medications.tz_plan.approve",
+			Topic:      "medications",
+			Method:     "POST",
+			Path:       "/api/tz-plan/{id}/approve",
+			PathParams: []string{"id"},
+			Risk:       RiskWrite,
+			Description:     "Approve a pending timezone transition plan, letting the medication scheduler execute the reconciliation. Returns 409 if the plan is no longer pending.",
+			ResponseSummary: "Empty body on success (HTTP 200).",
+			Example: `api.call("medications.tz_plan.approve", path_params={"id": 12})
+output({"approved": 12})`,
+		},
+		{
+			ID:         "medications.tz_plan.reject",
+			Topic:      "medications",
+			Method:     "POST",
+			Path:       "/api/tz-plan/{id}/reject",
+			PathParams: []string{"id"},
+			Risk:       RiskWrite,
+			Description:     "Reject a pending timezone transition plan; the stored timezone is reverted to the previous value. Returns 409 if the plan is no longer pending.",
+			ResponseSummary: "Empty body on success (HTTP 200).",
+			Example: `api.call("medications.tz_plan.reject", path_params={"id": 12})
+output({"rejected": 12})`,
+		},
 		{
 			ID:     "medications.restock",
 			Topic:  "medications",
