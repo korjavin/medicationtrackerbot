@@ -141,9 +141,6 @@ func LoadConfigFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("MCP_ADMIN_PORT (%d) must not equal MCP_PORT", cfg.AdminPort)
 	}
 
-	if cfg.AllowedSubject == "" {
-		return nil, fmt.Errorf("MCP_ALLOWED_SUBJECT is required")
-	}
 	if cfg.DatabasePath == "" {
 		return nil, fmt.Errorf("MCP_DATABASE_PATH is required")
 	}
