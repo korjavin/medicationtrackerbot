@@ -52,8 +52,17 @@
     }
 
     let activeConversation = null;
+    // Live call state tracked outside the DOM so we can restore the correct
+    // button text / status when the Today screen re-renders mid-call (sync
+    // refresh, tab switch). Without this, a fresh card always mounts in
+    // 'idle' state while activeConversation is still set, so clicking the
+    // "Call agent" button hits the early-return in startCall() and does
+    // nothing — leaving the user with no way to end the call.
+    let activeCard = null;
+    let activeState = 'idle';
+    let activeMessage = '';
 
-    function setState(card, state, message) {
+    function applyState(card, state, message) {
         if (!card) return;
         card.dataset.state = state;
         const btn = card.querySelector('.wg-call-card__btn');
@@ -74,17 +83,25 @@
         }
     }
 
+    function setState(state, message) {
+        activeState = state;
+        activeMessage = message || '';
+        applyState(activeCard, state, activeMessage);
+    }
+
     async function endCall() {
         const conv = activeConversation;
         activeConversation = null;
         if (conv && typeof conv.endSession === 'function') {
             try { await conv.endSession(); } catch (_) { /* ignore */ }
         }
+        setState('idle', '');
     }
 
     async function startCall(card) {
         if (activeConversation) return;
-        setState(card, 'connecting', 'Connecting…');
+        activeCard = card;
+        setState('connecting', 'Connecting…');
         try {
             const [signedUrl, sdk] = await Promise.all([
                 fetchSignedURL(),
@@ -96,20 +113,20 @@
             }
             activeConversation = await Conversation.startSession({
                 signedUrl,
-                onConnect: () => setState(card, 'in_call', 'Connected'),
+                onConnect: () => setState('in_call', 'Connected'),
                 onDisconnect: () => {
                     activeConversation = null;
-                    setState(card, 'idle');
+                    setState('idle', '');
                 },
                 onError: (err) => {
                     activeConversation = null;
                     const msg = (err && (err.message || err.error)) || 'Call error';
-                    setState(card, 'error', msg);
+                    setState('error', msg);
                 },
                 onModeChange: (m) => {
                     const mode = m && (m.mode || m);
-                    if (mode === 'speaking') setState(card, 'in_call', 'Agent speaking…');
-                    else if (mode === 'listening') setState(card, 'in_call', 'Listening…');
+                    if (mode === 'speaking') setState('in_call', 'Agent speaking…');
+                    else if (mode === 'listening') setState('in_call', 'Listening…');
                 },
             });
         } catch (err) {
@@ -117,7 +134,7 @@
             const msg = err && err.status === 503
                 ? 'Voice agent is not configured on this server.'
                 : (err && err.message) || 'Failed to start call';
-            setState(card, 'error', msg);
+            setState('error', msg);
         }
     }
 
@@ -165,9 +182,25 @@
     function mountCard(container) {
         if (!container) return null;
         const existing = container.querySelector('[data-section="call-agent"]');
-        if (existing) return existing;
+        if (existing) {
+            // Re-bind the live call state to the existing card (e.g. when the
+            // same DOM node is queried again without a re-render).
+            if (activeConversation) {
+                activeCard = existing;
+                applyState(existing, activeState, activeMessage);
+            }
+            return existing;
+        }
         const card = buildCard();
         container.appendChild(card);
+        // Today re-renders during a call (sync polling, tab switch back to
+        // Today) drop the previous DOM node. Reattach the live call state to
+        // the freshly built card so the user still sees "End call" and can
+        // hang up.
+        if (activeConversation) {
+            activeCard = card;
+            applyState(card, activeState, activeMessage);
+        }
         return card;
     }
 
