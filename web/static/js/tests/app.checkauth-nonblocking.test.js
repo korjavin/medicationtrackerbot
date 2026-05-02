@@ -43,7 +43,9 @@ describe('checkAuth non-blocking with cached bootstrap', () => {
 
       // Fast path fetches bootstrap + auth/status in parallel, then verifyAuthInBackground
       window.fetch = vi.fn((url) => {
-        if (url === '/api/bootstrap') return Promise.resolve(createMockResponse({ status: 200, json: bootstrapData }));
+        if (typeof url === 'string' && url.startsWith('/api/bootstrap')) {
+          return Promise.resolve(createMockResponse({ status: 200, json: bootstrapData }));
+        }
         if (url === '/auth/status') return Promise.resolve(createMockResponse({ status: 200, json: { authenticated: true } }));
         return Promise.resolve(createMockResponse({ status: 200, json: {} }));
       });
@@ -53,7 +55,7 @@ describe('checkAuth non-blocking with cached bootstrap', () => {
       expect(authorized).toBe(true);
       // Both bootstrap and auth/status should be called in parallel
       const urls = window.fetch.mock.calls.map(c => c[0]);
-      expect(urls).toContain('/api/bootstrap');
+      expect(urls.some(u => typeof u === 'string' && u.startsWith('/api/bootstrap'))).toBe(true);
       expect(urls).toContain('/auth/status');
       // Auth state should be saved
       const cachedAuth = JSON.parse(window.localStorage.getItem(AUTH_CACHE_KEY));
@@ -83,7 +85,9 @@ describe('checkAuth non-blocking with cached bootstrap', () => {
       // Promise.all: bootstrap rejects (network error), auth/status also fails
       // Then verifyAuthInBackground makes another call
       window.fetch = vi.fn((url) => {
-        if (url === '/api/bootstrap') return Promise.reject(new Error('network down'));
+        if (typeof url === 'string' && url.startsWith('/api/bootstrap')) {
+          return Promise.reject(new Error('network down'));
+        }
         if (url === '/auth/status') return Promise.reject(new Error('network down'));
         return Promise.resolve(createMockResponse({ status: 200, json: {} }));
       });
@@ -267,6 +271,50 @@ describe('checkAuth non-blocking with cached bootstrap', () => {
       const authorized = await window.checkAuth();
       expect(authorized).toBe(true);
       expect(window.localStorage.getItem('medtracker_changes_cursor')).toBe('7');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applyBootstrapPayload caches today food groups so external writes show on Today', async () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      const setCachedWithTagsSpy = vi.fn().mockResolvedValue();
+      window.DataStore.setCachedWithTags = setCachedWithTagsSpy;
+
+      const payload = {
+        cursor: 42,
+        features: { food: true },
+        food: {
+          date: '2026-05-02',
+          groups: [
+            { name: 'Lunch', time: '12:30', calories: 540, carbs: 60, protein: 30, fat: 18, logs: [] }
+          ]
+        },
+        settings: {}
+      };
+
+      await window.applyBootstrapPayload(payload);
+
+      const foodCalls = setCachedWithTagsSpy.mock.calls.filter(c => c[0] === 'food_2026-05-02_day');
+      expect(foodCalls).toHaveLength(1);
+      expect(foodCalls[0][1]).toEqual({ groups: payload.food.groups });
+      expect(foodCalls[0][2]).toEqual(['food']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('applyBootstrapPayload tolerates missing food block (no crash, no cache write)', async () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      const setCachedWithTagsSpy = vi.fn().mockResolvedValue();
+      window.DataStore.setCachedWithTags = setCachedWithTagsSpy;
+
+      await window.applyBootstrapPayload({ cursor: 1, features: {}, settings: {} });
+
+      const foodCalls = setCachedWithTagsSpy.mock.calls.filter(c => typeof c[0] === 'string' && c[0].startsWith('food_'));
+      expect(foodCalls).toHaveLength(0);
     } finally {
       cleanup();
     }
