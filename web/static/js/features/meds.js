@@ -3,7 +3,7 @@
 // (script-tag loading) and still rely on app.js helpers (parseMedicationSchedule,
 // getNextScheduledDate, getMedicationScheduleText, getLastTakenTimeMs,
 // isLowOnStock, formatDate, apiCall, withSubmit, safeAlert, safeConfirm,
-// _archiveMedApi, editingMedId, medications, initialAuthLoad, etc.) that
+// editingMedId, medications, initialAuthLoad, etc.) that
 // remain in app.js.
 
 // Sub-tab state (Phase 5, Task 2; revised Task 5; round-2 Task 4).
@@ -1020,7 +1020,24 @@ async function deleteMed(id) {
     } else {
         const confirmMsg = "Archive this medication?";
         await safeConfirm(confirmMsg, async (ok) => {
-            if (ok) await _archiveMedApi(id);
+            if (ok) {
+                const payload = {
+                    name: med.name,
+                    dosage: med.dosage,
+                    schedule: med.schedule,
+                    supplement: !!med.supplement,
+                    archived: true
+                };
+
+                const res = await apiCall(`/api/medications/${id}`, 'POST', payload);
+                if (res === null) return;
+                if (res && res.warning) {
+                    safeAlert("⚠️ " + res.warning);
+                }
+                await window.DataStore.invalidateTags(['medications', 'history']);
+                await window.DataStore.invalidateKey('next_intake');
+                loadMeds();
+            }
         });
     }
 }
