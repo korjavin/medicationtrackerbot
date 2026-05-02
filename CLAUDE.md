@@ -16,6 +16,7 @@ A self-hosted Telegram Mini App for comprehensive health tracking (medications, 
 4. **New `window.*` globals require an allowlist entry** in `tests/architecture.globals.test.js` with justification.
 5. **Use `log/slog` with contextual args** (`slog.Error("msg", "error", err)`), not `log.Printf`.
 6. **The bottom nav is the canonical navigation** — one slot per real section (row 1: Today, BP, Food, Meds — row 2: Vitals, Workouts, Weight, Settings). The Vitals slot keeps its internal id `health` for deeplink / localStorage stability; only the label is "Vitals". No "More" aggregator: every section is a first-class destination with its own icon. Disabled features are filtered out of the nav before mount, not bounced after tap. Screens sit directly on the teal stage — no `section-header-mount` banners. `<wg-phone-chrome>` is a design-system primitive available for Phase 3+ screen reskins; it is not yet wrapped around screens at runtime. See [docs/frontend.md](docs/frontend.md#navigation).
+7. **Merge PRs with `gh pr merge --merge`** (regular merge commit), never `--squash` or `--rebase`. The project's history uses merge commits to preserve feature-branch context.
 
 ## Development Commands
 
