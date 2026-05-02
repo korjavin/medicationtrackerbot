@@ -301,6 +301,16 @@ async function applyBootstrapPayload(res) {
         }, ['weight']);
     }
 
+    // Today's food log groups, scoped to the date the server computed in the
+    // user's timezone. Mirroring BP/weight here is what makes the bootstrap-
+    // advances-cursor-without-food race fixable: any external write that lands
+    // before the next change-poll is now reflected in the cache as soon as
+    // bootstrap returns, instead of being stranded behind the cursor.
+    if (res.food && typeof res.food.date === 'string' && res.food.date.length > 0) {
+        const groups = Array.isArray(res.food.groups) ? res.food.groups : [];
+        await cacheApiSnapshot(`food_${res.food.date}_day`, { groups }, ['food']);
+    }
+
     const settingsBundle = normalizeSettingsBundle({
         features: res.features || {},
         settings: res.settings || {},
@@ -370,10 +380,23 @@ function clearSwBootstrapCache() {
     return caches.keys().then(names => {
         const dynamicName = names.find(n => n.startsWith('medtracker-dynamic-'));
         if (!dynamicName) return;
+        // ignoreSearch covers the tz query param now appended to /api/bootstrap.
         return caches.open(dynamicName).then(cache =>
-            cache.delete(new Request('/api/bootstrap'))
+            cache.delete(new Request('/api/bootstrap'), { ignoreSearch: true })
         );
     }).catch(() => { /* best-effort */ });
+}
+
+// Build the /api/bootstrap URL with the client's timezone hint. The handler
+// uses this to scope today's food log groups it bundles into the response —
+// keeping the cache key the server writes (`food_<date>_day`) aligned with
+// the one loadToday() reads via todayFoodKey(new Date()).
+function bootstrapURL() {
+    const tzName = (typeof Intl !== 'undefined' && Intl.DateTimeFormat
+        && Intl.DateTimeFormat().resolvedOptions().timeZone) || '';
+    if (tzName) return `/api/bootstrap?tz=${encodeURIComponent(tzName)}`;
+    const tzOffset = new Date().getTimezoneOffset();
+    return `/api/bootstrap?tz_offset=${tzOffset}`;
 }
 
 // Hydrate in-memory feature settings from a cached settings_bundle so deep-link
@@ -403,7 +426,7 @@ async function checkAuth() {
         // We are in Telegram, proceed as normal
         sessionStorage.removeItem('medtracker_auth_reload_in_progress');
         saveAuthState('telegram');
-        const bootstrap = await apiCall('/api/bootstrap', 'GET');
+        const bootstrap = await apiCall(bootstrapURL(), 'GET');
         if (bootstrap) {
             await applyBootstrapPayload(bootstrap);
         } else {
@@ -438,7 +461,7 @@ async function checkAuth() {
         try {
             // Parallel fetch: bootstrap (may come from SW cache) + auth check
             const [bootstrapRes, authRes] = await Promise.all([
-                fetch('/api/bootstrap', { method: 'GET', credentials: 'same-origin' }),
+                fetch(bootstrapURL(), { method: 'GET', credentials: 'same-origin' }),
                 fetch('/auth/status', { method: 'GET', credentials: 'same-origin' })
                     .catch(() => null) // Network error — treat as offline
             ]);
@@ -525,7 +548,7 @@ async function checkAuth() {
 
     if (hasSessionCookie) {
         try {
-            const res = await fetch('/api/bootstrap', { method: 'GET' });
+            const res = await fetch(bootstrapURL(), { method: 'GET' });
             if (res.status === 200) {
                 const data = await res.json();
                 await applyBootstrapPayload(data);
