@@ -299,6 +299,20 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		weightUnitPreference = "kg"
 	}
 
+	// Today's food log groups, scoped to the requesting client's timezone so the
+	// cache key matches what loadToday() reads. Without this, an external write
+	// (Telegram /food, MCP, another session) can advance the change cursor via a
+	// subsequent bootstrap revalidation before the change-poll picks up the
+	// 'food' tag — leaving the `food_<date>_day` cache stale indefinitely. BP/
+	// weight already ride along in bootstrap; food now matches that pattern.
+	foodDate := parseDateInLocation("", r.URL.Query().Get("tz"), r.URL.Query().Get("tz_offset"))
+	foodLogs, err := s.food.GetFoodLogs(ctx, userID, foodDate, 1)
+	if err != nil {
+		slog.Error("bootstrap food logs query failed", "error", err)
+		foodLogs = []store.FoodLog{}
+	}
+	foodGroups := groupFoodLogs(foodLogs, false, foodDate.Location())
+
 	response := map[string]any{
 		"cursor":          bootstrapCursor,
 		"features":        features,
@@ -312,6 +326,10 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		"weight": map[string]any{
 			"logs": weightLogs,
 			"goal": weightGoalResponse,
+		},
+		"food": map[string]any{
+			"date":   foodDate.Format("2006-01-02"),
+			"groups": foodGroups,
 		},
 		"settings": map[string]any{
 			"food_targets":           foodTargets,
