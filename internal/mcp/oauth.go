@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"crypto/tls"
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -45,6 +47,12 @@ type OAuthHandler struct {
 	jwksCache  *JWKSCache
 	httpClient *http.Client
 	tokens     APITokenStore
+
+	// Replay protection
+	seenJTIs   map[string]time.Time
+	jtiMutex   sync.RWMutex
+	cleanupCtx context.Context
+	cleanupCancel context.CancelFunc
 }
 
 // JWKSCache caches JWKS (JSON Web Key Set) for token validation
@@ -58,7 +66,8 @@ type JWKSCache struct {
 // NewOAuthHandler creates a new OAuth handler. The tokens argument may be nil
 // — when nil, the API-token bypass is disabled and only JWT auth works.
 func NewOAuthHandler(cfg *Config, tokens APITokenStore) *OAuthHandler {
-	return &OAuthHandler{
+	ctx, cancel := context.WithCancel(context.Background())
+	h := &OAuthHandler{
 		config: cfg,
 		jwksCache: &JWKSCache{
 			keys: make(map[string]*rsa.PublicKey),
@@ -77,9 +86,47 @@ func NewOAuthHandler(cfg *Config, tokens APITokenStore) *OAuthHandler {
 				IdleConnTimeout:       90 * time.Second,
 				TLSHandshakeTimeout:   5 * time.Second,
 				ExpectContinueTimeout: 1 * time.Second,
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+				},
 			},
 		},
-		tokens: tokens,
+		tokens:        tokens,
+		seenJTIs:      make(map[string]time.Time),
+		cleanupCtx:    ctx,
+		cleanupCancel: cancel,
+	}
+
+	// Start background cleanup for JTIs
+	go h.startJTICleanup()
+	return h
+}
+
+// Close stops background routines
+func (h *OAuthHandler) Close() {
+	if h.cleanupCancel != nil {
+		h.cleanupCancel()
+	}
+}
+
+// startJTICleanup runs periodically to remove expired JTIs from the cache
+func (h *OAuthHandler) startJTICleanup() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-h.cleanupCtx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now()
+			h.jtiMutex.Lock()
+			for jti, expiry := range h.seenJTIs {
+				if now.After(expiry) {
+					delete(h.seenJTIs, jti)
+				}
+			}
+			h.jtiMutex.Unlock()
+		}
 	}
 }
 
@@ -269,6 +316,29 @@ func (h *OAuthHandler) validateToken(ctx context.Context, tokenString string) (s
 		return "", fmt.Errorf("token audience mismatch")
 	}
 
+	// Check for Replay Attack if JTI is present
+	if jtiClaim, ok := claims["jti"].(string); ok && jtiClaim != "" {
+		h.jtiMutex.Lock()
+		if _, seen := h.seenJTIs[jtiClaim]; seen {
+			h.jtiMutex.Unlock()
+			slog.Warn("[MCP/OAuth] Replay detected: Token JTI already used", "jti", jtiClaim)
+			return "", fmt.Errorf("token replay detected")
+		}
+
+		// Calculate expiry based on exp claim
+		var expiryTime time.Time
+		if expClaim, ok := claims["exp"].(float64); ok {
+			expiryTime = time.Unix(int64(expClaim), 0)
+		} else {
+			// If we can't get expiration, we must keep JTI indefinitely to be secure
+			// Though valid tokens should have exp as we enforce WithExpirationRequired
+			expiryTime = time.Now().AddDate(100, 0, 0) // very long time
+		}
+
+		h.seenJTIs[jtiClaim] = expiryTime
+		h.jtiMutex.Unlock()
+	}
+
 	subject, ok := claims["sub"].(string)
 	if !ok {
 		return "", fmt.Errorf("missing sub claim")
@@ -334,6 +404,18 @@ type JWK struct {
 // refreshJWKS fetches and caches the JWKS from Pocket-ID
 func (h *OAuthHandler) refreshJWKS(ctx context.Context) error {
 	jwksURL := h.config.PocketIDURL + "/.well-known/jwks.json"
+
+	parsedURL, err := url.Parse(jwksURL)
+	if err != nil {
+		return fmt.Errorf("invalid JWKS URL: %w", err)
+	}
+
+	if parsedURL.Scheme != "https" {
+		isLocal := parsedURL.Hostname() == "localhost" || parsedURL.Hostname() == "127.0.0.1"
+		if !isLocal {
+			return fmt.Errorf("HTTPS is required for JWKS endpoint (got %s)", parsedURL.Scheme)
+		}
+	}
 
 	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
