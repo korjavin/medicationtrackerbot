@@ -796,6 +796,7 @@ func (s *Service) handleCall(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		OperationID string                     `json:"operation_id"`
 		Params      map[string]json.RawMessage `json:"params"`
+		PathParams  map[string]json.RawMessage `json:"path_params"`
 		Body        json.RawMessage            `json:"body"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -807,8 +808,9 @@ func (s *Service) handleCall(w http.ResponseWriter, r *http.Request) {
 	// scalar (numbers, booleans, …) through medtracker.api.call. Stringify on
 	// the proxy boundary so the URL encoder downstream doesn't have to care.
 	stringParams := paramsToStrings(req.Params)
+	stringPathParams := paramsToStrings(req.PathParams)
 
-	result, callErr := rs.p.Call(r.Context(), rs.cfg, req.OperationID, stringParams, req.Body)
+	result, callErr := rs.p.Call(r.Context(), rs.cfg, req.OperationID, stringParams, stringPathParams, req.Body)
 	if callErr != nil {
 		var ce *proxy.CallError
 		if errors.As(callErr, &ce) {

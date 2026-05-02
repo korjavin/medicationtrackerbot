@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -26,7 +28,14 @@ type Operation struct {
 	// Method is the HTTP method (GET, POST, PUT, DELETE).
 	Method string `json:"method"`
 	// Path is the backend API path, e.g. "/api/workout/groups".
+	// May contain {name} placeholders, in which case PathParams must list every
+	// placeholder; the bridge will substitute them at call time from
+	// BridgeRequest.PathParams.
 	Path string `json:"path"`
+	// PathParams is the allowlist of placeholder names appearing in Path.
+	// Used by the bridge to validate substitution and by mcp_help to advertise
+	// what the agent must pass alongside params/body. Order is irrelevant.
+	PathParams []string `json:"path_params,omitempty"`
 	// Risk indicates whether the call is read-only or mutating.
 	Risk Risk `json:"risk"`
 	// ParamsSchema is a compact JSON Schema describing URL query parameters.
@@ -51,16 +60,17 @@ type Operation struct {
 // []byte, which infers to {"types": ["null", "array"]} and rejects the actual
 // object payload at validation time.
 type HelpEntry struct {
-	ID              string `json:"id"`
-	Topic           string `json:"topic"`
-	Method          string `json:"method"`
-	Path            string `json:"path"`
-	Risk            Risk   `json:"risk"`
-	Description     string `json:"description"`
-	ResponseSummary string `json:"response_summary"`
-	ParamsSchema    any    `json:"params_schema,omitempty"`
-	BodySchema      any    `json:"body_schema,omitempty"`
-	Example         string `json:"example,omitempty"`
+	ID              string   `json:"id"`
+	Topic           string   `json:"topic"`
+	Method          string   `json:"method"`
+	Path            string   `json:"path"`
+	PathParams      []string `json:"path_params,omitempty"`
+	Risk            Risk     `json:"risk"`
+	Description     string   `json:"description"`
+	ResponseSummary string   `json:"response_summary"`
+	ParamsSchema    any      `json:"params_schema,omitempty"`
+	BodySchema      any      `json:"body_schema,omitempty"`
+	Example         string   `json:"example,omitempty"`
 }
 
 // Registry holds the complete set of allowed operations.
@@ -78,10 +88,10 @@ func New() *Registry {
 		operations: make(map[string]*Operation),
 		byTopic:    make(map[string][]*Operation),
 		suggestions: map[string]string{
-			"workouts":    "List the available workout groups to see what you can track.",
-			"food":        "Search for a food item or list recent logs to see your nutrition summary.",
-			"health":      "List vital logs (weight, blood pressure) to see your progress.",
-			"medications": "List your medication schedule to see what is due or check specific medication details.",
+			"workouts":    "List the available workout groups to see what you can track. Use mcp_execute with the create/update/delete ops to edit groups, variants, exercises, and exercise libraries.",
+			"food":        "Search for a food item or list recent logs to see your nutrition summary. Use mcp_execute with food.log.create to record a meal and food.targets.set to update daily targets.",
+			"health":      "List vital logs (weight, blood pressure) to see your progress. Use mcp_execute with health.bp.create / health.weight.create / health.notes.create to add new readings or sleep / vitals notes.",
+			"medications": "List your medication schedule to see what is due or check specific medication details. Use mcp_execute to add new medications (medications.create), update or archive them (medications.update with archived=true), restock, and snooze / skip / confirm intakes.",
 		},
 	}
 }
@@ -264,6 +274,7 @@ func MarshalForHelp(ops []*Operation) []HelpEntry {
 			Topic:           op.Topic,
 			Method:          op.Method,
 			Path:            op.Path,
+			PathParams:      append([]string(nil), op.PathParams...),
 			Risk:            op.Risk,
 			Description:     op.Description,
 			ResponseSummary: op.ResponseSummary,
@@ -318,5 +329,84 @@ func validate(op *Operation) error {
 	if op.Risk != RiskRead && op.Risk != RiskWrite {
 		return fmt.Errorf("risk must be %q or %q, got %q", RiskRead, RiskWrite, op.Risk)
 	}
+	placeholders := ExtractPathPlaceholders(op.Path)
+	declared := map[string]bool{}
+	for _, name := range op.PathParams {
+		if !pathParamNameRe.MatchString(name) {
+			return fmt.Errorf("path_params name %q must match %s", name, pathParamNameRe)
+		}
+		if declared[name] {
+			return fmt.Errorf("path_params duplicate name %q", name)
+		}
+		declared[name] = true
+	}
+	for _, ph := range placeholders {
+		if !declared[ph] {
+			return fmt.Errorf("path placeholder {%s} not listed in path_params", ph)
+		}
+	}
+	for name := range declared {
+		found := false
+		for _, ph := range placeholders {
+			if ph == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("path_params %q has no {%s} placeholder in path", name, name)
+		}
+	}
 	return nil
+}
+
+// pathParamNameRe restricts placeholder names to lowercase ASCII letters,
+// digits and underscore. This matches Go's net/http {name} pattern grammar
+// and keeps substitution unambiguous.
+var pathParamNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// pathPlaceholderRe matches {name} segments in a registered Operation.Path.
+var pathPlaceholderRe = regexp.MustCompile(`\{([a-z][a-z0-9_]*)\}`)
+
+// ExtractPathPlaceholders returns the placeholder names (without braces) found
+// in path, in order of appearance. Duplicates are kept.
+func ExtractPathPlaceholders(path string) []string {
+	matches := pathPlaceholderRe.FindAllStringSubmatch(path, -1)
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
+		out = append(out, m[1])
+	}
+	return out
+}
+
+// SubstitutePath replaces {name} placeholders in path using values, returning
+// the substituted path. It enforces:
+//   - every placeholder declared in allowed must have a value in values;
+//   - every key in values must appear in allowed;
+//   - values are URL-path-escaped to prevent traversal/injection (so a value
+//     of "1/2" is encoded, not interpreted as a sub-path).
+//
+// Values must be non-empty strings. The bridge calls this before forwarding
+// to the internal mux; help/proxy reuse it for symmetry.
+func SubstitutePath(path string, allowed []string, values map[string]string) (string, error) {
+	allowedSet := make(map[string]bool, len(allowed))
+	for _, name := range allowed {
+		allowedSet[name] = true
+	}
+	for k := range values {
+		if !allowedSet[k] {
+			return "", fmt.Errorf("unknown path_param %q", k)
+		}
+	}
+	for _, name := range allowed {
+		v, ok := values[name]
+		if !ok || v == "" {
+			return "", fmt.Errorf("missing path_param %q", name)
+		}
+	}
+	out := pathPlaceholderRe.ReplaceAllStringFunc(path, func(token string) string {
+		name := token[1 : len(token)-1]
+		return url.PathEscape(values[name])
+	})
+	return out, nil
 }

@@ -267,7 +267,7 @@ func TestE2E_ReadOnlyWorkouts_NoDirectDBAccess(t *testing.T) {
 	t.Cleanup(bridge.Close)
 
 	p := proxy.New(reg, bridge.URL, "secret")
-	_, err := p.Call(context.Background(), proxy.RunConfig{Mode: proxy.ModeReadOnly}, "workouts.raw_sql", nil, nil)
+	_, err := p.Call(context.Background(), proxy.RunConfig{Mode: proxy.ModeReadOnly}, "workouts.raw_sql", nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected proxy to reject unknown op")
 	}

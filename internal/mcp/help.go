@@ -18,17 +18,32 @@ type HelpInput struct {
 
 // HelpResponse is returned by mcp_help.
 type HelpResponse struct {
-	Operations  []registry.HelpEntry `json:"operations"`
-	Count       int                  `json:"count"`
-	Topics      []string             `json:"topics,omitempty"`
-	PythonUsage string               `json:"python_usage,omitempty"`
-	Note        string               `json:"note,omitempty"`
-	NextStep    string               `json:"next_step,omitempty"`
-	NextTools   []string             `json:"next_tools,omitempty"`
+	Operations   []registry.HelpEntry `json:"operations"`
+	Count        int                  `json:"count"`
+	Topics       []string             `json:"topics,omitempty"`
+	Capabilities []TopicCapability    `json:"capabilities,omitempty"`
+	PythonUsage  string               `json:"python_usage,omitempty"`
+	Note         string               `json:"note,omitempty"`
+	NextStep     string               `json:"next_step,omitempty"`
+	NextTools    []string             `json:"next_tools,omitempty"`
+}
+
+// TopicCapability is a per-topic summary the agent can scan before drilling
+// into a specific topic. It tells the agent how many read vs write operations
+// exist and gives a one-line, action-oriented hint of what the topic covers,
+// so an agent looking for "can I create a medication?" doesn't have to read
+// every operation entry to find out.
+type TopicCapability struct {
+	Topic       string `json:"topic"`
+	ReadCount   int    `json:"read_count"`
+	WriteCount  int    `json:"write_count"`
+	Suggestion  string `json:"suggestion"`
+	SampleWrite string `json:"sample_write,omitempty"`
 }
 
 const (
 	defaultNextStep = "Pick a topic (e.g., 'workouts') or lookup an operation by ID to start building a script."
+	defaultNote     = "The full operation catalog is shown below. Use mcp_execute to run any operation. Pass path_params={\"name\": \"value\"} for routes containing {placeholders} (see each operation's path_params field)."
 )
 
 func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest, input HelpInput) (*sdkmcp.CallToolResult, HelpResponse, error) {
@@ -72,12 +87,13 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 	if topic == "" || topic == "all" {
 		ops := s.reg.All()
 		return nil, HelpResponse{
-			Operations: registry.MarshalForHelp(ops),
-			Count:      len(ops),
-			Topics:     s.reg.Topics(),
-			Note:       "The full operation catalog is shown below.",
-			NextStep:   nextStep,
-			NextTools:  []string{"mcp_execute"},
+			Operations:   registry.MarshalForHelp(ops),
+			Count:        len(ops),
+			Topics:       s.reg.Topics(),
+			Capabilities: s.buildCapabilities(),
+			Note:         defaultNote,
+			NextStep:     nextStep,
+			NextTools:    []string{"mcp_execute"},
 		}, nil
 	}
 
@@ -99,8 +115,39 @@ func (s *Server) handleMCPHelp(ctx context.Context, req *sdkmcp.CallToolRequest,
 	return nil, HelpResponse{
 		Operations: registry.MarshalForHelp(ops),
 		Count:      len(ops),
-		Note:       fmt.Sprintf("Showing %d operation(s) for topic %q.", len(ops), topic),
+		Note:       fmt.Sprintf("Showing %d operation(s) for topic %q. Use mcp_execute to run any of them; supply path_params for routes that contain {placeholders}.", len(ops), topic),
 		NextStep:   nextStep,
 		NextTools:  []string{"mcp_execute"},
 	}, nil
+}
+
+// buildCapabilities scans the registry once and returns a per-topic summary
+// (read/write counts + suggestion + one sample write op id) that the agent
+// can use to answer "what can I do here" without reading every entry.
+func (s *Server) buildCapabilities() []TopicCapability {
+	topics := s.reg.Topics()
+	out := make([]TopicCapability, 0, len(topics))
+	for _, t := range topics {
+		ops := s.reg.ByTopic(t)
+		var read, write int
+		var sampleWrite string
+		for _, op := range ops {
+			if op.Risk == registry.RiskWrite {
+				write++
+				if sampleWrite == "" {
+					sampleWrite = op.ID
+				}
+			} else {
+				read++
+			}
+		}
+		out = append(out, TopicCapability{
+			Topic:       t,
+			ReadCount:   read,
+			WriteCount:  write,
+			Suggestion:  s.reg.Suggestion(t),
+			SampleWrite: sampleWrite,
+		})
+	}
+	return out
 }

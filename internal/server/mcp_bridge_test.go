@@ -725,6 +725,108 @@ func TestBridge_StreamingHandler(t *testing.T) {
 	}
 }
 
+func TestBridge_PathParamsSubstituted(t *testing.T) {
+	var capturedPath string
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	})
+
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"meds.update": {
+			Method:     "POST",
+			Path:       "/api/medications/{id}",
+			PathParams: []string{"id"},
+			Risk:       "write",
+		},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+
+	body, _ := json.Marshal(BridgeRequest{
+		OperationID: "meds.update",
+		PathParams:  map[string]string{"id": "42"},
+		Body:        json.RawMessage(`{"name":"X"}`),
+	})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if capturedPath != "/api/medications/42" {
+		t.Errorf("expected /api/medications/42, got %q", capturedPath)
+	}
+}
+
+func TestBridge_PathParamsMissing(t *testing.T) {
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("internal handler must not be reached when path_params are missing")
+	})
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"meds.update": {
+			Method:     "POST",
+			Path:       "/api/medications/{id}",
+			PathParams: []string{"id"},
+			Risk:       "write",
+		},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+	body, _ := json.Marshal(BridgeRequest{OperationID: "meds.update"})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBridge_PathParamsExtraRejected(t *testing.T) {
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("internal handler must not be reached when extra path_params are sent")
+	})
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"meds.list": {Method: "GET", Path: "/api/medications", Risk: "read"},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+	body, _ := json.Marshal(BridgeRequest{
+		OperationID: "meds.list",
+		PathParams:  map[string]string{"id": "42"},
+	})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBridge_PathParamValueIsEscaped(t *testing.T) {
+	// A value containing '/' must not be interpreted as a sub-path; it should
+	// land in the path component literally so it can't reach a different
+	// handler than the one declared in the registry.
+	var capturedPath string
+	internalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.EscapedPath()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	})
+	reg := newMockRegistryByID(map[string]*MCPOperation{
+		"meds.delete": {
+			Method:     "DELETE",
+			Path:       "/api/medications/{id}",
+			PathParams: []string{"id"},
+			Risk:       "write",
+		},
+	})
+	s := buildBridgeServer(reg, internalHandler)
+	body, _ := json.Marshal(BridgeRequest{
+		OperationID: "meds.delete",
+		PathParams:  map[string]string{"id": "1/2"},
+	})
+	rec := doPost(t, s.handleMCPBridge, body, signBridgeBody(body, testBridgeSecret))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 envelope, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(capturedPath, "1%2F2") {
+		t.Errorf("expected '/' in id value to be percent-escaped, got path %q", capturedPath)
+	}
+}
+
 func TestBridge_ContextCancellation(t *testing.T) {
 	reg := newMockRegistryByID(map[string]*MCPOperation{
 		"test.op": {Method: "GET", Path: "/api/test", Risk: "read"},

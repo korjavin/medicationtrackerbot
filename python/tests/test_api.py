@@ -94,6 +94,23 @@ class TestCallSuccess:
         payload = json.loads(req.data)
         assert "params" not in payload
         assert "body" not in payload
+        assert "path_params" not in payload
+
+    def test_sends_path_params(self):
+        # Operations with {placeholders} in their Path (e.g. medications.update
+        # → /api/medications/{id}) require path_params to identify the target;
+        # the bridge rejects the call otherwise.
+        response = {"status": 200, "body": {}, "duration_ms": 1}
+        with patch("urllib.request.urlopen", return_value=_MockResponse(response)) as mock_open:
+            api.call(
+                "medications.update",
+                path_params={"id": 42},
+                body={"name": "Mounjaro"},
+            )
+        req = mock_open.call_args[0][0]
+        payload = json.loads(req.data)
+        assert payload["path_params"] == {"id": 42}
+        assert payload["body"] == {"name": "Mounjaro"}
 
     def test_sends_run_token_header(self, monkeypatch):
         monkeypatch.setenv("MEDTRACKER_RUN_TOKEN", "secret-run-token")
