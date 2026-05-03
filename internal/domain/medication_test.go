@@ -28,6 +28,7 @@ type mockMedicationStore struct {
 	createManualIntakeFn          func(medID, userID int64, takenAt time.Time) (int64, error)
 	decrementInventoryFn          func(medID int64, qty int) error
 	updateIntakeFn                func(id int64, takenAt time.Time, status string) error
+	deleteIntakeFn                func(id int64) error
 	lastConfirmedID               int64
 	decrementedMedIDs             []int64
 	decrementedQtys               []int
@@ -35,6 +36,17 @@ type mockMedicationStore struct {
 	lastUpdateIntakeStatus        string
 	lastUpdateIntakeTakenAt       time.Time
 	updateIntakeCalled            bool
+	lastDeletedIntakeID           int64
+	deleteIntakeCalled            bool
+}
+
+func (m *mockMedicationStore) DeleteIntake(id int64) error {
+	m.deleteIntakeCalled = true
+	m.lastDeletedIntakeID = id
+	if m.deleteIntakeFn != nil {
+		return m.deleteIntakeFn(id)
+	}
+	return nil
 }
 
 func (m *mockMedicationStore) GetIntake(id int64) (*store.IntakeLog, error) {
@@ -803,4 +815,156 @@ func equalInt64Slice(a, b []int64) bool {
 		}
 	}
 	return true
+}
+
+func TestDeleteFutureIntake(t *testing.T) {
+	future := time.Now().Add(2 * time.Hour)
+	past := time.Now().Add(-2 * time.Hour)
+
+	futurePending := func(id, medID int64) *store.IntakeLog {
+		return &store.IntakeLog{ID: id, MedicationID: medID, UserID: 1, Status: "PENDING", ScheduledAt: future}
+	}
+	pastPending := func(id, medID int64) *store.IntakeLog {
+		return &store.IntakeLog{ID: id, MedicationID: medID, UserID: 1, Status: "PENDING", ScheduledAt: past}
+	}
+	futureTaken := func(id, medID int64) *store.IntakeLog {
+		now := time.Now()
+		return &store.IntakeLog{ID: id, MedicationID: medID, UserID: 1, Status: "TAKEN", TakenAt: &now, ScheduledAt: future}
+	}
+
+	tests := []struct {
+		name            string
+		store           *mockMedicationStore
+		intakeID        int64
+		wantReminderIDs []int
+		wantMedName     string
+		wantMedDosage   string
+		wantDeleted     bool
+		wantErr         error
+		wantErrContains string
+	}{
+		{
+			name: "future pending intake is deleted with reminders + med info",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) { return futurePending(id, 10), nil },
+				getMedicationFn: func(id int64) (*store.Medication, error) {
+					return &store.Medication{ID: id, Name: "Aspirin", Dosage: "100mg"}, nil
+				},
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return []int{77, 78}, nil },
+			},
+			intakeID:        42,
+			wantReminderIDs: []int{77, 78},
+			wantMedName:     "Aspirin",
+			wantMedDosage:   "100mg",
+			wantDeleted:     true,
+		},
+		{
+			name: "past pending intake returns ErrNotFutureIntake (history protected)",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) { return pastPending(id, 10), nil },
+			},
+			intakeID: 42,
+			wantErr:  ErrNotFutureIntake,
+		},
+		{
+			name: "future TAKEN intake returns ErrNotFutureIntake (history protected)",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) { return futureTaken(id, 10), nil },
+			},
+			intakeID: 42,
+			wantErr:  ErrNotFutureIntake,
+		},
+		{
+			name: "nil intake returns ErrNotFutureIntake",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) { return nil, nil },
+			},
+			intakeID: 42,
+			wantErr:  ErrNotFutureIntake,
+		},
+		{
+			name: "GetIntake error propagates",
+			store: &mockMedicationStore{
+				getIntakeFn: func(id int64) (*store.IntakeLog, error) { return nil, errors.New("db error") },
+			},
+			intakeID:        42,
+			wantErrContains: "get intake",
+		},
+		{
+			name: "DeleteIntake error propagates",
+			store: &mockMedicationStore{
+				getIntakeFn:    func(id int64) (*store.IntakeLog, error) { return futurePending(id, 10), nil },
+				deleteIntakeFn: func(id int64) error { return errors.New("db delete error") },
+			},
+			intakeID:        42,
+			wantErrContains: "delete intake",
+		},
+		{
+			name: "GetMedication error is non-fatal, returns empty name/dosage",
+			store: &mockMedicationStore{
+				getIntakeFn:     func(id int64) (*store.IntakeLog, error) { return futurePending(id, 10), nil },
+				getMedicationFn: func(id int64) (*store.Medication, error) { return nil, errors.New("db error") },
+			},
+			intakeID:    42,
+			wantDeleted: true,
+		},
+		{
+			name: "GetIntakeReminders error is non-fatal — delete still proceeds",
+			store: &mockMedicationStore{
+				getIntakeFn:          func(id int64) (*store.IntakeLog, error) { return futurePending(id, 10), nil },
+				getMedicationFn:      func(id int64) (*store.Medication, error) { return &store.Medication{ID: id, Name: "Aspirin"}, nil },
+				getIntakeRemindersFn: func(intakeID int64) ([]int, error) { return nil, errors.New("reminders error") },
+			},
+			intakeID:    42,
+			wantMedName: "Aspirin",
+			wantDeleted: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewMedicationService(tt.store)
+			reminderIDs, medName, medDosage, err := svc.DeleteFutureIntake(tt.intakeID)
+
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("want error %v, got %v", tt.wantErr, err)
+				}
+				if tt.store.deleteIntakeCalled {
+					t.Errorf("DeleteIntake should not be called when validation fails")
+				}
+				return
+			}
+			if tt.wantErrContains != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Errorf("want error containing %q, got %v", tt.wantErrContains, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !equalIntSlice(reminderIDs, tt.wantReminderIDs) {
+				t.Errorf("reminderIDs: got %v, want %v", reminderIDs, tt.wantReminderIDs)
+			}
+			if medName != tt.wantMedName {
+				t.Errorf("medName: got %q, want %q", medName, tt.wantMedName)
+			}
+			if medDosage != tt.wantMedDosage {
+				t.Errorf("medDosage: got %q, want %q", medDosage, tt.wantMedDosage)
+			}
+			if tt.wantDeleted {
+				if !tt.store.deleteIntakeCalled {
+					t.Errorf("DeleteIntake was not called")
+				}
+				if tt.store.lastDeletedIntakeID != tt.intakeID {
+					t.Errorf("DeleteIntake id: got %d, want %d", tt.store.lastDeletedIntakeID, tt.intakeID)
+				}
+			}
+			// Inventory must NOT be touched: a future PENDING dose was never decremented.
+			if len(tt.store.decrementedMedIDs) != 0 {
+				t.Errorf("DecrementInventory should not be called for a future PENDING delete; got %v", tt.store.decrementedMedIDs)
+			}
+		})
+	}
 }

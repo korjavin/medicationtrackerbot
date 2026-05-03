@@ -17,6 +17,10 @@ var ErrNotPending = errors.New("intake is not pending")
 // ErrNotTaken is returned when an intake is not in TAKEN state.
 var ErrNotTaken = errors.New("intake is not taken")
 
+// ErrNotFutureIntake is returned when an intake cannot be deleted because it is
+// not a future PENDING dose (already taken/skipped, or scheduled in the past).
+var ErrNotFutureIntake = errors.New("intake is not a future pending dose")
+
 // MedicationStore is the narrow store interface required by MedicationService.
 type MedicationStore interface {
 	GetIntake(id int64) (*store.IntakeLog, error)
@@ -33,6 +37,7 @@ type MedicationStore interface {
 	CreateManualIntake(medID, userID int64, takenAt time.Time) (int64, error)
 	DecrementInventory(medID int64, qty int) error
 	UpdateIntake(id int64, takenAt time.Time, status string) error
+	DeleteIntake(id int64) error
 }
 
 // MedicationService is the public interface for medication business logic.
@@ -75,6 +80,13 @@ type MedicationService interface {
 	// CancelIntake reverts a TAKEN intake back to PENDING and increments inventory.
 	// Returns the medication name and dosage for display, and any error.
 	CancelIntake(intakeID int64) (medName string, medDosage string, err error)
+
+	// DeleteFutureIntake removes a PENDING intake whose scheduled_at is in the
+	// future. The scheduler will recreate it on the regular schedule. Returns
+	// ErrNotFutureIntake if the intake is not PENDING or is not in the future,
+	// the reminder message IDs that should be cleaned up, and the medication
+	// name/dosage for display.
+	DeleteFutureIntake(intakeID int64) (reminderMsgIDs []int, medName string, medDosage string, err error)
 }
 
 type medicationService struct {
@@ -274,6 +286,35 @@ func (s *medicationService) CancelIntake(intakeID int64) (string, string, error)
 	}
 
 	return medName, medDosage, nil
+}
+
+func (s *medicationService) DeleteFutureIntake(intakeID int64) ([]int, string, string, error) {
+	intake, err := s.store.GetIntake(intakeID)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("get intake %d: %w", intakeID, err)
+	}
+	if intake == nil || intake.Status != "PENDING" || !intake.ScheduledAt.After(time.Now()) {
+		return nil, "", "", ErrNotFutureIntake
+	}
+
+	medName, medDosage := "", ""
+	if med, err := s.store.GetMedication(intake.MedicationID); err != nil {
+		slog.Error("GetMedication for intake failed", "intakeID", intakeID, "error", err)
+	} else if med != nil {
+		medName = med.Name
+		medDosage = med.Dosage
+	}
+
+	reminders, err := s.store.GetIntakeReminders(intakeID)
+	if err != nil {
+		slog.Error("GetIntakeReminders failed", "intakeID", intakeID, "error", err)
+	}
+
+	if err := s.store.DeleteIntake(intakeID); err != nil {
+		return nil, "", "", fmt.Errorf("delete intake %d: %w", intakeID, err)
+	}
+
+	return reminders, medName, medDosage, nil
 }
 
 func (s *medicationService) SilenceIntake(intakeID int64) ([]int, error) {
