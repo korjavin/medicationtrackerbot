@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -61,7 +62,13 @@ func (s *Store) SearchRemoteFoodAPI(ctx context.Context, query string) ([]FoodPr
 		req.Header.Set("X-API-Key", apiKey)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	clientCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	req = req.WithContext(clientCtx)
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
 	resp, err := client.Do(req) // #nosec G107
 	if err != nil {
 		return nil, err
@@ -77,7 +84,7 @@ func (s *Store) SearchRemoteFoodAPI(ctx context.Context, query string) ([]FoodPr
 	if isBarcode {
 		// Parse single product
 		var p fastFoodProduct
-		if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&p); err != nil {
 			return nil, err
 		}
 		if p.Name != "" {
@@ -88,7 +95,7 @@ func (s *Store) SearchRemoteFoodAPI(ctx context.Context, query string) ([]FoodPr
 		var raw struct {
 			Results []fastFoodProduct `json:"results"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 5*1024*1024)).Decode(&raw); err != nil {
 			return nil, err
 		}
 		for _, p := range raw.Results {
