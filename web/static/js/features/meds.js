@@ -512,9 +512,47 @@ function _buildHistoryClusterRow(cluster, medsList) {
     const actions = document.createElement('div');
     actions.className = 'wg-meds-history__actions';
     actions.appendChild(_buildHistoryStatusTag(cluster.status));
+
+    if (cluster.status === 'PENDING' && cluster.sortTime > Date.now()) {
+        const intakeIds = cluster.items
+            .map((i) => i.id)
+            .filter((id) => id !== undefined && id !== null);
+        if (intakeIds.length > 0) {
+            const delBtn = createDeleteButton((event) => {
+                event.stopPropagation();
+                deleteFutureIntakes(intakeIds);
+            });
+            delBtn.title = 'Delete future intake';
+            delBtn.setAttribute('aria-label', 'Delete future intake');
+            actions.appendChild(delBtn);
+        }
+    }
+
     row.appendChild(actions);
 
     return row;
+}
+
+async function deleteFutureIntakes(intakeIds) {
+    if (!Array.isArray(intakeIds) || intakeIds.length === 0) return;
+    const msg = intakeIds.length === 1
+        ? 'Delete this scheduled intake? It will be recreated on the regular schedule.'
+        : `Delete ${intakeIds.length} scheduled intakes? They will be recreated on the regular schedule.`;
+    await safeConfirm(msg, async (ok) => {
+        if (!ok) return;
+        const res = await apiCall('/api/medications/delete-intake', 'POST', { intake_ids: intakeIds });
+        if (res === null) return;
+        if (window.DataStore) {
+            await window.DataStore.invalidateByTag('history');
+            await window.DataStore.invalidateByTag('medications');
+        }
+        if (typeof refreshMedsAfterMutation === 'function') {
+            refreshMedsAfterMutation();
+        }
+        if (res && typeof res.deleted_count === 'number' && res.deleted_count < intakeIds.length) {
+            safeAlert(`Deleted ${res.deleted_count} of ${intakeIds.length}. Some intakes were not future PENDING doses and were skipped.`);
+        }
+    });
 }
 
 function renderHistory(logs) {
