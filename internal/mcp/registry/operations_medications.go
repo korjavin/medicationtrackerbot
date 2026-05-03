@@ -278,6 +278,24 @@ output({"skipped": 123})`,
 output({"reverted": 2})`,
 		},
 		{
+			ID:     "medications.intake.delete",
+			Topic:  "medications",
+			Method: "POST",
+			Path:   "/api/medications/delete-intake",
+			Risk:   RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["intake_ids"],
+  "properties": {
+    "intake_ids": {"type": "array", "items": {"type": "integer"}, "description": "One or more PENDING intake ids whose scheduled_at is in the future. Past or non-PENDING intakes are silently skipped to preserve history. The scheduler recreates regular doses on schedule."}
+  }
+}`),
+			Description:     "Delete future PENDING intakes (e.g. accidentally created doses). Each id must be PENDING and scheduled in the future; otherwise it is silently skipped to protect history. Use medications.history to find candidate ids first.",
+			ResponseSummary: "Object {status:\"deleted\", deleted_count, requested_count}.",
+			Example: `api.call("medications.intake.delete", body={"intake_ids": [123]})
+output({"deleted": 123})`,
+		},
+		{
 			ID:              "medications.trigger_next_intake",
 			Topic:           "medications",
 			Method:          "POST",

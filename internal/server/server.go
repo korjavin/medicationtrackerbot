@@ -415,6 +415,7 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/medications/next-intake", s.handleGetNextIntake)
 	apiMux.HandleFunc("POST /api/medications/log-past", s.handleLogPastIntake)
 	apiMux.HandleFunc("POST /api/medications/cancel-intake", s.handleCancelIntake)
+	apiMux.HandleFunc("POST /api/medications/delete-intake", s.handleDeleteFutureIntake)
 	apiMux.HandleFunc("POST /api/medications/snooze", s.handleSnoozeMedication)
 	apiMux.HandleFunc("POST /api/medications/skip", s.handleSkipMedication)
 
