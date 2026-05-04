@@ -270,6 +270,14 @@ func partialShift(totalDelta time.Duration, stepIdx, numSteps int) time.Duration
 	return -time.Duration(int64(totalDelta) * int64(stepIdx) / int64(numSteps))
 }
 
+// NominalIntervalHours derives the average hours between doses from the
+// schedule. Exposed so callers outside the engine (the medication scheduler
+// and the next-intake forecast) can reuse the same definition when applying
+// the transition-overlap guard.
+func NominalIntervalHours(cfg *store.ScheduleConfig) float64 {
+	return nominalIntervalHours(cfg)
+}
+
 // nominalIntervalHours derives the average hours between doses from the schedule.
 func nominalIntervalHours(cfg *store.ScheduleConfig) float64 {
 	if len(cfg.Times) == 0 {

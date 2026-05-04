@@ -14,31 +14,6 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
-// nominalIntervalHoursForCfg derives the average hours between doses for a
-// medication's schedule. Mirrors the engine helper of the same name; kept
-// scheduler-local so the engine package's unexported helper is not broken
-// out into the public API for a single read-side use.
-func nominalIntervalHoursForCfg(cfg *store.ScheduleConfig) float64 {
-	if cfg == nil || len(cfg.Times) == 0 {
-		return 24
-	}
-	if cfg.Type == "weekly" {
-		dosesPerWeek := len(cfg.Times)
-		if len(cfg.Days) > 0 {
-			dosesPerWeek = len(cfg.Days) * len(cfg.Times)
-		}
-		if dosesPerWeek == 0 {
-			return 168
-		}
-		interval := 168.0 / float64(dosesPerWeek)
-		if interval < 1 {
-			return 1
-		}
-		return interval
-	}
-	return 24.0 / float64(len(cfg.Times))
-}
-
 // MedicationStore is the subset of store operations needed for medication scheduling.
 type MedicationStore interface {
 	GetMedicationEnabled(ctx context.Context) (bool, error)
@@ -275,7 +250,7 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 					continue
 				}
 				policy := tzreschedule.NormalizePolicy(med.TZShiftPolicy)
-				minIntv := tzreschedule.MinDoseInterval(nominalIntervalHoursForCfg(cfg), policy)
+				minIntv := tzreschedule.MinDoseInterval(tzreschedule.NominalIntervalHours(cfg), policy)
 				if target.Sub(stepAt) <= minIntv {
 					continue
 				}

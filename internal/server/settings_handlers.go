@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -95,6 +96,21 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 	}
 	now = now.In(userLoc)
 
+	// Mirror the medication scheduler's transition-aware suppression so the
+	// "next intake" widget never advertises a dose the scheduler is going to
+	// skip. Without this, a consumed transition step on a flexible-policy med
+	// (e.g. taken at 14:18 PDT) leaves the normal evening dose at 21:30 PDT
+	// visible in the forecast even though the scheduler will refuse to
+	// materialise it as a PENDING intake.
+	consumedStepTimeByMed := make(map[int64]time.Time)
+	if s.tzPlanStore != nil {
+		if plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan(); err == nil && plan != nil {
+			if m, err := s.tzPlanStore.GetLatestConsumedStepTimePerMed(plan.ID); err == nil {
+				consumedStepTimeByMed = m
+			}
+		}
+	}
+
 	var nextTime time.Time
 	var nextMeds []store.Medication
 
@@ -140,6 +156,21 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 				}
 				if med.EndDate != nil && target.After(*med.EndDate) {
 					continue
+				}
+				// Suppress the same overlap window the scheduler enforces:
+				// targets at or before the consumed step time, and targets
+				// within minInterval after it. See medication.go for the full
+				// rationale; the guard must live in both places until the two
+				// scheduling models are unified.
+				if stepAt, ok := consumedStepTimeByMed[med.ID]; ok {
+					if !target.After(stepAt) {
+						continue
+					}
+					policy := tzreschedule.NormalizePolicy(med.TZShiftPolicy)
+					minIntv := tzreschedule.MinDoseInterval(tzreschedule.NominalIntervalHours(cfg), policy)
+					if target.Sub(stepAt) <= minIntv {
+						continue
+					}
 				}
 
 				intake, _ := s.meds.GetIntakeBySchedule(med.ID, target)
