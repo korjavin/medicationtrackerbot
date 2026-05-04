@@ -33,7 +33,19 @@ type WorkoutStore interface {
 	SetSessionNotificationMessageID(sessionID int64, msgID int) error
 	UpdateSessionVariant(sessionID int64, variantID int64) error
 	GetCurrentTimezone() (string, error)
+	GetLatestSessionScheduledDate(groupID, userID int64) (time.Time, bool, error)
 }
+
+// crossTZSessionCooldown is the minimum gap between two scheduled_dates for
+// the same workout group below which the scheduler refuses to materialise a
+// new session — even when the calendar date in the user's CURRENT timezone
+// suggests one is due. Two scheduler ticks running in two different user
+// timezones can otherwise both compute "today" against different calendar
+// dates and produce duplicate sessions for what the user perceives as one
+// workout day. 18h leaves room for legitimate consecutive-day workouts at
+// the same scheduled time (24h apart) and shorter weekly cycles, while
+// blocking the typical TZ-shift fingerprint of 6–12 hours.
+const crossTZSessionCooldown = 18 * time.Hour
 
 // WorkoutChecker checks for scheduled workouts and sends notifications.
 type WorkoutChecker struct {
@@ -205,6 +217,27 @@ func (c *WorkoutChecker) Check(ctx context.Context) error {
 		}
 
 		if existing == nil {
+			// Cross-TZ idempotency: skip creating a fresh session if the most
+			// recent session for this group is closer than the cooldown
+			// window. The today-date lookup above only catches duplicates
+			// keyed by the same calendar date string; after a westbound
+			// flight "today" in the new TZ may be a different calendar date
+			// from the session that just got created in the old TZ, and
+			// without this guard the scheduler would happily double up.
+			if latest, has, err := c.store.GetLatestSessionScheduledDate(group.ID, c.allowedUserID); err != nil {
+				slog.Warn("Error checking latest session, ignoring cross-TZ cooldown", "group", group.ID, "error", err)
+			} else if has {
+				gap := today.Sub(latest)
+				if gap < 0 {
+					gap = -gap
+				}
+				if gap < crossTZSessionCooldown {
+					slog.Info("Skipping workout session: within cross-TZ cooldown",
+						"group", group.ID, "today", today, "latest", latest, "gap", gap)
+					continue
+				}
+			}
+
 			session, err := c.store.CreateWorkoutSession(group.ID, variantID, c.allowedUserID, today, group.ScheduledTime)
 			if err != nil {
 				slog.Error("Failed to create workout session", "error", err)
