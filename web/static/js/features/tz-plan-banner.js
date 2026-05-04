@@ -1,28 +1,38 @@
-// TZ Transition Plan banner.
+// TZ Transition Plan card.
 //
 // Surfaces a pending timezone-change plan that the user has not yet approved
-// or rejected. The banner stays hidden when there is no active plan, so users
-// who never travel never see it.
+// or rejected as a Wandergeek card on the Today screen, sitting directly
+// above the medications card. Stays absent from the DOM entirely when no
+// plan is in flight, so users who never travel never see it.
 //
-// Lifecycle: call window.TZPlanBanner.refresh() to query GET
-// /api/tz-plan/current. On a non-null plan in PENDING_APPROVAL or NOTIFIED
-// state, render the banner with Approve / Reject / Details controls. On null
-// plan, ensure the container is hidden. The bootstrap module triggers an
-// initial refresh after auth completes.
+// Lifecycle:
+//   refresh()           — fetches GET /api/tz-plan/current, updates cache,
+//                         and triggers a Today reload so the card appears
+//                         (or disappears) without a manual refresh.
+//   mountCard(root)     — synchronously appends the card from cached state.
+//                         Today's renderer calls this once per render, before
+//                         the meds card.
+//
+// Apply / Cancel actions hit the existing approve / reject endpoints, clear
+// the cached plan, and reload the current tab so the card unmounts itself.
 
 (function () {
-    const CONTAINER_ID = 'tz-plan-banner';
     const ACTIONABLE_STATUSES = new Set(['PENDING_APPROVAL', 'NOTIFIED']);
 
-    function getContainer() {
-        return document.getElementById(CONTAINER_ID);
+    let cached = { plan: null, steps: [] };
+
+    function actionable(plan) {
+        return !!(plan && ACTIONABLE_STATUSES.has(plan.status));
     }
 
-    function hide(container) {
-        if (!container) return;
-        container.classList.add('hidden');
-        container.hidden = true;
-        container.replaceChildren();
+    function reloadTab() {
+        try {
+            if (typeof window.reloadCurrentTab === 'function') {
+                window.reloadCurrentTab();
+            }
+        } catch (e) {
+            console.warn('tz_plan: reloadCurrentTab failed', e);
+        }
     }
 
     function formatOffsetHours(oldTZ, newTZ, refIso) {
@@ -59,95 +69,6 @@
         }
     }
 
-    function render(plan, steps) {
-        const container = getContainer();
-        if (!container) return;
-        if (!plan || !ACTIONABLE_STATUSES.has(plan.status)) {
-            hide(container);
-            return;
-        }
-
-        const medCount = countDistinctMeds(steps);
-        const offset = formatOffsetHours(plan.old_tz, plan.new_tz, plan.created_at);
-
-        container.classList.remove('hidden');
-        container.hidden = false;
-        container.replaceChildren();
-
-        const row = document.createElement('div');
-        row.className = 'tz-plan-banner__row';
-
-        const msg = document.createElement('div');
-        msg.className = 'tz-plan-banner__msg';
-
-        const title = document.createElement('div');
-        title.className = 'tz-plan-banner__msg-title';
-        const offsetSuffix = offset ? ` (${offset})` : '';
-        title.textContent = `🌍 Timezone change: ${plan.old_tz} → ${plan.new_tz}${offsetSuffix}`;
-        msg.appendChild(title);
-
-        const detail = document.createElement('div');
-        detail.className = 'tz-plan-banner__msg-detail';
-        const stepNote = medCount === 1 ? '1 medication' : `${medCount} medications`;
-        const statusNote = plan.status === 'NOTIFIED' ? 'awaiting your decision' : 'pending';
-        detail.textContent = `${stepNote} · ${statusNote}`;
-        msg.appendChild(detail);
-
-        row.appendChild(msg);
-
-        const actions = document.createElement('div');
-        actions.className = 'tz-plan-banner__actions';
-
-        const approveBtn = document.createElement('button');
-        approveBtn.type = 'button';
-        approveBtn.className = 'tz-plan-banner__btn tz-plan-banner__btn--primary';
-        approveBtn.textContent = 'Apply';
-        approveBtn.addEventListener('click', () => onAction(plan.id, 'approve', container));
-        actions.appendChild(approveBtn);
-
-        const rejectBtn = document.createElement('button');
-        rejectBtn.type = 'button';
-        rejectBtn.className = 'tz-plan-banner__btn';
-        rejectBtn.textContent = 'Cancel';
-        rejectBtn.addEventListener('click', () => onAction(plan.id, 'reject', container));
-        actions.appendChild(rejectBtn);
-
-        if (Array.isArray(steps) && steps.length > 0) {
-            const detailsBtn = document.createElement('button');
-            detailsBtn.type = 'button';
-            detailsBtn.className = 'tz-plan-banner__btn';
-            detailsBtn.textContent = 'Details';
-            const detailsBox = renderDetails(steps);
-            detailsBox.hidden = true;
-            detailsBtn.addEventListener('click', () => {
-                detailsBox.hidden = !detailsBox.hidden;
-                detailsBtn.setAttribute('aria-expanded', String(!detailsBox.hidden));
-            });
-            actions.appendChild(detailsBtn);
-            container.appendChild(row);
-            container.appendChild(detailsBox);
-        } else {
-            container.appendChild(row);
-        }
-    }
-
-    function renderDetails(steps) {
-        const wrap = document.createElement('div');
-        wrap.className = 'tz-plan-banner__details';
-        const intro = document.createElement('div');
-        intro.textContent = `${steps.length} transition dose${steps.length === 1 ? '' : 's'} planned:`;
-        wrap.appendChild(intro);
-        const ul = document.createElement('ul');
-        ul.className = 'tz-plan-banner__details-list';
-        for (const s of steps) {
-            const li = document.createElement('li');
-            li.textContent = s.note || `step ${s.step_number} at ${s.scheduled_at}`;
-            ul.appendChild(li);
-        }
-        wrap.appendChild(ul);
-        return wrap;
-    }
-
     function countDistinctMeds(steps) {
         if (!Array.isArray(steps)) return 0;
         const seen = new Set();
@@ -157,41 +78,145 @@
         return seen.size;
     }
 
-    async function onAction(planId, action, container) {
-        const buttons = container.querySelectorAll('button.tz-plan-banner__btn');
+    function buildCard(plan, steps) {
+        const d = document;
+        const card = d.createElement('div');
+        // Reuse the same visual contract as the meds card. The --plain
+        // modifier drops the sun-yellow header so we can compose with the
+        // dedicated tz-plan section and not steal medication emphasis.
+        card.className = 'wg-next-action-card wg-next-action-card--plain wg-tz-plan-card';
+        card.setAttribute('data-section', 'tz-plan');
+
+        const head = d.createElement('div');
+        head.className = 'wg-tz-plan-card__head';
+
+        const iconWrap = d.createElement('span');
+        iconWrap.className = 'wg-next-action-card__icon wg-tz-plan-card__icon';
+        iconWrap.textContent = '🌍';
+        head.appendChild(iconWrap);
+
+        const text = d.createElement('span');
+        text.className = 'wg-next-action-card__text';
+
+        const kicker = d.createElement('span');
+        kicker.className = 'wg-next-action-card__kicker';
+        kicker.textContent = 'Timezone change pending';
+        text.appendChild(kicker);
+
+        const value = d.createElement('span');
+        value.className = 'wg-next-action-card__value wg-tz-plan-card__value';
+        const offset = formatOffsetHours(plan.old_tz, plan.new_tz, plan.created_at);
+        const offsetSuffix = offset ? `  ·  ${offset}` : '';
+        value.textContent = `${plan.old_tz} → ${plan.new_tz}${offsetSuffix}`;
+        text.appendChild(value);
+
+        const medCount = countDistinctMeds(steps);
+        if (medCount > 0) {
+            const detail = d.createElement('span');
+            detail.className = 'wg-tz-plan-card__detail';
+            const noun = medCount === 1 ? 'medication' : 'medications';
+            detail.textContent = `${medCount} ${noun} will shift`;
+            text.appendChild(detail);
+        }
+        head.appendChild(text);
+
+        const actions = d.createElement('div');
+        actions.className = 'wg-tz-plan-card__actions';
+
+        const applyBtn = d.createElement('button');
+        applyBtn.type = 'button';
+        applyBtn.className = 'wg-toolbar-btn wg-toolbar-btn--primary wg-tz-plan-card__btn';
+        applyBtn.textContent = 'Apply';
+        applyBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            onAction(plan.id, 'approve', card);
+        });
+        actions.appendChild(applyBtn);
+
+        const cancelBtn = d.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'wg-toolbar-btn wg-tz-plan-card__btn';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            onAction(plan.id, 'reject', card);
+        });
+        actions.appendChild(cancelBtn);
+
+        head.appendChild(actions);
+        card.appendChild(head);
+
+        if (Array.isArray(steps) && steps.length > 0) {
+            const detailsWrap = d.createElement('details');
+            detailsWrap.className = 'wg-tz-plan-card__details';
+
+            const summary = d.createElement('summary');
+            summary.className = 'wg-tz-plan-card__details-summary';
+            const stepNoun = steps.length === 1 ? 'transition dose' : 'transition doses';
+            summary.textContent = `${steps.length} ${stepNoun} planned`;
+            detailsWrap.appendChild(summary);
+
+            const ul = d.createElement('ul');
+            ul.className = 'wg-tz-plan-card__details-list';
+            for (const s of steps) {
+                const li = d.createElement('li');
+                li.textContent = s.note || `step ${s.step_number} at ${s.scheduled_at}`;
+                ul.appendChild(li);
+            }
+            detailsWrap.appendChild(ul);
+            card.appendChild(detailsWrap);
+        }
+
+        return card;
+    }
+
+    async function onAction(planId, action, cardEl) {
+        const buttons = cardEl.querySelectorAll('button');
         buttons.forEach((b) => { b.disabled = true; });
         try {
             if (typeof window.apiCall !== 'function') {
                 throw new Error('apiCall unavailable');
             }
             await window.apiCall(`/api/tz-plan/${encodeURIComponent(planId)}/${action}`, 'POST');
-            // Hide regardless of which path the user took — both transitions
-            // (APPROVED / REJECTED) make the plan no longer actionable.
-            hide(container);
+            cached = { plan: null, steps: [] };
+            reloadTab();
         } catch (e) {
-            console.error('tz_plan banner action failed', e);
+            console.error('tz_plan card action failed', e);
             buttons.forEach((b) => { b.disabled = false; });
         }
     }
 
+    function mountCard(root) {
+        if (!root) return null;
+        if (!actionable(cached.plan)) return null;
+        const card = buildCard(cached.plan, cached.steps);
+        root.appendChild(card);
+        return card;
+    }
+
     async function refresh() {
-        const container = getContainer();
-        if (!container) return;
         try {
             if (typeof window.apiCall !== 'function') return;
             const result = await window.apiCall('/api/tz-plan/current', 'GET');
-            if (!result || typeof result !== 'object') {
-                hide(container);
-                return;
+            const plan = (result && typeof result === 'object') ? (result.plan || null) : null;
+            const steps = (result && Array.isArray(result.steps)) ? result.steps : [];
+            const wasActionable = actionable(cached.plan);
+            const isActionable = actionable(plan);
+            cached = { plan: isActionable ? plan : null, steps: isActionable ? steps : [] };
+            if (wasActionable !== isActionable
+                || (isActionable && plan && cached.plan && plan.id !== cached.plan.id)) {
+                reloadTab();
             }
-            render(result.plan || null, Array.isArray(result.steps) ? result.steps : []);
         } catch (e) {
             // Silent failure: a missing endpoint or transient error must not
-            // surface as an error banner — hide and move on.
-            console.warn('tz_plan banner refresh failed', e);
-            hide(container);
+            // surface as an error — drop any cached plan and move on.
+            console.warn('tz_plan card refresh failed', e);
+            if (actionable(cached.plan)) {
+                cached = { plan: null, steps: [] };
+                reloadTab();
+            }
         }
     }
 
-    window.TZPlanBanner = { refresh };
+    window.TZPlanBanner = { refresh, mountCard };
 })();

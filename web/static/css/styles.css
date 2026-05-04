@@ -1743,77 +1743,78 @@ svg.chart-svg {
     font-weight: var(--font-weight-medium);
 }
 
-/* TZ Transition Plan Banner — surfaces a pending timezone-change plan that
-   the user has not yet approved or rejected. Hidden by default (no plan in
-   flight = no DOM cost). Shares the pending colour tokens with other
-   "needs-attention" surfaces. */
-.tz-plan-banner {
-    background: linear-gradient(135deg, var(--color-status-pending-bg-start) 0%, var(--color-status-pending-bg-end) 100%);
-    color: var(--color-status-pending-text);
-    border-bottom: 1px solid var(--color-status-pending-border);
-    padding: var(--space-sm) var(--space-md);
-    font-size: var(--font-size-sm);
+/* TZ Transition Plan Card — Wandergeek card surfaced on Today directly above
+   the medications card when a timezone-change plan is awaiting the user's
+   decision. Composes with .wg-next-action-card.--plain for the surface and
+   icon styling, then layers card-local rules for layout, the dose-list
+   disclosure, and the side-by-side Apply/Cancel actions. The card is removed
+   from the DOM entirely when no plan is in flight. */
+.wg-tz-plan-card {
+    flex-direction: column;
+    align-items: stretch;
+    cursor: default;
 }
 
-.tz-plan-banner__row {
+.wg-tz-plan-card__head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--space-sm);
+    gap: var(--space-md);
+    width: 100%;
     flex-wrap: wrap;
 }
 
-.tz-plan-banner__msg {
-    flex: 1 1 auto;
-    min-width: 0;
+.wg-tz-plan-card__icon {
+    color: var(--wg-fg-1);
+    font-size: 18px;
+    line-height: 1;
 }
 
-.tz-plan-banner__msg-title {
-    font-weight: var(--font-weight-medium);
+.wg-tz-plan-card__value {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
 }
 
-.tz-plan-banner__msg-detail {
+.wg-tz-plan-card__detail {
+    display: block;
+    margin-top: 2px;
     font-size: var(--font-size-xs);
-    opacity: 0.85;
+    color: var(--wg-fg-3);
 }
 
-.tz-plan-banner__actions {
+.wg-tz-plan-card__actions {
     display: flex;
     gap: var(--space-xs);
     flex: 0 0 auto;
+    margin-left: auto;
 }
 
-.tz-plan-banner__btn {
-    border: 1px solid var(--color-status-pending-border);
-    background: transparent;
-    color: var(--color-status-pending-text);
-    padding: var(--space-xs) var(--space-sm);
-    border-radius: var(--radius-sm, 4px);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    cursor: pointer;
+.wg-tz-plan-card__btn {
+    min-width: 72px;
 }
 
-.tz-plan-banner__btn--primary {
-    background: var(--color-status-pending-text);
-    color: var(--color-status-pending-bg-start);
-}
-
-.tz-plan-banner__btn:disabled {
+.wg-tz-plan-card__btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
 
-.tz-plan-banner__details {
+.wg-tz-plan-card__details {
     margin-top: var(--space-sm);
     font-size: var(--font-size-xs);
-    max-height: 12em;
-    overflow-y: auto;
+    color: var(--wg-fg-2);
 }
 
-.tz-plan-banner__details-list {
+.wg-tz-plan-card__details-summary {
+    cursor: pointer;
+    user-select: none;
+    color: var(--wg-fg-3);
+}
+
+.wg-tz-plan-card__details-list {
     margin: var(--space-xs) 0 0;
     padding-left: var(--space-md);
+    max-height: 12em;
+    overflow-y: auto;
 }
 
 /* Offline-disabled button state */
