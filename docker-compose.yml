@@ -91,6 +91,9 @@ services:
       # docs/mcp-deployment.md "MVP in-process isolation tradeoff" before
       # turning this on.
       - MCP_EXECUTOR_BRIDGE_URL=${MCP_EXECUTOR_BRIDGE_URL}
+      # Set to any non-empty value to expose only mcp_help and mcp_execute,
+      # hiding legacy granular tools (fitness, cardio, etc.).
+      - NO_LEGACY_MCP=${NO_LEGACY_MCP:-}
       # Loopback proxy URL the runner uses for medtracker.api.call.
       - MCP_EXECUTOR_PROXY_URL=${MCP_EXECUTOR_PROXY_URL:-http://127.0.0.1:8090/call}
       # Pocket-ID
