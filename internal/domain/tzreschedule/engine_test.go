@@ -62,6 +62,86 @@ func TestGeneratePlan_NoChangeWhenOffsetsEqual(t *testing.T) {
 	}
 }
 
+// TestGeneratePlan_LastStepSnappedToClockSlot reproduces the user-reported
+// "08:22:06" drift: the user took an 08:20 dose at 08:22:06 yesterday, the
+// engine inherits that anchor, and without snapping the final step inherits
+// the +2:06 drift forever. Snapping should pull the final step onto the
+// 08:20 PDT clock slot exactly.
+func TestGeneratePlan_LastStepSnappedToClockSlot(t *testing.T) {
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	cph, _ := time.LoadLocation("Europe/Copenhagen")
+	now := time.Date(2026, 5, 4, 2, 59, 32, 0, time.UTC) // matches plan 3 creation
+	// Yesterday's TAKEN at 08:22:06 +02 → drifted anchor.
+	anchor := time.Date(2026, 5, 3, 8, 22, 6, 414491060, cph).UTC()
+	med := med(16, "Allopurinol AL", dailySchedule("08:20"), "flexible")
+
+	steps, _, err := tzreschedule.GeneratePlan(tzreschedule.PlanInput{
+		Medications:             []store.Medication{med},
+		OldTZ:                   "Europe/Copenhagen",
+		NewTZ:                   "America/Los_Angeles",
+		Now:                     now,
+		LastIntakePerMedication: map[int64]time.Time{16: anchor},
+	})
+	if err != nil {
+		t.Fatalf("GeneratePlan: %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("want 1 step, got %d: %+v", len(steps), steps)
+	}
+
+	// Want the step at 08:20 PDT exactly (clock-aligned), not 08:22:06 PDT.
+	wantPDT := time.Date(2026, 5, 4, 8, 20, 0, 0, la)
+	if !steps[0].ScheduledAt.Equal(wantPDT) {
+		t.Errorf("step ScheduledAt = %v (UTC %v), want %v (UTC %v)",
+			steps[0].ScheduledAt.In(la), steps[0].ScheduledAt.UTC(),
+			wantPDT, wantPDT.UTC())
+	}
+}
+
+// TestGeneratePlan_LastStepSnappedAcrossSiblings is the multi-med variant of
+// the above: three sibling meds with the same 08:20 schedule and same drift
+// must all land on the same clock-aligned final step so the forecast widget
+// clusters them naturally.
+func TestGeneratePlan_LastStepSnappedAcrossSiblings(t *testing.T) {
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	cph, _ := time.LoadLocation("Europe/Copenhagen")
+	now := time.Date(2026, 5, 4, 2, 59, 32, 0, time.UTC)
+	// Three meds all taken late at 08:22:06 yesterday (typical: user opens
+	// the app a couple of minutes after the alarm and confirms the batch).
+	anchor := time.Date(2026, 5, 3, 8, 22, 6, 414491060, cph).UTC()
+	meds := []store.Medication{
+		med(2, "Bisoprolol", dailySchedule("08:20"), "flexible"),
+		med(4, "Candecor comp", dailySchedule("08:20"), "flexible"),
+		med(16, "Allopurinol AL", dailySchedule("08:20"), "flexible"),
+	}
+
+	steps, _, err := tzreschedule.GeneratePlan(tzreschedule.PlanInput{
+		Medications: meds,
+		OldTZ:       "Europe/Copenhagen",
+		NewTZ:       "America/Los_Angeles",
+		Now:         now,
+		LastIntakePerMedication: map[int64]time.Time{
+			2:  anchor,
+			4:  anchor,
+			16: anchor,
+		},
+	})
+	if err != nil {
+		t.Fatalf("GeneratePlan: %v", err)
+	}
+	if len(steps) != 3 {
+		t.Fatalf("want 3 steps (one per med), got %d", len(steps))
+	}
+
+	wantPDT := time.Date(2026, 5, 4, 8, 20, 0, 0, la)
+	for _, s := range steps {
+		if !s.ScheduledAt.Equal(wantPDT) {
+			t.Errorf("med %s step at %v, want %v", s.MedName,
+				s.ScheduledAt.In(la), wantPDT)
+		}
+	}
+}
+
 func TestGeneratePlan_FinishedCourseSkipped(t *testing.T) {
 	// EndDate already in the past — the user is no longer taking this med, so
 	// the engine must not emit transition steps for it. Including them would
