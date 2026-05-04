@@ -64,6 +64,7 @@ type Config struct {
 	AdminPort            int   // Port for the loopback-only admin API (0 disables it)
 	MaxExecutorTimeoutMS int64 // cap for caller-provided timeout_ms; default 30000 (30s)
 	MaxExecutorAPICalls  int   // cap for caller-provided max_api_calls; default 100
+	NoLegacyMCP          bool  // when true, only mcp_help and mcp_execute are registered
 	// Python executor wiring. The executor service hosts a loopback /call
 	// listener for the runner subprocess and forwards each call to the bot's
 	// HMAC-protected bridge endpoint.
@@ -106,6 +107,7 @@ func LoadConfigFromEnv() (*Config, error) {
 	maxExecTimeoutMS, _ := strconv.ParseInt(os.Getenv("MCP_EXECUTOR_MAX_TIMEOUT_MS"), 10, 64)
 	maxExecAPICalls, _ := strconv.Atoi(os.Getenv("MCP_EXECUTOR_MAX_API_CALLS"))
 	maxExecConcurrent, _ := strconv.Atoi(os.Getenv("MCP_EXECUTOR_MAX_CONCURRENT"))
+	noLegacyMCP := strings.TrimSpace(os.Getenv("NO_LEGACY_MCP")) != ""
 
 	// MCP_EXECUTOR_BRIDGE_URL is the explicit opt-in for the in-process Python
 	// executor. We deliberately do NOT derive this from MCP_AUDIT_ENDPOINT:
@@ -135,6 +137,7 @@ func LoadConfigFromEnv() (*Config, error) {
 		ExecutorRunnerScript:  strings.TrimSpace(os.Getenv("MCP_EXECUTOR_RUNNER_SCRIPT")),
 		ExecutorRunnerCwd:     strings.TrimSpace(os.Getenv("MCP_EXECUTOR_RUNNER_CWD")),
 		ExecutorMaxConcurrent: maxExecConcurrent,
+		NoLegacyMCP:           noLegacyMCP,
 	}
 
 	if cfg.AdminPort > 0 && cfg.AdminPort == cfg.Port {
@@ -285,6 +288,10 @@ func (s *Server) registerTools() {
 		},
 		s.handleMCPExecute,
 	)
+
+	if s.config.NoLegacyMCP {
+		return
+	}
 
 	// Blood Pressure Tool
 	mcp.AddTool(s.mcpServer,
