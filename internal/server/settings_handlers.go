@@ -136,6 +136,21 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 	var nextTime time.Time
 	var nextMeds []store.Medication
 
+	// Doses landing within ±forecastClusterWindow of the chosen earliest
+	// target are treated as a single cluster on the Today widget. Plan-step
+	// times inherit sub-second drift from the user's actual taken_at (e.g.
+	// 08:22:06 instead of 08:20:00) while normal-schedule times are
+	// clock-aligned, so without a tolerance the four "morning meds" group
+	// would split into two visually-arbitrary buckets two minutes apart.
+	const forecastClusterWindow = 10 * time.Minute
+	absDiff := func(a, b time.Time) time.Duration {
+		d := a.Sub(b)
+		if d < 0 {
+			d = -d
+		}
+		return d
+	}
+
 	for _, t := range targets {
 		// Skip targets the user already acted on (TAKEN / SKIPPED). The
 		// planner does not look at intake_log because that is the caller's
@@ -155,7 +170,7 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 		case nextTime.IsZero() || t.ScheduledAt.Before(nextTime):
 			nextTime = t.ScheduledAt
 			nextMeds = []store.Medication{med}
-		case t.ScheduledAt.Equal(nextTime):
+		case absDiff(t.ScheduledAt, nextTime) <= forecastClusterWindow:
 			nextMeds = append(nextMeds, med)
 		}
 	}

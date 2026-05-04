@@ -205,12 +205,36 @@ func stepsForMedication(
 		prevTime = proposed
 	}
 
+	// Snap the LAST step onto the user's clock-slot in the new timezone. The
+	// step's "intent" is the moment the user is fully on the new schedule, so
+	// it should land exactly on a cfg.Times slot — not at anchor + offset, which
+	// inherits whatever drift the user's actual taken_at had (e.g. taking a
+	// 08:20 dose two minutes late then carries 08:22:06 forward into every
+	// future plan and breaks naive equality clustering with sibling meds).
+	// Intermediate steps in multi-step plans intentionally drift — they encode
+	// the gradual phased shift — so only the final step gets snapped.
+	if len(steps) > 0 && newLoc != nil {
+		lastIdx := len(steps) - 1
+		prevStepTime := anchor
+		if len(steps) > 1 {
+			prevStepTime = steps[len(steps)-2].ScheduledAt
+		}
+		if snapped, ok := snapLastStepToClock(prevTime, prevStepTime, cfg, newLoc, minInterval, maxInterval); ok {
+			oldScheduledAt := steps[lastIdx].ScheduledAt
+			if !oldScheduledAt.Equal(snapped) {
+				steps[lastIdx].ScheduledAt = snapped.UTC()
+				steps[lastIdx].Note = buildNote(med.Name, policy, steps[lastIdx].StepNumber, steps[lastIdx].TotalSteps, snapped, oldLoc, newLoc)
+				prevTime = snapped
+			}
+		}
+	}
+
 	// Validate the hand-off from the last transition step to the first regular dose
-	// in the new timezone. If the anchor deviated from the scheduled time (e.g.
-	// the user took a dose late), the last step can land close to the next normal
-	// dose, causing a near-double-dose. Attempt to adjust the last step earlier
-	// to restore the minimum gap; if that would violate the previous step constraint,
-	// record the conflict as a violation for operator review.
+	// in the new timezone. If snapping above did not apply (e.g. no schedule slot
+	// inside the [min, max] window), the last step can land close to the next
+	// normal dose, causing a near-double-dose; attempt to adjust the last step
+	// earlier to restore the minimum gap. If that would violate the previous step
+	// constraint, record the conflict as a violation for operator review.
 	if len(steps) > 0 && newLoc != nil {
 		nextNormal := firstNormalDoseAfter(prevTime, cfg, newLoc)
 		if !nextNormal.IsZero() {
@@ -299,6 +323,85 @@ func nominalIntervalHours(cfg *store.ScheduleConfig) float64 {
 		return interval
 	}
 	return 24.0 / float64(len(cfg.Times))
+}
+
+// snapLastStepToClock returns the user-local clock-slot in newLoc that the
+// final transition step should land on. Pick the candidate inside the safe
+// [prevStep+minInterval, prevStep+maxInterval] window that is closest in time
+// to the engine's drift-based proposed value, breaking ties forward (later
+// than proposed) so we prefer the user's next clock-aligned slot rather than
+// the one they have already lived through. Returns ok=false when no clock
+// slot fits the safe window — the caller then falls back to the existing
+// hand-off logic.
+func snapLastStepToClock(proposed, prevStep time.Time, cfg *store.ScheduleConfig, newLoc *time.Location, minInterval, maxInterval time.Duration) (time.Time, bool) {
+	if cfg == nil || len(cfg.Times) == 0 || newLoc == nil {
+		return time.Time{}, false
+	}
+	earliest := prevStep.Add(minInterval)
+	latest := prevStep.Add(maxInterval)
+	if !latest.After(earliest) {
+		return time.Time{}, false
+	}
+
+	proposedInNew := proposed.In(newLoc)
+
+	var best time.Time
+	var bestDist time.Duration
+	found := false
+	consider := func(target time.Time) {
+		if target.Before(earliest) || target.After(latest) {
+			return
+		}
+		dist := target.Sub(proposed)
+		if dist < 0 {
+			dist = -dist
+		}
+		switch {
+		case !found, dist < bestDist:
+			best = target
+			bestDist = dist
+			found = true
+		case dist == bestDist && target.After(best):
+			// Equal distance — prefer the later slot so we never snap the
+			// user back into a slot they have already lived through.
+			best = target
+		}
+	}
+
+	// Cover ±2 days around proposed in newLoc to handle midnight wrap and
+	// minInterval / maxInterval that bridge dates.
+	for d := -2; d <= 2; d++ {
+		day := proposedInNew.AddDate(0, 0, d)
+		if cfg.Type == "weekly" && len(cfg.Days) > 0 {
+			allowed := false
+			wd := int(day.Weekday())
+			for _, ad := range cfg.Days {
+				if ad == wd {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				continue
+			}
+		}
+		for _, ts := range cfg.Times {
+			if len(ts) != 5 {
+				continue
+			}
+			hour, err1 := strconv.Atoi(ts[:2])
+			minute, err2 := strconv.Atoi(ts[3:])
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			consider(time.Date(day.Year(), day.Month(), day.Day(), hour, minute, 0, 0, newLoc))
+		}
+	}
+
+	if !found {
+		return time.Time{}, false
+	}
+	return best, true
 }
 
 // firstNormalDoseAfter returns the next scheduled dose time in newLoc strictly
