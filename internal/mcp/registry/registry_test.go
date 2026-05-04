@@ -696,6 +696,7 @@ func TestMedicationOperations(t *testing.T) {
 		"medications.restock",
 		"medications.restocks.list",
 		"medications.inventory.low",
+		"medications.tz_plan.current",
 	}
 	for _, id := range required {
 		if r.Get(id) == nil {
