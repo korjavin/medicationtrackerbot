@@ -81,6 +81,18 @@ func GeneratePlan(input PlanInput) ([]TransitionStep, PlanSummary, error) {
 		if med.Archived {
 			continue
 		}
+		// Skip medications the user is not actively taking right now: courses
+		// that have already ended, or future courses that have not yet begun.
+		// Including them would generate phantom transition steps for doses
+		// the scheduler will never fire — the medication scheduler enforces
+		// the same window via med.StartDate / med.EndDate, so the plan must
+		// match it.
+		if med.EndDate != nil && !med.EndDate.After(input.Now) {
+			continue
+		}
+		if med.StartDate != nil && med.StartDate.After(input.Now) {
+			continue
+		}
 		cfg, err := med.ValidSchedule()
 		if err != nil {
 			continue
