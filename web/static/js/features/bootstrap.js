@@ -152,6 +152,13 @@ checkAuth().then(async authorized => {
         // Detect timezone after auth so bootstrap payload is cached
         await maybeUpdateTimezone();
 
+        // Surface a pending TZ transition plan if one is in flight. The banner
+        // stays hidden when no plan exists, so this is silent for users who
+        // never travel.
+        if (window.TZPlanBanner && typeof window.TZPlanBanner.refresh === 'function') {
+            window.TZPlanBanner.refresh();
+        }
+
         // Mount the canonical bottom nav once (before the first switchTab so
         // it can receive the AppKernel.onTabSwitch('today') notification).
         mountCanonicalBottomNav();

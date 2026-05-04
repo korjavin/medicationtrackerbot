@@ -361,9 +361,22 @@ output({"updated": 123})`,
 		// When the user changes their timezone in settings, the scheduler creates
 		// a TZ transition plan describing how each active medication's schedule
 		// should be reconciled. The plan stays PENDING until the user explicitly
-		// approves or rejects it. The plan_id comes from a UI surface or a
-		// Telegram notification — agents can't list pending plans (no list
-		// endpoint), but they can act on a plan_id surfaced elsewhere.
+		// approves or rejects it. Use medications.tz_plan.current to discover
+		// whether a plan is in flight, then act on it via approve/reject.
+		{
+			ID:              "medications.tz_plan.current",
+			Topic:           "medications",
+			Method:          "GET",
+			Path:            "/api/tz-plan/current",
+			Risk:            RiskRead,
+			Description:     "Return the active timezone transition plan (PENDING_APPROVAL/NOTIFIED/APPROVED) and its remaining steps, or {plan: null} when no plan is in flight.",
+			ResponseSummary: "JSON object with `plan` (object or null) and `steps` (array of remaining transition doses).",
+			Example: `result = api.call("medications.tz_plan.current")
+if result["plan"]:
+    output({"id": result["plan"]["id"], "status": result["plan"]["status"]})
+else:
+    output({"plan": None})`,
+		},
 		{
 			ID:         "medications.tz_plan.approve",
 			Topic:      "medications",

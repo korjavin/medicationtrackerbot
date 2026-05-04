@@ -581,6 +581,39 @@ func (s *Server) handleSetWeightUnitPreference(w http.ResponseWriter, r *http.Re
 	_ = json.NewEncoder(w).Encode(map[string]string{"unit": req.Unit})
 }
 
+// handleGetCurrentTZPlan handles GET /api/tz-plan/current.
+// Returns the active (PENDING_APPROVAL/NOTIFIED/APPROVED) plan plus its remaining
+// steps as JSON, or `{"plan": null}` when there is nothing in flight. The UI uses
+// this to decide whether to render the timezone-transition banner; if no plan
+// exists, the response is small and the banner stays hidden.
+func (s *Server) handleGetCurrentTZPlan(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan()
+	if err != nil {
+		slog.Error("handleGetCurrentTZPlan: GetLatestActiveOrPendingTZTransitionPlan failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if plan == nil {
+		_ = json.NewEncoder(w).Encode(map[string]any{"plan": nil})
+		return
+	}
+
+	steps, err := s.tzPlanStore.GetPendingStepsForPlan(plan.ID)
+	if err != nil {
+		slog.Error("handleGetCurrentTZPlan: GetPendingStepsForPlan failed", "plan_id", plan.ID, "error", err)
+		// Fall through with empty steps — surface the plan so the user can still
+		// approve or reject it; the banner will just not list per-dose detail.
+		steps = nil
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"plan":  plan,
+		"steps": steps,
+	})
+}
+
 // handleTZPlanApprove handles POST /api/tz-plan/{id}/approve.
 // It transitions the plan to APPROVED so the medication scheduler can execute it.
 func (s *Server) handleTZPlanApprove(w http.ResponseWriter, r *http.Request) {
