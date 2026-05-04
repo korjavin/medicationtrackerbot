@@ -9,9 +9,35 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
+
+// nominalIntervalHoursForCfg derives the average hours between doses for a
+// medication's schedule. Mirrors the engine helper of the same name; kept
+// scheduler-local so the engine package's unexported helper is not broken
+// out into the public API for a single read-side use.
+func nominalIntervalHoursForCfg(cfg *store.ScheduleConfig) float64 {
+	if cfg == nil || len(cfg.Times) == 0 {
+		return 24
+	}
+	if cfg.Type == "weekly" {
+		dosesPerWeek := len(cfg.Times)
+		if len(cfg.Days) > 0 {
+			dosesPerWeek = len(cfg.Days) * len(cfg.Times)
+		}
+		if dosesPerWeek == 0 {
+			return 168
+		}
+		interval := 168.0 / float64(dosesPerWeek)
+		if interval < 1 {
+			return 1
+		}
+		return interval
+	}
+	return 24.0 / float64(len(cfg.Times))
+}
 
 // MedicationStore is the subset of store operations needed for medication scheduling.
 type MedicationStore interface {
@@ -30,6 +56,7 @@ type MedicationStore interface {
 	GetCurrentTimezone() (string, error)
 	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
 	GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error)
+	GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error)
 	MarkStepConsumed(stepID int64, consumedAt time.Time) error
 	UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error
 }
@@ -100,6 +127,13 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 
 	// Collect pending steps by medication ID for APPROVED plans.
 	pendingStepsByMed := make(map[int64][]store.TZTransitionStep)
+	// lastConsumedPlanID tracks the plan whose consumed steps must still be
+	// honoured for the overlap guard below — captured before any branch that
+	// nulls out activePlan.
+	var lastConsumedPlanID int64
+	if activePlan != nil && (activePlan.Status == "APPROVED" || activePlan.Status == "COMPLETED") {
+		lastConsumedPlanID = activePlan.ID
+	}
 	if activePlan != nil && activePlan.Status == "APPROVED" {
 		steps, err := c.store.GetPendingStepsForPlan(activePlan.ID)
 		if err != nil {
@@ -131,6 +165,30 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			}
 			slog.Info("medication scheduler: using approved transition plan",
 				"plan_id", activePlan.ID, "meds_with_steps", len(pendingStepsByMed))
+		}
+	}
+
+	// Latest consumed transition-step time per medication. Used below to
+	// suppress two classes of phantom doses around an in-flight plan:
+	//   - Normal-schedule targets earlier than the consumed step (which would
+	//     have fired in the OLD timezone the user no longer lives in).
+	//   - Normal-schedule targets within minInterval of the step time (which
+	//     would notify the user to re-take a dose they just completed as a
+	//     transition step — flexible-policy single-step plans hit this on
+	//     every westbound flight).
+	// The lookup uses lastConsumedPlanID rather than activePlan because the
+	// branches above can null out activePlan after marking it COMPLETED, but
+	// the consumed steps for that plan still live in the steps table and the
+	// scheduler must keep honouring them on this same tick — otherwise the
+	// completion-tick races with the very normal-schedule doses we want to
+	// suppress.
+	consumedStepTimeByMed := make(map[int64]time.Time)
+	if lastConsumedPlanID != 0 {
+		if m, err := c.store.GetLatestConsumedStepTimePerMed(lastConsumedPlanID); err != nil {
+			slog.Warn("medication scheduler: failed to load consumed step times, ignoring overlap guard",
+				"plan_id", lastConsumedPlanID, "error", err)
+		} else {
+			consumedStepTimeByMed = m
 		}
 	}
 
@@ -204,6 +262,23 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 			}
 			if now.Before(target) {
 				continue
+			}
+			// Suppress normal-schedule doses that overlap with a transition
+			// step the user has just completed. Two cases:
+			//   1. target predates the consumed step — it would have fired
+			//      in the OLD timezone the user has already left.
+			//   2. target lands within the medication's minimum dose interval
+			//      after the step — would prompt the user to re-take a dose
+			//      they just took as part of the transition.
+			if stepAt, ok := consumedStepTimeByMed[med.ID]; ok {
+				if !target.After(stepAt) {
+					continue
+				}
+				policy := tzreschedule.NormalizePolicy(med.TZShiftPolicy)
+				minIntv := tzreschedule.MinDoseInterval(nominalIntervalHoursForCfg(cfg), policy)
+				if target.Sub(stepAt) <= minIntv {
+					continue
+				}
 			}
 
 			actions = append(actions, action{
