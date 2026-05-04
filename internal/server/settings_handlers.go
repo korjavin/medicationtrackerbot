@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/medplan"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -80,6 +80,12 @@ type weightGoalBootstrapResponse struct {
 // IDs are returned alongside names so the frontend can resolve the upcoming cluster
 // without name-based lookups (two meds with the same name and different dosages
 // collapse to the first match when resolving by name alone).
+//
+// Implementation note: this delegates to medplan.PlanDoses so the forecast
+// stays in lockstep with what the medication scheduler will actually fire.
+// Any new exclusion rule (overlap with a consumed transition step, expired
+// course, weekly-day gate, …) only needs to be expressed once, in medplan,
+// and both surfaces inherit it.
 func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []string, error) {
 	meds, err := s.meds.ListMedications(false)
 	if err != nil {
@@ -94,97 +100,63 @@ func (s *Server) computeNextIntakeData(now time.Time) (time.Time, []int64, []str
 			userLoc = loc
 		}
 	}
-	now = now.In(userLoc)
 
-	// Mirror the medication scheduler's transition-aware suppression so the
-	// "next intake" widget never advertises a dose the scheduler is going to
-	// skip. Without this, a consumed transition step on a flexible-policy med
-	// (e.g. taken at 14:18 PDT) leaves the normal evening dose at 21:30 PDT
-	// visible in the forecast even though the scheduler will refuse to
-	// materialise it as a PENDING intake.
+	// Plan inputs for the planner: pending steps for any APPROVED plan,
+	// plus the latest consumed step time per medication so the overlap
+	// guard fires the same way the scheduler does after a westbound flight.
+	var pendingSteps []store.TZTransitionStep
 	consumedStepTimeByMed := make(map[int64]time.Time)
 	if s.tzPlanStore != nil {
 		if plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan(); err == nil && plan != nil {
+			if plan.Status == "APPROVED" {
+				if steps, err := s.tzPlanStore.GetPendingStepsForPlan(plan.ID); err == nil {
+					pendingSteps = steps
+				}
+			}
 			if m, err := s.tzPlanStore.GetLatestConsumedStepTimePerMed(plan.ID); err == nil {
 				consumedStepTimeByMed = m
 			}
 		}
 	}
 
+	targets := medplan.PlanDoses(medplan.Inputs{
+		Medications:           meds,
+		PendingSteps:          pendingSteps,
+		ConsumedStepTimeByMed: consumedStepTimeByMed,
+		UserLoc:               userLoc,
+		Now:                   now,
+		Window:                12 * time.Hour,
+	})
+
+	medByID := make(map[int64]store.Medication, len(meds))
+	for _, m := range meds {
+		medByID[m.ID] = m
+	}
+
 	var nextTime time.Time
 	var nextMeds []store.Medication
 
-	for _, med := range meds {
-		cfg, err := med.ValidSchedule()
-		if err != nil || cfg.Type == "as_needed" {
+	for _, t := range targets {
+		// Skip targets the user already acted on (TAKEN / SKIPPED). The
+		// planner does not look at intake_log because that is the caller's
+		// responsibility; for forecast purposes we want to advertise the
+		// next dose the user has not yet handled.
+		intake, _ := s.meds.GetIntakeBySchedule(t.MedicationID, t.ScheduledAt)
+		if intake != nil && (intake.Status == "TAKEN" || intake.Status == "SKIPPED") {
 			continue
 		}
 
-		for daysAhead := 0; daysAhead < 1; daysAhead++ {
-			checkDay := now.AddDate(0, 0, daysAhead)
+		med, ok := medByID[t.MedicationID]
+		if !ok {
+			continue
+		}
 
-			if cfg.Type == "weekly" {
-				found := false
-				dayIdx := int(checkDay.Weekday())
-				for _, d := range cfg.Days {
-					if d == dayIdx {
-						found = true
-						break
-					}
-				}
-				if !found {
-					continue
-				}
-			}
-
-			for _, timeStr := range cfg.Times {
-				if len(timeStr) != 5 {
-					continue
-				}
-				var hour, minute int
-				_, _ = fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
-
-				target := time.Date(checkDay.Year(), checkDay.Month(), checkDay.Day(), hour, minute, 0, 0, now.Location())
-				if target.Before(now) {
-					continue
-				}
-				if target.Sub(now) > 12*time.Hour {
-					continue
-				}
-				if med.StartDate != nil && target.Before(*med.StartDate) {
-					continue
-				}
-				if med.EndDate != nil && target.After(*med.EndDate) {
-					continue
-				}
-				// Suppress the same overlap window the scheduler enforces:
-				// targets at or before the consumed step time, and targets
-				// within minInterval after it. See medication.go for the full
-				// rationale; the guard must live in both places until the two
-				// scheduling models are unified.
-				if stepAt, ok := consumedStepTimeByMed[med.ID]; ok {
-					if !target.After(stepAt) {
-						continue
-					}
-					policy := tzreschedule.NormalizePolicy(med.TZShiftPolicy)
-					minIntv := tzreschedule.MinDoseInterval(tzreschedule.NominalIntervalHours(cfg), policy)
-					if target.Sub(stepAt) <= minIntv {
-						continue
-					}
-				}
-
-				intake, _ := s.meds.GetIntakeBySchedule(med.ID, target)
-				if intake != nil && (intake.Status == "TAKEN" || intake.Status == "SKIPPED") {
-					continue
-				}
-
-				if nextTime.IsZero() || target.Before(nextTime) {
-					nextTime = target
-					nextMeds = []store.Medication{med}
-				} else if target.Equal(nextTime) {
-					nextMeds = append(nextMeds, med)
-				}
-			}
+		switch {
+		case nextTime.IsZero() || t.ScheduledAt.Before(nextTime):
+			nextTime = t.ScheduledAt
+			nextMeds = []store.Medication{med}
+		case t.ScheduledAt.Equal(nextTime):
+			nextMeds = append(nextMeds, med)
 		}
 	}
 

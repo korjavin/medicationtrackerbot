@@ -4,12 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/korjavin/medicationtrackerbot/internal/domain/tzreschedule"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/medplan"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
@@ -100,11 +99,12 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		}
 	}
 
-	// Collect pending steps by medication ID for APPROVED plans.
-	pendingStepsByMed := make(map[int64][]store.TZTransitionStep)
-	// lastConsumedPlanID tracks the plan whose consumed steps must still be
-	// honoured for the overlap guard below — captured before any branch that
-	// nulls out activePlan.
+	// Step-based plan execution: load the unconsumed steps for an APPROVED
+	// plan so medplan.PlanDoses can prefer them over normal scheduling, and
+	// capture the plan id BEFORE any branch nils activePlan so the
+	// overlap-guard query below still finds the consumed-step times this
+	// tick must honour.
+	var pendingSteps []store.TZTransitionStep
 	var lastConsumedPlanID int64
 	if activePlan != nil && (activePlan.Status == "APPROVED" || activePlan.Status == "COMPLETED") {
 		lastConsumedPlanID = activePlan.ID
@@ -113,8 +113,8 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 		steps, err := c.store.GetPendingStepsForPlan(activePlan.ID)
 		if err != nil {
 			// Transient step-load failure: fall back to the plan's old timezone
-			// so medications continue on the pre-transition schedule rather than
-			// jumping to the fully-shifted new timezone.
+			// so medications continue on the pre-transition schedule rather
+			// than jumping to the fully-shifted new timezone.
 			slog.Warn("medication scheduler: failed to load plan steps, using plan old timezone",
 				"plan_id", activePlan.ID, "old_tz", activePlan.OldTZ, "error", err)
 			if activePlan.OldTZ != "" {
@@ -122,41 +122,35 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 					userLoc = oldLoc
 				}
 			}
-			activePlan = nil // prevent step-based scheduling, fall through to normal with old TZ
+			activePlan = nil
 		} else if len(steps) == 0 {
-			// All steps consumed — transition is complete. Mark the plan as COMPLETED
-			// so it no longer appears as "active" and doesn't poison the baseline for
-			// future timezone changes.
+			// Transition complete — mark the plan COMPLETED so it stops
+			// shadowing the medication schedule next tick.
 			if err := c.store.UpdateTZTransitionPlanStatus(activePlan.ID, "COMPLETED", "all-steps-consumed", "APPROVED"); err != nil {
 				slog.Warn("medication scheduler: failed to mark completed plan", "plan_id", activePlan.ID, "error", err)
 			} else {
 				slog.Info("medication scheduler: transition plan completed, all steps consumed",
 					"plan_id", activePlan.ID)
 			}
-			activePlan = nil // fall through to normal scheduling for all meds
+			activePlan = nil
 		} else {
-			for _, step := range steps {
-				pendingStepsByMed[step.MedicationID] = append(pendingStepsByMed[step.MedicationID], step)
+			pendingSteps = steps
+			distinctMeds := map[int64]struct{}{}
+			for _, s := range steps {
+				distinctMeds[s.MedicationID] = struct{}{}
 			}
 			slog.Info("medication scheduler: using approved transition plan",
-				"plan_id", activePlan.ID, "meds_with_steps", len(pendingStepsByMed))
+				"plan_id", activePlan.ID, "meds_with_steps", len(distinctMeds))
 		}
 	}
 
-	// Latest consumed transition-step time per medication. Used below to
-	// suppress two classes of phantom doses around an in-flight plan:
-	//   - Normal-schedule targets earlier than the consumed step (which would
-	//     have fired in the OLD timezone the user no longer lives in).
-	//   - Normal-schedule targets within minInterval of the step time (which
-	//     would notify the user to re-take a dose they just completed as a
-	//     transition step — flexible-policy single-step plans hit this on
-	//     every westbound flight).
-	// The lookup uses lastConsumedPlanID rather than activePlan because the
-	// branches above can null out activePlan after marking it COMPLETED, but
-	// the consumed steps for that plan still live in the steps table and the
-	// scheduler must keep honouring them on this same tick — otherwise the
-	// completion-tick races with the very normal-schedule doses we want to
-	// suppress.
+	// Latest consumed transition-step time per medication. The overlap guard
+	// inside medplan.PlanDoses uses these to drop normal-schedule targets
+	// that would (a) have fired in the old timezone before the step or
+	// (b) prompt a duplicate dose within minInterval after the step. The
+	// lookup uses lastConsumedPlanID so a tick that just COMPLETED the plan
+	// still suppresses the normal doses overlapping with the steps it just
+	// consumed.
 	consumedStepTimeByMed := make(map[int64]time.Time)
 	if lastConsumedPlanID != 0 {
 		if m, err := c.store.GetLatestConsumedStepTimePerMed(lastConsumedPlanID); err != nil {
@@ -171,102 +165,31 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
-	// action represents a potential intake check to perform
-	type action struct {
-		med    store.Medication
-		target time.Time
-		stepID int64
-		isPlan bool
+	medByID := make(map[int64]store.Medication, len(meds))
+	for _, m := range meds {
+		medByID[m.ID] = m
 	}
-	var actions []action
-	var schedulesToCheck []store.MedicationSchedule
 
-	// --- Pass 1: Collect all schedules we need to check ---
-	for _, med := range meds {
-		if planSteps, inPlan := pendingStepsByMed[med.ID]; inPlan {
-			for _, step := range planSteps {
-				if now.Before(step.ScheduledAt) {
-					continue // step not yet due
-				}
-				actions = append(actions, action{
-					med:    med,
-					target: step.ScheduledAt,
-					stepID: step.ID,
-					isPlan: true,
-				})
-				schedulesToCheck = append(schedulesToCheck, store.MedicationSchedule{
-					MedID:       med.ID,
-					ScheduledAt: step.ScheduledAt,
-				})
-			}
-			continue
-		}
+	// Single source of truth: ask medplan to enumerate every dose target the
+	// scheduler should consider firing this tick. medplan handles the plan-
+	// vs-normal branching, the StartDate/EndDate window, the weekly weekday
+	// gate, and the consumed-step overlap guard; we only need to dedupe
+	// against existing intakes and group for notification.
+	targets := medplan.PlanDoses(medplan.Inputs{
+		Medications:           meds,
+		PendingSteps:          pendingSteps,
+		ConsumedStepTimeByMed: consumedStepTimeByMed,
+		UserLoc:               userLoc,
+		Now:                   now,
+		// Window == 0 → fire mode (only at-or-before now).
+	})
 
-		// Normal scheduling path
-		cfg, err := med.ValidSchedule()
-		if err != nil || cfg.Type == "as_needed" {
-			continue
-		}
-
-		nowInUserLoc := now.In(userLoc)
-		if cfg.Type == "weekly" {
-			if !slices.Contains(cfg.Days, int(nowInUserLoc.Weekday())) {
-				continue
-			}
-		}
-
-		for _, timeStr := range cfg.Times {
-			if len(timeStr) != 5 {
-				continue
-			}
-			hour, _ := strconv.Atoi(timeStr[:2])
-			minute, _ := strconv.Atoi(timeStr[3:])
-
-			target := time.Date(nowInUserLoc.Year(), nowInUserLoc.Month(), nowInUserLoc.Day(),
-				hour, minute, 0, 0, userLoc)
-
-			if med.StartDate != nil && target.Before(*med.StartDate) {
-				continue
-			}
-			if med.EndDate != nil && target.After(*med.EndDate) {
-				continue
-			}
-			if target.Before(med.CreatedAt) {
-				continue
-			}
-			if now.Before(target) {
-				continue
-			}
-			// Suppress normal-schedule doses that overlap with a transition
-			// step the user has just completed. Two cases:
-			//   1. target predates the consumed step — it would have fired
-			//      in the OLD timezone the user has already left.
-			//   2. target lands within the medication's minimum dose interval
-			//      after the step — would prompt the user to re-take a dose
-			//      they just took as part of the transition.
-			if stepAt, ok := consumedStepTimeByMed[med.ID]; ok {
-				if !target.After(stepAt) {
-					continue
-				}
-				policy := tzreschedule.NormalizePolicy(med.TZShiftPolicy)
-				minIntv := tzreschedule.MinDoseInterval(tzreschedule.NominalIntervalHours(cfg), policy)
-				if target.Sub(stepAt) <= minIntv {
-					continue
-				}
-			}
-
-			actions = append(actions, action{
-				med:    med,
-				target: target,
-				stepID: 0,
-				isPlan: false,
-			})
-			schedulesToCheck = append(schedulesToCheck, store.MedicationSchedule{
-				MedID:       med.ID,
-				ScheduledAt: target,
-			})
-		}
+	schedulesToCheck := make([]store.MedicationSchedule, 0, len(targets))
+	for _, t := range targets {
+		schedulesToCheck = append(schedulesToCheck, store.MedicationSchedule{
+			MedID:       t.MedicationID,
+			ScheduledAt: t.ScheduledAt,
+		})
 	}
 
 	// Batch query all required schedules
@@ -280,43 +203,48 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 	planMedTriggered := make(map[int64]bool) // tracks if a plan step was already triggered for a med
 
 	// --- Pass 2: Evaluate using batched results and trigger ---
-	for _, act := range actions {
-		if act.isPlan {
-			if planMedTriggered[act.med.ID] {
+	for _, t := range targets {
+		med, ok := medByID[t.MedicationID]
+		if !ok {
+			continue // medplan returned a med id not in our list — defensive
+		}
+		isPlanStep := t.Source == medplan.SourceTransitionStep
+		if isPlanStep {
+			if planMedTriggered[med.ID] {
 				continue // Only trigger one new step per medication per tick
 			}
 
-			existing := batchMap[store.MedicationSchedule{MedID: act.med.ID, ScheduledAt: act.target.UTC()}]
+			existing := batchMap[store.MedicationSchedule{MedID: med.ID, ScheduledAt: t.ScheduledAt.UTC()}]
 			if existing != nil {
 				// Intake already created (idempotency): ensure step is marked consumed.
-				if err := c.store.MarkStepConsumed(act.stepID, now); err != nil {
+				if err := c.store.MarkStepConsumed(t.StepID, now); err != nil {
 					slog.Warn("medication scheduler: failed to mark already-scheduled step consumed",
-						"stepID", act.stepID, "error", err)
+						"stepID", t.StepID, "error", err)
 				}
 				continue
 			}
 
-			ts := act.target.Unix()
+			ts := t.ScheduledAt.Unix()
 			if _, ok := groups[ts]; !ok {
 				groups[ts] = &notificationGroup{
-					Target:  act.target,
+					Target:  t.ScheduledAt,
 					StepIDs: make(map[int64]int64),
 				}
 			}
-			groups[ts].Meds = append(groups[ts].Meds, act.med)
-			groups[ts].StepIDs[act.med.ID] = act.stepID
-			planMedTriggered[act.med.ID] = true
+			groups[ts].Meds = append(groups[ts].Meds, med)
+			groups[ts].StepIDs[med.ID] = t.StepID
+			planMedTriggered[med.ID] = true
 		} else {
-			existing := batchMap[store.MedicationSchedule{MedID: act.med.ID, ScheduledAt: act.target.UTC()}]
+			existing := batchMap[store.MedicationSchedule{MedID: med.ID, ScheduledAt: t.ScheduledAt.UTC()}]
 			if existing == nil {
-				ts := act.target.Unix()
+				ts := t.ScheduledAt.Unix()
 				if _, ok := groups[ts]; !ok {
 					groups[ts] = &notificationGroup{
-						Target:  act.target,
+						Target:  t.ScheduledAt,
 						StepIDs: make(map[int64]int64),
 					}
 				}
-				groups[ts].Meds = append(groups[ts].Meds, act.med)
+				groups[ts].Meds = append(groups[ts].Meds, med)
 			}
 		}
 	}
