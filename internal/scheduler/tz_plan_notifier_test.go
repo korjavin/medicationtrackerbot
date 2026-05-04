@@ -300,6 +300,59 @@ func TestFormatTZPlanMessage_SafetyBlock(t *testing.T) {
 	}
 }
 
+// TestFormatTZPlanMessage_EscapesMarkdownV1 guards against the regression where
+// IANA timezone IDs containing underscores (e.g. America/Los_Angeles) produced
+// an unbalanced italic marker in the rendered Telegram Markdown V1 message,
+// causing the API to reject delivery with "Bad Request: can't parse entities"
+// and the user to silently miss the approval prompt.
+func TestFormatTZPlanMessage_EscapesMarkdownV1(t *testing.T) {
+	plan := &store.TZTransitionPlan{
+		ID:    1,
+		OldTZ: "Europe/Copenhagen",
+		NewTZ: "America/Los_Angeles",
+	}
+	steps := []planStep{
+		{
+			MedicationID: 5,
+			MedName:      "Met_former", // synthetic name with underscore to confirm name escaping
+			StepNumber:   1,
+			TotalSteps:   1,
+			ScheduledAt:  time.Now(),
+			Note:         "Met_former (flexible — fast switch): step 1/1 — 23:18 CEST old / 14:18 PDT new",
+		},
+	}
+	msg := formatTZPlanMessage(plan, steps)
+
+	// Underscores in dynamic strings must be backslash-escaped so MD V1 parser
+	// does not see an unbalanced italic marker.
+	mustContain := []string{
+		`America/Los\_Angeles`,
+		`Europe/Copenhagen`, // no underscore — passed through untouched
+		`Met\_former`,
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(msg, s) {
+			t.Errorf("expected escaped %q in message, got:\n%s", s, msg)
+		}
+	}
+
+	// And we must NOT have left a bare unbalanced underscore in those strings.
+	if strings.Contains(msg, "Los_Angeles") {
+		t.Errorf("found unescaped 'Los_Angeles' in message:\n%s", msg)
+	}
+
+	// Sanity: there is an even number of unescaped `_` characters
+	// (each remaining `_` is preceded by `\`, so MD V1 sees no entity boundaries).
+	for i := 0; i < len(msg); i++ {
+		if msg[i] == '_' {
+			if i == 0 || msg[i-1] != '\\' {
+				t.Errorf("unescaped `_` at byte offset %d in message:\n%s", i, msg)
+				break
+			}
+		}
+	}
+}
+
 func TestExtractPolicyLabel(t *testing.T) {
 	cases := []struct {
 		note string
