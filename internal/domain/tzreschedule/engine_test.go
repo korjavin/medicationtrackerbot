@@ -62,6 +62,68 @@ func TestGeneratePlan_NoChangeWhenOffsetsEqual(t *testing.T) {
 	}
 }
 
+func TestGeneratePlan_FinishedCourseSkipped(t *testing.T) {
+	// EndDate already in the past — the user is no longer taking this med, so
+	// the engine must not emit transition steps for it. Including them would
+	// produce phantom doses the medication scheduler will never fire because
+	// it enforces the same StartDate/EndDate window.
+	endedYesterday := baseNow.Add(-24 * time.Hour)
+	finished := med(10, "OldCourse", dailySchedule("08:00"), "flexible")
+	finished.EndDate = &endedYesterday
+	input := tzreschedule.PlanInput{
+		Medications: []store.Medication{
+			finished,
+			med(11, "Active", dailySchedule("08:00"), "flexible"),
+		},
+		OldTZ: "Europe/Berlin",
+		NewTZ: "Asia/Tokyo",
+		Now:   baseNow,
+	}
+	steps, _, err := tzreschedule.GeneratePlan(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, s := range steps {
+		if s.MedicationID == 10 {
+			t.Errorf("expected no steps for finished course (MedicationID=10), got step %+v", s)
+		}
+	}
+	// Active med must still produce a step so we know the filter is not
+	// over-pruning.
+	sawActive := false
+	for _, s := range steps {
+		if s.MedicationID == 11 {
+			sawActive = true
+			break
+		}
+	}
+	if !sawActive {
+		t.Errorf("expected steps for active medication (MedicationID=11), got none; steps=%+v", steps)
+	}
+}
+
+func TestGeneratePlan_FutureCourseSkipped(t *testing.T) {
+	// StartDate in the future — the user has not begun this course yet. The
+	// engine must not generate transition steps for doses that are not
+	// scheduled to fire under the user's current intake plan.
+	startsTomorrow := baseNow.Add(24 * time.Hour)
+	future := med(20, "Pending", dailySchedule("08:00"), "flexible")
+	future.StartDate = &startsTomorrow
+	input := tzreschedule.PlanInput{
+		Medications: []store.Medication{future},
+		OldTZ:       "Europe/Berlin",
+		NewTZ:       "Asia/Tokyo",
+		Now:         baseNow,
+	}
+	steps, _, err := tzreschedule.GeneratePlan(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(steps) != 0 {
+		t.Errorf("expected 0 steps for future-start medication, got %d", len(steps))
+	}
+}
+
 func TestGeneratePlan_AsNeededSkipped(t *testing.T) {
 	input := tzreschedule.PlanInput{
 		Medications: []store.Medication{
