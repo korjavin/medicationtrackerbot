@@ -131,10 +131,12 @@ func TestHandleBootstrap_IncludesTodayFood(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	// Pre-existing food row eaten earlier today, in UTC.
+	// Pre-existing food row eaten today in UTC (avoid near-midnight flakiness).
+	nowUTC := time.Now().UTC()
+	eatenAt := time.Date(nowUTC.Year(), nowUTC.Month(), nowUTC.Day(), 12, 0, 0, 0, time.UTC)
 	if _, err := db.CreateFoodLog(context.Background(), &store.FoodLog{
 		UserID:   123456,
-		EatenAt:  time.Now().UTC().Add(-2 * time.Hour),
+		EatenAt:  eatenAt,
 		Weight:   100,
 		Calories: 250,
 		Carbs:    30,
