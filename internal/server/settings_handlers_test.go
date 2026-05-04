@@ -131,14 +131,12 @@ func TestHandleBootstrap_IncludesTodayFood(t *testing.T) {
 	srv, db := createBPTestServer(t)
 	defer db.Close()
 
-	// Pre-existing food row eaten earlier today, in UTC. Use a one-minute
-	// offset rather than two hours so the row never falls into the previous
-	// UTC date when the suite runs shortly after midnight UTC — the test asks
-	// the bootstrap endpoint for "today's" food and would otherwise see an
-	// empty groups slice.
+	// Pre-existing food row eaten today in UTC (avoid near-midnight flakiness).
+	nowUTC := time.Now().UTC()
+	eatenAt := time.Date(nowUTC.Year(), nowUTC.Month(), nowUTC.Day(), 12, 0, 0, 0, time.UTC)
 	if _, err := db.CreateFoodLog(context.Background(), &store.FoodLog{
 		UserID:   123456,
-		EatenAt:  time.Now().UTC().Add(-time.Minute),
+		EatenAt:  eatenAt,
 		Weight:   100,
 		Calories: 250,
 		Carbs:    30,

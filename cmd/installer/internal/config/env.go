@@ -114,6 +114,9 @@ func GenerateMCPEnv(cfg *Config, pid *PocketIDState) string {
 		writeln(&b, "POCKET_ID_CLIENT_ID=%s", pid.MCPClientID)
 		writeln(&b, "POCKET_ID_CLIENT_SECRET=%s", pid.MCPClientSecret)
 	}
+	writeln(&b, "# Set to any non-empty value to expose only mcp_help and mcp_execute,")
+	writeln(&b, "# hiding legacy granular tools (fitness, cardio, etc.).")
+	writeln(&b, "# NO_LEGACY_MCP=1")
 	writeln(&b, "")
 
 	return b.String()
