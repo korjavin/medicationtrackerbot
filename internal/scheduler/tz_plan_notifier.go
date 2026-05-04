@@ -183,6 +183,13 @@ func (n *TZPlanNotifier) Check(ctx context.Context) error {
 	return nil
 }
 
+// mdV1Escaper escapes Telegram Markdown V1 special chars in dynamic strings.
+// IANA timezone IDs (America/Los_Angeles, America/New_York, …) and free-form
+// medication names contain underscores and other markup characters; without
+// escaping, the API rejects the message with "Bad Request: can't parse
+// entities" and the user never sees the approval prompt.
+var mdV1Escaper = strings.NewReplacer(`_`, `\_`, `*`, `\*`, "`", "\\`", `[`, `\[`)
+
 // formatTZPlanMessage builds the human-readable Telegram message for a plan.
 func formatTZPlanMessage(plan *store.TZTransitionPlan, steps []planStep) string {
 	direction, offsetAbs := tzDirection(plan.OldTZ, plan.NewTZ, plan.CreatedAt)
@@ -196,7 +203,7 @@ func formatTZPlanMessage(plan *store.TZTransitionPlan, steps []planStep) string 
 
 	var sb strings.Builder
 
-	fmt.Fprintf(&sb, "🌍 Timezone Change: %s → %s\n", plan.OldTZ, plan.NewTZ)
+	fmt.Fprintf(&sb, "🌍 Timezone Change: %s → %s\n", mdV1Escaper.Replace(plan.OldTZ), mdV1Escaper.Replace(plan.NewTZ))
 	fmt.Fprintf(&sb, "Direction: %s", direction)
 	if offsetAbs > 0 {
 		fmt.Fprintf(&sb, " (%s)", formatDuration(offsetAbs))
@@ -251,9 +258,9 @@ func formatTZPlanMessage(plan *store.TZTransitionPlan, steps []planStep) string 
 		g := seen[medID]
 		// Extract policy label from the first step note (format: "Name (label): ...")
 		policyLabel := extractPolicyLabel(g.steps[0].Note)
-		fmt.Fprintf(&sb, "\n💊 %s%s:\n", g.name, policyLabel)
+		fmt.Fprintf(&sb, "\n💊 %s%s:\n", mdV1Escaper.Replace(g.name), policyLabel)
 		for _, s := range g.steps {
-			fmt.Fprintf(&sb, "  • %s\n", s.Note)
+			fmt.Fprintf(&sb, "  • %s\n", mdV1Escaper.Replace(s.Note))
 		}
 		_ = medID
 	}
