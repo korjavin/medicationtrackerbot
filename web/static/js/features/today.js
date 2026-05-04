@@ -965,6 +965,17 @@
             rendered += 1;
         }
 
+        // TZ-transition plan card sits directly above the medications card
+        // because the doses listed inside the plan are a temporary override of
+        // the meds schedule — keeping the two adjacent makes the relationship
+        // legible. The module silently mounts nothing when no plan is in
+        // flight, so users who never travel never see anything here.
+        if (typeof window !== 'undefined' && window.TZPlanBanner
+            && typeof window.TZPlanBanner.mountCard === 'function') {
+            const tzCard = window.TZPlanBanner.mountCard(root);
+            if (tzCard) { rendered += 1; }
+        }
+
         const medsCard = renderTodayMedsCard(state && state.nextMed, onDeeplink, nowMs);
         if (medsCard) { root.appendChild(medsCard); rendered += 1; }
 
