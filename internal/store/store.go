@@ -2890,6 +2890,74 @@ func (s *Store) GetPendingStepsForPlan(planID int64) ([]TZTransitionStep, error)
 	return steps, nil
 }
 
+// GetLatestConsumedStepTimePerMed returns, for each medication that has at
+// least one consumed step under the given plan, the latest scheduled-at time
+// among those consumed steps. The medication scheduler uses this to suppress
+// normal-schedule doses that overlap with a transition step the user has
+// already taken: targets earlier than the consumed step belong to the old
+// timezone, and targets within minInterval after it would fire a duplicate
+// dose right on top of the just-completed transition.
+//
+// The query scans the column as a string and parses it manually because
+// SQLite's aggregate result loses the DATETIME affinity and the driver then
+// refuses to bind the resulting TEXT into time.Time directly. The values were
+// originally written by Go's time formatter and round-trip cleanly.
+func (s *Store) GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error) {
+	rows, err := s.db.Query(
+		`SELECT medication_id, MAX(scheduled_at)
+		 FROM tz_transition_steps
+		 WHERE plan_id = ? AND consumed_at IS NOT NULL
+		 GROUP BY medication_id`,
+		planID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int64]time.Time)
+	for rows.Next() {
+		var medID int64
+		var scheduledAtStr sql.NullString
+		if err := rows.Scan(&medID, &scheduledAtStr); err != nil {
+			return nil, err
+		}
+		if !scheduledAtStr.Valid {
+			continue
+		}
+		t, parseErr := parseSQLiteDateTime(scheduledAtStr.String)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse scheduled_at %q for med %d: %w", scheduledAtStr.String, medID, parseErr)
+		}
+		out[medID] = t
+	}
+	return out, nil
+}
+
+// parseSQLiteDateTime parses the textual representation SQLite stores when a
+// time.Time is bound through database/sql. The same value comes back as
+// either RFC 3339 (when the driver wrote it) or a space-separated DATETIME
+// (when SQLite-side functions like MAX() materialise the column). Try the
+// most common forms in priority order.
+func parseSQLiteDateTime(s string) (time.Time, error) {
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05.999999999 -07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	}
+	var lastErr error
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		} else {
+			lastErr = err
+		}
+	}
+	return time.Time{}, lastErr
+}
+
 // MarkStepConsumed records the consumption time for a transition step.
 func (s *Store) MarkStepConsumed(stepID int64, consumedAt time.Time) error {
 	_, err := s.db.Exec(
