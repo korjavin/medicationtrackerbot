@@ -1765,7 +1765,7 @@ svg.chart-svg {
 
 .wg-tz-plan-card__icon {
     color: var(--wg-fg-1);
-    font-size: 18px;
+    font-size: var(--font-size-lg);
     line-height: 1;
 }
 
