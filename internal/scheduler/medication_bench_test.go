@@ -48,6 +48,9 @@ func (m *mockMedStoreBench) CreateIntake(medID, userID int64, scheduledAt time.T
 func (m *mockMedStoreBench) GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error) {
 	return nil, nil
 }
+func (m *mockMedStoreBench) GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error) {
+	return nil, nil
+}
 func (m *mockMedStoreBench) MarkStepConsumed(stepID int64, consumedAt time.Time) error { return nil }
 func (m *mockMedStoreBench) UpdateTZTransitionPlanStatus(id int64, newStatus, userAction, expectedStatus string) error {
 	return nil
