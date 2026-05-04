@@ -212,6 +212,7 @@ type TZPlanStore interface {
 	SetTZTransitionPlanApproved(id int64, approvedAt time.Time) (bool, error)
 	RejectTZTransitionPlanAndRevertTimezone(id int64) (bool, error)
 	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
+	GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error)
 }
 
 // NonceStore is the subset of store operations needed for login replay prevention.
