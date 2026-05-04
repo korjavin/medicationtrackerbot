@@ -766,6 +766,36 @@ func (s *Store) IsAdHocSession(sessionID int64) (bool, error) {
 	return groupID == -1, nil
 }
 
+// GetLatestSessionScheduledDate returns the most recent scheduled_date for a
+// workout group's sessions, used by the scheduler to enforce a cooldown when
+// the user crosses a timezone boundary. Two scheduler ticks running in two
+// different user timezones can otherwise build "today" against different
+// calendar dates and create two sessions for what the user perceives as one
+// workout day. Returns ok=false when the group has no sessions yet.
+//
+// Scans the aggregate result through a string buffer because SQLite's MAX()
+// strips the DATE column's affinity and the driver then refuses to bind the
+// resulting TEXT directly into time.Time (same workaround used by
+// GetLatestConsumedStepTimePerMed in store.go).
+func (s *Store) GetLatestSessionScheduledDate(groupID, userID int64) (time.Time, bool, error) {
+	var latestStr sql.NullString
+	err := s.db.QueryRow(
+		`SELECT MAX(scheduled_date) FROM workout_sessions WHERE group_id = ? AND user_id = ?`,
+		groupID, userID,
+	).Scan(&latestStr)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if !latestStr.Valid {
+		return time.Time{}, false, nil
+	}
+	t, err := parseSQLiteDateTime(latestStr.String)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("parse scheduled_date %q: %w", latestStr.String, err)
+	}
+	return t, true, nil
+}
+
 func (s *Store) GetSessionByGroupAndDate(groupID int64, scheduledDate time.Time) (*WorkoutSession, error) {
 	var ws WorkoutSession
 	var startedAt, completedAt, snoozedUntil sql.NullTime

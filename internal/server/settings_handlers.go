@@ -317,13 +317,21 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		weightUnitPreference = "kg"
 	}
 
-	// Today's food log groups, scoped to the requesting client's timezone so the
-	// cache key matches what loadToday() reads. Without this, an external write
-	// (Telegram /food, MCP, another session) can advance the change cursor via a
-	// subsequent bootstrap revalidation before the change-poll picks up the
-	// 'food' tag — leaving the `food_<date>_day` cache stale indefinitely. BP/
-	// weight already ride along in bootstrap; food now matches that pattern.
-	foodDate := parseDateInLocation("", r.URL.Query().Get("tz"), r.URL.Query().Get("tz_offset"))
+	// Today's food log groups, scoped to the user's STORED timezone rather
+	// than whatever the requesting client reports. Two reasons:
+	//   (a) the summary stays stable through a TZ transition while the
+	//       device may briefly disagree with the server;
+	//   (b) other Today surfaces — the next-intake widget, the medication
+	//       scheduler — already use the stored timezone, so anchoring food
+	//       on the same source means every Today card talks about the same
+	//       calendar day.
+	// The query-string `tz` is kept as a fallback for when the user has not
+	// configured a timezone yet.
+	foodTZName, _ := s.settings.GetCurrentTimezone()
+	if foodTZName == "" {
+		foodTZName = r.URL.Query().Get("tz")
+	}
+	foodDate := parseDateInLocation("", foodTZName, r.URL.Query().Get("tz_offset"))
 	foodLogs, err := s.food.GetFoodLogs(ctx, userID, foodDate, 1)
 	if err != nil {
 		slog.Error("bootstrap food logs query failed", "error", err)
