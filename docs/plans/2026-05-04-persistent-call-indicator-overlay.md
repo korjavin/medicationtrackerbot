@@ -36,9 +36,9 @@ Currently the ElevenLabs voice-call control lives only inside the Today screen's
 **Files:**
 - Modify: `web/static/js/features/elevenlabs-call.js`
 
-- [ ] In `setState()`, after `applyState()`, dispatch `window.dispatchEvent(new CustomEvent('wg-call-state', { detail: { state, message } }))` so other modules can subscribe without coupling to the DOM card.
-- [ ] Export a `getState()` helper on `window.WGCallAgent` that returns `{ state, message }` so a late-mounting indicator can render the current state immediately on attach (avoids a missed event race).
-- [ ] Run `pnpm test` to confirm no existing tests regressed.
+- [x] In `setState()`, after `applyState()`, dispatch `window.dispatchEvent(new CustomEvent('wg-call-state', { detail: { state, message } }))` so other modules can subscribe without coupling to the DOM card.
+- [x] Export a `getState()` helper on `window.WGCallAgent` that returns `{ state, message }` so a late-mounting indicator can render the current state immediately on attach (avoids a missed event race).
+- [x] Run `pnpm test` to confirm no existing tests regressed. (2 pre-existing date-dependent failures in sleep/steps chart tests confirmed unrelated to this change.)
 
 ### Task 2: Build the CallIndicator component
 
