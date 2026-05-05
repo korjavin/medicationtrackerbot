@@ -214,6 +214,7 @@ type TZPlanStore interface {
 	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
 	GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error)
 	GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error)
+	MarkStepConsumed(stepID int64, consumedAt time.Time) error
 }
 
 // NonceStore is the subset of store operations needed for login replay prevention.

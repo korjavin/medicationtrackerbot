@@ -481,6 +481,53 @@ func TestCheckReminders_SendsReminderForOldPending(t *testing.T) {
 	}
 }
 
+// TestCheckReminders_FormatsScheduledAtInUserTimezone reproduces the
+// reported "reminder shows old time" symptom: scheduled_at is stored in
+// UTC, and printing it without a timezone conversion shows the UTC clock
+// time on the user's phone instead of their local time. Set the user's
+// timezone to LA, schedule an intake at 21:18 UTC (= 14:18 PDT), and
+// assert the reminder body says "14:18", not "21:18".
+func TestCheckReminders_FormatsScheduledAtInUserTimezone(t *testing.T) {
+	sched, db, mock := setupTestSchedulerWithMock(t)
+
+	if err := db.RecordTimezone("America/Los_Angeles"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+	la, _ := time.LoadLocation("America/Los_Angeles")
+
+	// fakeNow is two hours after the scheduled_at so the >1h reminder
+	// threshold fires.
+	scheduled := time.Date(2026, 5, 4, 21, 18, 0, 0, time.UTC) // 14:18 PDT
+	fakeNow := scheduled.Add(2 * time.Hour)
+	sched.MedicationReminderChecker.now = func() time.Time { return fakeNow }
+
+	medID, err := db.CreateMedication("Lercanidipin", "10mg",
+		`{"type":"daily","times":["08:20","21:30"]}`, nil, nil, "", "", "medium")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+	if _, err := db.CreateIntake(medID, 123456, scheduled); err != nil {
+		t.Fatalf("CreateIntake: %v", err)
+	}
+
+	if err := sched.MedicationReminderChecker.Check(context.Background()); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if !mock.waitForSendCalls(1, 2*time.Second) {
+		t.Fatal("timed out waiting for reminder send call")
+	}
+
+	want := scheduled.In(la).Format("15:04") // 14:18
+	body := mock.getSendCalls()[0].Notification.Text
+	if !strings.Contains(body, want) {
+		t.Errorf("reminder body must contain %q (user-local 15:04), got: %s", want, body)
+	}
+	bogus := scheduled.UTC().Format("15:04") // 21:18
+	if strings.Contains(body, bogus) && want != bogus {
+		t.Errorf("reminder body must NOT contain raw UTC %q, got: %s", bogus, body)
+	}
+}
+
 func TestCheckReminders_SupplementHasSkipAction(t *testing.T) {
 	sched, db, mock := setupTestSchedulerWithMock(t)
 
