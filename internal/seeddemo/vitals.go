@@ -257,4 +257,3 @@ func tzOffsetMinutesAtDay(daysFromAnchor int) int {
 		return 300
 	}
 }
-
