@@ -80,10 +80,10 @@ Pattern matches existing CLI tools: `store.New(dbPath)` → call store/domain me
 **Files:**
 - Create: `internal/seeddemo/workouts.go`
 
-- [ ] Create one rotating group "Strength" with 3 variants (A: Push, B: Pull, C: Legs), days_of_week [Mon,Wed,Fri], scheduled_time "18:00". Each variant has 4–5 exercises with target_sets/reps/weight. Use `CreateWorkoutGroup`/`CreateWorkoutVariant`/`CreateWorkoutExercise`.
-- [ ] Create one static group "Cardio" with single variant, days_of_week [Tue,Sat], scheduled_time "07:00", 2 exercises (treadmill, rowing).
-- [ ] Walk the 90-day window; on each scheduled day, create a workout session (status varies: 70% completed, 15% skipped, 10% in_progress→completed, 5% pending in last 2 days). For completed sessions, insert exercise logs via `LogExerciseWithSource(... "schedule")` matching the variant's exercises with reasonable progression (weights creep up on later weeks). Update `workout_rotation_state` accordingly via `AdvanceRotation`.
-- [ ] Create 5 ad-hoc/custom sessions scattered in the window with `group_id=-1, variant_id=-1`, status=completed; log 2–3 exercises per session with `source="library"` (e.g., "Plank 3x60s", "Deadlift 5x5 80kg").
+- [x] Create one rotating group "Strength" with 3 variants (A: Push, B: Pull, C: Legs), days_of_week [Mon,Wed,Fri], scheduled_time "18:00". Each variant has 4–5 exercises with target_sets/reps/weight. Use `CreateWorkoutGroup`/`CreateWorkoutVariant`/`CreateWorkoutExercise`.
+- [x] Create one static group "Cardio" with single variant, days_of_week [Tue,Sat], scheduled_time "07:00", 2 exercises (treadmill, rowing).
+- [x] Walk the 90-day window; on each scheduled day, create a workout session (status varies: 70% completed, 15% skipped, 10% in_progress→completed, 5% pending in last 2 days). For completed sessions, insert exercise logs via `LogExerciseWithSource(... "schedule")` matching the variant's exercises with reasonable progression (weights creep up on later weeks). Update `workout_rotation_state` accordingly via `AdvanceRotation`.
+- [x] Create 5 ad-hoc/custom sessions scattered in the window with `group_id=-1, variant_id=-1`, status=completed; log 2–3 exercises per session with `source="library"` (e.g., "Plank 3x60s", "Deadlift 5x5 80kg").
 
 ### Task 6: Diary + timezone history
 
