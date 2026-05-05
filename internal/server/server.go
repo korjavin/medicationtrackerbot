@@ -80,6 +80,10 @@ type Server struct {
 	nonces              NonceStore
 	mcpRegistry         MCPRegistry
 	internalMux         http.Handler
+	// now is the injectable clock used by handlers that schedule against
+	// the user's "current moment" (handleTriggerNextIntake, …). Production
+	// code leaves it nil so time.Now() is used; tests overwrite it.
+	now func() time.Time
 	// routesRecorded captures every route registered during Routes() via the
 	// recordingMux wrapper, so the MCP coverage guard test can assert that
 	// every route is either covered by a registry op or in mcpCoverageExempt.
