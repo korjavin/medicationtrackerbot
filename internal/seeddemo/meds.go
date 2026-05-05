@@ -75,10 +75,18 @@ func generateMeds(ctx context.Context, s *store.Store, opts Options, clk *clock,
 		if fromDays == 0 {
 			fromDays = opts.Days
 		}
-		startDate := clk.daysFromAnchor(fromDays)
+		// Snap bounds to the intake window edges so start_date/end_date are
+		// consistent with the intakes generated below: the loop walks from
+		// startOfDayUTC(startDate) through endOfDayUTC(endDate) and emits
+		// every scheduled time-of-day in between. If we stored the raw
+		// anchor-time-of-day here, an 08:00 first-day intake would land
+		// before start_date (when the seeder is run at, say, noon) and a
+		// 20:00 last-day intake on a finite course would land after
+		// end_date.
+		startDate := startOfDayUTC(clk.daysFromAnchor(fromDays))
 		var endDatePtr *time.Time
 		if spec.activeToDays > 0 {
-			end := clk.daysFromAnchor(spec.activeToDays)
+			end := endOfDayUTC(clk.daysFromAnchor(spec.activeToDays))
 			endDatePtr = &end
 		}
 
