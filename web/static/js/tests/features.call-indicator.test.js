@@ -159,6 +159,31 @@ describe('features/call-indicator.js — persistent call-state pill', () => {
         }
     });
 
+    it('disables the hang-up button while connecting and re-enables for in_call / error / idle', () => {
+        const { window, document, cleanup } = createEnv();
+        try {
+            window.WGCallIndicator.mount(document.body);
+            const button = document.querySelector('.wg-call-indicator__hang-up');
+
+            dispatchState(window, { state: 'connecting' });
+            expect(button.disabled).toBe(true);
+
+            dispatchState(window, { state: 'in_call' });
+            expect(button.disabled).toBe(false);
+
+            dispatchState(window, { state: 'connecting' });
+            expect(button.disabled).toBe(true);
+
+            dispatchState(window, { state: 'error', message: 'boom' });
+            expect(button.disabled).toBe(false);
+
+            dispatchState(window, { state: 'idle' });
+            expect(button.disabled).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
+
     it('hang-up button click invokes WGCallAgent.endCall()', () => {
         const endCall = vi.fn();
         const { window, document, cleanup } = createEnv({

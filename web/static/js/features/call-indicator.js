@@ -25,11 +25,18 @@
         if (isIdle) {
             rootEl.removeAttribute('data-state');
             if (textEl) textEl.textContent = '';
+            if (hangUpEl) hangUpEl.disabled = false;
             return;
         }
         rootEl.dataset.state = state;
         const fallback = STATUS_TEXT[state] || '';
         if (textEl) textEl.textContent = message || fallback;
+        // Mirror the Today card's behavior: disable hang-up during
+        // 'connecting' to avoid a race where startSession() is still in
+        // flight (activeConversation is null), endCall() would no-op the
+        // teardown, and the live conversation gets assigned afterwards
+        // with no UI left to end it.
+        if (hangUpEl) hangUpEl.disabled = state === 'connecting';
     }
 
     function mount(parent) {
