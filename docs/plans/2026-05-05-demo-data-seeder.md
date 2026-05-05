@@ -61,9 +61,9 @@ Pattern matches existing CLI tools: `store.New(dbPath)` → call store/domain me
 **Files:**
 - Create: `internal/seeddemo/vitals.go`
 
-- [ ] BP: insert ~70 readings spread across 90 days (skip ~20 days). Generate systolic/diastolic with three regimes — first 30d slightly elevated (135±8 / 88±5), middle 30d normal (122±6 / 78±4), last 30d normal-to-low (118±5 / 75±4). Pulse 65–82. Use `CreateBloodPressureReading`. Vary `site`/`position`/`tag` across rows.
-- [ ] Weight: ~14 entries (~weekly), starting at 84.0kg, descending trend to 79.5kg over 90d with realistic noise. Use `CreateWeightLog`; include `weight_trend` field on a few entries; set `weight_unit_preference` to "kg" via `SetWeightUnitPreference`.
-- [ ] Sleep: nightly entry for ~75 of 90 nights. Duration 6.0–8.5h with weekday/weekend variance. `sleep_quality` in 1–5 with mean ~3.5. Set `timezone_offset` based on the user's TZ at that time. Use `ImportSleepLogs` (batch).
+- [x] BP: insert ~70 readings spread across 90 days (skip ~20 days). Generate systolic/diastolic with three regimes — first 30d slightly elevated (135±8 / 88±5), middle 30d normal (122±6 / 78±4), last 30d normal-to-low (118±5 / 75±4). Pulse 65–82. Use `CreateBloodPressureReading`. Vary `site`/`position`/`tag` across rows.
+- [x] Weight: ~14 entries (~weekly), starting at 84.0kg, descending trend to 79.5kg over 90d with realistic noise. Use `CreateWeightLog`; include `weight_trend` field on a few entries; set `weight_unit_preference` to "kg" via `SetWeightUnitPreference`.
+- [x] Sleep: nightly entry for ~75 of 90 nights. Duration 6.0–8.5h with weekday/weekend variance. `sleep_quality` in 1–5 with mean ~3.5 (stored in `notes` as `quality:N` since the schema has no dedicated column). Set `timezone_offset` based on the user's TZ at that time. Use `ImportSleepLogs` (batch).
 
 ### Task 4: Food generator
 
