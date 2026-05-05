@@ -55,6 +55,7 @@ const STATIC_ASSETS = [
     '/static/js/features/today.js',
     '/static/js/features/tz-plan-banner.js',
     '/static/js/features/elevenlabs-call.js',
+    '/static/js/features/call-indicator.js',
     '/static/js/features/workout.js',
     '/static/js/features/bootstrap.js',
     // Config
