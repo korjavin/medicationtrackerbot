@@ -87,6 +87,15 @@
         activeState = state;
         activeMessage = message || '';
         applyState(activeCard, state, activeMessage);
+        try {
+            window.dispatchEvent(new CustomEvent('wg-call-state', {
+                detail: { state: activeState, message: activeMessage },
+            }));
+        } catch (_) { /* ignore */ }
+    }
+
+    function getState() {
+        return { state: activeState, message: activeMessage };
     }
 
     async function endCall() {
@@ -204,5 +213,5 @@
         return card;
     }
 
-    window.WGCallAgent = { mountCard, startCall, endCall, fetchSignedURL };
+    window.WGCallAgent = { mountCard, startCall, endCall, fetchSignedURL, getState };
 })();
