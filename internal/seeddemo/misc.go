@@ -40,8 +40,8 @@ var demoDiaryEntries = []diaryEntry{
 // effect. The seeder writes them in chronological order so the rolled-up
 // "current TZ" matches the most recent entry.
 type tzHistoryEntry struct {
-	timezone        string
-	daysFromAnchor  int
+	timezone       string
+	daysFromAnchor int
 }
 
 // demoTZHistory mirrors the offset transitions hardcoded in vitals.go so

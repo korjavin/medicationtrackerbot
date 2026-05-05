@@ -30,13 +30,13 @@ type variantSpec struct {
 // groupSpec describes one workout group: its schedule, whether it rotates,
 // and its variants (with exercises).
 type groupSpec struct {
-	name           string
-	description    string
-	isRotating     bool
-	daysOfWeek     []int // time.Weekday() values (Sunday=0..Saturday=6)
-	scheduledTime  string
-	notifyAdvance  int
-	variants       []variantSpec
+	name          string
+	description   string
+	isRotating    bool
+	daysOfWeek    []int // time.Weekday() values (Sunday=0..Saturday=6)
+	scheduledTime string
+	notifyAdvance int
+	variants      []variantSpec
 }
 
 // demoStrengthGroup is the rotating Push/Pull/Legs split, Mon/Wed/Fri 18:00.
