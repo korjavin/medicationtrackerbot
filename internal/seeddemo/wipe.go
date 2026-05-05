@@ -58,6 +58,7 @@ func WipeUser(ctx context.Context, s *store.Store, userID int64) error {
 		"vitals_stress",
 		"day_stats",
 		"miband_workouts",
+		"exercise_library",
 	}
 	for _, table := range scoped {
 		// #nosec G202 -- table is from a fixed in-package list, not user input.
@@ -90,9 +91,13 @@ func WipeUser(ctx context.Context, s *store.Store, userID int64) error {
 	// the demoed user. The seeder will repopulate them, so wipe wholesale.
 	// tz_transition_steps must go before tz_transition_plans (FK reference)
 	// and before medications since plans reference medications.
+	// medication_restocks is a child of medications (FK ON DELETE CASCADE)
+	// but FK enforcement is off in modernc/sqlite, so clear it explicitly
+	// before medications to avoid orphan rows.
 	wholesale := []string{
 		"DELETE FROM tz_transition_steps",
 		"DELETE FROM tz_transition_plans",
+		"DELETE FROM medication_restocks",
 		"DELETE FROM medications",
 		"DELETE FROM timezone_history",
 		// change_events is fed by triggers on every domain table; the
