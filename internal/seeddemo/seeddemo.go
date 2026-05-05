@@ -65,14 +65,15 @@ func Run(ctx context.Context, s *store.Store, opts Options) (*Summary, error) {
 	clk := newClock(opts.Now, opts.Days)
 	summary := &Summary{}
 
-	// Future tasks (2-6) plug in here:
-	//   meds.Generate(ctx, s, opts, clk, rng, summary)
-	//   vitals.Generate(...)
-	//   food.Generate(...)
-	//   workouts.Generate(...)
-	//   misc.Generate(...)
-	_ = clk
-	_ = rng
+	if err := generateMeds(ctx, s, opts, clk, rng, summary); err != nil {
+		return nil, fmt.Errorf("generate meds: %w", err)
+	}
+
+	// Future tasks (3-6) plug in here:
+	//   generateVitals(ctx, s, opts, clk, rng, summary)
+	//   generateFood(...)
+	//   generateWorkouts(...)
+	//   generateMisc(...)
 
 	slog.Info("seeddemo: completed",
 		"user_id", opts.UserID,
