@@ -71,9 +71,11 @@ func Run(ctx context.Context, s *store.Store, opts Options) (*Summary, error) {
 	if err := generateVitals(ctx, s, opts, clk, rng, summary); err != nil {
 		return nil, fmt.Errorf("generate vitals: %w", err)
 	}
+	if err := generateFood(ctx, s, opts, clk, rng, summary); err != nil {
+		return nil, fmt.Errorf("generate food: %w", err)
+	}
 
-	// Future tasks (4-6) plug in here:
-	//   generateFood(...)
+	// Future tasks (5-6) plug in here:
 	//   generateWorkouts(...)
 	//   generateMisc(...)
 
