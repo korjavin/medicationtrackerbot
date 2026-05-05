@@ -70,10 +70,10 @@ Pattern matches existing CLI tools: `store.New(dbPath)` → call store/domain me
 **Files:**
 - Create: `internal/seeddemo/food.go`
 
-- [ ] Set food targets: 2200 cal / 250g carbs / 110g protein / 75g fat via `SetFoodTargets`.
-- [ ] Seed ~10 food products in `food_products` covering all three sources: 5 manual (oats, chicken breast, rice, broccoli, olive oil), 3 with `source="off"` (with fake barcode + brand), 2 with `source="ai"`. Set per-100g macros realistically.
-- [ ] For each of the last 90 days, generate 3–4 food_log entries (breakfast, lunch, dinner, sometimes snack). Daily totals oscillate: ~30% over target (110–130%), ~50% on target (90–110%), ~20% under (70–90%). Use the seeded products to compute macros via `domain.CalculateMacros`.
-- [ ] On ~5 randomly chosen days, create an aggregated meal via `CreateMealFromLogs` (is_meal=true) so the meal-template UI has data.
+- [x] Set food targets: 2200 cal / 250g carbs / 110g protein / 75g fat via `SetFoodTargets`.
+- [x] Seed ~10 food products in `food_products` covering all three sources: 5 manual (oats, chicken breast, rice, broccoli, olive oil), 3 with `source="off"` (with fake barcode + brand), 2 with `source="ai"`. Set per-100g macros realistically.
+- [x] For each of the last 90 days, generate 3–4 food_log entries (breakfast, lunch, dinner, sometimes snack). Daily totals oscillate: ~30% over target (110–130%), ~50% on target (90–110%), ~20% under (70–90%). Use the seeded products to compute macros via `domain.CalculateMacros`.
+- [x] On ~5 randomly chosen days, create an aggregated meal via `CreateMealFromLogs` (is_meal=true) so the meal-template UI has data.
 
 ### Task 5: Workouts generator
 
