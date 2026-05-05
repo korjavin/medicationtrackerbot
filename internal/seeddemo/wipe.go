@@ -27,6 +27,20 @@ func WipeUser(ctx context.Context, s *store.Store, userID int64) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// intake_reminders has FK to intake_log with ON DELETE CASCADE, but FK
+	// enforcement is off in modernc/sqlite — clear it explicitly before
+	// intake_log so the wipe doesn't leave dangling rows. Same pattern for
+	// miband_gps_tracks → miband_workouts.
+	scopedJoins := []struct{ name, query string }{
+		{"intake_reminders", "DELETE FROM intake_reminders WHERE intake_id IN (SELECT id FROM intake_log WHERE user_id = ?)"},
+		{"miband_gps_tracks", "DELETE FROM miband_gps_tracks WHERE workout_id IN (SELECT id FROM miband_workouts WHERE user_id = ?)"},
+	}
+	for _, j := range scopedJoins {
+		if _, err := tx.ExecContext(ctx, j.query, userID); err != nil {
+			return fmt.Errorf("wipe %s: %w", j.name, err)
+		}
+	}
+
 	// User-scoped tables (have a user_id column).
 	scoped := []string{
 		"intake_log",
@@ -39,6 +53,11 @@ func WipeUser(ctx context.Context, s *store.Store, userID int64) error {
 		"weight_reminder_state",
 		"bp_reminder_state",
 		"push_subscriptions",
+		"vitals_heart",
+		"vitals_spo2",
+		"vitals_stress",
+		"day_stats",
+		"miband_workouts",
 	}
 	for _, table := range scoped {
 		// #nosec G202 -- table is from a fixed in-package list, not user input.
@@ -76,6 +95,10 @@ func WipeUser(ctx context.Context, s *store.Store, userID int64) error {
 		"DELETE FROM tz_transition_plans",
 		"DELETE FROM medications",
 		"DELETE FROM timezone_history",
+		// change_events is fed by triggers on every domain table; the
+		// seeder's INSERTs (and the deletes above) leave thousands of rows.
+		// Clear them so re-runs don't accumulate change-feed history.
+		"DELETE FROM change_events",
 	}
 	for _, q := range wholesale {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
