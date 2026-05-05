@@ -51,10 +51,10 @@ Pattern matches existing CLI tools: `store.New(dbPath)` → call store/domain me
 **Files:**
 - Create: `internal/seeddemo/meds.go`
 
-- [ ] Define a fixed catalogue of 4 medications inside the package: e.g. Lisinopril 10mg daily 08:00 (active for full 90d); Metformin 500mg twice/day 08:00+20:00 (active for full 90d); Vitamin D3 supplement 1000IU daily 09:00 (started day -45, ongoing); Amoxicillin 500mg twice/day for 7 days (started day -60, ended day -53)
-- [ ] For each med, call `store.CreateMedication(...)` with the correct schedule JSON, start_date, end_date (or NULL), tz_shift_policy
-- [ ] For each scheduled time within each med's active window, insert intake_log rows by `CreateIntake(medID, userID, scheduledAt)` where scheduledAt is in the past, then update status: ~80% TAKEN (with taken_at = scheduled_at ± 0–25min), ~10% SKIPPED, ~5% MISSED, leave the most recent two days as PENDING. Use deterministic RNG.
-- [ ] For one supplement (Vitamin D3), use the supplement marker (`is_supplement=true` or schedule type) to demonstrate that UI path.
+- [x] Define a fixed catalogue of 4 medications inside the package: e.g. Lisinopril 10mg daily 08:00 (active for full 90d); Metformin 500mg twice/day 08:00+20:00 (active for full 90d); Vitamin D3 supplement 1000IU daily 09:00 (started day -45, ongoing); Amoxicillin 500mg twice/day for 7 days (started day -60, ended day -53)
+- [x] For each med, call `store.CreateMedication(...)` with the correct schedule JSON, start_date, end_date (or NULL), tz_shift_policy
+- [x] For each scheduled time within each med's active window, insert intake_log rows by `CreateIntake(medID, userID, scheduledAt)` where scheduledAt is in the past, then update status: ~80% TAKEN (with taken_at = scheduled_at ± 0–25min), ~10% SKIPPED, ~5% MISSED, leave the most recent two days as PENDING. Use deterministic RNG.
+- [x] For one supplement (Vitamin D3), use the supplement marker (`is_supplement=true` or schedule type) to demonstrate that UI path.
 
 ### Task 3: Vitals generators (BP, weight, sleep)
 
