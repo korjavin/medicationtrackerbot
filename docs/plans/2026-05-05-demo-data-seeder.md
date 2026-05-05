@@ -90,9 +90,9 @@ Pattern matches existing CLI tools: `store.New(dbPath)` → call store/domain me
 **Files:**
 - Create: `internal/seeddemo/misc.go`
 
-- [ ] Insert 12 diary notes spread across 90d, varied tags (energy, mood, symptom, blank). Backdate `created_at`.
-- [ ] Record 3 timezone history entries via direct insert (or `RecordTimezone` if it accepts a timestamp; otherwise raw INSERT to backdate): "America/New_York" at day -90, "Europe/Berlin" at day -45, "America/New_York" at day -10. Verify the change-log triggers fire.
-- [ ] Log a final summary at end of `Run`: counts per domain (meds, intakes, BP, weight, sleep, food logs, workout sessions, exercise logs, diary, TZ entries).
+- [x] Insert 12 diary notes spread across 90d, varied tags (energy, mood, symptom, blank). Backdate `created_at`.
+- [x] Record 3 timezone history entries via direct insert (or `RecordTimezone` if it accepts a timestamp; otherwise raw INSERT to backdate): "America/New_York" at day -90, "Europe/Berlin" at day -45, "America/New_York" at day -10. Verify the change-log triggers fire.
+- [x] Log a final summary at end of `Run`: counts per domain (meds, intakes, BP, weight, sleep, food logs, workout sessions, exercise logs, diary, TZ entries).
 
 ### Task 7: Integration test
 

@@ -77,9 +77,9 @@ func Run(ctx context.Context, s *store.Store, opts Options) (*Summary, error) {
 	if err := generateWorkouts(ctx, s, opts, clk, rng, summary); err != nil {
 		return nil, fmt.Errorf("generate workouts: %w", err)
 	}
-
-	// Future task (6) plugs in here:
-	//   generateMisc(...)
+	if err := generateMisc(ctx, s, opts, clk, rng, summary); err != nil {
+		return nil, fmt.Errorf("generate misc: %w", err)
+	}
 
 	slog.Info("seeddemo: completed",
 		"user_id", opts.UserID,
