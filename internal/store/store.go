@@ -234,6 +234,13 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// DB exposes the underlying *sql.DB for internal tooling (importers, the
+// demo seeder) that needs to issue raw SQL the public API does not cover.
+// Application code should use the typed methods on Store instead.
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 // -- Medications CRUD --
 
 func (s *Store) CreateMedication(name, dosage, schedule string, startDate, endDate *time.Time, rxcui, normalizedName string, tzShiftPolicy string) (int64, error) {

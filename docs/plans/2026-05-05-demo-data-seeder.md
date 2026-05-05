@@ -40,11 +40,11 @@ Pattern matches existing CLI tools: `store.New(dbPath)` → call store/domain me
 - Create: `internal/seeddemo/clock.go` (date-walking helpers, anchor = now)
 - Create: `internal/seeddemo/wipe.go` (delete-by-user_id across all scoped tables)
 
-- [ ] Define CLI flags: `-user int64` (required), `-db string` (default "meds.db"), `-days int` (default 90), `-wipe bool` (default true), `-seed int64` (default 42)
-- [ ] Open DB via `store.New(dbPath)`; refuse to run if `user == 0`
-- [ ] Implement `WipeUser(ctx, store, userID)` deleting from: intake_log, blood_pressure_readings, weight_logs, sleep_logs, food_log, food_products, diary_notes, workout_exercise_logs (via session join), workout_sessions, workout_rotation_state (via group join), workout_exercises (via variant join), workout_variants (via group join), workout_groups, weight_reminder_state, bp_reminder_state, push_subscriptions, timezone_history. Plus reset the `settings` row's food targets to zero.
-- [ ] Implement `Run` skeleton that calls future generator stages in order
-- [ ] Wire `main.go`: parse flags → open store → call `seeddemo.Run` → log summary counts
+- [x] Define CLI flags: `-user int64` (required), `-db string` (default "meds.db"), `-days int` (default 90), `-wipe bool` (default true), `-seed int64` (default 42)
+- [x] Open DB via `store.New(dbPath)`; refuse to run if `user == 0`
+- [x] Implement `WipeUser(ctx, store, userID)` deleting from: intake_log, blood_pressure_readings, weight_logs, sleep_logs, food_log, food_products, diary_notes, workout_exercise_logs (via session join), workout_sessions, workout_rotation_state (via group join), workout_exercises (via variant join), workout_variants (via group join), workout_groups, weight_reminder_state, bp_reminder_state, push_subscriptions, timezone_history. Plus reset the `settings` row's food targets to zero.
+- [x] Implement `Run` skeleton that calls future generator stages in order
+- [x] Wire `main.go`: parse flags → open store → call `seeddemo.Run` → log summary counts
 
 ### Task 2: Medications generator
 
