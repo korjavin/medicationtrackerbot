@@ -236,6 +236,7 @@ func generateScheduledSessions(ctx context.Context, s *store.Store, opts Options
 
 	rotationIdx := 0
 	totalDays := opts.Days
+	var lastAdvanceDay *time.Time
 	for off := 0; off < totalDays; off++ {
 		day := clk.dayOffset(off)
 		if !dowSet[int(day.Weekday())] {
@@ -272,9 +273,8 @@ func generateScheduledSessions(ctx context.Context, s *store.Store, opts Options
 			summary.WorkoutSessions++
 			if spec.isRotating {
 				rotationIdx++
-				if err := s.AdvanceRotation(group.ID); err != nil {
-					return fmt.Errorf("advance rotation (skipped): %w", err)
-				}
+				dayCopy := day
+				lastAdvanceDay = &dayCopy
 			}
 		case "completed", "in_progress_completed":
 			completedAt := scheduledAt.Add(time.Duration(45+rng.IntN(20)) * time.Minute)
@@ -305,10 +305,25 @@ func generateScheduledSessions(ctx context.Context, s *store.Store, opts Options
 			}
 			if spec.isRotating {
 				rotationIdx++
-				if err := s.AdvanceRotation(group.ID); err != nil {
-					return fmt.Errorf("advance rotation (completed): %w", err)
-				}
+				dayCopy := day
+				lastAdvanceDay = &dayCopy
 			}
+		}
+	}
+
+	// Sync rotation state to the synthetic timeline. Store.AdvanceRotation
+	// hardcodes last_session_date = DATE('now'), which would stamp every
+	// rotation advance with the wall-clock date the seeder ran. Instead we
+	// write the final pointer + the date of the last advancing session so
+	// the demo's "last did this on …" label matches the synthetic history.
+	if spec.isRotating && lastAdvanceDay != nil {
+		nextVariantID := variants[rotationIdx%len(variants)].variant.ID
+		if _, err := s.DB().ExecContext(ctx, `
+			UPDATE workout_rotation_state
+			SET current_variant_id = ?, last_session_date = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE group_id = ?`,
+			nextVariantID, lastAdvanceDay.Format("2006-01-02"), group.ID); err != nil {
+			return fmt.Errorf("sync rotation state: %w", err)
 		}
 	}
 	return nil
