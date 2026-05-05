@@ -112,12 +112,16 @@ func generateMeds(ctx context.Context, s *store.Store, opts Options, clk *clock,
 
 		// Walk every scheduled occurrence inside the med's active window
 		// and create an intake row, then resolve its status deterministically.
-		windowStart := startDate
+		// windowStart rounds down to midnight so the first day's full
+		// schedule is generated; windowEnd is end-of-day for finite courses
+		// (so the last day's evening doses survive) but stays at the anchor
+		// for ongoing meds (so we don't seed intakes in the future).
+		windowStart := startOfDayUTC(startDate)
 		windowEnd := clk.anchor
 		if endDatePtr != nil {
-			windowEnd = *endDatePtr
+			windowEnd = endOfDayUTC(*endDatePtr)
 		}
-		for day := startOfDayUTC(windowStart); !day.After(windowEnd); day = day.AddDate(0, 0, 1) {
+		for day := windowStart; !day.After(windowEnd); day = day.AddDate(0, 0, 1) {
 			for _, hhmm := range spec.times {
 				scheduledAt, ok := timeOfDay(day, hhmm)
 				if !ok {
@@ -173,6 +177,12 @@ func pickIntakeOutcome(rng *rand.Rand, scheduledAt time.Time) (string, time.Time
 func startOfDayUTC(t time.Time) time.Time {
 	u := t.UTC()
 	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// endOfDayUTC returns 23:59:59 UTC on the day component of t.
+func endOfDayUTC(t time.Time) time.Time {
+	u := t.UTC()
+	return time.Date(u.Year(), u.Month(), u.Day(), 23, 59, 59, 0, time.UTC)
 }
 
 // timeOfDay parses an "HH:MM" string and returns the moment of that time

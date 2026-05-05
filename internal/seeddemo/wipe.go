@@ -69,14 +69,18 @@ func WipeUser(ctx context.Context, s *store.Store, userID int64) error {
 
 	// Single-user tables that don't carry user_id but logically belong to
 	// the demoed user. The seeder will repopulate them, so wipe wholesale.
-	if _, err := tx.ExecContext(ctx, "DELETE FROM intake_log"); err != nil {
-		return fmt.Errorf("wipe intake_log (full): %w", err)
+	// tz_transition_steps must go before tz_transition_plans (FK reference)
+	// and before medications since plans reference medications.
+	wholesale := []string{
+		"DELETE FROM tz_transition_steps",
+		"DELETE FROM tz_transition_plans",
+		"DELETE FROM medications",
+		"DELETE FROM timezone_history",
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM medications"); err != nil {
-		return fmt.Errorf("wipe medications: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM timezone_history"); err != nil {
-		return fmt.Errorf("wipe timezone_history: %w", err)
+	for _, q := range wholesale {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("wipe wholesale %q: %w", q, err)
+		}
 	}
 
 	// Reset food targets on the singleton settings row.
