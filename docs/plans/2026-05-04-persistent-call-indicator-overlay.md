@@ -80,11 +80,11 @@ Currently the ElevenLabs voice-call control lives only inside the Today screen's
 - Modify: `web/static/js/tests/architecture.globals.test.js`
 - Create: `web/static/js/tests/features.call-indicator.test.js`
 
-- [ ] Add `'window.WGCallIndicator'` to `ALLOWED_GLOBALS` in `architecture.globals.test.js` with a one-line justification.
-- [ ] In `features.call-indicator.test.js`: load `call-indicator.js`, mount into a fresh jsdom body, then dispatch `CustomEvent('wg-call-state', { detail: { state: 'idle' } })` and assert the element is `[hidden]`.
-- [ ] Dispatch `'connecting'`, `'in_call'`, `'error'` events and assert visibility, status text, and `data-state` attribute.
-- [ ] Click the hang-up button with `window.WGCallAgent` stubbed via `vi.stubGlobal('WGCallAgent', { endCall: vi.fn(), getState: () => ({ state: 'idle', message: '' }) })` and assert `endCall` was called.
-- [ ] Run `pnpm test` and ensure all suites pass (architecture.globals must pass with the new allowlist entry).
+- [x] Add `'window.WGCallIndicator'` to `ALLOWED_GLOBALS` in `architecture.globals.test.js` with a one-line justification.
+- [x] In `features.call-indicator.test.js`: load `call-indicator.js`, mount into a fresh jsdom body, then dispatch `CustomEvent('wg-call-state', { detail: { state: 'idle' } })` and assert the element is `[hidden]`.
+- [x] Dispatch `'connecting'`, `'in_call'`, `'error'` events and assert visibility, status text, and `data-state` attribute.
+- [x] Click the hang-up button with `window.WGCallAgent` stubbed (per-env `window.WGCallAgent = { endCall, getState }`) and assert `endCall` was called.
+- [x] Run `pnpm test` and ensure all suites pass (architecture.globals passes with the new allowlist entry; the 2 pre-existing date-dependent sleep/steps chart failures are unrelated, as noted in Task 1).
 
 ### Task 6: Verify acceptance criteria
 
