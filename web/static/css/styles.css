@@ -4401,11 +4401,12 @@ textarea.wg-input {
     bottom: calc(var(--wg-bottom-nav-reserved) + var(--space-sm));
     transform: translateX(-50%);
     z-index: var(--wg-call-indicator-z);
+    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
     gap: var(--space-sm);
     width: max-content;
-    max-width: 360px;
+    max-width: min(360px, calc(100vw - 2 * var(--space-md)));
     padding: var(--space-xs) var(--space-md);
     background: var(--wg-bg-card);
     border: 1px solid var(--wg-border-hairline);
@@ -4441,6 +4442,7 @@ textarea.wg-input {
 }
 
 .wg-call-indicator__text {
+    min-width: 0;
     color: var(--wg-fg-1);
     font-weight: 600;
     white-space: nowrap;
@@ -4453,6 +4455,11 @@ textarea.wg-input {
     padding: var(--space-xs) var(--space-md);
     font-size: var(--font-size-sm);
     font-weight: 600;
+}
+
+.wg-call-indicator__hang-up[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 /* Today meds card (Task 3) — header row (icon + kicker + "Take" CTA),
