@@ -68,11 +68,11 @@ Currently the ElevenLabs voice-call control lives only inside the Today screen's
 **Files:**
 - Modify: `web/static/css/styles.css`
 
-- [ ] Add a `.wg-call-indicator` block: `position: fixed`, `bottom: calc(var(--wg-bottom-nav-reserved) + var(--space-sm))`, centered horizontally (`left: 50%; transform: translateX(-50%)`), `max-width ~360px`, z-index just above `--wg-bottom-nav-z` (e.g. 41 or a new `--wg-call-indicator-z` token defined alongside).
-- [ ] Use `--wg-bg-card` for background, `--wg-border-hairline` for border, `--wg-radius-pill` for shape, `--wg-fg-1`/`--wg-fg-2` for text, existing shadow token for elevation.
-- [ ] Style `.wg-call-indicator__hang-up` using the existing `wg-gloss-bg-clay` (danger) tokens / classes — consider applying `wg-gloss` + `wg-gloss--clay` class combo from the existing system instead of new color values.
-- [ ] Add a small status dot rule that switches color per `data-state` (`connecting` → `--wg-sun`, `in_call` → success token, `error` → `--color-danger`). All values come from `--wg-*` tokens — no hardcoded colors.
-- [ ] `[hidden]` selector ensures the element is fully removed from the layout when idle.
+- [x] Add a `.wg-call-indicator` block: `position: fixed`, `bottom: calc(var(--wg-bottom-nav-reserved) + var(--space-sm))`, centered horizontally (`left: 50%; transform: translateX(-50%)`), `max-width ~360px`, z-index just above `--wg-bottom-nav-z` (e.g. 41 or a new `--wg-call-indicator-z` token defined alongside). (Added new `--wg-call-indicator-z: 41` token next to `--wg-bottom-nav-z`.)
+- [x] Use `--wg-bg-card` for background, `--wg-border-hairline` for border, `--wg-radius-pill` for shape, `--wg-fg-1`/`--wg-fg-2` for text, existing shadow token for elevation. (Used `--shadow-md` for elevation.)
+- [x] Style `.wg-call-indicator__hang-up` using the existing `wg-gloss-bg-clay` (danger) tokens / classes — consider applying `wg-gloss` + `wg-gloss--clay` class combo from the existing system instead of new color values. (Component applies `wg-gloss wg-gloss--clay` classes directly in JS; the indicator-specific selector only sets size/spacing — no new color tokens.)
+- [x] Add a small status dot rule that switches color per `data-state` (`connecting` → `--wg-sun`, `in_call` → success token, `error` → `--color-danger`). All values come from `--wg-*` tokens — no hardcoded colors.
+- [x] `[hidden]` selector ensures the element is fully removed from the layout when idle.
 
 ### Task 5: Tests and global-allowlist update
 
