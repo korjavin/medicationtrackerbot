@@ -96,6 +96,23 @@ func (s *Server) handleMCPFoodLog(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("[Server] MCP food log created", "id", id, "name", req.Name)
 
+	// Mirror the modern handler: upsert into food_products by name so reused meals
+	// roll up under the same product entry. Treat request macros as totals (no per_100g flag).
+	carbs, protein, fat, kcal := float64(req.CarbsG), float64(req.ProteinG), float64(req.FatG), float64(req.Calories)
+	var c100, p100, f100, k100 float64
+	if req.WeightG > 0 {
+		mult := 100.0 / float64(req.WeightG)
+		c100, p100, f100, k100 = carbs*mult, protein*mult, fat*mult, kcal*mult
+	}
+	_ = s.food.UpsertFoodProduct(ctx, &store.FoodProduct{
+		UserID:         s.allowedUserID,
+		Name:           req.Name,
+		Carbs100g:      c100,
+		Protein100g:    p100,
+		Fat100g:        f100,
+		EnergyKcal100g: k100,
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(MCPFoodLogResponse{ID: id}); err != nil {

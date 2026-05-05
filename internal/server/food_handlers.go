@@ -76,7 +76,11 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Upsert to food_products
+	// Upsert to food_products and resolve product_id by name.
+	var resolvedProductID *int64
+	if req.ProductID != nil {
+		resolvedProductID = req.ProductID
+	}
 	if req.Name != "" {
 		carbs, protein, fat, kcal := float64(req.Carbs), float64(req.Protein), float64(req.Fat), float64(req.Calories)
 		var c100, p100, f100, k100 float64
@@ -102,12 +106,21 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 		}
 		// Ignore error as this is a background optimization
 		_ = s.food.UpsertFoodProduct(context.Background(), p)
+
+		if resolvedProductID == nil {
+			if got, err := s.food.GetFoodProductByName(context.Background(), userID, req.Name); err == nil && got != nil {
+				gotID := got.ID
+				resolvedProductID = &gotID
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "created",
-		"id":     id,
+		"status":     "created",
+		"id":         id,
+		"product_id": resolvedProductID,
+		"name":       req.Name,
 	}); err != nil {
 		slog.Error("encode response", "error", err)
 	}
