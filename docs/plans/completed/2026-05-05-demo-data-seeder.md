@@ -113,6 +113,6 @@ Pattern matches existing CLI tools: `store.New(dbPath)` → call store/domain me
 
 ### Task 9: Update documentation
 
-- [ ] Add a "Demo data seeder" subsection under "Data import tools" in CLAUDE.md (one paragraph + the run command)
-- [ ] If a `docs/development.md` or equivalent exists, document the seeder there too; otherwise no extra doc file
-- [ ] Move this plan to `docs/plans/completed/`
+- [x] Add a "Demo data seeder" subsection under "Data import tools" in CLAUDE.md (one paragraph + the run command)
+- [x] If a `docs/development.md` or equivalent exists, document the seeder there too; otherwise no extra doc file (no such file exists — skipped)
+- [x] Move this plan to `docs/plans/completed/`
