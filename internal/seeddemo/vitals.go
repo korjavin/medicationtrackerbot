@@ -99,10 +99,14 @@ func generateWeight(ctx context.Context, s *store.Store, opts Options, clk *cloc
 	endWeight := 79.5
 	// Roughly weekly entries: every 7 days.
 	var trend *float64
+	denom := opts.Days - 1
+	if denom < 1 {
+		denom = 1
+	}
 	for off := 0; off < opts.Days; off += 7 {
 		// Linear glide from startWeight at off=0 to endWeight at off=days-1,
 		// plus deterministic gaussian noise so the chart looks human.
-		progress := float64(off) / float64(opts.Days-1)
+		progress := float64(off) / float64(denom)
 		base := startWeight + (endWeight-startWeight)*progress
 		w := base + gaussian(rng, 0, 0.35)
 		// Round to one decimal as the UI displays.
