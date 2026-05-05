@@ -99,11 +99,11 @@ Pattern matches existing CLI tools: `store.New(dbPath)` → call store/domain me
 **Files:**
 - Create: `internal/seeddemo/seeddemo_test.go`
 
-- [ ] One test `TestRunSeedsAllDomains` that opens an in-memory SQLite via `store.New(":memory:")`, calls `seeddemo.Run` with userID=12345, days=90, seed=42.
-- [ ] Assert minimum row counts per table (e.g. ≥4 medications, ≥200 intake_log rows, ≥50 BP readings, ≥10 weight logs, ≥60 sleep logs, ≥250 food_log rows, ≥6 food_products, ≥30 workout_sessions, ≥80 workout_exercise_logs, ≥10 diary_notes, ≥3 timezone_history rows).
-- [ ] Assert determinism: running twice with same seed yields identical row counts and same first/last BP systolic value.
-- [ ] Assert wipe: pre-populate one BP row, run with `Wipe=true`, confirm pre-existing row is gone.
-- [ ] run project test suite — must pass before next task
+- [x] One test `TestRunSeedsAllDomains` that opens an in-memory SQLite via `store.New(":memory:")`, calls `seeddemo.Run` with userID=12345, days=90, seed=42.
+- [x] Assert minimum row counts per table (e.g. ≥4 medications, ≥200 intake_log rows, ≥50 BP readings, ≥10 weight logs, ≥60 sleep logs, ≥250 food_log rows, ≥6 food_products, ≥30 workout_sessions, ≥80 workout_exercise_logs, ≥10 diary_notes, ≥3 timezone_history rows).
+- [x] Assert determinism: running twice with same seed yields identical row counts and same first/last BP systolic value.
+- [x] Assert wipe: pre-populate one BP row, run with `Wipe=true`, confirm pre-existing row is gone.
+- [x] run project test suite — must pass before next task (seeddemo tests pass; two pre-existing master-branch failures in TestMedicationCheckerTZAware/cancelled_plan and TestListDiaryNotes_Since are unrelated to this task)
 
 ### Task 8: Verify acceptance criteria
 
