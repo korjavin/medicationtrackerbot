@@ -59,9 +59,9 @@ Currently the ElevenLabs voice-call control lives only inside the Today screen's
 - Modify: `web/static/sw.js`
 - Modify: `web/static/js/features/bootstrap.js`
 
-- [ ] Add `<script src="/static/js/features/call-indicator.js?v=TIMESTAMP_PLACEHOLDER"></script>` immediately after the `elevenlabs-call.js` script tag in `index.html` (line ~1523).
-- [ ] Add `/static/js/features/call-indicator.js` to the precache list in `sw.js` so it is available offline alongside `elevenlabs-call.js`.
-- [ ] In `bootstrap.js`, after `WGBottomNav.mount(...)`, call `window.WGCallIndicator && window.WGCallIndicator.mount(document.body)`.
+- [x] Add `<script src="/static/js/features/call-indicator.js?v=TIMESTAMP_PLACEHOLDER"></script>` immediately after the `elevenlabs-call.js` script tag in `index.html` (line ~1523).
+- [x] Add `/static/js/features/call-indicator.js` to the precache list in `sw.js` so it is available offline alongside `elevenlabs-call.js`.
+- [x] In `bootstrap.js`, after `WGBottomNav.mount(...)`, call `window.WGCallIndicator && window.WGCallIndicator.mount(document.body)`.
 
 ### Task 4: Style the floating pill with design tokens
 
