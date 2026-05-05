@@ -315,6 +315,9 @@
     --wg-nav-item-font-size: 9.5px;
     --wg-nav-icon-size: 22px;
     --wg-bottom-nav-z: 40;
+    /* Persistent call indicator sits one layer above the bottom nav so its
+       hang-up affordance is never occluded while a call is active. */
+    --wg-call-indicator-z: 41;
     /* FAB sits below the fixed bottom nav (z 40) in stacking order, but
        its vertical bottom offset (--wg-bottom-nav-reserved + --space-md)
        keeps it geometrically above the nav so the two never overlap. */
@@ -4383,6 +4386,80 @@ textarea.wg-input {
 .wg-call-card[data-state="in_call"] .wg-call-card__btn {
     background: var(--color-danger);
     color: var(--wg-paper);
+}
+
+/* Persistent call indicator — floating pill mounted at app-shell level so
+   call status (connecting / in_call / error) and the hang-up affordance
+   survive tab switches. Anchored above the bottom nav via
+   --wg-bottom-nav-reserved; horizontally centered. Hidden when idle: the
+   [hidden] attribute fully removes it from layout so it never reserves
+   space when no call is active. The status dot's color is driven by
+   [data-state] so all visual values stay token-driven. */
+.wg-call-indicator {
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--wg-bottom-nav-reserved) + var(--space-sm));
+    transform: translateX(-50%);
+    z-index: var(--wg-call-indicator-z);
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    width: max-content;
+    max-width: min(360px, calc(100vw - 2 * var(--space-md)));
+    padding: var(--space-xs) var(--space-md);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-pill);
+    box-shadow: var(--shadow-md);
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+}
+
+.wg-call-indicator[hidden] {
+    display: none;
+}
+
+.wg-call-indicator__dot {
+    width: 10px;
+    height: 10px;
+    border-radius: var(--wg-radius-pill);
+    background: var(--wg-fg-2);
+    flex-shrink: 0;
+}
+
+.wg-call-indicator[data-state="connecting"] .wg-call-indicator__dot {
+    background: var(--wg-sun);
+}
+
+.wg-call-indicator[data-state="in_call"] .wg-call-indicator__dot {
+    background: var(--color-success);
+}
+
+.wg-call-indicator[data-state="error"] .wg-call-indicator__dot {
+    background: var(--color-danger);
+}
+
+.wg-call-indicator__text {
+    min-width: 0;
+    color: var(--wg-fg-1);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wg-call-indicator__hang-up {
+    flex-shrink: 0;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+}
+
+.wg-call-indicator__hang-up[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 /* Today meds card (Task 3) — header row (icon + kicker + "Take" CTA),

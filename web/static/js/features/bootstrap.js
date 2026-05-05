@@ -163,6 +163,12 @@ checkAuth().then(async authorized => {
         // it can receive the AppKernel.onTabSwitch('today') notification).
         mountCanonicalBottomNav();
 
+        // Mount the persistent call indicator at app-shell level so it
+        // survives tab switches and stays visible during a voice call.
+        if (window.WGCallIndicator && typeof window.WGCallIndicator.mount === 'function') {
+            window.WGCallIndicator.mount(document.body);
+        }
+
         // Today is unconditionally the initial view; sections are reached via
         // Today cards or deep links.
         switchTab('today');
