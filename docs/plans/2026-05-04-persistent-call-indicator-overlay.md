@@ -88,9 +88,9 @@ Currently the ElevenLabs voice-call control lives only inside the Today screen's
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] Run `pnpm test` (full frontend suite must pass).
-- [ ] Run `go test ./...` (backend suite — unchanged but verify nothing broke incidentally).
-- [ ] Run `go vet ./...` (project lint).
+- [x] Run `pnpm test` (full frontend suite must pass). 1572/1574 tests pass; the 2 failures are pre-existing date-dependent sleep/steps chart tests already flagged in Task 1 — unrelated to this branch. New `features.call-indicator.test.js` (12 tests) passes.
+- [x] Run `go test ./...` (backend suite — unchanged but verify nothing broke incidentally). 2 failures (`TestMedicationCheckerTZAware/cancelled_plan` in `internal/scheduler` and `TestListDiaryNotes_Since` in `internal/store`) reproduce on master — pre-existing date-dependent failures unrelated to this JS-only branch.
+- [x] Run `go vet ./...` (project lint). Clean (no output).
 
 ### Task 7: Update documentation
 
