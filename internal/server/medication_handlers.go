@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/medplan"
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
@@ -450,11 +451,33 @@ func (s *Server) handleUpdateIntake(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleTriggerNextIntake allows users to take their next scheduled medication early
+// absDuration returns the magnitude of d.
+func absDuration(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
+}
+
+// triggerNextIntakeClusterWindow groups doses landing within this many minutes
+// of the chosen earliest target into the same "Take now" cluster, the same
+// way the Today widget's forecast clusters them. Plan-step times inherit
+// sub-second drift from the user's actual taken_at while normal-schedule
+// times are clock-aligned, so without a tolerance the user can see four
+// "morning meds" on Today and watch "Take now" handle only one of them.
+const triggerNextIntakeClusterWindow = 10 * time.Minute
+
+// handleTriggerNextIntake allows users to take their next scheduled medication early.
+// Delegates schedule discovery to medplan.PlanDoses so the button picks the
+// SAME upcoming dose the Today widget advertises — including pending plan
+// steps. Without this delegation the handler used the medication's raw
+// schedule.times in the user's current timezone and routinely picked the
+// wrong target after a TZ transition (the user would tap "Take now" looking
+// at a morning batch that had passed and the handler would silently pick
+// the evening clock-time instead).
 func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
 
-	// Get all active medications
 	meds, err := s.meds.ListMedications(false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -462,95 +485,100 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 	}
 
 	now := time.Now()
-	var nextTime time.Time
-	var nextMeds []int64
-
-	// Find the next scheduled intake
-	for _, med := range meds {
-		cfg, err := med.ValidSchedule()
-		if err != nil || cfg.Type == "as_needed" {
-			continue
+	if s.now != nil {
+		now = s.now()
+	}
+	userLoc := now.Location()
+	if tz, tzErr := s.settings.GetCurrentTimezone(); tzErr == nil && tz != "" {
+		if loc, locErr := time.LoadLocation(tz); locErr == nil {
+			userLoc = loc
 		}
+	}
 
-		// Check next 12 hours for the earliest occurrence (0.5 days)
-		for daysAhead := 0; daysAhead < 1; daysAhead++ {
-			checkDay := now.AddDate(0, 0, daysAhead)
-
-			// If "weekly", check day
-			if cfg.Type == "weekly" {
-				found := false
-				dayIdx := int(checkDay.Weekday())
-				for _, d := range cfg.Days {
-					if d == dayIdx {
-						found = true
-						break
-					}
-				}
-				if !found {
-					continue
+	// Plan inputs: identical to the forecast endpoint so the same cluster
+	// of doses surfaces here.
+	var pendingSteps []store.TZTransitionStep
+	consumedStepTimeByMed := make(map[int64]time.Time)
+	if s.tzPlanStore != nil {
+		if plan, err := s.tzPlanStore.GetLatestActiveOrPendingTZTransitionPlan(); err == nil && plan != nil {
+			if plan.Status == "APPROVED" {
+				if steps, err := s.tzPlanStore.GetPendingStepsForPlan(plan.ID); err == nil {
+					pendingSteps = steps
 				}
 			}
-
-			// Iterate over times
-			for _, timeStr := range cfg.Times {
-				if len(timeStr) != 5 {
-					continue
-				}
-				var hour, minute int
-				_, _ = fmt.Sscanf(timeStr, "%d:%d", &hour, &minute)
-
-				target := time.Date(checkDay.Year(), checkDay.Month(), checkDay.Day(), hour, minute, 0, 0, now.Location())
-
-				// Skip if in the past
-				if target.Before(now) {
-					continue
-				}
-
-				// Skip if more than 12 hours in the future
-				if target.Sub(now) > 12*time.Hour {
-					continue
-				}
-
-				// Check Start/End Dates
-				if med.StartDate != nil && target.Before(*med.StartDate) {
-					continue
-				}
-				if med.EndDate != nil && target.After(*med.EndDate) {
-					continue
-				}
-
-				// Is this the earliest we've found?
-				if nextTime.IsZero() || target.Before(nextTime) {
-					nextTime = target
-					nextMeds = []int64{med.ID}
-				} else if target.Equal(nextTime) {
-					nextMeds = append(nextMeds, med.ID)
-				}
+			if m, err := s.tzPlanStore.GetLatestConsumedStepTimePerMed(plan.ID); err == nil {
+				consumedStepTimeByMed = m
 			}
 		}
 	}
 
-	if len(nextMeds) == 0 {
+	targets := medplan.PlanDoses(medplan.Inputs{
+		Medications:           meds,
+		PendingSteps:          pendingSteps,
+		ConsumedStepTimeByMed: consumedStepTimeByMed,
+		UserLoc:               userLoc,
+		Now:                   now,
+		Window:                12 * time.Hour,
+	})
+
+	medByID := make(map[int64]store.Medication, len(meds))
+	for _, m := range meds {
+		medByID[m.ID] = m
+	}
+
+	// Pick the earliest cluster. Each cluster member keeps its own
+	// scheduled_at — the underlying intake row should match exactly what
+	// the scheduler/forecast would compute, so a later cancel reverts the
+	// row to the right point on the timeline rather than collapsing the
+	// whole cluster onto a single bucket.
+	type clusterMember struct {
+		target  medplan.DoseTarget
+		isStep  bool
+	}
+	var clusterEarliest time.Time
+	var cluster []clusterMember
+	for _, t := range targets {
+		// Skip if the user already acted on this dose.
+		intake, _ := s.meds.GetIntakeBySchedule(t.MedicationID, t.ScheduledAt)
+		if intake != nil && (intake.Status == "TAKEN" || intake.Status == "SKIPPED") {
+			continue
+		}
+		switch {
+		case clusterEarliest.IsZero() || t.ScheduledAt.Before(clusterEarliest):
+			clusterEarliest = t.ScheduledAt
+			cluster = []clusterMember{{target: t, isStep: t.Source == medplan.SourceTransitionStep}}
+		case absDuration(t.ScheduledAt.Sub(clusterEarliest)) <= triggerNextIntakeClusterWindow:
+			cluster = append(cluster, clusterMember{target: t, isStep: t.Source == medplan.SourceTransitionStep})
+		}
+	}
+
+	if len(cluster) == 0 {
 		http.Error(w, "No upcoming scheduled intakes found", http.StatusNotFound)
 		return
 	}
 
-	// Find or create intake logs for the next scheduled time and mark them as taken NOW
 	confirmedCount := 0
 	var medNames []string
 	var confirmedIntakeIDs []int64
 	var confirmedMeds []store.Medication
 
-	for _, medID := range nextMeds {
-		// Get medication info for response
+	// nextTime is the earliest target's time — used as the "scheduled for"
+	// label in the early-confirm Telegram notification.
+	nextTime := clusterEarliest
+
+	for _, member := range cluster {
+		medID := member.target.MedicationID
+		stepID := member.target.StepID
+		scheduledAt := member.target.ScheduledAt
+
 		med, _ := s.meds.GetMedication(medID)
 		if med != nil {
 			medNames = append(medNames, med.Name)
 			confirmedMeds = append(confirmedMeds, *med)
 		}
 
-		// Check if intake log exists
-		intake, _ := s.meds.GetIntakeBySchedule(medID, nextTime)
+		// Check if intake log exists at this exact scheduled_at
+		intake, _ := s.meds.GetIntakeBySchedule(medID, scheduledAt)
 
 		// If intake exists and is pending, mark as taken
 		if intake != nil && intake.Status == "PENDING" {
@@ -582,8 +610,13 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			confirmedIntakeIDs = append(confirmedIntakeIDs, intake.ID)
 			confirmedCount++
 		} else if intake == nil {
-			// Create a new intake log and mark it as taken immediately
-			intakeID, err := s.meds.CreateIntake(medID, userID, nextTime)
+			// Create a new intake log at the planner-derived scheduled_at and
+			// mark it taken immediately. Using each cluster member's own
+			// ScheduledAt (rather than the cluster's earliest) keeps the
+			// intake row aligned with what the scheduler/forecast would
+			// have computed, so a later cancel reverts to the right point
+			// on the timeline rather than collapsing onto a single bucket.
+			intakeID, err := s.meds.CreateIntake(medID, userID, scheduledAt)
 			if err != nil {
 				slog.Error("Error creating intake for med", "medID", medID, "error", err)
 				continue
@@ -611,7 +644,17 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 			confirmedIntakeIDs = append(confirmedIntakeIDs, intakeID)
 			confirmedCount++
 		}
-		// If intake exists but is already taken, skip it
+		// If intake exists but is already taken, skip it.
+
+		// If this dose came from a transition plan step, mark the step
+		// consumed so the medication scheduler does not re-fire it later.
+		// Best-effort: the user-visible flow has already succeeded.
+		if member.isStep && stepID != 0 && s.tzPlanStore != nil {
+			if err := s.tzPlanStore.MarkStepConsumed(stepID, now); err != nil {
+				slog.Warn("Failed to mark step consumed after early-take",
+					"stepID", stepID, "medID", medID, "error", err)
+			}
+		}
 	}
 
 	// Send early intake confirmation notification via all channels
