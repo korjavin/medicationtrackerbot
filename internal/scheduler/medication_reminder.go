@@ -30,6 +30,22 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 		c.now = time.Now
 	}
 
+	// Resolve the user's stored timezone so reminder text formats the
+	// scheduled_at in the locale the user actually sees on their phone.
+	// Without this the reminder body would print the UTC clock time —
+	// hence the "21:18 instead of 14:18 PDT" mismatch the user reported
+	// for unconfirmed transition-step intakes.
+	userLoc := time.Local
+	if tz, tzErr := c.store.GetCurrentTimezone(); tzErr != nil {
+		slog.Warn("medication reminder: failed to load timezone, formatting in system TZ", "error", tzErr)
+	} else if tz != "" {
+		if loc, locErr := time.LoadLocation(tz); locErr != nil {
+			slog.Warn("medication reminder: invalid timezone, formatting in system TZ", "tz", tz, "error", locErr)
+		} else {
+			userLoc = loc
+		}
+	}
+
 	pending, err := c.store.GetPendingIntakes()
 	if err != nil {
 		return err
@@ -80,7 +96,7 @@ func (c *MedicationReminderChecker) Check(ctx context.Context) error {
 			}
 
 			text := fmt.Sprintf("🔔 REMINDER: You haven't confirmed taking %s (%s) yet on %s!",
-				med.Name, med.Dosage, scheduledAt.Format("15:04"))
+				med.Name, med.Dosage, scheduledAt.In(userLoc).Format("15:04"))
 
 			intakeID := p.ID
 			actions := []notifier.Action{
