@@ -45,12 +45,12 @@ Currently the ElevenLabs voice-call control lives only inside the Today screen's
 **Files:**
 - Create: `web/static/js/features/call-indicator.js`
 
-- [ ] Implement `(function () { ... })()` module that exposes `window.WGCallIndicator = { mount, destroy }`.
-- [ ] `mount(parent)` builds a hidden `<div class="wg-call-indicator" hidden>` element with: a status dot span, a status-text span, and a hang-up `<button class="wg-call-indicator__hang-up">`. Append to `document.body` (or the supplied parent) so it lives outside any tab container.
-- [ ] Subscribe to window `'wg-call-state'` event; on update, toggle `hidden` based on state (hidden when `'idle'`, visible otherwise), set status text from `{ state, message }`, and apply a state-variant data attribute (`data-state="connecting|in_call|error"`) so CSS can color the dot.
-- [ ] On mount, immediately call `window.WGCallAgent.getState()` and render initial state (covers the case where the indicator mounts after a call was already started — though normal flow has it mounted at app start).
-- [ ] Hang-up button click calls `window.WGCallAgent.endCall()`.
-- [ ] No inline `.style.` assignments; visibility done via the `[hidden]` attribute and CSS classes.
+- [x] Implement `(function () { ... })()` module that exposes `window.WGCallIndicator = { mount, destroy }`.
+- [x] `mount(parent)` builds a hidden `<div class="wg-call-indicator" hidden>` element with: a status dot span, a status-text span, and a hang-up `<button class="wg-call-indicator__hang-up">`. Append to `document.body` (or the supplied parent) so it lives outside any tab container.
+- [x] Subscribe to window `'wg-call-state'` event; on update, toggle `hidden` based on state (hidden when `'idle'`, visible otherwise), set status text from `{ state, message }`, and apply a state-variant data attribute (`data-state="connecting|in_call|error"`) so CSS can color the dot.
+- [x] On mount, immediately call `window.WGCallAgent.getState()` and render initial state (covers the case where the indicator mounts after a call was already started — though normal flow has it mounted at app start).
+- [x] Hang-up button click calls `window.WGCallAgent.endCall()`.
+- [x] No inline `.style.` assignments; visibility done via the `[hidden]` attribute and CSS classes.
 
 ### Task 3: Wire the indicator into the app shell
 
