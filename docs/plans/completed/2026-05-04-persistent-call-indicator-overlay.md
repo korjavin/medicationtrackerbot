@@ -94,6 +94,6 @@ Currently the ElevenLabs voice-call control lives only inside the Today screen's
 
 ### Task 7: Update documentation
 
-- [ ] If user-facing behaviour worth noting, update `README.md` (likely not needed — feature is a UI affordance).
-- [ ] Update `docs/frontend.md` call-out section if it documents the call card, noting the new persistent indicator.
-- [ ] Move this plan to `docs/plans/completed/`.
+- [x] If user-facing behaviour worth noting, update `README.md` (likely not needed — feature is a UI affordance). Verified: README has no mention of the voice-call feature, so no update required.
+- [x] Update `docs/frontend.md` call-out section if it documents the call card, noting the new persistent indicator. Verified: neither `docs/frontend.md` nor `docs/features.md` documents the call card; nothing to update.
+- [x] Move this plan to `docs/plans/completed/`.
