@@ -50,9 +50,17 @@ go run cmd/bpimporter/main.go -file bp_data.csv -db meds.db
 go run cmd/genvapid/main.go                                   # VAPID keys for web push
 ```
 
+#### Demo data seeder
+
+`cmd/seeddemo` wipes a target user's data and seeds N days (default 90) of synthetic, varied health-tracking data so the app can be demoed: medications with overlapping courses, BP/weight/sleep time series with visible trends, food logs hitting and missing targets, planned + ad-hoc workouts, diary notes, and a mid-period timezone change. Deterministic by default (seedable RNG) so re-running with the same seed produces an identical dataset. Generator code lives in `internal/seeddemo/`.
+
+```bash
+go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -days 90 -wipe -seed 42
+```
+
 ## Code Layout
 
-- `cmd/` — entry points (`bot`, `mcptool`, `importer`, `bpimporter`, `genvapid`)
+- `cmd/` — entry points (`bot`, `mcptool`, `importer`, `bpimporter`, `genvapid`, `seeddemo`)
 - `internal/ai` — AI client (OpenAI-compatible)
 - `internal/store` — SQLite repository + goose migrations
 - `internal/server` — HTTP handlers
