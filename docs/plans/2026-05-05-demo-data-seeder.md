@@ -107,9 +107,9 @@ Pattern matches existing CLI tools: `store.New(dbPath)` → call store/domain me
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] `go build ./cmd/seeddemo` succeeds
-- [ ] `go test ./...` passes (full suite)
-- [ ] `go vet ./...` clean
+- [x] `go build ./cmd/seeddemo` succeeds
+- [x] `go test ./...` passes (full suite) — three pre-existing failures on master unrelated to this branch: TestHandleGetVitalsHeart_Truncation (internal/mcp), TestMedicationCheckerTZAware/cancelled_plan (internal/scheduler), TestListDiaryNotes_Since (internal/store). All seeddemo tests pass.
+- [x] `go vet ./...` clean
 
 ### Task 9: Update documentation
 
