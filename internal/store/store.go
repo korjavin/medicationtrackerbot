@@ -825,38 +825,37 @@ func (s *Store) BatchGetIntakesBySchedule(schedules []MedicationSchedule) (map[M
 	return result, nil
 }
 
+// ConfirmIntakesBySchedule marks every PENDING intake whose scheduled_at
+// represents the same instant as the supplied target as TAKEN, returning the
+// IDs that were updated. It compares by absolute time (time.Time.Equal), not
+// by SQL text equality: modernc.org/sqlite serializes time.Time via t.String()
+// (with embedded TZ name), so an exact "WHERE scheduled_at = ?" comparison
+// silently misses rows when the caller's location does not match the stored
+// row's location — e.g. the Telegram "Confirm ALL" callback constructs
+// time.Unix(ts,0) in the bot's local TZ while the row was written in the
+// user's TZ.
 func (s *Store) ConfirmIntakesBySchedule(userID int64, scheduledAt time.Time, takenAt time.Time) ([]int64, error) {
 	scheduledAt = scheduledAt.Truncate(0)
 	takenAt = takenAt.Truncate(0)
-	// Only confirm intakes for medications that are NOT archived (archived = 0)
-	// Use RETURNING clause to get the IDs that were actually updated, avoiding race conditions
-	// with concurrent calls that might use the same takenAt timestamp.
-	rows, err := s.db.Query(`
-		UPDATE intake_log
-		SET status = 'TAKEN', taken_at = ?
-		WHERE user_id = ?
-		  AND scheduled_at = ?
-		  AND status = 'PENDING'
-		  AND medication_id IN (SELECT id FROM medications WHERE archived = 0)
-		RETURNING id
-	`, takenAt, userID, scheduledAt)
+
+	candidates, err := s.GetPendingIntakesBySchedule(userID, scheduledAt)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
+	for _, c := range candidates {
+		// ConfirmIntake guards on status='PENDING', so a concurrent confirm
+		// returns sql.ErrNoRows here — treat that as "already taken" and skip
+		// instead of failing the batch.
+		if err := s.ConfirmIntake(c.ID, takenAt); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
 			return nil, err
 		}
-		ids = append(ids, id)
+		ids = append(ids, c.ID)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
 	return ids, nil
 }
 
@@ -930,8 +929,22 @@ func (s *Store) GetBatchIntakeReminders(intakeIDs []int64) (map[int64][]int, err
 	return result, nil
 }
 
+// GetPendingIntakesBySchedule returns every PENDING intake for the user whose
+// scheduled_at matches the supplied target instant. It loads all of the user's
+// PENDING rows (skipping archived medications) and filters in Go via
+// time.Time.Equal so the result is independent of the caller's location —
+// SQL text equality on the modernc.org/sqlite t.String() representation only
+// matches when the bind value carries the same Location/TZ name as the stored
+// row, which silently breaks when the bot binary's TZ differs from the user's.
 func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time) ([]IntakeLog, error) {
-	rows, err := s.db.Query("SELECT id, medication_id, user_id, scheduled_at, status, snoozed_until FROM intake_log WHERE user_id = ? AND scheduled_at = ? AND status = 'PENDING'", userID, scheduledAt)
+	scheduledAt = scheduledAt.Truncate(0)
+	rows, err := s.db.Query(
+		`SELECT id, medication_id, user_id, scheduled_at, status, snoozed_until
+		 FROM intake_log
+		 WHERE user_id = ? AND status = 'PENDING'
+		   AND medication_id IN (SELECT id FROM medications WHERE archived = 0)`,
+		userID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -942,7 +955,13 @@ func (s *Store) GetPendingIntakesBySchedule(userID int64, scheduledAt time.Time)
 		if err := rows.Scan(&l.ID, &l.MedicationID, &l.UserID, &l.ScheduledAt, &l.Status, &l.SnoozedUntil); err != nil {
 			return nil, err
 		}
+		if !l.ScheduledAt.Equal(scheduledAt) {
+			continue
+		}
 		logs = append(logs, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return logs, nil
 }
@@ -2630,6 +2649,41 @@ func (s *Store) CreateTZTransitionPlan(plan *TZTransitionPlan) (int64, error) {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// GetLatestCompletedTZTransitionPlan returns the most recent plan in
+// COMPLETED status, or nil if none exists. The medication scheduler uses this
+// as a fallback for the overlap-guard data once a plan transitions out of
+// APPROVED — the previous tick that consumed the final step also flipped the
+// status, so the next tick can no longer see the plan via
+// GetLatestActiveOrPendingTZTransitionPlan and would otherwise lose the
+// consumed-step times that suppress the just-superseded normal-schedule slots.
+func (s *Store) GetLatestCompletedTZTransitionPlan() (*TZTransitionPlan, error) {
+	var p TZTransitionPlan
+	var notifiedAt, approvedAt sql.NullTime
+	var userAction sql.NullString
+	err := s.db.QueryRow(
+		`SELECT id, old_tz, new_tz, created_at, status, steps_json, inputs_json, plan_hash, notified_at, approved_at, user_action
+		 FROM tz_transition_plans
+		 WHERE status = 'COMPLETED'
+		 ORDER BY created_at DESC, id DESC LIMIT 1`,
+	).Scan(&p.ID, &p.OldTZ, &p.NewTZ, &p.CreatedAt, &p.Status, &p.StepsJSON, &p.InputsJSON, &p.PlanHash, &notifiedAt, &approvedAt, &userAction)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if notifiedAt.Valid {
+		p.NotifiedAt = &notifiedAt.Time
+	}
+	if approvedAt.Valid {
+		p.ApprovedAt = &approvedAt.Time
+	}
+	if userAction.Valid {
+		p.UserAction = userAction.String
+	}
+	return &p, nil
 }
 
 // GetLatestActiveOrPendingTZTransitionPlan returns the most recent plan in

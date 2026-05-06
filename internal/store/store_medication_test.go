@@ -833,6 +833,103 @@ func TestGetPendingIntakesBySchedule(t *testing.T) {
 	}
 }
 
+// TestGetPendingIntakesBySchedule_TZAgnostic exercises the regression behind
+// the Telegram "Confirm ALL" silent no-op: the bot binary's time.Local was
+// Europe/Berlin while the user's medication slots were stored in
+// America/Los_Angeles. modernc/sqlite serialises time.Time via t.String() so
+// the previous SQL "WHERE scheduled_at = ?" comparison missed every row when
+// the bind value's location did not match the stored location, even when the
+// two times referred to the same instant.
+func TestGetPendingIntakesBySchedule_TZAgnostic(t *testing.T) {
+	db := setupTestStore(t)
+
+	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication failed: %v", err)
+	}
+
+	la, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+	storedAt := time.Date(2026, 5, 5, 21, 30, 0, 0, la) // user-local PT
+
+	if _, err := db.CreateIntake(medID, 12345, storedAt); err != nil {
+		t.Fatalf("CreateIntake failed: %v", err)
+	}
+
+	// Same instant, but expressed in the bot binary's TZ — what the
+	// confirm_schedule callback ends up passing after time.Unix(ts,0).
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+	queryAt := storedAt.In(berlin)
+
+	pending, err := db.GetPendingIntakesBySchedule(12345, queryAt)
+	if err != nil {
+		t.Fatalf("GetPendingIntakesBySchedule failed: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending intake matched across TZs, got %d", len(pending))
+	}
+	if !pending[0].ScheduledAt.Equal(storedAt) {
+		t.Errorf("returned intake scheduled_at = %v, want same instant as %v", pending[0].ScheduledAt, storedAt)
+	}
+
+	// time.Unix(ts,0) yields a time in time.Local — emulate that path too.
+	queryUnix := time.Unix(storedAt.Unix(), 0)
+	pendingUnix, err := db.GetPendingIntakesBySchedule(12345, queryUnix)
+	if err != nil {
+		t.Fatalf("GetPendingIntakesBySchedule (unix) failed: %v", err)
+	}
+	if len(pendingUnix) != 1 {
+		t.Fatalf("expected 1 pending intake for time.Unix bind, got %d", len(pendingUnix))
+	}
+}
+
+// TestConfirmIntakesBySchedule_TZAgnostic mirrors the regression test above
+// for the UPDATE path: with a cross-TZ bind value the previous query updated
+// zero rows, leaving the medications stuck PENDING while the bot reported
+// success.
+func TestConfirmIntakesBySchedule_TZAgnostic(t *testing.T) {
+	db := setupTestStore(t)
+
+	medID, err := db.CreateMedication("TestMed", "5mg", `{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication failed: %v", err)
+	}
+
+	la, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+	storedAt := time.Date(2026, 5, 5, 21, 30, 0, 0, la)
+	intakeID, err := db.CreateIntake(medID, 12345, storedAt)
+	if err != nil {
+		t.Fatalf("CreateIntake failed: %v", err)
+	}
+
+	queryAt := time.Unix(storedAt.Unix(), 0) // time.Local-flavoured bind value
+	takenAt := time.Date(2026, 5, 5, 21, 35, 0, 0, la)
+
+	ids, err := db.ConfirmIntakesBySchedule(12345, queryAt, takenAt)
+	if err != nil {
+		t.Fatalf("ConfirmIntakesBySchedule failed: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != intakeID {
+		t.Fatalf("expected confirmed ids = [%d], got %v", intakeID, ids)
+	}
+
+	got, err := db.GetIntake(intakeID)
+	if err != nil {
+		t.Fatalf("GetIntake failed: %v", err)
+	}
+	if got.Status != "TAKEN" {
+		t.Errorf("expected status TAKEN, got %q", got.Status)
+	}
+}
+
 func TestGetTakenIntakesBySchedule(t *testing.T) {
 	db := setupTestStore(t)
 

@@ -8,6 +8,67 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+// TestHandleCallback_ConfirmScheduleAcrossTimezones is the regression for the
+// "✅ All medications for this time marked as taken." silent no-op the user
+// reported. The intake row's scheduled_at is in the user's TZ
+// (America/Los_Angeles), but the bot binary runs in a different time.Local
+// (mimicked here via UTC). Tapping Confirm ALL produces a callback whose
+// timestamp `time.Unix(ts,0)` lands in the bot's local zone — under the old
+// store query, `WHERE scheduled_at = ?` matched zero rows and the bot still
+// claimed success while the row stayed PENDING.
+func TestHandleCallback_ConfirmScheduleAcrossTimezones(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+	env.b.timezone = env.s
+
+	if err := env.s.RecordTimezone("America/Los_Angeles"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+
+	medID, err := env.s.CreateMedication("Candecor", "16mg",
+		`{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+
+	la, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+	scheduledAt := time.Date(2026, 5, 5, 21, 30, 0, 0, la)
+	intakeID, err := env.s.CreateIntake(medID, env.b.allowedUserID, scheduledAt)
+	if err != nil {
+		t.Fatalf("CreateIntake: %v", err)
+	}
+
+	// Build the callback exactly the way the scheduler does: encode the
+	// schedule's Unix epoch. The bot will reconstruct it via time.Unix(ts,0)
+	// and that result lives in the binary's time.Local — which on this CI
+	// runner is unlikely to be America/Los_Angeles.
+	cb := &tgbotapi.CallbackQuery{
+		ID:   "cb_confirm_schedule_1",
+		Data: fmt.Sprintf("confirm_schedule:%d", scheduledAt.Unix()),
+		From: &tgbotapi.User{ID: env.b.allowedUserID},
+		Message: &tgbotapi.Message{
+			MessageID: 11,
+			Chat:      &tgbotapi.Chat{ID: env.b.allowedUserID},
+		},
+	}
+
+	env.b.handleCallback(cb)
+
+	intake, err := env.s.GetIntake(intakeID)
+	if err != nil {
+		t.Fatalf("GetIntake: %v", err)
+	}
+	if intake == nil {
+		t.Fatal("intake disappeared")
+	}
+	if intake.Status != "TAKEN" {
+		t.Fatalf("expected status TAKEN after cross-TZ Confirm ALL, got %q", intake.Status)
+	}
+}
+
 func TestHandleCallback_SkipIntake(t *testing.T) {
 	env := setupBotTest(t)
 	defer env.teardown()
