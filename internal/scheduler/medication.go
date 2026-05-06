@@ -29,6 +29,7 @@ type MedicationStore interface {
 	// TZ-aware scheduling
 	GetCurrentTimezone() (string, error)
 	GetLatestActiveOrPendingTZTransitionPlan() (*store.TZTransitionPlan, error)
+	GetLatestCompletedTZTransitionPlan() (*store.TZTransitionPlan, error)
 	GetPendingStepsForPlan(planID int64) ([]store.TZTransitionStep, error)
 	GetLatestConsumedStepTimePerMed(planID int64) (map[int64]time.Time, error)
 	MarkStepConsumed(stepID int64, consumedAt time.Time) error
@@ -108,6 +109,21 @@ func (c *MedicationChecker) Check(ctx context.Context) error {
 	var lastConsumedPlanID int64
 	if activePlan != nil && (activePlan.Status == "APPROVED" || activePlan.Status == "COMPLETED") {
 		lastConsumedPlanID = activePlan.ID
+	} else if activePlan == nil {
+		// No active plan, but the most recent COMPLETED plan still owns the
+		// overlap-guard data: when a tick consumed the final step it also
+		// flipped the status to COMPLETED, and the very next tick must keep
+		// suppressing the normal-schedule slots the just-consumed steps
+		// superseded — otherwise a westbound landing produces a duplicate
+		// "21:30" reminder right after the user took the final transition
+		// step at 22:30. GetLatestActiveOrPendingTZTransitionPlan deliberately
+		// excludes COMPLETED rows so this fallback is the only path that
+		// surfaces the plan id again.
+		if completed, err := c.store.GetLatestCompletedTZTransitionPlan(); err == nil && completed != nil {
+			lastConsumedPlanID = completed.ID
+		} else if err != nil {
+			slog.Warn("medication scheduler: failed to load completed plan for overlap guard", "error", err)
+		}
 	}
 	if activePlan != nil && activePlan.Status == "APPROVED" {
 		steps, err := c.store.GetPendingStepsForPlan(activePlan.ID)

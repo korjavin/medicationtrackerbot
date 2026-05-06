@@ -65,8 +65,11 @@ type MedicationService interface {
 
 	// ConfirmScheduleWithCleanup batch-confirms all pending intakes for a scheduled
 	// time slot and collects all reminder message IDs across those intakes.
-	// Returns the reminder message IDs so the caller can delete them.
-	ConfirmScheduleWithCleanup(userID int64, scheduledAt time.Time) (reminderMsgIDs []int, err error)
+	// Returns the reminder message IDs so the caller can delete them, plus the
+	// number of intakes actually flipped to TAKEN by this call (so the caller
+	// can distinguish "nothing matched" — e.g. the slot was already confirmed
+	// or the lookup landed in a different timezone — from a real success).
+	ConfirmScheduleWithCleanup(userID int64, scheduledAt time.Time) (reminderMsgIDs []int, confirmedCount int, err error)
 
 	// ConfirmMedicationByMedID finds the first pending intake for a medication and confirms it.
 	// Used by the legacy confirm: callback which only carries a medication ID, not an intake ID.
@@ -190,10 +193,10 @@ func (s *medicationService) LogMedicationAt(userID, medID int64, takenAt time.Ti
 	return id, nil
 }
 
-func (s *medicationService) ConfirmScheduleWithCleanup(userID int64, scheduledAt time.Time) ([]int, error) {
+func (s *medicationService) ConfirmScheduleWithCleanup(userID int64, scheduledAt time.Time) ([]int, int, error) {
 	pending, err := s.store.GetPendingIntakesBySchedule(userID, scheduledAt)
 	if err != nil {
-		return nil, fmt.Errorf("get pending intakes by schedule: %w", err)
+		return nil, 0, fmt.Errorf("get pending intakes by schedule: %w", err)
 	}
 
 	var allReminders []int
@@ -207,7 +210,7 @@ func (s *medicationService) ConfirmScheduleWithCleanup(userID int64, scheduledAt
 
 	confirmedIDs, err := s.store.ConfirmIntakesBySchedule(userID, scheduledAt, time.Now())
 	if err != nil {
-		return nil, fmt.Errorf("confirm intakes by schedule: %w", err)
+		return nil, 0, fmt.Errorf("confirm intakes by schedule: %w", err)
 	}
 
 	// Only decrement inventory for intakes that were actually confirmed by this call
@@ -224,7 +227,7 @@ func (s *medicationService) ConfirmScheduleWithCleanup(userID int64, scheduledAt
 		}
 	}
 
-	return allReminders, nil
+	return allReminders, len(confirmedIDs), nil
 }
 
 func (s *medicationService) ConfirmMedicationByMedID(medID int64, takenAt time.Time) ([]int, bool, string, string, error) {

@@ -14,8 +14,13 @@ import (
 )
 
 // userLocation returns the time.Location for the stored user timezone,
-// falling back to the system timezone when unavailable or invalid.
+// falling back to the system timezone when unavailable or invalid. The nil
+// guard on b.timezone matters for unit tests that build a partial Bot
+// fixture without wiring the timezone store.
 func (b *Bot) userLocation() *time.Location {
+	if b.timezone == nil {
+		return time.Local
+	}
 	tz, err := b.timezone.GetCurrentTimezone()
 	if err != nil || tz == "" {
 		return time.Local
