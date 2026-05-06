@@ -125,7 +125,7 @@ def test_reuses_existing_product_when_search_matches():
 
     body = seen[-1][2]
     assert body.get("product_id") == 42
-    assert "name" not in body
+    assert body["name"] == "Chicken Rice Bowl"
     assert result["logged"]["reused_existing_product"] is True
     assert result["logged"]["product_id"] == 42
 

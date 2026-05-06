@@ -14,7 +14,8 @@ Always try to reuse an existing product so the user's history stays consistent:
   1. Call `food.products.search` (or `food.products.frequent`) with a query
      close to the planned meal name.
   2. If a matching product is returned, call `food.log.create` with that
-     `product_id` and omit `name` — the entry rolls up under the saved product.
+     `product_id` and the matched name — the entry rolls up under the saved
+     product while still showing a readable meal name in history.
   3. Otherwise call `food.log.create` with `name` only. The server will upsert
      a `food_products` row for that name and return the resolved `product_id`
      in the response so future logs can reuse it.
@@ -91,6 +92,7 @@ def main() -> dict:
     }
     if match and match.get("id"):
         body["product_id"] = match["id"]
+        body["name"] = match.get("name") or planned_name
         reused_product_id = match["id"]
     else:
         body["name"] = planned_name
