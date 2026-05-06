@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
@@ -315,6 +317,80 @@ func TestHandleTriggerNextIntake_CancelRevertsToCorrectScheduledAt(t *testing.T)
 	}
 
 	_ = context.TODO
+}
+
+// TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ pins the regression
+// behind the "scheduled for 05:30" surprise: when the only target is a plan
+// step whose ScheduledAt round-trips through SQLite as a UTC time.Time, the
+// "Medication taken early" notification used to format that UTC value
+// directly with "15:04", showing 05:30 to a user whose own clock read 22:30.
+// The fix anchors the format in the user's stored timezone.
+func TestHandleTriggerNextIntake_EarlyNotifFormatsInUserTZ(t *testing.T) {
+	c := newTriggerCtx(t)
+	if err := c.db.RecordTimezone("America/Los_Angeles"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	// 22:10 PDT — 20 min before the plan step at 22:30 PDT.
+	c.setNow(time.Date(2026, 5, 5, 22, 10, 0, 0, la))
+
+	mock := &mockNotifier{}
+	c.srv.SetNotifiers([]notifier.Notifier{mock})
+
+	medID := mustCreateMed(t, c.db, "Candecor", "16mg", `{"type":"daily","times":["21:30"]}`, "medium")
+
+	planID, err := c.db.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		OldTZ: "Europe/Copenhagen", NewTZ: "America/Los_Angeles",
+		Status: "APPROVED", StepsJSON: "[]", InputsJSON: "{}", PlanHash: "h-tz-fmt",
+	})
+	if err != nil {
+		t.Fatalf("CreateTZTransitionPlan: %v", err)
+	}
+	if _, err := c.db.SetTZTransitionPlanApproved(planID, c.now.Add(-time.Hour)); err != nil {
+		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
+	}
+	// 22:30 PDT == 05:30 UTC the next day — exactly the value persisted on
+	// the production row that produced the bad notification.
+	stepUTC := time.Date(2026, 5, 6, 5, 30, 0, 0, time.UTC)
+	if err := c.db.CreateTZTransitionSteps([]store.TZTransitionStep{
+		{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepUTC, Note: "step"},
+	}); err != nil {
+		t.Fatalf("CreateTZTransitionSteps: %v", err)
+	}
+
+	resp, code := c.callTrigger(123456)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", code)
+	}
+	if got := int(resp["medication_count"].(float64)); got != 1 {
+		t.Fatalf("expected 1 medication taken, got %d (resp=%v)", got, resp)
+	}
+
+	// notifyWithAutoDelete dispatches via a goroutine, so the assertion
+	// must wait for the worker to record the call rather than racing it.
+	var notif string
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, s := range mock.sent {
+			if strings.Contains(s, "Medication taken early") {
+				notif = s
+				break
+			}
+		}
+		if notif != "" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if notif == "" {
+		t.Fatalf("did not find Medication-taken-early notification in sent=%v", mock.sent)
+	}
+	if !strings.Contains(notif, "scheduled for 22:30") {
+		t.Errorf("expected notification to mention 22:30 PT, got %q", notif)
+	}
+	if strings.Contains(notif, "scheduled for 05:30") {
+		t.Errorf("notification still showing UTC 05:30: %q", notif)
+	}
 }
 
 // TestHandleTriggerNextIntake_NoneInWindowReturns404 is the negative path:
