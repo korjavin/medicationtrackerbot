@@ -58,26 +58,28 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	foodLog := &store.FoodLog{
-		UserID:    userID,
-		EatenAt:   eatenAt,
-		Weight:    req.Weight,
-		Carbs:     req.Carbs,
-		Protein:   req.Protein,
-		Fat:       req.Fat,
-		Calories:  req.Calories,
-		Name:      req.Name,
-		ProductID: req.ProductID,
-	}
+	ctx := r.Context()
+	resolvedName := req.Name
+	var resolvedProductID *int64
+	var productForUsage *store.FoodProduct
 
-	id, err := s.food.CreateFoodLog(context.Background(), foodLog)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Upsert to food_products
-	if req.Name != "" {
+	if req.ProductID != nil {
+		product, err := s.food.GetFoodProductByID(ctx, userID, *req.ProductID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "invalid product_id: product does not exist or belongs to another user", http.StatusInternalServerError)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		gotID := product.ID
+		resolvedProductID = &gotID
+		productForUsage = product
+		if resolvedName == "" {
+			resolvedName = product.Name
+		}
+	} else if req.Name != "" {
 		carbs, protein, fat, kcal := float64(req.Carbs), float64(req.Protein), float64(req.Fat), float64(req.Calories)
 		var c100, p100, f100, k100 float64
 		if req.Per100g {
@@ -100,14 +102,46 @@ func (s *Server) handleCreateFoodLog(w http.ResponseWriter, r *http.Request) {
 			Fat100g:        f100,
 			EnergyKcal100g: k100,
 		}
-		// Ignore error as this is a background optimization
-		_ = s.food.UpsertFoodProduct(context.Background(), p)
+		// Ignore error as this is a background optimization.
+		_ = s.food.UpsertFoodProduct(ctx, p)
+
+		if got, err := s.food.GetFoodProductByName(ctx, userID, req.Name); err == nil && got != nil {
+			gotID := got.ID
+			resolvedProductID = &gotID
+		}
+	}
+
+	foodLog := &store.FoodLog{
+		UserID:    userID,
+		EatenAt:   eatenAt,
+		Weight:    req.Weight,
+		Carbs:     req.Carbs,
+		Protein:   req.Protein,
+		Fat:       req.Fat,
+		Calories:  req.Calories,
+		Name:      resolvedName,
+		ProductID: resolvedProductID,
+	}
+
+	id, err := s.food.CreateFoodLog(ctx, foodLog)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if productForUsage != nil {
+		_ = s.food.UpsertFoodProduct(ctx, &store.FoodProduct{
+			UserID: userID,
+			Name:   productForUsage.Name,
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "created",
-		"id":     id,
+		"status":     "created",
+		"id":         id,
+		"product_id": resolvedProductID,
+		"name":       resolvedName,
 	}); err != nil {
 		slog.Error("encode response", "error", err)
 	}

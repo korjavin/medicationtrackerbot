@@ -60,6 +60,127 @@ func TestHandleLogFood(t *testing.T) {
 	}
 }
 
+func TestHandleLogFoodNameOnlyAttachesResolvedProductID(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	reqBody := map[string]interface{}{
+		"eaten_at": time.Now(),
+		"name":     "Apple",
+		"weight":   150,
+		"calories": 80,
+		"carbs":    20,
+		"protein":  1,
+		"fat":      0,
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("POST", "/api/food/log", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLog(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		ProductID *int64 `json:"product_id"`
+		Name      string `json:"name"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	if resp.ProductID == nil {
+		t.Fatal("expected response product_id to be resolved")
+	}
+	if resp.Name != "Apple" {
+		t.Fatalf("expected response name Apple, got %q", resp.Name)
+	}
+
+	logs, err := db.GetFoodLogs(context.Background(), 123456, time.Now(), 1)
+	if err != nil {
+		t.Fatalf("GetFoodLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+	if logs[0].ProductID == nil || *logs[0].ProductID != *resp.ProductID {
+		t.Fatalf("expected log product_id %v, got %v", *resp.ProductID, logs[0].ProductID)
+	}
+}
+
+func TestHandleLogFoodProductIDOnlyPersistsProductName(t *testing.T) {
+	srv, db := createFoodTestServer(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	if err := db.UpsertFoodProduct(ctx, &store.FoodProduct{
+		UserID:         123456,
+		Name:           "Chicken Rice Bowl",
+		Carbs100g:      25,
+		Protein100g:    8,
+		Fat100g:        4,
+		EnergyKcal100g: 170,
+	}); err != nil {
+		t.Fatalf("UpsertFoodProduct: %v", err)
+	}
+	product, err := db.GetFoodProductByName(ctx, 123456, "Chicken Rice Bowl")
+	if err != nil {
+		t.Fatalf("GetFoodProductByName: %v", err)
+	}
+
+	reqBody := map[string]interface{}{
+		"eaten_at":   time.Now(),
+		"product_id": product.ID,
+		"weight":     220,
+		"calories":   420,
+		"carbs":      55,
+		"protein":    18,
+		"fat":        12,
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("POST", "/api/food/log", bytes.NewReader(body))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleCreateFoodLog(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		ProductID *int64 `json:"product_id"`
+		Name      string `json:"name"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	if resp.ProductID == nil || *resp.ProductID != product.ID {
+		t.Fatalf("expected response product_id %d, got %v", product.ID, resp.ProductID)
+	}
+	if resp.Name != "Chicken Rice Bowl" {
+		t.Fatalf("expected response name from product, got %q", resp.Name)
+	}
+
+	logs, err := db.GetFoodLogs(ctx, 123456, time.Now(), 1)
+	if err != nil {
+		t.Fatalf("GetFoodLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+	if logs[0].Name != "Chicken Rice Bowl" {
+		t.Fatalf("expected log name from product, got %q", logs[0].Name)
+	}
+	if logs[0].ProductID == nil || *logs[0].ProductID != product.ID {
+		t.Fatalf("expected log product_id %d, got %v", product.ID, logs[0].ProductID)
+	}
+}
+
 func TestHandleGetFoodLogs(t *testing.T) {
 	srv, db := createFoodTestServer(t)
 	defer db.Close()
