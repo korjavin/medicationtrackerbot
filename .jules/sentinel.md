@@ -10,3 +10,7 @@
 **Vulnerability:** Cross-Site Scripting (XSS) via `r.Host` injected using `strings.ReplaceAll` instead of `html/template`.
 **Learning:** Because the project serves HTML by reading static files and injecting variables (like `r.Host` or environmental overrides) via `strings.ReplaceAll`, it bypasses the automatic context-aware escaping provided by `html/template`. Unsanitized HTTP headers or external inputs injected directly into HTML payloads can lead to XSS.
 **Prevention:** Always explicitly wrap injected variables derived from HTTP requests or external sources with `html.EscapeString()` when using string substitution for templating.
+## 2025-03-31 - Enforce MCP_ALLOWED_SUBJECT validation
+**Vulnerability:** The MCP server's OAuth subject validation failed open when `MCP_ALLOWED_SUBJECT` was empty. An empty configuration allowed any authenticated user from the OIDC server to access the MCP server and view all health data.
+**Learning:** Default-allow/fail-open authorization behaviors easily slip through code review when configuration is missing. Ensure authorization controls are robust to missing configuration defaults.
+**Prevention:** Always fail closed if expected security configurations are omitted (or set explicitly required config checks during application initialization).
