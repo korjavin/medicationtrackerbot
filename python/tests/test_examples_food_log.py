@@ -1,8 +1,9 @@
 """Smoke test for the python/examples/food_log.py example.
 
 The example is a write-mode demo: it reads daily targets, sums today's logs,
-then logs a single new meal. We mock api.call to verify the operation
-sequence, the params/body passed in, and the returned summary shape.
+searches the user's saved products, then logs a single new meal. We mock
+api.call to verify the operation sequence, the params/body passed in, and the
+returned summary shape.
 """
 
 import importlib.util
@@ -27,7 +28,7 @@ def _load_main():
     return module.main
 
 
-def _factory(targets, log_groups, created):
+def _factory(targets, log_groups, search_result, created):
     seen = []
 
     def fake_call(operation_id, params=None, body=None):
@@ -36,6 +37,8 @@ def _factory(targets, log_groups, created):
             return targets
         if operation_id == "food.log.list":
             return log_groups
+        if operation_id == "food.products.search":
+            return search_result
         if operation_id == "food.log.create":
             return created
         raise AssertionError(f"unexpected operation: {operation_id}")
@@ -43,7 +46,7 @@ def _factory(targets, log_groups, created):
     return fake_call, seen
 
 
-def test_chains_targets_logs_then_create():
+def test_chains_targets_logs_search_then_create_with_no_match():
     targets = {"calories": 2200, "carbs": 250, "protein": 140, "fat": 70}
     groups = [
         {
@@ -58,21 +61,36 @@ def test_chains_targets_logs_then_create():
             ]
         },
     ]
-    created = {"id": 9001, "name": "Chicken rice bowl"}
+    # No matching products in catalog.
+    search_result = []
+    created = {
+        "status": "created",
+        "id": 9001,
+        "product_id": 77,
+        "name": "Chicken rice bowl",
+    }
 
-    fake_call, seen = _factory(targets, groups, created)
+    fake_call, seen = _factory(targets, groups, search_result, created)
     main = _load_main()
     with patch("medtracker.api.call", fake_call):
         result = main()
 
     op_ids = [op for op, _, _ in seen]
-    assert op_ids == ["food.targets.read", "food.log.list", "food.log.create"]
+    assert op_ids == [
+        "food.targets.read",
+        "food.log.list",
+        "food.products.search",
+        "food.log.create",
+    ]
 
-    # food.log.list must be invoked with days=1.
+    # food.log.list invoked with days=1.
     assert seen[1][1] == {"days": 1}
-    # food.log.create body carries the meal.
-    body = seen[2][2]
+    # food.products.search invoked with a query.
+    assert seen[2][1] == {"q": "chicken rice"}
+    # food.log.create body carries the meal name (no product_id since no match).
+    body = seen[3][2]
     assert body["name"] == "Chicken rice bowl"
+    assert "product_id" not in body
     assert body["calories"] == 420
 
     assert result["targets"] == targets
@@ -84,11 +102,36 @@ def test_chains_targets_logs_then_create():
     }
     assert result["remaining_before"]["calories"] == 1200
     assert result["logged"]["id"] == 9001
+    assert result["logged"]["product_id"] == 77
+    assert result["logged"]["reused_existing_product"] is False
     assert "lunch" in result["summary"]
 
 
+def test_reuses_existing_product_when_search_matches():
+    targets = {"calories": 2200, "carbs": 250, "protein": 140, "fat": 70}
+    groups = []
+    search_result = {
+        "products": [
+            {"id": 42, "name": "Chicken Rice Bowl"},
+            {"id": 43, "name": "Tuna salad"},
+        ]
+    }
+    created = {"status": "created", "id": 9001, "product_id": 42}
+
+    fake_call, seen = _factory(targets, groups, search_result, created)
+    main = _load_main()
+    with patch("medtracker.api.call", fake_call):
+        result = main()
+
+    body = seen[-1][2]
+    assert body.get("product_id") == 42
+    assert body["name"] == "Chicken Rice Bowl"
+    assert result["logged"]["reused_existing_product"] is True
+    assert result["logged"]["product_id"] == 42
+
+
 def test_handles_missing_targets_and_empty_log():
-    fake_call, seen = _factory(None, [], {"id": 1})
+    fake_call, seen = _factory(None, [], [], {"id": 1, "product_id": None})
     main = _load_main()
     with patch("medtracker.api.call", fake_call):
         result = main()

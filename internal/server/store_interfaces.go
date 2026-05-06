@@ -143,6 +143,8 @@ type FoodStore interface {
 	GetFoodTargets(ctx context.Context) (store.FoodTargets, error)
 	SetFoodTargets(ctx context.Context, targets store.FoodTargets) error
 	UpsertFoodProduct(ctx context.Context, p *store.FoodProduct) error
+	GetFoodProductByID(ctx context.Context, userID, id int64) (*store.FoodProduct, error)
+	GetFoodProductByName(ctx context.Context, userID int64, name string) (*store.FoodProduct, error)
 	UpdateFoodProduct(ctx context.Context, p *store.FoodProduct) error
 	DeleteFoodProduct(ctx context.Context, id, userID int64) error
 	GetFoodProducts(ctx context.Context, userID int64, filter store.FoodProductsFilter) ([]store.FoodProduct, int, error)

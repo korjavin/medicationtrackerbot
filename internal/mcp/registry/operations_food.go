@@ -89,10 +89,28 @@ output({"count": result["total"], "products": result["products"]})`,
     "limit": {"type": "integer", "description": "Max results (default 20)"}
   }
 }`),
-			Description:     "Search the user's saved food products by name. Use this to find product_id before logging a meal.",
+			Description:     "Search the user's saved food products (and the open_food_facts cache) by name. Always call this before food.log.create unless you already have a product_id — reusing an existing product keeps the user's history consistent.",
 			ResponseSummary: "JSON array of matching products with id, name, barcode, per-100g macros.",
 			Example: `result = api.call("food.products.search", params={"q": "oatmeal"})
 output(result)`,
+		},
+		{
+			ID:     "food.products.frequent",
+			Topic:  "food",
+			Method: "GET",
+			Path:   "/api/food/products",
+			Risk:   RiskRead,
+			ParamsSchema: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "limit": {"type": "integer", "description": "Max products to return (default 10)"}
+  }
+}`),
+			Description:     "Top-N most frequently logged products for this user (highest usage_count first). Use this to discover canonical names the user has logged before, so reused meals share the same food_product entry.",
+			ResponseSummary: "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal}) and 'total' (int).",
+			Example: `result = api.call("food.products.frequent", params={"limit": 10})
+for p in result["products"]:
+    output({"id": p["id"], "name": p["name"]})`,
 		},
 		{
 			ID:     "food.log.create",
@@ -116,8 +134,8 @@ output(result)`,
     "per_100g":   {"type": "boolean", "description": "If true, treat the carb/protein/fat/calories as per-100g and let the server scale by weight"}
   }
 }`),
-			Description:     "Log a food intake entry. Goes through FoodService validation; macros must be non-negative. When per_100g is true, the server scales values by the consumed weight.",
-			ResponseSummary: "FoodLog object with id, eaten_at, weight, totals, name, product_id.",
+			Description:     "Log a food intake entry. Before logging, prefer to search the user's catalog with food.products.search or food.products.frequent and pass the matching product_id so this entry rolls up under the same product. If you only pass name (no product_id), the server upserts a food_products row by name and the response includes the resolved product_id. Goes through FoodService validation; macros must be non-negative. When per_100g is true, the server scales values by the consumed weight.",
+			ResponseSummary: "{status, id, product_id, name} — product_id is the food_products row that was matched or upserted from name; null only if no name was provided.",
 			Example: `result = api.call(
     "food.log.create",
     body={

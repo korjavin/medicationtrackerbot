@@ -81,6 +81,30 @@ func TestHandleMCPFoodLog_ValidRequest(t *testing.T) {
 	if logs[0].Calories != 500 {
 		t.Errorf("expected calories 500, got %d", logs[0].Calories)
 	}
+
+	// Calling the endpoint again with the same name should upsert the food product
+	// and bump usage_count to 2.
+	body2, _ := json.Marshal(payload)
+	sig2 := signBody(body2, "test-secret")
+	req2 := httptest.NewRequest(http.MethodPost, "/api/mcp-food-log", bytes.NewReader(body2))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("X-Signature", sig2)
+	w2 := httptest.NewRecorder()
+	srv.handleMCPFoodLog(w2, req2)
+	if w2.Code != http.StatusCreated {
+		t.Fatalf("second call: expected 201, got %d: %s", w2.Code, w2.Body.String())
+	}
+
+	prod, err := db.GetFoodProductByName(context.Background(), 123456, "Pasta")
+	if err != nil {
+		t.Fatalf("GetFoodProductByName: %v", err)
+	}
+	if prod == nil {
+		t.Fatal("expected food product to be upserted, got nil")
+	}
+	if prod.UsageCount != 2 {
+		t.Errorf("expected usage_count=2 after two calls, got %d", prod.UsageCount)
+	}
 }
 
 func TestHandleMCPFoodLog_WrongSignature(t *testing.T) {

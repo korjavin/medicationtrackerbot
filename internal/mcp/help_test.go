@@ -163,7 +163,7 @@ func TestMCPHelp_GoalOrientedFields(t *testing.T) {
 		wantNextStep string
 	}{
 		{"workouts", "workout groups"},
-		{"food", "Search for a food item"},
+		{"food", "food.products.search"},
 		{"health", "List vital logs"},
 		{"medications", "medication schedule"},
 		{"", "Pick a topic"},
