@@ -652,9 +652,18 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 
-		target := time.Unix(ts, 0)
+		// time.Unix returns a time.Time in time.Local (the bot binary's TZ),
+		// but the persisted scheduled_at row is in the user's TZ — modernc's
+		// SQLite driver round-trips time.Time via t.String() which embeds the
+		// zone name, so the WHERE-by-text comparison the store layer used to
+		// rely on silently misses the row when the two TZs differ. Reanchor
+		// the timestamp in the user's location so downstream filters can also
+		// match by t.String() if they need to. The store now compares by
+		// time.Equal, which makes this a defence-in-depth nicety rather than
+		// a strict requirement.
+		target := time.Unix(ts, 0).In(b.userLocation())
 
-		reminders, err := b.medSvc.ConfirmScheduleWithCleanup(b.allowedUserID, target)
+		reminders, confirmedCount, err := b.medSvc.ConfirmScheduleWithCleanup(b.allowedUserID, target)
 		if err != nil {
 			slog.Error("Error confirming batch schedule", "error", err)
 			return
@@ -670,7 +679,13 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			slog.Error("send failed", "error", err)
 		}
 
-		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✅ All medications for this time marked as taken.")); err != nil {
+		var replyText string
+		if confirmedCount > 0 {
+			replyText = "✅ All medications for this time marked as taken."
+		} else {
+			replyText = "ℹ️ Nothing to confirm — these medications were already marked as taken or skipped."
+		}
+		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, replyText)); err != nil {
 			slog.Error("send failed", "error", err)
 		}
 	} else if strings.HasPrefix(data, "workout_start_") || strings.HasPrefix(data, "workout_snooze1") || strings.HasPrefix(data, "workout_snooze2") || strings.HasPrefix(data, "workout_skip_") || strings.HasPrefix(data, "workout_finish_") {

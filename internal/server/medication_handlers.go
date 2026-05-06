@@ -703,7 +703,12 @@ func (s *Server) handleTriggerNextIntake(w http.ResponseWriter, r *http.Request)
 				"total_intakes", len(intakeIDStrs), "included", len(truncated))
 		}
 
-		notifText := fmt.Sprintf("**Medication taken early**\n%s (scheduled for %s)", strings.Join(earlyMedNames, ", "), nextTime.Format("15:04"))
+		// nextTime carries the location of the underlying source — for plan
+		// steps that's whatever was persisted (frequently UTC because the
+		// driver round-trips DATETIME columns as RFC3339 in UTC). Format it
+		// in the user's configured zone so the "scheduled for" label matches
+		// the clock the user actually reads.
+		notifText := fmt.Sprintf("**Medication taken early**\n%s (scheduled for %s)", strings.Join(earlyMedNames, ", "), nextTime.In(userLoc).Format("15:04"))
 		metadata := map[string]interface{}{
 			"type":             "medication_early_confirmed",
 			"scheduled_at":     nextTime.Format(time.RFC3339),

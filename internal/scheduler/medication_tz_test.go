@@ -539,6 +539,105 @@ func TestMedicationCheckerTZAware(t *testing.T) {
 	})
 }
 
+// TestMedicationCheckerCompletedPlanOverlapGuard pins the regression behind
+// the duplicate "Time to take Candecor (21:30)" reminder the user got
+// minutes after pressing "Take now". The previous tick consumed the plan's
+// final step (22:30 PDT) and flipped status APPROVED → COMPLETED. The next
+// tick used to lose the consumed-step times because the plan loader only
+// returns ACTIVE/PENDING/APPROVED rows, so the now-superseded 21:30 PDT slot
+// fired even though the user had already taken the corresponding dose.
+func TestMedicationCheckerCompletedPlanOverlapGuard(t *testing.T) {
+	db := mustNewDB(t)
+	db.SetMedicationEnabled(context.Background(), true) //nolint:errcheck
+	if err := db.RecordTimezone("America/Los_Angeles"); err != nil {
+		t.Fatalf("RecordTimezone: %v", err)
+	}
+
+	medID, err := db.CreateMedication("Candecor", "16mg",
+		`{"type":"daily","times":["21:30"]}`, nil, nil, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateMedication: %v", err)
+	}
+
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	// now = 22:11 PDT — past today's 21:30 PDT normal slot, just past the
+	// 22:30 PDT step we already consumed below.
+	nowTime := time.Date(2026, 5, 5, 22, 11, 0, 0, la)
+	if err := db.UpdateMedicationCreatedAt(medID, nowTime.Add(-30*24*time.Hour)); err != nil {
+		t.Fatalf("UpdateMedicationCreatedAt: %v", err)
+	}
+
+	planID, err := db.CreateTZTransitionPlan(&store.TZTransitionPlan{
+		OldTZ:      "Europe/Copenhagen",
+		NewTZ:      "America/Los_Angeles",
+		Status:     "APPROVED",
+		StepsJSON:  "[]",
+		InputsJSON: "{}",
+		PlanHash:   "testhash-completed-overlap",
+	})
+	if err != nil {
+		t.Fatalf("CreateTZTransitionPlan: %v", err)
+	}
+	if _, err := db.SetTZTransitionPlanApproved(planID, nowTime.Add(-8*time.Hour)); err != nil {
+		t.Fatalf("SetTZTransitionPlanApproved: %v", err)
+	}
+
+	stepTime := time.Date(2026, 5, 5, 22, 30, 0, 0, la)
+	if err := db.CreateTZTransitionSteps([]store.TZTransitionStep{
+		{PlanID: planID, MedicationID: medID, StepNumber: 1, ScheduledAt: stepTime, Note: "final"},
+	}); err != nil {
+		t.Fatalf("CreateTZTransitionSteps: %v", err)
+	}
+	steps, _ := db.GetPendingStepsForPlan(planID)
+	if len(steps) != 1 {
+		t.Fatalf("expected 1 pending step, got %d", len(steps))
+	}
+	// "Take now" path: create + immediately confirm the intake at the step
+	// time, then mark the step consumed.
+	stepIntakeID, err := db.CreateIntake(medID, 123456, stepTime)
+	if err != nil {
+		t.Fatalf("CreateIntake for step: %v", err)
+	}
+	if err := db.ConfirmIntake(stepIntakeID, nowTime); err != nil {
+		t.Fatalf("ConfirmIntake: %v", err)
+	}
+	if err := db.MarkStepConsumed(steps[0].ID, nowTime); err != nil {
+		t.Fatalf("MarkStepConsumed: %v", err)
+	}
+	// The previous scheduler tick noticed there were no remaining steps and
+	// flipped the plan to COMPLETED.
+	if err := db.UpdateTZTransitionPlanStatus(planID, "COMPLETED", "all-steps-consumed", "APPROVED"); err != nil {
+		t.Fatalf("UpdateTZTransitionPlanStatus → COMPLETED: %v", err)
+	}
+
+	mock := &MockNotifier{}
+	sched := New(db, 123456, []notifier.Notifier{mock})
+	sched.MedicationChecker.now = func() time.Time { return nowTime }
+
+	if err := sched.MedicationChecker.Check(context.Background()); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	// The TAKEN step intake should be the ONLY intake. No new PENDING row
+	// should have been spawned at 21:30 PDT (the superseded normal slot) or
+	// at 22:30 PDT (the just-consumed step's own slot).
+	pending, _ := db.GetPendingIntakes()
+	if len(pending) != 0 {
+		for _, p := range pending {
+			t.Logf("unexpected pending intake: med=%d scheduled=%v", p.MedicationID, p.ScheduledAt)
+		}
+		t.Errorf("expected 0 PENDING intakes after COMPLETED plan, got %d", len(pending))
+	}
+
+	// Sanity-check the bogus 21:30 PDT slot specifically — that was the
+	// duplicate reminder the user reported.
+	bogus := time.Date(2026, 5, 5, 21, 30, 0, 0, la)
+	if got, _ := db.GetIntakeBySchedule(medID, bogus); got != nil {
+		t.Errorf("unexpected intake at superseded 21:30 PDT slot: %+v", got)
+	}
+}
+
 // mustNewDB creates an in-memory store for testing. Fatals on error.
 func mustNewDB(t *testing.T) *store.Store {
 	t.Helper()
