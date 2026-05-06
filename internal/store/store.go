@@ -1935,6 +1935,25 @@ func (s *Store) GetFoodProductByName(ctx context.Context, userID int64, name str
 	return &p, nil
 }
 
+func (s *Store) GetFoodProductByID(ctx context.Context, userID, id int64) (*FoodProduct, error) {
+	query := `
+		SELECT id, user_id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal, total_weight_g, created_at, last_used_at
+		FROM food_products
+		WHERE user_id = ? AND id = ?
+	`
+	var p FoodProduct
+	var barcode sql.NullString
+	err := s.db.QueryRowContext(ctx, query, userID, id).Scan(&p.ID, &p.UserID, &p.Name, &barcode, &p.Carbs100g, &p.Protein100g, &p.Fat100g, &p.EnergyKcal100g, &p.UsageCount, &p.IsMeal, &p.TotalWeightG, &p.CreatedAt, &p.LastUsedAt)
+	if err != nil {
+		return nil, err
+	}
+	if barcode.Valid {
+		b := barcode.String
+		p.Barcode = &b
+	}
+	return &p, nil
+}
+
 func (s *Store) UpdateFoodProduct(ctx context.Context, p *FoodProduct) error {
 	var barcode interface{}
 	if p.Barcode != nil && *p.Barcode != "" {
