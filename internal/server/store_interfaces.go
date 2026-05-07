@@ -116,10 +116,12 @@ type WorkoutStore interface {
 	LogExercise(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes string) (int64, error)
 	LogExerciseWithSource(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, error)
 	UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error
+	UpdateExerciseLogStatus(id int64, status string) error
 	DeleteExerciseLog(id int64) error
 	GetExerciseStats(userID int64) ([]store.ExerciseStat, error)
 	GetAllUniqueExercises(userID int64) ([]store.WorkoutExercise, error)
 	ListExerciseLibrary(userID int64) ([]store.ExerciseLibraryItem, error)
+	GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error)
 	CreateExerciseLibraryItem(userID int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) (*store.ExerciseLibraryItem, error)
 	UpdateExerciseLibraryItem(id int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) error
 	DeleteExerciseLibraryItem(id int64) error

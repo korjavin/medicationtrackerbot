@@ -157,7 +157,7 @@ func (s *Service) SchedulePlannedAdHocSession(userID int64, scheduledDate time.T
 
 	for _, ex := range exercises {
 		source := "library"
-		if ex.ExerciseID == 0 {
+		if ex.ExerciseID <= 0 {
 			source = "schedule"
 		}
 		if _, err := s.store.LogExerciseWithSource(session.ID, ex.ExerciseID, ex.ExerciseName, nil, nil, nil, "", "", source); err != nil {

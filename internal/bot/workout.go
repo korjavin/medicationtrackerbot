@@ -18,6 +18,15 @@ func (b *Bot) StartWorkoutFlowFromWeb(sessionID int64) error {
 		return fmt.Errorf("workout session not found: %d", sessionID)
 	}
 
+	// Ad-hoc sessions (group_id = -1) have no variant and no workout_exercises
+	// rows — only placeholder workout_exercise_logs. The variant-driven prompt
+	// loop has nothing to send, so route to the same confirmation surface that
+	// the bot's own start callback uses.
+	if session.GroupID == -1 {
+		b.sendAdHocStartConfirmation(sessionID, b.allowedUserID)
+		return nil
+	}
+
 	b.startExerciseLoop(sessionID, session.VariantID, b.allowedUserID)
 	return nil
 }

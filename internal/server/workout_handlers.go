@@ -1140,6 +1140,7 @@ func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request)
 		RepsCompleted *int     `json:"reps_completed"`
 		WeightKg      *float64 `json:"weight_kg"`
 		Notes         string   `json:"notes"`
+		Status        string   `json:"status"`
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -1150,6 +1151,14 @@ func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request)
 
 	if err := validateExerciseValues(req.SetsCompleted, req.RepsCompleted, req.WeightKg); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	switch req.Status {
+	case "", "completed", "skipped":
+		// allowed
+	default:
+		http.Error(w, "status must be one of \"\", \"completed\", \"skipped\"", http.StatusBadRequest)
 		return
 	}
 
@@ -1169,20 +1178,41 @@ func (s *Server) handleUpdateExerciseLog(w http.ResponseWriter, r *http.Request)
 	if propagateReps != nil && *propagateReps == 0 {
 		propagateReps = nil
 	}
-	if logEntry, err := s.workouts.GetExerciseLogByID(req.ID); err != nil {
-		slog.Error("propagate: fetch exercise log", "error", err, "log_id", req.ID)
-	} else if logEntry == nil {
+	logEntry, logErr := s.workouts.GetExerciseLogByID(req.ID)
+	switch {
+	case logErr != nil:
+		slog.Error("propagate: fetch exercise log", "error", logErr, "log_id", req.ID)
+	case logEntry == nil:
 		slog.Error("propagate: exercise log not found after update", "log_id", req.ID)
-	} else if logEntry.Source == "library" {
+	case logEntry.Source == "library":
 		// Skip propagation for library-sourced logs: their exercise_id is from
 		// exercise_library, not workout_exercises. Without this check, ID collisions
 		// between the two tables could corrupt scheduled exercise definitions.
 		slog.Info("propagate: skipping library-sourced exercise log", "log_id", req.ID, "exercise_name", logEntry.ExerciseName)
-	} else if err := s.workouts.PropagateExerciseToSchedule(
-		logEntry.SessionID, logEntry.ExerciseID, logEntry.ExerciseName,
-		propagateSets, propagateReps, req.WeightKg,
-	); err != nil {
-		slog.Error("propagate: update schedule", "error", err, "session_id", logEntry.SessionID, "exercise_id", logEntry.ExerciseID)
+	default:
+		if err := s.workouts.PropagateExerciseToSchedule(
+			logEntry.SessionID, logEntry.ExerciseID, logEntry.ExerciseName,
+			propagateSets, propagateReps, req.WeightKg,
+		); err != nil {
+			slog.Error("propagate: update schedule", "error", err, "session_id", logEntry.SessionID, "exercise_id", logEntry.ExerciseID)
+		}
+	}
+
+	// Promote status when needed: explicit caller-supplied status wins; otherwise
+	// auto-promote a placeholder log (status=="") to "completed" once the caller
+	// records sets_completed >= 1, since the scheduled-ad-hoc design relies on
+	// this endpoint to flip placeholders into the completed state that
+	// stats/history queries filter on.
+	newStatus := req.Status
+	if newStatus == "" && logEntry != nil && logEntry.Status == "" &&
+		req.SetsCompleted != nil && *req.SetsCompleted >= 1 {
+		newStatus = "completed"
+	}
+	if newStatus != "" && (logEntry == nil || logEntry.Status != newStatus) {
+		if err := s.workouts.UpdateExerciseLogStatus(req.ID, newStatus); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)

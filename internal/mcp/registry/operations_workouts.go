@@ -548,10 +548,10 @@ output(result)`,
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["exercise_name", "target_sets", "target_reps_min"],
+        "required": ["target_sets", "target_reps_min"],
         "properties": {
-          "exercise_id":      {"type": "integer", "description": "Library exercise id; 0 or omitted for a free-form exercise."},
-          "exercise_name":    {"type": "string"},
+          "exercise_id":      {"type": "integer", "description": "Library exercise id; required if exercise_name is omitted. The id must belong to the calling user's library."},
+          "exercise_name":    {"type": "string", "description": "Free-form exercise name; required if exercise_id is 0/omitted. When both are provided the supplied name overrides the library item's name."},
           "target_sets":      {"type": "integer", "minimum": 1},
           "target_reps_min":  {"type": "integer", "minimum": 1},
           "target_reps_max":  {"type": ["integer", "null"]},
@@ -561,7 +561,7 @@ output(result)`,
     }
   }
 }`),
-			Description:     "Schedule a one-off ad-hoc workout session for a future date and time, with a pre-selected list of planned exercises. The session lands in 'pending' status; the user can later complete it via workouts.sessions.start followed by workouts.sessions.logs.update on each pre-created exercise log row. Use library exercise ids when available, otherwise pass a free-form exercise_name. This operation is for one-off sessions only — recurring workouts go through the workout group/variant flow.",
+			Description:     "Schedule a one-off ad-hoc workout session for a future date and time, with a pre-selected list of planned exercises. The session lands in 'pending' status; at workout time the caller starts it with workouts.sessions.start, fills the pre-created exercise log rows with workouts.sessions.logs.update, then finalizes the session with workouts.sessions.status (status=\"completed\"). Without that final status flip the session row stays in_progress and the scheduler will treat it as stale. Use library exercise ids when available, otherwise pass a free-form exercise_name. This operation is for one-off sessions only — recurring workouts go through the workout group/variant flow.",
 			ResponseSummary: "Object {session, planned} where session is the created WorkoutSession (group_id and variant_id are -1 for ad-hoc) and planned is the count of exercise placeholder rows created (HTTP 201).",
 			Example: `result = api.call(
     "workouts.sessions.schedule",
@@ -733,10 +733,11 @@ output(result)`,
     "sets_completed": {"type": ["integer", "null"], "description": "Actual sets done; non-zero values may propagate to the schedule defaults"},
     "reps_completed": {"type": ["integer", "null"]},
     "weight_kg":      {"type": ["number", "null"]},
-    "notes":          {"type": "string"}
+    "notes":          {"type": "string"},
+    "status":         {"type": "string", "enum": ["", "completed", "skipped"], "description": "Optional. Explicit status to set; if omitted, a placeholder log (status==\"\") with sets_completed>=1 auto-promotes to \"completed\". Existing non-empty status is left untouched unless this field is set."}
   }
 }`),
-			Description:     "Update an exercise log row with completed sets/reps/weight. Non-zero values propagate to the schedule's defaults so the next session inherits them. Equivalent functionality is also available via the workout_log MCP tool's \"log\" operation; this registry op is for callers building scripts via mcp_execute.",
+			Description:     "Update an exercise log row with completed sets/reps/weight. Non-zero values propagate to the schedule's defaults so the next session inherits them. For scheduled ad-hoc workouts (placeholder logs with empty status), supplying sets_completed >= 1 also flips the row's status to \"completed\" so it counts in stats and history; pass status=\"skipped\" to mark a planned exercise as deliberately skipped instead. Equivalent functionality is also available via the workout_log MCP tool's \"log\" operation; this registry op is for callers building scripts via mcp_execute.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call(
     "workouts.sessions.logs.update",
