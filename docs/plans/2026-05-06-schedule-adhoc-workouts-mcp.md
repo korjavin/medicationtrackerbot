@@ -58,11 +58,11 @@ Today, the user can either create a recurring workout group (which becomes a per
 - Modify: `internal/workout/service.go`
 - Modify: `internal/workout/service_test.go`
 
-- [ ] extend the `WorkoutStore` interface (in service.go) with `CreatePlannedAdHocSession` plus the existing `CreateExerciseLog` (already exists on the store) — wire whichever methods are missing
-- [ ] add `WorkoutService.SchedulePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string, exercises []PlannedExercise) (*store.WorkoutSession, error)` which (a) validates the scheduled time is in the future in user's TZ, (b) creates the session via the store, (c) creates one `workout_exercise_logs` row per planned exercise with `status=""` and `sets_completed=NULL` etc., (d) returns the session
-- [ ] define the small `PlannedExercise` struct in the same file: `{ExerciseID int64, ExerciseName string, TargetSets int, TargetRepsMin int, TargetRepsMax *int, TargetWeightKg *float64}`
-- [ ] write integration tests in `internal/workout/service_test.go` (uses the real store)
-- [ ] run `go test ./internal/workout/...` — must pass before task 3
+- [x] extend the `WorkoutStore` interface (in service.go) with `CreatePlannedAdHocSession` plus the existing `CreateExerciseLog` (already exists on the store) — wire whichever methods are missing
+- [x] add `WorkoutService.SchedulePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string, exercises []PlannedExercise) (*store.WorkoutSession, error)` which (a) validates the scheduled time is in the future in user's TZ, (b) creates the session via the store, (c) creates one `workout_exercise_logs` row per planned exercise with `status=""` and `sets_completed=NULL` etc., (d) returns the session
+- [x] define the small `PlannedExercise` struct in the same file: `{ExerciseID int64, ExerciseName string, TargetSets int, TargetRepsMin int, TargetRepsMax *int, TargetWeightKg *float64}`
+- [x] write integration tests in `internal/workout/service_test.go` (uses the real store)
+- [x] run `go test ./internal/workout/...` — must pass before task 3
 
 ### Task 3: HTTP handler + route registration + MCP coverage
 

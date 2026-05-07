@@ -1,6 +1,8 @@
 package workout
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -18,6 +20,22 @@ type WorkoutStore interface {
 	CompleteSession(id int64) error
 	AdvanceRotation(groupID int64) error
 	CreateAdHocWorkoutSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
+	CreatePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error)
+	LogExerciseWithSource(sessionID, exerciseID int64, exerciseName string, setsCompleted, repsCompleted *int, weightKg *float64, status, notes, source string) (int64, error)
+	GetCurrentTimezone() (string, error)
+}
+
+// PlannedExercise describes one item in a scheduled ad-hoc workout. Targets
+// are sent so the agent can reflect intent in the request and so future code
+// (notification body, UI prefill) can use them; only ExerciseID and
+// ExerciseName are persisted as the placeholder workout_exercise_logs row.
+type PlannedExercise struct {
+	ExerciseID     int64
+	ExerciseName   string
+	TargetSets     int
+	TargetRepsMin  int
+	TargetRepsMax  *int
+	TargetWeightKg *float64
 }
 
 // WorkoutService defines compound workout operations — the single source of truth
@@ -33,16 +51,21 @@ type WorkoutService interface {
 	CompleteSession(sessionID int64) error
 	// CreateAdHocSession creates a new ad-hoc (unscheduled) workout session already in progress.
 	CreateAdHocSession(userID int64, now time.Time, scheduledTime string) (*store.WorkoutSession, error)
+	// SchedulePlannedAdHocSession creates a future ad-hoc session in 'pending' state
+	// with one placeholder exercise log row per planned exercise.
+	SchedulePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string, exercises []PlannedExercise) (*store.WorkoutSession, error)
 }
 
 // Service implements WorkoutService using a WorkoutStore.
 type Service struct {
 	store WorkoutStore
+	// Now returns the current time. Defaults to time.Now; tests inject a fixed clock.
+	Now func() time.Time
 }
 
 // New creates a new workout Service.
 func New(s WorkoutStore) *Service {
-	return &Service{store: s}
+	return &Service{store: s, Now: time.Now}
 }
 
 // StartSession marks a session as in-progress and clears any active snooze.
@@ -87,6 +110,66 @@ func (s *Service) CompleteSession(sessionID int64) error {
 // CreateAdHocSession creates a new ad-hoc (unscheduled) workout session already in progress.
 func (s *Service) CreateAdHocSession(userID int64, now time.Time, scheduledTime string) (*store.WorkoutSession, error) {
 	return s.store.CreateAdHocWorkoutSession(userID, now, scheduledTime)
+}
+
+// SchedulePlannedAdHocSession creates a future ad-hoc workout session and pre-creates
+// a placeholder workout_exercise_logs row per planned exercise. The scheduled moment
+// (scheduledDate's calendar day at scheduledTime, interpreted in the user's stored
+// timezone — UTC if none is set) must be strictly in the future. Placeholder logs
+// have status="" and NULL completion fields so the existing
+// workouts.sessions.logs.update flow can fill them in at workout time.
+func (s *Service) SchedulePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string, exercises []PlannedExercise) (*store.WorkoutSession, error) {
+	hh, mm, err := parseHHMM(scheduledTime)
+	if err != nil {
+		return nil, err
+	}
+
+	loc := time.UTC
+	if tz, tzErr := s.store.GetCurrentTimezone(); tzErr != nil {
+		slog.Warn("workout service: failed to load user timezone, falling back to UTC", "error", tzErr)
+	} else if tz != "" {
+		if l, locErr := time.LoadLocation(tz); locErr != nil {
+			slog.Warn("workout service: invalid user timezone, falling back to UTC", "tz", tz, "error", locErr)
+		} else {
+			loc = l
+		}
+	}
+
+	planned := time.Date(scheduledDate.Year(), scheduledDate.Month(), scheduledDate.Day(), hh, mm, 0, 0, loc)
+	if !planned.After(s.Now()) {
+		return nil, fmt.Errorf("scheduled time must be in the future")
+	}
+
+	session, err := s.store.CreatePlannedAdHocSession(userID, scheduledDate, scheduledTime)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ex := range exercises {
+		source := "library"
+		if ex.ExerciseID == 0 {
+			source = "schedule"
+		}
+		if _, err := s.store.LogExerciseWithSource(session.ID, ex.ExerciseID, ex.ExerciseName, nil, nil, nil, "", "", source); err != nil {
+			return nil, fmt.Errorf("create placeholder log for %q: %w", ex.ExerciseName, err)
+		}
+	}
+
+	return session, nil
+}
+
+// parseHHMM parses a 24-hour HH:MM string into separate hour/minute integers.
+// Requires exactly the 5-character HH:MM form so callers don't sneak through
+// values like "7:30" or "07:30:00".
+func parseHHMM(s string) (int, int, error) {
+	if len(s) != 5 || s[2] != ':' {
+		return 0, 0, errors.New("scheduled_time must be HH:MM (24h)")
+	}
+	t, err := time.Parse("15:04", s)
+	if err != nil {
+		return 0, 0, errors.New("scheduled_time must be HH:MM (24h)")
+	}
+	return t.Hour(), t.Minute(), nil
 }
 
 // tryAdvanceRotation performs best-effort rotation advancement after a successful
