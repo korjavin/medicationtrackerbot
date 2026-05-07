@@ -1598,9 +1598,9 @@ svg.chart-svg {
    teal on the stage, hairline border, --wg-radius-card. The kicker label
    uses the muted-uppercase small caption; the title is display typeface;
    the subtitle is secondary UI text. Primary action (Start Workout /
-   Continue / Cancel Skip) is .wg-toolbar-btn.wg-toolbar-btn--primary —
+   View / Cancel Skip) is .wg-toolbar-btn.wg-toolbar-btn--primary —
    yellow filled, matching every other primary CTA across the app.
-   Secondary actions (Skip / Stop / Next Variant) use the shared outline
+   Secondary actions (Skip / Finish / Next Variant) use the shared outline
    variant .wg-toolbar-btn--secondary added in the same task. No
    gradients, no accent stripe, no emoji. */
 

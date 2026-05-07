@@ -132,7 +132,7 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         }
     });
 
-    it('#13a: in_progress status emits Continue (primary) + Stop (secondary)', () => {
+    it('#13a: in_progress status emits View (primary) + Finish (secondary)', () => {
         const { window, document } = env;
         const container = document.getElementById('next-workout-card');
         window._renderNextWorkout(container, baseData({
@@ -146,7 +146,7 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         expect(actions.length).toBe(2);
 
         const labels = Array.from(actions).map((btn) => btn.querySelector('.wg-toolbar-btn__label').textContent);
-        expect(labels).toEqual(['Continue', 'Stop']);
+        expect(labels).toEqual(['View', 'Finish']);
 
         expect(actions[0].classList.contains('wg-toolbar-btn--primary')).toBe(true);
         expect(actions[1].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
