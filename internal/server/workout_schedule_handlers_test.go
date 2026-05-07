@@ -151,6 +151,61 @@ func TestHandleScheduleAdHocWorkoutSession_RejectsBadDateFormat(t *testing.T) {
 	}
 }
 
+func TestHandleScheduleAdHocWorkoutSession_RejectsDuplicateExerciseID(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	body := map[string]any{
+		"scheduled_date": tomorrow,
+		"scheduled_time": "07:30",
+		"exercises": []map[string]any{
+			{"exercise_id": 7, "exercise_name": "Bench Press", "target_sets": 3, "target_reps_min": 6},
+			{"exercise_id": 7, "exercise_name": "Bench Press (dup)", "target_sets": 3, "target_reps_min": 6},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/schedule", bytes.NewReader(bodyBytes))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleScheduleAdHocWorkoutSession(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400 for duplicate exercise_id, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(strings.ToLower(w.Body.String()), "unique") {
+		t.Errorf("Expected error message to mention 'unique', got %q", w.Body.String())
+	}
+}
+
+func TestHandleScheduleAdHocWorkoutSession_RejectsRepsMaxLessThanMin(t *testing.T) {
+	srv, db := createGenericTestServer(t)
+	defer db.Close()
+
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	body := map[string]any{
+		"scheduled_date": tomorrow,
+		"scheduled_time": "07:30",
+		"exercises": []map[string]any{
+			{"exercise_name": "Bench Press", "target_sets": 3, "target_reps_min": 10, "target_reps_max": 6},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/schedule", bytes.NewReader(bodyBytes))
+	req = withUser(req, 123456)
+	w := httptest.NewRecorder()
+
+	srv.handleScheduleAdHocWorkoutSession(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected 400 for target_reps_max < target_reps_min, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(strings.ToLower(w.Body.String()), "target_reps_max") {
+		t.Errorf("Expected error message to mention 'target_reps_max', got %q", w.Body.String())
+	}
+}
+
 func TestHandleScheduleAdHocWorkoutSession_RequiresAuth(t *testing.T) {
 	srv, db := createGenericTestServer(t)
 	defer db.Close()

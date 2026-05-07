@@ -86,6 +86,10 @@ func (m *mockWorkoutStore) LogExerciseWithSource(sessionID, exerciseID int64, ex
 	return 0, nil
 }
 
+func (m *mockWorkoutStore) DeleteSession(id int64) error {
+	return nil
+}
+
 func (m *mockWorkoutStore) GetCurrentTimezone() (string, error) {
 	return "", nil
 }
@@ -351,5 +355,46 @@ func TestSchedulePlannedAdHocSession_NoExercises(t *testing.T) {
 	}
 	if len(logs) != 0 {
 		t.Errorf("expected 0 logs, got %d", len(logs))
+	}
+}
+
+// TestSchedulePlannedAdHocSession_RollsBackOnPlaceholderFailure verifies that
+// when a placeholder log insert fails partway through, the session row is
+// removed so we don't leave an orphan with an incomplete exercise list.
+// Reproduces the duplicate-exercise_id case which the unique index on
+// workout_exercise_logs(session_id, exercise_id, source) WHERE exercise_id > 0
+// would otherwise turn into a 500 with a half-built session in the DB.
+func TestSchedulePlannedAdHocSession_RollsBackOnPlaceholderFailure(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	svc := New(db)
+	svc.Now = fixedClock(time.Date(2030, 6, 1, 12, 0, 0, 0, time.UTC))
+
+	scheduled := time.Date(2030, 6, 2, 0, 0, 0, 0, time.UTC)
+	// Two entries with the same non-zero ExerciseID — the second insert fails
+	// the unique index. Handler should reject this earlier, but the service
+	// must still clean up if a caller bypasses that validation.
+	exercises := []PlannedExercise{
+		{ExerciseID: 7, ExerciseName: "Bench Press", TargetSets: 3, TargetRepsMin: 6},
+		{ExerciseID: 7, ExerciseName: "Bench Press (dup)", TargetSets: 3, TargetRepsMin: 6},
+	}
+
+	if _, err := svc.SchedulePlannedAdHocSession(123, scheduled, "07:30", exercises); err == nil {
+		t.Fatal("expected error from duplicate exercise_id, got nil")
+	}
+
+	// No orphan session should remain.
+	history, err := db.GetWorkoutHistory(123, 50)
+	if err != nil {
+		t.Fatalf("GetWorkoutHistory: %v", err)
+	}
+	for _, sess := range history {
+		if sess.GroupID == -1 {
+			t.Fatalf("expected no orphan ad-hoc session after rollback, found id=%d", sess.ID)
+		}
 	}
 }
