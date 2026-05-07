@@ -374,7 +374,7 @@ func (c *WorkoutChecker) checkPendingAdHocSessions(ctx context.Context, now time
 	}
 	for i := range pending {
 		sess := &pending[i]
-		if err := c.sendAdHocWorkoutNotification(ctx, sess); err != nil {
+		if err := c.sendAdHocWorkoutNotification(sess); err != nil {
 			slog.Error("Failed to send ad-hoc workout notification", "session", sess.ID, "error", err)
 			continue
 		}
@@ -407,7 +407,7 @@ func (c *WorkoutChecker) checkNotifiedAdHocSessions(ctx context.Context, now tim
 			if activeSession != nil {
 				continue
 			}
-			if err := c.sendAdHocWorkoutNotification(ctx, sess); err != nil {
+			if err := c.sendAdHocWorkoutNotification(sess); err != nil {
 				slog.Error("Failed to re-send snoozed ad-hoc notification", "session", sess.ID, "error", err)
 				continue
 			}
@@ -429,7 +429,7 @@ func (c *WorkoutChecker) checkNotifiedAdHocSessions(ctx context.Context, now tim
 					if activeSession != nil {
 						continue
 					}
-					if err := c.sendAdHocWorkoutNotification(ctx, sess); err != nil {
+					if err := c.sendAdHocWorkoutNotification(sess); err != nil {
 						slog.Error("Failed to re-send 3h ad-hoc notification", "session", sess.ID, "error", err)
 					}
 					if err := c.store.UpdateWorkoutSessionNotes(sess.ID, sess.Notes+" resent_3h"); err != nil {
@@ -474,7 +474,7 @@ func adHocScheduledMoment(sess *store.WorkoutSession, loc *time.Location) time.T
 // exercises (sourced from workout_exercise_logs placeholders) when present,
 // and falls back to a generic message when the user scheduled the session
 // without any exercises.
-func (c *WorkoutChecker) sendAdHocWorkoutNotification(_ context.Context, session *store.WorkoutSession) error {
+func (c *WorkoutChecker) sendAdHocWorkoutNotification(session *store.WorkoutSession) error {
 	logs, err := c.store.GetExerciseLogs(session.ID)
 	if err != nil {
 		return fmt.Errorf("failed to list planned exercise logs: %w", err)

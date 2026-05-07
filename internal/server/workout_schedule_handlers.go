@@ -82,7 +82,11 @@ func (s *Server) handleScheduleAdHocWorkoutSession(w http.ResponseWriter, r *htt
 			http.Error(w, "exercises[].exercise_id must be >= 0", http.StatusBadRequest)
 			return
 		}
-		if ex.ExerciseName == "" && ex.ExerciseID == 0 {
+		// Trim before the empty-check so whitespace-only names don't slip
+		// through and create placeholders with blank-looking labels in the
+		// notification body / session detail UI.
+		trimmedName := strings.TrimSpace(ex.ExerciseName)
+		if trimmedName == "" && ex.ExerciseID == 0 {
 			http.Error(w, "exercises[] requires exercise_id or exercise_name", http.StatusBadRequest)
 			return
 		}
@@ -94,7 +98,7 @@ func (s *Server) handleScheduleAdHocWorkoutSession(w http.ResponseWriter, r *htt
 			http.Error(w, "exercises[].target_reps_max must be >= target_reps_min", http.StatusBadRequest)
 			return
 		}
-		name := ex.ExerciseName
+		name := trimmedName
 		if ex.ExerciseID > 0 {
 			if seenExerciseIDs[ex.ExerciseID] {
 				http.Error(w, "exercises[].exercise_id values must be unique within a request", http.StatusBadRequest)
