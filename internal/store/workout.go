@@ -714,6 +714,144 @@ func (s *Store) CreateAdHocWorkoutSession(userID int64, scheduledDate time.Time,
 	return s.GetWorkoutSession(id)
 }
 
+// CreatePlannedAdHocSession creates a future ad-hoc workout in 'pending' state.
+// Mirrors CreateAdHocWorkoutSession but leaves started_at NULL and status='pending'
+// so the scheduler can later notify the user at scheduledDate+scheduledTime.
+func (s *Store) CreatePlannedAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*WorkoutSession, error) {
+	res, err := s.db.Exec(`
+		INSERT INTO workout_sessions (group_id, variant_id, user_id, scheduled_date, scheduled_time, status)
+		VALUES (-1, -1, ?, ?, ?, 'pending')`,
+		userID, scheduledDate, scheduledTime)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+
+	return s.GetWorkoutSession(id)
+}
+
+// ListNotifiedAdHocSessions returns every ad-hoc session (group_id = -1)
+// for the user whose status is 'notified'. The scheduler iterates these to
+// run the snooze wake-up, 3h re-notify, and 6h auto-skip handlers without
+// being bounded by GetWorkoutHistory's row limit — an active user can easily
+// accumulate >50 recent sessions, which would otherwise let an old notified
+// ad-hoc fall outside the window and stay stuck in 'notified' forever.
+func (s *Store) ListNotifiedAdHocSessions(userID int64) ([]WorkoutSession, error) {
+	rows, err := s.db.Query(`
+		SELECT id, group_id, variant_id, user_id, scheduled_date, scheduled_time, status, started_at, completed_at, snoozed_until, snooze_count, notification_message_id, notes
+		FROM workout_sessions
+		WHERE user_id = ?
+		  AND group_id = -1
+		  AND status = 'notified'
+		ORDER BY scheduled_date ASC, scheduled_time ASC`,
+		userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []WorkoutSession
+	for rows.Next() {
+		var ws WorkoutSession
+		var startedAt, completedAt, snoozedUntil sql.NullTime
+		var notificationMsgID sql.NullInt64
+		var notes sql.NullString
+
+		if err := rows.Scan(&ws.ID, &ws.GroupID, &ws.VariantID, &ws.UserID, &ws.ScheduledDate, &ws.ScheduledTime, &ws.Status,
+			&startedAt, &completedAt, &snoozedUntil, &ws.SnoozeCount, &notificationMsgID, &notes); err != nil {
+			return nil, err
+		}
+
+		if startedAt.Valid {
+			ws.StartedAt = &startedAt.Time
+		}
+		if completedAt.Valid {
+			ws.CompletedAt = &completedAt.Time
+		}
+		if snoozedUntil.Valid {
+			ws.SnoozedUntil = &snoozedUntil.Time
+		}
+		if notificationMsgID.Valid {
+			msgID := int(notificationMsgID.Int64)
+			ws.NotificationMessageID = &msgID
+		}
+		if notes.Valid {
+			ws.Notes = notes.String
+		}
+
+		sessions = append(sessions, ws)
+	}
+	return sessions, nil
+}
+
+// ListPendingAdHocSessions returns ad-hoc workout sessions (group_id = -1)
+// for the given user that are still 'pending' and whose scheduled date+time
+// is at or before `before`. Sessions are ordered by scheduled_date ASC then
+// scheduled_time ASC. The scheduler uses this to fire the notification when
+// a planned ad-hoc workout becomes due.
+//
+// scheduled_date is stored by the modernc.org/sqlite driver as an RFC 3339
+// string (e.g. "2030-06-01T00:00:00Z"). SQLite's DATE() builtin doesn't
+// parse the trailing 'Z', so we use a leading 10-char substring instead —
+// the lexicographic order matches calendar order.
+func (s *Store) ListPendingAdHocSessions(userID int64, before time.Time) ([]WorkoutSession, error) {
+	dateBound := before.Format("2006-01-02")
+	timeBound := before.Format("15:04")
+	rows, err := s.db.Query(`
+		SELECT id, group_id, variant_id, user_id, scheduled_date, scheduled_time, status, started_at, completed_at, snoozed_until, snooze_count, notification_message_id, notes
+		FROM workout_sessions
+		WHERE user_id = ?
+		  AND group_id = -1
+		  AND status = 'pending'
+		  AND (
+		      substr(scheduled_date, 1, 10) < ?
+		      OR (substr(scheduled_date, 1, 10) = ? AND scheduled_time <= ?)
+		  )
+		ORDER BY scheduled_date ASC, scheduled_time ASC`,
+		userID, dateBound, dateBound, timeBound)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []WorkoutSession
+	for rows.Next() {
+		var ws WorkoutSession
+		var startedAt, completedAt, snoozedUntil sql.NullTime
+		var notificationMsgID sql.NullInt64
+		var notes sql.NullString
+
+		if err := rows.Scan(&ws.ID, &ws.GroupID, &ws.VariantID, &ws.UserID, &ws.ScheduledDate, &ws.ScheduledTime, &ws.Status,
+			&startedAt, &completedAt, &snoozedUntil, &ws.SnoozeCount, &notificationMsgID, &notes); err != nil {
+			return nil, err
+		}
+
+		if startedAt.Valid {
+			ws.StartedAt = &startedAt.Time
+		}
+		if completedAt.Valid {
+			ws.CompletedAt = &completedAt.Time
+		}
+		if snoozedUntil.Valid {
+			ws.SnoozedUntil = &snoozedUntil.Time
+		}
+		if notificationMsgID.Valid {
+			msgID := int(notificationMsgID.Int64)
+			ws.NotificationMessageID = &msgID
+		}
+		if notes.Valid {
+			ws.Notes = notes.String
+		}
+
+		sessions = append(sessions, ws)
+	}
+	return sessions, nil
+}
+
 func (s *Store) GetWorkoutSession(id int64) (*WorkoutSession, error) {
 	var ws WorkoutSession
 	var startedAt, completedAt, snoozedUntil sql.NullTime
@@ -890,6 +1028,13 @@ func (s *Store) CancelPreSkip(id int64) error {
 }
 
 func (s *Store) DeleteSession(id int64) error {
+	// PRAGMA foreign_keys is not enabled in this SQLite driver, so the
+	// declared ON DELETE CASCADE on workout_exercise_logs is a no-op.
+	// Delete child rows explicitly to avoid orphan logs after rollback /
+	// session deletion.
+	if _, err := s.db.Exec("DELETE FROM workout_exercise_logs WHERE session_id = ?", id); err != nil {
+		return err
+	}
 	_, err := s.db.Exec("DELETE FROM workout_sessions WHERE id = ?", id)
 	return err
 }
@@ -977,19 +1122,31 @@ func (s *Store) GetExerciseLogs(sessionID int64) ([]WorkoutExerciseLog, error) {
 	return logs, nil
 }
 
+// UpdateExerciseLog updates a log's sets/reps/weight/notes. When the row is
+// still a placeholder (status=''), it also bumps logged_at to the current
+// time so a scheduled placeholder finished days later records the completion
+// time, not the schedule-creation time. Once status is non-empty, logged_at
+// is preserved so subsequent edits don't rewrite the original completion
+// timestamp.
 func (s *Store) UpdateExerciseLog(id int64, setsCompleted, repsCompleted *int, weightKg *float64, notes string) error {
 	_, err := s.db.Exec(`
-		UPDATE workout_exercise_logs 
-		SET sets_completed = ?, reps_completed = ?, weight_kg = ?, notes = ?
+		UPDATE workout_exercise_logs
+		SET sets_completed = ?, reps_completed = ?, weight_kg = ?, notes = ?,
+		    logged_at = CASE WHEN status = '' THEN CURRENT_TIMESTAMP ELSE logged_at END
 		WHERE id = ?`,
 		setsCompleted, repsCompleted, weightKg, notes, id)
 	return err
 }
 
+// UpdateExerciseLogStatus updates the status of a log. When the row is still
+// a placeholder (status=''), it also bumps logged_at to the current time so a
+// placeholder promoted to completed/skipped records the actual transition
+// time, not the schedule-creation time.
 func (s *Store) UpdateExerciseLogStatus(id int64, status string) error {
 	_, err := s.db.Exec(`
 		UPDATE workout_exercise_logs
-		SET status = ?
+		SET status = ?,
+		    logged_at = CASE WHEN status = '' THEN CURRENT_TIMESTAMP ELSE logged_at END
 		WHERE id = ?`,
 		status, id)
 	return err

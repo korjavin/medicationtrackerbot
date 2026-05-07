@@ -471,6 +471,268 @@ func TestE2E_WriteMode_WorkoutExerciseUpdate(t *testing.T) {
 	}
 }
 
+// TestE2E_WriteMode_ScheduleAdHocWorkout exercises the workouts.sessions.schedule
+// write op end-to-end: a script schedules a one-off ad-hoc session for a future
+// date with a list of planned exercises, then reads the session back via
+// workouts.sessions.details to confirm the placeholder exercise logs are
+// visible. This proves the schedule op is reachable from mcp_execute scripts
+// (registered in the registry, accepted by the proxy in write mode, body
+// forwarded through the bridge) and that the round-trip read path works on the
+// resulting session.
+func TestE2E_WriteMode_ScheduleAdHocWorkout(t *testing.T) {
+	reg := registry.New()
+	if err := reg.Register(registry.WorkoutOperations()...); err != nil {
+		t.Fatalf("register workout ops: %v", err)
+	}
+
+	type scheduleCall struct {
+		body json.RawMessage
+	}
+	type detailsCall struct {
+		params map[string]string
+	}
+	var (
+		mu        sync.Mutex
+		hits      []string
+		schedules []scheduleCall
+		details   []detailsCall
+	)
+
+	// scheduledSession is what the backend persists when the schedule op
+	// succeeds; group_id and variant_id are -1 for ad-hoc sessions.
+	scheduledSession := map[string]any{
+		"id":             777,
+		"group_id":       -1,
+		"variant_id":     -1,
+		"scheduled_date": "2026-05-10",
+		"scheduled_time": "07:30",
+		"status":         "pending",
+	}
+	// detailsResponse mirrors handleGetSessionDetails: the session plus
+	// planned exercise log rows with empty status (pending placeholders).
+	detailsResponse := map[string]any{
+		"id":             777,
+		"group_id":       -1,
+		"variant_id":     -1,
+		"scheduled_date": "2026-05-10",
+		"scheduled_time": "07:30",
+		"status":         "pending",
+		"exercise_logs": []map[string]any{
+			{
+				"id":               1001,
+				"exercise_name":    "Bench Press",
+				"target_sets":      4,
+				"target_reps_min":  6,
+				"target_reps_max":  8,
+				"target_weight_kg": 70.0,
+				"status":           "",
+			},
+			{
+				"id":              1002,
+				"exercise_name":   "Pull-ups",
+				"target_sets":     3,
+				"target_reps_min": 8,
+				"status":          "",
+			},
+		},
+	}
+
+	bridge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var br proxy.BridgeRequest
+		if err := json.Unmarshal(raw, &br); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+
+		mu.Lock()
+		hits = append(hits, br.OperationID)
+		mu.Unlock()
+
+		switch br.OperationID {
+		case "workouts.sessions.schedule":
+			mu.Lock()
+			schedules = append(schedules, scheduleCall{body: br.Body})
+			mu.Unlock()
+			respBody, _ := json.Marshal(map[string]any{
+				"session": scheduledSession,
+				"planned": 2,
+			})
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{Status: 201, Body: respBody})
+		case "workouts.sessions.details":
+			mu.Lock()
+			details = append(details, detailsCall{params: br.Params})
+			mu.Unlock()
+			respBody, _ := json.Marshal(detailsResponse)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{Status: 200, Body: respBody})
+		default:
+			http.Error(w, "unhandled op: "+br.OperationID, http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(bridge.Close)
+
+	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
+		var p map[string]any
+		if err := json.Unmarshal(payload, &p); err != nil {
+			return nil, fmt.Errorf("unmarshal payload: %w", err)
+		}
+		token := p["run_token"].(string)
+		proxyURL := p["proxy_url"].(string)
+
+		// Step 1: schedule the ad-hoc session.
+		scheduleBody := map[string]any{
+			"scheduled_date": "2026-05-10",
+			"scheduled_time": "07:30",
+			"exercises": []map[string]any{
+				{
+					"exercise_name":    "Bench Press",
+					"target_sets":      4,
+					"target_reps_min":  6,
+					"target_reps_max":  8,
+					"target_weight_kg": 70.0,
+				},
+				{
+					"exercise_name":   "Pull-ups",
+					"target_sets":     3,
+					"target_reps_min": 8,
+				},
+			},
+		}
+		respBody, status, err := loopbackCallStatus(ctx, proxyURL, token, "workouts.sessions.schedule", nil, scheduleBody)
+		if err != nil {
+			return nil, fmt.Errorf("schedule: %w", err)
+		}
+		if status != http.StatusCreated {
+			return nil, fmt.Errorf("schedule returned status %d: %s", status, respBody)
+		}
+		var scheduled map[string]any
+		if err := json.Unmarshal(respBody, &scheduled); err != nil {
+			return nil, fmt.Errorf("decode schedule response: %w", err)
+		}
+		session, ok := scheduled["session"].(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("schedule response missing session: %v", scheduled)
+		}
+		sessionID := int(session["id"].(float64))
+
+		// Step 2: read the scheduled session back via details.
+		detailsBody, err := loopbackCall(ctx, proxyURL, token, "workouts.sessions.details", map[string]any{
+			"id": sessionID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("details: %w", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(detailsBody, &got); err != nil {
+			return nil, fmt.Errorf("decode details: %w", err)
+		}
+		logs, _ := got["exercise_logs"].([]any)
+
+		summary := map[string]any{
+			"session_id":     sessionID,
+			"planned":        scheduled["planned"],
+			"exercise_count": len(logs),
+			"status":         got["status"],
+		}
+		summaryJSON, _ := json.Marshal(summary)
+		return envelopeOK(string(summaryJSON)), nil
+	}}
+
+	o := Options{
+		Registry:   reg,
+		BridgeURL:  bridge.URL,
+		HMACSecret: "e2e-secret",
+		Spawner:    sp,
+	}
+	svc, err := New(o)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = svc.Shutdown(context.Background()) })
+
+	res, err := svc.Execute(context.Background(), mcp.ExecutionRequest{
+		Script:         "# would import medtracker and call schedule + details",
+		Mode:           proxy.ModeWrite,
+		Intent:         "schedule tomorrow's workout",
+		TimeoutMS:      5000,
+		MaxAPICalls:    10,
+		TopicAllowlist: []string{"workouts"},
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != mcp.ExecuteStatusOK {
+		t.Fatalf("expected status %q, got %q (error: %s)", mcp.ExecuteStatusOK, res.Status, res.Error)
+	}
+
+	var summary map[string]any
+	if err := json.Unmarshal(res.Result, &summary); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if int(summary["session_id"].(float64)) != 777 {
+		t.Errorf("expected session_id=777, got %v", summary["session_id"])
+	}
+	if int(summary["planned"].(float64)) != 2 {
+		t.Errorf("expected planned=2, got %v", summary["planned"])
+	}
+	if int(summary["exercise_count"].(float64)) != 2 {
+		t.Errorf("expected exercise_count=2, got %v", summary["exercise_count"])
+	}
+	if summary["status"] != "pending" {
+		t.Errorf("expected status=pending, got %v", summary["status"])
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(hits) != 2 {
+		t.Fatalf("expected 2 bridge hits, got %d: %v", len(hits), hits)
+	}
+	if hits[0] != "workouts.sessions.schedule" || hits[1] != "workouts.sessions.details" {
+		t.Errorf("unexpected hit order: %v", hits)
+	}
+
+	if len(schedules) != 1 {
+		t.Fatalf("expected 1 schedule call, got %d", len(schedules))
+	}
+	var sentBody map[string]any
+	if err := json.Unmarshal(schedules[0].body, &sentBody); err != nil {
+		t.Fatalf("decode schedule body: %v", err)
+	}
+	if sentBody["scheduled_date"] != "2026-05-10" {
+		t.Errorf("expected scheduled_date=2026-05-10, got %v", sentBody["scheduled_date"])
+	}
+	if sentBody["scheduled_time"] != "07:30" {
+		t.Errorf("expected scheduled_time=07:30, got %v", sentBody["scheduled_time"])
+	}
+	exs, ok := sentBody["exercises"].([]any)
+	if !ok || len(exs) != 2 {
+		t.Fatalf("expected 2 exercises in body, got %v", sentBody["exercises"])
+	}
+	first := exs[0].(map[string]any)
+	if first["exercise_name"] != "Bench Press" {
+		t.Errorf("expected first exercise Bench Press, got %v", first["exercise_name"])
+	}
+	if first["target_sets"].(float64) != 4 {
+		t.Errorf("expected first target_sets=4, got %v", first["target_sets"])
+	}
+
+	if len(details) != 1 {
+		t.Fatalf("expected 1 details call, got %d", len(details))
+	}
+	if details[0].params["id"] != "777" {
+		t.Errorf("expected details params[id]=777, got %v", details[0].params)
+	}
+
+	if res.APICalls != 2 {
+		t.Errorf("expected APICalls=2 (schedule + details), got %d", res.APICalls)
+	}
+}
+
 // TestE2E_WriteInReadOnly_RejectedByProxy verifies that an accidental write
 // attempt from a read_only run hits the proxy boundary and gets rejected with
 // 403 — the helper-side code path that surfaces as ProxyDenied. The bridge

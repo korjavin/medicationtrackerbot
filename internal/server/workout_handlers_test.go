@@ -510,6 +510,112 @@ func TestHandleUpdateExerciseLog_PropagatesWeightToSchedule(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateExerciseLog_AutoPromotesPlaceholderToCompleted(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	defer db.Close()
+
+	userID := int64(123456)
+	srv := &Server{
+		workouts:      db,
+		workoutSvc:    workoutsvc.New(db),
+		allowedUserID: userID,
+	}
+
+	// Schedule an ad-hoc workout: pending session + placeholder exercise log.
+	session, err := db.CreatePlannedAdHocSession(userID, time.Now().AddDate(0, 0, 1), "07:30")
+	if err != nil {
+		t.Fatalf("CreatePlannedAdHocSession: %v", err)
+	}
+	logID, err := db.LogExerciseWithSource(session.ID, 0, "Pull-ups", nil, nil, nil, "", "", "schedule")
+	if err != nil {
+		t.Fatalf("LogExerciseWithSource: %v", err)
+	}
+
+	// Backdate logged_at to simulate the placeholder being created days before
+	// the workout actually happens, so we can verify the promotion bumps it.
+	scheduleTime := time.Now().Add(-72 * time.Hour).UTC()
+	if _, err := db.DB().Exec(`UPDATE workout_exercise_logs SET logged_at = ? WHERE id = ?`, scheduleTime, logID); err != nil {
+		t.Fatalf("backdate logged_at: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"id":             logID,
+		"sets_completed": 3,
+		"reps_completed": 10,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/logs/update", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleUpdateExerciseLog(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	logEntry, err := db.GetExerciseLogByID(logID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogByID: %v", err)
+	}
+	if logEntry == nil {
+		t.Fatal("Expected log entry, got nil")
+	}
+	if logEntry.Status != "completed" {
+		t.Errorf("Expected placeholder log to auto-promote to status='completed', got %q", logEntry.Status)
+	}
+	// logged_at must reflect the completion time, not the schedule-creation
+	// time — otherwise recency-based queries (ListRecentExerciseLogsByName,
+	// session detail timestamps) get the wrong value.
+	if !logEntry.LoggedAt.After(scheduleTime.Add(time.Hour)) {
+		t.Errorf("Expected logged_at to be bumped past schedule time %v, got %v", scheduleTime, logEntry.LoggedAt)
+	}
+}
+
+func TestHandleUpdateExerciseLog_ExplicitStatusSkipped(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	defer db.Close()
+
+	userID := int64(123456)
+	srv := &Server{
+		workouts:      db,
+		workoutSvc:    workoutsvc.New(db),
+		allowedUserID: userID,
+	}
+
+	session, err := db.CreatePlannedAdHocSession(userID, time.Now().AddDate(0, 0, 1), "07:30")
+	if err != nil {
+		t.Fatalf("CreatePlannedAdHocSession: %v", err)
+	}
+	logID, err := db.LogExerciseWithSource(session.ID, 0, "Pull-ups", nil, nil, nil, "", "", "schedule")
+	if err != nil {
+		t.Fatalf("LogExerciseWithSource: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"id":     logID,
+		"status": "skipped",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/workout/sessions/logs/update", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleUpdateExerciseLog(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	logEntry, err := db.GetExerciseLogByID(logID)
+	if err != nil {
+		t.Fatalf("GetExerciseLogByID: %v", err)
+	}
+	if logEntry.Status != "skipped" {
+		t.Errorf("Expected explicit status='skipped', got %q", logEntry.Status)
+	}
+}
+
 func TestHandleUpdateExerciseLog_NoPropagate_CompletedSession(t *testing.T) {
 	db, err := store.New(":memory:")
 	if err != nil {
@@ -1121,5 +1227,60 @@ func TestGetWorkoutStats(t *testing.T) {
 		if _, ok := stats[field]; ok {
 			t.Errorf("Expected '%s' to be absent from response", field)
 		}
+	}
+}
+
+// TestHandleGetNextWorkout_AdHocCountsPlaceholderLogs verifies that an active
+// ad-hoc session (group_id = -1) reports the count of its placeholder
+// workout_exercise_logs as exercises_count, instead of zero from
+// ListExercisesByVariant(-1).
+func TestHandleGetNextWorkout_AdHocCountsPlaceholderLogs(t *testing.T) {
+	db, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	defer db.Close()
+
+	userID := int64(123456)
+	srv := &Server{
+		workouts:      db,
+		allowedUserID: userID,
+	}
+
+	today := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.Now().Location())
+	session, err := db.CreatePlannedAdHocSession(userID, today, "23:59")
+	if err != nil {
+		t.Fatalf("CreatePlannedAdHocSession: %v", err)
+	}
+	if err := db.UpdateSessionStatus(session.ID, "notified"); err != nil {
+		t.Fatalf("UpdateSessionStatus: %v", err)
+	}
+	for i, name := range []string{"Squat", "Burpees", "Pull-ups"} {
+		if _, err := db.LogExerciseWithSource(session.ID, int64(i+1), name, nil, nil, nil, "", "", "library"); err != nil {
+			t.Fatalf("LogExerciseWithSource: %v", err)
+		}
+	}
+
+	req := withUser(httptest.NewRequest(http.MethodGet, "/api/workout/sessions/next", nil), userID)
+	w := httptest.NewRecorder()
+	srv.handleGetNextWorkout(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		ExercisesCount int   `json:"exercises_count"`
+		GroupID        int64 `json:"group_id"`
+		VariantID      int64 `json:"variant_id"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.GroupID != -1 {
+		t.Fatalf("expected group_id=-1 (ad-hoc), got %d", resp.GroupID)
+	}
+	if resp.ExercisesCount != 3 {
+		t.Errorf("expected exercises_count=3 from placeholder logs, got %d", resp.ExercisesCount)
 	}
 }

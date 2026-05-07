@@ -99,6 +99,89 @@ func TestWorkoutStart_SendsExercisePrompt(t *testing.T) {
 	}
 }
 
+// TestWorkoutStart_AdHocSendsConfirmation verifies that tapping "Start Now"
+// on a notification for a scheduled ad-hoc session (group_id = -1) produces
+// a confirmation message instead of the variant-driven exercise loop, which
+// would otherwise hit ListExercisesByVariant(-1) and reply "No exercises
+// found for this workout".
+func TestWorkoutStart_AdHocSendsConfirmation(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	userID := int64(123456)
+	scheduled := time.Now().Add(time.Hour)
+	session, err := env.s.CreatePlannedAdHocSession(userID, scheduled, "12:00")
+	if err != nil {
+		t.Fatalf("CreatePlannedAdHocSession: %v", err)
+	}
+	if _, err := env.s.LogExerciseWithSource(session.ID, 0, "Burpees", nil, nil, nil, "", "", "schedule"); err != nil {
+		t.Fatalf("LogExerciseWithSource: %v", err)
+	}
+	drainMessages(env)
+
+	cb := workoutCB(fmt.Sprintf("workout_start_%d", session.ID))
+	env.b.handleCallback(cb)
+
+	var got string
+	select {
+	case got = <-env.messageChan:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for ad-hoc start confirmation message")
+	}
+	if strings.Contains(got, "No exercises found") {
+		t.Fatalf("ad-hoc start hit variant-driven path: %q", got)
+	}
+	if !strings.Contains(got, "Burpees") {
+		t.Errorf("expected confirmation to list planned exercise %q, got %q", "Burpees", got)
+	}
+
+	updated, err := env.s.GetWorkoutSession(session.ID)
+	if err != nil {
+		t.Fatalf("GetWorkoutSession: %v", err)
+	}
+	if updated.Status != "in_progress" {
+		t.Errorf("expected ad-hoc session to be in_progress after start, got %q", updated.Status)
+	}
+}
+
+// TestStartWorkoutFlowFromWeb_AdHocSendsConfirmation mirrors the bot
+// callback-side test for the API/MCP-driven start path: when /api/workout/sessions/{id}/start
+// fires StartWorkoutFlowFromWeb on a scheduled ad-hoc session (group_id = -1),
+// it must send a confirmation listing the planned exercises rather than the
+// variant-driven "No exercises found" reply.
+func TestStartWorkoutFlowFromWeb_AdHocSendsConfirmation(t *testing.T) {
+	env := setupBotTest(t)
+	defer env.teardown()
+
+	userID := int64(123456)
+	scheduled := time.Now().Add(time.Hour)
+	session, err := env.s.CreatePlannedAdHocSession(userID, scheduled, "12:00")
+	if err != nil {
+		t.Fatalf("CreatePlannedAdHocSession: %v", err)
+	}
+	if _, err := env.s.LogExerciseWithSource(session.ID, 0, "Burpees", nil, nil, nil, "", "", "schedule"); err != nil {
+		t.Fatalf("LogExerciseWithSource: %v", err)
+	}
+	drainMessages(env)
+
+	if err := env.b.StartWorkoutFlowFromWeb(session.ID); err != nil {
+		t.Fatalf("StartWorkoutFlowFromWeb: %v", err)
+	}
+
+	var got string
+	select {
+	case got = <-env.messageChan:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for ad-hoc start confirmation message")
+	}
+	if strings.Contains(got, "No exercises found") {
+		t.Fatalf("ad-hoc StartWorkoutFlowFromWeb hit variant-driven path: %q", got)
+	}
+	if !strings.Contains(got, "Burpees") {
+		t.Errorf("expected confirmation to list planned exercise %q, got %q", "Burpees", got)
+	}
+}
+
 // --- workout_snooze ---
 
 func TestWorkoutSnooze1_SnoozesDuration(t *testing.T) {

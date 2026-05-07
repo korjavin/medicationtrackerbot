@@ -78,8 +78,17 @@ func (b *Bot) handleWorkoutCallback(cb *tgbotapi.CallbackQuery, data string) {
 		}
 		b.trackWorkoutMessage(sessionID, cb.Message.MessageID)
 
-		// Start exercise-by-exercise prompts
-		b.startExerciseLoop(sessionID, session.VariantID, cb.Message.Chat.ID)
+		// Ad-hoc sessions (group_id = -1) have no variant and no
+		// workout_exercises rows — only placeholder workout_exercise_logs.
+		// Bot exercise prompts are variant-driven and don't support free-form
+		// exercises, so send a confirmation listing the plan and direct the
+		// user to the app (where workouts.sessions.logs.update completes the
+		// session per the MCP-completion design).
+		if session.GroupID == -1 {
+			b.sendAdHocStartConfirmation(sessionID, cb.Message.Chat.ID)
+		} else {
+			b.startExerciseLoop(sessionID, session.VariantID, cb.Message.Chat.ID)
+		}
 
 	case "snooze1":
 		if err := b.workoutSvc.SnoozeSession(sessionID, 1*time.Hour); err != nil {
@@ -220,6 +229,47 @@ func (b *Bot) startExerciseLoop(sessionID, variantID int64, chatID int64) {
 		b.pendingExercisesMu.Unlock()
 	}
 }
+
+// sendAdHocStartConfirmation sends a "workout started" message for an ad-hoc
+// session, listing the planned exercises pulled from workout_exercise_logs
+// placeholders. The bot's variant-driven exercise prompt flow can't drive
+// ad-hoc exercises (free-form ones have exercise_id=0 and no library row),
+// so we point the user at the app for completion.
+func (b *Bot) sendAdHocStartConfirmation(sessionID, chatID int64) {
+	logs, err := b.workouts.GetExerciseLogs(sessionID)
+	if err != nil {
+		slog.Error("Failed to load planned exercises for ad-hoc start", "error", err, "sessionID", sessionID)
+	}
+
+	text := fmt.Sprintf("🏋️ **Workout #%d started**\n\nLog exercises in the app to complete this workout.", sessionID)
+	if len(logs) > 0 {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("🏋️ **Workout #%d started**\n\nPlanned exercises:\n", sessionID))
+		for i, l := range logs {
+			// Escape Markdown V1 special chars: ad-hoc free-form names from MCP
+			// (e.g. "pull_up", "set [A]") would otherwise cause Telegram to
+			// reject the message with "can't parse entities".
+			fmt.Fprintf(&sb, "%d. %s\n", i+1, mdV1EscapeForBot(l.ExerciseName))
+		}
+		sb.WriteString("\nLog exercises in the app to complete this workout.")
+		text = sb.String()
+	}
+
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	sent, err := b.api.Send(msg)
+	if err != nil {
+		slog.Error("Failed to send ad-hoc start confirmation", "error", err, "sessionID", sessionID)
+		return
+	}
+	b.trackWorkoutMessage(sessionID, sent.MessageID)
+}
+
+// mdV1EscaperForBot escapes Telegram Markdown V1 special chars in dynamic
+// strings rendered into bot messages that use ParseMode = "Markdown".
+var mdV1EscaperForBot = strings.NewReplacer(`_`, `\_`, `*`, `\*`, "`", "\\`", `[`, `\[`)
+
+func mdV1EscapeForBot(s string) string { return mdV1EscaperForBot.Replace(s) }
 
 // handleExerciseCallback handles exercise actions (done, edit, skip)
 func (b *Bot) handleExerciseCallback(cb *tgbotapi.CallbackQuery, data string) {
