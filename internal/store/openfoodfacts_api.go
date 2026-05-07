@@ -53,6 +53,9 @@ func (s *Store) SearchRemoteFoodAPI(ctx context.Context, query string) ([]FoodPr
 		targetURL = fmt.Sprintf("%s/api/v1/food/search?q=%s&limit=20", baseURL, url.QueryEscape(query))
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
 	if err != nil {
 		return nil, err
@@ -62,13 +65,7 @@ func (s *Store) SearchRemoteFoodAPI(ctx context.Context, query string) ([]FoodPr
 		req.Header.Set("X-API-Key", apiKey)
 	}
 
-	clientCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	req = req.WithContext(clientCtx)
-
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
+	client := &http.Client{}
 	resp, err := client.Do(req) // #nosec G107
 	if err != nil {
 		return nil, err
