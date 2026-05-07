@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -59,6 +60,10 @@ func (s *Server) handleScheduleAdHocWorkoutSession(w http.ResponseWriter, r *htt
 			http.Error(w, "exercises[].exercise_name is required", http.StatusBadRequest)
 			return
 		}
+		if ex.TargetSets < 1 || ex.TargetRepsMin < 1 {
+			http.Error(w, "exercises[].target_sets and target_reps_min must be >= 1", http.StatusBadRequest)
+			return
+		}
 		exercises = append(exercises, workoutsvc.PlannedExercise{
 			ExerciseID:     ex.ExerciseID,
 			ExerciseName:   ex.ExerciseName,
@@ -71,7 +76,13 @@ func (s *Server) handleScheduleAdHocWorkoutSession(w http.ResponseWriter, r *htt
 
 	session, err := s.workoutSvc.SchedulePlannedAdHocSession(userID, scheduledDate, req.ScheduledTime, exercises)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		switch {
+		case errors.Is(err, workoutsvc.ErrScheduleInPast), errors.Is(err, workoutsvc.ErrScheduleBadTime):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		default:
+			slog.Error("schedule ad-hoc workout session", "error", err)
+			http.Error(w, "failed to schedule workout session", http.StatusInternalServerError)
+		}
 		return
 	}
 
