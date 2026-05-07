@@ -89,7 +89,7 @@ output({"count": result["total"], "products": result["products"]})`,
     "limit": {"type": "integer", "description": "Max results (default 20)"}
   }
 }`),
-			Description:     "Search the user's saved food products (and the open_food_facts cache) by name. Always call this before food.log.create unless you already have a product_id — reusing an existing product keeps the user's history consistent.",
+			Description:     "Search the user's saved food products (and the open_food_facts cache) by name. Always call this before food.log.create unless you already have a product_id — reusing an existing product keeps the user's history consistent. Search with the canonical English term (e.g. \"boiled egg\", not \"вареное яйцо\" or \"boiled eggs breakfast\") so you find existing rows even when the user described the meal in another language or with situational notes.",
 			ResponseSummary: "JSON array of matching products with id, name, barcode, per-100g macros.",
 			Example: `result = api.call("food.products.search", params={"q": "oatmeal"})
 output(result)`,
@@ -128,13 +128,13 @@ for p in result["products"]:
     "protein":    {"type": "integer", "description": "Total protein in grams"},
     "fat":        {"type": "integer", "description": "Total fat in grams"},
     "calories":   {"type": "integer", "description": "Total kcal"},
-    "name":       {"type": "string"},
+    "name":       {"type": "string", "description": "Canonical English food name in generic form, intended to be reused across many log entries. Prefer a name already present in the user's catalog (food.products.search / food.products.frequent) or the open_food_facts cache. Use the singular, lowercase, ingredient-style form with no situational notes — good: \"boiled egg\", \"oatmeal\", \"chicken breast\". Bad: \"вареное яйцо\" (not English), \"boiled eggs breakfast\" (meal-time note), \"boiled eggs airline\" (context note), \"2 boiled eggs\" (quantity belongs in weight)."},
     "product_id": {"type": ["integer", "null"], "description": "Optional saved product reference"},
     "barcode":    {"type": "string"},
     "per_100g":   {"type": "boolean", "description": "If true, treat the carb/protein/fat/calories as per-100g and let the server scale by weight"}
   }
 }`),
-			Description:     "Log a food intake entry. Before logging, prefer to search the user's catalog with food.products.search or food.products.frequent and pass the matching product_id so this entry rolls up under the same product. If you only pass name (no product_id), the server upserts a food_products row by name and the response includes the resolved product_id. Goes through FoodService validation; macros must be non-negative. When per_100g is true, the server scales values by the consumed weight.",
+			Description:     "Log a food intake entry. Before logging, prefer to search the user's catalog with food.products.search or food.products.frequent and pass the matching product_id so this entry rolls up under the same product. If you only pass name (no product_id), the server upserts a food_products row by name — so the name you choose becomes the shared identity for every future log of this food. Always normalize names to canonical English (e.g. \"boiled egg\", not \"вареное яйцо\"), in their generic form without meal-time, quantity, or context annotations (e.g. \"boiled egg\", not \"boiled eggs breakfast\" or \"boiled eggs airline\"). When in doubt, search first and reuse the existing product_id rather than creating a near-duplicate. Goes through FoodService validation; macros must be non-negative. When per_100g is true, the server scales values by the consumed weight.",
 			ResponseSummary: "{status, id, product_id, name} — product_id is the food_products row that was matched or upserted from name; null only if no name was provided.",
 			Example: `result = api.call(
     "food.log.create",
@@ -167,13 +167,13 @@ output(result)`,
     "protein":    {"type": "integer"},
     "fat":        {"type": "integer"},
     "calories":   {"type": "integer"},
-    "name":       {"type": "string"},
+    "name":       {"type": "string", "description": "Canonical English, generic form (see food.log.create). Don't append meal-time, quantity, or context notes — those belong in eaten_at / weight or nowhere at all."},
     "product_id": {"type": ["integer", "null"]},
     "barcode":    {"type": "string"},
     "per_100g":   {"type": "boolean", "description": "If true, server scales the macros by weight"}
   }
 }`),
-			Description:     "Update an existing food log entry. The body shape mirrors food.log.create; this is a full replacement, so always read the existing log via food.log.list and send the merged object back.",
+			Description:     "Update an existing food log entry. The body shape mirrors food.log.create; this is a full replacement, so always read the existing log via food.log.list and send the merged object back. Same naming rules as food.log.create apply — keep the name canonical English and generic so logs across days share a single product_id.",
 			ResponseSummary: "Updated FoodLog object.",
 			Example: `api.call(
     "food.log.update",
@@ -211,7 +211,7 @@ output({"deleted": 42})`,
   "type": "object",
   "required": ["name"],
   "properties": {
-    "name":             {"type": "string"},
+    "name":             {"type": "string", "description": "Canonical English, generic form (see food.log.create) — the product name will be reused across every future log."},
     "barcode":          {"type": "string"},
     "carbs_100g":       {"type": "number"},
     "protein_100g":     {"type": "number"},
